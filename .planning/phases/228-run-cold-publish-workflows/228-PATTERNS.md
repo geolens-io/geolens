@@ -176,7 +176,7 @@ jobs:
         run: |
           docker run --rm node:22-slim sh -c "
             npm install --no-save @geolens/sdk &&
-            node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.GeolensClient))'
+            node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.createGeolensClient))'
           "
 ```
 

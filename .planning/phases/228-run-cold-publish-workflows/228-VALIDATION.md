@@ -1,9 +1,9 @@
 ---
 phase: 228
 slug: run-cold-publish-workflows
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: ready
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-05-02
 ---
 
@@ -38,16 +38,19 @@ created: 2026-05-02
 
 ## Per-Task Verification Map
 
-> Populated post-planning. Skeleton below maps the 4 phase requirements to verifiable commands.
-
 | Task ID | Plan | Wave | Requirement | Threat Ref | Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|----------|-----------|-------------------|-------------|--------|
-| 228-XX-YY | XX | N | PUBLISH-01 | T-228-01 | Trusted Publishing configured + NPM_TOKEN present | shell-assert | `gh secret list --repo geolens-io/geolens \| grep NPM_TOKEN` returns 1 line; `gh secret list --repo geolens-io/geolens \| grep PYPI_TOKEN` returns 0 lines (Trusted Publishing path); curl PyPI publishing settings page (manual visual verify in VERIFICATION.md) | ✅ gh CLI | ⬜ pending |
-| 228-XX-YY | XX | N | PUBLISH-02 | T-228-02 | publish-sdks.yml E2E green; geolens-sdk@1.0.0 on PyPI; @geolens/sdk@1.0.0 on npm | network-assert | `pip index versions geolens-sdk \| grep "1.0.0"` returns match; `npm view @geolens/sdk version` returns `1.0.0`; workflow run URL recorded in VERIFICATION.md | ✅ pip + npm CLIs | ⬜ pending |
-| 228-XX-YY | XX | N | PUBLISH-03 | T-228-02 | publish-cli.yml E2E green; geolens@1.0.0 on PyPI | network-assert | `pip index versions geolens \| grep "1.0.0"` returns match; workflow run URL recorded in VERIFICATION.md | ✅ pip CLI | ⬜ pending |
-| 228-XX-YY | XX | N | PUBLISH-04 | T-228-03 | Clean-machine install of all 3 packages succeeds | docker + assert | `gh workflow run verify-published.yml --repo geolens-io/geolens` then check completion exit 0; OR locally: `docker run --rm python:3.13-slim sh -c "pip install geolens-sdk geolens && geolens --version"` and `docker run --rm node:22-slim sh -c "npm install @geolens/sdk"` | ❌ W0 (new workflow file) | ⬜ pending |
+| 228-01-T1 | 01 | 1 | PUBLISH-01 (YAML prep) | T-228-01, T-228-02 | publish-{sdks,cli}.yml refactored: drop UV_PUBLISH_TOKEN env, add `--trusted-publishing automatic`, add pre-flight name-availability gate with `force_publish` override input | yaml-lint + grep | `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/publish-sdks.yml')); yaml.safe_load(open('.github/workflows/publish-cli.yml'))"` exits 0; `grep -c "UV_PUBLISH_TOKEN" .github/workflows/publish-sdks.yml .github/workflows/publish-cli.yml` returns 0; `grep -c "trusted-publishing automatic" .github/workflows/publish-sdks.yml .github/workflows/publish-cli.yml` returns 2; `grep -c "force_publish" .github/workflows/publish-sdks.yml .github/workflows/publish-cli.yml` returns ≥2 | ✅ existing infra | ⬜ pending |
+| 228-01-T2 | 01 | 1 | PUBLISH-04 (verify infra) | T-228-04 | verify-published.yml created with two Docker jobs (python:3.13-slim + node:22-slim); checks `createGeolensClient` (NOT `GeolensClient`) for TS runtime export | yaml-lint + grep | `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/verify-published.yml'))"` exits 0; `grep -c "python:3.13-slim" .github/workflows/verify-published.yml` returns ≥1; `grep -c "node:22-slim" .github/workflows/verify-published.yml` returns ≥1; `grep -c "createGeolensClient" .github/workflows/verify-published.yml` returns ≥1; `grep -c "typeof m.GeolensClient" .github/workflows/verify-published.yml` returns 0 (no false-positive type-only check) | ❌ W0 (new file) | ⬜ pending |
+| 228-02-T1 | 02 | 2 | PUBLISH-01 (credential setup) | T-228-01, T-228-02 | Combined out-of-band runbook: claim @geolens npm org → generate granular NPM_TOKEN with Bypass 2FA → `gh secret set NPM_TOKEN` → configure 2 PyPI pending publishers | shell-assert (post-checkpoint) | `gh secret list --repo geolens-io/geolens \| awk '{print $1}'` includes `NPM_TOKEN` AND excludes `PYPI_TOKEN`; `curl -fs https://registry.npmjs.org/-/org/geolens` returns 200 OK with org metadata (not `ResourceNotFound`); manual screenshot of PyPI publishing settings page documenting both pending publishers in 228-VERIFICATION.md | ✅ gh + curl | ⬜ pending (autonomous: false) |
+| 228-03-T1 | 03 | 3 | PUBLISH-02 | T-228-02, T-228-03 | publish-sdks.yml E2E run completed (dry_run=true → dry_run=false sequence); geolens-sdk@1.0.0 on PyPI; @geolens/sdk@1.0.0 on npm | network-assert | `pip index versions geolens-sdk \| grep -c "1.0.0"` returns ≥1; `npm view @geolens/sdk version` outputs exactly `1.0.0`; `gh run list --workflow=publish-sdks.yml --repo geolens-io/geolens --limit 2 --json conclusion --jq '.[].conclusion'` returns `success` for both runs | ✅ pip + npm + gh CLIs | ⬜ pending (autonomous: false) |
+| 228-03-T2 | 03 | 3 | PUBLISH-03 | T-228-02, T-228-03 | publish-cli.yml E2E run completed (dry_run=true → dry_run=false sequence); geolens@1.0.0 on PyPI | network-assert | `pip index versions geolens \| grep -c "1.0.0"` returns ≥1; `gh run list --workflow=publish-cli.yml --repo geolens-io/geolens --limit 2 --json conclusion --jq '.[].conclusion'` returns `success` for both runs | ✅ pip + gh CLIs | ⬜ pending (autonomous: false) |
+| 228-04-T1 | 04 | 4 | PUBLISH-04 | T-228-04 | verify-published.yml workflow_dispatch run completes; both verify-python and verify-typescript jobs exit 0 against `latest` versions | network + docker assert | `gh workflow run verify-published.yml --repo geolens-io/geolens` then `gh run list --workflow=verify-published.yml --limit 1 --json conclusion --jq '.[0].conclusion'` returns `success` | ✅ gh CLI + Docker (in CI) | ⬜ pending |
+| 228-04-T2 | 04 | 4 | PUBLISH-01 (docs), PUBLISH-04 (docs) | — | docs/sdks.md + docs/cli.md Publishing sections rewritten: Trusted Publishing replaces PYPI_TOKEN setup; npm Granular Token (Bypass 2FA) replaces deprecated Automation Token reference | grep + manual review | `grep -c "PYPI_TOKEN" docs/sdks.md docs/cli.md` returns 0 (or only inside historical/changelog context); `grep -c "Trusted Publishing" docs/sdks.md docs/cli.md` returns ≥2; `grep -c "Granular" docs/sdks.md` returns ≥1; `grep -c "Bypass 2FA\\|Bypass two-factor" docs/sdks.md` returns ≥1 | ✅ grep | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+**Wave 0 note:** `verify-published.yml` is a NEW workflow file created inline in Plan 01 / Task 02 (Wave 1). Plan 04 / Task 1 (Wave 4) is the FIRST consumer. Sampling continuity holds: every wave between creation and consumption has independent automated verifies, and the file's correctness is validated by `python3 -c "import yaml; yaml.safe_load(...)"` in Plan 01 Task 02 before any wave depends on it.
 
 ---
 
@@ -73,11 +76,11 @@ created: 2026-05-02
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies (planner fills per-task)
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references (`verify-published.yml` is the only NEW file with automated checks)
-- [ ] No watch-mode flags (irrelevant — this is a CI workflow phase)
-- [ ] Feedback latency < 5 min per workflow run
-- [ ] `nyquist_compliant: true` set in frontmatter (after planner fills the task table)
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (verified — 7/7 tasks: 4 auto + 3 checkpoint with `<how-to-verify>`)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify (Waves 1, 2, 3, 4 each have automated assertions)
+- [x] Wave 0 covers all MISSING references (`verify-published.yml` created in 01-T2 before its first consumer in 04-T1)
+- [x] No watch-mode flags (irrelevant — CI workflow phase)
+- [x] Feedback latency < 5 min per workflow run (publish ~3min, verify ~2min)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending — planner to populate per-task map.
+**Approval:** approved 2026-05-02 — per-task map populated post-planning; all 7 task acceptance criteria mapped to verifiable commands.

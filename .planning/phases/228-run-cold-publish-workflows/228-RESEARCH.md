@@ -244,7 +244,7 @@ jobs:
         run: |
           docker run --rm node:22-slim sh -c "
             npm install --no-save @geolens/sdk &&
-            node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.GeolensClient))'
+            node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.createGeolensClient))'
           "
 ```
 
@@ -378,7 +378,7 @@ gh secret list --repo geolens-io/geolens
 ### Pitfall 5: npm version input gives wrong ESM output
 **What goes wrong:** `node -e 'import("@geolens/sdk").then(...)'` fails in the Docker verify job because ESM dynamic import in a shell one-liner needs proper quoting.
 **Why it happens:** Shell quoting and escape handling between `sh -c "..."` and nested quotes.
-**How to avoid:** Use the exact quoting pattern: `sh -c "node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.GeolensClient))'"`. The inner double-quotes around the module name must be backslash-escaped.
+**How to avoid:** Use the exact quoting pattern: `sh -c "node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.createGeolensClient))'"`. The inner double-quotes around the module name must be backslash-escaped. **Note:** `createGeolensClient` is the runtime function export from `sdks/typescript/src/index.ts`; `GeolensClient` is a type-only export that vanishes at runtime, so checking `typeof m.GeolensClient` would always print `"undefined"` and silently pass without testing anything meaningful.
 **Warning signs:** `verify-typescript` job fails with SyntaxError at the node -e step.
 
 ### Pitfall 6: `uv publish` uploads sdist and wheel — avoid duplicate version error
@@ -517,17 +517,11 @@ npm @geolens/sdk: UNCLAIMED — safe to publish 1.0.0
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **npm token — org scope vs `@geolens/sdk` scope**
-   - What we know: granular tokens can be scoped to `@geolens` (org scope) which covers all packages under the org, OR to a specific package. The package doesn't exist at token creation time, so only the org scope is available.
-   - What's unclear: does scoping to the org scope incur any additional risk (could the token publish any `@geolens/*` package, not just `@geolens/sdk`)?
-   - Recommendation: Accept org-scope token for first publish. Document in `docs/sdks.md` that the token should be narrowed to `@geolens/sdk` on next 90-day rotation once the package exists.
+1. **npm token — org scope vs `@geolens/sdk` scope** — RESOLVED: org scope (`@geolens`) for first publish, narrow to `@geolens/sdk` on next 90-day rotation once the package exists. Risk note: an org-scoped token can publish any `@geolens/*` package; mitigated by 90-day expiration + Bypass-2FA-only-for-CI scope. Documented in `docs/sdks.md` rotation guidance per Plan 04.
 
-2. **`npm view @geolens/sdk` after first publish — does it return exit 0?**
-   - What we know: before publish, it exits 1. After a successful first publish, it should exit 0 with the version string.
-   - What's unclear: the pre-flight hard gate (D-05) will fail on subsequent publishes if left as-is. The plan should either gate on "version not found OR version matches expected" or convert to informational after first publish.
-   - Recommendation: Keep the pre-flight check but update the logic after first publish to allow known versions (add a `--skip-preflight` or `force=true` workflow input).
+2. **`npm view @geolens/sdk` after first publish — pre-flight gate behavior on re-publish** — RESOLVED: keep the pre-flight check as a hard gate; add a `force_publish=true` workflow input to override after first publish. Plan 01 implements this as a `force_publish` boolean input on the `workflow_dispatch`. Pre-flight passes on first publish (no version found) and on re-publish only when `force_publish=true` is explicitly set by the operator.
 
 ---
 
