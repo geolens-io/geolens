@@ -299,6 +299,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             await session.flush()
 
             from app.platform.extensions import get_processing_port as _get_port
+
             RecordDistribution = _get_port().get_record_distribution_orm_class()
 
             distribution = RecordDistribution(

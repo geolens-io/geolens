@@ -282,7 +282,10 @@ async def create_my_api_key(
 
     The raw key is returned only in this response and cannot be retrieved again.
     """
-    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
     from app.modules.auth.service import create_api_key_for_user
 
     api_key, raw_key = await create_api_key_for_user(db, current_user.id, body.name)
@@ -317,7 +320,10 @@ async def revoke_my_api_key(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke (soft-delete) one of the current user's API keys."""
-    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
 
     result = await db.execute(
         select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == current_user.id)
@@ -358,7 +364,10 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Change the current user's password (requires current password)."""
-    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
     from app.modules.auth.providers.local import hash_password, verify_password
 
     if current_user.auth_provider != "local":

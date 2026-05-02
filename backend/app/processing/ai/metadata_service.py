@@ -56,9 +56,7 @@ async def _build_dataset_context(
     if cached and (now - cached[0]) < _CACHE_TTL:
         return cached[1]
 
-    dataset = await port.get_dataset_with_attributes(
-        session, _uuid.UUID(dataset_id)
-    )
+    dataset = await port.get_dataset_with_attributes(session, _uuid.UUID(dataset_id))
 
     if dataset is None:
         raise ValueError("Dataset not found")
@@ -427,7 +425,9 @@ async def generate_keyword_suggestions(
 
     context = await _build_dataset_context(session, dataset_id, port=port)
     vocab = await _get_catalog_vocabulary(session, port=port)
-    related_kws = await _get_related_keywords_from_embeddings(session, dataset_id, port=port)
+    related_kws = await _get_related_keywords_from_embeddings(
+        session, dataset_id, port=port
+    )
 
     prompt = context
     if vocab:

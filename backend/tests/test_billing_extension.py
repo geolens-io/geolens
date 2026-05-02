@@ -36,9 +36,9 @@ def test_billing_extension_protocol_shape() -> None:
     )
 
     # on_startup is async (D-08 — async-only)
-    assert inspect.iscoroutinefunction(
-        DefaultBillingExtension().on_startup
-    ), "DefaultBillingExtension.on_startup must be async (D-08)"
+    assert inspect.iscoroutinefunction(DefaultBillingExtension().on_startup), (
+        "DefaultBillingExtension.on_startup must be async (D-08)"
+    )
 
 
 @pytest.mark.anyio

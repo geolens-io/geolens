@@ -98,7 +98,9 @@ class MapLayer(Base):
         ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False, index=True
     )
     dataset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("catalog.datasets.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("catalog.datasets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")

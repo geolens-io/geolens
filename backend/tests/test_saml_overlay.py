@@ -72,6 +72,7 @@ def saml_response_dir(tmp_path_factory) -> Path:
         from tests.fixtures.saml.generate_fixtures import (
             main as generate_saml_fixtures,
         )
+
         generate_saml_fixtures(output_dir=session_dir)
     except Exception as exc:
         # Catch broadly: ImportError (pysaml2 missing), OSError (xmlsec1 missing /
@@ -348,7 +349,11 @@ async def test_saml_metadata_xml_valid(
 
 
 async def test_saml_acs_signed_assertion_jit_provisions_user(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-11: signed assertion JIT-provisions user + issues JWT + redirects.
 
@@ -394,7 +399,11 @@ async def test_saml_acs_signed_assertion_jit_provisions_user(
 
 
 async def test_saml_acs_rejects_invalid_signature(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-11: tampered/wrong-signature assertion produces an error redirect.
 
@@ -422,11 +431,17 @@ async def test_saml_acs_rejects_invalid_signature(
 
 
 async def test_saml_acs_rejects_unsigned(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-11: unsigned assertion is rejected (want_assertions_signed=True)."""
     await _seed_saml_provider(test_db_session)
-    saml_response = _load_fixture_b64("idp_response_unsigned.xml.b64", saml_response_dir)
+    saml_response = _load_fixture_b64(
+        "idp_response_unsigned.xml.b64", saml_response_dir
+    )
 
     resp = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
@@ -439,7 +454,11 @@ async def test_saml_acs_rejects_unsigned(
 
 
 async def test_saml_acs_rejects_expired_assertion(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-11 / Pitfall 4: expired assertion is rejected.
 
@@ -460,7 +479,11 @@ async def test_saml_acs_rejects_expired_assertion(
 
 
 async def test_saml_acs_rejects_replayed_assertion(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-11 / Pitfall 5: same assertion submitted twice is rejected on the
     second attempt by ReplayCache. The fixture's outstanding-request entry
@@ -501,7 +524,11 @@ async def test_saml_acs_rejects_replayed_assertion(
 
 
 async def test_saml_acs_rejects_xsw_attack(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-11 / Pitfall 2: XML Signature Wrapping attack is rejected.
 
@@ -545,7 +572,11 @@ async def test_saml_acs_rejects_xsw_attack(
 
 
 async def test_saml_acs_redirect_includes_source_query_param(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """Pitfall 8 / D-15: post-ACS redirect URL must include ?source=saml so
     the frontend OAuth callback handler can distinguish SAML callbacks.
@@ -560,7 +591,11 @@ async def test_saml_acs_redirect_includes_source_query_param(
     # Happy path.
     happy = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": _load_fixture_b64("idp_response_signed.xml.b64", saml_response_dir)},
+        data={
+            "SAMLResponse": _load_fixture_b64(
+                "idp_response_signed.xml.b64", saml_response_dir
+            )
+        },
         follow_redirects=False,
     )
     happy_qs = parse_qs(urlparse(happy.headers["location"]).query)
@@ -575,7 +610,11 @@ async def test_saml_acs_redirect_includes_source_query_param(
     # Error path.
     err = await client.post(
         f"/auth/saml/{FIXTURE_SLUG}/acs",
-        data={"SAMLResponse": _load_fixture_b64("idp_response_unsigned.xml.b64", saml_response_dir)},
+        data={
+            "SAMLResponse": _load_fixture_b64(
+                "idp_response_unsigned.xml.b64", saml_response_dir
+            )
+        },
         follow_redirects=False,
     )
     err_qs = parse_qs(urlparse(err.headers["location"]).query)
@@ -870,7 +909,11 @@ async def test_saml_endpoint_404_in_community(client):
 
 
 async def test_saml_attribute_to_role_mapping_via_provider_group_claim(
-    client, test_db_session, saml_router_mounted, _cleanup_saml_providers, saml_response_dir
+    client,
+    test_db_session,
+    saml_router_mounted,
+    _cleanup_saml_providers,
+    saml_response_dir,
 ):
     """SAML-12 / SC#4 behavior coverage: a SAML user whose assertion contains
     ``groups=['editors']`` and whose provider has

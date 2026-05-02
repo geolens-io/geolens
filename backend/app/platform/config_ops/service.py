@@ -280,7 +280,10 @@ async def import_config(
     """
     from app.core.persistent_config import _registry
     from app.core.public_urls import _is_env_only
-    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
 
     if _is_env_only():
         raise ConfigLockedError("Configuration locked to environment variables")
