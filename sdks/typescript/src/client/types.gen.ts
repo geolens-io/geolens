@@ -1728,6 +1728,12 @@ export type ConfigModeResponse = {
  */
 export type ConfigResponse = {
     /**
+     * Auth Methods
+     *
+     * Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.
+     */
+    auth_methods?: Array<string>;
+    /**
      * Registration Enabled
      *
      * Whether self-service registration is open

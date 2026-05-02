@@ -2849,6 +2849,14 @@
       },
       "ConfigResponse": {
         "properties": {
+          "auth_methods": {
+            "description": "Auth methods contributed by the active AuthExtension. Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without needing admin OAuthProvider access.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Auth Methods",
+            "type": "array"
+          },
           "registration_enabled": {
             "description": "Whether self-service registration is open",
             "title": "Registration Enabled",
