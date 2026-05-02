@@ -75,6 +75,7 @@
 - **Phase 999.16**: Extract `geolens-schemas` package (P2 — schema/validator OSS adoption)
 - **Phase 999.21**: Split `catalog/maps/service.py` (P2 — 1297 LOC, next god-module candidate per `oc-separation-audit-20260502.md`)
 - **Phase 999.22**: Split `catalog/search/service.py` (P2 — 1312 LOC, next god-module candidate per `oc-separation-audit-20260502.md`)
+- **Phase 999.23**: Share/embed token expiration gating — product decision (P2, decision-blocked — pick Branch A "apply Phase-219 gates" or Branch B "drop from GTM Team tier"; strip-the-copy stopgap landed in commit `6db19582`)
 
 ---
 

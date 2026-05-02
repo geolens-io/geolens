@@ -83,11 +83,12 @@ Tier A — fixed inline 2026-05-02 (4 atomic commits):
 - `259ebc72` — defer provider-SDK imports out of module scope in `processing/ai/` + add CI guard `test_no_module_level_provider_sdk_imports_in_processing_ai`
 - `9d805949` — SPDX headers on 4 hand-written SDK files
 
-Tier B — 4 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 phases the same day:
+Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 phases the same day:
 - 999.20 (CatalogPort) → **Phase 230** (catalog-port-protocol-symmetric) — lifts Coupling target B+ → A−
 - 999.19 (EmbeddingProviderExtension) → **Phase 231** (embedding-provider-extension-protocol)
 - 999.21 (split catalog/maps/service.py) — stays backlog P2
 - 999.22 (split catalog/search/service.py) — stays backlog P2
+- 999.23 (share/embed token expiration gating — product decision) — stays backlog P2, decision-blocked. Strip-the-copy stopgap landed in `6db19582` (2026-05-02); this phase resolves the underlying GTM-vs-implementation contract question (Branch A: apply Phase-219 gates / Branch B: drop the feature from GTM Team tier).
 Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
 
 Tier C — external blocker: Phase 228 Wave 2/3 cannot proceed until `@geolens` npm org approval lands.

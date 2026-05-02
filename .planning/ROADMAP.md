@@ -425,3 +425,48 @@ Plans:
 
 Plans:
 - [ ] TBD
+
+---
+
+### Phase 999.23: Share/embed token expiration gating — product decision (BACKLOG — P2, decision-blocked)
+
+**Goal:** Resolve the contract mismatch between (a) `docs-internal/GTM/pricing-to-tiers.md:42` listing "Advanced sharing controls (expiring links, domain restrictions)" as a Team-tier paid feature, and (b) the current implementation + ~20 test cases that treat these as free features in `embed_tokens/` and `catalog/maps/share/`. The 2026-05-02 oc-audit (§1) flagged this as four 🟡 boundary risks: field descriptions and one endpoint docstring claimed "(enterprise only)" while neither schema nor service actually applied the Phase-219 dual-layer gate.
+
+**Source:** `oc-separation-audit-20260502.md` §1 (4 🟡 findings) + §7 P0 (action item #1). The audit's literal recommendation was binary: "either gate ... OR strip the misleading copy."
+
+**Stopgap shipped:** The strip-the-copy path landed in commit `6db19582` (2026-05-02) — descriptions no longer lie, audit finding closed at the contract-drift level. This phase resolves the underlying *product* question.
+
+**Estimated effort:** decision = 1 hour; implementation depends on the branch chosen (see below).
+
+**Decision branches:**
+
+**Branch A — Gate them (matches GTM contract):**
+1. Apply Phase-219 dual-layer gating pattern (`oauth/schemas.py:171-191` + `oauth/service.py:265-270`) to:
+   - `embed_tokens/schemas.py:EmbedTokenCreate.expires_in_days` — reject `!= 30` (default) in community
+   - `embed_tokens/schemas.py:EmbedTokenCreate.allowed_origins` — reject non-empty list in community
+   - `embed_tokens/schemas.py:EmbedTokenUpdate.allowed_origins` — same
+   - `catalog/maps/schemas.py:ShareTokenRequest.expires_at` — reject non-`None` in community
+2. Add `is_enterprise()` short-circuits in services: `embed_tokens/service.create_embed_token`, `embed_tokens/service.update_embed_token_origins`, `catalog/maps/service.create_share_token`, `catalog/maps/service.update_share_token`.
+3. Add `Depends(require_enterprise)` to `catalog/maps/router.py:update_map_share_token_endpoint` (whole endpoint is enterprise-only — its purpose is changing expiration).
+4. Add an `enterprise_edition` fixture to `backend/tests/conftest.py` that calls `init_edition(["enterprise"])` on setup and `init_edition([])` on teardown.
+5. Refactor ~20 test cases in `test_embed_tokens.py` (lines 211, 235, 425, 564-700+, 1083+) and any test_maps.py share-token tests to wrap with the `enterprise_edition` fixture for non-default-value cases.
+6. Add new community-side rejection tests confirming the gate fires.
+7. Coordinate with the `geolens-enterprise` overlay — overlay does NOT need to change; the gate just lifts in enterprise context.
+8. Estimated effort: 4–6 hours.
+
+**Branch B — Drop them from GTM (match free-tier reality):**
+1. Update `docs-internal/GTM/pricing-to-tiers.md:42` — remove "Advanced sharing controls (expiring links, domain restrictions)" from Team-tier list.
+2. Update `docs-internal/GTM/free-vs-enterprise.md` §Sharing — explicitly call out expiring links + domain-restricted embeds as Community features.
+3. No code or test changes.
+4. Identify a different Team-tier add-on to replace this lever (Team tier becomes weaker without it).
+5. Estimated effort: 30 min + GTM strategy thinking.
+
+**Notes:**
+- This is a genuine product decision with no single right answer — the GTM doc could be wrong (original pricing strategy may not match what real customers value enough to pay for) OR the implementation could be wrong (feature was built before GTM tier-split was finalized).
+- Either way, the audit's contract drift is closed (commit `6db19582`). This phase resolves the deeper question.
+- Decision should be informed by: (a) what your first paying customer asked for; (b) which Team-tier features actually drive Team-tier sales; (c) whether multi-domain embed lockdown is "advanced" or "table stakes."
+
+**Decision-blocked:** Cannot draft a single PLAN.md until the user picks A vs B. Once picked, scope is mechanical.
+
+Plans:
+- [ ] TBD (decision required first — see branches above)
