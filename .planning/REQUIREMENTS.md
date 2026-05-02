@@ -21,8 +21,8 @@
 - [x] **AIEXT-01**: `AIProviderExtension` Protocol added at `backend/app/platform/extensions/protocols.py` exposing `complete(messages, tools)` and `stream(messages, tools)` methods
 - [x] **AIEXT-02**: `DefaultAIProviderExtension` maps the 2 community providers (Anthropic native + OpenAI-compatible) via the same accessor pattern as `BillingExtension` and `AuditSink`
 - [x] **AIEXT-03**: Hardcoded `if/elif provider == "anthropic"/"openai_compatible"` dispatch (`processing/ai/llm_loop.py:117,132`, `service.py:387-398`) is replaced with extension lookup
-- [ ] **AIEXT-04**: Overlays can register Bedrock / Vertex / Azure / vLLM via `importlib.metadata` entry_points
-- [ ] **AIEXT-05**: Architecture-guard test verifies no `if provider ==` branches remain in `processing/ai/` after the migration
+- [x] **AIEXT-04**: Overlays can register Bedrock / Vertex / Azure / vLLM via `importlib.metadata` entry_points
+- [x] **AIEXT-05**: Architecture-guard test verifies no `if provider ==` branches remain in `processing/ai/` after the migration
 
 ### SAML Test Fixture Hygiene (Phase 227)
 
