@@ -13,7 +13,7 @@ We only patch the latest release. If you're running an older version, please upg
 
 **Do not open a public issue for security vulnerabilities.**
 
-Email **security@cartoconcepts.com** with:
+Email **security@getgeolens.io** with:
 
 - Description of the vulnerability
 - Steps to reproduce
