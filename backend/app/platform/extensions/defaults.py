@@ -474,14 +474,20 @@ class DefaultAnthropicProvider:
         total_output = 0
 
         for round_num in range(max_rounds):
-            response = await client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=cached_system,
-                tools=cached_tools,
-                messages=messages,
-            )
+            # Anthropic API rejects `tools=[]` with 400 BadRequestError
+            # ("tools: must have at least 1 item"). Omit the kwarg entirely
+            # for no-tools paths (sql_generator.generate_sql,
+            # _retry_parse_map_spec). REVIEW.md CR-01.
+            create_kwargs: dict[str, object] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": cached_system,
+                "messages": messages,
+            }
+            if cached_tools:
+                create_kwargs["tools"] = cached_tools
+            response = await client.messages.create(**create_kwargs)
 
             # Track token usage
             if hasattr(response, "usage") and response.usage:
@@ -651,13 +657,18 @@ class DefaultOpenAICompatibleProvider:
         total_output = 0
 
         for round_num in range(max_rounds):
-            response = await client.chat.completions.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                tools=tools_openai,
-                messages=messages,
-            )
+            # OpenAI API rejects `tools=[]` similarly. Omit when empty so
+            # no-tools paths (sql_generator.generate_sql, _retry_parse_map_spec)
+            # work for OpenAI-compatible providers too. REVIEW.md CR-01.
+            create_kwargs: dict[str, object] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": messages,
+            }
+            if tools_openai:
+                create_kwargs["tools"] = tools_openai
+            response = await client.chat.completions.create(**create_kwargs)
 
             choice = response.choices[0]
 
