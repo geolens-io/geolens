@@ -212,7 +212,7 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 231-01-PLAN.md — additive-scaffold: EmbeddingProviderExtension Protocol + DefaultOpenAIEmbeddingProvider (AsyncOpenAI + retry/backoff + class-level _clients cache) + get_embedding_provider(name) accessor + new tests/test_embedding_provider_extension.py with default-smoke / unknown-ValueError / entry-points-overlay-dispatch tests (Wave 1, EMBPROV-01/02/05b)
+- [x] 231-01-PLAN.md — additive-scaffold: EmbeddingProviderExtension Protocol + DefaultOpenAIEmbeddingProvider (AsyncOpenAI + retry/backoff + class-level _clients cache) + get_embedding_provider(name) accessor + new tests/test_embedding_provider_extension.py with default-smoke / unknown-ValueError / entry-points-overlay-dispatch tests (Wave 1, EMBPROV-01/02/05b)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 231-02-PLAN.md — caller-migration + helpers.py deletion: migrate generate_embedding + probe_embedding_dimensions to provider dispatch (D-12 hardcoded "openai_compatible"); DELETE helpers.py:8 from openai import OpenAI + _cached_openai_clients + build_openai_client + resolve_embedding_base_url + import httpx; migrate 4 of 5 test_embedding_service.py tests to provider-boundary mocks per D-27; SC#3 binding satisfied (Wave 2, EMBPROV-03/05a/05c)

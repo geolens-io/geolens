@@ -49,11 +49,11 @@
 
 ### EmbeddingProviderExtension Protocol (Phase 231)
 
-- [ ] **EMBPROV-01**: `EmbeddingProviderExtension` Protocol added at `backend/app/platform/extensions/protocols.py` exposing `embed(texts: list[str], model: str) -> list[list[float]]` (or equivalent batch-embedding shape that matches existing call sites)
-- [ ] **EMBPROV-02**: `DefaultOpenAIEmbeddingProvider` at `backend/app/platform/extensions/defaults.py` resolves the community provider; `get_embedding_provider(name)` accessor follows the dict-shape pattern from `get_ai_provider(name)` (Phase 226)
+- [x] **EMBPROV-01**: `EmbeddingProviderExtension` Protocol added at `backend/app/platform/extensions/protocols.py` exposing `embed(texts: list[str], model: str) -> list[list[float]]` (or equivalent batch-embedding shape that matches existing call sites)
+- [x] **EMBPROV-02**: `DefaultOpenAIEmbeddingProvider` at `backend/app/platform/extensions/defaults.py` resolves the community provider; `get_embedding_provider(name)` accessor follows the dict-shape pattern from `get_ai_provider(name)` (Phase 226)
 - [ ] **EMBPROV-03**: `backend/app/processing/embeddings/helpers.py:8` (`from openai import OpenAI`) is removed; embedding callers route through the registry. `git grep -E "^(from|import) openai" backend/app/processing/embeddings/` returns zero hits
 - [ ] **EMBPROV-04**: The existing architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` (added 2026-05-02 commit `259ebc72`) is renamed/expanded to `test_no_module_level_provider_sdk_imports_in_processing` covering both `processing/ai/` and `processing/embeddings/`; the embeddings carve-out is removed from the guard's docstring
-- [ ] **EMBPROV-05**: Existing embeddings tests pass unchanged with the default provider wired (no behavior delta for community); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly without modifying any core file
+- [x] **EMBPROV-05**: Existing embeddings tests pass unchanged with the default provider wired (no behavior delta for community); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly without modifying any core file
 
 ### Post-Implementation Audit Gate (Phase 229)
 
