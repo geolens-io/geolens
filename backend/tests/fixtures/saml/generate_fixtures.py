@@ -288,7 +288,7 @@ def _build_xsw_attack_xml(signed_xml: str) -> str:
     return signed_xml.replace(legit_assertion, evil_assertion, 1)
 
 
-def main() -> None:
+def main(output_dir: Path | None = None) -> None:
     if not CERT_PEM.exists() or not KEY_PEM.exists():
         raise SystemExit(
             f"Missing fixture cert/key: {CERT_PEM}, {KEY_PEM}. "
@@ -296,6 +296,9 @@ def main() -> None:
             f"-keyout {KEY_PEM.name} -out {CERT_PEM.name} -days 36500 -nodes "
             '-subj "/CN=fixture-idp.geolens.test"'
         )
+
+    target = output_dir if output_dir is not None else HERE
+    target.mkdir(parents=True, exist_ok=True)
 
     import tempfile
 
@@ -306,31 +309,31 @@ def main() -> None:
     # 1. Signed (happy path)
     signed_xml = _build_signed_response_xml(server)
     signed_b64 = _b64(signed_xml)
-    (HERE / "idp_response_signed.xml.b64").write_bytes(signed_b64)
+    (target / "idp_response_signed.xml.b64").write_bytes(signed_b64)
     print(f"wrote idp_response_signed.xml.b64 ({len(signed_b64)} bytes)")
 
     # 2. Replay (byte-identical to signed -- same assertion.id)
     shutil.copyfile(
-        HERE / "idp_response_signed.xml.b64",
-        HERE / "idp_response_replay.xml.b64",
+        target / "idp_response_signed.xml.b64",
+        target / "idp_response_replay.xml.b64",
     )
     print("wrote idp_response_replay.xml.b64 (byte-identical to signed)")
 
     # 3. Expired (text-rewritten times -- breaks signature, treated as negative)
     expired_xml = _force_expired(signed_xml)
-    (HERE / "idp_response_expired.xml.b64").write_bytes(_b64(expired_xml))
+    (target / "idp_response_expired.xml.b64").write_bytes(_b64(expired_xml))
     print("wrote idp_response_expired.xml.b64")
 
     # 4. Unsigned
     unsigned_xml = _build_unsigned_response_xml(server)
-    (HERE / "idp_response_unsigned.xml.b64").write_bytes(_b64(unsigned_xml))
+    (target / "idp_response_unsigned.xml.b64").write_bytes(_b64(unsigned_xml))
     print("wrote idp_response_unsigned.xml.b64")
 
     # 5. XSW attack
     xsw_xml = _build_xsw_attack_xml(signed_xml)
-    (HERE / "idp_response_xsw.xml.b64").write_bytes(_b64(xsw_xml))
+    (target / "idp_response_xsw.xml.b64").write_bytes(_b64(xsw_xml))
     print("wrote idp_response_xsw.xml.b64")
 
 
 if __name__ == "__main__":
-    main()
+    main()  # output_dir=None → target = HERE; manual CLI behavior preserved.
