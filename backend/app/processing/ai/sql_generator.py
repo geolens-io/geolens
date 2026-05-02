@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.schemas import ChatMapLayer
-from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BASE_URL
+from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -347,8 +347,12 @@ async def generate_sql(
         question=question,
     )
 
-    base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
+    # Pull base_url from the provider's own runtime config (REVIEW.md WR-02)
+    # so future overlays receive provider-correct values instead of an
+    # OpenAI-shaped URL leaking into Anthropic-keyed providers.
     provider_ext = get_ai_provider(provider)
+    runtime_config = await provider_ext.resolve_runtime_config(db)
+    base_url = runtime_config.get("base_url")
 
     async def _noop_executor(name: str, args: dict) -> dict:
         # max_rounds=1 exits before any tool call; executor never runs.
