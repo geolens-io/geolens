@@ -10,31 +10,41 @@ from app.processing.embeddings.service import (
 )
 
 
+def _make_mock_provider(
+    *,
+    embed_return,
+    runtime_base_url="",
+    runtime_default_model="text-embedding-3-small",
+    runtime_default_dims=1536,
+):
+    """Build a MagicMock with AsyncMock embed/resolve_runtime_config (Phase 231 D-27)."""
+    mock_provider = MagicMock()
+    mock_provider.embed = AsyncMock(return_value=embed_return)
+    mock_provider.resolve_runtime_config = AsyncMock(
+        return_value={
+            "base_url": runtime_base_url,
+            "default_model": runtime_default_model,
+            "default_dims": runtime_default_dims,
+        }
+    )
+    return mock_provider
+
+
 @pytest.mark.asyncio
 async def test_generate_embedding_returns_float_vector():
     """generate_embedding returns a list of floats with length matching configured dims."""
     fake_vector = [0.1] * 1536
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(embedding=fake_vector)]
-
-    mock_client_instance = MagicMock()
-    mock_client_instance.embeddings.create.return_value = mock_response
-
+    mock_provider = _make_mock_provider(embed_return=[fake_vector])
     mock_session = AsyncMock()
 
     with (
         patch(
-            "app.processing.embeddings.service.build_openai_client",
-            return_value=mock_client_instance,
+            "app.processing.embeddings.service.get_embedding_provider",
+            return_value=mock_provider,
         ),
         patch("app.processing.embeddings.service.settings") as mock_settings,
         patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
         patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
-        patch(
-            "app.processing.embeddings.service.resolve_embedding_base_url",
-            new_callable=AsyncMock,
-            return_value="",
-        ),
     ):
         mock_settings.openai_api_key = "test-key"
         mock_model.get = AsyncMock(return_value="text-embedding-3-small")
@@ -45,11 +55,23 @@ async def test_generate_embedding_returns_float_vector():
     assert isinstance(result, list)
     assert len(result) == 1536
     assert all(isinstance(x, float) for x in result)
+    # Provider-boundary call shape (D-27)
+    mock_provider.embed.assert_called_once_with(
+        texts=["test text"],
+        model="text-embedding-3-small",
+        dimensions=1536,
+        base_url="",
+        timeout=130.0,
+    )
 
 
 @pytest.mark.asyncio
 async def test_generate_embedding_raises_when_no_openai_key():
-    """EmbeddingUnavailableError raised with clear message when only Anthropic key configured."""
+    """EmbeddingUnavailableError raised with clear message when only Anthropic key configured.
+
+    UNCHANGED post-Phase-231 — the API-key check stays at service.py:47-53
+    (defense in depth per RESEARCH.md Open Question 2 / D-22 fallback).
+    """
     mock_session = AsyncMock()
 
     with patch("app.processing.embeddings.service.settings") as mock_settings:
@@ -66,111 +88,82 @@ async def test_generate_embedding_raises_when_no_openai_key():
 async def test_generate_embedding_uses_persistent_config():
     """generate_embedding reads model and dims from PersistentConfig."""
     fake_vector = [0.5] * 768
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(embedding=fake_vector)]
-
-    mock_client_instance = MagicMock()
-    mock_client_instance.embeddings.create.return_value = mock_response
-
+    mock_provider = _make_mock_provider(embed_return=[fake_vector])
     mock_session = AsyncMock()
 
     with (
         patch(
-            "app.processing.embeddings.service.build_openai_client",
-            return_value=mock_client_instance,
+            "app.processing.embeddings.service.get_embedding_provider",
+            return_value=mock_provider,
         ),
         patch("app.processing.embeddings.service.settings") as mock_settings,
         patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
         patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
-        patch(
-            "app.processing.embeddings.service.resolve_embedding_base_url",
-            new_callable=AsyncMock,
-            return_value="http://localhost:11434/v1",
-        ),
     ):
         mock_settings.openai_api_key = "test-key"
         mock_model.get = AsyncMock(return_value="custom-model")
         mock_dims.get = AsyncMock(return_value=768)
 
-        await generate_embedding("test text", mock_session)
+        result = await generate_embedding("test text", mock_session)
 
-    mock_client_instance.embeddings.create.assert_called_once_with(
+    assert len(result) == 768
+    # PersistentConfig values flow through to provider_ext.embed kwargs (D-27)
+    mock_provider.embed.assert_called_once_with(
+        texts=["test text"],
         model="custom-model",
-        input="test text",
         dimensions=768,
+        base_url="",
+        timeout=130.0,
     )
 
 
 @pytest.mark.asyncio
 async def test_generate_embedding_truncates_long_input():
-    """generate_embedding handles very long input text."""
-    fake_vector = [0.1] * 1536
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(embedding=fake_vector)]
+    """Long input (> _MAX_INPUT_CHARS) is truncated before being sent to the provider."""
+    from app.processing.embeddings.service import _MAX_INPUT_CHARS
 
-    mock_client_instance = MagicMock()
-    mock_client_instance.embeddings.create.return_value = mock_response
-
+    long_text = "x" * (_MAX_INPUT_CHARS + 1000)
+    fake_vector = [0.0] * 1536
+    mock_provider = _make_mock_provider(embed_return=[fake_vector])
     mock_session = AsyncMock()
-
-    long_text = "word " * 100_000  # very long input
 
     with (
         patch(
-            "app.processing.embeddings.service.build_openai_client",
-            return_value=mock_client_instance,
+            "app.processing.embeddings.service.get_embedding_provider",
+            return_value=mock_provider,
         ),
         patch("app.processing.embeddings.service.settings") as mock_settings,
         patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
         patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
-        patch(
-            "app.processing.embeddings.service.resolve_embedding_base_url",
-            new_callable=AsyncMock,
-            return_value="",
-        ),
     ):
         mock_settings.openai_api_key = "test-key"
         mock_model.get = AsyncMock(return_value="text-embedding-3-small")
         mock_dims.get = AsyncMock(return_value=1536)
 
-        result = await generate_embedding(long_text, mock_session)
+        await generate_embedding(long_text, mock_session)
 
-    assert isinstance(result, list)
-    # Verify the input was truncated
-    call_args = mock_client_instance.embeddings.create.call_args
-    actual_input = call_args.kwargs.get("input") or call_args[1].get("input")
-    assert len(actual_input) <= 100_000  # should be truncated
+    # Truncation happens in service.py BEFORE the provider call (D-27).
+    call_kwargs = mock_provider.embed.call_args.kwargs
+    passed_text = call_kwargs["texts"][0]
+    assert len(passed_text) == _MAX_INPUT_CHARS
 
 
 @pytest.mark.asyncio
 async def test_generate_embedding_dimension_mismatch():
-    """When the model returns a vector whose length differs from configured dims,
-    the raw vector is returned as-is (no truncation or padding). Callers storing
-    the result into a pgvector column with a fixed dimension will get a DB error
-    at INSERT time if the sizes do not match."""
-    # Model returns 768-dim but config says 1536
-    fake_vector = [0.1] * 768
-    mock_response = MagicMock()
-    mock_response.data = [MagicMock(embedding=fake_vector)]
-
-    mock_client_instance = MagicMock()
-    mock_client_instance.embeddings.create.return_value = mock_response
-
+    """Service passes through whatever the provider returns, even if length differs from configured dims."""
+    # Provider returns 768-dim vector despite request for 1536
+    returned_vector = [0.2] * 768
+    mock_provider = _make_mock_provider(embed_return=[returned_vector])
     mock_session = AsyncMock()
 
     with (
         patch(
-            "app.processing.embeddings.service.build_openai_client",
-            return_value=mock_client_instance,
+            "app.processing.embeddings.service.get_embedding_provider",
+            return_value=mock_provider,
         ),
         patch("app.processing.embeddings.service.settings") as mock_settings,
         patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
         patch("app.processing.embeddings.service.EMBEDDING_DIMS") as mock_dims,
-        patch(
-            "app.processing.embeddings.service.resolve_embedding_base_url",
-            new_callable=AsyncMock,
-            return_value="",
-        ),
     ):
         mock_settings.openai_api_key = "test-key"
         mock_model.get = AsyncMock(return_value="text-embedding-3-small")
@@ -178,10 +171,8 @@ async def test_generate_embedding_dimension_mismatch():
 
         result = await generate_embedding("test text", mock_session)
 
-    # The service passes through whatever the API returns — no dimension enforcement
+    # Service does NOT enforce dimension match — that's a downstream pgvector concern.
     assert len(result) == 768
-    assert len(result) != 1536
-
-    # Verify the configured dims were sent to the API (provider may ignore it)
-    call_kwargs = mock_client_instance.embeddings.create.call_args.kwargs
-    assert call_kwargs.get("dimensions") == 1536
+    # The REQUESTED dims value is what the service sent to the provider.
+    call_kwargs = mock_provider.embed.call_args.kwargs
+    assert call_kwargs["dimensions"] == 1536
