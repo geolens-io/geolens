@@ -246,8 +246,8 @@ Plans:
 ### Phase 999.8: PermissionExtension Protocol (BACKLOG — P1)
 
 **Goal:** Add `PermissionExtension` Protocol at `backend/app/platform/extensions/protocols.py` with `check_permission(user, action, resource)` + `filter_visible(user, query)` hooks. Convert the hardcoded `DEFAULT_ROLE_PERMISSIONS` matrix at `backend/app/modules/auth/permissions.py:43-74` to `DefaultPermissionExtension`. Move the visibility chokepoint at `backend/app/modules/catalog/authorization.py:34` to consult the extension.
-**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #5 (🔴) / §7 P1
-**Estimated effort:** 3–5 days
+**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #5 (🔴) → `oc-separation-audit-20260502.md` §2 Seam #5 (🟡 — re-rated since static matrix is admin-customizable but the SQL chokepoint at `catalog/authorization.py:34` remains hardcoded). Largest residual Enterprise-relevant 🟡 in the seam set as of 2026-05-02. / §7 P2 (action item #8)
+**Estimated effort:** 3–5 days for Protocol; weeks for field-level
 **Unblocks:** Field-level RBAC, attribute-based access control (ABAC), row-level filters by user attribute — all unreachable today since the matrix is fixed-list.
 
 Plans:
@@ -258,8 +258,8 @@ Plans:
 ### Phase 999.9: WorkflowExtension Protocol (BACKLOG — P1)
 
 **Goal:** Add `WorkflowExtension` Protocol with `allowed_transitions()` + `on_transition(from, to, user)` hooks. Convert the hardcoded `ALLOWED_TRANSITIONS` dict at `backend/app/modules/catalog/datasets/api/router_data.py:210-215` and `_STATUS_ORDER` at `:260` to `DefaultWorkflowExtension`. No registry, no events, no approver concept exist today.
-**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #6 (🔴) / §7 P1
-**Estimated effort:** 3–5 days
+**Source:** `oc-separation-audit-20260430-b.md` §2 Seam #6 (🔴) → `oc-separation-audit-20260502.md` §2 Seam #6 (🟡 — re-rated since lifecycle states + pending-account approval show the basic state-machine substrate, but no extension Protocol exists). / §7 P2 (action item #9)
+**Estimated effort:** 3–5 days for Protocol; 2–3w full workflow
 **Unblocks:** Multi-step approvals (draft → review → publish), reviewer assignment, custom states. Required for Enterprise §3 (Governance & Workflow — "BIG MONEY AREA" per GTM doc).
 
 Plans:
@@ -282,7 +282,7 @@ Inlined into Phase 225 (`processing-port-protocol-cycle-inversion`) because addi
 ### Phase 999.12: geolens.yaml catalog manifest spec (BACKLOG — P1)
 
 **Goal:** Define and ship the `geolens.yaml` catalog manifest format (Apache-2.0) — declarative descriptor for datasets, sources, and publishing rules. Implement `geolens init` / `geolens apply` / `geolens validate` CLI commands; backend ingest path consumes the manifest. The largest unshipped open-core enabler per the strategic guidance.
-**Source:** `oc-separation-audit-20260430-b.md` §6 (FAIL — zero source-tree hits) / §7 P1 (action item #9). v13.1 close audit and v13.2 audit both flagged this as biggest unshipped OC adoption wedge.
+**Source:** `oc-separation-audit-20260430-b.md` §6 (FAIL — zero source-tree hits) → confirmed unchanged in `oc-separation-audit-20260502.md` §6.6 (still missing) / §7 P2 (action item #11). v13.1 close audit and v13.2 audit both flagged this as biggest unshipped OC adoption wedge.
 **Estimated effort:** 2 weeks
 **Why this matters:** "A new user should be able to publish a working geospatial catalog in 10 minutes — from `docker compose up` to a browsable, shareable catalog of their own data" is the GTM falsifiable adoption target. Without a declarative manifest + `apply` workflow, that target is hand-wavy.
 
@@ -306,8 +306,8 @@ Plans:
 ### Phase 999.14: Helm chart + AMI Packer pipeline (BACKLOG — P2)
 
 **Goal:** Build a `deployment/` directory with Helm chart for K8s deployments + Packer template for AWS Marketplace AMI distribution. Phase 223 wired the `BillingExtension` for AMI metering, but there's currently no path to actually ship the AMI image to AWS Marketplace.
-**Source:** `oc-separation-audit-20260430-b.md` §4 (HIGH severity — no `deployment/`, no Helm, no AMI pipeline) / §7 P2
-**Estimated effort:** 2 weeks
+**Source:** `oc-separation-audit-20260430-b.md` §4 (HIGH severity — no `deployment/`, no Helm, no AMI pipeline) → confirmed unchanged in `oc-separation-audit-20260502.md` §4 (structural gap unchanged) / §7 P2 (action item #13)
+**Estimated effort:** 1–2 weeks
 
 Plans:
 - [ ] TBD
@@ -328,7 +328,7 @@ Plans:
 ### Phase 999.16: Extract geolens-schemas package (BACKLOG — P2)
 
 **Goal:** Extract `backend/app/standards/{stac,ogc,dcat}/` schemas + validators into a standalone `geolens-schemas` PyPI package (Apache-2.0). Embedded today; persistent OSS-surface gap per audits since v13.1 close.
-**Source:** `oc-separation-audit-20260430-b.md` §6 (FAIL — schema/validator package not extractable) / §7 P2
+**Source:** `oc-separation-audit-20260430-b.md` §6 (FAIL — schema/validator package not extractable) → confirmed unchanged in `oc-separation-audit-20260502.md` §6.1 (still no `schemas/` or `validators/` dir) / §7 P2 (action item #12)
 **Estimated effort:** 1 week
 **Unblocks:** Schema-validator OSS adoption beyond GeoLens consumers; reusable wedge for FAIR-aligned tooling.
 
@@ -346,3 +346,55 @@ Promoted into the v13.4 Boundary Closeout milestone as Phase 228 (`run-cold-publ
 ### ~~Phase 999.18: SAML test fixture generator → tmp_path~~ — PROMOTED to Phase 227 (v13.4, 2026-05-01)
 
 Promoted into the v13.4 Boundary Closeout milestone as Phase 227 (`saml-test-fixture-tmp-path`). See Active Phases above.
+
+---
+
+### Phase 999.19: EmbeddingProviderExtension Protocol (BACKLOG — P1)
+
+**Goal:** Add `EmbeddingProviderExtension` Protocol at `backend/app/platform/extensions/protocols.py` (or extend `AIProviderExtension` with an `embed()` method) covering the embeddings client at `backend/app/processing/embeddings/helpers.py:8` (`from openai import OpenAI`). Convert the direct SDK import to a `DefaultOpenAIEmbeddingProvider` in `defaults.py`. Mirrors the Phase 226 pattern for the dispatch path.
+**Source:** `oc-separation-audit-20260502.md` §5 (decoupling rec #3) / §7 P1 (action item #4)
+**Estimated effort:** 2–3 days
+**Unblocks:** Closing the last direct provider-SDK import in `processing/`; AI policy enforcement on embeddings (token quotas, model routing) — currently impossible since dispatch is hardcoded.
+**Note:** test_layering.py already has the architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` (added 2026-05-02 commit `259ebc72`); a parallel guard for `processing/embeddings/` should ship with this Protocol so the embeddings carve-out can be retired.
+
+Plans:
+- [ ] TBD
+
+---
+
+### Phase 999.20: Symmetric CatalogPort Protocol (BACKLOG — P1)
+
+**Goal:** Add a `CatalogPort` Protocol at `backend/app/core/catalog_port.py` exposing processing-owned types (`RasterAsset`, `VrtGeneration`, `DatasetAsset`, ingest result schemas, OGR helpers) that catalog modules currently import directly from `app.processing.*`. Phase 225's `ProcessingPort` only inverts the **catalog → processing** direction; the reverse direction (17 top-of-file imports) is untouched.
+**Source:** `oc-separation-audit-20260502.md` §5 (decoupling rec #1) / §7 P1 (action item #5)
+**Estimated effort:** 1 week
+**Unblocks:** Coupling Health grade lift from B+ → A− (audit-grade target for v13.4 close); enables future enterprise overlay extraction without touching catalog source.
+**Affected files (highest leverage):** `catalog/maps/service.py:25` (RasterAsset), `catalog/layers/service.py:15-26`, `catalog/search/service.py:44-46`, `catalog/datasets/api/router_*.py` (5 routers), `catalog/features/service.py:12`.
+**Promotion candidate:** Recommended for v13.4 Phase 230 (would lift Coupling B+ → A− before Phase 229 audit gate).
+
+Plans:
+- [ ] TBD
+
+---
+
+### Phase 999.21: Split catalog/maps/service.py (BACKLOG — P2)
+
+**Goal:** Apply the Phase 224 façade pattern to `backend/app/modules/catalog/maps/service.py` (1297 LOC). Split into ≤500-LOC sibling modules behind a thin re-export façade; add a `test_no_external_imports_of_maps_service_submodules` architecture guard.
+**Source:** `oc-separation-audit-20260502.md` §5 (Catalog god-module split — next candidates) / §7 P2 (action item #7)
+**Estimated effort:** 3–5 days
+**Unblocks:** Future enterprise-overlay friction reduction (single largest service module after Phase 224); easier targeted code review; lays groundwork for `catalog/maps` extension seams (sharing controls, scheduled cleanup).
+**Reference:** Phase 224 (catalog-god-module-split) is the textbook precedent — 1407 LOC → 87-LOC façade + 5 modules averaging 340 LOC.
+
+Plans:
+- [ ] TBD
+
+---
+
+### Phase 999.22: Split catalog/search/service.py (BACKLOG — P2)
+
+**Goal:** Apply the Phase 224 façade pattern to `backend/app/modules/catalog/search/service.py` (1312 LOC). Same approach as Phase 999.21.
+**Source:** `oc-separation-audit-20260502.md` §5 (Catalog god-module split — next candidates) / §7 P2 (action item #8)
+**Estimated effort:** 3–5 days
+**Unblocks:** Same as 999.21; also reduces friction for future search-related extension seams (e.g., a `SearchScorerExtension` for enterprise-tier custom relevance).
+
+Plans:
+- [ ] TBD

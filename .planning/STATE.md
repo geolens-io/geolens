@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
-stopped_at: "Phase 228 Wave 1 ✓; Wave 2 partial: NPM_TOKEN set + npm org claim PENDING approval; PyPI Trusted Publishing setup blocked until org approves"
-last_updated: "2026-05-02T12:07:16.744Z"
+stopped_at: "/oc-audit 2026-05-02 shipped (overall A−, 3.50/4.0); 4 Tier-A inline fixes committed (6db19582, d92ee171, 259ebc72, 9d805949); 4 new Tier-B backlog entries added (999.19–22); Phase 228 Wave 2/3 still BLOCKED on @geolens npm org approval"
+last_updated: "2026-05-02T18:00:00.000Z"
 last_activity: 2026-05-02
 progress:
   total_phases: 13
@@ -55,7 +55,11 @@ Coverage: 20/20 v13.4 requirements mapped.
 
 ## Next Action
 
-Run `/gsd-discuss-phase 225` to scope ProcessingPort Protocol design (cycle inversion + inlined architecture-guard from former 999.11).
+**Phase 228 BLOCKED** on external `@geolens` npm org claim (Wave 2 waiting on npm approval). Plan 04 (docs update) is independently executable — `/gsd-execute-phase 228 ${GSD_WS}` to pick it up.
+
+**Recommended v13.4 phase additions** (per `oc-separation-audit-20260502.md` §7 / Tier-B follow-ups, would lift Coupling B+ → A− before Phase 229 audit gate):
+- Promote Phase 999.20 (Symmetric CatalogPort) → v13.4 Phase 230 — closes the catalog→processing direction Phase 225 didn't address
+- Promote Phase 999.19 (EmbeddingProviderExtension) → v13.4 Phase 231 — closes the last direct provider-SDK import in `processing/`
 
 ## Phase 224 Queue (from /oc-audit follow-ups)
 
@@ -63,7 +67,21 @@ The audit produced 16 findings. Three trivial fixes were applied inline (env-var
 
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
 - **v13.4 (active):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
-- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction).
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.19 (EmbeddingProviderExtension), 999.20 (CatalogPort), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py).
+
+## /oc-audit follow-ups (2026-05-02 audit run)
+
+Audit shipped at `docs-internal/audits/oc-separation-audit-20260502.md`. Overall held at A− (3.50/4.0). Two grade lifts (Seam Quality B+ → A−, Coupling Health B → B+) offset by one ding (Boundary Integrity A+ → A from share/embed token "(enterprise only)" copy lying without enforcement).
+
+Tier A — fixed inline 2026-05-02 (4 atomic commits):
+- `6db19582` — strip false "(enterprise only)" copy from share/embed token surfaces (closes the only outstanding 🟡 cluster)
+- `d92ee171` — wire AuthExtension.get_auth_methods() into /auth/config/ (Seam #2 🟡 → 🟢)
+- `259ebc72` — defer provider-SDK imports out of module scope in `processing/ai/` + add CI guard `test_no_module_level_provider_sdk_imports_in_processing_ai`
+- `9d805949` — SPDX headers on 4 hand-written SDK files
+
+Tier B — 4 new backlog entries added 2026-05-02 (999.19–22): EmbeddingProviderExtension, CatalogPort, split catalog/maps/service.py, split catalog/search/service.py. Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit.
+
+Tier C — external blocker: Phase 228 Wave 2/3 cannot proceed until `@geolens` npm org approval lands.
 
 ## Phase 218 / 219 close-gate record
 
