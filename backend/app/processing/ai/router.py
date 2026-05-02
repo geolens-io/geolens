@@ -5,13 +5,15 @@ import uuid as uuid_mod
 from collections.abc import Awaitable
 from typing import TypeVar
 
-import anthropic
-import openai
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Provider-SDK exception classes (anthropic / openai) are imported lazily
+# inside `_call_llm_endpoint` so `processing/` carries zero top-level
+# provider-SDK imports (oc-audit 2026-05-02 §5).
 
 from app.processing.ai.chat_service import chat_edit_map
 from app.processing.ai.llm_loop import ToolLoopExhaustedError
@@ -396,6 +398,12 @@ async def _call_llm_endpoint(
     Pass ``tool_loop_message`` for endpoints that run multi-step tool loops
     (chat, generate-map). Metadata endpoints don't tool-loop, so leave it None.
     """
+    # Deferred imports — provider SDKs must not load at module import time
+    # within `processing/` (oc-audit 2026-05-02 §5). Used only for the
+    # `except` clauses below.
+    import anthropic
+    import openai
+
     try:
         return await coro
     except ValueError as e:

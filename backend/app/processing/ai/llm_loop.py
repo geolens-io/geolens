@@ -16,16 +16,24 @@ in ``app.platform.extensions.defaults`` (Phase 226 D-17/D-18). What remains here
   - ``build_history_messages(history)`` — provider-agnostic role filter.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import httpx
 import structlog
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
 
 from app.core.config import reveal, settings
 from app.core.persistent_config import LLM_MODEL, LLM_PROVIDER
+
+if TYPE_CHECKING:
+    # Provider SDK types referenced in annotations only.
+    # Runtime imports are deferred to factory functions (open-core boundary —
+    # SDK packages must not be loaded at module-import time within processing/).
+    from anthropic import AsyncAnthropic
+    from openai import AsyncOpenAI
 
 # Timeout for individual LLM API calls (prevents indefinite hangs)
 _LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
@@ -54,8 +62,13 @@ def get_anthropic_client() -> AsyncAnthropic:
     if not settings.anthropic_api_key:
         raise ValueError("Anthropic API key not configured")
 
-    # Deferred import to avoid module-import cycle:
-    # llm_loop -> platform.extensions.defaults -> (imports _LLM_TIMEOUT etc. from llm_loop)
+    # Deferred imports:
+    #   - DefaultAnthropicProvider — avoids module-import cycle
+    #     (llm_loop -> defaults -> imports _LLM_TIMEOUT etc. from llm_loop)
+    #   - AsyncAnthropic — keeps the SDK out of module-import scope so
+    #     `processing/` carries zero top-level provider-SDK imports
+    #     (oc-audit 2026-05-02 §5; lifts Phase 226 follow-up)
+    from anthropic import AsyncAnthropic
     from app.platform.extensions.defaults import DefaultAnthropicProvider
 
     if DefaultAnthropicProvider._client is None:
@@ -81,6 +94,8 @@ def get_openai_client(base_url: str) -> AsyncOpenAI:
     if not settings.openai_api_key:
         raise ValueError("OpenAI-compatible API key not configured")
 
+    # Deferred imports — see get_anthropic_client() rationale.
+    from openai import AsyncOpenAI
     from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider
 
     if base_url not in DefaultOpenAICompatibleProvider._clients:
