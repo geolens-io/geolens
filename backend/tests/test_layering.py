@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, and 226.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, and 231.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -18,6 +18,11 @@ Enforces open-core boundaries closed by:
   `metadata_service.py` per RESEARCH.md Open Questions 1 & 2 (true
   LLM-token streaming and structured-output APIs are deferred-scope
   follow-up phases).
+- Phase 231 EMBPROV-04 - the Phase-226 architecture guard
+  test_no_module_level_provider_sdk_imports_in_processing_ai is RENAMED
+  to test_no_module_level_provider_sdk_imports_in_processing, pathspec
+  broadened from backend/app/processing/ai/ to backend/app/processing/,
+  and the embeddings carve-out paragraph removed from the docstring.
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -775,8 +780,8 @@ def test_no_hardcoded_ai_provider_branches() -> None:
 
 
 @pytest.mark.architecture
-def test_no_module_level_provider_sdk_imports_in_processing_ai() -> None:
-    """oc-audit 2026-05-02 §5: backend/app/processing/ai/ must not have
+def test_no_module_level_provider_sdk_imports_in_processing() -> None:
+    """oc-audit 2026-05-02 §5 + Phase 231: backend/app/processing/ must not have
     module-level imports of provider SDKs (anthropic, openai).
 
     Module-level provider-SDK imports inside ``processing/`` violate the
@@ -786,15 +791,10 @@ def test_no_module_level_provider_sdk_imports_in_processing_ai() -> None:
     225's deferred-import discipline) or place them behind the Protocol in
     ``app/platform/extensions/defaults.py``.
 
-    Carve-out: ``processing/embeddings/helpers.py`` is excluded — the
-    embeddings client is not yet covered by ``AIProviderExtension``; an
-    ``EmbeddingProviderExtension`` Protocol is the planned follow-up.
-    Once that ships, this exclusion can be removed.
-
-    Negative-control: temporarily reintroduce
-    ``from anthropic import AsyncAnthropic`` at the top of
-    ``backend/app/processing/ai/llm_loop.py``, run this test, confirm it
-    fails with the offending line surfaced. Revert.
+    Negative-control (Phase 231 D-15): temporarily reintroduce
+    ``from openai import OpenAI`` at the top of
+    ``backend/app/processing/embeddings/helpers.py``, run this test,
+    confirm it fails with the offending line surfaced. Revert.
     """
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
@@ -807,7 +807,7 @@ def test_no_module_level_provider_sdk_imports_in_processing_ai() -> None:
             "-E",
             r"^(from|import) (anthropic|openai)( |$)",
             "--",
-            "backend/app/processing/ai/",
+            "backend/app/processing/",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -817,7 +817,7 @@ def test_no_module_level_provider_sdk_imports_in_processing_ai() -> None:
 
     if result.returncode == 0:
         pytest.fail(
-            "Module-level provider-SDK import found in backend/app/processing/ai/. "
+            "Module-level provider-SDK import found in backend/app/processing/. "
             "Move to function-local scope or behind the AIProviderExtension Protocol "
             "in app/platform/extensions/defaults.py. "
             f"Offending lines:\n{result.stdout}"
