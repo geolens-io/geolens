@@ -32,10 +32,10 @@
 
 ### Cold Publish Workflows (Phase 228)
 
-- [ ] **PUBLISH-01**: `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` are confirmed present (or migrated to PyPI Trusted Publishing via `id-token: write` permission)
-- [ ] **PUBLISH-02**: `.github/workflows/publish-sdks.yml` runs end-to-end at least once, publishing `geolens-sdk` to PyPI and `@geolens/sdk` to npm
-- [ ] **PUBLISH-03**: `.github/workflows/publish-cli.yml` runs end-to-end at least once, publishing `geolens` CLI to PyPI
-- [ ] **PUBLISH-04**: README install instructions are validated against the published artifacts (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens` succeed on a clean machine)
+- [x] **PUBLISH-01**: `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` are confirmed present (or migrated to PyPI Trusted Publishing via `id-token: write` permission)
+- [x] **PUBLISH-02**: `.github/workflows/publish-sdks.yml` runs end-to-end at least once, publishing `geolens-sdk` to PyPI and `@geolens/sdk` to npm
+- [x] **PUBLISH-03**: `.github/workflows/publish-cli.yml` runs end-to-end at least once, publishing `geolens` CLI to PyPI
+- [x] **PUBLISH-04**: README install instructions are validated against the published artifacts (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens` succeed on a clean machine)
 
 ### Post-Implementation Audit Gate (Phase 229)
 

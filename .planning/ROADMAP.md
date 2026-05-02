@@ -157,7 +157,7 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 228-01-PLAN.md - workflow YAML refactors: migrate publish-sdks.yml and publish-cli.yml to PyPI Trusted Publishing (uv publish --trusted-publishing automatic), add pre-flight name-availability gates, create new verify-published.yml with two Docker-based clean-machine smoke jobs (Wave 1, autonomous, PUBLISH-01/02/03/04)
+- [x] 228-01-PLAN.md - workflow YAML refactors: migrate publish-sdks.yml and publish-cli.yml to PyPI Trusted Publishing (uv publish --trusted-publishing automatic), add pre-flight name-availability gates, create new verify-published.yml with two Docker-based clean-machine smoke jobs (Wave 1, autonomous, PUBLISH-01/02/03/04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 228-02-PLAN.md - credential setup checkpoint: combined out-of-band runbook (claim @geolens npm org, configure PyPI Trusted Publishing pending publishers x2, generate npm granular access token with Bypass 2FA, set NPM_TOKEN repo secret) (Wave 2, autonomous: false, PUBLISH-01)
