@@ -106,8 +106,6 @@ def sync_detailed(
 
      Create an embed token scoped to a map's current layers.
 
-    Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
-
     Args:
         map_id (UUID):
         body (EmbedTokenCreate):
@@ -142,8 +140,6 @@ def sync(
 
      Create an embed token scoped to a map's current layers.
 
-    Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
-
     Args:
         map_id (UUID):
         body (EmbedTokenCreate):
@@ -172,8 +168,6 @@ async def asyncio_detailed(
     """Create Embed Token Endpoint
 
      Create an embed token scoped to a map's current layers.
-
-    Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
 
     Args:
         map_id (UUID):
@@ -206,8 +200,6 @@ async def asyncio(
     """Create Embed Token Endpoint
 
      Create an embed token scoped to a map's current layers.
-
-    Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
 
     Args:
         map_id (UUID):

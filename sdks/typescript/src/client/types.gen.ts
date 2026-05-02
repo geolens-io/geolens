@@ -2931,13 +2931,13 @@ export type EmbedTokenCreate = {
     /**
      * Allowed Origins
      *
-     * Restrict embedding to these origins (enterprise only). Omit to allow any origin.
+     * Restrict embedding to these origins. Omit to allow any origin.
      */
     allowed_origins?: Array<string> | null;
     /**
      * Expires In Days
      *
-     * Token lifetime in days (1-365). Expiration controls are enterprise controls (enterprise only).
+     * Token lifetime in days (1-365).
      */
     expires_in_days?: number;
     /**
@@ -3073,7 +3073,7 @@ export type EmbedTokenUpdate = {
     /**
      * Allowed Origins
      *
-     * Updated list of allowed embedding origins (enterprise only)
+     * Updated list of allowed embedding origins
      */
     allowed_origins?: Array<string> | null;
 };
@@ -6338,7 +6338,7 @@ export type ShareTokenRequest = {
     /**
      * Expires At
      *
-     * Expiration timestamp (enterprise only); null = never expires
+     * Expiration timestamp; null = never expires
      */
     expires_at?: string | null;
 };

@@ -104,7 +104,7 @@ def sync_detailed(
 ) -> Response[ProblemDetail | ShareTokenResponse]:
     """Update Map Share Token Endpoint
 
-     Update expiration on an existing share token (enterprise only). Owner or admin only.
+     Update expiration on an existing share token. Owner or admin only.
 
     Args:
         map_id (UUID):
@@ -138,7 +138,7 @@ def sync(
 ) -> ProblemDetail | ShareTokenResponse | None:
     """Update Map Share Token Endpoint
 
-     Update expiration on an existing share token (enterprise only). Owner or admin only.
+     Update expiration on an existing share token. Owner or admin only.
 
     Args:
         map_id (UUID):
@@ -167,7 +167,7 @@ async def asyncio_detailed(
 ) -> Response[ProblemDetail | ShareTokenResponse]:
     """Update Map Share Token Endpoint
 
-     Update expiration on an existing share token (enterprise only). Owner or admin only.
+     Update expiration on an existing share token. Owner or admin only.
 
     Args:
         map_id (UUID):
@@ -199,7 +199,7 @@ async def asyncio(
 ) -> ProblemDetail | ShareTokenResponse | None:
     """Update Map Share Token Endpoint
 
-     Update expiration on an existing share token (enterprise only). Owner or admin only.
+     Update expiration on an existing share token. Owner or admin only.
 
     Args:
         map_id (UUID):

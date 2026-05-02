@@ -1975,8 +1975,6 @@ export const listEmbedTokensEndpointMapsMapIdEmbedTokensGet = <ThrowOnError exte
  * Create Embed Token Endpoint
  *
  * Create an embed token scoped to a map's current layers.
- *
- * Expiration and allowed-origin restrictions are enterprise controls (enterprise only).
  */
 export const createEmbedTokenEndpointMapsMapIdEmbedTokensPost = <ThrowOnError extends boolean = false>(options: Options<CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostData, ThrowOnError>) => (options.client ?? client).post<CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostResponses, CreateEmbedTokenEndpointMapsMapIdEmbedTokensPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2002,7 +2000,7 @@ export const revokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDelete = <ThrowO
 /**
  * Update Embed Token Endpoint
  *
- * Update embed token allowed_origins (enterprise only).
+ * Update embed token allowed_origins.
  */
 export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOnError extends boolean = false>(options: Options<UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses, UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -2065,7 +2063,7 @@ export const getMapShareTokenEndpointMapsMapIdShareGet = <ThrowOnError extends b
 /**
  * Update Map Share Token Endpoint
  *
- * Update expiration on an existing share token (enterprise only). Owner or admin only.
+ * Update expiration on an existing share token. Owner or admin only.
  */
 export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError extends boolean = false>(options: Options<UpdateMapShareTokenEndpointMapsMapIdSharePatchData, ThrowOnError>) => (options.client ?? client).patch<UpdateMapShareTokenEndpointMapsMapIdSharePatchResponses, UpdateMapShareTokenEndpointMapsMapIdSharePatchErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
