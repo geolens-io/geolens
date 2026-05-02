@@ -27,8 +27,8 @@
 ### SAML Test Fixture Hygiene (Phase 227)
 
 - [x] **TESTFIX-01**: `_regenerate_saml_fixtures` autouse fixture writes signed XML responses to a session-scoped pytest `tmp_path` instead of mutating committed `backend/tests/fixtures/saml/idp_response_*.xml.b64` files
-- [ ] **TESTFIX-02**: `git status` is clean after a full `pytest backend/tests/test_saml_overlay.py` run (regression: was always-dirty after every test invocation)
-- [ ] **TESTFIX-03**: Existing committed `.xml.b64` files are renamed to `.xml.b64.template` (immutable templates) or removed entirely — the docstring's "CI fallback when pysaml2 unavailable" claim is either truly restored or explicitly removed
+- [x] **TESTFIX-02**: `git status` is clean after a full `pytest backend/tests/test_saml_overlay.py` run (regression: was always-dirty after every test invocation)
+- [x] **TESTFIX-03**: Existing committed `.xml.b64` files are renamed to `.xml.b64.template` (immutable templates) or removed entirely — the docstring's "CI fallback when pysaml2 unavailable" claim is either truly restored or explicitly removed
 
 ### Cold Publish Workflows (Phase 228)
 

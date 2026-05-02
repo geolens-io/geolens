@@ -135,7 +135,7 @@ Plans:
 - [x] 227-01-PLAN.md — restore-and-parameterize-generator: revert 5 dirty SAML fixtures to HEAD baseline (D-09); add `output_dir: Path | None = None` parameter to `generate_fixtures.main()` (D-05). Manual CLI invocation preserved. Test suite stays green; in-place autouse path unchanged. (Wave 1, TESTFIX-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 227-02-PLAN.md — rename-autouse-callsites-ci-guard: `git mv` 5 fixtures to `.xml.b64.template` (D-01/D-02); replace `_regenerate_saml_fixtures` autouse with `saml_response_dir` session fixture using `tmp_path_factory` (D-04/D-06); rewrite `_load_fixture_b64(name, response_dir)` with template fallback (D-03/D-07); migrate 9 callsites + 8 enclosing function signatures; add Wave 0 `test_load_fixture_b64_falls_back_to_template` unit test; insert CI guard step `Verify SAML fixtures unchanged after pytest` (D-08); update module docstring. (Wave 2, TESTFIX-01/02/03)
+- [x] 227-02-PLAN.md — rename-autouse-callsites-ci-guard: `git mv` 5 fixtures to `.xml.b64.template` (D-01/D-02); replace `_regenerate_saml_fixtures` autouse with `saml_response_dir` session fixture using `tmp_path_factory` (D-04/D-06); rewrite `_load_fixture_b64(name, response_dir)` with template fallback (D-03/D-07); migrate 9 callsites + 8 enclosing function signatures; add Wave 0 `test_load_fixture_b64_falls_back_to_template` unit test; insert CI guard step `Verify SAML fixtures unchanged after pytest` (D-08); update module docstring. (Wave 2, TESTFIX-01/02/03)
 
 #### Phase 228: run-cold-publish-workflows
 
