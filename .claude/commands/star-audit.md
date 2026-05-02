@@ -1,5 +1,5 @@
 # GitHub Star Maximisation Agent
-# Stack: React · FastAPI · Postgres · PostGIS · pg_trgm · pgvector
+# Stack: React 19 + MapLibre · FastAPI · PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm · Titiler (raster) · MinIO/S3 · Valkey · Procrastinate
 # Invoke: /star-audit [optional: "--write" to generate all content drafts]
 
 You are a developer relations engineer and open source growth specialist.
@@ -79,7 +79,7 @@ Answer these questions honestly:
 
 ---
 
-## Phase 2 — Parallel audit (spawn all 5 subagents simultaneously)
+## Phase 2 — Parallel audit (spawn all 6 subagents simultaneously)
 
 Use the Task tool. Do NOT wait for one before starting the next.
 
@@ -153,19 +153,81 @@ technical repos. The proven structure:
 
 **Badge audit — only include badges that communicate value:**
 ```markdown
-<!-- USEFUL -->
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](...)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110-green)](...)
-[![PostGIS](https://img.shields.io/badge/PostGIS-3.4-blue)](...)
-[![pgvector](https://img.shields.io/badge/pgvector-0.7-orange)](...)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](...)
+<!-- USEFUL — current geolens reality -->
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue)](...)
+[![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-blue)](...)
+[![PostGIS 3.5](https://img.shields.io/badge/PostGIS-3.5-blue)](...)
+[![pgvector](https://img.shields.io/badge/pgvector-enabled-orange)](...)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-yellow)](...)
 [![Demo](https://img.shields.io/badge/demo-live-brightgreen)](...)
 
-<!-- NOT USEFUL (remove these)  -->
-[![Build Status](travis-ci...)]   # no one trusts CI badges
-[![Coverage](codecov...)]         # no one cares
-[![PRs Welcome](...)]]            # every repo says this
+<!-- NOT USEFUL (remove these) -->
+[![Build Status](travis-ci...)]   # no one trusts CI badges in isolation
+[![Coverage](codecov...)]         # rarely changes a star decision
+[![PRs Welcome](...)]             # every repo says this
 ```
+
+Note: permissive licenses (such as MIT or Apache 2.0) are most star-friendly. GeoLens uses Apache 2.0; verify the LICENSE file matches the README badge — do not relitigate the license choice.
+
+**Star-history badge (C6) — embed only after 200+ stars:**
+
+A visible star-history chart is a self-reinforcing "this is taking off" signal — but only once the curve actually has shape. Below 200 stars it reads as desperate; above 200 it compounds.
+
+```markdown
+<!-- Place near the bottom of README, in a "Star history" section -->
+![Star History](https://api.star-history.com/svg?repos=geolens-io/geolens&type=Date)
+```
+
+Audit rule: if the repo is **above** 200 stars and the README has no star-history embed, recommend adding one. If **below** 200 stars, do NOT recommend — the empty chart hurts more than it helps.
+
+**First-run video / screencast (highest-ROI single asset):**
+
+A 30–60 second screencast of `docker compose up` → working UI → upload demo dataset is the single highest-converting visual asset for stack-heavy projects. If no GIF or video exists in the repo, recommend recording one (Loom, asciinema, or peek). Prefer an embedded MP4 or autoplaying GIF in the README hero zone.
+
+**README accessibility — mobile + dark mode:**
+
+Many devs scroll READMEs on phones. Verify the README renders cleanly on:
+- Mobile width (≤ 375px) — no horizontal scroll, no badge overflow
+- GitHub dark mode — use `#gh-dark-mode-only` / `#gh-light-mode-only` for theme-specific images
+- Raw text readers (RSS, terminal `cat`) — no HTML-only content above the fold
+
+**Install-flow audit (C2) — every copy-paste install line must work in a fresh terminal:**
+
+Stack-heavy projects ship multiple install surfaces (npm SDK, PyPI SDK, Docker image, CLI). Visitors copy-paste; if any line 404s or returns "package not found", they leave. Dry-run every install line listed in the README:
+
+```bash
+# npm SDK
+npm view @geolens/sdk
+
+# PyPI SDK / CLI
+pip index versions geolens-sdk
+pip index versions geolens-cli
+
+# Docker image
+docker manifest inspect ghcr.io/geolens-io/geolens:latest
+```
+
+Each command must succeed (exit 0) and return a real version. Any 404 or `manifest unknown` = **P1 RELEASE-BLOCKING** — README is advertising packages that don't exist on registry.
+
+**Competitive positioning — answer "vs X" implicitly:**
+
+Visitors compare. List the 3–5 closest comparable repos and write a one-sentence differentiator for each:
+- vs GeoNetwork — modern stack, vector search, OGC + STAC native
+- vs pycsw — opinionated UI, batteries-included
+- vs Felt / Atlas — self-hostable, open-core, no vendor lock-in
+- vs ArcGIS Hub — open source, no proprietary tooling
+- vs Datasette + spatialite — production-grade Postgres, async API, vector search
+
+If no comparison fits in the README hero, add a `<details><summary>Compared to alternatives</summary>` collapsed section.
+
+**Positioning quadrant (optional but high-leverage):**
+
+A simple 2×2 or capability matrix helps visitors place the project mentally:
+- "Internal data portal (✗) — General data lake catalog (✗) — Geo data catalog with semantic search (✓ here)"
+
+**Commercial-tier visibility (open-core projects):**
+
+If the project has a commercial tier (single-tenant Enterprise, managed cloud, etc.), include ONE understated link in the README — never a banner, never above the demo. Example: `Self-host free; managed/enterprise → getgeolens.com`. Visitors trust restraint; aggressive upsell tanks star conversion.
 
 **Output:** scored audit (0–10) for each README section + specific rewrites
 for any section scoring below 7.
@@ -209,6 +271,15 @@ Better: "Location intelligence platform: semantic search meets spatial queries �
 
 The description should contain the most searchable terms naturally.
 
+**Snippet preview check (GitHub search-result cards):**
+
+GitHub search-result cards show: name, description, stars, language, **last 256 chars of README**. Render the first 200 chars of README and the GitHub description side-by-side. Both should be standalone-readable. Reject if either starts with markup, badges, or boilerplate ("A FastAPI application that…").
+
+```bash
+# Preview the search-card snippet
+head -c 256 README.md | sed 's/<[^>]*>//g; s/!\[[^]]*\]([^)]*)//g'
+```
+
 **GitHub social preview image:**
 
 Repos with a custom social preview image get significantly more clicks when
@@ -243,6 +314,10 @@ The intersection of `pgvector` + `PostGIS` + `FastAPI` is genuinely rare on
 GitHub — there are very few repos hitting all three. This is the unique SEO
 angle. Make sure all three appear in the first 200 words of the README.
 
+**Internationalisation as a quiet trust signal:**
+
+If the project ships multiple locales (geolens ships en/es/fr/de), surface this in the README features bullet (`🌍 Available in en/es/fr/de`). Non-US adopters use locale support as a maturity proxy.
+
 **Awesome list potential:**
 
 Check if there are relevant "awesome-*" lists this could be added to:
@@ -255,6 +330,17 @@ Check if there are relevant "awesome-*" lists this could be added to:
 Being listed in an awesome list can drive hundreds of stars from a single PR.
 Identify the top 3 most relevant lists and note the submission requirements.
 
+**Verify each list's CONTRIBUTING.md before drafting a PR:**
+
+Awesome lists have submission bars (often: ≥ 100 stars, working demo, license, no broken links). A rejected PR is fine; a low-quality PR damages reputation. Before submitting, fetch each list's CONTRIBUTING and confirm the project meets the bar:
+
+```bash
+for list in awesome-fastapi awesome-postgis awesome-vector-search awesome-pgvector; do
+  gh repo view "$list-owner/$list" --json description,url 2>/dev/null
+  # Then: gh api repos/$list-owner/$list/contents/CONTRIBUTING.md
+done
+```
+
 **Output:** list of missing topics, description rewrite options, social preview
 brief, missing README terms, and top 3 awesome list targets with submission links.
 
@@ -265,10 +351,13 @@ brief, missing README terms, and top 3 awesome list targets with submission link
 
 **The trust checklist — what high-starred repos always have:**
 ```bash
-# Check what exists
-ls LICENSE CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md CHANGELOG.md \
+# Check what exists — note CONTRIBUTING can live at .github/, repo root, or docs/
+ls LICENSE .github/CONTRIBUTING.md CONTRIBUTING.md docs/CONTRIBUTING.md \
+   CODE_OF_CONDUCT.md SECURITY.md CHANGELOG.md \
    .github/ISSUE_TEMPLATE/ .github/PULL_REQUEST_TEMPLATE.md \
    .github/workflows/ docs/ 2>/dev/null
+
+# GitHub recognises CONTRIBUTING in any of: repo root, docs/, or .github/
 
 # Check CI status
 ls .github/workflows/ 2>/dev/null && cat .github/workflows/*.yml 2>/dev/null | \
@@ -283,8 +372,7 @@ git tag --sort=-version:refname | head -5
 
 **File-by-file trust audit:**
 
-- `LICENSE` — must exist. MIT is the most star-friendly (permissive).
-  No license = no enterprise adoption = fewer stars.
+- `LICENSE` — must exist. Permissive licenses (such as MIT or Apache 2.0) are most star-friendly. The project has chosen its license; the audit must verify LICENSE exists and matches the README badge — it must not re-litigate the choice.
 - `CONTRIBUTING.md` — signals this is a real project that accepts help.
   Content: how to set up dev environment, how to submit PRs, code style.
 - `CODE_OF_CONDUCT.md` — expected by GitHub. Use the Contributor Covenant.
@@ -295,6 +383,22 @@ git tag --sort=-version:refname | head -5
   Minimum: bug report + feature request templates.
 - `.github/PULL_REQUEST_TEMPLATE.md` — shows you care about contribution quality.
 
+**Maintainer responsiveness as a public metric:**
+
+GitHub now shows a "Median time to respond" insight on repo Insights pages. Repos optimising for stars should know this metric and pin a recent issue/PR they handled fast.
+
+```bash
+# Open vs closed issue counts
+gh api "repos/:owner/:repo/issues?state=open" --paginate --jq 'length'
+gh api "repos/:owner/:repo/issues?state=closed" --paginate --jq 'length'
+
+# Stale issues — anything older than 90 days with no maintainer comment
+gh issue list --state open --json number,createdAt,comments \
+  --jq '.[] | select((now - (.createdAt | fromdateiso8601)) > 7776000)'
+```
+
+Aim for closed > open. Stale unanswered issues older than 90 days hurt trust — recommend a triage pass.
+
 **GitHub Actions CI visibility:**
 
 A green CI badge on the README = instant trust signal. More importantly,
@@ -302,7 +406,21 @@ the presence of CI in `.github/workflows/` means GitHub shows a green/red
 checkmark on every commit. Visitors can see at a glance that the last commit
 passes tests.
 
-Minimum CI for geolens:
+**CI: verify before generating.**
+
+Geolens already has CI at `.github/workflows/ci.yml` (plus `publish.yml`, `publish-cli.yml`, `publish-sdks.yml`, `release.yml`, `verify-published.yml`). The audit must check existence first and only generate if missing:
+
+```bash
+if [ -f .github/workflows/ci.yml ]; then
+  echo "CI exists — verify the README badge points at the right workflow file."
+  grep -oE 'workflows/[a-z-]+\.yml' README.md
+else
+  echo "CI missing — recommend creating from the template below."
+fi
+```
+
+If `.github/workflows/ci.yml` exists, check the badge in README points at the right workflow file. If not, recommend creating from this template:
+
 ```yaml
 # .github/workflows/ci.yml
 name: CI
@@ -312,7 +430,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       db:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.5
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: testdb
@@ -324,18 +442,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
+        with: {python-version: '3.13'}
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: pytest -q
 ```
 
 **Releases and versioning:**
 
-Repos without releases look like experiments. A `v0.1.0` release signals
+Repos without releases look like experiments. A tagged release signals
 "this is a real thing that reached a milestone." GitHub's release page
 also appears in search results and attracts newsletter coverage.
 
-If no releases exist: recommend creating `v0.1.0` with a proper changelog.
+**Releases — detect current version, don't assume v0.1.0:**
+
+```bash
+# Detect canonical current version from project files
+GIT_TAG=$(git tag --sort=-version:refname | head -1)
+PKG_FE=$(grep -E '"version"' frontend/package.json 2>/dev/null | sed -E 's/.*"version"[ :]*"([^"]+)".*/\1/')
+PKG_BE=$(grep -E '^version' backend/pyproject.toml 2>/dev/null | sed -E 's/.*"([^"]+)".*/\1/')
+echo "Current version sources: tag=$GIT_TAG fe=$PKG_FE be=$PKG_BE"
+```
+
+If no releases exist: recommend the next semver-appropriate tag and a Keep-a-Changelog 1.1.0 entry. Do NOT regress to `v0.1.0` — detect the existing version first. For projects already at 1.0.0+, recommend the next semver bump (patch/minor/major) based on what's in the `[Unreleased]` CHANGELOG section.
 
 **Documentation quality:**
 
@@ -354,7 +482,7 @@ quality significantly.
 
 **Output:** trust gap checklist, template files for any missing CONTRIBUTING/
 CODE_OF_CONDUCT/SECURITY/CHANGELOG, GitHub Actions CI config, release notes
-template for v0.1.0.
+template matching the detected current version.
 
 ---
 
@@ -384,7 +512,19 @@ For geolens, genuine good first issues might be:
 - "Document the SRID coordinate convention in the README"
 - "Add a health check endpoint test"
 - "Write a Postman/Bruno collection for the API"
-- "Add CONTRIBUTING.md"
+- "Add a `Compose-up troubleshooting` section to docs/"
+- "Write an example uploading a Shapefile via the Python SDK"
+- "Add a `make demo` target that bootstraps the themed demo dataset"
+
+**Verify the label has open issues NOW (not just exists):**
+
+```bash
+COUNT=$(gh issue list --label "good first issue" --state open --json number --jq 'length')
+echo "Open good-first-issues: $COUNT"
+[ "$COUNT" -lt 3 ] && echo "FLAG: fewer than 3 open — auto-discovery sites (goodfirstissue.dev) need ≥ 3 to surface the repo"
+```
+
+If the label has 0 open issues, GitHub's contributor-discovery surfaces won't list the repo. Open at least 3 at all times.
 
 **Issue and PR response time:**
 
@@ -403,13 +543,21 @@ Never add "⭐ Please star this repo if you find it useful!" to the README.
 It reads as desperate and is a known conversion-killer. Let the quality
 of the project do the asking.
 
-**GitHub Sponsors:**
+**GitHub Sponsors / FUNDING.yml — verify, don't recreate:**
 
-Adding a `FUNDING.yml` makes the "Sponsor" button appear. Even if you
-don't expect donations, it signals this is a real project with a maintainer.
-It also triggers the GitHub sponsor discovery features.
+```bash
+if [ -f .github/FUNDING.yml ]; then
+  echo "FUNDING.yml exists — verify the username/org is current"
+  cat .github/FUNDING.yml
+else
+  echo "Add FUNDING.yml — the Sponsor button is a trust signal even without donations"
+fi
+```
+
+Beyond trust, `FUNDING.yml` puts the repo in GitHub's sponsor-discovery surfaces and adds a `❤️ Sponsor` button on every PR/issue, increasing per-page conversion. If it exists, verify the GitHub username/org is current and that the Sponsor button renders on the repo home page.
+
 ```yaml
-# .github/FUNDING.yml
+# .github/FUNDING.yml (template if missing)
 github: [your-username]
 ```
 
@@ -424,7 +572,7 @@ write-ups (title + description + acceptance criteria), FUNDING.yml.
 **The geolens-specific angle:**
 
 The intersection of `PostGIS + pgvector + FastAPI` is genuinely novel territory
-in 2025. Most vector search tutorials use Pinecone or Weaviate. Most PostGIS
+today. Most vector search tutorials use Pinecone or Weaviate. Most PostGIS
 tutorials use Django or raw SQL. A production-grade stack combining both with
 async Python is a real gap in the ecosystem. This is the story to tell.
 
@@ -453,6 +601,29 @@ Demo: [url if available]
 
 Timing: Tuesday–Thursday, 9–11am US Eastern. Avoid Mondays and Fridays.
 
+**Alternative HN draft — themed-demo angle (recommended for 1.0 launch):**
+
+```
+Show HN: GeoLens 1.0 — one-command spatial data catalog with themed demos
+
+GeoLens is an open-source self-hosted spatial data catalog. `docker compose 
+up` gives you a working UI in 5 minutes, preloaded with 9 themed demo maps 
+(Borders & Boundaries, One Territory Multiple Maps, Earth from Space, …).
+
+It's OGC- and STAC-native (works with QGIS/ArcGIS/MapLibre out of the box), 
+handles vector + raster + VRT mosaics in one catalog, and bundles semantic 
++ spatial + fuzzy search (pgvector + pg_trgm + PostGIS). Optional AI 
+chat-with-maps with BYO key.
+
+Apache 2.0. Single-org self-host is free; single-tenant Enterprise edition 
+exists for orgs that want SAML + audit logs.
+
+GitHub: [url]
+Demo: [url if available]
+```
+
+The pgvector × PostGIS draft above is fine as alternative #2 (better fit for r/Python or r/MachineLearning); the themed-demo draft is the visual one for HN's home page.
+
 **Reddit communities:**
 
 - `r/Python` — frame as "I built an async FastAPI stack for geo+vector search"
@@ -471,6 +642,8 @@ titles:
 - "Building location-aware semantic search: PostGIS + pgvector + FastAPI"
 - "The async Python geo stack: SQLAlchemy 2.0 + GeoAlchemy2 + pgvector"
 - "From coordinates to meaning: combining spatial and vector search"
+- "Why we built a self-hosted spatial data catalog (and shipped 1.0 in public)"
+- "Themed demos as a launch strategy: how GeoLens 1.0 ships with 9 working maps"
 
 The article should:
 1. Start with the problem (pure vector search ignores geography;
@@ -510,8 +683,6 @@ The article should:
 6/ Open source, MIT licensed, Docker Compose for one-command setup.
 
    [link to repo]
-   
-   ⭐ if this is useful to you
 ```
 
 **Community-specific venues:**
@@ -540,6 +711,270 @@ query executing in the UI is the next best thing.
 outline with the interesting technical content filled in, Twitter thread draft,
 Reddit post variants for each community, list of community-specific venues
 with specific engagement strategies.
+
+---
+
+### Subagent F — Public-release readiness audit
+**Goal: the repo is genuinely launch-ready — no version desync, no leftover internal references, no removed-component references, no real secrets in `.env.example`, no broken README images, no visitor-facing open-core dishonesty**
+
+This auditor focuses on what a launch reviewer or a GitHub-front-page visitor would notice. It does NOT cover release-machinery wiring (CI publish targets, signing, supply-chain — those live elsewhere).
+
+**Checks F.1–F.10:**
+
+#### F.1 Version sync
+
+```bash
+echo "=== Version sources ==="
+GIT_TAG=$(git tag --sort=-version:refname | head -1)
+PKG_FE=$(grep -E '"version"' frontend/package.json 2>/dev/null | head -1 | sed -E 's/.*"version"[ :]*"([^"]+)".*/\1/')
+PKG_BE=$(grep -E '^version' backend/pyproject.toml 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+CHG_TOP=$(grep -E '^## \[[0-9]' CHANGELOG.md 2>/dev/null | head -1 | sed -E 's/.*\[([0-9][^]]+)\].*/\1/')
+README_BADGE=$(grep -oE 'badge/[a-z]+-[0-9][0-9.]+' README.md 2>/dev/null | head -5)
+
+echo "git tag: $GIT_TAG"
+echo "frontend/package.json: $PKG_FE"
+echo "backend/pyproject.toml: $PKG_BE"
+echo "CHANGELOG top entry: $CHG_TOP"
+echo "README version-ish badges: $README_BADGE"
+
+# Docker image tags in README and compose
+grep -nE 'ghcr\.io/[^ ]+:[0-9][^ ]*|geolens-io/[^:]+:[0-9][^ ]*' README.md docker-compose.yml 2>/dev/null
+```
+
+**Pass:** `frontend/package.json` == `backend/pyproject.toml` == top dated `CHANGELOG.md` entry. Git tag should equal one of these or `v$VERSION`. Any divergence = **P0 BLOCKER**.
+
+#### F.2 Leftover internal references
+
+```bash
+USER_FACING="README.md CHANGELOG.md FEATURES.md docs/ .github/"
+
+echo "=== Internal-path leakage ==="
+grep -rnE 'docs-internal/|\.planning/|GTM/' $USER_FACING 2>/dev/null | grep -v '\.git/'
+
+echo "=== GSD / internal-tooling refs ==="
+grep -rnE '\bgsd-[a-z-]+|\.claude/(commands|worktrees)' $USER_FACING 2>/dev/null
+
+echo "=== Internal admin / audit paths ==="
+grep -rnE 'docs-internal/audits|post-impl-[0-9]+\.md' $USER_FACING 2>/dev/null
+```
+
+**Pass:** zero matches. Any hit = **P1 RELEASE-BLOCKING**.
+
+#### F.3 Removed-component references — parameterized
+
+Maintain a `REMOVED_COMPONENTS` array per project. For geolens:
+
+```bash
+REMOVED_COMPONENTS=(
+  "pg_tileserv"                    # removed v7.0
+  "pg_featureserv"                 # removed v2.2
+  "SHOW_LANDING_PAGE"              # env var removed v13.x
+  "VITE_API_PROXY_TARGET"          # renamed (one-release fallback only)
+  "AWS_MARKETPLACE_PRODUCT_CODE"   # enterprise-overlay-only as of v13.3
+)
+
+USER_FACING="README.md FEATURES.md docs/ .env.example docker-compose*.yml"
+
+for comp in "${REMOVED_COMPONENTS[@]}"; do
+  echo "=== $comp ==="
+  # CHANGELOG entries about removal are expected — flag only OUTSIDE CHANGELOG.
+  grep -rnE "\b${comp}\b" $USER_FACING 2>/dev/null | grep -v 'CHANGELOG.md'
+done
+```
+
+**Pass:** zero matches outside CHANGELOG. Any match = **P1 RELEASE-BLOCKING** — README must not advertise services the project no longer ships.
+
+#### F.4 CHANGELOG hygiene
+
+```bash
+echo "=== CHANGELOG format ==="
+
+# Keep a Changelog header reference
+head -5 CHANGELOG.md | grep -E "Keep a Changelog" || echo "MISS: no Keep-a-Changelog reference in CHANGELOG header"
+
+# Latest tagged version present and dated
+grep -E '^## \[[0-9]' CHANGELOG.md | head -3
+
+# Unreleased section size sanity
+UNREL_LINES=$(awk '/^## \[Unreleased\]/,/^## \[[0-9]/' CHANGELOG.md | wc -l)
+echo "Unreleased section: $UNREL_LINES lines"
+[ "$UNREL_LINES" -gt 200 ] && echo "FLAG: Unreleased section may be hiding an unreleased release — consider tagging"
+
+# Stale-dated entries inside Unreleased
+grep -A 50 '^## \[Unreleased\]' CHANGELOG.md | grep -oE '\(20[0-9][0-9]-[0-9]{2}-[0-9]{2}\)' | head -5
+```
+
+**Pass criteria:**
+- Keep a Changelog 1.1.0 reference in header (NOT 1.0.0 — geolens is on 1.1.0)
+- Most-recent dated entry: format `## [X.Y.Z] - YYYY-MM-DD`
+- `[Unreleased]` either empty or actively in progress
+- Latest entry's date within 90 days of `git log -1 --format=%ci` (warn otherwise)
+
+Each fail = **P2 QUALITY**.
+
+#### F.5 Demo-link liveness — flag for human verification
+
+```bash
+echo "=== Demo / live URLs declared in README ==="
+head -100 README.md | grep -oE 'https://[^ )"]+' | sort -u
+
+echo "=== Heuristic: known demo domains ==="
+head -200 README.md | grep -oE 'https://[^ )"]+' | grep -E 'demo|live|getgeolens|geolens\.io' | sort -u
+```
+
+**Pass:** report-only. Output a "DEMO LINKS — VERIFY MANUALLY" block in findings. Add to BLOCKERS only if README explicitly promises a demo and the URL is `localhost` or a placeholder.
+
+#### F.6 LICENSE existence + match with README
+
+```bash
+echo "=== LICENSE check ==="
+
+test -f LICENSE && echo "LICENSE: present" || echo "LICENSE: MISSING (P0)"
+
+LICENSE_NAME=$(head -3 LICENSE 2>/dev/null | grep -oiE 'mit|apache|gpl|bsd|mozilla|unlicense' | head -1)
+echo "Detected from LICENSE: $LICENSE_NAME"
+
+README_LICENSE=$(grep -oiE 'license[^A-Za-z]+(mit|apache[ -]?2\.?0|gpl-?[23]|bsd-[23]|mpl-?2)' README.md | head -3)
+echo "README claims: $README_LICENSE"
+
+grep -oE '!\[[^]]*[Ll]icense[^]]*\][^)]+' README.md | head -3
+```
+
+**Pass:** LICENSE exists AND detected type matches README claim AND license badge. Mismatch = **P0 BLOCKER** (legal risk).
+
+#### F.7 `.env.example` presence + secret-leak heuristic
+
+```bash
+echo "=== .env.example check ==="
+
+test -f .env.example && echo ".env.example: present" || echo ".env.example: MISSING (P1)"
+
+echo "=== Suspicious values in .env.example ==="
+
+# AWS-style keys
+grep -nE 'AKIA[0-9A-Z]{16}|aws_secret_access_key=[A-Za-z0-9/+=]{40}' .env.example 2>/dev/null
+
+# High-entropy strings (32+ chars), excluding obvious placeholders
+grep -nE '=[A-Za-z0-9+/=_-]{32,}' .env.example 2>/dev/null \
+  | grep -viE 'change[ _-]?me|placeholder|example|your[ _-]|secret[ _-]?here|<.*>|xxx|yyy|zzz|todo' \
+  | grep -viE '=admin$|=password$|=changeme$' \
+  | head -10
+
+# Common API key formats
+grep -nE 'sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9-]+|ghp_[A-Za-z0-9]{36}|github_pat_' .env.example 2>/dev/null
+```
+
+**Pass:** `.env.example` exists AND no values match real-secret heuristics. Any match = **P0 BLOCKER** (refuse-to-launch — credential leak).
+
+#### F.8 WIP / "Coming soon" / TODO scan in user-facing docs
+
+```bash
+echo "=== WIP / TODO / Coming Soon scan ==="
+
+USER_FACING="README.md FEATURES.md docs/"
+
+grep -rniE 'coming soon|work[ -]in[ -]progress|\bWIP\b|\bTODO\b|\bFIXME\b|XXX:|to be added|under construction' \
+  $USER_FACING 2>/dev/null \
+  | grep -viE '^\s*//|^\s*#'
+
+grep -niE '^#+ +(roadmap|future|planned|coming|upcoming)' $USER_FACING 2>/dev/null
+```
+
+**Pass:** zero matches in README hero (first 100 lines). Matches in deeper docs = **P2 QUALITY**. A "Roadmap" section is fine; recommend wording it as "What's next" rather than "Coming soon".
+
+#### F.9 Stale screenshots / assets — heuristic with documented limitation
+
+```bash
+echo "=== Asset freshness heuristic ==="
+
+README_IMAGES=$(grep -oE '\(docs/images/[^)]+\)|src="docs/images/[^"]+"' README.md | sed -E 's/.*(docs\/images\/[^)"]+).*/\1/' | sort -u)
+
+LATEST_UI_COMMIT=$(git log -1 --format=%ct -- 'frontend/src/**' 2>/dev/null)
+LATEST_UI_DATE=$(git log -1 --format=%ci -- 'frontend/src/**' 2>/dev/null)
+echo "Latest UI commit: $LATEST_UI_DATE"
+
+for img in $README_IMAGES; do
+  if [ -f "$img" ]; then
+    IMG_COMMIT=$(git log -1 --format=%ct -- "$img" 2>/dev/null)
+    IMG_DATE=$(git log -1 --format=%ci -- "$img" 2>/dev/null)
+    if [ -n "$IMG_COMMIT" ] && [ -n "$LATEST_UI_COMMIT" ] && [ "$IMG_COMMIT" -lt "$LATEST_UI_COMMIT" ]; then
+      AGE_DAYS=$(( ($LATEST_UI_COMMIT - $IMG_COMMIT) / 86400 ))
+      echo "STALE? $img (last touched $IMG_DATE — $AGE_DAYS days behind latest UI change)"
+    fi
+  else
+    echo "MISSING: $img (referenced in README, file not found)"
+  fi
+done
+```
+
+**Pass:** missing files = **P0 BLOCKER** (broken README image). Stale > 90 days behind UI changes = **P2 QUALITY** + flag for human review (UI commits don't always change visible UI). **Heuristic limitation — explicit:** treat findings as a prompt for visual review, not a hard gate.
+
+#### F.10 Visitor-facing open-core / enterprise honesty
+
+**Out of scope: engineering-level open-core separation — run `/oc-audit` for that.**
+
+This check covers ONLY what a community visitor would notice:
+
+```bash
+echo "=== F.10 Visitor-facing open-core honesty ==="
+
+# Enterprise-only feature mentions in feature lists — must be tagged (Enterprise) or similar
+echo "--- Untagged enterprise features in user-facing docs ---"
+USER_FACING="README.md FEATURES.md docs/"
+# Look for keywords that typically describe enterprise-only features in this project
+grep -rniE '\b(SAML|SSO|audit log|RBAC|multi-org|multi-tenant|enterprise edition)\b' $USER_FACING 2>/dev/null \
+  | grep -vE '\(Enterprise\)|\[Enterprise\]|<sup>Enterprise</sup>|requires Enterprise' \
+  | head -10
+
+# Broken cross-repo references — links/screenshots pointing at the enterprise repo
+echo "--- Broken cross-repo refs (enterprise paths in public README) ---"
+grep -nE 'geolens-enterprise/|/enterprise-only/' README.md docs/ 2>/dev/null
+
+# Pricing / upsell tone — flag if any banner-like construct
+echo "--- Aggressive upsell / banner detection ---"
+grep -nE '!\[.*[Pp]ricing.*\]|!\[.*[Uu]pgrade.*\]|<!--.*[Pp]ricing.*-->' README.md 2>/dev/null
+head -50 README.md | grep -niE 'upgrade now|buy now|enterprise plan|starting at \$' | head -5
+```
+
+**Pass criteria:**
+- Enterprise-only features mentioned in user-facing docs are tagged (e.g. `(Enterprise)`, `<sup>Enterprise</sup>`, "requires Enterprise edition") so OSS visitors don't bounce trying things that don't exist in OSS.
+- No broken cross-repo references — public repo must not link to paths only present in `geolens-enterprise`.
+- Pricing/upsell tone restrained — one understated link, never a banner. Aggressive constructs = **P2 QUALITY** (community trust signal).
+
+Each tagging miss in user-facing docs = **P2 QUALITY** (unless the feature is described as available when it isn't — that's **P1 RELEASE-BLOCKING**, dishonesty in feature lists). Cross-repo broken refs = **P1 RELEASE-BLOCKING**.
+
+**Output (Subagent F):** structured findings keyed by F.1–F.10, each tagged P0 / P1 / P2 / OK, with concrete file:line references where applicable. Pass through to Phase 2.5 for synthesis.
+
+---
+
+## Phase 2.5 — Release-readiness gate
+
+After Subagents A–F complete, before Phase 3 prioritised plan, synthesise Subagent F findings into a single readiness verdict.
+
+**P0 BLOCKERS** — STOP, fix before any star-growth work:
+- F.1 version desync
+- F.6 LICENSE missing or mismatched
+- F.7 real secret in `.env.example`
+- F.9 README image file missing
+
+**P1 RELEASE-BLOCKING** — fix before public launch but report can continue:
+- F.2 internal references in user-facing docs
+- F.3 removed-component references in user-facing docs
+- F.7 `.env.example` missing
+- F.10 cross-repo broken refs OR feature-list dishonesty
+- C2 install-flow audit failure (npm/PyPI/Docker package not resolvable)
+
+**P2 QUALITY** — mention in prioritised plan, don't block:
+- F.4 CHANGELOG format issues
+- F.8 WIP/TODO in deeper docs
+- F.9 stale screenshots heuristic flag
+- F.10 untagged enterprise features OR aggressive upsell tone
+
+**Output rules:**
+
+- If any P0 or P1 finding exists, emit a top-of-report `## BLOCKERS` section listing each finding with file:line reference and the recommended fix. The prioritised plan in Phase 3 must surface these as the first quick wins.
+- If no P0/P1 findings, emit: `Public-release readiness: ✅ no blockers detected (still flagged for human verification: <demo links from F.5>)`.
+- P2 findings always feed into the prioritised plan as quality items, never the BLOCKERS section.
 
 ---
 
@@ -576,6 +1011,14 @@ Date: [date]
 impact on star velocity based on the audit]
 ```
 
+**The "do nothing" branch:**
+
+If the audit finds no changes scoring ≥ Medium impact AND Phase 2.5 reports no BLOCKERS, the report should state that explicitly:
+
+> Public-release readiness: clean. README scores ≥ 8/10 across all dimensions. Recommendation: **launch the existing README**. Ship it.
+
+A meta-audit that always finds work to do is suspicious. Permitting a "ship it" verdict is the credibility check.
+
 **The star velocity model:**
 
 | Action | Effort | Expected impact |
@@ -589,12 +1032,36 @@ impact on star velocity based on the audit]
 | Live demo deployment | 4h | +2–3× README conversion |
 | Awesome list submission × 3 | 30min | +100–300 stars |
 | GitHub Discussions | 30min | +community compounding |
+| Fix version desync | 30min | trust signal — eliminates "is this even maintained?" doubt |
+| Remove internal-path refs from public docs | 30min | removes legitimacy concerns |
+| Replace stale screenshots | 1h | first-impression quality — visible above the fold |
+| 60s "first run" screencast | 2h | +30–50% README-to-clone conversion |
+| Star-history badge (after 200+ stars) | 5min | social-proof compounding |
 
 ---
 
 ## Phase 4 — Generate all content (if `--write` flag set)
 
 Produce every content artifact as a ready-to-use file:
+
+**Pre-flight guard — diff, don't overwrite:**
+
+For each artifact below: if a file already exists at the target path, **diff against the existing version and produce a patch**, NOT a wholesale replacement. Skip generation if the existing file is materially complete (> 30 lines AND not a stub).
+
+```bash
+for f in README.md CONTRIBUTING.md .github/CONTRIBUTING.md CHANGELOG.md SECURITY.md \
+         .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml \
+         .github/PULL_REQUEST_TEMPLATE.md .github/FUNDING.yml; do
+  if [ -f "$f" ]; then
+    LINES=$(wc -l < "$f")
+    echo "$f: exists ($LINES lines) — diff against draft, do not overwrite"
+  else
+    echo "$f: missing — generate from template below"
+  fi
+done
+```
+
+The CHANGELOG.md, CONTRIBUTING.md, and README.md templates below are starting points, not destinations. Real geolens already has multi-thousand-line versions of these — overwriting them would destroy real content.
 
 **1. `README.md` — complete rewrite**
 
@@ -722,29 +1189,25 @@ body:
 - [ ] I've updated docs if needed
 ```
 
-**6. `CHANGELOG.md`**
+**6. `CHANGELOG.md`** (skip if exists with `[1.0.0]` or higher entry — diff instead)
+
 ```markdown
 # Changelog
 
 All notable changes to geolens are documented here.
-Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+Format: [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
+versioning: [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-- [First entry]
-
-## [0.1.0] - [date]
+## [1.0.0] - 2026-04-01
 
 ### Added
-- Initial release
-- FastAPI backend with async SQLAlchemy
-- PostGIS spatial queries via GeoAlchemy2
-- pgvector semantic search with HNSW index
-- pg_trgm full-text search
-- React frontend with TanStack Query v5
-- Docker Compose development environment
+- Public 1.0 release. Versions reset from 13.x → 1.0.0; the prior 13.x line was a pre-public version history.
+- (See git history and prior milestone summaries for the actual feature set shipped through 1.0.0.)
 ```
+
+If the real CHANGELOG.md already exists and has a `[1.0.0]` (or later) entry, do NOT generate this template — diff and propose specific edits instead. **Never emit a `## [0.1.0] - [date]` stub** — that would regress version history (geolens shipped 1.0.0 on 2026-04-01).
 
 **7. `SECURITY.md`**
 ```markdown
@@ -775,6 +1238,33 @@ github: [your-github-username]
 **11. Twitter/X thread** — complete, 8–12 tweets
 **12. Reddit posts** — 4 variants for different communities
 
+**13. `RELEASE-READINESS.md`** — local checklist file capturing the F.1–F.10 outcomes, machine-readable so a future re-run can diff. Write to `docs-internal/audits/release-readiness-{YYYYMMDD}.md` (since `docs-internal/` is gitignored — local-only by design).
+
+```markdown
+# Release-readiness audit — {YYYYMMDD}
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| F.1 Version sync | ✅/⚠️/❌ | <findings> |
+| F.2 Internal refs | ✅/⚠️/❌ | <findings> |
+| F.3 Removed-components | ✅/⚠️/❌ | <findings> |
+| F.4 CHANGELOG hygiene | ✅/⚠️/❌ | <findings> |
+| F.5 Demo links (manual) | 📋 | <list URLs to verify> |
+| F.6 LICENSE match | ✅/⚠️/❌ | <findings> |
+| F.7 .env.example | ✅/⚠️/❌ | <findings> |
+| F.8 WIP/TODO scan | ✅/⚠️/❌ | <findings> |
+| F.9 Stale screenshots (heuristic) | ✅/⚠️/❌ | <findings> |
+| F.10 OC visitor honesty | ✅/⚠️/❌ | <findings> |
+
+## BLOCKERS (P0/P1)
+
+<list with file:line refs>
+
+## Quality items (P2)
+
+<list>
+```
+
 ---
 
 ## DELIVERY
@@ -783,10 +1273,17 @@ github: [your-github-username]
 
 Write the report to: `docs-internal/audits/star-audit-{YYYYMMDD}.md`
 
+```bash
+mkdir -p docs-internal/audits/
+# docs-internal/ is gitignored — audit reports are local-only by design.
+# To share findings, copy out manually (e.g. to a private gist or email).
+```
+
 ### Post-delivery
 
-1. If a previous `star-audit-*.md` exists in `docs-internal/audits/`, diff key findings against the prior report.
-2. Print one-line summary: overall readiness score + top quick win + estimated star velocity impact.
+1. If a previous `star-audit-*.md` exists in `docs-internal/audits/`, diff key findings against the prior report and surface deltas.
+2. If Phase 2.5 emitted a `## BLOCKERS` section, also write the same content to `docs-internal/audits/release-readiness-{YYYYMMDD}.md` (per Phase 4 artifact #13).
+3. Print a one-line summary: overall readiness score + top quick win + estimated star-velocity impact + BLOCKERS count (or "✅ no blockers").
 
 ---
 
@@ -812,17 +1309,15 @@ These are proven ways to hurt star growth — do not suggest them:
 
 ## The geolens unique angle — never dilute this
 
-The honest, interesting story of geolens is:
+GeoLens 1.0.0 differentiators (in priority order for a launch audience):
 
-**Most search tools make you choose: semantic OR spatial. geolens does both.**
+1. **One-command spatial data catalog** — `docker compose up` to working UI in 5 minutes, with 9 themed demo maps preloaded (Borders & Boundaries, One Territory Multiple Maps, Earth from Space, …).
+2. **OGC- and STAC-native** — works with QGIS, ArcGIS, MapLibre, and any OGC API Features/Records or STAC client out of the box.
+3. **Vector + raster + VRT mosaics** in one catalog — the full geo-data shape, not just one slice.
+4. **Semantic + spatial + fuzzy search** — pgvector + pg_trgm + PostGIS, indexed and queryable in a single SQL statement.
+5. **AI chat with maps** (optional, BYO key) — natural-language exploration over the catalog.
+6. **Open-core, Apache 2.0** — single-org self-host free; single-tenant Enterprise edition for orgs that want SAML + audit logs.
 
-pgvector finds things that *mean* the same thing.
-PostGIS finds things that *are near* the same place.
-The interesting queries live at the intersection.
+The pgvector × PostGIS angle is a real technical differentiator but it is **one of several**. Lead with the demo (one-command + themed maps), follow with the OGC/STAC interop, and treat the search-stack innovation as a section, not the headline.
 
-This is a genuine technical insight with a real use case (find coffee shops
-with the right vibe near me, find properties similar to this description
-in this neighbourhood, find events near me that match my interests).
-
-Every piece of content should carry this story. It's specific, technical,
-true, and useful. That combination is rare and genuinely star-worthy.
+Every piece of content should carry one or two of these — not all six at once. Specific, technical, true, and useful is what reads as star-worthy.
