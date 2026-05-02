@@ -21,6 +21,7 @@ from app.platform.extensions.defaults import (
     DefaultBrandingExtension,
     DefaultIdentityExtension,
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
+    DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
     DefaultProcessingPort,  # NEW (Phase 225)
 )
 from app.platform.extensions.protocols import (
@@ -34,7 +35,10 @@ from app.platform.extensions.protocols import (
 if TYPE_CHECKING:
     from app.core.identity import IdentityExtension
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
-    from app.platform.extensions.protocols import AIProviderExtension  # NEW (Phase 226)
+    from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231)
+        AIProviderExtension,
+        EmbeddingProviderExtension,
+    )
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -252,4 +256,31 @@ def get_ai_provider(name: str) -> "AIProviderExtension":
     providers.setdefault("openai_compatible", DefaultOpenAICompatibleProvider())
     if name not in providers:
         raise ValueError(f"Unknown LLM provider: {name}")
+    return providers[name]  # type: ignore[return-value]
+
+
+def get_embedding_provider(name: str) -> "EmbeddingProviderExtension":
+    """Return the named EmbeddingProviderExtension or raise ValueError (Phase 231 D-09/D-10).
+
+    Registry slot ``_extensions["embedding_providers"]`` is a
+    ``dict[str, EmbeddingProviderExtension]`` — same dict-shape as
+    ``ai_providers`` (Phase 226 D-04). Distinct registry from ``ai_providers``;
+    the same name (``"openai_compatible"``) coexists in both because dispatch
+    tables are name-scoped per extension type (D-07).
+
+    Per-key ``setdefault`` seeds the single community default without overwriting
+    overlay registrations (D-10 mirroring Phase 226 D-05). If an overlay
+    registered ``providers["openai_compatible"] = TierAwareEmbeddingProvider()``
+    BEFORE the first ``get_embedding_provider()`` call, the seeding step skips
+    that key and the overlay wins. If an overlay registers a NEW name
+    ``providers["bedrock"] = BedrockEmbeddingProvider()``, both default and
+    overlay coexist. Order-safe regardless of overlay registration timing.
+
+    Raises ``ValueError("Unknown embedding provider: {name}")`` for unknown
+    names (D-11 — symmetry with ``get_ai_provider``'s "Unknown LLM provider").
+    """
+    providers = _extensions.setdefault("embedding_providers", {})
+    providers.setdefault("openai_compatible", DefaultOpenAIEmbeddingProvider())
+    if name not in providers:
+        raise ValueError(f"Unknown embedding provider: {name}")
     return providers[name]  # type: ignore[return-value]
