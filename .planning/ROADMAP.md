@@ -106,7 +106,7 @@ Plans:
 - [x] 226-01-PLAN.md — additive-scaffold: AIProviderExtension Protocol + DefaultAnthropicProvider + DefaultOpenAICompatibleProvider + get_ai_provider(name) accessor (Wave 1, AIEXT-01/02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 226-02-PLAN.md — caller-migration: 4 run_tool_loop callers + sql_generator + resolve_provider tuple shape; delete _loop_anthropic/_loop_openai/run_tool_loop (Wave 2, AIEXT-03)
+- [x] 226-02-PLAN.md — caller-migration: 4 run_tool_loop callers + sql_generator + resolve_provider tuple shape; delete _loop_anthropic/_loop_openai/run_tool_loop (Wave 2, AIEXT-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 226-03-PLAN.md — dead-code-cleanup: remove unreferenced OpenAI-format constants + module-level client caches (Wave 3, optional cleanup; depends on Plan 02)
