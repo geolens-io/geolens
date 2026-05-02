@@ -1,7 +1,7 @@
 # Manual-trigger publish workflow for the GeoLens CLI.
-# Phase 216 ships the workflow; running it requires:
-#   1. PyPI token in repo secret PYPI_TOKEN (or per-project token after first publish)
-#   2. Builder/maintainer claims the `geolens` PyPI name
+# Phase 228 ships the cold-start credentials:
+#   1. PyPI Trusted Publishing configured for `geolens` (CLI) at https://pypi.org/manage/account/publishing/
+#   2. The maintainer claims the `geolens` PyPI name (one-time, automatic on first publish via pending-publisher OIDC)
 # See docs/cli.md (§Publishing) for the full first-publish runbook.
 name: Publish CLI
 
@@ -16,7 +16,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write  # for PyPI Trusted Publishing (future migration)
+  id-token: write  # for PyPI Trusted Publishing (Phase 228 — active)
 
 jobs:
   publish-cli:
@@ -41,9 +41,18 @@ jobs:
         working-directory: cli
         run: ls -la dist/
 
+      - name: Pre-flight name-availability gate (geolens on PyPI)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -e
+          if pip3 index versions geolens 2>&1 | grep -q "No matching distribution"; then
+            echo "PyPI geolens: unclaimed (safe to publish)"
+          else
+            CURRENT=$(pip3 index versions geolens 2>&1 | head -1)
+            echo "::warning::PyPI geolens already published: $CURRENT — proceeding (re-publish path)"
+          fi
+
       - name: Publish to PyPI
         if: ${{ !inputs.dry_run }}
         working-directory: cli
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: uv publish
+        run: uv publish --trusted-publishing automatic

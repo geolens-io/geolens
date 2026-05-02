@@ -1,0 +1,45 @@
+# Clean-machine smoke verification of published GeoLens packages.
+# Phase 228 ships this alongside the first hot publish.
+# Jobs run inside fresh Docker images (python:3.13-slim, node:22-slim) — no
+# repo context, no runner pollution; mimics what a downstream user gets.
+# See docs/sdks.md (§Publishing) for context.
+name: Verify Published Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version to verify (default: latest)'
+        required: false
+        type: string
+        default: 'latest'
+  push:
+    tags:
+      - 'release/*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-python:
+    name: Verify Python packages on python:3.13-slim
+    runs-on: ubuntu-latest
+    steps:
+      - name: pip install + smoke import (geolens-sdk + geolens CLI)
+        run: |
+          docker run --rm python:3.13-slim sh -c "
+            pip install --no-cache-dir geolens-sdk geolens &&
+            geolens --version &&
+            python -c 'from geolens_sdk import GeolensClient; print(GeolensClient)'
+          "
+
+  verify-typescript:
+    name: Verify TypeScript package on node:22-slim
+    runs-on: ubuntu-latest
+    steps:
+      - name: npm install + smoke import (@geolens/sdk)
+        run: |
+          docker run --rm node:22-slim sh -c "
+            npm install --no-save @geolens/sdk &&
+            node -e 'import(\"@geolens/sdk\").then(m => console.log(typeof m.createGeolensClient))'
+          "
