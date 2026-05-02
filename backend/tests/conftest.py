@@ -414,6 +414,12 @@ async def test_db_session(client: AsyncClient):
 #
 # Both are large changes deferred to a dedicated PR. The opt-in ``clean_tables``
 # fixture below is provided for tests that need extra determinism today.
+#
+# Concurrent session hazard: the test DB name (``geolens_test``) is fixed, and
+# the session-scoped lifecycle drops + recreates it at start. Running two
+# pytest sessions in parallel against the same target (e.g. an interactive run
+# plus a background regression check) causes cascading fixture errors in the
+# slower session as the DB is dropped out from under it. Serialize runs.
 
 
 @pytest.fixture(autouse=True)
