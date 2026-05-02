@@ -13,7 +13,7 @@ We only patch the latest release. If you're running an older version, please upg
 
 **Do not open a public issue for security vulnerabilities.**
 
-Email **security@getgeolens.io** with:
+Email **security@getgeolens.com** with:
 
 - Description of the vulnerability
 - Steps to reproduce
