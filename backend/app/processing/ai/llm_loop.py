@@ -32,31 +32,51 @@ _LLM_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Module-level client singletons to avoid per-request connection overhead
-_cached_anthropic_client: AsyncAnthropic | None = None
-_cached_openai_clients: dict[str, AsyncOpenAI] = {}
+# Phase 226 D-25: module-level _cached_anthropic_client / _cached_openai_clients
+# singletons removed — cache state now lives on DefaultAnthropicProvider._client
+# and DefaultOpenAICompatibleProvider._clients class attributes (Plan 01).
+# These functions remain as module-level utilities so streaming.py /
+# metadata_service.py keep their existing import path (RESEARCH.md Pitfall 4).
 
 
 def get_anthropic_client() -> AsyncAnthropic:
-    global _cached_anthropic_client
-    if _cached_anthropic_client is None:
-        _cached_anthropic_client = AsyncAnthropic(
+    """Return the cached Anthropic SDK client.
+
+    Cache lives on DefaultAnthropicProvider._client (Phase 226 D-25).
+    Used by streaming.py and metadata_service.py, which import this function
+    directly rather than going through the provider Protocol because their
+    dispatch paths are deferred-scope (RESEARCH.md Open Questions 1 & 2).
+    """
+    # Deferred import to avoid module-import cycle:
+    # llm_loop -> platform.extensions.defaults -> (imports _LLM_TIMEOUT etc. from llm_loop)
+    from app.platform.extensions.defaults import DefaultAnthropicProvider
+
+    if DefaultAnthropicProvider._client is None:
+        DefaultAnthropicProvider._client = AsyncAnthropic(
             api_key=reveal(settings.anthropic_api_key),
             timeout=_LLM_TIMEOUT,
             max_retries=2,
         )
-    return _cached_anthropic_client
+    return DefaultAnthropicProvider._client
 
 
 def get_openai_client(base_url: str) -> AsyncOpenAI:
-    if base_url not in _cached_openai_clients:
-        _cached_openai_clients[base_url] = AsyncOpenAI(
+    """Return the cached OpenAI-compatible SDK client for ``base_url``.
+
+    Cache lives on DefaultOpenAICompatibleProvider._clients dict (Phase 226 D-25).
+    Used by streaming.py, which imports this function directly (deferred-scope
+    per RESEARCH.md Open Question 1).
+    """
+    from app.platform.extensions.defaults import DefaultOpenAICompatibleProvider
+
+    if base_url not in DefaultOpenAICompatibleProvider._clients:
+        DefaultOpenAICompatibleProvider._clients[base_url] = AsyncOpenAI(
             api_key=reveal(settings.openai_api_key),
             base_url=base_url,
             timeout=_LLM_TIMEOUT,
             max_retries=2,
         )
-    return _cached_openai_clients[base_url]
+    return DefaultOpenAICompatibleProvider._clients[base_url]
 
 
 # Type aliases for callbacks
