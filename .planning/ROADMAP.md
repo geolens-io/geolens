@@ -208,7 +208,17 @@ Plans:
 4. The existing architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` is **renamed/expanded** to `test_no_module_level_provider_sdk_imports_in_processing` covering both `processing/ai/` and `processing/embeddings/`. The carve-out for embeddings is removed from the docstring.
 5. Existing embeddings tests pass unchanged with the default provider wired in (no behavior delta for community users); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly.
 
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+**Wave 1**
+- [ ] 231-01-PLAN.md — additive-scaffold: EmbeddingProviderExtension Protocol + DefaultOpenAIEmbeddingProvider (AsyncOpenAI + retry/backoff + class-level _clients cache) + get_embedding_provider(name) accessor + new tests/test_embedding_provider_extension.py with default-smoke / unknown-ValueError / entry-points-overlay-dispatch tests (Wave 1, EMBPROV-01/02/05b)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 231-02-PLAN.md — caller-migration + helpers.py deletion: migrate generate_embedding + probe_embedding_dimensions to provider dispatch (D-12 hardcoded "openai_compatible"); DELETE helpers.py:8 from openai import OpenAI + _cached_openai_clients + build_openai_client + resolve_embedding_base_url + import httpx; migrate 4 of 5 test_embedding_service.py tests to provider-boundary mocks per D-27; SC#3 binding satisfied (Wave 2, EMBPROV-03/05a/05c)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 231-03-PLAN.md — architecture-guard rename + final verification: rename test_no_module_level_provider_sdk_imports_in_processing_ai → test_no_module_level_provider_sdk_imports_in_processing (D-13); broaden pathspec to backend/app/processing/ (D-14); delete carve-out paragraph; update negative-control example to embeddings (D-15); update test_layering.py module docstring crediting Phase 231 (D-16); automated negative-control demo (Wave 3, EMBPROV-04)
 
 #### Phase 229: post-impl-audit-v13.4
 

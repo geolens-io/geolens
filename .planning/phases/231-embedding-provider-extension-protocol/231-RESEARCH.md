@@ -768,22 +768,22 @@ mock_provider.resolve_runtime_config = AsyncMock(return_value={
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`EmbeddingUnavailableError` final location**
    - What we know: 4 external consumers import from `service.py`; Phase 226 precedent (`ToolLoopExhaustedError` in `llm_loop.py`) supports keeping it at the service layer
-   - What's unclear: Whether the planner prioritizes layering purity (move to `extensions/exceptions.py`) or diff minimization (keep in `service.py`)
-   - Recommendation: KEEP in `service.py`. 4 fewer files touched; provider class imports it via deferred discipline
+   - What was unclear: Whether the planner prioritizes layering purity (move to `extensions/exceptions.py`) or diff minimization (keep in `service.py`)
+   - **RESOLVED:** Keep in `service.py`. 4 fewer files touched; provider class imports it via deferred discipline. Implemented in Plan 02 (no `EmbeddingUnavailableError` move; `defaults.py` `DefaultOpenAIEmbeddingProvider.embed()` does deferred `from app.processing.embeddings.service import EmbeddingUnavailableError` inside the method body).
 
 2. **API key check location: service vs. provider**
    - What we know: Today the check is at `service.py:47-53` and `:122-125` (before client construction). After migration, the provider class also has the same check (per the recommended `embed()` body). Two checks for the same condition.
-   - What's unclear: Whether to remove the service-level check (provider becomes the single source of truth) or keep both (defense in depth)
-   - Recommendation: KEEP both. The service-level check provides a clear, consistent error message before any registry/provider machinery is invoked; the provider-level check defends against future overlay providers that may not check (forward-defense). Both raise the same `EmbeddingUnavailableError`. Cost: 5 lines of duplicate code per call site.
+   - What was unclear: Whether to remove the service-level check (provider becomes the single source of truth) or keep both (defense in depth)
+   - **RESOLVED:** Keep both. The service-level check provides a clear, consistent error message before any registry/provider machinery is invoked; the provider-level check defends against future overlay providers that may not check (forward-defense). Both raise the same `EmbeddingUnavailableError`. Cost: 5 lines of duplicate code per call site. Implemented in Plan 02 (service.py preserves the check; Plan 01 adds the same check inside `DefaultOpenAIEmbeddingProvider.embed()`).
 
 3. **Existing `test_generate_embedding_raises_when_no_openai_key` test target**
    - What we know: Test patches only `service.settings` and asserts `EmbeddingUnavailableError` raised
-   - What's unclear: Whether the test still passes if the API-key check is removed from service-level (case 2 recommendation rejected)
-   - Recommendation: If the planner takes recommendation 2 (keep both checks), this test is unchanged. If the planner moves the check entirely into the provider, this test must additionally mock `service.get_embedding_provider` returning a provider that raises `EmbeddingUnavailableError` — which is fine but is one more mock setup line.
+   - What was unclear: Whether the test still passes if the API-key check is removed from service-level (case 2 recommendation rejected)
+   - **RESOLVED:** Test 2 (`test_generate_embedding_raises_when_no_openai_key`) stays byte-for-byte unchanged because resolution #2 keeps the service-level check. Plan 02 explicitly leaves this test untouched; only the other 4 tests in `test_embedding_service.py` migrate to provider-boundary mocks per D-27.
 
 ---
 

@@ -46,7 +46,7 @@ created: 2026-05-02
 | 231-02-* | 02 | 2 | EMBPROV-05a | — | 5 existing `test_embedding_service.py` tests stay green with provider-boundary mocks | unit | `cd backend && uv run pytest tests/test_embedding_service.py -x` (5 tests pass) | ✅ exists; mock migration per D-27 | ⬜ pending |
 | 231-02-* | 02 | 2 | EMBPROV-05c | — | Service-boundary mock tests (`test_embedding_pipeline.py`, `test_hybrid_search.py`) stay green | integration | `cd backend && uv run pytest tests/test_embedding_pipeline.py tests/test_hybrid_search.py -x` | ✅ exists; UNAFFECTED per D-28 | ⬜ pending |
 | 231-03-* | 03 | 3 | EMBPROV-04 | T-ARCH-GUARD | Renamed guard catches reintroduced SDK imports anywhere in `processing/` | architecture | `cd backend && uv run pytest tests/test_layering.py::test_no_module_level_provider_sdk_imports_in_processing -x` | ✅ exists as `_in_processing_ai`; rename per D-13 | ⬜ pending |
-| 231-03-* | 03 | 3 | EMBPROV-04b | T-NEG-CONTROL | Negative-control: temporarily reintroducing `from openai import OpenAI` in `helpers.py` causes the renamed test to fail with the offending line surfaced | architecture (manual) | Manual: insert `from openai import OpenAI` at top of `helpers.py`, run `cd backend && uv run pytest tests/test_layering.py -k architecture`, confirm fail, revert | manual per D-15 | ⬜ pending |
+| 231-03-* | 03 | 3 | EMBPROV-04b | T-NEG-CONTROL | Negative-control: temporarily reintroducing `from openai import OpenAI` in `helpers.py` causes the renamed test to fail with the offending line surfaced; demo reverts via `git checkout` and asserts post-revert green + clean tree | architecture | Plan 03 Task 2 `<verify><automated>` bash pipeline (injects, asserts fail, reverts via `git checkout`, asserts green + clean working tree + zero `from openai` hits in `processing/embeddings/`) | ✅ Plan 03 Task 2 automates per D-15 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -63,16 +63,14 @@ created: 2026-05-02
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Negative-control: architecture-guard test catches a reintroduced `from openai` import | EMBPROV-04b | Test must be reverted after the demonstration; cannot be automated without permanent test artifact | 1) Edit `backend/app/processing/embeddings/helpers.py` adding `from openai import OpenAI` at the top. 2) Run `cd backend && uv run pytest tests/test_layering.py::test_no_module_level_provider_sdk_imports_in_processing -x`. 3) Confirm test FAILS with `Module-level provider-SDK import found in backend/app/processing/.` and the offending line surfaced. 4) Revert the edit. 5) Confirm test PASSES. (D-15) |
+*None — Plan 03 Task 2 fully automates the EMBPROV-04b negative-control demo via a bash pipeline that injects `from openai import OpenAI`, asserts the renamed test fires with the offending line surfaced, reverts via `git checkout`, asserts post-revert green + clean working tree + zero `from openai` hits. See Plan 03's `<verify><automated>` block for the exact script.*
 
 ---
 
 ## Validation Sign-Off
 
 - [ ] All tasks have `<automated>` verify or Wave 0 dependencies (per-task map above)
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify (architecture-guard rename is the only manual-leaning task and is bracketed by automated coverage on either side)
+- [ ] Sampling continuity: no 3 consecutive tasks without automated verify (every task in Plans 01/02/03 has automated coverage; the negative-control demo is also fully automated via Plan 03 Task 2's `<verify><automated>` bash pipeline)
 - [ ] Wave 0 covers all MISSING references (`test_embedding_provider_extension.py` new; `test_layering.py` renamed; `test_embedding_service.py` mock-migrated)
 - [ ] No watch-mode flags (all commands use `-x -q`, no `--watch`)
 - [ ] Feedback latency < 30s per wave merge (~5–10s per task commit)
