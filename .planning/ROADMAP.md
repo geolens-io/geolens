@@ -109,7 +109,7 @@ Plans:
 - [x] 226-02-PLAN.md — caller-migration: 4 run_tool_loop callers + sql_generator + resolve_provider tuple shape; delete _loop_anthropic/_loop_openai/run_tool_loop (Wave 2, AIEXT-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 226-03-PLAN.md — dead-code-cleanup: remove unreferenced OpenAI-format constants + module-level client caches (Wave 3, optional cleanup; depends on Plan 02)
+- [x] 226-03-PLAN.md — dead-code-cleanup: remove unreferenced OpenAI-format constants + module-level client caches (Wave 3, optional cleanup; depends on Plan 02)
 - [ ] 226-04-PLAN.md — architecture-guard + entry-points seam test: test_no_hardcoded_ai_provider_branches + test_ai_provider_extension.py (Wave 3, AIEXT-04/05; depends on Plan 02; parallel with Plan 03)
 
 #### Phase 227: saml-test-fixture-tmp-path
