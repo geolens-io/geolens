@@ -705,9 +705,6 @@ def test_no_hardcoded_ai_provider_branches() -> None:
     migration; 4 in deferred-scope files documented below).
 
     Excluded paths:
-      - ``backend/tests/`` — test fixtures may legitimately stub provider
-        names (e.g., ``test_chat_streaming.py`` may construct mock
-        assertions against the literal "anthropic" string).
       - ``backend/app/processing/ai/streaming.py`` — true LLM-token
         streaming via ``_stream_anthropic_chat`` / ``_stream_openai_chat``
         (~200 LOC each) is explicitly deferred per RESEARCH.md Open
@@ -750,7 +747,6 @@ def test_no_hardcoded_ai_provider_branches() -> None:
             r"if\s+.*provider\s*==\s*['\"](?:anthropic|openai_compatible)",
             "--",
             "backend/app/processing/",
-            ":!backend/tests/",
             ":!backend/app/processing/ai/streaming.py",
             ":!backend/app/processing/ai/metadata_service.py",
         ],
