@@ -307,17 +307,3 @@ CHAT_TOOLS_ANTHROPIC = [
     },
 ]
 
-
-# --- OpenAI tool format ---
-
-CHAT_TOOLS_OPENAI = [
-    {
-        "type": "function",
-        "function": {
-            "name": tool["name"],
-            "description": tool["description"],
-            "parameters": tool["input_schema"],
-        },
-    }
-    for tool in CHAT_TOOLS_ANTHROPIC
-]
