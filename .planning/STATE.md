@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
-stopped_at: "/oc-audit 2026-05-02 closed end-to-end: 4 Tier-A inline fixes (6db19582, d92ee171, 259ebc72, 9d805949) + 4 new backlog entries (999.21, 999.22 — god-module splits) + 2 backlog → v13.4 promotions (999.20 → 230 CatalogPort, 999.19 → 231 EmbeddingProviderExtension). Coupling target lifted B+ → A−. Phase 228 Wave 2/3 still BLOCKED on @geolens npm org approval; Phase 230 + 231 ready for /gsd-discuss-phase."
-last_updated: "2026-05-02T18:30:00.000Z"
-last_activity: 2026-05-02
+stopped_at: Phase 231 context gathered (auto-resolved)
+last_updated: "2026-05-02T18:13:51.893Z"
+last_activity: "2026-05-02 - Completed quick task 260502-c19: star-audit command review (correctness + readiness checks)"
 progress:
-  total_phases: 13
+  total_phases: 18
   completed_phases: 3
   total_plans: 15
   completed_plans: 12
@@ -78,17 +78,20 @@ The audit produced 16 findings. Three trivial fixes were applied inline (env-var
 Audit shipped at `docs-internal/audits/oc-separation-audit-20260502.md`. Overall held at A− (3.50/4.0). Two grade lifts (Seam Quality B+ → A−, Coupling Health B → B+) offset by one ding (Boundary Integrity A+ → A from share/embed token "(enterprise only)" copy lying without enforcement).
 
 Tier A — fixed inline 2026-05-02 (4 atomic commits):
+
 - `6db19582` — strip false "(enterprise only)" copy from share/embed token surfaces (closes the only outstanding 🟡 cluster)
 - `d92ee171` — wire AuthExtension.get_auth_methods() into /auth/config/ (Seam #2 🟡 → 🟢)
 - `259ebc72` — defer provider-SDK imports out of module scope in `processing/ai/` + add CI guard `test_no_module_level_provider_sdk_imports_in_processing_ai`
 - `9d805949` — SPDX headers on 4 hand-written SDK files
 
 Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 phases the same day:
+
 - 999.20 (CatalogPort) → **Phase 230** (catalog-port-protocol-symmetric) — lifts Coupling target B+ → A−
 - 999.19 (EmbeddingProviderExtension) → **Phase 231** (embedding-provider-extension-protocol)
 - 999.21 (split catalog/maps/service.py) — stays backlog P2
 - 999.22 (split catalog/search/service.py) — stays backlog P2
 - 999.23 (share/embed token expiration gating — product decision) — stays backlog P2, decision-blocked. Strip-the-copy stopgap landed in `6db19582` (2026-05-02); this phase resolves the underlying GTM-vs-implementation contract question (Branch A: apply Phase-219 gates / Branch B: drop the feature from GTM Team tier).
+
 Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
 
 Tier C — external blocker: Phase 228 Wave 2/3 cannot proceed until `@geolens` npm org approval lands.
@@ -195,6 +198,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-05-02T12:07:16.740Z
-Stopped at: Phase 228 Wave 1 ✓; Wave 2 partial: NPM_TOKEN set + npm org claim PENDING approval; PyPI Trusted Publishing setup blocked until org approves
-Resume file: .planning/phases/228-run-cold-publish-workflows/228-02-PLAN.md
+Last session: 2026-05-02T18:13:51.888Z
+Stopped at: Phase 231 context gathered (auto-resolved)
+Resume file: .planning/phases/231-embedding-provider-extension-protocol/231-CONTEXT.md
