@@ -339,6 +339,15 @@ jobs:
             uv run pytest -v --tb=short -m 'not perf and not lifecycle' --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=xml:coverage.xml --cov-fail-under=58.5
           fi
 
+      - name: Verify SAML fixtures unchanged after pytest
+        run: |
+          if ! git diff --quiet -- tests/fixtures/saml/; then
+            echo "::error::SAML fixture files were modified by pytest run -- regression of phase 227 (saml-test-fixture-tmp-path)."
+            git diff --stat -- tests/fixtures/saml/
+            git diff -- tests/fixtures/saml/ | head -200
+            exit 1
+          fi
+
       - name: Upload backend coverage report
         if: always()
         uses: actions/upload-artifact@v7
