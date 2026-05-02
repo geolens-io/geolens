@@ -1,8 +1,6 @@
 """Embedding generation service: provider-agnostic vector generation via OpenAI-compatible API."""
 
-import asyncio
 import hashlib
-import random
 import uuid
 from datetime import datetime, timezone
 
@@ -11,10 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.processing.embeddings.helpers import (
-    build_openai_client,
-    resolve_embedding_base_url,
-)
+from app.platform.extensions import get_embedding_provider
 from app.processing.embeddings.models import RecordEmbedding
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
 
@@ -32,7 +27,8 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     """Generate an embedding vector for the given text.
 
     Uses an OpenAI-compatible API (OpenAI, Ollama, Groq, Together, etc.).
-    Model, dimensions, and base URL are read from PersistentConfig.
+    Model, dimensions, and base URL are read from PersistentConfig and the
+    EmbeddingProviderExtension's resolve_runtime_config (Phase 231 D-21).
 
     Args:
         text: The text to embed.
@@ -52,9 +48,13 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
             "provider (OpenAI, Ollama, Groq, Together)."
         )
 
-    model = await EMBEDDING_MODEL.get(session)
-    dims = await EMBEDDING_DIMS.get(session)
-    base_url = await resolve_embedding_base_url(session)
+    # Phase 231 D-12: hardcode "openai_compatible" — community ships one
+    # embedding provider; overlays add more under different names.
+    provider_ext = get_embedding_provider("openai_compatible")
+    runtime_config = await provider_ext.resolve_runtime_config(session)
+    model = await EMBEDDING_MODEL.get(session) or runtime_config.get("default_model")
+    dims = await EMBEDDING_DIMS.get(session) or runtime_config.get("default_dims")
+    base_url = runtime_config.get("base_url")
 
     # Truncate very long input
     if len(text) > _MAX_INPUT_CHARS:
@@ -67,54 +67,24 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
         text_length=len(text),
     )
 
-    client = build_openai_client(base_url)
-
-    max_attempts = 2
-    backoff = 2.0
-    last_exc: Exception | None = None
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.embeddings.create,
-                    model=model,
-                    input=text,
-                    dimensions=dims,
-                ),
-                timeout=130.0,
-            )
-            return response.data[0].embedding
-        except Exception as exc:  # broad: OpenAI-compatible SDKs can raise various network/API/timeout errors
-            last_exc = exc
-            if attempt < max_attempts:
-                logger.debug(
-                    "Embedding API call failed, retrying",
-                    attempt=attempt,
-                    backoff=backoff,
-                    error=str(exc),
-                    model=model,
-                )
-                await asyncio.sleep(backoff * (1 + random.random() * 0.3))
-            else:
-                logger.error(
-                    "Embedding API call failed after retries",
-                    error=str(exc),
-                    model=model,
-                    attempts=max_attempts,
-                    exc_info=True,
-                )
-
-    raise EmbeddingUnavailableError(
-        f"Embedding API call failed: {last_exc}"
-    ) from last_exc
+    # Phase 231 D-22: retry/backoff lives in DefaultOpenAIEmbeddingProvider.embed().
+    # The provider raises EmbeddingUnavailableError on terminal failure (no
+    # service-level retry needed — single source of truth).
+    vectors = await provider_ext.embed(
+        texts=[text],
+        model=model,
+        dimensions=dims,
+        base_url=base_url,
+        timeout=130.0,
+    )
+    return vectors[0]
 
 
 async def probe_embedding_dimensions(session: AsyncSession) -> int:
     """Probe the configured embedding model to detect its natural output dimensions.
 
     Sends a short test string *without* a dimensions parameter to discover the
-    model's native vector size.
+    model's native vector size (Phase 231 D-21).
 
     Raises:
         EmbeddingUnavailableError: If no provider is configured or the API call fails.
@@ -124,52 +94,26 @@ async def probe_embedding_dimensions(session: AsyncSession) -> int:
             "Embedding generation requires an OpenAI-compatible API key."
         )
 
-    model = await EMBEDDING_MODEL.get(session)
-    base_url = await resolve_embedding_base_url(session)
+    provider_ext = get_embedding_provider("openai_compatible")
+    runtime_config = await provider_ext.resolve_runtime_config(session)
+    model = await EMBEDDING_MODEL.get(session) or runtime_config.get("default_model")
+    base_url = runtime_config.get("base_url")
 
-    client = build_openai_client(base_url)
-
-    max_attempts = 2
-    backoff = 2.0
-    last_exc: Exception | None = None
-
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.embeddings.create,
-                    model=model,
-                    input="dimension probe",
-                ),
-                timeout=30.0,
-            )
-            embedding = response.data[0].embedding
-            if not embedding:
-                raise EmbeddingUnavailableError(
-                    f"Embedding probe for model '{model}' returned empty vector."
-                )
-            return len(embedding)
-        except Exception as exc:  # broad: OpenAI-compatible SDKs can raise various network/API/timeout errors
-            last_exc = exc
-            if attempt < max_attempts:
-                logger.debug(
-                    "Embedding probe failed, retrying",
-                    attempt=attempt,
-                    backoff=backoff,
-                    error=str(exc),
-                    model=model,
-                )
-                await asyncio.sleep(backoff)
-            else:
-                logger.error(
-                    "Embedding probe failed after retries",
-                    error=str(exc),
-                    model=model,
-                    attempts=max_attempts,
-                    exc_info=True,
-                )
-
-    raise EmbeddingUnavailableError(f"Embedding probe failed: {last_exc}") from last_exc
+    # Phase 231 D-02: dimensions=None means "discover natural dim size".
+    # The provider's retry/backoff loop handles transient failures.
+    vectors = await provider_ext.embed(
+        texts=["dimension probe"],
+        model=model,
+        dimensions=None,
+        base_url=base_url,
+        timeout=30.0,
+    )
+    embedding = vectors[0] if vectors else []
+    if not embedding:
+        raise EmbeddingUnavailableError(
+            f"Embedding probe for model '{model}' returned empty vector."
+        )
+    return len(embedding)
 
 
 # ---------------------------------------------------------------------------
