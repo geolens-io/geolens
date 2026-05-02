@@ -7,7 +7,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.modules.audit.events import AuditEvent  # re-exported for ergonomic single-import
+from app.modules.audit.events import (
+    AuditEvent,
+)  # re-exported for ergonomic single-import
 from app.modules.audit.models import AuditLog
 from app.platform.extensions import get_audit_sinks
 

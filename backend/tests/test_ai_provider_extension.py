@@ -170,4 +170,6 @@ async def test_overlay_provider_is_dispatched():
     with patch("app.platform.extensions.entry_points", return_value=[mock_ep]):
         load_extensions()
         assert isinstance(get_ai_provider("anthropic"), DefaultAnthropicProvider)
-        assert isinstance(get_ai_provider("openai_compatible"), DefaultOpenAICompatibleProvider)
+        assert isinstance(
+            get_ai_provider("openai_compatible"), DefaultOpenAICompatibleProvider
+        )

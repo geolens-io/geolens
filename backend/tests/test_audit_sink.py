@@ -39,7 +39,9 @@ def test_audit_sink_protocol_shape() -> None:
         "resource_id",
         "details",
         "ip_address",
-    }, f"AuditEvent fields must mirror log_action() parameter surface 1:1 (D-02); got {fields}"
+    }, (
+        f"AuditEvent fields must mirror log_action() parameter surface 1:1 (D-02); got {fields}"
+    )
 
 
 @pytest.mark.anyio

@@ -179,7 +179,9 @@ async def test_query_data_via_execute_chat_tool_preserves_geojson():
         )
 
     # Routing layer must NOT strip geojson/bbox from the inner result
-    assert "geojson" in result, "GeoJSON FeatureCollection lost through _execute_chat_tool"
+    assert "geojson" in result, (
+        "GeoJSON FeatureCollection lost through _execute_chat_tool"
+    )
     assert result["geojson"]["type"] == "FeatureCollection"
     assert len(result["geojson"]["features"]) == 1
     assert result["geojson"]["features"][0]["geometry"]["type"] == "Point"

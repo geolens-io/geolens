@@ -232,7 +232,6 @@ ANTHROPIC_TOOLS = [
 ]
 
 
-
 async def _execute_search_tool(
     session: AsyncSession,
     user: Identity,
@@ -321,7 +320,9 @@ async def _execute_get_dataset_details(
         .join(Record_orm, DatasetORM.record_id == Record_orm.id)
         .where(DatasetORM.id == dataset_id)
     )
-    stmt = port.apply_visibility_filter(stmt, user, user_roles, Record_orm, DatasetGrant_orm)
+    stmt = port.apply_visibility_filter(
+        stmt, user, user_roles, Record_orm, DatasetGrant_orm
+    )
     result = await session.execute(stmt)
     ds = result.unique().scalar_one_or_none()
     if ds is None:
@@ -432,7 +433,9 @@ async def _validate_and_persist_map(
         .join(Record_orm, DatasetORM.record_id == Record_orm.id)
         .where(DatasetORM.id.in_(dataset_ids))
     )
-    stmt = port.apply_visibility_filter(stmt, user, user_roles, Record_orm, DatasetGrant_orm)
+    stmt = port.apply_visibility_filter(
+        stmt, user, user_roles, Record_orm, DatasetGrant_orm
+    )
     ds_result = await session.execute(stmt)
     ds_info = {
         str(row[0]): {
@@ -681,7 +684,9 @@ async def generate_map_from_prompt(
         spec_dict = _parse_map_spec(result.text)
     except ValueError:
         logger.warning("Map spec parse failed, retrying extraction only")
-        spec_dict = await _retry_parse_map_spec(result.text, provider, model, runtime_config)
+        spec_dict = await _retry_parse_map_spec(
+            result.text, provider, model, runtime_config
+        )
 
     # Check for error response
     if "error" in spec_dict:
@@ -721,7 +726,9 @@ async def stream_generate_map(
         basemap_ids = await _get_available_basemaps(session)
         send_samples = await _should_send_sample_values(session)
         system_prompt = _build_map_system_prompt(language, basemap_ids=basemap_ids)
-        tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
+        tool_executor = _build_tool_executor(
+            session, user, user_roles, send_samples, port
+        )
 
         tool_events: list[dict] = []
 

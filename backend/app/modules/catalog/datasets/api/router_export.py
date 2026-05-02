@@ -254,7 +254,10 @@ async def download_cog(
             action="dataset.download_cog",
             resource_type="dataset",
             resource_id=dataset_id,
-            details={"filename": filename, "storage_backend": raster_asset.storage_backend},
+            details={
+                "filename": filename,
+                "storage_backend": raster_asset.storage_backend,
+            },
             ip_address=request.client.host if request.client else None,
         ),
     )

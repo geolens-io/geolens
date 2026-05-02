@@ -669,7 +669,10 @@ def test_no_processing_imports_catalog() -> None:
 
     result = subprocess.run(
         [
-            "git", "grep", "-n", "-E",
+            "git",
+            "grep",
+            "-n",
+            "-E",
             r"^(from|import) app\.modules\.catalog",
             "--",
             "backend/app/processing/",

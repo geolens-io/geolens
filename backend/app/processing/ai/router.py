@@ -146,8 +146,7 @@ async def _validate_chat_layers(
     rows = await port.get_datasets_meta_by_ids(db, dataset_uuids)
     # rows is list[tuple[UUID, str, str | None]] — (id, table_name, geometry_type)
     dataset_meta: dict[str, dict] = {
-        str(row[0]): {"table_name": row[1], "geometry_type": row[2]}
-        for row in rows
+        str(row[0]): {"table_name": row[1], "geometry_type": row[2]} for row in rows
     }
 
     validated: list[ChatMapLayer] = []

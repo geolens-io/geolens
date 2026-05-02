@@ -239,7 +239,9 @@ async def update_user_metadata(
         )
     if meta.record_status is not None:
         mutated_flags.append(
-            await _apply_record_status_change(session, record, dataset, meta.record_status)
+            await _apply_record_status_change(
+                session, record, dataset, meta.record_status
+            )
         )
     if meta.is_dem is not None:
         mutated_flags.append(await _apply_is_dem(session, dataset_id, meta.is_dem))
@@ -250,7 +252,9 @@ async def update_user_metadata(
     await session.flush()
 
     # Trigger embedding regeneration if relevant fields changed.
-    if any(getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")):
+    if any(
+        getattr(meta, f) is not None for f in ("title", "summary", "lineage_summary")
+    ):
         await _maybe_defer_embedding(record.id, dataset.id)
 
     return dataset
@@ -388,7 +392,9 @@ async def reset_attribute(
         await session.flush()
         return attr
 
-    if not (SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name)):
+    if not (
+        SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name)
+    ):
         await session.flush()
         return attr
 

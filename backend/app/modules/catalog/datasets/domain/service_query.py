@@ -206,7 +206,12 @@ async def get_dataset_detail(
     coros: list[tuple[str, Any]] = []
     if needs_raster:
         coros.append(
-            ("ra", db.execute(select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)))
+            (
+                "ra",
+                db.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
+                ),
+            )
         )
     if needs_vrt_count:
         coros.append(
@@ -221,10 +226,17 @@ async def get_dataset_detail(
             )
         )
     coros.append(
-        ("da", db.execute(select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)))
+        (
+            "da",
+            db.execute(
+                select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)
+            ),
+        )
     )
 
-    results = dict(zip([k for k, _ in coros], await asyncio.gather(*(c for _, c in coros))))
+    results = dict(
+        zip([k for k, _ in coros], await asyncio.gather(*(c for _, c in coros)))
+    )
     raster_asset = results["ra"].scalar_one_or_none() if "ra" in results else None
     source_count = results["sc"].scalar() if "sc" in results else None
     da_result = results["da"]

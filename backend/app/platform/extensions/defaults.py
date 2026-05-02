@@ -153,12 +153,16 @@ class DefaultProcessingPort:
 
         return await search_datasets(session, user, user_roles, filters)
 
-    def apply_visibility_filter(self, stmt, user, user_roles, record_cls, grant_cls=None):  # type: ignore[no-untyped-def]
+    def apply_visibility_filter(
+        self, stmt, user, user_roles, record_cls, grant_cls=None
+    ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.authorization import apply_visibility_filter
 
         return apply_visibility_filter(stmt, user, user_roles, record_cls, grant_cls)
 
-    async def check_dataset_access(self, session, dataset, dataset_id, user, *, user_roles=None):  # type: ignore[no-untyped-def]
+    async def check_dataset_access(
+        self, session, dataset, dataset_id, user, *, user_roles=None
+    ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.authorization import check_dataset_access
 
         return await check_dataset_access(
@@ -170,7 +174,9 @@ class DefaultProcessingPort:
 
         return await get_user_roles(session, user)
 
-    async def get_column_stats(self, session, table_name, column_name, *, class_count=5, allowed_tables=None):  # type: ignore[no-untyped-def]
+    async def get_column_stats(
+        self, session, table_name, column_name, *, class_count=5, allowed_tables=None
+    ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.column_stats import get_column_stats
 
         return await get_column_stats(
@@ -181,7 +187,9 @@ class DefaultProcessingPort:
             allowed_tables=allowed_tables,
         )
 
-    async def get_distinct_values(self, session, table_name, column_name, limit=100, *, allowed_tables=None):  # type: ignore[no-untyped-def]
+    async def get_distinct_values(
+        self, session, table_name, column_name, limit=100, *, allowed_tables=None
+    ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.column_stats import get_distinct_values
 
         return await get_distinct_values(
@@ -269,7 +277,9 @@ class DefaultProcessingPort:
 
         from app.modules.catalog.datasets.domain.models import AttributeMetadata
 
-        stmt = select(AttributeMetadata).where(AttributeMetadata.dataset_id == dataset_id)
+        stmt = select(AttributeMetadata).where(
+            AttributeMetadata.dataset_id == dataset_id
+        )
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
@@ -291,7 +301,17 @@ class DefaultProcessingPort:
     # Write-side methods (D-07)
     # -------------------------------------------------------------------------
 
-    async def create_dataset(self, session, table_name, title, created_by, *, summary=None, visibility="private", ingestion=None):  # type: ignore[no-untyped-def]
+    async def create_dataset(
+        self,
+        session,
+        table_name,
+        title,
+        created_by,
+        *,
+        summary=None,
+        visibility="private",
+        ingestion=None,
+    ):  # type: ignore[no-untyped-def]
         # Delegates via facade — never service_create.py directly (DECOUPLE-04).
         from app.modules.catalog.datasets.domain.service import create_dataset
 
@@ -324,7 +344,16 @@ class DefaultProcessingPort:
     # Source preview helper (D-08)
     # -------------------------------------------------------------------------
 
-    def build_gdal_source(self, service_type, base_url, layer_name, layer_id=None, token=None, order_field=None, result_limit=None):  # type: ignore[no-untyped-def]
+    def build_gdal_source(
+        self,
+        service_type,
+        base_url,
+        layer_name,
+        layer_id=None,
+        token=None,
+        order_field=None,
+        result_limit=None,
+    ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.sources.preview import build_gdal_source
 
         return build_gdal_source(
@@ -345,26 +374,32 @@ class DefaultProcessingPort:
 
     def get_record_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import Record
+
         return Record
 
     def get_grant_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import DatasetGrant
+
         return DatasetGrant
 
     def get_dataset_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import Dataset
+
         return Dataset
 
     def get_dataset_version_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.collections.models import DatasetVersion
+
         return DatasetVersion
 
     def get_record_distribution_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import RecordDistribution
+
         return RecordDistribution
 
     def get_attribute_metadata_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import AttributeMetadata
+
         return AttributeMetadata
 
     # -------------------------------------------------------------------------
@@ -465,7 +500,11 @@ class DefaultAnthropicProvider:
 
         # Enable prompt caching for system prompt and tools
         cached_system = [
-            {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
         ]
         cached_tools = add_tool_cache_control(tools)
 
@@ -540,7 +579,9 @@ class DefaultAnthropicProvider:
                 continue
 
             # Unexpected stop reason — return whatever text we have
-            text = "".join(block.text for block in response.content if block.type == "text")
+            text = "".join(
+                block.text for block in response.content if block.type == "text"
+            )
             return ToolLoopResult(
                 text=text,
                 actions=collected_actions,
@@ -636,7 +677,9 @@ class DefaultOpenAICompatibleProvider:
             for t in tools
         ]
 
-        effective_base_url = base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        effective_base_url = (
+            base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        )
 
         # Lazy class-level keyed-client cache
         if effective_base_url not in DefaultOpenAICompatibleProvider._clients:

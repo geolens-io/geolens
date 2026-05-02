@@ -77,10 +77,14 @@ class FakeProcessingPort:
     async def search_datasets(self, session, user, user_roles, filters):
         return ([self._dataset], 1)
 
-    def apply_visibility_filter(self, stmt, user, user_roles, record_cls, grant_cls=None):
+    def apply_visibility_filter(
+        self, stmt, user, user_roles, record_cls, grant_cls=None
+    ):
         return stmt  # No-op: returns stmt unmodified
 
-    async def check_dataset_access(self, session, dataset, dataset_id, user, *, user_roles=None):
+    async def check_dataset_access(
+        self, session, dataset, dataset_id, user, *, user_roles=None
+    ):
         return user_roles or set()
 
     async def get_user_roles(self, session, user):
@@ -288,7 +292,9 @@ async def test_fake_processing_port_satisfies_protocol() -> None:
 
     # Exercise read methods to confirm canned returns work
     fake_session = AsyncMock()
-    datasets, count = await port.search_datasets(fake_session, None, {"viewer"}, MagicMock())
+    datasets, count = await port.search_datasets(
+        fake_session, None, {"viewer"}, MagicMock()
+    )
     assert count == 1
     assert datasets[0].id == uuid.UUID(port._dataset_id)
 

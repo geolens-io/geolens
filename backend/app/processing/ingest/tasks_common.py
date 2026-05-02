@@ -845,7 +845,10 @@ async def _apply_reupload_swap(
     file_hash: str | None = None,
 ) -> None:
     """Apply shared atomic swap + version invariants for all reupload sources."""
-    from app.modules.audit.service import AuditEvent, audit_emit  # LAZY — preserved per D-17
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
         compute_quality_score,

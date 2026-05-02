@@ -443,7 +443,9 @@ async def get_related_records(
         raise ValueError("Target dataset not found")
 
     # Validate column names
-    if not SAFE_COLUMN_NAME_RE.match(rel.source_column) or not SAFE_COLUMN_NAME_RE.match(rel.target_column):
+    if not SAFE_COLUMN_NAME_RE.match(
+        rel.source_column
+    ) or not SAFE_COLUMN_NAME_RE.match(rel.target_column):
         raise ValueError("Invalid column name in relationship")
 
     # 4. Get FK value from source table

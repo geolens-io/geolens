@@ -295,7 +295,14 @@ async def _stream_openai_chat(
 
         # Phase 226 D-08: CHAT_TOOLS_OPENAI removed; convert from canonical Anthropic shape.
         _tools_openai = [
-            {"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                },
+            }
             for t in CHAT_TOOLS_ANTHROPIC
         ]
         response_stream = await client.chat.completions.create(

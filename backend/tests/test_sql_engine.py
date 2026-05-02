@@ -307,7 +307,14 @@ class TestToolDefinitions:
         # Phase 226 D-08: CHAT_TOOLS_OPENAI removed (callers pass Anthropic shape;
         # provider converts internally). Derive OpenAI format algorithmically.
         chat_tools_openai = [
-            {"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}}
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                },
+            }
             for t in CHAT_TOOLS_ANTHROPIC
         ]
         tool = next(

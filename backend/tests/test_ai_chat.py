@@ -90,7 +90,9 @@ async def test_validate_rejects_non_owner(
     await session.refresh(other_user)
 
     with pytest.raises(HTTPException) as exc_info:
-        await _validate_chat_layers(session, other_user, str(map_obj.id), [], port=_default_port)
+        await _validate_chat_layers(
+            session, other_user, str(map_obj.id), [], port=_default_port
+        )
 
     assert exc_info.value.status_code == 403
 
