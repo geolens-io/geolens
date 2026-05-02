@@ -21,7 +21,16 @@ findings:
   warning: 2
   info: 1
   total: 4
-status: issues_found
+status: fixed
+fixed_at: 2026-05-01
+fix_commits:
+  - 001c030f  # CR-01 — conditional tools= in both providers
+  - 716480bf  # WR-01 — early API key check in get_*_client helpers
+  - 5b22c385  # WR-02 — sql_generator base_url via resolve_runtime_config
+  - b298454e  # IN-01 — drop vacuous :!backend/tests/ pathspec exclusion
+fix_verification:
+  full_suite: 2054 passed, 19 skipped, 5 deselected
+  ruff: clean (app/platform/extensions/ + app/processing/ai/ + tests/test_layering.py)
 ---
 
 # Phase 226: Code Review Report
