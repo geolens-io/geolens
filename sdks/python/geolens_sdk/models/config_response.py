@@ -6,6 +6,10 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
+from typing import cast
+
 
 T = TypeVar("T", bound="ConfigResponse")
 
@@ -15,13 +19,21 @@ class ConfigResponse:
     """
     Attributes:
         registration_enabled (bool): Whether self-service registration is open
+        auth_methods (list[str] | Unset): Auth methods contributed by the active AuthExtension. Empty in community; e.g.
+            ['saml'] when the enterprise SAML overlay is installed. Login UI can render conditional sign-in options without
+            needing admin OAuthProvider access.
     """
 
     registration_enabled: bool
+    auth_methods: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         registration_enabled = self.registration_enabled
+
+        auth_methods: list[str] | Unset = UNSET
+        if not isinstance(self.auth_methods, Unset):
+            auth_methods = self.auth_methods
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -30,6 +42,8 @@ class ConfigResponse:
                 "registration_enabled": registration_enabled,
             }
         )
+        if auth_methods is not UNSET:
+            field_dict["auth_methods"] = auth_methods
 
         return field_dict
 
@@ -38,8 +52,11 @@ class ConfigResponse:
         d = dict(src_dict)
         registration_enabled = d.pop("registration_enabled")
 
+        auth_methods = cast(list[str], d.pop("auth_methods", UNSET))
+
         config_response = cls(
             registration_enabled=registration_enabled,
+            auth_methods=auth_methods,
         )
 
         config_response.additional_properties = d

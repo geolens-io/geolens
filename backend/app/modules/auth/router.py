@@ -187,8 +187,13 @@ async def config(
     db: AsyncSession = Depends(get_db),
 ) -> ConfigResponse:
     """Return public auth configuration (no authentication required)."""
+    from app.platform.extensions import get_auth_extension
+
     reg_enabled = await REGISTRATION_ENABLED.get(db)
-    return ConfigResponse(registration_enabled=reg_enabled)
+    return ConfigResponse(
+        registration_enabled=reg_enabled,
+        auth_methods=list(get_auth_extension().get_auth_methods()),
+    )
 
 
 @router.get("/me/", response_model=UserResponse)

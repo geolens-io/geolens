@@ -184,6 +184,21 @@ class TestLogin:
 # ---------------------------------------------------------------------------
 
 
+class TestPublicConfig:
+    async def test_config_exposes_auth_methods_field(self, client: AsyncClient):
+        """GET /auth/config/ surfaces AuthExtension.get_auth_methods() so the
+        login page can render conditional sign-in options without needing
+        admin OAuthProvider access. Community returns []; enterprise overlays
+        contribute methods (e.g. ['saml']) per Phase 217 D-13."""
+        resp = await client.get("/auth/config/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "auth_methods" in data
+        assert isinstance(data["auth_methods"], list)
+        # Community default: DefaultAuthExtension contributes nothing.
+        assert data["auth_methods"] == []
+
+
 class TestTokenMe:
     async def test_me_with_valid_token(self, client: AsyncClient):
         """GET /auth/me returns user profile with roles when authenticated."""

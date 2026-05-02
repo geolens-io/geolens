@@ -43,6 +43,14 @@ class ConfigResponse(BaseModel):
     registration_enabled: bool = Field(
         description="Whether self-service registration is open"
     )
+    auth_methods: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Auth methods contributed by the active AuthExtension. "
+            "Empty in community; e.g. ['saml'] when the enterprise SAML overlay is installed. "
+            "Login UI can render conditional sign-in options without needing admin OAuthProvider access."
+        ),
+    )
 
 
 class UserResponse(BaseModel):
