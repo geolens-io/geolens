@@ -559,9 +559,9 @@ def _load_fixture_b64(name: str, response_dir: Path) -> str:
 other technical claims are either verified by tool output or directly cited from
 project source.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should xmlsec1 be added to CI's `Install system dependencies`?**
+1. **Should xmlsec1 be added to CI's `Install system dependencies`?** — RESOLVED: defer (Recommendation accepted; not added to CI apt install in plans).
    - What we know: D-08 + the fallback architecture work whether or not xmlsec1 is on CI.
      If absent, templates serve. If present, live regeneration runs and the templates are
      unused on CI (but still committed for fork-PR scenarios).
@@ -572,7 +572,7 @@ project source.
      failures, revisit and add `xmlsec1` to the apt install step.
 
 2. **Should the `print(..., file=sys.stderr)` diagnostic also fire when generator runs
-   successfully, to confirm the live path executed?**
+   successfully, to confirm the live path executed?** — RESOLVED: don't add (Recommendation accepted; negative-only diagnostic in plans).
    - What we know: silence on success is conventional pytest hygiene.
    - What's unclear: whether the planner wants positive observability ("[saml-fixtures]
      generated 5 files in /tmp/.../saml_responses0/") for debugging fork-PR vs main-CI
