@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
-stopped_at: Phase 231 context gathered (auto-resolved)
-last_updated: "2026-05-02T19:15:58.891Z"
+stopped_at: Phase 228 Plan 02 complete; Plan 03 hot publish checkpoint ready
+last_updated: "2026-05-02T23:26:51Z"
 last_activity: 2026-05-02
 progress:
   total_phases: 18
   completed_phases: 3
   total_plans: 18
-  completed_plans: 14
-  percent: 78
+  completed_plans: 15
+  percent: 83
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 231 — embedding-provider-extension-protocol
+**Current focus:** Phase 228 — run-cold-publish-workflows
 
 ## Current Position
 
-Phase: 231 (embedding-provider-extension-protocol) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
+Phase: 228 (run-cold-publish-workflows) — EXECUTING
+Plan: 3 of 4
+Status: Ready for hot publish checkpoints
 Last activity: 2026-05-02
 
 ## Roadmap Snapshot
@@ -57,11 +57,14 @@ Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 wit
 
 ## Next Action
 
-Three v13.4 phases ready to discuss/plan in parallel — none blocked on the npm org approval that's holding up Phase 228:
+Phase 228 Plan 03 is next: trigger the `publish-sdks.yml` and `publish-cli.yml` dry-run/live publish checkpoints.
 
-1. **Phase 231 (EmbeddingProviderExtension)** — `/gsd-discuss-phase 231 ${GSD_WS}` then `/gsd-plan-phase 231 ${GSD_WS}`. Smallest of the three (2-3d), independent of all other v13.4 phases. Closes the last direct provider-SDK import in `processing/`.
-2. **Phase 230 (CatalogPort)** — `/gsd-discuss-phase 230 ${GSD_WS}` then `/gsd-plan-phase 230 ${GSD_WS}`. Larger (~1w), depends on Phase 225 (✅ shipped). Lifts Coupling Health audit-grade target B+ → A−.
-3. **Phase 228 Wave 2/3** — Still BLOCKED on external `@geolens` npm org approval. Plan 04 (docs update) is independently executable — `/gsd-execute-phase 228 ${GSD_WS}` if you want to pick that up.
+Plan 02 credential setup is complete:
+
+- `NPM_TOKEN` exists in `geolens-io/geolens`; `PYPI_TOKEN` is absent.
+- `geolens-sdk` PyPI pending publisher is configured.
+- `geolens` PyPI project was bootstrapped with `geolens==0.0.0`; the existing-project Trusted Publisher for `publish-cli.yml` is configured.
+- Temporary PyPI account token should be revoked now that bootstrap is complete.
 
 Phase 229 (post-impl audit gate) now depends on Phases 225, 226, 227, 228, 230, 231 — runs last.
 
@@ -94,7 +97,7 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 
 Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
 
-Tier C — external blocker: Phase 228 Wave 2/3 cannot proceed until `@geolens` npm org approval lands.
+Tier C — external blocker resolved: Phase 228 Wave 2 credential setup completed 2026-05-02. Hot publish checkpoints remain in Phase 228 Wave 3.
 
 ## Phase 218 / 219 close-gate record
 

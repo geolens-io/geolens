@@ -155,14 +155,14 @@ Plans:
 3. `publish-cli.yml` completes a green end-to-end run; `geolens` CLI is installable from PyPI by version and `geolens --version` returns the published version on a fresh `pip install`.
 4. README install instructions are validated against the published artifacts on a machine without the GeoLens checkout — all three install commands (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens`) succeed.
 
-**Plans:** 4 plans
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
 - [x] 228-01-PLAN.md - workflow YAML refactors: migrate publish-sdks.yml and publish-cli.yml to PyPI Trusted Publishing (uv publish --trusted-publishing automatic), add pre-flight name-availability gates, create new verify-published.yml with two Docker-based clean-machine smoke jobs (Wave 1, autonomous, PUBLISH-01/02/03/04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 228-02-PLAN.md - credential setup checkpoint: combined out-of-band runbook (claim @geolens npm org, configure PyPI Trusted Publishing pending publishers x2, generate npm granular access token with Bypass 2FA, set NPM_TOKEN repo secret) (Wave 2, autonomous: false, PUBLISH-01)
+- [x] 228-02-PLAN.md - credential setup checkpoint: combined out-of-band runbook (claim @geolens npm org, configure PyPI Trusted Publishing pending publishers x2, generate npm granular access token with Bypass 2FA, set NPM_TOKEN repo secret) (Wave 2, autonomous: false, PUBLISH-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 228-03-PLAN.md - hot publish triggers: dry-run-first cadence for both publish-sdks.yml (target=both) and publish-cli.yml; two checkpoint tasks one per workflow; immutable 1.0.0 release on PyPI/npm (Wave 3, autonomous: false, PUBLISH-02/03)
