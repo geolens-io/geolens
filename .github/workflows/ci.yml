@@ -85,7 +85,13 @@ jobs:
       run:
         working-directory: backend
     env:
+      # Padding values to satisfy app.core.config.Settings() validation —
+      # this job imports the FastAPI app to dump the schema; it never
+      # connects to a DB or runs admin auth.
       JWT_SECRET_KEY: openapi-snapshot-padding-key-32chars
+      POSTGRES_PASSWORD: ci-padding-no-db
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: .
     steps:
       - uses: actions/checkout@v4
@@ -114,6 +120,9 @@ jobs:
     env:
       # Match the OpenAPI snapshot job's env so dump_openapi.py runs
       JWT_SECRET_KEY: sdks-check-padding-key-32characters-here
+      POSTGRES_PASSWORD: ci-padding-no-db
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: backend
     steps:
       - uses: actions/checkout@v4
@@ -156,8 +165,17 @@ jobs:
     if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
+      # Padding values for Settings() validation — round-trip test imports
+      # the FastAPI app via uvicorn-on-free-port (no real DB).
       JWT_SECRET_KEY: cli-test-padding-key-32characters-here
+      POSTGRES_PASSWORD: ci-padding-no-db
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: backend
+      # Pin uv at the backend venv so the SDK + CLI editable installs
+      # below land in one shared environment (`uv pip install` outside a
+      # project root requires either VIRTUAL_ENV or `--system`).
+      VIRTUAL_ENV: ${{ github.workspace }}/backend/.venv
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -457,7 +475,14 @@ jobs:
         run: uv run bandit -r app/ -c pyproject.toml --severity-level high --confidence-level high
 
       - name: Run pip-audit (dependency vulnerability scan)
-        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539
+        # Ignored vulns:
+        #   CVE-2026-4539 — (pre-existing carve-out, see prior commits)
+        #   CVE-2026-3219 — pip 26.0.1: confused-tar/zip handling. No fix
+        #     version published yet; vuln only matters when GeoLens
+        #     installs adversarial archives, which it doesn't (pip is the
+        #     installer, not a runtime dep). Re-evaluate when pip ships
+        #     a patched version and remove this ignore.
+        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
 
   # ---------- E2E (disabled to save CI minutes — run locally via `npx playwright test`) ----------
   e2e-test:
