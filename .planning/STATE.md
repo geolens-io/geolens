@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
-status: roadmap_created
-stopped_at: v13.6 roadmap created; ready for Phase 236 planning
-last_updated: "2026-05-03T22:25:56Z"
+status: phase_completed
+stopped_at: Phase 236 complete and verified; ready for Phase 237 planning
+last_updated: "2026-05-03T22:48:54.605Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 25
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 
 ## Current Position
 
-Phase: 236 — maps-service-decomposition
+Phase: 237 — search-service-decomposition
 Plan: —
-Status: Ready for first phase planning
-Last activity: 2026-05-03 — Milestone v13.6 roadmap created with phases 236-239 and 19/19 requirements mapped.
+Status: Ready for planning
+Last activity: 2026-05-03 — Phase 236 complete and verified. Maps service split into focused sibling modules behind a stable public facade; 5/5 plans complete and MAPS-01..06 satisfied.
 
 ## Roadmap Snapshot
 
@@ -39,7 +39,7 @@ v13.6 Catalog Maps/Search Service Decomposition contains 4 phases:
 - **Phase 238: boundary-guards-and-contract-stabilization** — add architecture guards and source-introspection-safe contract checks for the new maps/search module boundaries. Requirements: BOUND-01..04.
 - **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
 
-Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 0 satisfied at roadmap creation.
+Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 6 satisfied after Phase 236.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -52,7 +52,7 @@ Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 0 satisfied at roadmap cr
 
 ## Next Action
 
-Next GSD action: run `$gsd-plan-phase 236` to plan the maps service decomposition phase.
+Next GSD action: run `$gsd-plan-phase 237` to plan the search service decomposition phase.
 
 ## Historical /oc-audit Queue (from Phase 224)
 

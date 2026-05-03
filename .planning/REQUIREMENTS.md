@@ -9,12 +9,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Maps Service Decomposition
 
-- [ ] **MAPS-01**: Maintainer can continue importing the existing public map service API from `app.modules.catalog.maps.service` after decomposition without updating router, AI, or test call sites outside the planned migration.
-- [ ] **MAPS-02**: Maintainer can work on map CRUD, ownership, listing, and layer replacement logic in focused modules instead of one 1,300-line service file.
-- [ ] **MAPS-03**: Authenticated user can create, list, read, update, duplicate, and delete maps with the same response schema, ownership checks, visibility rules, and layer sort order as before the split.
-- [ ] **MAPS-04**: Authenticated user can add and remove map layers with the same dataset access checks, default style generation, layer type inference, and permission behavior as before the split.
-- [ ] **MAPS-05**: Public or anonymous user can use visibility checks, share tokens, shared map rendering, thumbnails, token revocation, and dataset-in-use checks with the same behavior as before the split.
-- [ ] **MAPS-06**: Maintainer can verify map service behavior with focused regression tests that cover map CRUD, layer round-trips, sharing, thumbnails, and public viewer access.
+- [x] **MAPS-01**: Maintainer can continue importing the existing public map service API from `app.modules.catalog.maps.service` after decomposition without updating router, AI, or test call sites outside the planned migration.
+- [x] **MAPS-02**: Maintainer can work on map CRUD, ownership, listing, and layer replacement logic in focused modules instead of one 1,300-line service file.
+- [x] **MAPS-03**: Authenticated user can create, list, read, update, duplicate, and delete maps with the same response schema, ownership checks, visibility rules, and layer sort order as before the split.
+- [x] **MAPS-04**: Authenticated user can add and remove map layers with the same dataset access checks, default style generation, layer type inference, and permission behavior as before the split.
+- [x] **MAPS-05**: Public or anonymous user can use visibility checks, share tokens, shared map rendering, thumbnails, token revocation, and dataset-in-use checks with the same behavior as before the split.
+- [x] **MAPS-06**: Maintainer can verify map service behavior with focused regression tests that cover map CRUD, layer round-trips, sharing, thumbnails, and public viewer access.
 
 ### Search Service Decomposition
 
@@ -74,12 +74,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MAPS-01 | 236 | Pending |
-| MAPS-02 | 236 | Pending |
-| MAPS-03 | 236 | Pending |
-| MAPS-04 | 236 | Pending |
-| MAPS-05 | 236 | Pending |
-| MAPS-06 | 236 | Pending |
+| MAPS-01 | 236 | Complete |
+| MAPS-02 | 236 | Complete |
+| MAPS-03 | 236 | Complete |
+| MAPS-04 | 236 | Complete |
+| MAPS-05 | 236 | Complete |
+| MAPS-06 | 236 | Complete |
 | SRCH-01 | 237 | Pending |
 | SRCH-02 | 237 | Pending |
 | SRCH-03 | 237 | Pending |
