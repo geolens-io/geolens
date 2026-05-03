@@ -124,7 +124,7 @@ Plans:
 4. GTM docs, API schema descriptions, docstrings, and UI copy no longer claim behavior that the code does not enforce.
 5. Focused backend/frontend tests verify both Community and Enterprise behavior where practical.
 
-**Plans:** 2/5 plans executed
+**Plans:** 4/5 plans executed
 
 #### Phase 235: post-impl-audit-v13.5
 
