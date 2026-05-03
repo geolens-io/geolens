@@ -1,47 +1,45 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.5
-milestone_name: Enterprise Governance Seams
-status: milestone_complete
-stopped_at: v13.5 milestone completed, archived, and ready for next milestone planning
-last_updated: "2026-05-03T21:30:00Z"
+milestone: v13.6
+milestone_name: Catalog Maps/Search Service Decomposition
+status: defining_requirements
+stopped_at: v13.6 milestone started; requirements and roadmap in progress
+last_updated: "2026-05-03T22:05:00Z"
 last_activity: 2026-05-03
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone completion)
+See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning the next milestone
+**Current focus:** v13.6 Catalog Maps/Search Service Decomposition
 
 ## Current Position
 
-Phase: —
+Phase: Not started (defining requirements)
 Plan: —
-Status: v13.5 Enterprise Governance Seams completed and archived.
-Last activity: 2026-05-03 — v13.5 completion archived ROADMAP/REQUIREMENTS/audit artifacts, updated PROJECT/MILESTONES/RETROSPECTIVE, and prepared the repo for the next milestone definition.
+Status: Defining requirements
+Last activity: 2026-05-03 — Milestone v13.6 Catalog Maps/Search Service Decomposition started.
 
 ## Roadmap Snapshot
 
-| Phase | Name | Requirements | Depends on |
-|-------|------|--------------|------------|
-| 232 | permission-extension-protocol | PERM-01..05 | 231 (✅ shipped) |
-| 233 | workflow-extension-protocol | WORK-01..05 | 232 (soft sequencing: shared extension registry/test patterns) |
-| 234 | governance-contract-verification | SHARE-01..03 | 232, 233 |
-| 235 | post-impl-audit-v13.5 | GOVAUD-01..03 | 232, 233, 234 |
+Roadmap not created yet. v13.6 requirements are being scoped around:
 
-Coverage: 16/16 v13.5 requirements mapped and satisfied.
+- `backend/app/modules/catalog/maps/service.py` decomposition
+- `backend/app/modules/catalog/search/service.py` decomposition
+- architecture guards and behavior-preservation verification
+- close audit / milestone readiness
 
-**Close result:** Seam Quality **A**, Boundary Integrity **A**, Inventory Accuracy **A−**. Formal milestone audit passed with 16/16 requirements satisfied and no critical gaps.
+Coverage: pending requirements definition.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 

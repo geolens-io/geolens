@@ -24,9 +24,15 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 **Known close note:** Full-suite merge readiness still belongs to normal CI/full-suite validation; the close audit used focused governance and architecture checks.
 
-## Next Milestone Goals
+## Current Milestone: v13.6 Catalog Maps/Search Service Decomposition
 
-The next milestone has not been defined yet. Current backlog candidates are `geolens.yaml` catalog manifests, persistent connector registry, tenant scoping for future Cloud, Helm/AMI/SBOM distribution work, `geolens-schemas` extraction, and catalog `maps/search` service decomposition.
+**Goal:** Split the remaining large catalog map and search services into focused modules behind stable public façades so future map/search work can land without growing the current 1,300-line service files or regressing public API behavior.
+
+**Target features:**
+- Decompose `backend/app/modules/catalog/maps/service.py` by concern while preserving existing map-builder, sharing, thumbnail, and layer contracts.
+- Decompose `backend/app/modules/catalog/search/service.py` by concern while preserving catalog search, facets, semantic merge, OGC record conversion, and collection behavior.
+- Add architecture and regression guards that keep the new module boundaries stable and prevent re-growth of god-service files.
+- Run focused map/search verification plus a milestone close audit to prove public behavior, OpenAPI shape, and audit-grade maintainability targets hold.
 
 <details>
 <summary>Earlier milestone — v13.4 Boundary Closeout (shipped 2026-05-03)</summary>
@@ -375,10 +381,17 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-- [ ] Define the next milestone requirements and roadmap with `$gsd-new-milestone`
-- [ ] Choose the next backlog focus: `geolens.yaml` manifest, persistent connector registry, tenant scoping, Helm/AMI/SBOM distribution, `geolens-schemas` extraction, or catalog service decomposition
+- [ ] `catalog/maps/service.py` is split into focused service modules with a stable façade and no map-builder or sharing regressions
+- [ ] `catalog/search/service.py` is split into focused service modules with a stable façade and no search, facet, semantic, OGC, or collection regressions
+- [ ] Architecture guards prevent direct external imports of private split modules and keep service façade files small
+- [ ] Focused map/search tests, lint, and close-audit evidence prove the decomposition preserved existing behavior
 
 ### Out of Scope
+
+- New map-builder features, visual styling controls, layer editing behavior, or sharing semantics — this milestone preserves behavior while restructuring service code
+- Search relevance changes, new filters, connector work, or index redesign — this milestone keeps the existing search contract and ranking behavior intact
+- Frontend UI changes except for test updates required by backend response-contract preservation
+- Tenant scoping, `geolens.yaml` manifests, persistent connector registry, Helm/AMI/SBOM distribution, and `geolens-schemas` extraction — still backlog candidates for later milestones
 
 - New map authoring capabilities (3D, live collaboration, time sliders) — this milestone hardens the existing builder instead of widening scope
 - AI capability expansion — AI chat and map generation stay as-is; the focus is usability, correctness, and maintainability
@@ -624,4 +637,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 after v13.5 milestone completion*
+*Last updated: 2026-05-03 after v13.6 milestone start*
