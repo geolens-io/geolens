@@ -30,6 +30,25 @@ Full user, admin, and API documentation lives at **[docs.getgeolens.com](https:/
 - **Admin guide:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
 - **API reference:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
 
+## Published Artifacts
+
+GeoLens 1.0.0 is published through the standard package registries:
+
+```bash
+pip install geolens          # Python SDK
+pip install geolens-cli      # CLI; installs the `geolens` command
+npm install @geolens/sdk     # TypeScript/JavaScript SDK
+```
+
+Prebuilt container images are published to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/geolens-io/geolens-api:1.0.0
+docker pull ghcr.io/geolens-io/geolens-frontend:1.0.0
+```
+
+The image tags `1.0`, `1`, and `latest` track the current 1.x release line.
+
 ## Try the Themed Demo
 
 GeoLens ships with three themed demo collections — **Planet Earth** (raster + VRT mosaics), **Global Development & People** (indicator choropleths), and **Borders, Boundaries & Contested Space** (geopolitics done carefully) — and nine signature maps that load deterministically with one command:
