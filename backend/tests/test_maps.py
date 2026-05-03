@@ -10,14 +10,22 @@ Requirements:
 
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.maps.schemas import ADVANCED_SHARING_ERROR
+from app.modules.catalog.maps.service import create_share_token, update_share_token
 
 from tests.factories import create_dataset, get_user_id
+
+
+def _future_expires_at() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(days=7)
 
 
 async def _create_map(
@@ -874,6 +882,55 @@ class TestShareToken:
         assert "share_url" in data
         assert data["is_active"] is True
 
+    async def test_share_expiration_requires_enterprise(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        community_edition,
+    ):
+        """Community cannot create expiring share links."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        resp = await client.post(
+            f"/maps/{map_id}/share/",
+            json={"expires_at": _future_expires_at().isoformat()},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert ADVANCED_SHARING_ERROR in resp.text
+
+    async def test_share_expiration_allowed_in_enterprise(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        enterprise_edition,
+    ):
+        """Enterprise can create expiring share links."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+        expires_at = _future_expires_at()
+
+        await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        resp = await client.post(
+            f"/maps/{map_id}/share/",
+            json={"expires_at": expires_at.isoformat()},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["expires_at"] is not None
+
     async def test_share_idempotent(self, client: AsyncClient, admin_auth_header: dict):
         """POST /maps/{id}/share twice — second call returns the token hint (hashed storage)."""
         created = await _create_map(client, admin_auth_header)
@@ -1035,6 +1092,31 @@ class TestShareToken:
         cascade_token = [t for t in tokens if t["id"] == embed_token_id]
         assert len(cascade_token) == 1
         assert cascade_token[0]["is_active"] is False
+
+
+class TestShareTokenServiceGuards:
+    """Service-layer guards for schema bypasses."""
+
+    async def test_create_share_expiration_guard_runs_before_db_lookup(
+        self, community_edition
+    ):
+        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
+            await create_share_token(
+                object(),
+                uuid.uuid4(),
+                uuid.uuid4(),
+                expires_at=_future_expires_at(),
+            )
+
+    async def test_update_share_expiration_guard_runs_before_db_lookup(
+        self, community_edition
+    ):
+        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
+            await update_share_token(
+                object(),
+                uuid.uuid4(),
+                _future_expires_at(),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1635,6 +1717,8 @@ async def _make_public_map_with_share_token(
 
 
 class TestUpdateShareToken:
+    pytestmark = pytest.mark.usefixtures("enterprise_edition")
+
     async def test_patch_share_token_set_expiration(
         self, client: AsyncClient, admin_auth_header: dict
     ):
