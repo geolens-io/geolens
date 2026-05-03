@@ -239,7 +239,7 @@ async def test_semantic_search_returns_200(
 ):
     """With semantic enabled and embeddings present, text query returns 200."""
     with patch(
-        "app.modules.catalog.search.service.generate_embedding",
+        "app.modules.catalog.search.service_semantic.generate_embedding",
         new_callable=AsyncMock,
         return_value=hybrid_vectors["transport"],
     ):
@@ -365,7 +365,7 @@ async def test_semantic_works_when_ai_disabled(
     # Mock generate_embedding since there's no real API key,
     # but the vector search itself reads embeddings from DB directly
     with patch(
-        "app.modules.catalog.search.service.generate_embedding",
+        "app.modules.catalog.search.service_semantic.generate_embedding",
         new_callable=AsyncMock,
         return_value=hybrid_vectors["transport"],
     ):
@@ -412,7 +412,7 @@ async def test_rrf_ranking_with_embeddings(
     due to vector similarity, augmenting the FTS results.
     """
     with patch(
-        "app.modules.catalog.search.service.generate_embedding",
+        "app.modules.catalog.search.service_semantic.generate_embedding",
         new_callable=AsyncMock,
         return_value=hybrid_vectors["transport"],
     ):
