@@ -15,12 +15,12 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.auth.models import Role, UserRole
-from app.modules.catalog.datasets.domain.models import DatasetGrant
+from app.platform.extensions import get_permission_extension
 
 
 class DatasetVisibility(str, enum.Enum):
@@ -54,46 +54,9 @@ def apply_visibility_filter(
     Returns:
         The filtered Select statement.
     """
-    # Admin sees everything
-    if "admin" in user_roles:
-        return stmt
-
-    # Anonymous users see only public, published datasets
-    if user is None:
-        return stmt.where(
-            record_cls.visibility == DatasetVisibility.PUBLIC,
-            record_cls.record_status == "published",
-        )
-
-    conditions = [
-        # Public datasets: visible to all authenticated users
-        record_cls.visibility == DatasetVisibility.PUBLIC,
-        # Private datasets: only the owner can see them
-        and_(
-            record_cls.visibility == DatasetVisibility.PRIVATE,
-            record_cls.created_by == user.id,
-        ),
-    ]
-
-    # Restricted datasets: user must have a grant via their roles
-    if grant_cls is not None:
-        conditions.append(
-            and_(
-                record_cls.visibility == DatasetVisibility.RESTRICTED,
-                record_cls.id.in_(
-                    select(grant_cls.dataset_id)
-                    .join(UserRole, grant_cls.role_id == UserRole.role_id)
-                    .where(UserRole.user_id == user.id)
-                ),
-            )
-        )
-
-    # Non-admin users can only see published datasets, or their own drafts/unpublished
-    status_filter = or_(
-        record_cls.record_status == "published",
-        record_cls.created_by == user.id,
+    return get_permission_extension().filter_visible(
+        stmt, user, user_roles, record_cls, grant_cls
     )
-    return stmt.where(and_(or_(*conditions), status_filter))
 
 
 async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
@@ -119,11 +82,14 @@ async def check_dataset_access_or_anonymous(
     Authenticated users follow the full RBAC rules via check_dataset_access().
     """
     if user is None:
-        record = dataset.record
-        if (
-            record.visibility != DatasetVisibility.PUBLIC.value
-            or record.record_status != "published"
-        ):
+        allowed = await get_permission_extension().can_access_dataset(
+            db,
+            dataset,
+            dataset_id,
+            None,
+            user_roles=set(),
+        )
+        if not allowed:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
             )
@@ -153,34 +119,17 @@ async def check_dataset_access(
     """
     if user_roles is None:
         user_roles = await get_user_roles(db, user)
-    if "admin" in user_roles:
-        return user_roles
 
-    record = dataset.record
-
-    # Block access to non-published datasets for non-owners
-    if record.record_status != "published" and record.created_by != user.id:
+    allowed = await get_permission_extension().can_access_dataset(
+        db,
+        dataset,
+        dataset_id,
+        user,
+        user_roles=user_roles,
+    )
+    if not allowed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-
-    if record.visibility == "private" and record.created_by != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-        )
-
-    if record.visibility == "restricted":
-        grant_result = await db.execute(
-            select(DatasetGrant.dataset_id)
-            .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
-            .where(
-                DatasetGrant.dataset_id == dataset_id,
-                UserRole.user_id == user.id,
-            )
-        )
-        if grant_result.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-            )
 
     return user_roles

@@ -23,6 +23,7 @@ from app.platform.extensions.defaults import (
     DefaultIdentityExtension,
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
+    DefaultPermissionExtension,  # NEW (Phase 232)
     DefaultProcessingPort,  # NEW (Phase 225)
 )
 from app.platform.extensions.protocols import (
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231)
         AIProviderExtension,
         EmbeddingProviderExtension,
+        PermissionExtension,
     )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -120,6 +122,20 @@ def get_auth_extension() -> AuthExtension:
     ext = _extensions.get("auth")
     if ext is None:
         return DefaultAuthExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_permission_extension() -> "PermissionExtension":
+    """Return the registered PermissionExtension or the community default.
+
+    Phase 232 / PERM-01 follows the single-slot extension shape used by
+    identity, processing_port, and catalog_port. Permission policy is a single
+    authority; overlays that need additive behavior can wrap
+    DefaultPermissionExtension explicitly.
+    """
+    ext = _extensions.get("permission")
+    if ext is None:
+        return DefaultPermissionExtension()
     return ext  # type: ignore[return-value]
 
 

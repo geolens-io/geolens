@@ -16,7 +16,7 @@ from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.auth.models import ApiKey, User
 from app.modules.catalog.authorization import get_user_roles
-from app.platform.extensions import get_identity_extension
+from app.platform.extensions import get_identity_extension, get_permission_extension
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -283,9 +283,17 @@ def require_permission(*capabilities: str):
             matrix = await get_effective_permissions(db)
             request.state._effective_permissions = matrix
 
+        permission_ext = get_permission_extension()
+
         # Check each requested capability
         for cap in capabilities:
-            granted = any(matrix.get(role, {}).get(cap, False) for role in user_roles)
+            granted = await permission_ext.check_permission(
+                db,
+                current_user,
+                cap,
+                user_roles=user_roles,
+                permission_matrix=matrix,
+            )
             if not granted:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
