@@ -117,11 +117,11 @@
 | CATPORT-03 | Phase 230 | [ ] not started |
 | CATPORT-04 | Phase 230 | [ ] not started |
 | CATPORT-05 | Phase 230 | [ ] not started |
-| EMBPROV-01 | Phase 231 | [ ] not started |
-| EMBPROV-02 | Phase 231 | [ ] not started |
-| EMBPROV-03 | Phase 231 | [ ] not started |
+| EMBPROV-01 | Phase 231 | [x] complete — Plan 01 |
+| EMBPROV-02 | Phase 231 | [x] complete — Plan 01 |
+| EMBPROV-03 | Phase 231 | [x] complete — Plan 02 |
 | EMBPROV-04 | Phase 231 | [x] completed |
-| EMBPROV-05 | Phase 231 | [ ] not started |
+| EMBPROV-05 | Phase 231 | [x] complete — Plans 01/02 |
 | PIAUDIT-01 | Phase 229 | [ ] not started |
 | PIAUDIT-02 | Phase 229 | [ ] not started |
 | PIAUDIT-03 | Phase 229 | [ ] not started |

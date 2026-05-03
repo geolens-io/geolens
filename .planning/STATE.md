@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
-status: executing
-stopped_at: Completed 231-03-PLAN.md; Phase 231 complete
-last_updated: "2026-05-03T14:36:07Z"
+status: transitioning
+stopped_at: Phase 231 verified; auto-chain ready for Phase 230 discussion
+last_updated: "2026-05-03T14:42:58Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 18
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 231 — embedding-provider-extension-protocol
+**Current focus:** Phase 230 — catalog-port-protocol-symmetric
 
 ## Current Position
 
-Phase: 231 (embedding-provider-extension-protocol) — COMPLETE
-Plan: 3 of 3
-Status: Architecture-guard cleanup complete; ready for Phase 230 or Phase 229 audit sequencing
+Phase: 230 (catalog-port-protocol-symmetric) — READY FOR DISCUSSION
+Plan: Not started
+Status: Phase 231 verified; Phase 230 context/planning is next before the Phase 229 audit gate
 Last activity: 2026-05-03
 
 ## Roadmap Snapshot
@@ -57,13 +57,12 @@ Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 wit
 
 ## Next Action
 
-Phase 228 is complete:
+Phase 231 is complete and verified:
 
-- `geolens==1.0.0` is published on PyPI as the Python SDK.
-- `geolens-cli==1.0.0` is published on PyPI as the CLI distribution; the installed executable remains `geolens`.
-- `@geolens/sdk==1.0.0` is published on npm and verified from a clean Node container.
-- `verify-published.yml` passed in run `25266870449`.
-- `geolens-sdk` is not published on PyPI; remove the stale pending publisher from PyPI account settings if it still appears.
+- `EmbeddingProviderExtension` Protocol, default OpenAI-compatible provider, and `get_embedding_provider(name)` registry accessor are shipped.
+- Embedding generation and dimension probing route through the extension registry.
+- `backend/app/processing/embeddings/` has zero module-level OpenAI SDK imports.
+- `test_no_module_level_provider_sdk_imports_in_processing` now covers all of `backend/app/processing/`.
 
 Next implementation action: proceed to Phase 230, then run Phase 229 after Phases 230 and 231 are both ready for the post-implementation audit gate.
 

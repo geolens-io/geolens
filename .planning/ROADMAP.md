@@ -208,7 +208,7 @@ Plans:
 4. The existing architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` is **renamed/expanded** to `test_no_module_level_provider_sdk_imports_in_processing` covering both `processing/ai/` and `processing/embeddings/`. The carve-out for embeddings is removed from the docstring.
 5. Existing embeddings tests pass unchanged with the default provider wired in (no behavior delta for community users); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly.
 
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
