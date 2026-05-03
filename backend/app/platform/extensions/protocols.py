@@ -9,6 +9,7 @@ the audit facade at Protocol import time.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fastapi import FastAPI
@@ -240,3 +241,38 @@ class PermissionExtension(Protocol):
         *,
         user_roles: set[str],
     ) -> bool: ...
+
+
+@dataclass(frozen=True)
+class WorkflowTransitionContext:
+    """Context passed to publication workflow policy hooks.
+
+    ``dataset`` intentionally stays ``Any`` so this platform-level contract does
+    not import catalog ORM classes at module load time.
+    """
+
+    session: AsyncSession
+    dataset: Any
+    actor: "Identity | None"
+    from_status: str
+    to_status: str
+    mode: str
+
+
+@runtime_checkable
+class WorkflowExtension(Protocol):
+    """Policy seam for dataset publication workflow transitions.
+
+    Community mode uses ``DefaultWorkflowExtension`` to preserve the existing
+    draft -> ready -> internal -> published lifecycle. Enterprise overlays can
+    replace the singleton ``"workflow"`` registry slot to add approval states,
+    block transitions, or observe transitions without changing catalog routes.
+    """
+
+    def status_order(self) -> tuple[str, ...]: ...
+
+    async def allowed_transitions(
+        self, context: WorkflowTransitionContext
+    ) -> set[str]: ...
+
+    async def on_transition(self, context: WorkflowTransitionContext) -> None: ...
