@@ -39,7 +39,7 @@ Last activity: 2026-05-03 — Milestone v13.5 started
 | 234 | governance-contract-verification | SHARE-01..03 | 232, 233 |
 | 235 | post-impl-audit-v13.5 | GOVAUD-01..03 | 232, 233, 234 |
 
-Coverage target: 18/18 v13.5 requirements mapped once `.planning/REQUIREMENTS.md` and `.planning/ROADMAP.md` are finalized.
+Coverage target: 16/16 v13.5 requirements mapped once `.planning/REQUIREMENTS.md` and `.planning/ROADMAP.md` are finalized.
 
 **Audit-grade targets:** Seam Quality **A− → A** (PermissionExtension + WorkflowExtension close the remaining governance seams); Boundary Integrity ≥ **A** (advanced sharing gate remains enforced); Inventory Accuracy ≥ **A−** (GTM/API/UI copy matches implementation).
 
