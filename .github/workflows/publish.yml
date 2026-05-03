@@ -9,7 +9,6 @@ env:
   REGISTRY: ghcr.io
 
 permissions:
-  actions: read
   contents: read
   packages: write
   id-token: write
@@ -100,6 +99,8 @@ jobs:
         with:
           image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
           output-file: sbom-${{ matrix.image }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
 
       # Attest SBOM to the published image
       - name: Attest SBOM
