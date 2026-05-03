@@ -57,7 +57,7 @@
 **Scope guard:** This is an internal architecture/decomposition milestone. Preserve public API behavior, OpenAPI shape, response schemas, permissions, cache semantics, and user-facing map/search workflows. Search/maps router decomposition and new product capability remain out of scope.
 
 - [x] **Phase 236: maps-service-decomposition** — Split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map-builder, layer, sharing, thumbnail, and public-viewer behavior. (completed 2026-05-03)
-- [ ] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior.
+- [x] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior. (completed 2026-05-03)
 - [ ] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded.
 - [ ] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit.
 
@@ -97,7 +97,7 @@
 5. Semantic and hybrid search preserve embedding-provider dispatch, RRF merge behavior, fallback behavior, and actor identity enrichment.
 
 **Plans:**
-5/6 plans executed
+6/6 plans complete
 
 #### Phase 238: boundary-guards-and-contract-stabilization
 
