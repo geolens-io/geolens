@@ -805,7 +805,7 @@ wheels = [
 ]
 
 [[package]]
-name = "geolens"
+name = "geolens-backend"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

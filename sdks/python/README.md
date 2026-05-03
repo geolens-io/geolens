@@ -1,4 +1,4 @@
-# geolens-sdk (Python)
+# geolens (Python SDK)
 
 Auto-generated Python SDK for the [GeoLens](https://github.com/geolens-io/geolens) API.
 
@@ -9,7 +9,7 @@ See `docs/sdks.md` in the GeoLens repo for installation, regeneration, and versi
 ## Quickstart
 
 ```python
-from geolens_sdk import GeolensClient
+from geolens import GeolensClient
 
 client = GeolensClient(base_url="https://geolens.example.com", bearer_token="...")
 # See ../../docs/sdks.md for endpoint usage examples.

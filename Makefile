@@ -71,21 +71,21 @@ sdks:
 	uv run --no-project python scripts/flatten_openapi_defs.py \
 	  --input backend/openapi.json \
 	  --output /tmp/openapi-flat.json
-	-cp sdks/python/geolens_sdk/auth.py /tmp/_geolens_auth.py 2>/dev/null
-	-cp sdks/python/geolens_sdk/__init__.py /tmp/_geolens_init.py 2>/dev/null
+	-cp sdks/python/geolens/auth.py /tmp/_geolens_auth.py 2>/dev/null
+	-cp sdks/python/geolens/__init__.py /tmp/_geolens_init.py 2>/dev/null
 	-cp sdks/typescript/src/auth.ts /tmp/_geolens_auth.ts 2>/dev/null
 	-cp sdks/typescript/src/index.ts /tmp/_geolens_index.ts 2>/dev/null
 	uvx openapi-python-client@0.28.3 generate \
 	  --path /tmp/openapi-flat.json \
-	  --output-path sdks/python/geolens_sdk \
+	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \
 	  --config sdks/python/.openapi-python-client.yaml
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
-	touch sdks/python/geolens_sdk/py.typed
+	touch sdks/python/geolens/py.typed
 	cd sdks/typescript && npm install --silent && npx --yes @hey-api/openapi-ts@0.96.1 -i /tmp/openapi-flat.json
-	-cp /tmp/_geolens_auth.py sdks/python/geolens_sdk/auth.py 2>/dev/null
-	-cp /tmp/_geolens_init.py sdks/python/geolens_sdk/__init__.py 2>/dev/null
+	-cp /tmp/_geolens_auth.py sdks/python/geolens/auth.py 2>/dev/null
+	-cp /tmp/_geolens_init.py sdks/python/geolens/__init__.py 2>/dev/null
 	-cp /tmp/_geolens_auth.ts sdks/typescript/src/auth.ts 2>/dev/null
 	-cp /tmp/_geolens_index.ts sdks/typescript/src/index.ts 2>/dev/null
 	uv run --no-project python scripts/sync_sdk_versions.py
@@ -95,8 +95,8 @@ sdks:
 sdks-check:
 	$(MAKE) sdks
 	git diff --exit-code -- sdks/ \
-	  ':!sdks/python/geolens_sdk/auth.py' \
-	  ':!sdks/python/geolens_sdk/__init__.py' \
+	  ':!sdks/python/geolens/auth.py' \
+	  ':!sdks/python/geolens/__init__.py' \
 	  ':!sdks/typescript/src/auth.ts' \
 	  ':!sdks/typescript/src/index.ts' \
 	  ':!sdks/python/README.md' \
@@ -109,7 +109,7 @@ sdks-check:
 sdks-test:
 	cd backend && PYTHONPATH=. uv run pytest tests/test_sdks_round_trip.py -v
 
-# Publish targets — require user-managed tokens (UV_PUBLISH_TOKEN, NPM_TOKEN).
+# Publish targets — require local registry credentials.
 # Phase 215 ships the recipe; running it is a manual user action (D-16).
 publish-sdks-py:
 	cd sdks/python && uv build && uv publish
@@ -132,8 +132,8 @@ cli-test: ## Run CLI unit tests + round-trip integration test (round-trip lands 
 cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught by sdks-check
 	@echo "cli-check OK (drift gate is sdks-check; sync_sdk_versions extension catches CLI version drift)"
 
-# `make publish-cli` — manual user action; requires UV_PUBLISH_TOKEN.
-publish-cli: ## Build + publish geolens CLI to PyPI (requires UV_PUBLISH_TOKEN)
+# `make publish-cli` — manual user action; requires PyPI credentials outside CI.
+publish-cli: ## Build + publish geolens-cli to PyPI
 	cd cli && uv build && uv publish
 
 # Phase 222 AUDIT-02 invariant: log_action() is called only by DefaultAuditSink.emit().

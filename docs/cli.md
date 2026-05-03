@@ -4,20 +4,20 @@
 
 | | Value |
 |---|---|
-| Package | `geolens` (PyPI) |
+| Package | `geolens-cli` (PyPI) |
 | License | Apache-2.0 |
 | Source | `cli/` in [geolens-io/geolens](https://github.com/geolens-io/geolens) |
-| SDK | Built on [`geolens-sdk`](sdks.md) — no hand-rolled HTTP client (OCCLI-06) |
+| SDK | Built on [`geolens`](sdks.md) — no hand-rolled HTTP client (OCCLI-06) |
 | Python | ≥ 3.11 |
 
 ## Installation
 
 ```bash
-pip install geolens
+pip install geolens-cli
 # or:
-uv add geolens
+uv add geolens-cli
 # or one-shot, no install:
-uvx geolens --help
+uvx --from geolens-cli geolens --help
 ```
 
 Verify the install:
@@ -26,7 +26,7 @@ Verify the install:
 geolens --version
 ```
 
-If the version reads `0.0.0+dev`, you are running from a source checkout without an editable install — `pip install -e cli/` from the repo root or `pip install geolens` from PyPI.
+If the version reads `0.0.0+dev`, you are running from a source checkout without an editable install — `pip install -e cli/` from the repo root or `pip install geolens-cli` from PyPI.
 
 ## Quickstart
 
@@ -156,7 +156,7 @@ Precedence: **CLI flag > env var > `credentials.toml` > keyring**.
 
 ## Lockstep Version Policy
 
-The CLI version is bound to the GeoLens backend's OpenAPI version. `geolens` v1.4.0 ships against the backend's v1.4.x OpenAPI snapshot; the CLI's `geolens-sdk` dependency pins to `>=1.4.0,<2.0.0` (lockstep across patch + minor of the same OpenAPI version).
+The CLI version is bound to the GeoLens backend's OpenAPI version. `geolens-cli` v1.4.0 ships against the backend's v1.4.x OpenAPI snapshot; the CLI's `geolens` SDK dependency pins to `>=1.4.0,<2.0.0` (lockstep across patch + minor of the same OpenAPI version).
 
 On a backend major-version bump, the CLI gets a coordinated bump too. `make sdks-check` catches version skew in CI on every PR — the `scripts/sync_sdk_versions.py` extension landed in Phase 216 / Plan 06 writes `cli/pyproject.toml`'s version field along with the two SDK targets, so the existing drift gate now covers the CLI automatically (CONTEXT.md D-39).
 
@@ -166,7 +166,7 @@ See [`docs/sdks.md`](sdks.md#lockstep-version-policy) for the full SDK policy th
 
 `make sdks-check` regenerates the SDKs and verifies that:
 
-- Generated source under `sdks/python/geolens_sdk/`, `sdks/typescript/src/`, and `sdks/typescript/test/` matches the committed copies (modulo the hand-written wrapper carve-outs).
+- Generated source under `sdks/python/geolens/`, `sdks/typescript/src/`, and `sdks/typescript/test/` matches the committed copies (modulo the hand-written wrapper carve-outs).
 - `sdks/python/pyproject.toml`, `sdks/typescript/package.json`, **and `cli/pyproject.toml`** all have the same `version` value as `backend/openapi.json`'s `info.version`.
 
 The CLI is fully hand-maintained — there is no generator that touches `cli/geolens_cli/*.py` — but version drift is caught by the same gate that catches SDK drift.
@@ -174,7 +174,7 @@ The CLI is fully hand-maintained — there is no generator that touches `cli/geo
 The CI `cli-test` job adds two further structural gates:
 
 1. `grep -rE '^(import|from) (httpx|requests)' cli/geolens_cli/` returns no matches (OCCLI-06: zero direct HTTP imports).
-2. A `tomllib` assertion that `cli/pyproject.toml` declares no `httpx`/`requests` direct dep (transitive via `geolens-sdk` is fine).
+2. A `tomllib` assertion that `cli/pyproject.toml` declares no `httpx`/`requests` direct dep (transitive via the `geolens` SDK is fine).
 
 Both gates fire on every PR that touches `cli/**` or `sdks/python/**`, so a regression cannot land silently.
 
@@ -182,20 +182,18 @@ Both gates fire on every PR that touches `cli/**` or `sdks/python/**`, so a regr
 
 First-publish runbook (one-time setup; mirrors `docs/sdks.md`):
 
-1. Claim the `geolens` PyPI name.
-2. Create a PyPI API token (initially "Entire account" scope; rescope to project after the first publish).
-3. Add the token as repo secret `PYPI_TOKEN`.
-4. Trigger the **Publish CLI** workflow from the GitHub Actions UI:
+1. Configure PyPI Trusted Publishing for project `geolens-cli`, owner `geolens-io`, repository `geolens`, workflow `publish-cli.yml`, environment blank.
+2. Trigger the **Publish CLI** workflow from the GitHub Actions UI:
    - Select `dry_run: true` for the first run (builds the wheel + sdist but does not upload).
    - Select `dry_run: false` for the real publish.
 
-The first publish is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). After the first publish, future migration to PyPI Trusted Publishing is wired into `permissions: id-token: write` on `.github/workflows/publish-cli.yml`.
+The first publish is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub.
 
 ## Known Rough Edges
 
 ### Multipart upload generator quirk
 
-The generated `BodyUploadFileIngestUploadPost.to_multipart()` in `geolens-sdk` is broken — it sends `(None, str(path).encode(), 'text/plain')` instead of the file bytes. The CLI bypasses this by calling the SDK's underlying httpx client directly (`client.get_httpx_client().post('/ingest/upload', files={...})`). OCCLI-06 still holds: the httpx instance comes from the SDK, and `cli/pyproject.toml` declares no httpx direct dep.
+The generated `BodyUploadFileIngestUploadPost.to_multipart()` in the Python SDK is broken — it sends `(None, str(path).encode(), 'text/plain')` instead of the file bytes. The CLI bypasses this by calling the SDK's underlying httpx client directly (`client.get_httpx_client().post('/ingest/upload', files={...})`). OCCLI-06 still holds: the httpx instance comes from the SDK, and `cli/pyproject.toml` declares no httpx direct dep.
 
 ### Keyring on headless Linux
 
@@ -221,7 +219,7 @@ STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` ex
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `geolens --version` shows `0.0.0+dev` | Not installed (running from a source checkout) | `pip install -e cli/` or `pip install geolens` |
+| `geolens --version` shows `0.0.0+dev` | Not installed (running from a source checkout) | `pip install -e cli/` or `pip install geolens-cli` |
 | `keyring.errors.NoKeyringError` traceback | Headless Linux without dbus | Use `--no-keyring` or set `GEOLENS_TOKEN` env var |
 | `Authentication required. Run \`geolens login\` first.` (exit 3) | Token missing or expired | `geolens login <url>` to refresh credentials |
 | `Session expired — run \`geolens login\` again` (exit 3) | Refresh token also expired | Re-login |
@@ -242,7 +240,7 @@ STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` ex
 
 ## References
 
-- [`docs/sdks.md`](sdks.md) — the underlying Python SDK (`geolens-sdk`)
+- [`docs/sdks.md`](sdks.md) — the underlying Python SDK (`geolens`)
 - [`docs/install-guide.md`](install-guide.md) — running a GeoLens instance
 - [GitHub repository](https://github.com/geolens-io/geolens) — source for the CLI under `cli/`
-- [PyPI](https://pypi.org/project/geolens/) — the published package (after the first publish lands)
+- [PyPI](https://pypi.org/project/geolens-cli/) — the published package (after the first publish lands)

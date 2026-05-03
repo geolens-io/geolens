@@ -35,7 +35,7 @@ def fetch_record_type(client: Any, dataset_id: str) -> str:
         ``record_type`` string from ``DatasetResponse``
         (e.g., ``"raster_dataset"``, ``"vector_dataset"``).
     """
-    from geolens_sdk.api.datasets import (
+    from geolens.api.datasets import (
         get_single_dataset_datasets_dataset_id_get,
     )
 
@@ -90,7 +90,7 @@ def fetch_stac_item(client: Any, dataset_id: str) -> dict:
       * If ``parsed`` has ``.to_dict()``, call it.
       * If ``parsed`` is already a dict, return it.
     """
-    from geolens_sdk.api.stac import get_item_stac_items_item_id_get
+    from geolens.api.stac import get_item_stac_items_item_id_get
 
     resp = call_sdk(
         get_item_stac_items_item_id_get.sync_detailed,

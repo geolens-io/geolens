@@ -188,8 +188,8 @@ jobs:
       # geolens_cli, so all three packages need to coexist in the env
       # that pytest uses. Using `uv pip install -e ../...` from backend/
       # places SDK + CLI editable into backend's venv (uv-sources in
-      # cli/pyproject.toml resolves the geolens-sdk dep against the
-      # local sibling tree, since the SDK isn't on PyPI yet).
+      # cli/pyproject.toml resolves the geolens SDK dep against the
+      # local sibling tree.
       - name: Install backend + SDK + CLI into shared venv
         working-directory: backend
         run: |
@@ -210,7 +210,7 @@ jobs:
           echo "OK: zero direct httpx/requests imports in cli/geolens_cli/"
 
       # OCCLI-06 structural gate (2/2): cli/pyproject.toml declares no
-      # httpx or requests dep (transitive via geolens-sdk is fine).
+      # httpx or requests dep (transitive via the geolens SDK is fine).
       # Use system python (not `uv run`) — the script only needs stdlib
       # tomllib, and `uv run` from cli/ would force a separate cli/.venv
       # resolution distinct from the shared backend/.venv used elsewhere.

@@ -7,7 +7,7 @@ the broken generated ``BodyUploadFileIngestUploadPost.to_multipart()``
 client. OCCLI-06 holds: no direct ``import httpx`` here —
 ``client.get_httpx_client()`` is the SDK's public surface for advanced
 use, and the dep list (`cli/pyproject.toml`) declares no httpx direct
-dependency (only transitive via geolens-sdk).
+dependency (only transitive via the geolens SDK).
 
 Pitfall 6: commit is NOT idempotent. On a duplicate-commit response we
 print a clear "already committed" message and exit cleanly; we do NOT
@@ -45,21 +45,21 @@ from ._sdk_helpers import EXIT_GENERIC
 # ---------------------------------------------------------------------------
 
 #: Upload returns 201 Created (UploadResponse). Cited:
-#: sdks/python/geolens_sdk/api/datasets/upload_file_ingest_upload_post.py:35
+#: sdks/python/geolens/api/datasets/upload_file_ingest_upload_post.py:35
 UPLOAD_OK_STATUS = 201
 
 #: Preview returns 200 OK (PreviewResponse | RasterPreviewResponse). Cited:
-#: sdks/python/geolens_sdk/api/datasets/preview_file_ingest_preview_job_id_post.py:49
+#: sdks/python/geolens/api/datasets/preview_file_ingest_preview_job_id_post.py:49
 PREVIEW_OK_STATUS = 200
 
 #: Commit returns 202 Accepted (CommitResponse with status="pending"). Cited:
-#: sdks/python/geolens_sdk/api/datasets/commit_import_ingest_commit_job_id_post.py:42
+#: sdks/python/geolens/api/datasets/commit_import_ingest_commit_job_id_post.py:42
 #: backend/app/processing/ingest/router.py:578
 COMMIT_OK_STATUS = 202
 
 #: GET /jobs/{job_id} returns 200 OK (JobStatusResponse with optional
 #: dataset_id). Cited:
-#: sdks/python/geolens_sdk/api/admin/get_job_status_jobs_job_id_get.py:33
+#: sdks/python/geolens/api/admin/get_job_status_jobs_job_id_get.py:33
 JOB_STATUS_OK_STATUS = 200
 
 #: Backend emits 400 for duplicate commits (Task 0 Q3); 409 is also
@@ -122,8 +122,8 @@ def upload_file(client: Any, path: Path) -> Any:
     list in ``cli/pyproject.toml`` enforces this structurally.
     """
     # Lazy SDK imports to keep ``geolens --help`` snappy.
-    from geolens_sdk.api.datasets import upload_file_ingest_upload_post
-    from geolens_sdk.types import Response
+    from geolens.api.datasets import upload_file_ingest_upload_post
+    from geolens.types import Response
 
     httpx_client = client.get_httpx_client()
     with path.open("rb") as fh:
@@ -155,8 +155,8 @@ def build_commit_request(
     accepted by the command but not wired into this body. ``description``
     maps to the model's ``summary`` attribute (the actual field name).
     """
-    from geolens_sdk.models.commit_request import CommitRequest
-    from geolens_sdk.types import UNSET
+    from geolens.models.commit_request import CommitRequest
+    from geolens.types import UNSET
 
     summary: Any = description if description is not None else UNSET
     # CommitRequest also exposes title, visibility, x_column/y_column,
@@ -214,8 +214,8 @@ def resolve_dataset_id(
     ``sleep`` and ``monotonic`` are injectable so tests can run with zero
     real-time delay.
     """
-    from geolens_sdk.api.admin import get_job_status_jobs_job_id_get
-    from geolens_sdk.models.problem_detail import ProblemDetail
+    from geolens.api.admin import get_job_status_jobs_job_id_get
+    from geolens.models.problem_detail import ProblemDetail
 
     # The SDK's job-status function accepts a UUID; coerce string → UUID
     # so callers can pass either type.
@@ -261,7 +261,7 @@ def is_duplicate_commit_response(resp: Any) -> bool:
     (router.py:593-597) but the SDK parses both. Detail-text matching
     avoids false positives from other 400s (e.g., body validation).
     """
-    from geolens_sdk.models.problem_detail import ProblemDetail
+    from geolens.models.problem_detail import ProblemDetail
 
     sc = int(resp.status_code)
     if sc not in COMMIT_DUPLICATE_STATUSES:

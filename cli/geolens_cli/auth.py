@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Credential storage — OS keyring with credentials.toml fallback.
 
-Hand-maintained — NOT regenerated. Mirrors sdks/python/geolens_sdk/auth.py's
+Hand-maintained — NOT regenerated. Mirrors sdks/python/geolens/auth.py's
 "configure exactly one" discipline for BearerToken vs ApiKey.
 
 Backend storage precedence (matches CONTEXT.md D-35):
@@ -201,9 +201,9 @@ def try_refresh(instance: str) -> Optional[str]:
     refresh = load_refresh_token(instance)
     if not refresh:
         return None
-    from geolens_sdk import GeolensClient
-    from geolens_sdk.api.auth import refresh_auth_refresh_post
-    from geolens_sdk.models.refresh_request import RefreshRequest
+    from geolens import GeolensClient
+    from geolens.api.auth import refresh_auth_refresh_post
+    from geolens.models.refresh_request import RefreshRequest
 
     try:
         sdk = GeolensClient(base_url=instance)

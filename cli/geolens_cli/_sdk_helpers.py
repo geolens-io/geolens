@@ -8,7 +8,7 @@ Note on httpx import: this module imports httpx ONLY for exception types
 used in error mapping. The httpx instance comes from the SDK
 (client.get_httpx_client()); the CLI never constructs an httpx.Client.
 OCCLI-06 enforcement is on the dep list (cli/pyproject.toml has no httpx
-direct dep — it's transitive via geolens-sdk). The `cli-lint` grep gate
+direct dep — it's transitive via the geolens SDK). The `cli-lint` grep gate
 in Plan 06 is scoped to `^(import|from) (httpx|requests)` lines that
 construct clients; httpx exception imports here are explicitly allowed.
 """
@@ -38,7 +38,7 @@ def unwrap(resp: Any, *, expected: int = 200) -> Any:
       5xx      → exit 5 (EXIT_SERVER)
       other    → exit 1 (EXIT_GENERIC)
     """
-    from geolens_sdk.models.problem_detail import ProblemDetail  # lazy
+    from geolens.models.problem_detail import ProblemDetail  # lazy
 
     sc = int(resp.status_code)
     if sc == expected:
