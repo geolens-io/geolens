@@ -18,12 +18,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Search Service Decomposition
 
-- [ ] **SRCH-01**: Maintainer can continue importing the existing public search service API from `app.modules.catalog.search.service` after decomposition, including `SearchFilters`, `search_datasets`, `get_facet_counts`, `search_collections`, and OGC record helpers.
-- [ ] **SRCH-02**: Maintainer can work on common filters, facet counts, collection search, dataset search, semantic/RRF merge, and OGC record conversion in focused modules instead of one 1,300-line service file.
-- [ ] **SRCH-03**: User can run dataset search with the same text, spatial, temporal, tag, organization, CRS, record type, CQL2, sort, pagination, RBAC, and publication filtering behavior as before the split.
-- [ ] **SRCH-04**: User can retrieve facet counts, collection search results, collection metadata, collection items, queryables, sortables, and record schema responses with the same response shapes and cache semantics as before the split.
-- [ ] **SRCH-05**: OGC, STAC, and AI callers can consume search results, OGC record conversion, assets, themes, and time metadata through the existing public contracts after the split.
-- [ ] **SRCH-06**: User can use semantic and hybrid search with the same embedding-provider dispatch, RRF behavior, fallback behavior, and actor identity enrichment as before the split.
+- [x] **SRCH-01**: Maintainer can continue importing the existing public search service API from `app.modules.catalog.search.service` after decomposition, including `SearchFilters`, `search_datasets`, `get_facet_counts`, `search_collections`, and OGC record helpers.
+- [x] **SRCH-02**: Maintainer can work on common filters, facet counts, collection search, dataset search, semantic/RRF merge, and OGC record conversion in focused modules instead of one 1,300-line service file.
+- [x] **SRCH-03**: User can run dataset search with the same text, spatial, temporal, tag, organization, CRS, record type, CQL2, sort, pagination, RBAC, and publication filtering behavior as before the split.
+- [x] **SRCH-04**: User can retrieve facet counts, collection search results, collection metadata, collection items, queryables, sortables, and record schema responses with the same response shapes and cache semantics as before the split.
+- [x] **SRCH-05**: OGC, STAC, and AI callers can consume search results, OGC record conversion, assets, themes, and time metadata through the existing public contracts after the split.
+- [x] **SRCH-06**: User can use semantic and hybrid search with the same embedding-provider dispatch, RRF behavior, fallback behavior, and actor identity enrichment as before the split.
 
 ### Boundary Guards
 
@@ -80,12 +80,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MAPS-04 | 236 | Complete |
 | MAPS-05 | 236 | Complete |
 | MAPS-06 | 236 | Complete |
-| SRCH-01 | 237 | Pending |
-| SRCH-02 | 237 | Pending |
-| SRCH-03 | 237 | Pending |
-| SRCH-04 | 237 | Pending |
-| SRCH-05 | 237 | Pending |
-| SRCH-06 | 237 | Pending |
+| SRCH-01 | 237 | Complete |
+| SRCH-02 | 237 | Complete |
+| SRCH-03 | 237 | Complete |
+| SRCH-04 | 237 | Complete |
+| SRCH-05 | 237 | Complete |
+| SRCH-06 | 237 | Complete |
 | BOUND-01 | 238 | Pending |
 | BOUND-02 | 238 | Pending |
 | BOUND-03 | 238 | Pending |
@@ -101,4 +101,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-03 after roadmap creation*
+*Last updated: 2026-05-03 after Phase 237 completion*

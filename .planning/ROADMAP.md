@@ -61,7 +61,7 @@
 - [ ] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded.
 - [ ] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit.
 
-19/19 v13.6 requirements mapped. 6/19 satisfied after Phase 236.
+19/19 v13.6 requirements mapped. 12/19 satisfied after Phase 237.
 
 #### Phase 236: maps-service-decomposition
 
