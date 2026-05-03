@@ -29,7 +29,7 @@
 
 - [x] **SHARE-01**: Advanced sharing controls remain gated consistently across schema validators, service guards, and UI affordances in Community versus Enterprise.
 - [ ] **SHARE-02**: GTM docs, API schema descriptions, route docstrings, and UI copy match the advanced-sharing implementation without false paid/free claims.
-- [ ] **SHARE-03**: Basic community sharing remains intact: users can still create and revoke non-advanced share/embed tokens after governance gates are verified.
+- [x] **SHARE-03**: Basic community sharing remains intact: users can still create and revoke non-advanced share/embed tokens after governance gates are verified.
 
 ### Close Audit
 
@@ -90,7 +90,7 @@ Explicitly excluded from v13.5.
 | WORK-05 | Phase 233 | Complete |
 | SHARE-01 | Phase 234 | Complete |
 | SHARE-02 | Phase 234 | Pending |
-| SHARE-03 | Phase 234 | Pending |
+| SHARE-03 | Phase 234 | Complete |
 | GOVAUD-01 | Phase 235 | Pending |
 | GOVAUD-02 | Phase 235 | Pending |
 | GOVAUD-03 | Phase 235 | Pending |
