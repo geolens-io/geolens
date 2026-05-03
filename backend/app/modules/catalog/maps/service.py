@@ -16,12 +16,13 @@ from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.edition import is_enterprise
 from app.core.identity import Identity
 from app.modules.auth.models import User, UserRole
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
-from app.modules.catalog.maps.schemas import MapLayerInput
+from app.modules.catalog.maps.schemas import ADVANCED_SHARING_ERROR, MapLayerInput
 from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -837,6 +838,9 @@ async def create_share_token(
     expires_at: datetime | None = None,
 ) -> MapShareToken:
     """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
+    if not is_enterprise() and expires_at is not None:
+        raise ValueError(ADVANCED_SHARING_ERROR)
+
     # Check for existing token
     existing = await session.execute(
         select(MapShareToken).where(MapShareToken.map_id == map_id)
@@ -874,6 +878,9 @@ async def update_share_token(
     expires_at: datetime | None,
 ) -> MapShareToken | None:
     """Update expiration on the active share token for a map. Returns None if no active token."""
+    if not is_enterprise() and expires_at is not None:
+        raise ValueError(ADVANCED_SHARING_ERROR)
+
     result = await session.execute(
         select(MapShareToken).where(
             MapShareToken.map_id == map_id,

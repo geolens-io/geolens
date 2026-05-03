@@ -589,9 +589,15 @@ async def share_map_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Map must be public before sharing",
         )
-    token_obj = await create_share_token(
-        db, map_id, user.id, expires_at=body.expires_at if body else None
-    )
+    try:
+        token_obj = await create_share_token(
+            db, map_id, user.id, expires_at=body.expires_at if body else None
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     await audit_emit(
         db,
         AuditEvent(
@@ -629,7 +635,13 @@ async def update_map_share_token_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    token_obj = await update_share_token(db, map_id, body.expires_at)
+    try:
+        token_obj = await update_share_token(db, map_id, body.expires_at)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     if token_obj is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
