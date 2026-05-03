@@ -277,10 +277,10 @@ class StatusUpdate(BaseModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, v: str) -> str:
-        allowed = {"draft", "ready", "internal", "published"}
-        if v not in allowed:
-            raise ValueError(f"status must be one of {allowed}")
-        return v
+        status = v.strip()
+        if not status:
+            raise ValueError("status must not be blank")
+        return status
 
 
 class DatasetDeleteRequest(BaseModel):
