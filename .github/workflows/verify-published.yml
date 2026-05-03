@@ -20,15 +20,31 @@ on:
 permissions:
   contents: read
 
+env:
+  VERIFY_VERSION: ${{ inputs.version || 'latest' }}
+
 jobs:
   verify-python:
     name: Verify Python packages on python:3.13-slim
     runs-on: ubuntu-latest
     steps:
       - name: pip install + smoke import (geolens SDK + geolens-cli)
+        env:
+          VERSION: ${{ env.VERIFY_VERSION }}
         run: |
-          docker run --rm python:3.13-slim sh -c "
-            pip install --no-cache-dir geolens geolens-cli &&
+          if [ "${VERSION}" = "latest" ]; then
+            SDK_SPEC="geolens"
+            CLI_SPEC="geolens-cli"
+          else
+            SDK_SPEC="geolens==${VERSION}"
+            CLI_SPEC="geolens-cli==${VERSION}"
+          fi
+
+          docker run --rm \
+            -e SDK_SPEC="${SDK_SPEC}" \
+            -e CLI_SPEC="${CLI_SPEC}" \
+            python:3.13-slim sh -c "
+            pip install --no-cache-dir \"\${SDK_SPEC}\" \"\${CLI_SPEC}\" &&
             geolens --version &&
             python -c 'from geolens import GeolensClient; print(GeolensClient)'
           "
@@ -38,11 +54,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: npm install + smoke import (@geolens/sdk)
+        env:
+          VERSION: ${{ env.VERIFY_VERSION }}
         run: |
-          docker run --rm node:22-slim sh -c "
+          if [ "${VERSION}" = "latest" ]; then
+            SDK_SPEC="@geolens/sdk"
+          else
+            SDK_SPEC="@geolens/sdk@${VERSION}"
+          fi
+
+          docker run --rm \
+            -e SDK_SPEC="${SDK_SPEC}" \
+            node:22-slim sh -c "
             mkdir -p /tmp/geolens-sdk-smoke &&
             cd /tmp/geolens-sdk-smoke &&
             npm init -y >/dev/null &&
-            npm install --no-save @geolens/sdk &&
+            npm install --no-save \"\${SDK_SPEC}\" &&
             node -e 'import(\"@geolens/sdk\").then(m => { if (typeof m.createGeolensClient !== \"function\") throw new Error(\"createGeolensClient export missing\"); console.log(\"createGeolensClient export ok\") })'
           "
+
+  verify-ghcr:
+    name: Verify GHCR images
+    runs-on: ubuntu-latest
+    steps:
+      - name: docker pull public API and frontend images
+        env:
+          VERSION: ${{ env.VERIFY_VERSION }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          docker pull "ghcr.io/${OWNER}/geolens-api:${VERSION}"
+          docker pull "ghcr.io/${OWNER}/geolens-frontend:${VERSION}"
+
+  verify-github-release:
+    name: Verify GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ env.VERIFY_VERSION }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ "${VERSION}" = "latest" ]; then
+            gh release view --repo "${REPOSITORY}" --json tagName,isLatest,url
+          else
+            case "${VERSION}" in
+              v*) TAG="${VERSION}" ;;
+              *) TAG="v${VERSION}" ;;
+            esac
+            gh release view "${TAG}" --repo "${REPOSITORY}" --json tagName,isLatest,url
+          fi
