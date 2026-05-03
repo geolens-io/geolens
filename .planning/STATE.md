@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: defining_requirements
-stopped_at: v13.5 started; requirements and roadmap being defined
-last_updated: "2026-05-03T15:31:26Z"
+status: roadmap_defined
+stopped_at: v13.5 initialized; ready to discuss or plan Phase 232
+last_updated: "2026-05-03T15:34:59Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 232 pending
 Plan: —
-Status: Defining requirements and roadmap for v13.5 Enterprise Governance Seams
-Last activity: 2026-05-03 — Milestone v13.5 started
+Status: Milestone initialized; ready to discuss or plan Phase 232
+Last activity: 2026-05-03 — Milestone v13.5 requirements and roadmap defined
 
 ## Roadmap Snapshot
 
@@ -39,7 +39,7 @@ Last activity: 2026-05-03 — Milestone v13.5 started
 | 234 | governance-contract-verification | SHARE-01..03 | 232, 233 |
 | 235 | post-impl-audit-v13.5 | GOVAUD-01..03 | 232, 233, 234 |
 
-Coverage target: 16/16 v13.5 requirements mapped once `.planning/REQUIREMENTS.md` and `.planning/ROADMAP.md` are finalized.
+Coverage: 16/16 v13.5 requirements mapped.
 
 **Audit-grade targets:** Seam Quality **A− → A** (PermissionExtension + WorkflowExtension close the remaining governance seams); Boundary Integrity ≥ **A** (advanced sharing gate remains enforced); Inventory Accuracy ≥ **A−** (GTM/API/UI copy matches implementation).
 
@@ -91,7 +91,7 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 - 999.22 (split catalog/search/service.py) — stays backlog P2
 - 999.23 (share/embed token expiration gating) — resolved by Branch A on 2026-05-03 per `docs-internal/audits/oc-separation-audit-20260503.md`; v13.5 keeps a verification phase to prevent GTM/API/UI drift from recurring.
 
-Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
+Existing 999.12/14/16 remain cross-referenced to the 2026-05-02 audit with no promotion.
 
 Tier C — external blocker resolved: Phase 228 completed 2026-05-03. SDK and CLI packages are live and clean-machine verification passed.
 
