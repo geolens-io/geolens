@@ -33,9 +33,9 @@
 
 ### Close Audit
 
-- [ ] **GOVAUD-01**: A dated v13.5 close audit covers `PermissionExtension`, `WorkflowExtension`, advanced-sharing contract verification, and open-core seam grades.
-- [ ] **GOVAUD-02**: All P1 findings from the close audit are fixed inline or explicitly deferred with rationale and tracked backlog entries.
-- [ ] **GOVAUD-03**: The close audit records Seam Quality ≥ **A**, Boundary Integrity ≥ **A**, and Inventory Accuracy ≥ **A−**.
+- [x] **GOVAUD-01**: A dated v13.5 close audit covers `PermissionExtension`, `WorkflowExtension`, advanced-sharing contract verification, and open-core seam grades.
+- [x] **GOVAUD-02**: All P1 findings from the close audit are fixed inline or explicitly deferred with rationale and tracked backlog entries.
+- [x] **GOVAUD-03**: The close audit records Seam Quality ≥ **A**, Boundary Integrity ≥ **A**, and Inventory Accuracy ≥ **A−**.
 
 ## Future Requirements
 
@@ -91,9 +91,9 @@ Explicitly excluded from v13.5.
 | SHARE-01 | Phase 234 | Complete |
 | SHARE-02 | Phase 234 | Complete |
 | SHARE-03 | Phase 234 | Complete |
-| GOVAUD-01 | Phase 235 | Pending |
-| GOVAUD-02 | Phase 235 | Pending |
-| GOVAUD-03 | Phase 235 | Pending |
+| GOVAUD-01 | Phase 235 | Complete |
+| GOVAUD-02 | Phase 235 | Complete |
+| GOVAUD-03 | Phase 235 | Complete |
 
 **Coverage:**
 - v13.5 requirements: 16 total
@@ -102,4 +102,4 @@ Explicitly excluded from v13.5.
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-03 after initial v13.5 definition*
+*Last updated: 2026-05-03 after Phase 235 close audit completion*

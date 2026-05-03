@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: phase_234_complete
-stopped_at: Phase 234 complete and verified; ready for Phase 235
-last_updated: "2026-05-03T18:00:15Z"
+status: phase_235_complete
+stopped_at: Phase 235 complete and verified; v13.5 milestone close audit passed
+last_updated: "2026-05-03T19:41:36Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 14
-  completed_plans: 14
-  percent: 75
+  completed_phases: 4
+  total_plans: 15
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 
 ## Current Position
 
-Phase: 235 pending
+Phase: 235 complete
 Plan: —
-Status: Phase 234 complete and verified; ready to plan Phase 235
-Last activity: 2026-05-03 — Phase 234 completed with verification passed in `.planning/phases/234-governance-contract-verification/234-VERIFICATION.md`
+Status: Phase 235 complete and verified; v13.5 close audit passed in `.planning/phases/235-post-impl-audit-v13-5/235-VERIFICATION.md`
+Last activity: 2026-05-03 — Phase 235 completed the v13.5 post-implementation audit with Seam Quality A, Boundary Integrity A, and Inventory Accuracy A-.
 
 ## Roadmap Snapshot
 
@@ -54,16 +54,16 @@ Coverage: 16/16 v13.5 requirements mapped.
 
 ## Next Action
 
-Plan and execute Phase 235:
+v13.5 milestone close is complete:
 
 - Phase 232 promoted former backlog 999.8 into the active v13.5 milestone and is complete.
 - Phase 233 Plans 01-04 are complete: `WorkflowExtension`, `DefaultWorkflowExtension`, `get_workflow_extension()`, publication endpoint routing, metadata PATCH routing, relaxed persistence for custom states, bypass guard, and verification artifact are in place.
 - Phase 233 verification passed with local DB-backed checks blocked only by missing PostGIS/pgvector in the reachable Postgres service.
 - Phase 234 Plans 01-05 are complete: schema validators, service guards, builder affordance gates, API/GTM/UI copy alignment, regenerated OpenAPI, negative-control proof, and verification artifact are in place.
 - Phase 234 verification passed with focused backend DB-backed checks on `POSTGRES_PORT=5434`, frontend Vitest/lint, ruff, `make openapi-check`, and a schema-guard negative control.
-- Phase 235 closes the milestone with a post-implementation/open-core audit.
+- Phase 235 closed the milestone with `docs-internal/audits/post-impl-20260503-v13-5.md` and verified GOVAUD-01..03.
 
-Next GSD action: `$gsd-plan-phase 235 --auto`.
+Next GSD action: start the next selected backlog or milestone phase; the execute-phase request used `--no-transition`, so no transition workflow was run.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
@@ -71,7 +71,7 @@ The audit produced 16 findings. Three trivial fixes were applied inline (env-var
 
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
 - **v13.4 (shipped):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), 230 (999.20 → 230 CatalogPort), 231 (999.19 → 231 EmbeddingProviderExtension), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
-- **v13.5 (active):** Phase 232 (999.8 → PermissionExtension), Phase 233 (999.9 → WorkflowExtension), Phase 234 (advanced-sharing contract verification), Phase 235 (close audit).
+- **v13.5 (complete):** Phase 232 (999.8 → PermissionExtension), Phase 233 (999.9 → WorkflowExtension), Phase 234 (advanced-sharing contract verification), Phase 235 (close audit).
 - **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py).
 
 ## /oc-audit follow-ups (2026-05-02 audit run)

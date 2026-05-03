@@ -54,7 +54,7 @@
 - [x] **Phase 232: permission-extension-protocol** — Add a first-class `PermissionExtension` seam for action checks and catalog visibility filtering. (completed 2026-05-03)
 - [x] **Phase 233: workflow-extension-protocol** — Add a first-class `WorkflowExtension` seam for publication lifecycle transitions and transition hooks. (completed 2026-05-03)
 - [x] **Phase 234: governance-contract-verification** — Verify advanced-sharing gates and GTM/API/UI copy stay aligned after the 2026-05-03 Branch A fix. (completed 2026-05-03)
-- [ ] **Phase 235: post-impl-audit-v13.5** — Run the close audit and verify Seam Quality, Boundary Integrity, and Inventory Accuracy targets.
+- [x] **Phase 235: post-impl-audit-v13.5** — Run the close audit and verify Seam Quality, Boundary Integrity, and Inventory Accuracy targets. (completed 2026-05-03)
 
 #### Phase 232: permission-extension-protocol
 
@@ -143,7 +143,7 @@ Plans:
 4. Inventory Accuracy is recorded at **A−** or better with GTM/API/UI copy aligned to implementation.
 5. Every P1 finding is either fixed inline or deferred with a named backlog entry and rationale.
 
-**Plans:** TBD after Phases 232-234 ship.
+**Plans:** 1/1 plans complete
 
 ---
 
