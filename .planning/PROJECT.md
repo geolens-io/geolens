@@ -8,11 +8,24 @@ Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-45 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.3; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing seams** (write-side `AuditSink` Protocol with per-sink failure isolation; `BillingExtension` startup hook with `core/marketplace.py` extracted to enterprise overlay), and **decomposed catalog domain** (1407-LOC god-module split into 5 cohesive sub-modules behind a thin façade). Latest audit grades: Boundary Integrity **A+** (zero 🟡 risks), Seam Quality **B+**, Coupling Health **B** (catalog god-module decomposed; log_action 65→7 chokepoint sites), OSS Surface A−. Overall readiness **3.85/4.0 (A)** per `post-impl-20260501-b.md`.
+46 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.4; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI provider seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`), and bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards. Latest v13.4 close-gate grades: Boundary Integrity **A+**, Coupling Health **A−**, Seam Quality **A−**, OSS Surface **A** per `post-impl-20260503-v13-4.md`.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Last Milestone (this repo): v13.3 Boundary A+ Cleanup (shipped 2026-05-01)
+## Last Milestone (this repo): v13.4 Boundary Closeout (shipped 2026-05-03)
+
+**Delivered:** 7 phases (225, 226, 227, 228, 230, 231, 229), 23 plans, 30/30 requirements satisfied — see [milestones/v13.4-ROADMAP.md](milestones/v13.4-ROADMAP.md).
+
+- **ProcessingPort + CatalogPort** — both directions of the catalog↔processing cycle now go through Protocol boundaries; `test_no_processing_imports_catalog` and `test_no_catalog_imports_processing` enforce the invariant.
+- **AIProviderExtension + EmbeddingProviderExtension** — chat/completion and embeddings provider dispatch are extensible via platform registries, with module-level provider SDK import guards across `backend/app/processing/`.
+- **SAML fixture tmp-path cleanup** — SAML overlay tests no longer dirty committed fixture files.
+- **Cold publish workflows verified** — `geolens==1.0.0`, `geolens-cli==1.0.0`, and `@geolens/sdk==1.0.0` are visible from public registries.
+- **Post-impl close gate passed** — `docs-internal/audits/post-impl-20260503-v13-4.md` records Boundary Integrity A+, Coupling Health A−, Seam Quality A−, no unresolved P1 findings.
+
+**Known close note:** In-progress advanced-sharing controls were stashed before archival as `stash@{0}` and are not part of v13.4.
+
+<details>
+<summary>Earlier milestone — v13.3 Boundary A+ Cleanup (shipped 2026-05-01)</summary>
 
 **Delivered:** 3 phases (222-224), 18 plans, 15/15 requirements satisfied — see [milestones/v13.3-ROADMAP.md](milestones/v13.3-ROADMAP.md).
 
@@ -22,6 +35,8 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - **SQL-safety single source of truth** — `_sql_safety.py` consolidates `SAFE_TABLE_NAME_RE` + `SAFE_COLUMN_NAME_RE` + `_safe_table_ref` (was redefined 6× pre-cleanup). Architecture guard extended to forbid external imports of the private module.
 - **`IngestionResult` Pydantic model** — collapses `create_dataset` 17-kwarg signature to a single typed parameter object (with legacy-kwargs back-compat for existing test fixtures).
 - **Three new architecture-guard Makefile targets** — `audit-sink-discipline`, `billing-extraction-discipline`, `catalog-domain-discipline`.
+
+</details>
 
 <details>
 <summary>Earlier milestone — v13.2 Edition Lifecycle Hardening (shipped 2026-04-30)</summary>
@@ -53,21 +68,6 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 **Concurrent shipped work (cross-repo, prior to v13.1):**
 - v14.0 Marketing Site (executed in `getgeolens.com` repo, shipped 2026-04-13).
 - 999.1-999.4 backlog (3D viewer toggle, PostGIS 3D detection, GeoJSON-Z delivery endpoint, shared vector staging pipeline) — executed in **this repo** as backend/frontend work; phase artifacts remain under `.planning/phases/999.1-*..999.4-*`.
-
-## Current Milestone: v13.4 Boundary Closeout
-
-**Goal:** Close the last 🔴 seams from `oc-separation-audit-20260430-b.md` — invert the catalog↔processing cycle, make AI providers extensible, and finish remaining open-core publish hygiene — so v14.0 can launch on architecturally clean ground.
-
-**Target features:**
-- ProcessingPort Protocol (Phase 225) — invert catalog↔processing cycle, with inline architecture guard
-- AIProviderExtension Protocol (Phase 226) — replace hardcoded provider dispatch with extensible Protocol
-- SAML test fixture cleanup (Phase 227) — stop polluting `git status` after every test run
-- Run cold PyPI/npm publish workflows (Phase 228) — convert WIRED → SHIPPED for SDKs + CLI
-- CatalogPort Protocol (Phase 230) — invert the remaining catalog→processing direction symmetrically
-- EmbeddingProviderExtension Protocol (Phase 231) — remove the final module-level provider-SDK import from `processing/`
-- Post-impl audit at close (Phase 229) — audit Phases 225-228 plus 230/231 before milestone close
-
-**Audit-grade targets:** Boundary Integrity A+ (hold); Coupling Health B → **A−** (both catalog↔processing directions inverted via Phases 225 + 230); Seam Quality B+ → **A−** (AI + embeddings provider seams closed via Phases 226 + 231).
 
 ## Core Value
 
@@ -598,4 +598,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 — v13.4 Boundary Closeout updated after Phase 231 verification (CatalogPort + EmbeddingProviderExtension promotions reflected)*
+*Last updated: 2026-05-03 after v13.4 milestone close*

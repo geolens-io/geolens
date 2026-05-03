@@ -1,5 +1,69 @@
 # Milestones
 
+## v13.4 Boundary Closeout (Shipped: 2026-05-03)
+
+**Milestone goal:** Close the last open-core boundary, coupling, and provider-seam gaps from the 2026-04-30 and 2026-05-02 audits so the committed GeoLens surface is ready for the next public-launch milestone.
+
+**Stats:**
+
+- **Phases:** 7 (225, 226, 227, 228, 230, 231, 229)
+- **Plans:** 23 / 23 complete
+- **Timeline:** 2026-05-01 → 2026-05-03 (3 days)
+- **Commits:** 170 in milestone range (`325a4418^..9c63a890`)
+- **Diff:** 924 files, +33,593 / -18,204
+
+**Requirements:** 30/30 satisfied (PROCESS-01..05, AIEXT-01..05, TESTFIX-01..03, PUBLISH-01..04, CATPORT-01..05, EMBPROV-01..05, PIAUDIT-01..03)
+
+**Key accomplishments:**
+
+1. **Bidirectional catalog/processing cycle inverted** — Phase 225 added `ProcessingPort` for processing→catalog access; Phase 230 added symmetric `CatalogPort` for catalog→processing access. Architecture guards now enforce both directions.
+2. **AI and embeddings provider seams closed** — Phase 226 moved AI provider dispatch behind `AIProviderExtension`; Phase 231 moved embeddings behind `EmbeddingProviderExtension` and expanded the provider-SDK import guard across all `backend/app/processing/`.
+3. **Cold publish workflows shipped** — Phase 228 verified `geolens==1.0.0`, `geolens-cli==1.0.0`, and `@geolens/sdk==1.0.0` from public registries and documented final package names.
+4. **SAML fixture churn removed** — Phase 227 stopped committed SAML fixtures from mutating during tests.
+5. **Post-implementation close gate passed** — Phase 229 produced `docs-internal/audits/post-impl-20260503-v13-4.md` with Boundary Integrity A+, Coupling Health A−, Seam Quality A−, and no unresolved P1 findings.
+
+**Known gaps:** None for the committed v13.4 scope. In-progress advanced-sharing controls were stashed before milestone archival as `stash@{0}` and are not part of this milestone.
+
+**Archives:**
+
+- `.planning/milestones/v13.4-ROADMAP.md`
+- `.planning/milestones/v13.4-REQUIREMENTS.md`
+
+**Tag:** `v13.4`
+
+---
+
+## v13.3 Boundary A+ Cleanup (Shipped: 2026-05-01)
+
+**Milestone goal:** Close the P1 architectural items from the post-v13.2 open-core audit so the repo could claim Boundary Integrity A+ and a fully overlay-capable audit/billing surface.
+
+**Stats:**
+
+- **Phases:** 3 (222, 223, 224)
+- **Plans:** 18 / 18 complete
+- **Timeline:** 2026-04-30 → 2026-05-01 (2 days)
+- **Commits:** 83 in milestone range
+- **Diff:** 141 files, +19,316 / -2,211
+
+**Requirements:** 15/15 satisfied (AUDIT-01..05, BILLING-01..06, DECOUPLE-01..04)
+
+**Key accomplishments:**
+
+1. **AuditSink seam shipped** — 65 `log_action()` sites now route through `audit_emit()` and registered sinks with per-sink failure isolation.
+2. **Marketplace billing extracted** — AWS Marketplace registration moved out of core behind `BillingExtension.on_startup()`; `core/marketplace.py` was deleted.
+3. **Catalog dataset god-module decomposed** — `catalog/datasets/domain/service.py` became an 87-LOC façade over five cohesive sub-modules, with architecture guards preventing external bypass.
+4. **SQL safety centralized** — shared table/column validation moved behind a single private helper module and guard.
+5. **Post-implementation quality target met** — Overall readiness moved 3.39 → 3.85 (A) per `post-impl-20260501-b.md`.
+
+**Archives:**
+
+- `.planning/milestones/v13.3-ROADMAP.md`
+- `.planning/milestones/v13.3-REQUIREMENTS.md`
+
+**Tag:** `v13.3`
+
+---
+
 ## v13.2 Edition Lifecycle Hardening (Shipped: 2026-04-30)
 
 **Milestone goal:** Close the deactivation/reactivation lifecycle gap surfaced during v13.1 close-out — make enterprise→community downgrade safe and re-upgrade lossless before any paying customer hits these gaps.

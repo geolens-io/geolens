@@ -2,6 +2,45 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v13.4 — Boundary Closeout
+
+**Shipped:** 2026-05-03
+**Phases:** 7 (225, 226, 227, 228, 230, 231, 229) | **Plans:** 23 | **Commits:** 170
+
+### What Was Built
+- `ProcessingPort` and `CatalogPort` now invert both directions of the catalog/processing dependency cycle.
+- `AIProviderExtension` and `EmbeddingProviderExtension` make chat/completion and embeddings provider dispatch extensible.
+- SAML overlay tests write generated fixture output to temporary paths instead of mutating committed fixtures.
+- Cold publish workflows verified public registry artifacts: `geolens`, `geolens-cli`, and `@geolens/sdk` at `1.0.0`.
+- Post-implementation close gate produced `post-impl-20260503-v13-4.md` with Boundary Integrity A+, Coupling Health A−, Seam Quality A−.
+
+### What Worked
+- **Symmetric boundary ports.** Phase 225's `ProcessingPort` pattern was reusable for Phase 230's `CatalogPort`, making the second half of the cycle inversion faster and more auditable.
+- **Architecture guards carried the milestone.** Bidirectional catalog/processing import guards plus provider-SDK import guards gave simple evidence for the close audit.
+- **Cold publish verification closed an external blocker.** Phase 228 turned package workflows from wired-but-cold into verified public registry artifacts.
+- **Post-impl audit fixed real P1s inline.** Format drift and stale test patch targets were caught and fixed before close.
+
+### What Was Inefficient
+- **The milestone roster changed midstream.** Phase 230 and 231 were promoted after the 2026-05-02 audit, which meant state/roadmap tools sometimes misidentified backlog `999.*` work as next.
+- **Local DB provisioning still limits full-suite signal.** Host Postgres without pgvector forced focused checks or Compose-specific env usage.
+- **Dirty unrelated work affected full-suite audit evidence.** In-progress advanced-sharing changes caused one embed-token failure during Phase 229 until stashed before archival.
+
+### Patterns Established
+- Protocol seams should ship with a default adapter, registry accessor, focused seam tests, and an architecture guard in the same phase.
+- Post-impl close gates should treat local dirty worktree changes as residual risk unless they are part of the committed milestone surface.
+- For open-core feature gates, schema validators and service-layer checks should agree.
+
+### Key Lessons
+1. Promote audit-discovered backlog items into the active milestone only after updating both roadmap and state, otherwise transition tooling can point at backlog phases.
+2. Keep milestone-close tags on a clean worktree; stash unrelated in-progress work before archival.
+3. Full-suite claims need a stable local PostGIS + pgvector database, otherwise reports should use focused checks and document the environment gap.
+
+### Cost Observations
+- Model mix: planner/executor agents used inherited frontier model for hard refactors; Sonnet-class agents handled research/checking.
+- Notable: 7 phases in 3 days, with generated/publication artifacts contributing heavily to file count.
+
+---
+
 ## Milestone: v13.1 — Open-Core Separation P1
 
 **Shipped:** 2026-04-29
@@ -53,14 +92,18 @@
 
 | Milestone | Phases | Key Change |
 |-----------|--------|------------|
+| v13.4 | 7 (225, 226, 227, 228, 230, 231, 229) | Symmetric Protocol boundaries for catalog/processing; AI + embeddings provider seams; post-impl close gate with A+/A−/A− grades |
 | v13.1 | 8 (212–219) | Architecture-guard tests as CI-enforced layering invariants; mid-milestone phase additions to close audit-surfaced P0s; per-phase verification gate plan as standard pattern |
 
 ### Cumulative Quality
 
 | Milestone | Backend Tests | Notable |
 |-----------|---------------|---------|
+| v13.4 | Focused architecture/provider/reupload checks green; full-suite limited by local DB/dirty-worktree constraints | Bidirectional import guards and provider-SDK guards now enforce open-core boundaries |
 | v13.1 | 1999+ pass (baseline maintained throughout) | 12 SDK round-trip + 9 SAML integration + 9 enterprise + 112 CLI unit + 6 CLI round-trip new |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. *Pending — first retrospective; lessons will compound across future milestones.*
+1. Architecture guard tests are the strongest close-gate evidence for boundary milestones.
+2. Post-impl audits should fix P1s inline before milestone archival.
+3. Keep the worktree clean before milestone tags; stash unrelated WIP explicitly.

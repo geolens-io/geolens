@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
-status: completed
-stopped_at: Phase 229 complete; v13.4 post-implementation audit gate verified
-last_updated: "2026-05-03T15:14:00Z"
+status: archived
+stopped_at: v13.4 archived; ready for next milestone planning
+last_updated: "2026-05-03T15:25:00Z"
 last_activity: 2026-05-03
 progress:
-  total_phases: 18
+  total_phases: 7
   completed_phases: 7
   total_plans: 23
   completed_plans: 23
@@ -18,16 +18,16 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
+See: .planning/PROJECT.md (updated 2026-05-03 after v13.4 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 229 — post-impl-audit-v13.4 complete; v13.4 ready for milestone close
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 229 (post-impl-audit-v13.4) — COMPLETE
-Plan: 229-01 complete
-Status: v13.4 post-implementation audit gate verified
+Phase: v13.4 Boundary Closeout — ARCHIVED
+Plan: 23 of 23 complete
+Status: Milestone archived and ready for next milestone planning
 Last activity: 2026-05-03
 
 ## Roadmap Snapshot
@@ -65,15 +65,17 @@ Phases 230 and 231 are complete and verified:
 - `backend/app/processing/embeddings/` has zero module-level OpenAI SDK imports.
 - `test_no_module_level_provider_sdk_imports_in_processing` now covers all of `backend/app/processing/`.
 
-Phase 229 completed 2026-05-03. The dated audit report is `docs-internal/audits/post-impl-20260503-v13-4.md`; Boundary Integrity A+, Coupling Health A−, and Seam Quality A− meet the v13.4 close targets. Next GSD action: `/gsd-complete-milestone`.
+Phase 229 completed 2026-05-03. The dated audit report is `docs-internal/audits/post-impl-20260503-v13-4.md`; Boundary Integrity A+, Coupling Health A−, and Seam Quality A− meet the v13.4 close targets.
 
-## Phase 224 Queue (from /oc-audit follow-ups)
+v13.4 has been archived to `.planning/milestones/v13.4-ROADMAP.md` and `.planning/milestones/v13.4-REQUIREMENTS.md`. Next GSD action: `$gsd-new-milestone`.
+
+## Historical /oc-audit Queue (from Phase 224)
 
 The audit produced 16 findings. Three trivial fixes were applied inline (env-var move from base compose to enterprise overlay, GEOLENS_EDITION explicit set in overlay, GTM doc amendment for Phase 223 completion). The remaining 13 findings split:
 
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
-- **v13.4 (active):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
-- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.19 (EmbeddingProviderExtension), 999.20 (CatalogPort), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py).
+- **v13.4 (shipped):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), 230 (999.20 → 230 CatalogPort), 231 (999.19 → 231 EmbeddingProviderExtension), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py), 999.23 (share/embed token expiration gating product decision).
 
 ## /oc-audit follow-ups (2026-05-02 audit run)
 
