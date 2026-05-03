@@ -54,7 +54,7 @@
 - [ ] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup
 - [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
 - [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
-- [ ] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−)
+- [x] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−) (completed 2026-05-03)
 - [x] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py` (COMPLETE — 2026-05-03)
 - [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A−
 
@@ -189,7 +189,18 @@ Plans:
 4. Full backend test suite passes with the default `CatalogPort` wired in (zero functional regressions vs. the v13.4 baseline going into this phase).
 5. `DefaultCatalogPort` delegates to `app.processing.*` via deferred imports inside method bodies (mirrors `DefaultProcessingPort` pattern from Phase 225); single-slot `get_catalog_port()` accessor lives at `backend/app/platform/extensions/__init__.py`.
 
-**Plans:** TBD
+**Plans:** 4/4 plans complete
+
+Plans:
+**Wave 1**
+- [x] 230-01-PLAN.md — additive-scaffold: CatalogPort Protocol + DefaultCatalogPort + get_catalog_port() accessor (CATPORT-01/05)
+
+**Wave 2**
+- [x] 230-02-PLAN.md — migrate-helper-callers: dataset API, feature/layer helpers, source preview/router/STAC helper imports routed through CatalogPort (CATPORT-02/03/05)
+- [x] 230-03-PLAN.md — migrate-query-callers: maps RasterAsset and search embedding query composition routed through CatalogPort (CATPORT-02/03/05)
+
+**Wave 3**
+- [x] 230-04-PLAN.md — architecture guard + verification: test_no_catalog_imports_processing, negative-control proof, 230-VERIFICATION.md (CATPORT-04)
 
 #### Phase 231: embedding-provider-extension-protocol
 

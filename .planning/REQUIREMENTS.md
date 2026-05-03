@@ -112,11 +112,11 @@
 | PUBLISH-02 | Phase 228 | [x] complete — Plan 03 |
 | PUBLISH-03 | Phase 228 | [x] complete — Plan 03 |
 | PUBLISH-04 | Phase 228 | [x] complete — Plan 04 |
-| CATPORT-01 | Phase 230 | [ ] not started |
-| CATPORT-02 | Phase 230 | [ ] not started |
-| CATPORT-03 | Phase 230 | [ ] not started |
-| CATPORT-04 | Phase 230 | [ ] not started |
-| CATPORT-05 | Phase 230 | [ ] not started |
+| CATPORT-01 | Phase 230 | [x] complete — Plan 01 |
+| CATPORT-02 | Phase 230 | [x] complete — Plans 02/03/04 |
+| CATPORT-03 | Phase 230 | [x] complete — Plans 02/03 |
+| CATPORT-04 | Phase 230 | [x] complete — Plan 04 |
+| CATPORT-05 | Phase 230 | [x] complete — Plans 01/02/03 |
 | EMBPROV-01 | Phase 231 | [x] complete — Plan 01 |
 | EMBPROV-02 | Phase 231 | [x] complete — Plan 01 |
 | EMBPROV-03 | Phase 231 | [x] complete — Plan 02 |

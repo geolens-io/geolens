@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: planning
-stopped_at: Phase 230 context gathered; auto-chain ready for Phase 230 planning
-last_updated: "2026-05-03T14:46:05Z"
+stopped_at: Phase 230 complete; ready for Phase 229 post-implementation audit
+last_updated: "2026-05-03T14:56:49.445Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 18
-  completed_phases: 5
-  total_plans: 18
-  completed_plans: 18
+  completed_phases: 6
+  total_plans: 22
+  completed_plans: 22
   percent: 100
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 230 — catalog-port-protocol-symmetric
+**Current focus:** Phase 229 — post-impl-audit-v13.4
 
 ## Current Position
 
-Phase: 230 (catalog-port-protocol-symmetric) — READY FOR DISCUSSION
+Phase: 229 (post-impl-audit-v13.4) — READY FOR DISCUSSION
 Plan: Not started
-Status: Phase 230 context gathered; ready for Phase 230 research and planning
+Status: Phase 230 complete and verified; Phase 229 is the remaining v13.4 close gate
 Last activity: 2026-05-03
 
 ## Roadmap Snapshot
@@ -57,14 +57,15 @@ Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 wit
 
 ## Next Action
 
-Phase 231 is complete and verified:
+Phases 230 and 231 are complete and verified:
 
+- Phase 230 shipped `CatalogPort`, `DefaultCatalogPort`, `get_catalog_port()`, migrated catalog's top-of-file processing imports, and added `test_no_catalog_imports_processing`.
 - `EmbeddingProviderExtension` Protocol, default OpenAI-compatible provider, and `get_embedding_provider(name)` registry accessor are shipped.
 - Embedding generation and dimension probing route through the extension registry.
 - `backend/app/processing/embeddings/` has zero module-level OpenAI SDK imports.
 - `test_no_module_level_provider_sdk_imports_in_processing` now covers all of `backend/app/processing/`.
 
-Next implementation action: proceed to Phase 230, then run Phase 229 after Phases 230 and 231 are both ready for the post-implementation audit gate.
+Next implementation action: run Phase 229 after Phases 230 and 231 are both ready for the post-implementation audit gate.
 
 Phase 229 (post-impl audit gate) now depends on Phases 225, 226, 227, 228, 230, 231 — runs last.
 
