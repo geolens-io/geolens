@@ -40,8 +40,12 @@ Usage: /map-audit <map-id> [scope]
 
 ### Step 2: Fetch map via live API
 
+Use the direct FastAPI backend origin for `API_ORIGIN` probes. The browser and
+frontend/reverse proxy path is `/api/maps/...`, but the direct backend path omits
+the `/api` prefix. `API_ORIGIN` defaults to `http://localhost:${API_PORT:-8001}`.
+
 ```bash
-MAP_JSON=$(curl -s -w "\n%{http_code}" http://localhost:8000/api/maps/${MAP_ID}/)
+MAP_JSON=$(curl -s -w "\n%{http_code}" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/maps/${MAP_ID})
 HTTP_CODE=$(echo "$MAP_JSON" | tail -1)
 MAP_BODY=$(echo "$MAP_JSON" | sed '$d')
 ```
@@ -50,7 +54,7 @@ If `HTTP_CODE` is not 200, abort with:
 ```
 Error: Could not fetch map ${MAP_ID} (HTTP ${HTTP_CODE})
 - Is the dev server running? (docker compose up -d)
-- Is the map ID correct? (check /api/maps/ for the list)
+- Is the map ID correct? (check `/maps/` directly or `/api/maps/` through the frontend proxy)
 ```
 
 Parse and display the map summary:
@@ -113,11 +117,15 @@ for i, l in enumerate(m.get('layers', [])):
 ### Step 4: Check share/access state
 
 ```bash
-# Share token status
-curl -s http://localhost:8000/api/maps/${MAP_ID}/share/ | python3 -m json.tool 2>/dev/null || echo "No share token"
+if [ -z "$GEOLENS_TOKEN" ]; then
+  echo "SKIP authenticated share/visibility checks: set GEOLENS_TOKEN"
+else
+  # Share token status
+  curl -s -H "Authorization: Bearer $GEOLENS_TOKEN" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/maps/${MAP_ID}/share/ | python3 -m json.tool 2>/dev/null || echo "No share token"
 
-# Visibility check (are all referenced datasets compatible with the map's visibility?)
-curl -s http://localhost:8000/api/maps/${MAP_ID}/visibility-check/ | python3 -m json.tool 2>/dev/null || echo "Visibility check not available"
+  # Visibility check (are all referenced datasets compatible with the map's visibility?)
+  curl -s -H "Authorization: Bearer $GEOLENS_TOKEN" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/maps/${MAP_ID}/visibility-check/ | python3 -m json.tool 2>/dev/null || echo "Visibility check not available"
+fi
 ```
 
 ### Step 5: Read source references for cross-checking
@@ -546,7 +554,7 @@ Each subagent must:
    - If share token exists, verify the shared view endpoint works: parse the `token` field from the share endpoint JSON response, then test it:
      ```bash
      # Extract SHARE_TOKEN from the share endpoint response JSON (the "token" field)
-     curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/maps/shared/<token_value>/
+	     curl -s -o /dev/null -w "%{http_code}" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/maps/shared/<token_value>
      ```
      - Non-200 → flag `[HIGH]` (share link is broken)
 
@@ -554,7 +562,7 @@ Each subagent must:
    - Check if `thumbnail_url` is set
    - If set, verify the thumbnail is accessible:
      ```bash
-     curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/maps/${MAP_ID}/thumbnail/
+     curl -s -o /dev/null -w "%{http_code}" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/maps/${MAP_ID}/thumbnail/
      ```
    - Missing thumbnail → flag `[LOW]` (map appears without preview in listings)
 
@@ -567,7 +575,7 @@ Each subagent must:
      - Verify source map still exists by fetching it:
        ```bash
        # Use the forked_from_id value from the INTAKE map summary
-       curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/maps/<forked_from_id_value>/
+	      curl -s -o /dev/null -w "%{http_code}" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/maps/<forked_from_id_value>
        ```
      - Source deleted → flag `[LOW]` (orphaned fork, lineage broken — `forked_from_name` in INTAKE shows the original name)
 

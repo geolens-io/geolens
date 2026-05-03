@@ -6,6 +6,11 @@ Profile the critical performance hot paths in GeoLens: tile generation, search, 
 
 **Prerequisite:** A running GeoLens instance with at least one dataset loaded. If no instance is detected, the command falls back to static analysis of query patterns, index coverage, and algorithmic complexity.
 
+Live probes target the FastAPI backend directly through `API_ORIGIN`, defaulting
+to `http://localhost:${API_PORT:-8001}` for a copied `.env.example`. Use
+`http://localhost:8080/api/...` only when measuring through the frontend or
+reverse proxy origin.
+
 ---
 
 ## PHASE 0: DISCOVERY (Serial — do this first)
@@ -15,6 +20,7 @@ Profile the critical performance hot paths in GeoLens: tile generation, search, 
 ```bash
 # Is the stack running?
 docker compose ps 2>/dev/null || docker-compose ps 2>/dev/null
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
 
 # Resource allocation
 docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}" 2>/dev/null
@@ -25,19 +31,19 @@ nproc 2>/dev/null
 df -h / 2>/dev/null
 
 # PostgreSQL config
-docker compose exec -T db psql -U postgres -c "SHOW shared_buffers;" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SHOW work_mem;" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SHOW effective_cache_size;" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SHOW maintenance_work_mem;" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SHOW max_connections;" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SHOW random_page_cost;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW shared_buffers;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW work_mem;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW effective_cache_size;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW maintenance_work_mem;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW max_connections;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW random_page_cost;" 2>/dev/null
 
 # PostgreSQL version and extensions
-docker compose exec -T db psql -U postgres -c "SELECT version();" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SELECT version();" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;" 2>/dev/null
 
 # Dataset inventory (what data exists for testing)
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT relname, n_live_tup, pg_size_pretty(pg_total_relation_size(relid))
   FROM pg_stat_user_tables
   ORDER BY n_live_tup DESC
@@ -96,7 +102,7 @@ find backend/app/processing/tiles backend/app/processing/raster -name "*.py" 2>/
 done
 
 # Caching layer
-find backend/app/cache -name "*.py" 2>/dev/null | while read f; do
+find backend/app/platform/cache -name "*.py" 2>/dev/null | while read f; do
   echo "=== $f ==="
   cat "$f"
 done
@@ -143,12 +149,13 @@ grep -rn "cache\|Cache\|redis\|etag\|ETag\|cache.control\|Cache-Control\|304\|no
 Discover available datasets and their tile endpoints, then profile across zoom levels:
 
 ```bash
-# Find a dataset to test with
-DATASET_ID=$(curl -s http://localhost:8000/api/datasets/?limit=1 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['items'][0]['id'] if d.get('items') else '')" 2>/dev/null)
+# Find a public vector tile template to test with
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
+TILE_TEMPLATE=$(curl -s "$API_ORIGIN/search/datasets/?limit=1" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); f=(d.get('features') or [{}])[0]; print(f.get('assets',{}).get('vector_tiles',{}).get('href',''))" 2>/dev/null)
 
-# If we found a dataset, profile tile generation at multiple zoom levels
-if [ -n "$DATASET_ID" ]; then
-  echo "Profiling tiles for dataset: $DATASET_ID"
+# If we found a vector tile template, profile tile generation at multiple zoom levels
+if [ -n "$TILE_TEMPLATE" ]; then
+  echo "Profiling tile template: $TILE_TEMPLATE"
 
   for ZOOM in 0 2 5 8 10 12 14; do
     # Calculate a tile coordinate at this zoom (center of data extent)
@@ -157,7 +164,11 @@ if [ -n "$DATASET_ID" ]; then
     Y=$((1 << (ZOOM / 2)))
 
     START=$(date +%s%N)
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}:%{time_total}" "http://localhost:8000/api/tiles/${DATASET_ID}/${ZOOM}/${X}/${Y}.pbf" 2>/dev/null)
+    TILE_URL="${TILE_TEMPLATE//\{z\}/$ZOOM}"
+    TILE_URL="${TILE_URL//\{x\}/$X}"
+    TILE_URL="${TILE_URL//\{y\}/$Y}"
+    case "$TILE_URL" in http*) ;; *) TILE_URL="$API_ORIGIN$TILE_URL" ;; esac
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}:%{time_total}" "$TILE_URL" 2>/dev/null)
     echo "z=${ZOOM} x=${X} y=${Y}: ${HTTP_CODE}"
   done
 fi
@@ -166,7 +177,11 @@ fi
 Also profile with timing headers:
 ```bash
 # Server-Timing header check
-curl -s -D - "http://localhost:8000/api/tiles/${DATASET_ID}/8/128/128.pbf" 2>/dev/null | grep -i "server-timing\|x-response-time\|x-process-time"
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
+TILE_TEMPLATE="${TILE_TEMPLATE:-$(curl -s "$API_ORIGIN/search/datasets/?limit=1" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); f=(d.get('features') or [{}])[0]; print(f.get('assets',{}).get('vector_tiles',{}).get('href',''))" 2>/dev/null)}"
+SAMPLE_TILE="${TILE_TEMPLATE//\{z\}/8}"; SAMPLE_TILE="${SAMPLE_TILE//\{x\}/128}"; SAMPLE_TILE="${SAMPLE_TILE//\{y\}/128}"
+case "$SAMPLE_TILE" in http*) ;; *) SAMPLE_TILE="$API_ORIGIN$SAMPLE_TILE" ;; esac
+curl -s -D - "$SAMPLE_TILE" 2>/dev/null | grep -i "server-timing\|x-response-time\|x-process-time"
 ```
 
 #### 1c. Tile SQL EXPLAIN analysis
@@ -176,7 +191,7 @@ If database access is available:
 # Get the actual tile SQL and EXPLAIN ANALYZE it
 # This requires knowing the exact query — reconstruct from the tile service code
 
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
   SELECT ST_AsMVT(tile, 'default')
   FROM (
@@ -242,7 +257,7 @@ Map the search pipeline:
 
 ```bash
 # Full-text search indexes
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT indexname, indexdef
   FROM pg_indexes
   WHERE indexdef LIKE '%gin%' OR indexdef LIKE '%gist%' OR indexdef LIKE '%tsvector%' OR indexdef LIKE '%trgm%'
@@ -250,7 +265,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Vector indexes
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT indexname, indexdef
   FROM pg_indexes
   WHERE indexdef LIKE '%ivfflat%' OR indexdef LIKE '%hnsw%'
@@ -258,7 +273,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Index sizes
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT
     indexrelname,
     pg_size_pretty(pg_relation_size(indexrelid)) AS index_size,
@@ -274,24 +289,25 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 
 ```bash
 # Full-text search with varying query lengths
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
 for QUERY in "water" "elevation model" "land use classification 2024" "a"; do
   START=$(date +%s%N)
-  RESULT=$(curl -s -w "\n%{http_code}:%{time_total}" "http://localhost:8000/api/search/?q=$(echo $QUERY | sed 's/ /+/g')&limit=20" 2>/dev/null)
+  RESULT=$(curl -s -w "\n%{http_code}:%{time_total}" "$API_ORIGIN/search/datasets/?q=$(echo $QUERY | sed 's/ /+/g')&limit=20" 2>/dev/null)
   echo "Query: '$QUERY' → $(echo "$RESULT" | tail -1)"
 done
 
 # Semantic search if available
-curl -s -w "\n%{time_total}s" "http://localhost:8000/api/search/?q=find+datasets+about+flooding&semantic=true" 2>/dev/null
+curl -s -w "\n%{time_total}s" "$API_ORIGIN/search/datasets/?q=find+datasets+about+flooding&semantic=true" 2>/dev/null
 
 # Faceted filtering
-curl -s -w "\n%{time_total}s" "http://localhost:8000/api/search/?format=GeoJSON&geometry_type=Polygon" 2>/dev/null
+curl -s -w "\n%{time_total}s" "$API_ORIGIN/search/datasets/?geometry_type=Polygon&limit=20" 2>/dev/null
 ```
 
 #### 2d. Search query EXPLAIN analysis
 
 ```bash
 # Full-text search query plan
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
   SELECT * FROM datasets
   WHERE search_vector @@ plainto_tsquery('english', 'water elevation')
@@ -300,7 +316,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Trigram search query plan
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
   SELECT *, similarity(name, 'wter elevaton') AS sim
   FROM datasets
@@ -310,7 +326,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Vector similarity search query plan
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
   SELECT id, embedding <=> '[0.1, 0.2, ...]'::vector AS distance
   FROM dataset_embeddings
@@ -447,7 +463,7 @@ Even without live testing, estimate throughput from the pipeline analysis:
 
 ```bash
 # Read the postgres config that Docker applies
-docker compose exec -T db psql -U postgres -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT name, setting, unit, source
   FROM pg_settings
   WHERE source != 'default'
@@ -455,7 +471,7 @@ docker compose exec -T db psql -U postgres -c "
 " 2>/dev/null
 
 # Key settings for the GeoLens workload
-docker compose exec -T db psql -U postgres -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT name, setting, unit
   FROM pg_settings
   WHERE name IN (
@@ -499,10 +515,10 @@ max_connections = 50
 
 ```bash
 # Enable pg_stat_statements if available
-docker compose exec -T db psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" 2>/dev/null
 
 # Top queries by total time
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT
     calls,
     round(total_exec_time::numeric, 2) AS total_ms,
@@ -516,7 +532,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Top queries by mean time (single-call expensive)
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT
     calls,
     round(mean_exec_time::numeric, 2) AS mean_ms,
@@ -534,7 +550,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 
 ```bash
 # Table sizes and row counts
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT
     relname AS table_name,
     n_live_tup AS row_count,
@@ -550,7 +566,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Unused indexes (wasting space and slowing writes)
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT
     schemaname, relname, indexrelname,
     pg_size_pretty(pg_relation_size(indexrelid)) AS index_size,
@@ -562,7 +578,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Missing indexes — sequential scans on large tables
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT
     relname, seq_scan, seq_tup_read,
     idx_scan, idx_tup_fetch,
@@ -583,7 +599,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 # Adapt these to actual queries discovered in Phase 0
 
 # Bbox intersection (used in tiles, OGC Features, map viewer)
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
   SELECT id, ST_AsGeoJSON(geom)
   FROM features
@@ -592,7 +608,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 " 2>/dev/null
 
 # Distance query
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
   SELECT id, ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(-73.9857, 40.7484), 4326)::geography) AS dist_m
   FROM features
@@ -606,7 +622,7 @@ docker compose exec -T db psql -U postgres -d geolens -c "
 
 ```bash
 # Active connections
-docker compose exec -T db psql -U postgres -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT count(*), state, wait_event_type
   FROM pg_stat_activity
   WHERE datname = 'geolens'
@@ -687,16 +703,30 @@ grep -rn "cache\|memo\|store" backend/app/processing/embeddings/ --include="*.py
 #### 5d. Live AI profiling (if instance available and API keys configured)
 
 ```bash
-# Test metadata generation latency
-START=$(date +%s%N)
-curl -s -w "\n%{time_total}s" -X POST "http://localhost:8000/api/ai/metadata/generate" \
-  -H "Content-Type: application/json" \
-  -d '{"dataset_id": "'$DATASET_ID'"}' 2>/dev/null
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
+if [ -z "$GEOLENS_TOKEN" ]; then
+  echo "SKIP live AI profiling: set GEOLENS_TOKEN with use_ai_chat permission"
+else
+  # Test metadata summary latency
+  if [ -n "$DATASET_ID" ]; then
+    curl -s -w "\n%{time_total}s" -X POST "$API_ORIGIN/ai/metadata/summary/" \
+      -H "Authorization: Bearer $GEOLENS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"dataset_id":"'$DATASET_ID'"}' 2>/dev/null
+  else
+    echo "SKIP metadata summary profiling: set DATASET_ID"
+  fi
 
-# Test chat/SQL generation latency
-curl -s -w "\n%{time_total}s" -X POST "http://localhost:8000/api/ai/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Show me all features within 1km of the center"}' 2>/dev/null
+  # Test chat latency
+  if [ -n "$MAP_ID" ]; then
+    curl -s -w "\n%{time_total}s" -X POST "$API_ORIGIN/ai/chat/" \
+      -H "Authorization: Bearer $GEOLENS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"message":"Show me all features within 1km of the center","map_id":"'$MAP_ID'","layers":[]}' 2>/dev/null
+  else
+    echo "SKIP chat profiling: set MAP_ID"
+  fi
+fi
 ```
 
 #### 5e. AI performance assessment
@@ -734,10 +764,10 @@ curl -s -w "\n%{time_total}s" -X POST "http://localhost:8000/api/ai/chat" \
 docker stats --no-stream --format "{{.Name}}: {{.MemUsage}} ({{.MemPerc}})" 2>/dev/null
 
 # Process-level within the backend container
-docker compose exec -T backend ps aux --sort=-rss 2>/dev/null | head -10
+docker compose exec -T api ps aux --sort=-rss 2>/dev/null | head -10
 
 # Python memory profiling (if tracemalloc available)
-docker compose exec -T backend python3 -c "
+docker compose exec -T api python3 -c "
 import tracemalloc
 tracemalloc.start()
 # Import the app to measure baseline memory
@@ -809,7 +839,7 @@ grep -rn "ogr2ogr\|gdal_translate\|gdalwarp\|subprocess\|Popen\|ProcessPoolExecu
 grep -rn "workers\|uvicorn\|gunicorn" docker-compose.yml Dockerfile* backend/Dockerfile* 2>/dev/null
 
 # Is the backend single-worker?
-docker compose exec -T backend ps aux 2>/dev/null | grep -c "uvicorn\|gunicorn" 2>/dev/null
+docker compose exec -T api ps aux 2>/dev/null | grep -c "uvicorn\|gunicorn" 2>/dev/null
 ```
 
 On a 1 vCPU VPS, single-worker Uvicorn is correct. Multiple workers would fight for CPU and increase memory.
@@ -824,8 +854,8 @@ grep -rn "tempfile\|tmp\|/tmp\|NamedTemporary\|SpooledTemporary" backend/app/ --
 docker system df -v 2>/dev/null | head -30
 
 # Database size
-docker compose exec -T db psql -U postgres -d geolens -c "
-  SELECT pg_size_pretty(pg_database_size('geolens'));
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
+  SELECT pg_size_pretty(pg_database_size(current_database()));
 " 2>/dev/null
 ```
 

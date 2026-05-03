@@ -49,9 +49,9 @@ grep -rn "os\.environ\|os\.getenv\|settings\." backend/app/ --include="*.py" | \
 - `docker-compose.yml`, `docker-compose.prod.yml` (if exists), `Dockerfile*`
 - `backend/app/core/config.py` or equivalent settings module
 - `.env.example`
-- `alembic/env.py`, `alembic.ini`
+- `backend/alembic/env.py`, `backend/alembic.ini`
 - `nginx.conf` or reverse proxy config if present
-- `pyproject.toml` / `requirements.txt` / `package.json`
+- `backend/pyproject.toml` / `backend/uv.lock` / `frontend/package.json` / root `package.json`
 - FastAPI app instantiation — look for `CORSMiddleware`, `docs_url`, middleware stack
 
 **Check for immediate disqualifiers — report and stop if any found:**
@@ -137,7 +137,7 @@ user = User(email=body.email, hashed_password=hash(body.password))
 ```bash
 # Raw execute in migrations with string formatting
 grep -rn "op\.execute(f\"\|op\.execute(\".*%\|op\.execute(\".*format(" \
-  alembic/versions/ --include="*.py"
+  backend/alembic/versions/ --include="*.py"
 ```
 
 **PostGIS — geometry injection via text() or raw SQL:**
@@ -240,7 +240,7 @@ Output: findings labeled [INJECT-SQL], [INJECT-GEOM], [INJECT-TRGM],
 ```bash
 grep -rn "jwt\.\|jose\.\|PyJWT\|python-jose\|create_access_token\|\
 decode_token\|verify_token" backend/app/ --include="*.py"
-grep -rn "SECRET_KEY\|JWT_SECRET\|ALGORITHM\|ACCESS_TOKEN_EXPIRE" \
+grep -rn "JWT_SECRET_KEY\|JWT_ALGORITHM\|ACCESS_TOKEN_EXPIRE" \
   backend/app/ --include="*.py"
 ```
 
@@ -248,7 +248,7 @@ Check each JWT implementation for:
 - `algorithm="none"` accepted → CRITICAL (signature verification bypass)
 - Algorithm confusion — library accepts both RS256 and HS256 without restriction
   → HIGH (downgrade attack)
-- `SECRET_KEY` under 32 characters or obviously weak → HIGH
+- `JWT_SECRET_KEY` under 32 characters or obviously weak → HIGH
 - No `exp` claim or expiry > 24h without refresh rotation → MEDIUM
 - Token in `localStorage` (XSS-accessible) vs `httpOnly` cookie → MEDIUM
 - No `jti` claim — tokens unrevocable after logout → MEDIUM
@@ -373,11 +373,11 @@ grep -E "password=.{4,}|secret=.{8,}|key=.{8,}" .env.example 2>/dev/null | \
 
 **Alembic credentials:**
 ```bash
-grep -rn "postgresql://\|postgres://" alembic/env.py alembic.ini 2>/dev/null | \
+grep -rn "postgresql://\|postgres://" backend/alembic/env.py backend/alembic.ini 2>/dev/null | \
   grep -v "os\.environ\|getenv\|settings\."
 ```
-Hardcoded DB URL in `alembic/env.py` = HIGH.
-Safe pattern: `config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)`
+Hardcoded DB URL in `backend/alembic/env.py` = HIGH.
+Safe pattern: `url = config.get_main_option("sqlalchemy.url") or settings.database_url`
 
 **pgvector — embedding privacy:**
 ```bash
@@ -517,12 +517,11 @@ Output: findings labeled [XSS], [XSS-MAP], [CORS], [CSP], [CLICKJACK],
 
 **Python:**
 ```bash
-# safety check
-pip install safety --quiet 2>/dev/null
-safety check --full-report 2>/dev/null
+# safety check against the backend uv environment
+cd backend && uv run --with safety safety check --full-report 2>/dev/null
 
 # If safety unavailable, list installed versions for manual cross-reference
-pip list --format=columns 2>/dev/null | grep -iE \
+cd backend && uv run python -m pip list --format=columns 2>/dev/null | grep -iE \
   "fastapi|uvicorn|sqlalchemy|alembic|pydantic|python-jose|cryptography|\
 pillow|requests|httpx|starlette|geoalchemy2|pgvector|shapely|psycopg"
 ```
@@ -581,7 +580,7 @@ cat Dockerfile backend/Dockerfile 2>/dev/null
 - `FROM python:latest` — unpinned base = MEDIUM
 - No `HEALTHCHECK` = LOW
 - Dev dependencies installed in prod image = MEDIUM
-- Incomplete `.dockerignore` — check `.env`, `*.pem`, `.git`, `alembic/versions`,
+- Incomplete `.dockerignore` — check `.env`, `*.pem`, `.git`, `backend/alembic/versions`,
   test fixtures are excluded
 
 **docker-compose.yml:**
@@ -627,7 +626,7 @@ Output: findings labeled [DOCKER-PRIVESC], [DOCKER-SECRET],
 **Connection security:**
 ```bash
 # Credentials in connection strings anywhere in source
-grep -rn "postgresql://\|postgres://" backend/app/ alembic/ \
+grep -rn "postgresql://\|postgres://" backend/app/ backend/alembic/ \
   --include="*.py" --include="*.ini" | grep -v "os\.environ\|getenv\|settings\."
 
 # SSL enforcement for non-localhost connections
@@ -646,11 +645,11 @@ grep -rn "create_async_engine\|async_sessionmaker\|AsyncSession" \
 Check for:
 ```python
 # VULNERABLE — no pool limits, DoS via connection exhaustion
-engine = create_async_engine(DATABASE_URL)
+engine = create_async_engine(settings.database_url)
 
 # SAFE — bounded, self-healing pool
 engine = create_async_engine(
-    DATABASE_URL,
+    settings.database_url,
     pool_size=10,
     max_overflow=20,
     pool_timeout=30,
@@ -691,7 +690,7 @@ Session not closed on exception = connection pool exhaustion under error = MEDIU
 
 **Privilege model:**
 ```bash
-grep -rn "POSTGRES_USER\|DB_USER\|DATABASE_URL" \
+grep -rn "POSTGRES_USER\|DB_USER\|DATABASE_URL_OVERRIDE" \
   docker-compose*.yml --include="*.env*" | grep -iE "postgres\b|=postgres$"
 ```
 App connecting as `postgres` superuser = HIGH. App role should only have
@@ -705,21 +704,21 @@ grep -rn "user_id\|owner_id\|tenant_id" backend/app/ --include="*.py" -l
 
 # RLS policies in migrations
 grep -rn "ROW LEVEL SECURITY\|CREATE POLICY\|ENABLE ROW" \
-  alembic/versions/ --include="*.py"
+  backend/alembic/versions/ --include="*.py"
 ```
 Tables with `user_id` or `owner_id` that have no RLS policy = MEDIUM.
 
 **Alembic migration security:**
 ```bash
 # Raw SQL in migrations
-grep -rn "op\.execute(" alembic/versions/ --include="*.py"
+grep -rn "op\.execute(" backend/alembic/versions/ --include="*.py"
 
 # String formatting in migration SQL
 grep -rn "op\.execute(f\"\|op\.execute(\".*%\|op\.execute(\".*format(" \
-  alembic/versions/ --include="*.py"
+  backend/alembic/versions/ --include="*.py"
 
 # Irreversible migrations (no downgrade or no-op downgrade)
-for f in alembic/versions/*.py; do
+for f in backend/alembic/versions/*.py; do
   if ! grep -q "def downgrade" "$f" 2>/dev/null || \
      (grep -A5 "def downgrade" "$f" | grep -q "^\s*pass$"); then
     echo "IRREVERSIBLE: $f"
@@ -728,14 +727,14 @@ done
 
 # Model changes without corresponding migration (current branch)
 CHANGED_MODELS=$(git diff main...HEAD --name-only 2>/dev/null | grep "models.*\.py")
-CHANGED_MIGRATIONS=$(git diff main...HEAD --name-only 2>/dev/null | grep "alembic/versions")
+CHANGED_MIGRATIONS=$(git diff main...HEAD --name-only 2>/dev/null | grep "backend/alembic/versions")
 if [ -n "$CHANGED_MODELS" ] && [ -z "$CHANGED_MIGRATIONS" ]; then
   echo "WARNING: model changed without migration — $CHANGED_MODELS"
 fi
 
 # Auth/user table migrations — flag for manual review
 grep -rn "users\|auth\|permissions\|roles\|sessions" \
-  alembic/versions/ --include="*.py" -l
+  backend/alembic/versions/ --include="*.py" -l
 ```
 
 Output: findings labeled [PG-CREDS], [PG-PRIVESC], [PG-RLS], [PG-SESSION],
@@ -967,7 +966,7 @@ Consider: return boolean match only, or bucket scores into coarse ranges
 **GIN index missing — performance and DoS:**
 ```bash
 grep -rn "pg_trgm\|gin_trgm_ops\|gist_trgm_ops" \
-  alembic/versions/ --include="*.py"
+  backend/alembic/versions/ --include="*.py"
 ```
 `similarity()` or `%` operator on a column without a GIN/GIST index degrades
 to full table scan = MEDIUM DoS when table grows. Every trgm-searchable column
@@ -1042,7 +1041,7 @@ limiting.
 **Index configuration — DoS and data leakage:**
 ```bash
 grep -rn "IVFFlat\|HNSW\|pgvector\|vector_ops\|cosine_ops\|l2_ops\|ip_ops" \
-  alembic/versions/ --include="*.py"
+  backend/alembic/versions/ --include="*.py"
 ```
 
 Check IVFFlat `lists` parameter — too few lists = slower queries (DoS when
@@ -1182,7 +1181,7 @@ coverage, not just failures]
 
 ## Phase 4 — Deliver
 
-**1. Write `docs-internal/sec-audit-[scope]-[date].md`** with the full report.
+**1. Write `docs-internal/audits/sec-audit-{YYYYMMDD}.md`** with the full report.
 
 **2. Post PR comment (if GitHub MCP connected):**
 ```
@@ -1190,56 +1189,63 @@ Security audit: [PASS / BLOCK]
 
 [If BLOCK — list each blocking finding with file:line and one-line fix]
 
-Full report: docs-internal/sec-audit-[scope]-[date].md
+Full report: docs-internal/audits/sec-audit-{YYYYMMDD}.md
 ```
 
-**3. Generate `sec-audit.spec.ts` — regression tests for top findings:**
+**3. Generate `e2e/sec-audit.spec.ts` — regression tests for top findings:**
 ```typescript
 // Security regression tests — auto-generated by /sec-audit
-// Run: npx playwright test sec-audit.spec.ts
+// Run: npx playwright test e2e/sec-audit.spec.ts --project=chromium
 
 import { test, expect } from '@playwright/test'
 
+const API = process.env.API_URL || '/api'
+
 // Injection regression
 test('SQLAlchemy text() injection — search endpoint', async ({ request }) => {
-  const res = await request.get('/api/search?q=' + encodeURIComponent("' OR '1'='1"))
-  expect(res.status()).not.toBe(500)
-  const body = await res.json()
-  expect(Array.isArray(body) ? body.length : 0).toBeLessThan(100)
+  const res = await request.get(`${API}/search/datasets/?q=` + encodeURIComponent("' OR '1'='1"))
+  expect([200, 400]).toContain(res.status())
+  if (res.status() === 200) {
+    const body = await res.json()
+    expect((body.features ?? []).length).toBeLessThan(100)
+  }
 })
 
-// PostGIS DoS regression
-test('PostGIS geometry DoS — excessive radius rejected', async ({ request }) => {
-  const res = await request.post('/api/locations/nearby', {
-    data: { lat: 40.7128, lng: -74.0060, radius: 9999999 }
-  })
+// PostGIS spatial filter regression
+test('PostGIS bbox validation — malformed bbox rejected', async ({ request }) => {
+  const res = await request.get(`${API}/search/datasets/?bbox=0,0,1`)
   expect(res.status()).toBe(400)
 })
 
 // pgvector — embeddings not returned in response
 test('pgvector — embedding not in search response', async ({ request }) => {
-  const res = await request.get('/api/search/semantic?q=test')
+  const res = await request.get(`${API}/search/datasets/?q=test`)
   const body = await res.json()
-  const results = Array.isArray(body) ? body : body.results || []
+  const results = body.features ?? []
   results.forEach((item: any) => {
     expect(item.embedding).toBeUndefined()
     expect(item.vector).toBeUndefined()
+    expect(item.properties?.embedding).toBeUndefined()
+    expect(item.properties?.vector).toBeUndefined()
   })
 })
 
 // IDOR — spatial data ownership
 test('IDOR — cannot access other user spatial data', async ({ request }) => {
-  const res = await request.get('/api/locations/1', {
-    headers: { Authorization: `Bearer ${OTHER_USER_TOKEN}` }
+  const token = process.env.SEC_AUDIT_OTHER_USER_TOKEN
+  const datasetId = process.env.SEC_AUDIT_OTHER_USER_DATASET_ID
+  test.skip(!token || !datasetId, 'Set SEC_AUDIT_OTHER_USER_TOKEN and SEC_AUDIT_OTHER_USER_DATASET_ID')
+  const res = await request.get(`${API}/datasets/${datasetId}`, {
+    headers: { Authorization: `Bearer ${token}` }
   })
-  expect(res.status()).toBe(403)
+  expect([401, 403, 404]).toContain(res.status())
 })
 
 // pg_trgm — tsquery injection rejected
 test('pg_trgm — tsquery operator injection returns safe result', async ({ request }) => {
   const malicious = "test' & (SELECT pg_sleep(5))--"
   const start = Date.now()
-  const res = await request.get('/api/search?q=' + encodeURIComponent(malicious))
+  const res = await request.get(`${API}/search/datasets/?q=` + encodeURIComponent(malicious))
   const elapsed = Date.now() - start
   expect(elapsed).toBeLessThan(2000) // pg_sleep not executed
   expect([200, 400]).toContain(res.status())
@@ -1295,7 +1301,7 @@ echo "$STAGED" | grep "\.py$" | xargs grep -lnE \
   "to_tsquery\(:q\)\|to_tsquery\(.*request\|to_tsquery\(.*param" 2>/dev/null
 
 echo "=== Alembic migration issues ==="
-echo "$STAGED" | grep "alembic/versions" | xargs grep -lnE \
+echo "$STAGED" | grep "backend/alembic/versions" | xargs grep -lnE \
   "op\.execute\(f\"\|op\.execute\(\".*%" 2>/dev/null
 ```
 
@@ -1312,11 +1318,11 @@ claude /sec-audit pre-commit
 
 ### Output format
 
-Write the report to: `docs-internal/audits/security-audit-{YYYYMMDD}.md`
+Write the report to: `docs-internal/audits/sec-audit-{YYYYMMDD}.md`
 
 ### Post-delivery
 
-1. If a previous `security-audit-*.md` exists in `docs-internal/audits/`, diff key findings against the prior report.
+1. If a previous `sec-audit-*.md` exists in `docs-internal/audits/`, diff key findings against the prior report.
 2. Print one-line summary: overall CVSS severity distribution + Critical count + High count.
 
 ---

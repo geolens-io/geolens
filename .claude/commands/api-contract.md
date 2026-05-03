@@ -46,12 +46,12 @@ find backend/app -name "schemas.py" -o -name "models.py" 2>/dev/null | sort | he
 find frontend/src -name "*.ts" -o -name "*.tsx" 2>/dev/null | \
   xargs grep -l "useQuery\|useMutation\|useInfiniteQuery" 2>/dev/null | head -20
 
-# OpenAPI spec (if pre-generated)
-ls openapi.json openapi.yaml docs/openapi.* 2>/dev/null
+# OpenAPI spec source of truth
+ls backend/openapi.json 2>/dev/null
 ```
 
 **Read key files:**
-- `backend/app/main.py` or app factory — middleware stack, router registration, tags
+- `backend/app/api/main.py` — middleware stack, router registration, tags
 - All router files in scope
 - All Pydantic schema files referenced by routes in scope
 - All React Query hook files
@@ -60,14 +60,19 @@ ls openapi.json openapi.yaml docs/openapi.* 2>/dev/null
 
 **Fetch the live OpenAPI spec (if server is running):**
 ```bash
-curl -s http://localhost:8000/openapi.json 2>/dev/null | \
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
+curl -s "$API_ORIGIN/openapi.json" 2>/dev/null | \
   python3 -m json.tool | head -100 || echo "Server not running — using static analysis"
+
+# Static snapshot and CI drift gate
+python3 -m json.tool backend/openapi.json | head -100
+make openapi-check
 ```
 
 **Detect breaking changes vs main:**
 ```bash
-git diff main...HEAD --name-only | grep -E "routes|schemas|models" | head -20
-git diff main...HEAD -- 'backend/app/*/router.py' 'backend/app/*/schemas.py' 2>/dev/null | \
+git diff main...HEAD --name-only | grep -E "router|schemas|models|openapi" | head -20
+git diff main...HEAD -- ':(glob)backend/app/**/*.py' 'backend/openapi.json' 2>/dev/null | \
   grep "^[+-]" | grep -v "^---\|^+++" | head -60
 ```
 
@@ -364,19 +369,19 @@ grep -rn "semantic\|similarity\|vector\|embedding\|nearest\|knn" \
   backend/app/ --include="*.py" -B2 -A8
 ```
 
-pgvector similarity routes should have consistent shape:
+pgvector-backed catalog search should have consistent shape:
 ```python
-# CONSISTENT semantic search contract
-GET /items/search/semantic
+# CONSISTENT GeoLens semantic search contract
+GET /search/datasets/
   ?q=<text query>        # always q for text input, never query or search
+  &semantic=true          # enables semantic ranking when embeddings are available
   &limit=20              # always limit (not top_k, not k, not n)
-  &threshold=0.7         # min cosine similarity (0–1), always threshold
 
 # Response always includes:
-# - items: list of matched items (WITHOUT embedding field)
-# - scores: parallel list of similarity scores
-# - OR items with score embedded: [{"item": {...}, "score": 0.87}, ...]
-# Pick one shape and use it everywhere
+# - features: list of OGC-style dataset records
+# - numberMatched / numberReturned pagination counts
+# - links with self/next/prev where applicable
+# Embedding vectors must never appear in responses
 ```
 
 Output: findings labeled [ROUTE-NO-RESPONSE-MODEL], [ROUTE-STATUS-CODE],
@@ -391,14 +396,18 @@ Output: findings labeled [ROUTE-NO-RESPONSE-MODEL], [ROUTE-STATUS-CODE],
 **Generate and inspect the live spec:**
 ```bash
 # If server running
-curl -s http://localhost:8000/openapi.json > /tmp/openapi_current.json 2>/dev/null
+API_ORIGIN="${API_ORIGIN:-http://localhost:${API_PORT:-8001}}"
+curl -s "$API_ORIGIN/openapi.json" > /tmp/openapi_current.json 2>/dev/null
 
-# If not running, generate statically
-cd api && python3 -c "
-from main import app
+# If not running, generate statically from the real FastAPI app
+(cd backend && PYTHONPATH=. uv run python -c "
+from app.api.main import app
 import json
 print(json.dumps(app.openapi(), indent=2))
-" > /tmp/openapi_current.json 2>/dev/null
+") > /tmp/openapi_current.json 2>/dev/null
+
+# Compare against the committed SDK source of truth
+make openapi-check
 
 # Count routes
 cat /tmp/openapi_current.json | python3 -c "
@@ -568,11 +577,11 @@ Output: findings labeled [OPENAPI-UNTAGGED], [OPENAPI-NO-DESC],
 **Inventory all hooks:**
 ```bash
 grep -rn "useQuery\|useMutation\|useInfiniteQuery\|useSuspenseQuery" \
-  src/ --include="*.ts" --include="*.tsx" -l
+  frontend/src/ --include="*.ts" --include="*.tsx" -l
 
 # Extract query keys and endpoints from hooks
 grep -rn "queryKey\|queryFn\|mutationFn\|url\|endpoint\|fetchJson\|api\." \
-  src/ --include="*.ts" -A 3 | head -80
+  frontend/src/ --include="*.ts" -A 3 | head -80
 ```
 
 **URL alignment — hook endpoints vs actual routes:**
@@ -583,7 +592,7 @@ Build a map of:
 Cross-reference: does every hook URL match an actual route?
 ```bash
 # Extract URLs from React Query hooks
-grep -rn "fetch\|axios\|apiClient\." src/ --include="*.ts" --include="*.tsx" | \
+grep -rn "fetch\|axios\|apiClient\." frontend/src/ --include="*.ts" --include="*.tsx" | \
   grep -oE "['\"][/][a-z/_-]+['\"]" | sort -u
 
 # Compare to actual routes
@@ -595,7 +604,7 @@ Flag any hook calling a URL that doesn't exist in the router = [RQ-URL-MISMATCH]
 
 **HTTP method alignment:**
 ```bash
-grep -rn "useMutation" src/ --include="*.ts" --include="*.tsx" -A 10 | \
+grep -rn "useMutation" frontend/src/ --include="*.ts" --include="*.tsx" -A 10 | \
   grep -E "method:|\"POST\"|\"PUT\"|\"PATCH\"|\"DELETE\""
 ```
 
@@ -605,7 +614,7 @@ Check each mutation's HTTP method against the route definition:
 
 **Query key consistency:**
 ```bash
-grep -rn "queryKey" src/ --include="*.ts" --include="*.tsx" | \
+grep -rn "queryKey" frontend/src/ --include="*.ts" --include="*.tsx" | \
   grep -oE "\[.*\]" | sort | uniq -c | sort -rn | head -30
 ```
 
@@ -632,7 +641,7 @@ Flag duplicated or inconsistent query keys for the same resource =
 **Stale time and cache configuration:**
 ```bash
 grep -rn "staleTime\|gcTime\|cacheTime\|refetchInterval\|refetchOnWindowFocus" \
-  src/ --include="*.ts" --include="*.tsx"
+  frontend/src/ --include="*.ts" --include="*.tsx"
 ```
 
 Missing `staleTime` on all queries = unnecessary refetches on every focus.
@@ -657,7 +666,7 @@ const queryClient = new QueryClient({
 **Mutation invalidation patterns:**
 ```bash
 grep -rn "onSuccess\|onSettled\|invalidateQueries\|setQueryData" \
-  src/ --include="*.ts" --include="*.tsx" -B2 -A5
+  frontend/src/ --include="*.ts" --include="*.tsx" -B2 -A5
 ```
 
 Mutations that don't invalidate related queries leave the UI stale:
@@ -698,21 +707,21 @@ onError: (err, newData, context) => {
 
 **Error type alignment:**
 ```bash
-grep -rn "error\b\|isError\|onError" src/ --include="*.ts" --include="*.tsx" | \
+grep -rn "error\b\|isError\|onError" frontend/src/ --include="*.ts" --include="*.tsx" | \
   grep -E "error\.message|error\.detail|error\.status|error as" | head -20
 ```
 
 Check whether the error shape expected by the frontend matches what FastAPI
 actually returns:
 ```typescript
-// FastAPI default error shape
-{
-  "detail": "Not found"           // string for simple errors
-  "detail": [{"loc": [...], "msg": "..."}]  // array for validation errors
-}
+type FastApiError =
+  | { detail: string }
+  | { detail: Array<{ loc: unknown[]; msg: string; type?: string }> }
 
-// Hook expecting wrong shape
-if (error.message)    // FastAPI returns error.detail, not error.message
+// Hook expecting wrong shape:
+if (error.message) {
+  // FastAPI returns error.detail, not error.message.
+}
 ```
 
 Flag shape mismatches = [RQ-ERROR-SHAPE].
@@ -720,7 +729,7 @@ Flag shape mismatches = [RQ-ERROR-SHAPE].
 **Spatial hook patterns:**
 ```bash
 grep -rn "nearby\|bbox\|bounds\|geometry\|geojson\|coordinates\|radius" \
-  src/ --include="*.ts" --include="*.tsx" -A 5 | head -40
+  frontend/src/ --include="*.ts" --include="*.tsx" -A 5 | head -40
 ```
 
 Check that spatial hooks:
@@ -735,7 +744,7 @@ Flag parameter name mismatches between hook and route = [RQ-GEO-PARAMS].
 **Semantic search hook patterns:**
 ```bash
 grep -rn "semantic\|similarity\|vector\|embedding\|nearest" \
-  src/ --include="*.ts" --include="*.tsx" -A 8 | head -30
+  frontend/src/ --include="*.ts" --include="*.tsx" -A 8 | head -30
 ```
 
 Semantic search hooks should:
@@ -755,8 +764,7 @@ Output: findings labeled [RQ-URL-MISMATCH], [RQ-METHOD-MISMATCH],
 
 **Diff analysis:**
 ```bash
-git diff main...HEAD -- 'backend/app/*/router.py' 'backend/app/*/schemas.py' \
-  'backend/app/*/models.py' 2>/dev/null
+git diff main...HEAD -- ':(glob)backend/app/**/*.py' 'backend/openapi.json' 2>/dev/null
 ```
 
 For every changed line, classify by impact:
@@ -781,7 +789,8 @@ For every changed line, classify by impact:
 
 **Flag each changed route with classification:**
 ```bash
-git diff main...HEAD -- 'api/' | grep "^[+-]" | grep -v "^---\|^+++" | \
+git diff main...HEAD -- ':(glob)backend/app/**/*.py' 'backend/openapi.json' | \
+  grep "^[+-]" | grep -v "^---\|^+++" | \
   grep -E "@router\.|response_model=|status_code=|class.*Schema|class.*Request|\
   class.*Response|: str|: int|: float|: bool|: UUID|: datetime|\
   Optional\[|list\[|None =" | head -60
@@ -1042,117 +1051,78 @@ Stack: FastAPI · Pydantic v2 · React Query
 
 ---
 
-## Phase 4 — Generate TypeScript types
+## Phase 4 — Validate OpenAPI and SDK drift
 ```bash
-# Generate TypeScript types from OpenAPI spec
-# Requires: npm install -D @hey-api/openapi-ts
-
-npx @hey-api/openapi-ts \
-  --input http://localhost:8000/openapi.json \
-  --output frontend/src/api/generated \
-  --client @hey-api/client-fetch \
-  2>/dev/null || echo "Server not running — use static spec"
-
-# Alternative: openapi-typescript (lighter, type-only)
-npx openapi-typescript http://localhost:8000/openapi.json \
-  --output src/types/api.d.ts \
-  2>/dev/null
+# backend/openapi.json is the contract snapshot and SDK source of truth.
+make openapi-check
+make sdks-check
 ```
 
-If generation fails (due to `Any` geometry types or unresolved refs), produce
-a list of schemas that need typing before generation will succeed =
-[OPENAPI-BLOCKS-CODEGEN].
+Do not generate ad hoc frontend types under `frontend/src/api/generated` or
+`frontend/src/types/api.d.ts`. GeoLens publishes and validates generated clients through
+`sdks/python/`, `sdks/typescript/`, `make sdks`, and `make sdks-check`.
 
 Include in output:
-- The generation command to run
-- Any schema fixes needed to unblock generation
-- Where the generated types should be imported from in hooks
+- Whether `backend/openapi.json` drifted
+- Whether SDK regeneration produced uncommitted diffs
+- Any schema fixes needed to unblock official SDK generation
+- Which generated SDK wrapper or frontend type should consume the contract
 
 ---
 
 ## Phase 5 — Generate contract tests
 
-Produce a `contract.spec.ts` that validates the actual API response shapes
-match what the frontend expects:
+Produce an `e2e/contract.spec.ts` only from real paths in `backend/openapi.json`.
+Prefer critical public surfaces: `/search/datasets/`, `/maps/`, `/datasets/`,
+`/collections/datasets`, OGC `/collections/{id}/items`, STAC `/stac/search`, and
+share/embed endpoints.
 ```typescript
 // contract.spec.ts — auto-generated by /api-contract
-// Run: npx playwright test contract.spec.ts
+// Run: npx playwright test e2e/contract.spec.ts --project=chromium
 
 import { test, expect } from '@playwright/test'
 
-const BASE = process.env.API_URL || 'http://localhost:8000'
+const BASE = process.env.API_URL || `http://localhost:${process.env.API_PORT ?? '8001'}`
 
-// Schema contract tests — verify response shapes
-test('GET /users/{id} — shape', async ({ request }) => {
-  const res = await request.get(`${BASE}/api/users/test-uuid`)
-  // May 404 — we test shape on success only
-  if (res.status() === 200) {
-    const body = await res.json()
-    // Required fields present
-    expect(body).toHaveProperty('id')
-    expect(body).toHaveProperty('email')
-    expect(body).toHaveProperty('created_at')
-    // Forbidden fields absent
-    expect(body).not.toHaveProperty('password_hash')
-    expect(body).not.toHaveProperty('embedding')
-  }
-})
-
-// Pagination contract
-test('GET /locations — pagination shape', async ({ request }) => {
-  const res = await request.get(`${BASE}/api/locations?page=1&size=10`)
+test('GET /search/datasets/ — catalog search shape', async ({ request }) => {
+  const res = await request.get(`${BASE}/search/datasets/?limit=10`)
   expect(res.status()).toBe(200)
   const body = await res.json()
-  expect(body).toHaveProperty('items')
-  expect(body).toHaveProperty('total')
-  expect(body).toHaveProperty('page')
-  expect(body).toHaveProperty('pages')
-  expect(Array.isArray(body.items)).toBe(true)
-})
-
-// Error contract — consistent error shape
-test('404 error shape', async ({ request }) => {
-  const res = await request.get(`${BASE}/api/users/00000000-0000-0000-0000-000000000000`)
-  expect(res.status()).toBe(404)
-  const body = await res.json()
-  expect(body).toHaveProperty('code')   // machine-readable
-  expect(body).toHaveProperty('message') // human-readable
-})
-
-// Spatial contract — GeoJSON shape
-test('GET /locations/{id} — geometry is valid GeoJSON', async ({ request }) => {
-  const res = await request.get(`${BASE}/api/locations/1`)
-  if (res.status() === 200) {
-    const body = await res.json()
-    if (body.geometry) {
-      expect(body.geometry).toHaveProperty('type')
-      expect(body.geometry).toHaveProperty('coordinates')
-      expect(['Point','Polygon','MultiPolygon','LineString'])
-        .toContain(body.geometry.type)
-      // Coordinate order: [longitude, latitude]
-      if (body.geometry.type === 'Point') {
-        const [lng, lat] = body.geometry.coordinates
-        expect(lng).toBeGreaterThanOrEqual(-180)
-        expect(lng).toBeLessThanOrEqual(180)
-        expect(lat).toBeGreaterThanOrEqual(-90)
-        expect(lat).toBeLessThanOrEqual(90)
-      }
-    }
+  expect(body).toHaveProperty('numberMatched')
+  expect(body).toHaveProperty('numberReturned')
+  expect(body).toHaveProperty('features')
+  for (const item of body.features ?? []) {
+    expect(item).not.toHaveProperty('embedding')
+    expect(item).not.toHaveProperty('vector')
   }
 })
 
-// Semantic search contract — no embeddings in response
-test('GET /search/semantic — no embedding in response', async ({ request }) => {
-  const res = await request.get(`${BASE}/api/search/semantic?q=test&limit=5`)
-  if (res.status() === 200) {
-    const body = await res.json()
-    const items = body.items || body
-    if (Array.isArray(items)) {
-      items.forEach((item: any) => {
-        expect(item.embedding).toBeUndefined()
-        expect(item.vector).toBeUndefined()
-      })
-    }
+test('GET /conformance — OGC conformance shape', async ({ request }) => {
+  const res = await request.get(`${BASE}/conformance`)
+  expect(res.status()).toBe(200)
+  const body = await res.json()
+  expect(Array.isArray(body.conformsTo)).toBe(true)
+  expect(body.conformsTo.some((uri: string) => uri.includes('ogcapi-features'))).toBe(true)
+})
+
+test('share/embed advanced-sharing gates match edition', async ({ request }) => {
+  test.skip(!process.env.CONTRACT_MAP_ID, 'Set CONTRACT_MAP_ID for share/embed contract checks')
+  const mapId = process.env.CONTRACT_MAP_ID
+
+  const basic = await request.post(`${BASE}/maps/${mapId}/share/`, {
+    data: { enabled: true },
+  })
+  expect([200, 201]).toContain(basic.status())
+
+  for (const body of [
+    { enabled: true, expires_in_days: 30 },
+    { enabled: true, embed_token_lifetime_seconds: 3600 },
+    { enabled: true, allowed_origins: ['https://example.com'] },
+  ]) {
+    const res = await request.post(`${BASE}/maps/${mapId}/share/`, { data: body })
+    // Community must reject advanced-sharing fields. Enterprise-positive cases
+    // should be added only when the Enterprise overlay is active.
+    expect([400, 402, 403, 422]).toContain(res.status())
   }
 })
 ```
@@ -1163,12 +1133,11 @@ test('GET /search/semantic — no embedding in response', async ({ request }) =>
 
 **1. Write `docs-internal/api-contract-[scope]-[date].md`** with the full contract document.
 
-**2. Write `src/types/api.d.ts`** (or point to generated location).
+**2. Report `make openapi-check` and `make sdks-check` results.**
 
-**3. Write `tests/contract.spec.ts`** with the generated contract tests.
+**3. If useful, write `e2e/contract.spec.ts` with generated tests based only on real OpenAPI paths.**
 
-**4. Update `CLAUDE.md`** with the consistency reference card — so future
-implementations follow the established conventions automatically.
+**4. Update local command guidance only if the established contract conventions changed.**
 
 **5. Update `lessons.md`:**
 ```markdown

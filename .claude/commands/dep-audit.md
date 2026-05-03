@@ -9,7 +9,7 @@ apply each change.
 
 Arguments: $ARGUMENTS
 - Empty → full audit across all dependency files
-- `python` → Python/pip only (Subagents A + E)
+- `python` → Python/uv backend `pyproject.toml` only (Subagents A + E)
 - `js` → npm only (Subagent B)
 - `docker` → Docker base images only (Subagent C)
 - `licenses` → License audit only (Subagent D)
@@ -30,11 +30,10 @@ Non-negotiable rules:
 
 **Locate all dependency manifests:**
 ```bash
-# Python
+# Python (GeoLens backend uses uv + backend/pyproject.toml)
+find backend -maxdepth 2 \( -name "pyproject.toml" -o -name "uv.lock" \) | sort
 find . -name "requirements*.txt" -not -path "*/node_modules/*" \
   -not -path "*/.git/*" | sort
-find . -name "pyproject.toml" -not -path "*/node_modules/*" | sort
-find . -name "Pipfile" -not -path "*/node_modules/*" | sort
 
 # JavaScript
 find . -name "package.json" -not -path "*/node_modules/*" \
@@ -47,17 +46,17 @@ find . -name "Dockerfile*" -not -path "*/.git/*" | sort
 find . -name "docker-compose*.yml" -not -path "*/.git/*" | sort
 
 # Alembic / DB extensions
-find . -name "alembic.ini" | sort
+find backend -name "alembic.ini" | sort
 ```
 
 **Read each manifest in full.**
 
 **Check for lockfile/manifest drift:**
 ```bash
-# Python — requirements.txt vs what's actually installed
-pip list --format=freeze 2>/dev/null | diff - requirements.txt | head -20
+# Python — backend/pyproject.toml vs uv.lock
+(cd backend && uv lock --check)
 
-# Node — package.json vs lockfile
+# Node — package.json vs lockfile (root e2e package and frontend app)
 node -e "
 const pkg = require('./package.json');
 const lock = require('./package-lock.json');
@@ -65,15 +64,27 @@ const missing = Object.keys({...pkg.dependencies, ...pkg.devDependencies})
   .filter(d => !lock.packages['node_modules/' + d]);
 if (missing.length) console.log('MISSING FROM LOCK:', missing.join(', '));
 " 2>/dev/null
+(cd frontend && node -e "
+const pkg = require('./package.json');
+const lock = require('./package-lock.json');
+const missing = Object.keys({...pkg.dependencies, ...pkg.devDependencies})
+  .filter(d => !lock.packages['node_modules/' + d]);
+if (missing.length) console.log('MISSING FROM FRONTEND LOCK:', missing.join(', '));
+" 2>/dev/null)
 ```
 
 **Establish baseline — count total deps:**
 ```bash
-echo "Python deps: $(grep -c "^[a-zA-Z]" requirements*.txt 2>/dev/null || echo 0)"
-echo "JS prod deps: $(node -e "const p=require('./package.json'); \
-  console.log(Object.keys(p.dependencies||{}).length)" 2>/dev/null || echo 0)"
-echo "JS dev deps: $(node -e "const p=require('./package.json'); \
-  console.log(Object.keys(p.devDependencies||{}).length)" 2>/dev/null || echo 0)"
+printf "Python deps: "
+(cd backend && uv tree --depth 1 2>/dev/null | grep -c '^[a-zA-Z0-9_.-]') || echo 0
+printf "JS prod deps: "
+node -e 'const p=require("./package.json"); console.log(Object.keys(p.dependencies||{}).length)' 2>/dev/null || echo 0
+printf "JS dev deps: "
+node -e 'const p=require("./package.json"); console.log(Object.keys(p.devDependencies||{}).length)' 2>/dev/null || echo 0
+printf "Frontend JS prod deps: "
+(cd frontend && node -e 'const p=require("./package.json"); console.log(Object.keys(p.dependencies||{}).length)' 2>/dev/null) || echo 0
+printf "Frontend JS dev deps: "
+(cd frontend && node -e 'const p=require("./package.json"); console.log(Object.keys(p.devDependencies||{}).length)' 2>/dev/null) || echo 0
 ```
 
 ---
@@ -89,9 +100,13 @@ Use the Task tool. Do NOT wait for one before starting the next.
 
 **CVE scan:**
 ```bash
+# Export the locked backend production environment for scanners that expect requirements.txt
+(cd backend && uv export --locked --no-dev --format requirements-txt \
+  -o /tmp/geolens-backend-requirements.txt 2>/dev/null)
+
 # Primary: safety (most complete Python CVE database)
-pip install safety --quiet 2>/dev/null
-safety check --full-report --output json 2>/dev/null | python3 -c "
+(cd backend && uv run --with safety safety check \
+  -r /tmp/geolens-backend-requirements.txt --full-report --output json 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -101,11 +116,12 @@ try:
 Fixed: {vuln.get('fixed_versions','unknown')} | \
 {vuln['advisory'][:80]}\")
 except: pass
-" 2>/dev/null || safety check 2>/dev/null
+" 2>/dev/null) || (cd backend && uv run --with safety safety check \
+  -r /tmp/geolens-backend-requirements.txt 2>/dev/null)
 
 # Secondary: pip-audit (uses OSV + PyPI Advisory database)
-pip install pip-audit --quiet 2>/dev/null
-pip-audit --format=json 2>/dev/null | python3 -c "
+(cd backend && uv run --with pip-audit pip-audit \
+  -r /tmp/geolens-backend-requirements.txt --format=json 2>/dev/null | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -114,107 +130,112 @@ try:
             print(f\"{dep['name']}=={dep['version']} | \
 {vuln['id']} | {vuln['description'][:80]}\")
 except: pass
-" 2>/dev/null || pip-audit 2>/dev/null
+" 2>/dev/null) || (cd backend && uv run --with pip-audit pip-audit \
+  -r /tmp/geolens-backend-requirements.txt 2>/dev/null)
 
 # Tertiary: OSV scanner (if available)
-osv-scanner --lockfile requirements.txt 2>/dev/null || true
+osv-scanner --lockfile backend/uv.lock 2>/dev/null || true
 ```
 
 **Outdated version check:**
 ```bash
-pip list --outdated --format=json 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for pkg in sorted(data, key=lambda x: x['name']):
-    print(f\"{pkg['name']}: {pkg['version']} → {pkg['latest_version']} \
-({pkg['latest_filetype']})\")
-" 2>/dev/null || pip list --outdated
+cd backend && uv tree --outdated 2>/dev/null || \
+  uv pip list --python .venv/bin/python --outdated 2>/dev/null
 ```
 
 **Pinning discipline:**
 ```bash
-# Unpinned or loosely pinned packages (ranges are risky in production)
-grep -E "^[a-zA-Z].*[^=]$|>=|~=|^[a-zA-Z][^=]*$" requirements*.txt 2>/dev/null | \
-  grep -v "#" | head -20
+# Production resolution must be locked by backend/uv.lock.
+test -f backend/uv.lock || echo "MISSING: backend/uv.lock"
+
+# Direct URL/path dependencies in backend/pyproject.toml require review.
+python3 - <<'EOF'
+import tomllib
+data = tomllib.load(open("backend/pyproject.toml", "rb"))
+deps = data.get("project", {}).get("dependencies", [])
+for dep in deps:
+    if " @ " in dep or dep.startswith((".", "/")):
+        print(f"REVIEW-DIRECT-DEPENDENCY: {dep}")
+EOF
 ```
 
-Packages pinned with `>=` or `~=` in production = [DEP-UNPINNED]:
-```
-# RISKY — any breaking release auto-installs
-fastapi>=0.100.0
-
-# SAFE — exact pin in requirements.txt, range in pyproject.toml [tool.poetry]
-fastapi==0.115.4
-```
+`backend/pyproject.toml` may use version ranges because `backend/uv.lock`
+pins the actual production resolution. Missing `backend/uv.lock` =
+[DEP-UNPINNED]. Direct URL or path dependencies in production =
+[DEP-UNPINNED] unless intentionally vendored and documented.
 
 **Unused Python packages:**
 ```bash
-# Install deptry (finds unused, missing, transitive deps used directly)
-pip install deptry --quiet 2>/dev/null
-deptry . 2>/dev/null || true
+# deptry finds unused, missing, and transitive deps used directly.
+cd backend && uv run --with deptry deptry . 2>/dev/null || true
 
-# Manual check: packages in requirements.txt not imported anywhere
-python3 -c "
-import re, os, sys
+# Manual check: backend/pyproject.toml project deps not imported in backend/app
+python3 - <<'EOF'
+import os, re, tomllib
 
-req_file = 'requirements.txt'
-with open(req_file) as f:
-    reqs = [re.split(r'[>=<!~]', line.strip())[0].lower().replace('-','_')
-            for line in f if line.strip() and not line.startswith('#')]
+data = tomllib.load(open("backend/pyproject.toml", "rb"))
+reqs = []
+for dep in data.get("project", {}).get("dependencies", []):
+    name = re.split(r"[<>=!~;\\[]", dep, 1)[0].strip().lower().replace("-", "_")
+    if name:
+        reqs.append(name)
 
 imported = set()
-for root, dirs, files in os.walk('api'):
-    dirs[:] = [d for d in dirs if d not in ['__pycache__', '.git']]
+for root, dirs, files in os.walk("backend/app"):
+    dirs[:] = [d for d in dirs if d not in ["__pycache__", ".git"]]
     for fname in files:
-        if fname.endswith('.py'):
-            with open(os.path.join(root, fname)) as src:
+        if fname.endswith(".py"):
+            with open(os.path.join(root, fname), errors="ignore") as src:
                 for line in src:
-                    m = re.match(r'\s*(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)', line)
-                    if m: imported.add(m.group(1).lower())
+                    m = re.match(r"\s*(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*)", line)
+                    if m:
+                        imported.add(m.group(1).lower())
 
-for r in sorted(reqs):
-    if r not in imported and r not in ['uvicorn','gunicorn','python_dotenv','dotenv']:
-        print(f'POSSIBLY UNUSED: {r}')
-" 2>/dev/null
+known_runtime = {"uvicorn", "gunicorn", "fastapi", "pydantic", "pydantic_settings", "python_multipart"}
+for req in sorted(set(reqs)):
+    if req not in imported and req not in known_runtime:
+        print(f"POSSIBLY UNUSED: {req}")
+EOF
 ```
 
-Note: some packages are used indirectly (middleware, plugins). Flag as
-[DEP-POSSIBLY-UNUSED] and verify manually before removing.
+Note: some packages are used indirectly (middleware, plugins, optional extras).
+Flag as [DEP-POSSIBLY-UNUSED] and verify manually before removing.
 
 **Duplicate/conflicting packages:**
 ```bash
-# Check for packages that provide the same functionality
-python3 -c "
+python3 - <<'EOF'
+import re, tomllib
+
 overlaps = {
-    'HTTP clients': ['requests', 'httpx', 'aiohttp', 'urllib3'],
-    'Validation': ['pydantic', 'marshmallow', 'cerberus', 'voluptuous'],
-    'Task queues': ['celery', 'dramatiq', 'rq', 'arq'],
-    'Caching': ['redis', 'diskcache', 'cachetools', 'aiocache'],
-    'Testing': ['pytest', 'unittest2', 'nose', 'nose2'],
+    "HTTP clients": ["requests", "httpx", "aiohttp", "urllib3"],
+    "Validation": ["pydantic", "marshmallow", "cerberus", "voluptuous"],
+    "Task queues": ["celery", "dramatiq", "rq", "arq", "procrastinate"],
+    "Caching": ["redis", "diskcache", "cachetools", "aiocache"],
+    "Testing": ["pytest", "unittest2", "nose", "nose2"],
 }
-import re
-try:
-    with open('requirements.txt') as f:
-        installed = [re.split(r'[>=<!]', l.strip())[0].lower()
-                     for l in f if l.strip() and not l.startswith('#')]
-    for category, packages in overlaps.items():
-        found = [p for p in packages if p in installed]
-        if len(found) > 1:
-            print(f'OVERLAP ({category}): {found}')
-except: pass
-" 2>/dev/null
+data = tomllib.load(open("backend/pyproject.toml", "rb"))
+installed = [
+    re.split(r"[<>=!~;\\[]", d, 1)[0].strip().lower()
+    for d in data.get("project", {}).get("dependencies", [])
+]
+for category, packages in overlaps.items():
+    found = [p for p in packages if p in installed]
+    if len(found) > 1:
+        print(f"OVERLAP ({category}): {found}")
+EOF
 ```
 
 **Stack-specific Python version checks:**
 
 FastAPI ecosystem — flag if behind these known-safe minimums:
 ```
+python           >= 3.13      (backend/pyproject.toml requires-python)
 fastapi          >= 0.110.0   (security + Pydantic v2 stability)
 uvicorn          >= 0.27.0    (HTTP/2 fixes)
 pydantic         >= 2.6.0     (v2 stability, performance)
 sqlalchemy       >= 2.0.25    (async fixes)
 alembic          >= 1.13.0    (async support improvements)
-python-jose      >= 3.3.0     (CVE-2024-33664 algorithm confusion)
+pyjwt            >= 2.8.0     (JWT security fixes)
 cryptography     >= 42.0.4    (multiple CVEs)
 pillow           >= 10.3.0    (CVE-2024-28219)
 httpx            >= 0.27.0    (security fixes)
@@ -226,13 +247,25 @@ the CVE or changelog reference.
 
 **Development deps in production:**
 ```bash
-# Packages that should only be in requirements-dev.txt
-grep -iE "pytest|black|ruff|mypy|flake8|isort|coverage|hypothesis|\
-factory.boy|faker|locust|pre.commit|bandit|semgrep" requirements.txt 2>/dev/null | \
-  grep -v "requirements-dev\|requirements-test"
+python3 - <<'EOF'
+import re, tomllib
+
+dev_names = {
+    "pytest", "black", "ruff", "mypy", "flake8", "isort", "coverage",
+    "hypothesis", "factory_boy", "faker", "locust", "pre_commit",
+    "bandit", "semgrep", "pip_audit", "moto", "fakeredis",
+}
+data = tomllib.load(open("backend/pyproject.toml", "rb"))
+prod = {
+    re.split(r"[<>=!~;\\[]", d, 1)[0].strip().lower().replace("-", "_")
+    for d in data.get("project", {}).get("dependencies", [])
+}
+for name in sorted(prod & dev_names):
+    print(f"DEV-IN-PROD: {name}")
+EOF
 ```
 
-Dev tooling in `requirements.txt` (not `requirements-dev.txt`) =
+Dev tooling in `project.dependencies` instead of `[dependency-groups].dev` =
 [DEP-DEV-IN-PROD] — increases attack surface of production image.
 
 Output: findings labeled [DEP-CVE-CRITICAL], [DEP-CVE-HIGH], [DEP-CVE-MEDIUM],
@@ -242,6 +275,11 @@ Output: findings labeled [DEP-CVE-CRITICAL], [DEP-CVE-HIGH], [DEP-CVE-MEDIUM],
 
 ### Subagent B — JavaScript / npm audit
 **Goal: find every vulnerable, outdated, or bloated JS dependency**
+
+Audit both JavaScript package surfaces: the root E2E Playwright package (`.`)
+and the React application package (`frontend`). When a command below references
+`package.json`, run it in both directories unless the scope is explicitly
+frontend-only.
 
 **CVE scan:**
 ```bash
@@ -394,8 +432,8 @@ Output: findings labeled [DEP-CVE-CRITICAL], [DEP-CVE-HIGH], [DEP-CVE-MODERATE],
 
 **Extract all base images:**
 ```bash
-grep -rn "^FROM\|^from" Dockerfile* api/Dockerfile* \
-  frontend/Dockerfile* 2>/dev/null | \
+find . -name "Dockerfile*" -not -path "*/.git/*" -not -path "*/node_modules/*" -print0 | \
+  xargs -0 grep -n "^FROM\|^from" 2>/dev/null | \
   grep -v "^Binary\|#" | sort -u
 ```
 
@@ -404,13 +442,13 @@ grep -rn "^FROM\|^from" Dockerfile* api/Dockerfile* \
 **Pinning — tags vs digests:**
 ```
 # RISKY — mutable tag, image can change silently
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 # SAFE — immutable digest
-FROM python:3.12-slim@sha256:abc123...
+FROM python:3.13-slim@sha256:abc123...
 
 # ACCEPTABLE — specific patch version tag in CI with digest in prod
-FROM python:3.12.4-slim
+FROM python:3.13.1-slim
 ```
 
 Flag `FROM python:latest`, `FROM node:latest`, `FROM postgres:latest`,
@@ -456,10 +494,10 @@ Check:
 image: postgis/postgis:latest
 
 # SAFE — pinned to specific version
-image: postgis/postgis:16-3.4
+image: postgis/postgis:17-3.5
 
 # PRODUCTION-SAFE — pinned to digest
-image: postgis/postgis:16-3.4@sha256:abc123...
+image: postgis/postgis:17-3.5@sha256:abc123...
 ```
 
 **pgvector image:**
@@ -493,15 +531,15 @@ Verify build-stage artifacts (dev dependencies, build tools, source code)
 are not copied into the final stage. Common mistake:
 ```dockerfile
 # WRONG — copies entire source including dev deps
-FROM python:3.12-slim as builder
-RUN pip install -r requirements-dev.txt
+FROM python:3.13-slim as builder
+RUN uv sync --locked --group dev
 ...
-FROM python:3.12-slim
+FROM python:3.13-slim
 COPY --from=builder / /    # copies EVERYTHING including dev deps
 
 # CORRECT — copy only what runtime needs
 COPY --from=builder /app/dist /app/dist
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 ```
 
 Output: findings labeled [DOCKER-UNPINNED], [DOCKER-EOL], [DOCKER-EOL-SOON],
@@ -514,8 +552,8 @@ Output: findings labeled [DOCKER-UNPINNED], [DOCKER-EOL], [DOCKER-EOL-SOON],
 
 **Python license extraction:**
 ```bash
-pip install pip-licenses --quiet 2>/dev/null
-pip-licenses --format=json --with-urls --with-description 2>/dev/null | \
+cd backend && uv run --with pip-licenses pip-licenses \
+  --format=json --with-urls --with-description 2>/dev/null | \
   python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -537,7 +575,7 @@ for pkg in sorted(data, key=lambda x: x['Name']):
         if risk_lic.lower() in lic.lower():
             print(f'[{risk_type}] {pkg[\"Name\"]}=={pkg[\"Version\"]} — {lic}')
             print(f'  URL: {pkg.get(\"URL\", \"N/A\")}')
-" 2>/dev/null || pip-licenses 2>/dev/null
+" 2>/dev/null || (cd backend && uv run --with pip-licenses pip-licenses 2>/dev/null)
 ```
 
 **JavaScript license extraction:**
@@ -613,37 +651,37 @@ current, compatible, and correctly configured**
 
 **Python extension library versions:**
 ```bash
-pip show geoalchemy2 shapely psycopg2-binary asyncpg \
+cd backend && uv run python -m pip show geoalchemy2 shapely psycopg2-binary asyncpg \
   pgvector sqlalchemy-utils 2>/dev/null | \
   grep -E "^Name:|^Version:|^Requires:|^Required-by:"
 ```
 
 **GeoAlchemy2:**
 ```bash
-python3 -c "import geoalchemy2; print('GeoAlchemy2:', geoalchemy2.__version__)" \
+cd backend && uv run python -c "import geoalchemy2; print('GeoAlchemy2:', geoalchemy2.__version__)" \
   2>/dev/null
 ```
 
 Version checks:
 - `GeoAlchemy2 < 0.14` — missing `WKBElement.as_wkb()`, limited async support
 - `GeoAlchemy2 < 0.15` — `ST_AsGeoJSON` serialization issues with custom types
-- Current stable: check `pip index versions geoalchemy2 2>/dev/null | head -1`
+- Current stable: check `cd backend && uv run python -m pip index versions geoalchemy2 2>/dev/null | head -1`
 
 Compatibility matrix check:
 ```bash
-python3 -c "
+cd backend && uv run python -c "
 import geoalchemy2, sqlalchemy
 geo_v = tuple(int(x) for x in geoalchemy2.__version__.split('.')[:2])
 sa_v = tuple(int(x) for x in sqlalchemy.__version__.split('.')[:2])
 if sa_v >= (2, 0) and geo_v < (0, 14):
     print('COMPAT ERROR: GeoAlchemy2 < 0.14 is not fully compatible with SQLAlchemy 2.0')
-    print('Upgrade: pip install geoalchemy2>=0.14')
+    print('Upgrade: cd backend && uv add \"geoalchemy2>=0.14\"')
 " 2>/dev/null
 ```
 
 **Shapely:**
 ```bash
-python3 -c "import shapely; print('Shapely:', shapely.__version__)" 2>/dev/null
+cd backend && uv run python -c "import shapely; print('Shapely:', shapely.__version__)" 2>/dev/null
 ```
 - `Shapely < 2.0` — slow Python-only operations, missing GEOS 3.11 functions
 - `Shapely 2.x` requires GEOS >= 3.11 in the system — verify in Docker image:
@@ -653,8 +691,8 @@ python3 -c "import shapely; print('Shapely:', shapely.__version__)" 2>/dev/null
 
 **pgvector Python client:**
 ```bash
-python3 -c "import pgvector; print('pgvector:', pgvector.__version__)" 2>/dev/null
-pip show pgvector 2>/dev/null | grep Version
+cd backend && uv run python -c "import pgvector; print('pgvector:', pgvector.__version__)" 2>/dev/null
+cd backend && uv run python -m pip show pgvector 2>/dev/null | grep Version
 ```
 
 Version checks:
@@ -663,14 +701,14 @@ Version checks:
 - Verify pgvector Python client version matches server extension version:
 ```bash
 # Server extension version (if DB is accessible)
-docker compose exec db psql -U postgres -c \
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c \
   "SELECT extversion FROM pg_extension WHERE extname = 'vector';" 2>/dev/null || \
   echo "DB not running — check manually"
 ```
 
 **Database driver — asyncpg vs psycopg:**
 ```bash
-pip show asyncpg psycopg psycopg2-binary psycopg2 2>/dev/null | \
+cd backend && uv run python -m pip show asyncpg psycopg psycopg2-binary psycopg2 2>/dev/null | \
   grep -E "^Name:|^Version:"
 ```
 
@@ -681,9 +719,9 @@ Driver recommendations for your async FastAPI stack:
   the binary wheel bundles its own libpq — use `psycopg2` (source build) or
   `psycopg[async]` instead for production
 ```bash
-# Check if psycopg2-binary is in production requirements (not just dev)
-grep "psycopg2-binary" requirements.txt 2>/dev/null && \
-  echo "WARNING: psycopg2-binary in production requirements — use psycopg2 or psycopg[async]"
+# Check if psycopg2-binary is in backend production dependencies (not just dev)
+grep -n '"psycopg2-binary' backend/pyproject.toml 2>/dev/null && \
+  echo "WARNING: psycopg2-binary in backend project.dependencies — use psycopg2 or psycopg[async]"
 ```
 
 **Extension version compatibility matrix:**
@@ -691,15 +729,15 @@ grep "psycopg2-binary" requirements.txt 2>/dev/null && \
 Check that server-side extensions match client library expectations:
 ```bash
 # PostGIS server version
-docker compose exec db psql -U postgres -c \
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c \
   "SELECT PostGIS_Version();" 2>/dev/null | grep -oE "[0-9]+\.[0-9]+" | head -1
 
 # pg_trgm (bundled with Postgres, version = postgres version)
-docker compose exec db psql -U postgres -c \
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c \
   "SELECT extversion FROM pg_extension WHERE extname = 'pg_trgm';" 2>/dev/null
 
 # pgvector server version
-docker compose exec db psql -U postgres -c \
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c \
   "SELECT extversion FROM pg_extension WHERE extname = 'vector';" 2>/dev/null
 ```
 
@@ -709,7 +747,7 @@ expectations as [EXT-VERSION-MISMATCH].
 **Extension registration in app startup:**
 ```bash
 grep -rn "register_vector\|create_engine.*vector\|configure_mappers\|\
-register_geometry_type\|setup_all\|listen.*connect" api/ --include="*.py"
+register_geometry_type\|setup_all\|listen.*connect" backend/app/ --include="*.py"
 ```
 
 pgvector requires explicit registration with asyncpg:
@@ -733,14 +771,14 @@ def connect(dbapi_connection, connection_record):
     dbapi_connection.run_async(register_vector)
 ```
 
-Flag missing `register_vector` when pgvector is in requirements =
+Flag missing `register_vector` when pgvector is in `backend/pyproject.toml` =
 [EXT-PGVECTOR-NOT-REGISTERED].
 
 **Alembic extension migrations:**
 ```bash
 # Check that extensions are created in migrations, not assumed to exist
 grep -rn "CREATE EXTENSION\|op.execute.*CREATE EXTENSION\|postgis\|pg_trgm\|vector" \
-  alembic/versions/ --include="*.py" | head -10
+  backend/alembic/versions/ --include="*.py" | head -10
 ```
 
 Extensions should be created in a migration, not manually:
@@ -813,18 +851,17 @@ breaking change risk]
 # === IMMEDIATE — apply before merge ===
 
 # Python CVE fixes
-pip install [package]==[safe-version]
-# Update requirements.txt:
-sed -i 's/[package]==[old]/[package]==[new]/' requirements.txt
+cd backend && uv add '[package]==[safe-version]'
+cd backend && uv lock
 
 # JS CVE fixes
-npm install [package]@[safe-version]
+cd frontend && npm install [package]@[safe-version]
 # Force resolution of transitive vulnerabilities:
-npm install --save-exact [package]@[safe-version]
+cd frontend && npm install --save-exact [package]@[safe-version]
 
 # === THIS SPRINT ===
-pip install --upgrade [package1] [package2]
-npm install [package]@latest
+cd backend && uv add '[package1]==[target-version]' '[package2]==[target-version]'
+cd frontend && npm install [package]@latest
 
 # === DOCKER ===
 # Update base image tags in Dockerfile(s)
@@ -836,11 +873,10 @@ npm install [package]@latest
 ## Unused packages to remove (verify before deleting)
 \`\`\`bash
 # Python
-pip uninstall [package]
-sed -i '/^[package]/d' requirements.txt
+cd backend && uv remove [package]
 
 # JS
-npm uninstall [package]
+cd frontend && npm uninstall [package]
 \`\`\`
 ```
 
@@ -863,47 +899,66 @@ jobs:
   python-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
-      - name: Install deps
-        run: pip install -r requirements.txt pip-audit safety
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+
+      - name: Verify backend lockfile
+        working-directory: backend
+        run: uv lock --check
+
+      - name: Export locked backend production requirements
+        working-directory: backend
+        run: uv export --locked --no-dev --format requirements-txt -o /tmp/geolens-backend-requirements.txt
 
       - name: pip-audit (OSV database)
-        run: pip-audit --strict
+        working-directory: backend
+        run: uv run --with pip-audit pip-audit -r /tmp/geolens-backend-requirements.txt --strict
 
       - name: safety check
-        run: safety check --full-report
+        working-directory: backend
+        run: uv run --with safety safety check -r /tmp/geolens-backend-requirements.txt --full-report
         env:
           SAFETY_API_KEY: ${{ secrets.SAFETY_API_KEY }}  # optional, more results
 
       - name: License check
+        working-directory: backend
         run: |
-          pip install pip-licenses
-          pip-licenses --fail-on="GPL-3.0;AGPL-3.0;SSPL-1.0"
+          uv run --with pip-licenses pip-licenses --fail-on="GPL-3.0;AGPL-3.0;SSPL-1.0"
 
   js-audit:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory: ['.', 'frontend']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
 
       - name: Install deps
+        working-directory: ${{ matrix.directory }}
         run: npm ci
 
       - name: npm audit
+        working-directory: ${{ matrix.directory }}
         run: npm audit --audit-level=high
 
       - name: License check
+        working-directory: ${{ matrix.directory }}
         run: |
           npx license-checker --production \
             --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;Unlicense;Python-2.0;PSF-2.0;BlueOak-1.0.0'
@@ -916,7 +971,7 @@ jobs:
       - name: Trivy scan — API image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'python:3.12-slim'
+          image-ref: 'python:3.13-slim'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
@@ -924,7 +979,7 @@ jobs:
       - name: Trivy scan — PostGIS image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'postgis/postgis:16-3.4'
+          image-ref: 'postgis/postgis:17-3.5'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
@@ -935,8 +990,8 @@ Also output a `dependabot.yml` configuration:
 # .github/dependabot.yml
 version: 2
 updates:
-  - package-ecosystem: pip
-    directory: /
+  - package-ecosystem: uv
+    directory: /backend
     schedule:
       interval: weekly
       day: monday
@@ -982,6 +1037,25 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      tanstack:
+        patterns:
+          - "@tanstack/*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -992,7 +1066,7 @@ updates:
 
 ## Phase 5 — Deliver
 
-**1. Write `docs-internal/dep-audit-[date].md`** with the full report.
+**1. Write `docs-internal/audits/dep-audit-{YYYYMMDD}.md`** with the full report.
 
 **2. If `--fix` flag is set:**
 
@@ -1014,13 +1088,12 @@ Proceed? [y/N]
 
 Only after confirmation, apply:
 ```bash
-# Python safe upgrades
-pip install cryptography==42.0.8 pillow==10.3.0 httpx==0.27.2
-pip freeze | grep -E "cryptography|pillow|httpx" >> requirements.txt.new
-# [merge into requirements.txt]
+# Python safe upgrades — fill versions from the current audit/outdated output
+(cd backend && uv add '<package>==<fixed-version>')
+(cd backend && uv lock)
 
-# JS safe upgrades
-npm install @tanstack/react-query@5.35.1 vite@5.2.11
+# JS safe upgrades — fill versions from npm audit/outdated output
+(cd frontend && npm install '<package>@<fixed-version>')
 ```
 
 **3. Update `lessons.md`:**
@@ -1039,11 +1112,11 @@ npm install @tanstack/react-query@5.35.1 vite@5.2.11
 
 ### Output format
 
-Write the report to: `docs-internal/audits/dependency-audit-{YYYYMMDD}.md`
+Write the report to: `docs-internal/audits/dep-audit-{YYYYMMDD}.md`
 
 ### Post-delivery
 
-1. If a previous `dependency-audit-*.md` exists in `docs-internal/audits/`, diff key findings against the prior report.
+1. If a previous `dep-audit-*.md` exists in `docs-internal/audits/`, diff key findings against the prior report.
 2. Print one-line summary: overall risk grade + CVE count (Critical/High) + total outdated packages.
 
 ---
@@ -1059,7 +1132,8 @@ Write the report to: `docs-internal/audits/dependency-audit-{YYYYMMDD}.md`
 
 - `^` version prefixes in `package.json` when a committed `package-lock.json`
   pins the actual installed version
-- `psycopg2-binary` in `requirements-dev.txt` (fine for local dev, just not prod)
+- `psycopg2-binary` in `[dependency-groups].dev` in `backend/pyproject.toml`
+  (fine for local dev, just not prod)
 - PostGIS GPL-2.0 license in a SaaS deployment (server-side only, not distributed)
 - Outdated `devDependencies` with no CVEs and no production bundle impact
 - Major version bumps surfaced by `npm outdated` — these require migration

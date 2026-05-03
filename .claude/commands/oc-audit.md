@@ -31,20 +31,23 @@ ls backend/app/modules/settings/ 2>/dev/null
 ls backend/app/platform/extensions/ 2>/dev/null
 ```
 
-Build a mental model of the current domain layout before dispatching subagents. **Verified facts as of v13.1 close (2026-04-29):**
+Build a mental model of the current domain layout before dispatching subagents. **Verified facts as of v13.5 close (2026-05-03):**
 - Backend uses `from app.` import convention (not `from backend.app.`)
 - API entry point is `backend/app/api/main.py`
 - Extension scaffolding lives at `backend/app/platform/extensions/` (`protocols.py`, `defaults.py`, `guards.py`)
 - `backend/app/core/identity.py` defines `IdentityProtocol` + `RoleProtocol` + `IdentityExtension` + `Identity` alias (Phase 214); `get_identity_extension()` accessor at `backend/app/platform/extensions/__init__.py:111`
 - `backend/app/modules/catalog/authorization.py` is the canonical home for visibility/authorization (Phase 213 relocated from `auth/visibility.py`, which no longer exists)
+- `PermissionExtension` lives in `backend/app/platform/extensions/protocols.py`; `get_permission_extension()` is the typed accessor and is the canonical seam for `require_permission()`, catalog visibility filtering, and dataset access policy
+- `WorkflowExtension` + `WorkflowTransitionContext` live in `backend/app/platform/extensions/protocols.py`; `get_workflow_extension()` is the typed accessor and is the canonical seam for dataset publication transitions / future approval workflows
+- Advanced sharing is edition-gated in both schema and service layers: custom share expiration (`ShareTokenRequest.expires_at`), custom embed token lifetimes (`EmbedTokenCreate.expires_in_days != 30`), and non-empty embed `allowed_origins` require the Enterprise overlay; Community still supports basic share create/revoke and default unrestricted embed tokens
 - `backend/openapi.json` is committed and is the SDK source of truth (Phase 215)
-- `cli/` is an Apache-2.0 standalone package (`geolens` on PyPI) consuming only the generated Python SDK
-- `sdks/python/` and `sdks/typescript/` are auto-generated from `backend/openapi.json` via `make sdks`; `make sdks-check` is a CI drift gate
+- `cli/` is an Apache-2.0 standalone package (`geolens-cli` on PyPI) consuming only the generated Python SDK
+- `sdks/python/` (`geolens` package) and `sdks/typescript/` are auto-generated from `backend/openapi.json` via `make sdks`; `make sdks-check` is a CI drift gate
 - Apache-2.0 `LICENSE` files exist at: repo root, `cli/LICENSE`, `sdks/python/LICENSE`, `sdks/typescript/LICENSE` — all should be byte-identical
 - Enterprise overlay file `docker-compose.enterprise.yml` exists alongside `docker-compose.yml` and `docker-compose.demo.yml`
 - The `geolens-enterprise` repo (sibling clone at `~/Code/geolens-enterprise`) contains the SAML overlay implementation; it registers via `importlib.metadata` entry_points dual-binding `AuthExtension` + `IdentityExtension`
 - Backend modules: `admin, audit, auth, catalog, embed_tokens, settings` (no `ai` module — AI features are cross-cutting)
-- `is_enterprise()` is the canonical runtime gate for community/enterprise feature splits (Phase 219 established the schema-validator + service-entry pattern at `oauth/schemas.py:147,285` and `oauth/service.py:265-270`)
+- `is_enterprise()` is the canonical runtime gate for community/enterprise feature splits (Phase 219 established the schema-validator + service-entry pattern at `oauth/schemas.py:147,285` and `oauth/service.py:265-270`; v13.5 advanced sharing repeats that pattern in `catalog/maps/{schemas,service}.py` and `embed_tokens/{schemas,service}.py`)
 
 If any of these have changed since the audit was last run, update the assumptions before dispatching subagents.
 
@@ -81,7 +84,7 @@ These are the canonical free/paid boundary definitions. Use these as the source 
 - OGC API Features, OGC API Records, STAC export, DCAT metadata
 
 **Sharing**
-- Share links (basic), public/internal visibility toggle, basic embed
+- Share links (basic), public/internal visibility toggle, basic embed, share revoke, default 30-day unrestricted embed tokens
 
 **Admin & Identity (single-deployment scale)**
 - User accounts with role labels (viewer/editor/admin)
@@ -106,7 +109,7 @@ These are the canonical free/paid boundary definitions. Use these as the source 
 - Branding removal toggle ("Powered by GeoLens" removal)
 - Audit log export (CSV/JSON)
 - Priority support SLA
-- Advanced sharing controls (expiring links, domain restrictions)
+- Advanced sharing controls (custom share expiration, custom embed lifetimes, domain restrictions)
 
 **Business tier ($25K–$60K/yr):**
 - Advanced RBAC (dataset/collection-level admin UI, field-level permissions)
@@ -170,6 +173,13 @@ Run these 6 subagents in parallel. Each produces a standalone findings section.
    ```bash
    grep -rn "tenant_id\|multi.tenant\|cross.org\|tenant.isolation" backend/app/ --include="*.py" | grep -v __pycache__
    grep -rn "org_id\|organization" backend/app/ --include="*.py" | grep -v __pycache__
+   for root in ../geolens-enterprise "$HOME/Code/geolens-enterprise"; do
+     [ -d "$root" ] || continue
+     echo "=== enterprise overlay: $root ==="
+     grep -rn "tenant_id\|multi.tenant\|cross.org\|tenant.isolation\|org_id\|organization" \
+       "$root/app_enterprise" "$root/frontend" "$root/alembic" "$root/docker-compose"*.yml \
+       --include="*.py" --include="*.ts" --include="*.tsx" --include="*.yml" 2>/dev/null
+   done
    ```
    Classify each hit:
    - If used for *multi-tenant isolation* (tenant-scoped data partitioning, cross-tenant admin) in core or in the Enterprise overlay → **boundary violation** unless cleanly gated behind a seam reserved for the future Cloud overlay (Phase 999.6 territory). Enterprise must remain single-tenant; tenant code in `app_enterprise/` is also a violation.
@@ -187,10 +197,15 @@ Run these 6 subagents in parallel. Each produces a standalone findings section.
    grep -rn "Credential\|StoredSecret\|ConnectorConfig" backend/app/ --include="*.py" | grep -v __pycache__
    ```
    Hits that *store* credentials for later use → flag as enterprise feature in community without seam.
-5. **Verify `is_enterprise()` gating pattern** (Phase 219 canonical pattern). For any feature with both community-acceptable and enterprise-only behaviors (e.g., OAuth IdP→role mapping, attribute-based provisioning, scheduled connectors), check that:
+5. **Verify `is_enterprise()` gating pattern** (Phase 219 canonical pattern, reused by v13.5 advanced sharing). For any feature with both community-acceptable and enterprise-only behaviors (e.g., OAuth IdP→role mapping, attribute-based provisioning, scheduled connectors, advanced sharing controls), check that:
    - **Schema layer** rejects enterprise-only inputs in community: Pydantic `model_validator(mode="after")` raises `ValueError("... requires the GeoLens Enterprise overlay")` when an enterprise-only field is set and `is_enterprise()` is False.
    - **Service layer** wraps enterprise-only logic in `if is_enterprise():` before applying it.
-   - **Both layers must agree** — schema-only gating leaves drift via bulk import paths; service-only gating accepts data that can never be applied. Phase 219 reference implementation: `oauth/schemas.py:147,285` + `oauth/service.py:265-270`.
+   - **Both layers must agree** — schema-only gating leaves drift via bulk import paths; service-only gating accepts data that can never be applied. Phase 219 reference implementation: `oauth/schemas.py:147,285` + `oauth/service.py:265-270`; v13.5 references are `catalog/maps/schemas.py`, `catalog/maps/service.py`, `embed_tokens/schemas.py`, and `embed_tokens/service.py`.
+   - **Frontend is not enforcement** — UI edition checks (`useEdition()`, `advanced-sharing`) may hide controls, but spoofed requests must still be rejected by schema and service layers.
+
+   Advanced sharing expected split:
+   - Community: basic share create/revoke, visibility toggles, basic embed, default unrestricted 30-day embed token.
+   - Enterprise: custom share expiration, custom embed lifetime, non-empty allowed-origin/domain restrictions.
 
    Hits that gate at only one layer → 🟡 boundary risk; hits that don't gate at all → 🔴 boundary violation.
 6. For each hit, classify as:
@@ -220,8 +235,8 @@ Run these 6 subagents in parallel. Each produces a standalone findings section.
    - **Auth provider registry** — Read `backend/app/modules/auth/`. Is SAML/SCIM hookable via `AuthExtension` Protocol + `importlib.metadata` entry_points? Does the OAuth provider directory support enterprise IdPs as a drop-in? (v13.1 verified the SAML overlay dual-registers `AuthExtension` + `IdentityExtension` end-to-end.)
    - **Audit sink/export registry** — Read `backend/app/modules/audit/`. Can export targets (S3, SIEM, syslog) be added without modifying `router.py`?
    - **Branding/theme provider** — Read `backend/app/modules/settings/` and `frontend/src/**/theme*`. Is the "Powered by GeoLens" toggle implementable via the seam?
-   - **Policy/permission hooks** — Read `backend/app/modules/auth/permissions.py` and `backend/app/modules/catalog/authorization.py` (relocated from `auth/visibility.py` in v13.1 Phase 213). Are permission checks hookable for field-level/dataset-level RBAC?
-   - **Workflow / approval hooks** — Is there any state-machine pattern that could support draft → review → publish without core changes?
+   - **Policy/permission hooks (v13.5 `PermissionExtension`)** — Read `backend/app/platform/extensions/protocols.py`, `backend/app/platform/extensions/defaults.py`, `backend/app/modules/auth/dependencies.py`, and `backend/app/modules/catalog/authorization.py` (relocated from `auth/visibility.py` in v13.1 Phase 213). Are permission checks, catalog visibility filters, and dataset access checks routed through `get_permission_extension()` so field-level/dataset-level RBAC can overlay without core edits?
+   - **Workflow / approval hooks (v13.5 `WorkflowExtension`)** — Read `WorkflowExtension`, `WorkflowTransitionContext`, and catalog status-transition call sites. Does the default preserve draft → ready → internal → published while letting Enterprise add approval states, transition blockers, or transition observers without changing catalog routes?
    - **AI provider registry** — Where are AI calls dispatched from? Is there a provider abstraction allowing enterprise-only model routing / policy enforcement?
    - **Persistent connector registry** — Is there an extension point for adding stored-credential connectors with scheduled sync (S3, WFS, ArcGIS, PostGIS) without modifying the core ingestion path?
    - **Tenant scoping hooks** — Reserved for the **future Cloud (multi-tenant SaaS) overlay**, not Enterprise. If/when Cloud lands (Phase 999.6), are data-access paths factored so a tenant filter can be injected via the seam (rather than hardcoded scoping in queries)? Today this is a forward-looking readiness check, not an Enterprise gap.
@@ -230,7 +245,7 @@ Run these 6 subagents in parallel. Each produces a standalone findings section.
    - **🟡 Adaptable** — Would need 1–2 days of refactoring to introduce or extend the seam.
    - **🔴 Monolithic** — Tightly coupled; would need significant refactoring.
 
-**Output:** Table of 8 seams with readiness rating, current architecture description (1–2 sentences citing files), and effort estimate.
+**Output:** Table of 9 seams with readiness rating, current architecture description (1–2 sentences citing files), and effort estimate. `PermissionExtension` and `WorkflowExtension` are close-gate seams: if either exists but is not wired to real call sites, Seam Quality cannot score above C.
 
 ---
 
@@ -373,7 +388,7 @@ for k, v in counts.most_common():
    - **CLI exists?** (Y/N + path) — if N, flag P0 for open-core launch.
    - **SDK exists?** (Y/N + path + language[s]) — if N, flag P1.
    - **Schema/validator package extractable?** — Are dataset/metadata schemas in a directory that could be packaged separately?
-   - **License file present + correct?** Apache 2.0 / MIT recommended for developer surface; proprietary expected for enterprise modules.
+   - **License file present + correct?** Apache-2.0 / MIT recommended for developer surface; proprietary expected for enterprise modules.
    - **Copyleft contamination?** Any GPL/AGPL imports in code intended to be permissively licensed?
    - **Catalog manifest?** Does any declarative-config pattern exist that could become the ecosystem artifact?
 
@@ -395,6 +410,13 @@ Assign a letter grade (A–F) to each dimension:
 | **Deployment Separation** | Can community and enterprise ship as distinct packages? |
 | **Coupling Health** | Are enterprise-relevant domains loosely coupled enough to overlay? |
 | **OSS Surface Readiness** | Is the developer-facing open-source surface (CLI, SDK, schemas, license) credible? |
+
+### Close Gates
+
+Apply these before computing the overall score:
+- **Boundary Integrity close gate:** If Community blocks basic share/revoke/embed, gates OGC/STAC/DCAT, ships active multi-tenant Enterprise behavior, or accepts Enterprise-only advanced sharing inputs without the overlay, Boundary Integrity cannot score above D.
+- **Seam Quality close gate:** If permission policy bypasses `PermissionExtension`, catalog visibility/dataset access bypasses `PermissionExtension`, or publication workflow transitions bypass `WorkflowExtension`, Seam Quality cannot score above C; if an overlay would require editing Community route/service files, it cannot score above D.
+- **Inventory Accuracy close gate:** If the audit relies on stale `docs/GTM` sources instead of `docs-internal/GTM`, or GTM docs claim paid/free features that contradict the code-level gates, Inventory Accuracy cannot score above C.
 
 Compute an **overall readiness score** as the unweighted average of these grades (A=4, B=3, C=2, D=1, F=0).
 
@@ -489,6 +511,7 @@ Avoid false positives. Do NOT flag:
 - **`backend/app/platform/extensions/` Protocol files** — these ARE the seams; their existence is a positive signal, not a violation.
 - **`docker-compose.enterprise.yml` referencing enterprise services** — that's its job. Flag only if the *base* compose file has enterprise references.
 - **API keys / token management infrastructure in Community** — basic per-user keys are free. Flag only if quotas, usage tracking, or admin token management are absent in expected enterprise tiers (gap, not violation).
+- **Basic sharing in Community** — basic share-link create/revoke, public/internal/private visibility, and default unrestricted embed tokens are free. Flag only custom share expiration, custom embed lifetimes, non-empty allowed-origin/domain restrictions, quotas, or org-level embed administration if they are available in Community without the Enterprise overlay.
 - **WFS / ArcGIS / S3 import code paths in community** — one-shot user-driven import is free regardless of source. Flag only if the code stores credentials for *scheduled re-sync* (that's enterprise).
 - **Pitfall 11 SAML scaffolding in core (v13.1 documented carve-out)** — the v13.1 milestone close audit explicitly accepted SAML-related scaffolding in 5 core files as a HIGH-severity column-not-found mitigation:
   - `backend/app/modules/auth/oauth/models.py` — `saml_*` columns declared with `deferred=True`

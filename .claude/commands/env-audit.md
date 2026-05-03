@@ -47,17 +47,19 @@ find . -name "config.py" -o -name "settings.py" -o -name "env.py" \
   2>/dev/null | grep -v "__pycache__\|.git\|node_modules" | sort
 
 # Alembic
-find . -name "alembic.ini" -o -name "env.py" -path "*/alembic/*" \
+find backend \( -name "alembic.ini" -o -path "backend/alembic/env.py" \) \
   2>/dev/null | sort
 
-# Vite / frontend
+# Vite / frontend runtime config
 find . -name "vite.config.*" -not -path "*/node_modules/*" | sort
 find . -name ".env*" -path "*/frontend/*" -o \
-       -name ".env*" -path "*/src/*" 2>/dev/null | sort
+       -name ".env*" -path "*/frontend/src/*" 2>/dev/null | sort
+find frontend/public -name "env-config*.js" 2>/dev/null | sort
 
 # CI
 find . -name "*.yml" -path "*/.github/workflows/*" 2>/dev/null | sort
-find . -name ".env.ci" -o -name "*.env.test" 2>/dev/null | sort
+find . \( -name ".env.ci" -o -name "*.env.test" -o -name ".env.test.example" \) \
+  2>/dev/null | sort
 ```
 
 **Read every file found in full.**
@@ -134,12 +136,13 @@ EOF
 **Immediate blockers — check first:**
 ```bash
 # Real secrets committed to git (tracked .env files)
-git ls-files | grep -E "^\.env$|^\.env\.[^e]"
+git ls-files | grep -E "^\.env($|\.)" | \
+  grep -vE "^\.env\.(example|sample|demo|test\.example)$"
 
 # High-entropy strings in tracked files (likely real secrets)
 git ls-files | xargs grep -lE \
   "(?:password|secret|key|token)\s*=\s*['\"]?[A-Za-z0-9+/]{20,}" \
-  2>/dev/null | grep -v ".example\|.sample\|test\|spec\|fake"
+  2>/dev/null | grep -v ".example\|.sample\|.demo\|test\|spec\|fake"
 
 # .env in .gitignore
 grep -q "^\.env$\|^\.env$" .gitignore 2>/dev/null || \
@@ -183,11 +186,13 @@ eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}|\
 
 **Tracked env files:**
 ```bash
-# .env files that are tracked by git (should only be .env.example)
-git ls-files | grep -E "\.env" | grep -v "\.example$\|\.sample$"
+# .env files that are tracked by git (allow only documented templates/overlays)
+git ls-files | grep -E "\.env" | \
+  grep -vE "\.env\.(example|sample|demo|test\.example)$"
 ```
 
-Any tracked `.env` file that is not `.env.example` = [SECRET-COMMITTED] CRITICAL.
+Any tracked `.env` file outside `.env.example`, `.env.sample`,
+`.env.demo`, or `.env.test.example` = [SECRET-COMMITTED] CRITICAL.
 
 **Real values in `.env.example`:**
 ```bash
@@ -255,14 +260,14 @@ EOF
 ```bash
 # Python — printing or logging env vars at startup
 grep -rn "print.*os\.environ\|logger.*os\.environ\|logging.*getenv\|\
-print.*settings\.\|logger.*settings\." api/ --include="*.py" | \
+print.*settings\.\|logger.*settings\." backend/app/ --include="*.py" | \
   grep -iE "password|secret|key|token|dsn|url" | grep -v "#"
 ```
 
 **FastAPI settings exposure via `/debug` or exception detail:**
 ```bash
 # Settings object returned directly in responses or exceptions
-grep -rn "settings\b" api/ --include="*.py" | \
+grep -rn "settings\b" backend/app/ --include="*.py" | \
   grep -E "return settings|raise.*settings|JSONResponse.*settings" | \
   grep -v "#\|test"
 ```
@@ -271,7 +276,7 @@ grep -rn "settings\b" api/ --include="*.py" | \
 ```bash
 # Full DSN with embedded credentials anywhere in non-.env files
 grep -rn "postgresql://[^:]*:[^@]*@\|postgres://[^:]*:[^@]*@" \
-  api/ --include="*.py" alembic/ --include="*.py" | \
+  backend/app/ --include="*.py" backend/alembic/ --include="*.py" | \
   grep -v "os\.environ\|getenv\|settings\.\|#\|example"
 ```
 
@@ -327,14 +332,13 @@ Every variable in `.env.example` must have a comment line above it explaining:
 3. Format/constraints if non-obvious
 ```bash
 # WRONG — no documentation
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/mydb
+POSTGRES_PASSWORD=geolens
 
 # CORRECT — documented
-# PostgreSQL connection string for the async SQLAlchemy engine.
-# Format: postgresql+asyncpg://USER:PASSWORD@HOST:PORT/DATABASE
-# For PostGIS support, the database must have the postgis extension installed.
-# Local dev: postgresql+asyncpg://postgres:postgres@localhost:5432/myapp
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/myapp
+# [CHANGE IN PRODUCTION] PostgreSQL password
+# Type: string | Default: geolens (local dev)
+# Generate with: openssl rand -base64 24
+POSTGRES_PASSWORD=geolens
 ```
 
 Flag any undocumented variable = [ENV-UNDOCUMENTED].
@@ -343,7 +347,7 @@ Flag any undocumented variable = [ENV-UNDOCUMENTED].
 ```bash
 # Backend — Python
 grep -rh "os\.environ\.get\|os\.getenv\|settings\." \
-  api/ --include="*.py" | \
+  backend/app/ --include="*.py" | \
   grep -oE "(?:get|getenv)\(['\"]([A-Z_][A-Z0-9_]*)['\"]" | \
   grep -oE "[A-Z_][A-Z0-9_]+" | sort -u
 
@@ -352,11 +356,11 @@ grep -hroE "\$\{([A-Z_][A-Z0-9_]*)[^}]*\}" docker-compose*.yml 2>/dev/null | \
   grep -oE "[A-Z_][A-Z0-9_]+" | sort -u
 
 # Alembic
-grep -rh "os\.environ\|os\.getenv" alembic/ --include="*.py" | \
+grep -rh "os\.environ\|os\.getenv" backend/alembic/ --include="*.py" | \
   grep -oE "['\"]([A-Z_][A-Z0-9_]*)['\"]" | tr -d "'" | tr -d '"' | sort -u
 
 # Frontend
-grep -rh "import\.meta\.env\." src/ --include="*.ts" --include="*.tsx" \
+grep -rh "import\.meta\.env\." frontend/src/ --include="*.ts" --include="*.tsx" \
   --include="*.js" 2>/dev/null | \
   grep -oE "import\.meta\.env\.(VITE_[A-Z_][A-Z0-9_]*)" | \
   sed 's/import\.meta\.env\.//' | sort -u
@@ -373,12 +377,12 @@ Cross-reference every found variable against `.env.example`:
 **Required vs optional classification:**
 ```bash
 # Variables with no default (required at runtime)
-grep -rn "os\.environ\['\|os\.environ\[\"" api/ --include="*.py" | \
+grep -rn "os\.environ\['\|os\.environ\[\"" backend/app/ --include="*.py" | \
   grep -v "os\.environ\.get"
 
 # Pydantic fields with no default and no Optional
 grep -rn "class Settings\|class Config\|BaseSettings" \
-  api/ --include="*.py" -A 40 | \
+  backend/app/ --include="*.py" -A 40 | \
   grep -E "^\s+[A-Z_]+:\s+\w+$" | grep -v "Optional\|None\| = "
 ```
 
@@ -420,57 +424,56 @@ EOF
 
 The correct grouping order for your stack:
 ```bash
-# ─── Application ─────────────────────────────────────────────────────────
-ENVIRONMENT=development          # development | staging | production
-DEBUG=false                      # Never true in production
-SECRET_KEY=                      # Min 32 chars. Generate: openssl rand -hex 32
-ALLOWED_HOSTS=localhost,127.0.0.1
+# --- Database ---
+POSTGRES_DB=geolens
+POSTGRES_USER=geolens
+POSTGRES_PASSWORD=geolens        # Change in production
 
-# ─── Database ─────────────────────────────────────────────────────────────
-# Full async DSN for SQLAlchemy + PostGIS. Driver: asyncpg
-# Format: postgresql+asyncpg://USER:PASSWORD@HOST:PORT/DATABASE
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/myapp
+# docker-compose.yml supplies POSTGRES_HOST=db and POSTGRES_PORT=5432.
+# Host-side tests use .env.test.example instead.
 
-# Sync DSN for Alembic migrations (uses psycopg2/psycopg, not asyncpg)
-# Format: postgresql+psycopg://USER:PASSWORD@HOST:PORT/DATABASE
-DATABASE_SYNC_URL=postgresql+psycopg://postgres:postgres@localhost:5432/myapp
+# --- Authentication ---
+JWT_SECRET_KEY=dev-only-change-me-in-production  # Change in production
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=admin                     # Change in production
 
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres       # Change in production
-POSTGRES_DB=myapp
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
+# --- Public URLs ---
+PUBLIC_APP_URL=http://localhost:8080
+PUBLIC_API_URL=http://localhost:8080/api
+
+# --- Optional external database override ---
+# DATABASE_URL_OVERRIDE=
+# DATABASE_SSL_MODE=
 
 # ─── Auth / JWT ───────────────────────────────────────────────────────────
-JWT_SECRET_KEY=                  # Min 32 chars. Different from SECRET_KEY
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# ─── pgvector ─────────────────────────────────────────────────────────────
-# Model used to generate embeddings. Determines vector dimensions.
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536
-# API key for the embedding service
+# --- LLM Inference ---
+ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
+LLM_MODEL=claude-sonnet-4-20250514
+OPENAI_MODEL=gpt-4o
+OPENAI_BASE_URL=
 
-# ─── PostGIS / Geo ────────────────────────────────────────────────────────
-# Default SRID for geometry storage (4326 = WGS84 lat/lng)
-DEFAULT_SRID=4326
-# Maximum search radius in meters for ST_DWithin queries
-MAX_SEARCH_RADIUS_METERS=50000
+# --- Semantic Search & Embeddings ---
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMS=1536
+EMBEDDING_BASE_URL=
 
-# ─── Frontend (VITE_ prefix required for Vite to expose to browser) ──────
-VITE_API_URL=http://localhost:8000
-VITE_APP_NAME=MyApp
+# --- Upload / Storage ---
+UPLOAD_MAX_SIZE_MB=500
+UPLOAD_STAGING_DIR=/app/staging
+UPLOAD_ALLOWED_EXTENSIONS=.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls
+STORAGE_PROVIDER=local
+S3_ENDPOINT=
+S3_BUCKET=
 
-# ─── CORS ─────────────────────────────────────────────────────────────────
-# Comma-separated list of allowed origins
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-
-# ─── Observability ────────────────────────────────────────────────────────
-LOG_LEVEL=INFO                   # DEBUG | INFO | WARNING | ERROR
-SENTRY_DSN=                      # Leave blank to disable Sentry
+# --- CORS / Logging ---
+CORS_ALLOWED_ORIGINS=
+LOG_JSON=false
+LOG_LEVEL=INFO
 ```
 
 Output: findings labeled [ENV-UNDOCUMENTED], [ENV-MISSING-FROM-EXAMPLE],
@@ -486,17 +489,17 @@ correctly typed, validated, and safe**
 **Locate and read the Settings class:**
 ```bash
 grep -rn "BaseSettings\|SettingsConfigDict\|model_config.*env" \
-  api/ --include="*.py" -l
+  backend/app/ --include="*.py" -l
 
 # Read the settings file
-find api/ -name "config.py" -o -name "settings.py" 2>/dev/null | \
+find backend/app/ -name "config.py" -o -name "settings.py" 2>/dev/null | \
   xargs cat 2>/dev/null | head -150
 ```
 
 **Pydantic v2 Settings patterns — check for v1 usage:**
 ```bash
 grep -rn "class Config:\|env_file\s*=\s*['\"]|case_sensitive\s*=\|\
-env_prefix\s*=" api/ --include="*.py" | grep -v "SettingsConfigDict"
+env_prefix\s*=" backend/app/ --include="*.py" | grep -v "SettingsConfigDict"
 ```
 
 v1 Settings patterns to migrate to v2:
@@ -529,7 +532,7 @@ Flag v1-style `class Config:` inside Settings = [SETTINGS-V1-CONFIG].
 **Field type correctness:**
 ```bash
 # Read settings fields and check types
-grep -rn "BaseSettings" api/ --include="*.py" -A 60 | \
+grep -rn "BaseSettings" backend/app/ --include="*.py" -A 60 | \
   grep -E "^\s+[a-z_]+\s*:\s*" | head -40
 ```
 
@@ -569,7 +572,7 @@ For every field matching these patterns, flag:
 **Validator coverage for critical fields:**
 ```bash
 grep -rn "@field_validator\|@model_validator\|@validator" \
-  api/ --include="*.py" -A 5 | head -40
+  backend/app/ --include="*.py" -A 5 | head -40
 ```
 
 Fields that should have validators but may not:
@@ -578,30 +581,21 @@ from pydantic import field_validator, SecretStr
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    secret_key: SecretStr
+    postgres_password: SecretStr
     jwt_secret_key: SecretStr
-    database_url: PostgresDsn
-    database_sync_url: PostgresDsn
-    environment: str = "development"
-    cors_origins: str = "http://localhost:5173"
-    default_srid: int = 4326
-    max_search_radius_meters: float = 50000.0
-    embedding_dimensions: int = 1536
+    geolens_admin_password: SecretStr
+    cors_allowed_origins: str = ""
+    upload_max_size_mb: int = 500
+    embedding_dims: int = 1536
     log_level: str = "INFO"
+    database_url_override: str | None = None
+    database_ssl_mode: str = "prefer"
 
-    @field_validator("secret_key", "jwt_secret_key", mode="before")
+    @field_validator("jwt_secret_key", mode="after")
     @classmethod
-    def validate_secret_length(cls, v: str) -> str:
-        if len(v) < 32:
-            raise ValueError("Secret must be at least 32 characters")
-        return v
-
-    @field_validator("environment")
-    @classmethod
-    def validate_environment(cls, v: str) -> str:
-        allowed = {"development", "staging", "production", "test"}
-        if v not in allowed:
-            raise ValueError(f"environment must be one of {allowed}")
+    def validate_jwt_secret_length(cls, v: SecretStr) -> SecretStr:
+        if len(v.get_secret_value()) < 32:
+            raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
         return v
 
     @field_validator("log_level")
@@ -612,44 +606,26 @@ class Settings(BaseSettings):
             raise ValueError(f"log_level must be one of {allowed}")
         return v.upper()
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: str) -> list[str]:
-        # Accept both comma-separated string and list
-        if isinstance(v, str):
-            return [o.strip() for o in v.split(",") if o.strip()]
-        return v
-
-    @field_validator("default_srid")
-    @classmethod
-    def validate_srid(cls, v: int) -> int:
-        common_srids = {4326, 3857, 3395, 4269}
-        if v not in common_srids:
-            raise ValueError(f"Unusual SRID {v} — verify this is intentional")
-        return v
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
     @model_validator(mode="after")
-    def validate_database_urls_consistent(self) -> "Settings":
-        # async and sync DSNs should point to the same database
-        async_host = str(self.database_url).split("@")[-1]
-        sync_host = str(self.database_sync_url).split("@")[-1]
-        if async_host != sync_host:
-            raise ValueError(
-                "DATABASE_URL and DATABASE_SYNC_URL point to different hosts"
-            )
+    def validate_provider_settings(self) -> "Settings":
+        # S3 and external DB SSL settings must fail fast when incomplete.
         return self
 ```
 
-Flag missing validator for `secret_key` length = [SETTINGS-NO-SECRET-VALIDATOR].
-Flag missing `CORS_ORIGINS` parser for comma-separated string =
+Flag missing validator for `jwt_secret_key` length = [SETTINGS-NO-SECRET-VALIDATOR].
+Flag missing `CORS_ALLOWED_ORIGINS` parser for comma-separated string =
 [SETTINGS-CORS-NOT-PARSED].
-Flag missing `DATABASE_URL` / `DATABASE_SYNC_URL` consistency check =
-[SETTINGS-DUAL-DSN-UNCHECKED].
+Flag unsafe `DATABASE_URL_OVERRIDE` async/sync driver conversion =
+[SETTINGS-DSN-CONVERSION-UNSAFE].
 
 **Settings instantiation pattern:**
 ```bash
 grep -rn "Settings()\|get_settings\|lru_cache\|@cache" \
-  api/ --include="*.py" | grep -v "#\|test" | head -20
+  backend/app/ --include="*.py" | grep -v "#\|test" | head -20
 ```
 
 Settings should be instantiated once via a cached function, not on every
@@ -682,7 +658,8 @@ Flag `Settings()` called outside a cached function = [SETTINGS-NO-CACHE].
 ```bash
 # Direct import of settings instance in route files
 grep -rn "from.*settings import settings\|from.*config import settings" \
-  api/routes/ api/routers/ --include="*.py" | grep -v "#"
+  backend/app/api/ backend/app/modules/ backend/app/processing/ \
+  backend/app/platform/ backend/app/standards/ --include="*.py" | grep -v "#"
 ```
 
 Route files importing `settings` directly (not via `Depends(get_settings)`)
@@ -697,13 +674,24 @@ Output: findings labeled [SETTINGS-V1-CONFIG], [SETTINGS-SECRET-NOT-SECRETSTR],
 ---
 
 ### Subagent D — Frontend / Vite environment audit
-**Goal: Vite env vars are correctly prefixed, documented, typed,
-and no backend secrets are exposed to the browser**
+**Goal: Vite env vars and runtime browser env vars are documented, typed,
+correctly scoped, and no backend secrets are exposed to the browser**
+
+GeoLens uses two frontend config surfaces:
+- Build-time Vite vars: `import.meta.env.VITE_*`
+- Runtime browser vars: `window.__ENV__` generated from
+  `frontend/public/env-config.template.js` by `frontend/docker-entrypoint.sh`
+
+`API_BASE_URL` and `TILE_BASE_URL` are intentional runtime browser vars. The
+default API base is same-origin `/api` through the frontend/reverse proxy. Do
+not flag them for missing a `VITE_` prefix, and do not recommend
+the direct FastAPI backend origin for browser code unless the finding is
+specifically about CORS testing.
 
 **Inventory all Vite env vars:**
 ```bash
 # Variables referenced in source
-grep -rh "import\.meta\.env\." src/ --include="*.ts" --include="*.tsx" \
+grep -rh "import\.meta\.env\." frontend/src/ --include="*.ts" --include="*.tsx" \
   --include="*.js" --include="*.jsx" 2>/dev/null | \
   grep -oE "import\.meta\.env\.(VITE_[A-Z_][A-Z0-9_]*|MODE|DEV|PROD|SSR|BASE_URL)" | \
   sed 's/import\.meta\.env\.//' | sort -u
@@ -714,13 +702,17 @@ find . -name ".env*" -path "*/frontend/*" -not -name "*.example" \
 
 # Variables in root .env.example with VITE_ prefix
 grep "^VITE_" .env.example 2>/dev/null
+
+# Runtime browser env vars injected into window.__ENV__
+grep -rh "window\.__ENV__\|API_BASE_URL\|TILE_BASE_URL" \
+  frontend/src frontend/public frontend/docker-entrypoint.sh 2>/dev/null | sort -u
 ```
 
-**Prefix enforcement:**
+**Build-time prefix enforcement:**
 ```bash
 # Any env var referenced in frontend code WITHOUT VITE_ prefix
 # (these will be undefined at runtime — Vite does not expose them)
-grep -rh "import\.meta\.env\." src/ --include="*.ts" --include="*.tsx" \
+grep -rh "import\.meta\.env\." frontend/src/ --include="*.ts" --include="*.tsx" \
   2>/dev/null | grep -oE "import\.meta\.env\.[A-Z_]+" | \
   grep -v "VITE_\|MODE\|DEV\|PROD\|SSR\|BASE_URL"
 ```
@@ -730,18 +722,19 @@ Any `import.meta.env.SOMETHING` without `VITE_` prefix = [FRONTEND-MISSING-PREFI
 variables prefixed with `VITE_` (plus the built-ins: `MODE`, `DEV`, `PROD`).
 ```typescript
 // WRONG — will always be undefined in browser
-const apiUrl = import.meta.env.API_URL
+const value = import.meta.env.APP_NAME
 
-// CORRECT — exposed by Vite to the browser bundle
-const apiUrl = import.meta.env.VITE_API_URL
+// CORRECT for build-time Vite config
+const value = import.meta.env.VITE_EXAMPLE_FLAG
 ```
 
 **Backend secrets leaking to frontend:**
 ```bash
 # Vars in .env that should NEVER have a VITE_ equivalent
 BACKEND_ONLY=(
-  "DATABASE_URL" "DATABASE_SYNC_URL" "POSTGRES_PASSWORD" "POSTGRES_USER"
-  "SECRET_KEY" "JWT_SECRET_KEY" "OPENAI_API_KEY" "SENTRY_DSN"
+  "DATABASE_URL_OVERRIDE" "POSTGRES_PASSWORD" "POSTGRES_USER"
+  "JWT_SECRET_KEY" "GEOLENS_ADMIN_PASSWORD" "OPENAI_API_KEY"
+  "ANTHROPIC_API_KEY" "S3_SECRET_ACCESS_KEY" "TILE_SIGNING_SECRET"
 )
 for var in "${BACKEND_ONLY[@]}"; do
   if grep -q "^VITE_${var}\|^VITE_.*${var}" .env.example 2>/dev/null; then
@@ -754,73 +747,50 @@ Any `VITE_` version of a backend secret = [FRONTEND-SECRET-EXPOSED] CRITICAL.
 These values are baked into the JavaScript bundle and visible to anyone who
 opens DevTools.
 
-**TypeScript types for Vite env vars:**
+**TypeScript types for frontend runtime env vars:**
 ```bash
-# Check for vite-env.d.ts or env.d.ts with ImportMetaEnv
-find src/ -name "*.d.ts" | xargs grep -l "ImportMetaEnv" 2>/dev/null
-find src/ -name "vite-env.d.ts" 2>/dev/null
+# GeoLens runtime config should be typed in frontend/src/lib/env.ts
+cat frontend/src/lib/env.ts 2>/dev/null
+grep -rn "interface EnvConfig\|window\.__ENV__\|API_BASE_URL\|TILE_BASE_URL" frontend/src/lib frontend/public 2>/dev/null
 ```
 
-Without a typed `ImportMetaEnv` interface, `import.meta.env.VITE_*` variables
-are typed as `string | undefined` at best, `any` at worst = [FRONTEND-ENV-UNTYPED].
+Without a typed `EnvConfig` and `Window.__ENV__`, runtime API/tile config
+is easy to mistype or bypass = [FRONTEND-ENV-UNTYPED].
 
-Generate the correct type declaration:
+Generate or preserve the correct declaration:
 ```typescript
-// src/vite-env.d.ts
-/// <reference types="vite/client" />
-
-interface ImportMetaEnv {
-  // API
-  readonly VITE_API_URL: string
-
-  // App metadata
-  readonly VITE_APP_NAME: string
-  readonly VITE_APP_VERSION: string
-
-  // Feature flags (always strings in env, parse to boolean)
-  readonly VITE_ENABLE_MAPS: string        // "true" | "false"
-  readonly VITE_ENABLE_SEARCH: string
-
-  // Map configuration (if using Mapbox/MapLibre)
-  readonly VITE_MAPBOX_TOKEN?: string      // optional — only if using Mapbox
-  readonly VITE_MAP_DEFAULT_LAT: string    // parse to float at use site
-  readonly VITE_MAP_DEFAULT_LNG: string
-  readonly VITE_MAP_DEFAULT_ZOOM: string
+// frontend/src/lib/env.ts
+export interface EnvConfig {
+  API_BASE_URL: string;
+  TILE_BASE_URL: string;
 }
 
-interface ImportMeta {
-  readonly env: ImportMetaEnv
+declare global {
+  interface Window {
+    __ENV__?: Partial<EnvConfig>;
+  }
 }
 ```
 
 **Runtime env var access pattern:**
 ```bash
-grep -rn "import\.meta\.env\." src/ --include="*.ts" --include="*.tsx" | \
+grep -rn "window\.__ENV__\|getEnvConfig\|API_BASE_URL\|TILE_BASE_URL" frontend/src/ --include="*.ts" --include="*.tsx" | \
   grep -v "\.d\.ts" | head -20
 ```
 
-Accessing env vars directly throughout the codebase makes them impossible to
-mock in tests. Centralise them:
+Accessing runtime config directly throughout the codebase makes it harder to
+mock in tests. Centralise it:
 ```typescript
-// src/config.ts — single source of truth for frontend config
-export const config = {
-  apiUrl: import.meta.env.VITE_API_URL,
-  appName: import.meta.env.VITE_APP_NAME,
-  enableMaps: import.meta.env.VITE_ENABLE_MAPS === 'true',
-  map: {
-    defaultLat: parseFloat(import.meta.env.VITE_MAP_DEFAULT_LAT ?? '40.7128'),
-    defaultLng: parseFloat(import.meta.env.VITE_MAP_DEFAULT_LNG ?? '-74.0060'),
-    defaultZoom: parseInt(import.meta.env.VITE_MAP_DEFAULT_ZOOM ?? '12', 10),
-  },
-} as const
-
-// Runtime validation — fail fast if required vars are missing
-const required: Array<keyof typeof config> = ['apiUrl']
-for (const key of required) {
-  if (!config[key]) {
-    throw new Error(`Required env var not set: ${key}`)
-  }
+// frontend/src/lib/env.ts — single source of truth for frontend runtime config
+export function getEnvConfig(): EnvConfig {
+  const env = window.__ENV__;
+  return {
+    API_BASE_URL: env?.API_BASE_URL ?? '',
+    TILE_BASE_URL: env?.TILE_BASE_URL ?? '',
+  };
 }
+
+// Consumers should default API_BASE_URL to same-origin /api.
 ```
 
 `import.meta.env` accessed in more than 3 files outside a config module =
@@ -881,7 +851,7 @@ layers['compose'] = compose_vars
 
 # Python / settings
 python_vars = set()
-for f in glob.glob('api/**/*.py', recursive=True):
+for f in glob.glob('backend/app/**/*.py', recursive=True):
     try:
         text = open(f).read()
         python_vars.update(re.findall(
@@ -891,7 +861,7 @@ layers['python'] = python_vars
 
 # Alembic
 alembic_vars = set()
-for f in glob.glob('alembic/**/*.py', recursive=True):
+for f in glob.glob('backend/alembic/**/*.py', recursive=True):
     try:
         text = open(f).read()
         alembic_vars.update(re.findall(
@@ -932,64 +902,49 @@ for var in sorted(all_vars):
 EOF
 ```
 
-**Alembic DSN audit — the dual-DSN requirement:**
+**Alembic DSN audit — centralized settings and driver conversion:**
 
-This is the most common env var misconfiguration in async FastAPI + Alembic
-stacks. SQLAlchemy async requires `asyncpg` driver; Alembic migrations require
-a sync driver.
+GeoLens Alembic runs through `backend/alembic/env.py` with SQLAlchemy's async
+engine and the app `settings.database_url`. Sync DSNs are still exposed by
+`settings.database_url_sync` for tools that need psycopg, but Alembic should not
+hard-code a second environment variable.
 ```bash
-grep -rn "sqlalchemy.url\|DATABASE_URL\|ALEMBIC_DATABASE_URL\|DATABASE_SYNC" \
-  alembic/env.py alembic.ini 2>/dev/null
+grep -rn "async_engine_from_config\|settings.database_url\|database_url_sync\|DATABASE_URL_OVERRIDE\|sqlalchemy.url" \
+  backend/alembic/env.py backend/alembic.ini backend/app/core/config.py 2>/dev/null
 ```
 
-Alembic `env.py` must use a *sync* DSN, not the async one:
+Alembic `env.py` must keep URL construction centralized:
 ```python
-# WRONG — asyncpg is async-only, Alembic uses sync execution
-config.set_main_option("sqlalchemy.url",
-    os.environ.get("DATABASE_URL"))
-# If DATABASE_URL = "postgresql+asyncpg://..." this will fail
+# WRONG — bypasses Settings and external DB SSL/pooler handling
+url = os.environ["DATABASE_URL"]
 
-# CORRECT — use a separate sync DSN or strip the +asyncpg
-import os
-from app.core.config import get_settings
-
-def get_url() -> str:
-    settings = get_settings()
-    # Convert async URL to sync for Alembic
-    url = str(settings.database_url)
-    return url.replace("postgresql+asyncpg://", "postgresql+psycopg://")
-    # or use a dedicated ALEMBIC_DATABASE_URL env var
-
-config.set_main_option("sqlalchemy.url", get_url())
+# CORRECT — app settings owns URL construction and connect_args
+url = config.get_main_option("sqlalchemy.url") or settings.database_url
+connect_args = settings.database_connect_args
 ```
 
-`DATABASE_URL` with `postgresql+asyncpg://` used directly in Alembic =
-[DSN-ALEMBIC-ASYNC-DRIVER] HIGH — migrations will fail at runtime.
+Hard-coded external DSN env vars or duplicate DSN parsing in
+Alembic = [DSN-ALEMBIC-BYPASS-SETTINGS] HIGH.
 
 **DSN format validation for PostGIS:**
 ```bash
-# Check DSN scheme includes the correct driver
-grep -rn "DATABASE_URL\|DATABASE_SYNC_URL" .env.example | head -5
+# Check override driver handling
+grep -rn "DATABASE_URL_OVERRIDE\|database_url_sync\|database_url" backend/app/core/config.py .env.example | head -20
 python3 << 'EOF'
 import re
 
 try:
-    content = open('.env.example').read()
+    content = open('backend/app/core/config.py').read()
 
-    # Find DATABASE_URL lines
-    for line in content.splitlines():
-        if 'DATABASE_URL' in line and '=' in line and not line.startswith('#'):
-            val = line.split('=', 1)[1].strip()
-            if not val or val.startswith('postgresql+asyncpg://'):
-                print(f"OK: {line[:80]}")
-            elif val.startswith('postgresql://') or val.startswith('postgres://'):
-                print(f"WARNING: {line[:80]}")
-                print("  Missing +asyncpg driver — SQLAlchemy async requires postgresql+asyncpg://")
-            elif val.startswith('postgresql+psycopg://') or \
-                 val.startswith('postgresql+psycopg2://'):
-                print(f"WARNING: {line[:80]}")
-                print("  Sync driver in DATABASE_URL — use for ALEMBIC only, "
-                      "async app needs postgresql+asyncpg://")
+    required = [
+        'postgresql://", "postgresql+asyncpg://',
+        'postgres://", "postgresql+asyncpg://',
+        'postgresql+asyncpg://", "postgresql+psycopg://',
+        'postgres://", "postgresql+psycopg://',
+    ]
+    for needle in required:
+        if needle not in content:
+            print(f"WARNING: missing DSN conversion pattern: {needle}")
 except FileNotFoundError:
     pass
 EOF
@@ -998,21 +953,20 @@ EOF
 **pgvector DSN requirements:**
 ```bash
 # Check for JIT disable setting in DSN or engine config
-grep -rn "jit\|server_settings" api/ --include="*.py" | grep -v "#" | head -10
+grep -rn "jit\|server_settings" backend/app/ --include="*.py" | grep -v "#" | head -10
 ```
 
 pgvector works best with JIT disabled. This can be done via the DSN or
 engine `server_settings`:
 ```bash
 # In .env.example, document this as an option
-# DATABASE_URL with JIT disabled for pgvector:
-# postgresql+asyncpg://user:pass@host:5432/db?prepared_statement_cache_size=0
-# Or set via create_async_engine connect_args:
-# {"server_settings": {"jit": "off"}}
+# If external poolers are used, statement cache must be disabled.
+DB_USE_EXTERNAL_POOLER=true
+# This should set asyncpg connect_args["statement_cache_size"] = 0.
 ```
 
-If pgvector is in `requirements.txt` but no `jit=off` anywhere = flag as
-[DSN-PGVECTOR-JIT-ENABLED] LOW.
+If `DB_USE_EXTERNAL_POOLER=true` is documented but the async engine does not
+disable the statement cache = flag as [DSN-POOLER-STATEMENT-CACHE] MEDIUM.
 
 **CI secrets vs `.env.example` alignment:**
 ```bash
@@ -1071,7 +1025,7 @@ except FileNotFoundError:
 EOF
 ```
 
-Output: findings labeled [DSN-ALEMBIC-ASYNC-DRIVER], [DSN-PGVECTOR-JIT-ENABLED],
+Output: findings labeled [DSN-ALEMBIC-BYPASS-SETTINGS], [DSN-POOLER-STATEMENT-CACHE],
 [DSN-WRONG-SCHEME], [CI-SECRET-UNDOCUMENTED], [CI-REQUIRED-VAR-MISSING],
 [ENV-NAMING-INCONSISTENT], [ENV-CROSS-LAYER-DRIFT].
 
@@ -1101,7 +1055,7 @@ Stack: FastAPI · React/Vite · Docker · Postgres · PostGIS · pgvector · Ale
 Blocking conditions:
 - [ ] Real secret committed to git (.env tracked, secret in git history)
 - [ ] Backend secret exposed as VITE_ variable (in browser bundle)
-- [ ] DATABASE_URL with +asyncpg driver used in Alembic (migrations will fail)
+- [ ] Alembic bypasses `settings.database_url` / `settings.database_connect_args`
 - [ ] Settings model using plain str for secret fields (not SecretStr)
 - [ ] Required variable (no default) missing from .env.example
 - [ ] .env not in .gitignore
@@ -1111,7 +1065,7 @@ Blocking conditions:
 | ID  | Subagent | Label | Severity | File:line | Impact |
 |-----|---------|-------|----------|-----------|--------|
 | E01 | A | [SECRET-COMMITTED] | 🔴 CRITICAL | .env:1 | Secret in repo |
-| E02 | C | [DSN-ALEMBIC-ASYNC-DRIVER] | 🔴 HIGH | alembic/env.py:12 | Migrations crash |
+| E02 | C | [DSN-ALEMBIC-BYPASS-SETTINGS] | 🔴 HIGH | backend/alembic/env.py:12 | External DB config ignored |
 | E03 | D | [FRONTEND-SECRET-EXPOSED] | 🔴 CRITICAL | .env.example:8 | Secret in bundle |
 | ... | | | | | |
 
@@ -1129,8 +1083,9 @@ Blocking conditions:
 
 | Variable | compose | python | alembic | vite | ci | .env.example | Required | Type |
 |---------|---------|--------|---------|------|-----|-------------|---------|------|
-| DATABASE_URL | Y | Y | — | — | Y | Y | Yes | PostgresDsn |
-| VITE_API_URL | — | — | — | Y | Y | Y | Yes | str |
+| POSTGRES_DB | Y | Y | settings | — | Y | Y | Yes | str |
+| DATABASE_URL_OVERRIDE | Y | Y | settings | — | Y | Y | Optional | PostgresDsn |
+| API_BASE_URL | — | — | — | runtime | Y | Y | Yes | str |
 | ... | | | | | | | | |
 ```
 
@@ -1145,10 +1100,10 @@ Blocking conditions:
 - Placeholder values (never real values)
 - Required/optional markers
 
-**2. Generate `src/vite-env.d.ts`** with typed `ImportMetaEnv` for all
-`VITE_` variables found.
+**2. Preserve `frontend/src/lib/env.ts`** with typed `EnvConfig` / `Window.__ENV__`
+for runtime browser variables.
 
-**3. Generate `src/config.ts`** centralising all `import.meta.env.*` access.
+**3. Keep frontend runtime config access centralised through `getEnvConfig()`.**
 
 **4. Output corrected Pydantic Settings class** with:
 - `SecretStr` for all secret fields
@@ -1156,7 +1111,7 @@ Blocking conditions:
 - Validators for secrets length, environment name, log level, CORS parsing,
   SRID, and DSN consistency
 
-**5. Output corrected `alembic/env.py`** with sync DSN conversion.
+**5. Output corrected `backend/alembic/env.py`** with sync DSN conversion.
 
 Show full diff of proposed changes and require confirmation before writing.
 
@@ -1164,7 +1119,7 @@ Show full diff of proposed changes and require confirmation before writing.
 
 ## Phase 5 — Deliver
 
-**1. Write `docs/env-audit-[date].md`** with the full report.
+**1. Write `docs-internal/audits/env-audit-{YYYYMMDD}.md`** with the full report.
 
 **2. Output the master variable reference table** as a standalone
 `docs/env-reference.md` for the team.
@@ -1180,11 +1135,11 @@ on:
     paths:
       - '.env.example'
       - 'docker-compose*.yml'
-      - 'api/core/config.py'
-      - 'api/core/settings.py'
-      - 'alembic/env.py'
-      - 'src/**/*.ts'
-      - 'src/**/*.tsx'
+      - 'backend/app/core/config.py'
+      - 'backend/app/core/settings.py'
+      - 'backend/alembic/env.py'
+      - 'frontend/src/**/*.ts'
+      - 'frontend/src/**/*.tsx'
 
 jobs:
   env-audit:
@@ -1220,18 +1175,26 @@ jobs:
           python3 << 'EOF'
           import re, sys
           content = open('.env.example').read()
-          backend_only = ['DATABASE_URL', 'SECRET_KEY', 'JWT_SECRET',
-                          'POSTGRES_PASSWORD', 'OPENAI_API_KEY', 'SENTRY_DSN']
+          backend_only = ['DATABASE_URL_OVERRIDE', 'JWT_SECRET',
+                          'GEOLENS_ADMIN_PASSWORD', 'POSTGRES_PASSWORD',
+                          'OPENAI_API_KEY',
+                          'ANTHROPIC_API_KEY', 'S3_SECRET_ACCESS_KEY',
+                          'TILE_SIGNING_SECRET']
           for var in backend_only:
               if re.search(f'^VITE_.*{var}', content, re.M):
                   print(f"ERROR: {var} exposed as VITE_ frontend variable")
                   sys.exit(1)
           EOF
 
-      - name: Check Alembic uses sync DSN
+      - name: Check Alembic uses centralized settings
         run: |
-          if grep -q "asyncpg" alembic/env.py 2>/dev/null; then
-            echo "ERROR: alembic/env.py uses asyncpg driver — must use sync driver"
+          if grep -q "os\\.environ.*DATABASE_URL\\|os\\.getenv.*DATABASE_URL\\|ALEMBIC_DATABASE_URL" backend/alembic/env.py 2>/dev/null; then
+            echo "ERROR: Alembic bypasses app Settings for database URL"
+            exit 1
+          fi
+          if ! grep -q "settings.database_url" backend/alembic/env.py 2>/dev/null || \
+             ! grep -q "settings.database_connect_args" backend/alembic/env.py 2>/dev/null; then
+            echo "ERROR: Alembic must use centralized settings.database_url and database_connect_args"
             exit 1
           fi
 
@@ -1286,14 +1249,15 @@ Write the report to: `docs-internal/audits/env-audit-{YYYYMMDD}.md`
   doc if the app reads it as a fallback
 - Vite built-ins: `MODE`, `DEV`, `PROD`, `SSR`, `BASE_URL` — no VITE_ prefix
   needed, these are Vite's own vars
+- `API_BASE_URL` and `TILE_BASE_URL` in `frontend/public/env-config*.js` —
+  runtime browser config injected via `window.__ENV__`, not Vite build-time
+  variables. `API_BASE_URL=/api` is the expected same-origin proxy default.
 - `POSTGRES_HOST_AUTH_METHOD=trust` in a test-only compose with `tmpfs` storage
-- Empty values in `.env.example` for optional integrations (e.g.
-  `SENTRY_DSN=` with comment "leave blank to disable") — intentional
-- `DATABASE_URL` vs `ALEMBIC_DATABASE_URL` both present — this is the correct
-  dual-DSN pattern, not duplication
+- Empty values in `.env.example` for optional integrations — intentional
+- `DATABASE_URL_OVERRIDE` feeding both async app connections and sync helper
+  properties — intentional if driver conversion stays centralized in settings
 - `jit=off` absence when pgvector is not being used for ANN search
-- `SECRET_KEY` and `JWT_SECRET_KEY` being different variables — they serve
-  different purposes and must not share the same value
+- Absence of `SECRET_KEY` — GeoLens uses `JWT_SECRET_KEY` for auth tokens
 - Pydantic `model_config = SettingsConfigDict(extra="ignore")` — this is
   recommended, not a problem
 - `VITE_APP_VERSION` populated from `package.json` version at build time —

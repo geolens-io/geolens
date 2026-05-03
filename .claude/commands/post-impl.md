@@ -62,10 +62,10 @@ Run the full test suite BEFORE making any changes. A green baseline is mandatory
 
 ```bash
 # Backend tests
-cd backend && python -m pytest -q --tb=short 2>&1 | tail -20
+cd backend && uv run pytest -q --tb=short 2>&1 | tail -20
 
 # Frontend tests
-cd frontend && npx vitest run 2>&1 | tail -20
+cd frontend && npm run test:coverage 2>&1 | tail -20
 ```
 
 **If any suite is red — STOP.** Report failures. Do not proceed until baseline is green. Existing failures are not part of this audit — they belong to whoever broke them.
@@ -85,6 +85,22 @@ cd frontend && npx tsc --noEmit 2>&1 | tail -20
 ```
 
 Record counts. These are the "before" numbers for the delivery report.
+
+### Step 6: Check v13.5 governance close gates
+
+Before dispatch, identify whether the scoped changes touched any product-governance boundary. These are close-gate checks, not optional cleanups.
+
+```bash
+grep -rn "get_permission_extension\|PermissionExtension\|get_workflow_extension\|WorkflowExtension" backend/app/ --include="*.py" | grep -v __pycache__
+grep -rn "ADVANCED_SHARING_ERROR\|advanced-sharing\|expires_at\|expires_in_days\|allowed_origins\|is_enterprise" backend/app/modules/catalog/maps/ backend/app/modules/embed_tokens/ frontend/src/components/builder/ frontend/src/hooks/ --include="*.py" --include="*.ts" --include="*.tsx" 2>/dev/null
+```
+
+Close gates:
+- **Boundary Integrity:** Community must preserve basic share create/revoke, public/internal/private visibility, and default unrestricted embeds, while rejecting custom share expiration, custom embed lifetimes, and non-empty domain restrictions unless Enterprise is active.
+- **Seam Quality:** Permission policy and catalog visibility must go through `PermissionExtension`; dataset publication transitions and approval-workflow hooks must go through `WorkflowExtension`.
+- **Inventory Accuracy:** User-facing docs and internal GTM docs must describe the actual boundary. Do not let stale source-of-truth paths or phantom Enterprise features pass as "documentation debt."
+
+If any close gate fails in the scoped changes, surface it as at least P1 even when the code otherwise looks clean.
 
 ---
 
@@ -320,7 +336,8 @@ Each subagent must:
    find . -name "Dockerfile*" -not -path "*/node_modules/*" | head -10
    ```
    For each Dockerfile:
-   - Does `COPY requirements.txt` / `COPY package.json` come BEFORE `COPY . .`?
+   - Does backend dependency install use `pyproject.toml`/`uv.lock` before copying source?
+   - Does frontend dependency install use `package.json`/`package-lock.json` before copying source?
    - Are dev dependencies excluded from production images?
    - Is `.dockerignore` present and comprehensive?
    - Are multi-stage builds used where appropriate?
@@ -427,8 +444,8 @@ Each subagent must:
 
 7. **Unused dependencies:**
    ```bash
-   # Backend — look for requirements.txt entries not imported
-   cat backend/requirements*.txt 2>/dev/null | grep -v "^#" | grep -v "^$" | head -40
+   # Backend — look for pyproject dependencies not imported or used by tooling
+   sed -n '/^dependencies = \\[/,/^\\]/p;/^dev = \\[/,/^\\]/p' backend/pyproject.toml 2>/dev/null
 
    # Frontend — look for package.json deps not imported
    cat frontend/package.json 2>/dev/null | grep -E '^\s+"[^@]' | head -40
@@ -773,6 +790,7 @@ Summarize total technical debt:
 - P0 + P1 count (must-fix)
 - P2 + P3 count (should-fix)
 - Estimated total effort for P0 + P1 items
+- v13.5 close-gate status for Boundary Integrity, Seam Quality, and Inventory Accuracy
 - Comparison to prior audit (if one exists in `docs-internal/audits/`)
 
 ---

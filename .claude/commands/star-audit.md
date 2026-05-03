@@ -106,7 +106,7 @@ technical repos. The proven structure:
 
 3. SHOW, DON'T TELL
    - Real code example doing something non-trivial
-   - For geolens: a PostGIS + pgvector query that would be hard without this
+   - For GeoLens: a PostGIS + pgvector query that would be hard without this
    - Output / result of that code
 
 4. FEATURES (scannable)
@@ -131,7 +131,7 @@ technical repos. The proven structure:
    - Documentation, demo, Discord/Discussions, contributing guide
 ```
 
-**Specific checks for geolens:**
+**Specific checks for GeoLens:**
 
 - Does the README mention PostGIS, pgvector, AND pg_trgm? These are searchable
   terms that attract the right audience. Developers searching for "pgvector FastAPI"
@@ -153,12 +153,12 @@ technical repos. The proven structure:
 
 **Badge audit — only include badges that communicate value:**
 ```markdown
-<!-- USEFUL — current geolens reality -->
+<!-- USEFUL — current GeoLens reality -->
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue)](...)
 [![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-blue)](...)
 [![PostGIS 3.5](https://img.shields.io/badge/PostGIS-3.5-blue)](...)
 [![pgvector](https://img.shields.io/badge/pgvector-enabled-orange)](...)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-yellow)](...)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-yellow)](...)
 [![Demo](https://img.shields.io/badge/demo-live-brightgreen)](...)
 
 <!-- NOT USEFUL (remove these) -->
@@ -167,7 +167,7 @@ technical repos. The proven structure:
 [![PRs Welcome](...)]             # every repo says this
 ```
 
-Note: permissive licenses (such as MIT or Apache 2.0) are most star-friendly. GeoLens uses Apache 2.0; verify the LICENSE file matches the README badge — do not relitigate the license choice.
+Note: permissive licenses (such as MIT or Apache-2.0) are most star-friendly. GeoLens uses Apache-2.0; verify the LICENSE file matches the README badge — do not relitigate the license choice.
 
 **Star-history badge (C6) — embed only after 200+ stars:**
 
@@ -246,7 +246,7 @@ topics and recommend the full optimal set:
 # But we can recommend the ideal set:
 ```
 
-Recommended topics for geolens (GitHub allows up to 20):
+Recommended topics for GeoLens (GitHub allows up to 20):
 ```
 geospatial, postgis, pgvector, fastapi, react, python, typescript,
 spatial-analysis, vector-search, location-intelligence, gis,
@@ -316,7 +316,7 @@ angle. Make sure all three appear in the first 200 words of the README.
 
 **Internationalisation as a quiet trust signal:**
 
-If the project ships multiple locales (geolens ships en/es/fr/de), surface this in the README features bullet (`🌍 Available in en/es/fr/de`). Non-US adopters use locale support as a maturity proxy.
+If the project ships multiple locales (GeoLens ships en/es/fr/de), surface this in the README features bullet (`🌍 Available in en/es/fr/de`). Non-US adopters use locale support as a maturity proxy.
 
 **Awesome list potential:**
 
@@ -383,7 +383,7 @@ git tag --sort=-version:refname | head -5
 
 **File-by-file trust audit:**
 
-- `LICENSE` — must exist. Permissive licenses (such as MIT or Apache 2.0) are most star-friendly. The project has chosen its license; the audit must verify LICENSE exists and matches the README badge — it must not re-litigate the choice.
+- `LICENSE` — must exist. Permissive licenses (such as MIT or Apache-2.0) are most star-friendly. The project has chosen its license; the audit must verify LICENSE exists and matches the README badge — it must not re-litigate the choice.
 - `CONTRIBUTING.md` — signals this is a real project that accepts help.
   Content: how to set up dev environment, how to submit PRs, code style.
 - `CODE_OF_CONDUCT.md` — expected by GitHub. Use the Contributor Covenant.
@@ -419,7 +419,7 @@ passes tests.
 
 **CI: verify before generating.**
 
-Geolens already has CI at `.github/workflows/ci.yml` (plus `publish.yml`, `publish-cli.yml`, `publish-sdks.yml`, `release.yml`, `verify-published.yml`). The audit must check existence first and only generate if missing:
+GeoLens already has CI at `.github/workflows/ci.yml` (plus `publish.yml`, `publish-cli.yml`, `publish-sdks.yml`, `release.yml`, `verify-published.yml`). The audit must check existence first and only generate if missing:
 
 ```bash
 if [ -f .github/workflows/ci.yml ]; then
@@ -451,11 +451,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with: {python-version: '3.13'}
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: pytest -q
+      - uses: astral-sh/setup-uv@v8.1.0
+        with: {version: '0.10.2'}
+      - run: cd backend && uv sync --locked --dev
+      - run: cd backend && uv run pytest -q
 ```
 
 **Releases and versioning:**
@@ -482,7 +484,12 @@ Check if there's a `/docs` folder, a GitHub Pages site, or a link to
 external docs. Repos with documentation get starred more — it signals
 the author cares about users, not just code.
 
-For geolens specifically, a docs site covering:
+For GeoLens launch work, verify the public docs and marketing sites directly:
+`https://docs.getgeolens.com` is the docs surface and `https://getgeolens.com`
+is the marketing surface. Internal GTM notes live under `docs-internal/GTM/`
+and must not leak into user-facing README/docs.
+
+For GeoLens specifically, a docs site covering:
 - Getting started (PostGIS + pgvector setup)
 - API reference (link to FastAPI /docs)
 - Architecture overview (why PostGIS + pgvector together)
@@ -508,7 +515,7 @@ share the project in their networks.
 
 Seed discussions with:
 - "Welcome — introduce yourself and your use case"
-- "Show and tell — what are you building with geolens?"
+- "Show and tell — what are you building with GeoLens?"
 - "Roadmap feedback — what features matter most to you?"
 - "Q&A — ask anything"
 
@@ -518,7 +525,7 @@ The label `good first issue` is indexed by GitHub's contributor discovery
 features and sites like `goodfirstissue.dev`. Every repo should have 3–5
 of these at all times. They attract contributors, who become advocates.
 
-For geolens, genuine good first issues might be:
+For GeoLens, genuine good first issues might be:
 - "Add example: nearest neighbour search with pgvector"
 - "Document the SRID coordinate convention in the README"
 - "Add a health check endpoint test"
@@ -580,12 +587,14 @@ write-ups (title + description + acceptance criteria), FUNDING.yml.
 ### Subagent E — Distribution and launch strategy
 **Goal: get the repo in front of the right developers at the right moment**
 
-**The geolens-specific angle:**
+**The GeoLens-specific angle:**
 
-The intersection of `PostGIS + pgvector + FastAPI` is genuinely novel territory
-today. Most vector search tutorials use Pinecone or Weaviate. Most PostGIS
-tutorials use Django or raw SQL. A production-grade stack combining both with
-async Python is a real gap in the ecosystem. This is the story to tell.
+GeoLens is an Apache-2.0 self-hosted spatial data catalog with OGC/STAC-native
+interoperability, PostGIS + pgvector + pg_trgm search, MapLibre visualization,
+and optional AI with BYO provider keys. The `PostGIS + pgvector + FastAPI`
+angle is a strong technical hook, but it should support the broader product
+story: self-hosted spatial catalog, standards-native discovery, and practical
+map sharing.
 
 **Hacker News — Show HN:**
 
@@ -593,18 +602,19 @@ async Python is a real gap in the ecosystem. This is the story to tell.
 
 The HN Show HN format:
 ```
-Show HN: Geolens – combine semantic search and spatial proximity in one query
+Show HN: GeoLens - self-hosted spatial data catalog with semantic + spatial search
 
-Geolens is a starter stack for location-aware apps that need both vector 
-similarity search (via pgvector) and geospatial queries (via PostGIS) — 
-served by async FastAPI with a React frontend.
+GeoLens is an Apache-2.0 self-hosted spatial data catalog for teams that need
+to find, preview, map, and share geospatial datasets without a proprietary
+portal. It ships FastAPI, React, MapLibre, PostgreSQL/PostGIS, pgvector, and
+pg_trgm in one Docker Compose stack.
 
-The interesting part: a single query can find "coffee shops with vibes 
-similar to this description, within 500m of this location" using a joined 
-pgvector cosine similarity + PostGIS ST_DWithin, indexed with HNSW + GIN.
+The interesting part: catalog search combines semantic similarity, spatial
+filters, and fuzzy text in one PostgreSQL database. It is OGC/STAC-native, so
+QGIS, ArcGIS, MapLibre, OGC API, and STAC clients can talk to the same catalog.
 
-Most vector search tools treat geography as a filter, not a first-class 
-query dimension. PostGIS does it the other way. This stack marries both.
+Optional AI chat-with-maps works with BYO keys; the core catalog, standards
+endpoints, and map builder are usable without AI.
 
 GitHub: [url]
 Demo: [url if available]
@@ -621,13 +631,15 @@ GeoLens is an open-source self-hosted spatial data catalog. `docker compose
 up` gives you a working UI in 5 minutes, preloaded with 9 themed demo maps 
 (Borders & Boundaries, One Territory Multiple Maps, Earth from Space, …).
 
-It's OGC- and STAC-native (works with QGIS/ArcGIS/MapLibre out of the box), 
-handles vector + raster + VRT mosaics in one catalog, and bundles semantic 
-+ spatial + fuzzy search (pgvector + pg_trgm + PostGIS). Optional AI 
+It's OGC- and STAC-native (works with QGIS/ArcGIS/MapLibre out of the box),
+handles vector + raster + VRT mosaics in one catalog, and bundles semantic
++ spatial + fuzzy search (pgvector + pg_trgm + PostGIS). Optional AI
 chat-with-maps with BYO key.
 
-Apache 2.0. Single-org self-host is free; single-tenant Enterprise edition 
-exists for orgs that want SAML + audit logs.
+Apache-2.0. Single-org self-host is free; single-tenant Enterprise edition
+exists for orgs that need SAML SSO, advanced sharing controls, audit export /
+compliance reporting, branding controls, SCIM, AI policy controls, token/embed
+quota administration, persistent connectors, or deployment hardening.
 
 GitHub: [url]
 Demo: [url if available]
@@ -665,10 +677,10 @@ The article should:
 
 **Twitter/X thread format:**
 ```
-1/ I've been building a location + AI search stack in public.
+1/ I've been building a self-hosted spatial data catalog in public.
 
-   Here's what I learned combining PostGIS and pgvector in the same 
-   Postgres database — a thread 🧵
+   Here's what I learned combining PostGIS, pgvector, OGC/STAC interop,
+   MapLibre, and optional BYO-key AI in one stack.
 
 2/ The problem: vector search tools treat geography as a filter.
    PostGIS treats it as a first-class query dimension.
@@ -684,14 +696,14 @@ The article should:
    → SQLAlchemy 2.0 + asyncpg
    → GeoAlchemy2 for PostGIS
    → pgvector with HNSW index
-   → React + React Query
+   → React + React Query + MapLibre
 
 5/ The non-obvious decisions:
    → jit=off on the Postgres engine (pgvector + JIT = trouble)
    → dual DSNs: asyncpg for the app, psycopg for Alembic
    → HNSW over IVFFlat (no training step, better recall on growing data)
 
-6/ Open source, MIT licensed, Docker Compose for one-command setup.
+6/ Open source, Apache-2.0 licensed, Docker Compose for one-command setup.
 
    [link to repo]
 ```
@@ -709,7 +721,7 @@ The article should:
 
 **Demo importance:**
 
-A live demo is worth 10× the README. For geolens:
+A live demo is worth 10× the README. For GeoLens:
 - Railway / Render / Fly.io — free tier deployment, one-click from README
 - A Loom video (2–3 minutes) showing the spatial + semantic search in action
 - An interactive example in the README using a real dataset (OpenStreetMap,
@@ -773,7 +785,7 @@ grep -rnE 'docs-internal/audits|post-impl-[0-9]+\.md' $USER_FACING 2>/dev/null
 
 #### F.3 Removed-component references — parameterized
 
-Maintain a `REMOVED_COMPONENTS` array per project. For geolens:
+Maintain a `REMOVED_COMPONENTS` array per project. For GeoLens:
 
 ```bash
 REMOVED_COMPONENTS=(
@@ -947,9 +959,11 @@ USER_FACING="README.md FEATURES.md docs/"
 # project. Keep this list TIGHT — broad terms like "RBAC" or "audit log" will
 # false-positive against any docs that mention permissions or logging at all.
 # If the OSS edition has its own RBAC/audit-log story, only add the truly
-# enterprise-gated capabilities here (SAML, SSO, multi-org, multi-tenant, the
-# literal phrase "enterprise edition", and named enterprise-only features).
-grep -rniE '\b(SAML|SSO|multi-org|multi-tenant|enterprise edition)\b' $USER_FACING 2>/dev/null \
+  # enterprise-gated capabilities here (SAML, SSO, the literal phrase
+  # "enterprise edition", and named enterprise-only features). Multi-org /
+  # multi-tenant belongs to deferred Cloud positioning unless the docs
+  # explicitly say "future Cloud"; do not relabel it as Enterprise.
+  grep -rniE '\b(SAML|SSO|enterprise edition)\b' $USER_FACING 2>/dev/null \
   | grep -vE '\(Enterprise\)|\[Enterprise\]|<sup>Enterprise</sup>|requires Enterprise' \
   | head -10
 
@@ -965,6 +979,7 @@ head -50 README.md | grep -niE 'upgrade now|buy now|enterprise plan|starting at 
 
 **Pass criteria:**
 - Enterprise-only features mentioned in user-facing docs are tagged (e.g. `(Enterprise)`, `<sup>Enterprise</sup>`, "requires Enterprise edition") so OSS visitors don't bounce trying things that don't exist in OSS.
+- Multi-org / multi-tenant mentions are tagged as future Cloud-only or deferred Cloud, not Enterprise, unless the product roadmap has changed.
 - No broken cross-repo references — public repo must not link to paths only present in `geolens-enterprise`.
 - Pricing/upsell tone restrained — one understated link, never a banner. Aggressive constructs = **P2 QUALITY** (community trust signal).
 
@@ -1088,7 +1103,7 @@ for f in README.md CONTRIBUTING.md .github/CONTRIBUTING.md CHANGELOG.md SECURITY
 done
 ```
 
-The CHANGELOG.md, CONTRIBUTING.md, and README.md templates below are starting points, not destinations. Real geolens already has multi-thousand-line versions of these — overwriting them would destroy real content.
+The CHANGELOG.md, CONTRIBUTING.md, and README.md templates below are starting points, not destinations. Real GeoLens already has multi-thousand-line versions of these — overwriting them would destroy real content.
 
 **1. `README.md` — complete rewrite**
 
@@ -1103,7 +1118,7 @@ Write the full README using the structure from Subagent A, incorporating:
 
 **2. `CONTRIBUTING.md`**
 ```markdown
-# Contributing to geolens
+# Contributing to GeoLens
 
 We welcome contributions! Here's how to get started.
 
@@ -1114,7 +1129,7 @@ We welcome contributions! Here's how to get started.
 1. Fork the repo
 2. Create a feature branch: `git checkout -b feat/your-feature`
 3. Make your changes with tests
-4. Run the test suite: `pytest -q && npx playwright test`
+4. Run focused checks: `cd backend && uv run pytest -q`; `cd frontend && npm run test:coverage`; `npm run e2e:smoke` when UI flows change
 5. Submit a PR using the PR template
 
 ## Areas where we'd love help
@@ -1177,7 +1192,7 @@ body:
 **4. `.github/ISSUE_TEMPLATE/feature_request.yml`**
 ```yaml
 name: Feature request
-description: Suggest an idea for geolens
+description: Suggest an idea for GeoLens
 labels: ["enhancement"]
 body:
   - type: textarea
@@ -1207,8 +1222,10 @@ body:
 
 ## Testing
 - [ ] Tests added/updated
-- [ ] `pytest -q` passes
-- [ ] TypeScript types check: `npx tsc --noEmit`
+- [ ] Backend tests pass: `cd backend && uv run pytest -q`
+- [ ] Frontend coverage passes: `cd frontend && npm run test:coverage`
+- [ ] TypeScript types check passes: `cd frontend && npx tsc --noEmit`
+- [ ] E2E smoke run when UI/auth/upload/search/viewer/builder flows changed
 
 ## Checklist
 - [ ] I've read CONTRIBUTING.md
@@ -1221,7 +1238,7 @@ body:
 ```markdown
 # Changelog
 
-All notable changes to geolens are documented here.
+All notable changes to GeoLens are documented here.
 Format: [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 versioning: [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
@@ -1234,7 +1251,7 @@ versioning: [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 - (See git history and prior milestone summaries for the actual feature set shipped through 1.0.0.)
 ```
 
-If the real CHANGELOG.md already exists and has a `[1.0.0]` (or later) entry, do NOT generate this template — diff and propose specific edits instead. **Never emit a `## [0.1.0] - [date]` stub** — that would regress version history (geolens shipped 1.0.0 on 2026-04-01).
+If the real CHANGELOG.md already exists and has a `[1.0.0]` (or later) entry, do NOT generate this template — diff and propose specific edits instead. **Never emit a `## [0.1.0] - [date]` stub** — that would regress version history (GeoLens shipped 1.0.0 on 2026-04-01).
 
 **7. `SECURITY.md`**
 ```markdown
@@ -1249,7 +1266,7 @@ If the real CHANGELOG.md already exists and has a `[1.0.0]` (or later) entry, do
 
 Please do not report security vulnerabilities through public GitHub issues.
 
-Email: [your-email] with subject "SECURITY: geolens"
+Email: [your-email] with subject "SECURITY: GeoLens"
 
 You'll receive a response within 48 hours. We'll work with you to
 understand and address the issue before public disclosure.
@@ -1334,7 +1351,7 @@ These are proven ways to hurt star growth — do not suggest them:
 
 ---
 
-## The geolens unique angle — never dilute this
+## The GeoLens Unique Angle — Never Dilute This
 
 GeoLens 1.0.0 differentiators (in priority order for a launch audience):
 
@@ -1343,7 +1360,7 @@ GeoLens 1.0.0 differentiators (in priority order for a launch audience):
 3. **Vector + raster + VRT mosaics** in one catalog — the full geo-data shape, not just one slice.
 4. **Semantic + spatial + fuzzy search** — pgvector + pg_trgm + PostGIS, indexed and queryable in a single SQL statement.
 5. **AI chat with maps** (optional, BYO key) — natural-language exploration over the catalog.
-6. **Open-core, Apache 2.0** — single-org self-host free; single-tenant Enterprise edition for orgs that want SAML + audit logs.
+6. **Open-core, Apache-2.0** — single-org self-host free; single-tenant Enterprise edition for orgs that need SAML SSO, advanced sharing controls, audit export / compliance reporting, branding controls, SCIM, AI policy controls, token/embed quota administration, persistent connectors, or deployment hardening.
 
 The pgvector × PostGIS angle is a real technical differentiator but it is **one of several**. Lead with the demo (one-command + themed maps), follow with the OGC/STAC interop, and treat the search-stack innovation as a section, not the headline.
 

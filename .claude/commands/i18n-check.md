@@ -425,9 +425,9 @@ grep -rn "language\|dct:language\|dc:language\|@language\|xml:lang" backend/app/
 grep -rn "catalog.*lang\|dataset.*lang\|distribution.*lang" backend/app/standards/dcat/ --include="*.py" 2>/dev/null | grep -v __pycache__
 ```
 
-DCAT 2.0 requires:
+DCAT 3.0 and DCAT-AP profile checks:
 - `dct:language` on Catalog (recommended)
-- `dct:language` on Dataset (recommended)
+- `dct:language` on Dataset (recommended by profiles such as DCAT-AP)
 - Values should be ISO 639-1 codes or URI references (e.g., `http://id.loc.gov/vocabulary/iso639-1/en`)
 
 #### 5b. OGC Records language support
@@ -493,12 +493,12 @@ If the AI generates metadata (descriptions, keywords) in English only, note this
 
 ```bash
 # PostgreSQL encoding
-docker compose exec -T db psql -U postgres -c "SHOW server_encoding;" 2>/dev/null
-docker compose exec -T db psql -U postgres -c "SHOW client_encoding;" 2>/dev/null
-docker compose exec -T db psql -U postgres -d geolens -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW server_encoding;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW client_encoding;" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT datname, encoding, datcollate, datctype
   FROM pg_database
-  WHERE datname = 'geolens';
+  WHERE datname = current_database();
 " 2>/dev/null
 ```
 
@@ -532,7 +532,7 @@ Naive `string.slice(0, 100)` can split a multi-byte character or an emoji in hal
 grep -rn "normalize\|NFC\|NFD\|NFKC\|NFKD\|toLowerCase\|toUpperCase\|toLocaleLowerCase\|unaccent\|diacrit" backend/app/ frontend/src/ --include="*.py" --include="*.ts" --include="*.tsx" 2>/dev/null | grep -v node_modules | grep -v __pycache__ | head -20
 
 # PostgreSQL unaccent extension (for accent-insensitive search)
-docker compose exec -T db psql -U postgres -c "SELECT * FROM pg_extension WHERE extname = 'unaccent';" 2>/dev/null
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SELECT * FROM pg_extension WHERE extname = 'unaccent';" 2>/dev/null
 ```
 
 For search across languages:
