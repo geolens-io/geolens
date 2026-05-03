@@ -38,8 +38,8 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
-from app.processing.export.service import safe_content_disposition
 from app.core.public_urls import get_public_api_url
+from app.platform.extensions import get_catalog_port
 from app.platform.storage import get_storage
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 
@@ -292,5 +292,9 @@ async def download_cog(
     return StreamingResponse(
         io.BytesIO(data),
         media_type="image/tiff",
-        headers={"Content-Disposition": safe_content_disposition(filename)},
+        headers={
+            "Content-Disposition": get_catalog_port().safe_content_disposition(
+                filename
+            )
+        },
     )
