@@ -165,15 +165,44 @@ jobs:
     if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
-      # Padding values for Settings() validation — round-trip test imports
-      # the FastAPI app via uvicorn-on-free-port (no real DB).
+      # CLI round-trip tests import the FastAPI app and exercise DB-backed
+      # routes; point the test lifecycle at the local CI PostgreSQL container.
       JWT_SECRET_KEY: cli-test-padding-key-32characters-here
-      POSTGRES_PASSWORD: ci-padding-no-db
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
       GEOLENS_ADMIN_USERNAME: admin
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: backend
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-cli-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name cli-test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-cli-test-db
+          for i in $(seq 1 30); do
+            if docker exec cli-test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.10.2"
