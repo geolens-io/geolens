@@ -37,7 +37,7 @@ from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssr
 import httpx
 
 logger = structlog.stdlib.get_logger(__name__)
-Visibility = str
+Visibility = Literal["private", "restricted", "internal", "public"]
 
 
 async def _fetch_cog_info(url: str) -> dict | None:
