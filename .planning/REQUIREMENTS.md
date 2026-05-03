@@ -74,31 +74,31 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MAPS-01 | TBD | Pending |
-| MAPS-02 | TBD | Pending |
-| MAPS-03 | TBD | Pending |
-| MAPS-04 | TBD | Pending |
-| MAPS-05 | TBD | Pending |
-| MAPS-06 | TBD | Pending |
-| SRCH-01 | TBD | Pending |
-| SRCH-02 | TBD | Pending |
-| SRCH-03 | TBD | Pending |
-| SRCH-04 | TBD | Pending |
-| SRCH-05 | TBD | Pending |
-| SRCH-06 | TBD | Pending |
-| BOUND-01 | TBD | Pending |
-| BOUND-02 | TBD | Pending |
-| BOUND-03 | TBD | Pending |
-| BOUND-04 | TBD | Pending |
-| QUAL-01 | TBD | Pending |
-| QUAL-02 | TBD | Pending |
-| QUAL-03 | TBD | Pending |
+| MAPS-01 | 236 | Pending |
+| MAPS-02 | 236 | Pending |
+| MAPS-03 | 236 | Pending |
+| MAPS-04 | 236 | Pending |
+| MAPS-05 | 236 | Pending |
+| MAPS-06 | 236 | Pending |
+| SRCH-01 | 237 | Pending |
+| SRCH-02 | 237 | Pending |
+| SRCH-03 | 237 | Pending |
+| SRCH-04 | 237 | Pending |
+| SRCH-05 | 237 | Pending |
+| SRCH-06 | 237 | Pending |
+| BOUND-01 | 238 | Pending |
+| BOUND-02 | 238 | Pending |
+| BOUND-03 | 238 | Pending |
+| BOUND-04 | 238 | Pending |
+| QUAL-01 | 239 | Pending |
+| QUAL-02 | 239 | Pending |
+| QUAL-03 | 239 | Pending |
 
 **Coverage:**
 - v13.6 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-03 after initial definition*
+*Last updated: 2026-05-03 after roadmap creation*

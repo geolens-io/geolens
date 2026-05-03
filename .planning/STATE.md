@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
-status: defining_requirements
-stopped_at: v13.6 milestone started; requirements and roadmap in progress
-last_updated: "2026-05-03T22:05:00Z"
+status: roadmap_created
+stopped_at: v13.6 roadmap created; ready for Phase 236 planning
+last_updated: "2026-05-03T22:25:56Z"
 last_activity: 2026-05-03
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -25,21 +25,21 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 236 — maps-service-decomposition
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-03 — Milestone v13.6 Catalog Maps/Search Service Decomposition started.
+Status: Ready for first phase planning
+Last activity: 2026-05-03 — Milestone v13.6 roadmap created with phases 236-239 and 19/19 requirements mapped.
 
 ## Roadmap Snapshot
 
-Roadmap not created yet. v13.6 requirements are being scoped around:
+v13.6 Catalog Maps/Search Service Decomposition contains 4 phases:
 
-- `backend/app/modules/catalog/maps/service.py` decomposition
-- `backend/app/modules/catalog/search/service.py` decomposition
-- architecture guards and behavior-preservation verification
-- close audit / milestone readiness
+- **Phase 236: maps-service-decomposition** — split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map CRUD, layers, sharing, thumbnails, and public viewer behavior. Requirements: MAPS-01..06.
+- **Phase 237: search-service-decomposition** — split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving dataset search, facets, collections, OGC/STAC/AI contracts, and semantic/hybrid search behavior. Requirements: SRCH-01..06.
+- **Phase 238: boundary-guards-and-contract-stabilization** — add architecture guards and source-introspection-safe contract checks for the new maps/search module boundaries. Requirements: BOUND-01..04.
+- **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
 
-Coverage: pending requirements definition.
+Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 0 satisfied at roadmap creation.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -52,18 +52,7 @@ Coverage: pending requirements definition.
 
 ## Next Action
 
-v13.5 milestone close is complete and archived:
-
-- Phase 232 promoted former backlog 999.8 into the active v13.5 milestone and is complete.
-- Phase 233 Plans 01-04 are complete: `WorkflowExtension`, `DefaultWorkflowExtension`, `get_workflow_extension()`, publication endpoint routing, metadata PATCH routing, relaxed persistence for custom states, bypass guard, and verification artifact are in place.
-- Phase 233 verification passed with local DB-backed checks blocked only by missing PostGIS/pgvector in the reachable Postgres service.
-- Phase 234 Plans 01-05 are complete: schema validators, service guards, builder affordance gates, API/GTM/UI copy alignment, regenerated OpenAPI, negative-control proof, and verification artifact are in place.
-- Phase 234 verification passed with focused backend DB-backed checks on `POSTGRES_PORT=5434`, frontend Vitest/lint, ruff, `make openapi-check`, and a schema-guard negative control.
-- Phase 235 closed the milestone with `docs-internal/audits/post-impl-20260503-v13-5.md` and verified GOVAUD-01..03.
-- Formal audit archived at `.planning/milestones/v13.5-MILESTONE-AUDIT.md`.
-- Roadmap and requirements archives written to `.planning/milestones/v13.5-ROADMAP.md` and `.planning/milestones/v13.5-REQUIREMENTS.md`.
-
-Next GSD action: run `$gsd-new-milestone` to define fresh requirements and a roadmap for the next selected backlog or milestone focus.
+Next GSD action: run `$gsd-plan-phase 236` to plan the maps service decomposition phase.
 
 ## Historical /oc-audit Queue (from Phase 224)
 

@@ -46,8 +46,93 @@
 - ✅ **v13.3 Boundary A+ Cleanup** — Phases 222-224 (shipped 2026-05-01) — see [archive](milestones/v13.3-ROADMAP.md)
 - ✅ **v13.4 Boundary Closeout** — Phases 225-231 (shipped 2026-05-03) — see [archive](milestones/v13.4-ROADMAP.md)
 - ✅ **v13.5 Enterprise Governance Seams** — Phases 232-235 (shipped 2026-05-03) — see [archive](milestones/v13.5-ROADMAP.md)
+- 🔄 **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-239 (roadmap created 2026-05-03)
 
 ## Phases
+
+### v13.6 Catalog Maps/Search Service Decomposition
+
+**Milestone goal:** Split the remaining large catalog map and search services into focused modules behind stable public façades so future map/search work can land without growing the current 1,300-line service files or regressing public API behavior.
+
+**Scope guard:** This is an internal architecture/decomposition milestone. Preserve public API behavior, OpenAPI shape, response schemas, permissions, cache semantics, and user-facing map/search workflows. Search/maps router decomposition and new product capability remain out of scope.
+
+- [ ] **Phase 236: maps-service-decomposition** — Split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map-builder, layer, sharing, thumbnail, and public-viewer behavior.
+- [ ] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior.
+- [ ] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded.
+- [ ] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit.
+
+19/19 v13.6 requirements mapped. 0/19 satisfied at roadmap creation.
+
+#### Phase 236: maps-service-decomposition
+
+**Goal:** Decompose `backend/app/modules/catalog/maps/service.py` by concern using the Phase 224 façade pattern: keep `app.modules.catalog.maps.service` as the stable import surface, move implementation into focused sibling modules, and preserve all existing map CRUD, layer, sharing, thumbnail, token, and public-viewer behavior.
+
+**Requirements:** MAPS-01, MAPS-02, MAPS-03, MAPS-04, MAPS-05, MAPS-06
+
+**Depends on:** None
+
+**Success Criteria** (what must be TRUE):
+1. Existing imports from `app.modules.catalog.maps.service` continue to work for routers, AI callers, and tests without broad call-site churn.
+2. Map CRUD/list/read/update/duplicate/delete behavior preserves response schemas, ownership checks, visibility rules, and layer sort order.
+3. Layer add/remove behavior preserves dataset access checks, default style generation, layer type inference, and permission decisions.
+4. Share tokens, shared map rendering, thumbnails, token revocation, dataset-in-use checks, and public/anonymous visibility behavior remain unchanged.
+5. Focused regression tests cover map CRUD, layer round-trips, sharing, thumbnails, and public viewer access through the façade.
+
+**Plans:**
+- [ ] TBD by `$gsd-plan-phase 236`
+
+#### Phase 237: search-service-decomposition
+
+**Goal:** Decompose `backend/app/modules/catalog/search/service.py` by concern while keeping `app.modules.catalog.search.service` as the stable import surface for `SearchFilters`, `search_datasets`, `get_facet_counts`, `search_collections`, OGC record helpers, and existing callers.
+
+**Requirements:** SRCH-01, SRCH-02, SRCH-03, SRCH-04, SRCH-05, SRCH-06
+
+**Depends on:** Phase 236 recommended only for sequencing discipline; no intentional shared behavior dependency.
+
+**Success Criteria** (what must be TRUE):
+1. Existing imports from `app.modules.catalog.search.service` continue to work for API, OGC/STAC, AI, and test callers.
+2. Dataset search preserves text, spatial, temporal, tag, organization, CRS, record type, CQL2, sort, pagination, RBAC, and publication filtering behavior.
+3. Facet counts, collection search, collection metadata/items, queryables, sortables, and record schema responses preserve response shapes and cache semantics.
+4. OGC/STAC/AI consumers continue receiving the same record conversion, asset, theme, and time metadata contracts.
+5. Semantic and hybrid search preserve embedding-provider dispatch, RRF merge behavior, fallback behavior, and actor identity enrichment.
+
+**Plans:**
+- [ ] TBD by `$gsd-plan-phase 237`
+
+#### Phase 238: boundary-guards-and-contract-stabilization
+
+**Goal:** Stabilize the new maps/search service boundaries with architecture guards and contract checks so external modules import only public façades, split modules stay within an agreed size budget, existing catalog↔processing guards remain green, and any source-introspection tests target the façade plus helper modules instead of brittle inline implementation blocks.
+
+**Requirements:** BOUND-01, BOUND-02, BOUND-03, BOUND-04
+
+**Depends on:** Phases 236 and 237
+
+**Success Criteria** (what must be TRUE):
+1. Architecture guards fail when external modules import private maps/search decomposition modules directly.
+2. Architecture guards fail when the maps/search façades grow back into god modules or private modules exceed the agreed size budget without an explicit allowlist.
+3. Existing catalog/processing boundary guards still pass after the maps/search service split.
+4. Source-introspection regression tests are updated to assert behavior across the façade and helper modules without coupling to inline implementation blocks.
+
+**Plans:**
+- [ ] TBD by `$gsd-plan-phase 238`
+
+#### Phase 239: close-audit-and-verification
+
+**Goal:** Verify the v13.6 decomposition with focused backend test gates, ruff/format checks for touched catalog modules, and a close-gate audit that records decomposition results, requirement coverage, residual risks, and no unresolved P0/P1 findings.
+
+**Requirements:** QUAL-01, QUAL-02, QUAL-03
+
+**Depends on:** Phases 236, 237, 238
+
+**Success Criteria** (what must be TRUE):
+1. Focused backend verification passes for maps and search, including `test_maps`, `test_search`, hybrid search, search facets, search cache, and VRT search enrichment coverage.
+2. Backend lint and format checks pass for touched catalog modules with no ruff or formatting violations.
+3. A dated v13.6 close-gate audit records decomposition results, requirement coverage, residual risks, and confirms no unresolved P0/P1 findings.
+
+**Plans:**
+- [ ] TBD by `$gsd-plan-phase 239`
+
+---
 
 ### Archived Phase Details — v13.5 Enterprise Governance Seams
 
