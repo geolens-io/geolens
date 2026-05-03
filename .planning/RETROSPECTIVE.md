@@ -2,6 +2,44 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v13.5 — Enterprise Governance Seams
+
+**Shipped:** 2026-05-03
+**Phases:** 4 (232, 233, 234, 235) | **Plans:** 13 | **Commits:** 49
+
+### What Was Built
+- `PermissionExtension` now covers action checks, catalog visibility filtering, and dataset detail access with a Community default, overlay tests, and a chokepoint architecture guard.
+- `WorkflowExtension` now covers publication transitions and transition hooks for `/status/`, `/target-status/`, and metadata `record_status` writes.
+- Advanced-sharing gates now line up across schema validators, service guards, builder UI affordances, API/OpenAPI text, and GTM docs.
+- Formal close audit verified Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings.
+
+### What Worked
+- **Single-slot governance seams.** Permission and workflow policy both fit the established typed-accessor pattern, keeping overlay behavior explicit and testable.
+- **Architecture guards kept the contract small.** The permission and workflow guards verify the exact chokepoints that would regress the seam, without pretending to prove every future policy surface.
+- **Contract verification paid off.** Phase 234 checked schemas, services, UI, OpenAPI, and GTM copy together, preventing paid/free claims from drifting away from actual enforcement.
+- **Close audit stayed honest.** Phase 235 separated seam readiness from future product UI scope and did not claim unrun full-suite coverage.
+
+### What Was Inefficient
+- **GSD milestone helpers misread this repo shape.** `init milestone-op` reported `v1.0`, and the generic milestone CLI counted archived/backlog phases. The close path needed manual scoping to phases 232-235.
+- **Local DB provisioning remains uneven.** Some phase checks needed `POSTGRES_PORT=5434` or DB-provisioning bypasses because the default reachable database lacked PostGIS/pgvector.
+- **Plan artifacts remain ignored by default.** `.planning/` archival files require intentional force-adds, which is easy to miss at milestone close.
+
+### Patterns Established
+- Governance seams should ship with Protocol + default + typed accessor + production chokepoint routing + overlay test + architecture guard.
+- Paid/free product contracts need dual-layer enforcement (schema + service) plus UI and OpenAPI/GTM copy review.
+- Formal milestone audits should explicitly note any tool-scoping anomalies rather than let helper output drive archive scope.
+
+### Key Lessons
+1. Treat GSD helper output as advisory when old archives and backlog phases are present; use `STATE.md` and the active ROADMAP section as the source of truth.
+2. For open-core seams, "Ready" means a real overlay can alter behavior without core changes and a guard catches known bypasses.
+3. Keep focused close-audit evidence separate from full-suite readiness, especially when local DB provisioning differs from CI.
+
+### Cost Observations
+- Model mix: inherited frontier model for planning and audit synthesis; Sonnet-class helper configuration noted by GSD tooling but not used for a spawned checker.
+- Notable: same-day milestone with a low file count compared to v13.4, but high leverage because it closed two governance seams and the advanced-sharing product contract.
+
+---
+
 ## Milestone: v13.4 — Boundary Closeout
 
 **Shipped:** 2026-05-03
@@ -92,6 +130,7 @@
 
 | Milestone | Phases | Key Change |
 |-----------|--------|------------|
+| v13.5 | 4 (232, 233, 234, 235) | Governance seams for permissions and workflows; advanced-sharing contract aligned across schema/service/UI/API/GTM; close gate at A/A/A− |
 | v13.4 | 7 (225, 226, 227, 228, 230, 231, 229) | Symmetric Protocol boundaries for catalog/processing; AI + embeddings provider seams; post-impl close gate with A+/A−/A− grades |
 | v13.1 | 8 (212–219) | Architecture-guard tests as CI-enforced layering invariants; mid-milestone phase additions to close audit-surfaced P0s; per-phase verification gate plan as standard pattern |
 
@@ -99,6 +138,7 @@
 
 | Milestone | Backend Tests | Notable |
 |-----------|---------------|---------|
+| v13.5 | Focused permission/workflow architecture guards, advanced-sharing DB-backed tests, frontend sharing tests, and OpenAPI check green; full-suite not rerun | PermissionExtension and WorkflowExtension now rated Ready; advanced-sharing paid/free contract is enforced and documented |
 | v13.4 | Focused architecture/provider/reupload checks green; full-suite limited by local DB/dirty-worktree constraints | Bidirectional import guards and provider-SDK guards now enforce open-core boundaries |
 | v13.1 | 1999+ pass (baseline maintained throughout) | 12 SDK round-trip + 9 SAML integration + 9 enterprise + 112 CLI unit + 6 CLI round-trip new |
 
@@ -107,3 +147,4 @@
 1. Architecture guard tests are the strongest close-gate evidence for boundary milestones.
 2. Post-impl audits should fix P1s inline before milestone archival.
 3. Keep the worktree clean before milestone tags; stash unrelated WIP explicitly.
+4. GSD milestone helpers need manual scope validation in repos with archived and backlog phase history.

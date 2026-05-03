@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: phase_235_complete
-stopped_at: Phase 235 complete and verified; v13.5 milestone close audit passed
-last_updated: "2026-05-03T19:41:36Z"
+status: milestone_complete
+stopped_at: v13.5 milestone completed, archived, and ready for next milestone planning
+last_updated: "2026-05-03T21:30:00Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 13
+  completed_plans: 13
   percent: 100
 ---
 
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
+See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone completion)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.5 Enterprise Governance Seams
+**Current focus:** Planning the next milestone
 
 ## Current Position
 
-Phase: 235 complete
+Phase: —
 Plan: —
-Status: Phase 235 complete and verified; v13.5 close audit passed in `.planning/phases/235-post-impl-audit-v13-5/235-VERIFICATION.md`
-Last activity: 2026-05-03 — Phase 235 completed the v13.5 post-implementation audit with Seam Quality A, Boundary Integrity A, and Inventory Accuracy A-.
+Status: v13.5 Enterprise Governance Seams completed and archived.
+Last activity: 2026-05-03 — v13.5 completion archived ROADMAP/REQUIREMENTS/audit artifacts, updated PROJECT/MILESTONES/RETROSPECTIVE, and prepared the repo for the next milestone definition.
 
 ## Roadmap Snapshot
 
@@ -39,9 +39,9 @@ Last activity: 2026-05-03 — Phase 235 completed the v13.5 post-implementation 
 | 234 | governance-contract-verification | SHARE-01..03 | 232, 233 |
 | 235 | post-impl-audit-v13.5 | GOVAUD-01..03 | 232, 233, 234 |
 
-Coverage: 16/16 v13.5 requirements mapped.
+Coverage: 16/16 v13.5 requirements mapped and satisfied.
 
-**Audit-grade targets:** Seam Quality **A− → A** (PermissionExtension + WorkflowExtension close the remaining governance seams); Boundary Integrity ≥ **A** (advanced sharing gate remains enforced); Inventory Accuracy ≥ **A−** (GTM/API/UI copy matches implementation).
+**Close result:** Seam Quality **A**, Boundary Integrity **A**, Inventory Accuracy **A−**. Formal milestone audit passed with 16/16 requirements satisfied and no critical gaps.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -54,7 +54,7 @@ Coverage: 16/16 v13.5 requirements mapped.
 
 ## Next Action
 
-v13.5 milestone close is complete:
+v13.5 milestone close is complete and archived:
 
 - Phase 232 promoted former backlog 999.8 into the active v13.5 milestone and is complete.
 - Phase 233 Plans 01-04 are complete: `WorkflowExtension`, `DefaultWorkflowExtension`, `get_workflow_extension()`, publication endpoint routing, metadata PATCH routing, relaxed persistence for custom states, bypass guard, and verification artifact are in place.
@@ -62,8 +62,10 @@ v13.5 milestone close is complete:
 - Phase 234 Plans 01-05 are complete: schema validators, service guards, builder affordance gates, API/GTM/UI copy alignment, regenerated OpenAPI, negative-control proof, and verification artifact are in place.
 - Phase 234 verification passed with focused backend DB-backed checks on `POSTGRES_PORT=5434`, frontend Vitest/lint, ruff, `make openapi-check`, and a schema-guard negative control.
 - Phase 235 closed the milestone with `docs-internal/audits/post-impl-20260503-v13-5.md` and verified GOVAUD-01..03.
+- Formal audit archived at `.planning/milestones/v13.5-MILESTONE-AUDIT.md`.
+- Roadmap and requirements archives written to `.planning/milestones/v13.5-ROADMAP.md` and `.planning/milestones/v13.5-REQUIREMENTS.md`.
 
-Next GSD action: start the next selected backlog or milestone phase; the execute-phase request used `--no-transition`, so no transition workflow was run.
+Next GSD action: run `$gsd-new-milestone` to define fresh requirements and a roadmap for the next selected backlog or milestone focus.
 
 ## Historical /oc-audit Queue (from Phase 224)
 

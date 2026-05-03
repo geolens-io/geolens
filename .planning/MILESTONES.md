@@ -1,5 +1,39 @@
 # Milestones
 
+## v13.5 Enterprise Governance Seams (Shipped: 2026-05-03)
+
+**Milestone goal:** Turn the remaining governance-adjacent permission and workflow chokepoints into first-class extension seams so Enterprise overlays can implement advanced RBAC and approval workflows without forking core.
+
+**Stats:**
+
+- **Phases:** 4 (232, 233, 234, 235)
+- **Plans:** 13 / 13 complete
+- **Timeline:** 2026-05-03 (same-day close)
+- **Commits:** 49 in milestone range (`v13.4..e57042a8`)
+- **Diff:** 63 files, +5,359 / -376
+
+**Requirements:** 16/16 satisfied (PERM-01..05, WORK-01..05, SHARE-01..03, GOVAUD-01..03)
+
+**Key accomplishments:**
+
+1. **PermissionExtension seam shipped** — action checks, catalog visibility filtering, and dataset detail access now route through a platform extension with Community default behavior preserved, overlay tests, and an architecture guard.
+2. **WorkflowExtension seam shipped** — publication `/status/`, `/target-status/`, and metadata `record_status` writes now route through extension-defined transitions and hooks while preserving the Community lifecycle.
+3. **Advanced-sharing boundary verified** — Community keeps basic share/embed behavior while custom embed lifetimes, origin restrictions, and expiring share links are gated consistently across schema, service, UI, API/OpenAPI, and GTM docs.
+4. **Close audit passed** — `docs-internal/audits/post-impl-20260503-v13-5.md` records Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings.
+5. **Formal milestone audit passed** — `.planning/milestones/v13.5-MILESTONE-AUDIT.md` records 16/16 requirements satisfied, no orphaned requirements, and no critical gaps.
+
+**Known gaps:** None blocking. Full-suite merge readiness remains normal CI/full-suite work; local DB provisioning limitations are recorded as nonblocking residual risk.
+
+**Archives:**
+
+- `.planning/milestones/v13.5-ROADMAP.md`
+- `.planning/milestones/v13.5-REQUIREMENTS.md`
+- `.planning/milestones/v13.5-MILESTONE-AUDIT.md`
+
+**Tag:** `v13.5`
+
+---
+
 ## v13.4 Boundary Closeout (Shipped: 2026-05-03)
 
 **Milestone goal:** Close the last open-core boundary, coupling, and provider-seam gaps from the 2026-04-30 and 2026-05-02 audits so the committed GeoLens surface is ready for the next public-launch milestone.

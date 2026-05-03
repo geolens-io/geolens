@@ -4,15 +4,32 @@
 
 An on-premises, PostGIS-native GIS data catalog that lets GIS analysts, data engineers, and non-technical staff search, preview, and export geospatial datasets — both vector and raster — through a fast, search-first web UI. Built on a "database-first" architecture using FastAPI for catalog, tile serving (ST_AsMVT for vector, Titiler for raster), feature serving, metadata, search, RBAC, and job orchestration.
 
-Shipped 38 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v12.3). Production-hardened with refresh token auth, non-root containers, Trivy CI scanning, Prometheus metrics, automated S3 backups, Redis circuit breaker, magic byte file validation, and route-based code splitting. Cloud-ready with provider-agnostic storage (S3), caching (Redis/Valkey), managed database support, and presigned uploads. Full-featured GIS catalog with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, raster dataset support (COG ingest, tile serving, export), VRT mosaics with lifecycle management, STAC 1.1 export for raster interop, publication lifecycle (draft/ready/internal/published), and internationalization (i18n). Accessible UI with 44px mobile touch targets, keyboard-focusable tables, WCAG AA badge contrast, semantic collection markup, responsive detail headers, and raster/VRT preview resilience with bounded retry. Deployable by other organizations via `docker compose up`.
+Shipped 47 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.5; plus cross-repo marketing/docs milestones). Production-hardened with refresh token auth, non-root containers, Trivy CI scanning, Prometheus metrics, automated S3 backups, Redis circuit breaker, magic byte file validation, and route-based code splitting. Cloud-ready with provider-agnostic storage (S3), caching (Redis/Valkey), managed database support, and presigned uploads. Full-featured GIS catalog with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, raster dataset support (COG ingest, tile serving, export), VRT mosaics with lifecycle management, STAC 1.1 export for raster interop, publication lifecycle (draft/ready/internal/published), and internationalization (i18n). Accessible UI with 44px mobile touch targets, keyboard-focusable tables, WCAG AA badge contrast, semantic collection markup, responsive detail headers, and raster/VRT preview resilience with bounded retry. Deployable by other organizations via `docker compose up`.
 
 ## Current State
 
-46 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.4; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI provider seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`), and bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards. Latest v13.4 close-gate grades: Boundary Integrity **A+**, Coupling Health **A−**, Seam Quality **A−**, OSS Surface **A** per `post-impl-20260503-v13-4.md`.
+47 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.5; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), and bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards. Latest v13.5 close-gate grades: Seam Quality **A**, Boundary Integrity **A**, Inventory Accuracy **A−** per `post-impl-20260503-v13-5.md`.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Last Milestone (this repo): v13.4 Boundary Closeout (shipped 2026-05-03)
+## Last Milestone (this repo): v13.5 Enterprise Governance Seams (shipped 2026-05-03)
+
+**Delivered:** 4 phases (232-235), 13 plans, 16/16 requirements satisfied — see [milestones/v13.5-ROADMAP.md](milestones/v13.5-ROADMAP.md).
+
+- **PermissionExtension** — permission checks, catalog visibility filtering, and dataset detail access now route through a first-class platform extension with overlay tests and an architecture guard.
+- **WorkflowExtension** — publication status endpoints and metadata `record_status` writes now route through a workflow extension that supports custom transitions, hooks, and states.
+- **Advanced-sharing contract verified** — Community keeps basic share/embed behavior while custom embed lifetimes, origin restrictions, and expiring share links are gated consistently across schema, service, UI, API/OpenAPI, and GTM docs.
+- **Post-impl close gate passed** — `docs-internal/audits/post-impl-20260503-v13-5.md` records Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings.
+- **Formal milestone audit passed** — [milestones/v13.5-MILESTONE-AUDIT.md](milestones/v13.5-MILESTONE-AUDIT.md) records 16/16 requirements satisfied, no orphaned requirements, and no critical gaps.
+
+**Known close note:** Full-suite merge readiness still belongs to normal CI/full-suite validation; the close audit used focused governance and architecture checks.
+
+## Next Milestone Goals
+
+The next milestone has not been defined yet. Current backlog candidates are `geolens.yaml` catalog manifests, persistent connector registry, tenant scoping for future Cloud, Helm/AMI/SBOM distribution work, `geolens-schemas` extraction, and catalog `maps/search` service decomposition.
+
+<details>
+<summary>Earlier milestone — v13.4 Boundary Closeout (shipped 2026-05-03)</summary>
 
 **Delivered:** 7 phases (225, 226, 227, 228, 230, 231, 229), 23 plans, 30/30 requirements satisfied — see [milestones/v13.4-ROADMAP.md](milestones/v13.4-ROADMAP.md).
 
@@ -24,15 +41,7 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 **Known close note:** In-progress advanced-sharing controls were stashed before archival as `stash@{0}` and are not part of v13.4.
 
-## Current Milestone: v13.5 Enterprise Governance Seams
-
-**Goal:** Turn the remaining governance-adjacent permission and workflow chokepoints into first-class extension seams so Enterprise overlays can implement advanced RBAC and approval workflows without forking core.
-
-**Target features:**
-- `PermissionExtension` Protocol for action checks and catalog visibility filtering
-- `WorkflowExtension` Protocol for publication lifecycle transitions and transition hooks
-- Governance contract verification for advanced sharing gates and GTM/API/UI copy
-- Close audit confirming the seam-quality lift and clean boundary posture
+</details>
 
 <details>
 <summary>Earlier milestone — v13.3 Boundary A+ Cleanup (shipped 2026-05-01)</summary>
@@ -357,13 +366,17 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ Destructive alembic downgrade path documented with explicit data-export prerequisite — v13.2
 - ✓ Admin SAML→local conversion endpoint preserves users.id (all FK referrers intact) — `POST /admin/users/{user_id}/convert-saml-to-local/` with audit action `user.convert_saml_to_local`, allow-listed audit details (no password material), 422-blocked self-conversion — v13.2
 - ✓ Round-trip symmetry test confirms 4 `deferred=True` SAML columns + `oauth_accounts` linkage + User row + seeded `audit_log` row are lossless across deactivate→reactivate cycle — `test_deactivate_reactivate_roundtrip_preserves_saml_data` in CI — v13.2
+- ✓ `PermissionExtension` Protocol, Community default, typed accessor, overlay tests, and architecture guard cover action checks plus catalog visibility/detail access — v13.5
+- ✓ `WorkflowExtension` Protocol, transition context, Community default, typed accessor, overlay tests, and architecture guard cover publication transitions and transition hooks — v13.5
+- ✓ Dataset publication `/status/`, `/target-status/`, and metadata `record_status` writes consult `WorkflowExtension` instead of hardcoded-only state logic — v13.5
+- ✓ Advanced sharing controls are gated consistently in Community vs Enterprise across schema validators, service guards, builder affordances, API/OpenAPI text, and GTM docs — v13.5
+- ✓ Basic Community share/embed flows remain intact: non-expiring share links and default unrestricted 30-day embed tokens can still be created/revoked — v13.5
+- ✓ v13.5 close audit records Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings — v13.5
 
 ### Active
 
-- [ ] Add `PermissionExtension` so permission decisions and catalog visibility filtering can be overlaid without core changes
-- [ ] Add `WorkflowExtension` so publication-state transitions and transition hooks can be overlaid without core changes
-- [ ] Verify advanced sharing controls remain correctly gated and documented after the 2026-05-03 Branch A fix
-- [ ] Run a close audit to confirm the governance seam target and track any remaining P1/P2 backlog
+- [ ] Define the next milestone requirements and roadmap with `$gsd-new-milestone`
+- [ ] Choose the next backlog focus: `geolens.yaml` manifest, persistent connector registry, tenant scoping, Helm/AMI/SBOM distribution, `geolens-schemas` extraction, or catalog service decomposition
 
 ### Out of Scope
 
@@ -396,7 +409,7 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ## Context
 
-- **Current state**: v12.0 shipped. 35 milestones delivered. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, and i18n (en/es/fr/de). Type-aware detail pages with shared skeleton and modality-specific panels.
+- **Current state**: v13.5 shipped. 47 milestones delivered. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, and catalog/processing boundaries.
 - **Architecture**: Database-first. PostgreSQL 17 + PostGIS 3.5 is the system of record. FastAPI serves vector tiles (ST_AsMVT with signed URL tokens), raster tiles (via Titiler with RBAC-gated token endpoint), features (paginated GeoJSON with bbox/property filtering), catalog metadata, search, auth, OGC discovery, and job orchestration. Background worker runs Procrastinate ingestion tasks. Titiler serves XYZ raster tiles from COG files. Frontend is a static SPA served by nginx with reverse proxy to the API.
 - **OGC Compliance**: OGC API Common Core, OGC API Records Core, OGC API Features Part 3 (Filtering/CQL2). Conformance classes declared at `/api/conformance`.
 - **Users**: Mix of GIS analysts (power users), data engineers (API consumers), and non-technical staff (browsing/downloading). Search-first UI serves all three. Machine clients (QGIS, GDAL, scripts) can now consume the catalog programmatically.
@@ -611,4 +624,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 after v13.5 milestone start*
+*Last updated: 2026-05-03 after v13.5 milestone completion*
