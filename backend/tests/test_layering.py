@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, 230, and 231.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, 230, 231, and 232.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -26,6 +26,9 @@ Enforces open-core boundaries closed by:
   to test_no_module_level_provider_sdk_imports_in_processing, pathspec
   broadened from backend/app/processing/ai/ to backend/app/processing/,
   and the embeddings carve-out paragraph removed from the docstring.
+- Phase 232 PERM-05 - known permission/visibility chokepoints must route
+  through PermissionExtension: require_permission(), apply_visibility_filter(),
+  and dataset detail access helpers.
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -37,6 +40,7 @@ Scope:
   deleted-path regression)
 - `from app.modules.auth.visibility` anywhere under `backend/` (Phase 213 LAYER-02)
 - Broader `auth.visibility` reference catch (Phase 213 LAYER-02)
+- PermissionExtension chokepoint delegation (Phase 232 PERM-05)
 - `from app.modules.auth.models import .*\\bUser\\b` outside the 18-file
   allowlist (Phase 214 IDENT-02 - pathspec excludes auth/**, admin/**,
   audit/{models,service}.py, api/main.py, processing/ingest/tasks_raster.py,
@@ -247,6 +251,68 @@ def test_no_auth_visibility_module_referenced() -> None:
         pytest.fail(
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_permission_chokepoints_use_extension() -> None:
+    """Phase 232 PERM-05: known permission chokepoints must use PermissionExtension.
+
+    This guard is intentionally narrow. It seals the two Phase 232 surfaces
+    from the roadmap instead of scanning every auth/catalog file:
+    - ``require_permission()`` delegates capability decisions.
+    - catalog visibility helpers delegate list filtering and detail access.
+    """
+    auth_path = REPO_ROOT / "backend/app/modules/auth/dependencies.py"
+    catalog_path = REPO_ROOT / "backend/app/modules/catalog/authorization.py"
+
+    auth_source = auth_path.read_text()
+    catalog_source = catalog_path.read_text()
+
+    require_permission_idx = auth_source.find("def require_permission")
+    if require_permission_idx == -1:
+        pytest.fail("require_permission() not found in auth dependencies")
+    require_permission_block = auth_source[require_permission_idx:]
+    if (
+        "get_permission_extension()" not in require_permission_block
+        or ".check_permission(" not in require_permission_block
+    ):
+        pytest.fail(
+            "Phase 232 PERM-05 invariant violated: require_permission() must "
+            "delegate capability decisions to PermissionExtension. Expected "
+            "get_permission_extension().check_permission(...) in "
+            f"{auth_path.relative_to(REPO_ROOT)}."
+        )
+
+    apply_visibility_idx = catalog_source.find("def apply_visibility_filter")
+    get_roles_idx = catalog_source.find("async def get_user_roles")
+    if apply_visibility_idx == -1 or get_roles_idx == -1:
+        pytest.fail("catalog apply_visibility_filter()/get_user_roles boundary not found")
+    apply_visibility_block = catalog_source[apply_visibility_idx:get_roles_idx]
+    if (
+        "get_permission_extension()" not in apply_visibility_block
+        or ".filter_visible(" not in apply_visibility_block
+    ):
+        pytest.fail(
+            "Phase 232 PERM-05 invariant violated: apply_visibility_filter() "
+            "must delegate query filtering to PermissionExtension. Expected "
+            "get_permission_extension().filter_visible(...) in "
+            f"{catalog_path.relative_to(REPO_ROOT)}."
+        )
+
+    access_idx = catalog_source.find("async def check_dataset_access_or_anonymous")
+    if access_idx == -1:
+        pytest.fail("catalog dataset-access helpers not found")
+    access_block = catalog_source[access_idx:]
+    if (
+        "get_permission_extension()" not in access_block
+        or ".can_access_dataset(" not in access_block
+    ):
+        pytest.fail(
+            "Phase 232 PERM-05 invariant violated: dataset detail access must "
+            "delegate access decisions to PermissionExtension. Expected "
+            "get_permission_extension().can_access_dataset(...) in "
+            f"{catalog_path.relative_to(REPO_ROOT)}."
         )
 
 

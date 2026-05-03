@@ -24,6 +24,118 @@ class DefaultAuthExtension:
         return []
 
 
+class DefaultPermissionExtension:
+    """Community-edition default permission policy (Phase 232 / PERM-02).
+
+    This class owns the baseline behavior for the PermissionExtension seam.
+    Imports stay inside methods so the platform extension package does not
+    take module-layer dependencies at import time.
+    """
+
+    async def check_permission(
+        self,
+        db,
+        user,
+        capability,
+        *,
+        user_roles,
+        permission_matrix=None,
+        resource=None,
+    ):  # type: ignore[no-untyped-def]
+        del user, resource
+        matrix = permission_matrix
+        if matrix is None:
+            from app.modules.auth.permissions import get_effective_permissions
+
+            matrix = await get_effective_permissions(db)
+        return any(matrix.get(role, {}).get(capability, False) for role in user_roles)
+
+    def filter_visible(
+        self, stmt, user, user_roles, record_cls, grant_cls=None
+    ):  # type: ignore[no-untyped-def]
+        from sqlalchemy import and_, or_, select
+
+        from app.modules.auth.models import UserRole
+
+        if "admin" in user_roles:
+            return stmt
+
+        if user is None:
+            return stmt.where(
+                record_cls.visibility == "public",
+                record_cls.record_status == "published",
+            )
+
+        conditions = [
+            record_cls.visibility == "public",
+            and_(
+                record_cls.visibility == "private",
+                record_cls.created_by == user.id,
+            ),
+        ]
+
+        if grant_cls is not None:
+            conditions.append(
+                and_(
+                    record_cls.visibility == "restricted",
+                    record_cls.id.in_(
+                        select(grant_cls.dataset_id)
+                        .join(UserRole, grant_cls.role_id == UserRole.role_id)
+                        .where(UserRole.user_id == user.id)
+                    ),
+                )
+            )
+
+        status_filter = or_(
+            record_cls.record_status == "published",
+            record_cls.created_by == user.id,
+        )
+        return stmt.where(and_(or_(*conditions), status_filter))
+
+    async def can_access_dataset(
+        self,
+        db,
+        dataset,
+        dataset_id,
+        user,
+        *,
+        user_roles,
+    ):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.auth.models import UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        record = dataset.record
+
+        if user is None:
+            return (
+                record.visibility == "public" and record.record_status == "published"
+            )
+
+        if "admin" in user_roles:
+            return True
+
+        if record.record_status != "published" and record.created_by != user.id:
+            return False
+
+        if record.visibility == "private" and record.created_by != user.id:
+            return False
+
+        if record.visibility == "restricted":
+            grant_result = await db.execute(
+                select(DatasetGrant.dataset_id)
+                .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
+                .where(
+                    DatasetGrant.dataset_id == dataset_id,
+                    UserRole.user_id == user.id,
+                )
+            )
+            return grant_result.scalar_one_or_none() is not None
+
+        return True
+
+
 class DefaultIdentityExtension:
     """Default identity: no alternate backend registered (Phase 214 D-14).
 

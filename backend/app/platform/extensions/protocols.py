@@ -9,12 +9,13 @@ the audit facade at Protocol import time.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
+    from app.core.identity import Identity
     from app.platform.audit import AuditEvent
     from app.processing.ai.llm_loop import (
         ActionCollector,
@@ -195,3 +196,47 @@ class EmbeddingProviderExtension(Protocol):
     ) -> list[list[float]]: ...
 
     async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
+
+
+@runtime_checkable
+class PermissionExtension(Protocol):
+    """Policy seam for permission checks and catalog visibility filtering.
+
+    Phase 232 / PERM-01 introduces a singleton extension point for two known
+    governance chokepoints: capability checks in ``require_permission()`` and
+    catalog visibility filtering in ``catalog/authorization.py``. Community
+    mode uses ``DefaultPermissionExtension`` to preserve the current role
+    matrix, admin overrides, and visibility rules. Enterprise overlays replace
+    the singleton registry entry under ``"permission"`` to implement advanced
+    RBAC, ABAC, or row-level filters without changing core.
+    """
+
+    async def check_permission(
+        self,
+        db: AsyncSession,
+        user: "Identity",
+        capability: str,
+        *,
+        user_roles: set[str],
+        permission_matrix: dict[str, dict[str, bool]] | None = None,
+        resource: object | None = None,
+    ) -> bool: ...
+
+    def filter_visible(
+        self,
+        stmt: Any,
+        user: "Identity | None",
+        user_roles: set[str],
+        record_cls: Any,
+        grant_cls: Any | None = None,
+    ) -> Any: ...
+
+    async def can_access_dataset(
+        self,
+        db: AsyncSession,
+        dataset: Any,
+        dataset_id: Any,
+        user: "Identity | None",
+        *,
+        user_roles: set[str],
+    ) -> bool: ...
