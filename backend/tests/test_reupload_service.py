@@ -1,7 +1,7 @@
 """Tests for service-source re-upload commit dispatch and worker invariants."""
 
 import uuid
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -99,20 +99,22 @@ class TestServiceReuploadCommitDispatch:
             created_by=admin_id,
         )
 
-        with (
-            patch(
-                "app.modules.catalog.datasets.api.router_reupload.reupload_service"
-            ) as mock_reupload_service,
-            patch(
-                "app.modules.catalog.datasets.api.router_reupload.reupload_file"
-            ) as mock_reupload_file,
-        ):
-            mock_reupload_service.defer_async = AsyncMock(return_value=None)
-            mock_reupload_file.defer_async = AsyncMock(return_value=None)
-            mock_reupload_file.configure.return_value.defer_async = AsyncMock(
-                return_value=None
-            )
+        mock_reupload_service = MagicMock()
+        mock_reupload_file = MagicMock()
+        mock_reupload_service.defer_async = AsyncMock(return_value=None)
+        mock_reupload_file.defer_async = AsyncMock(return_value=None)
+        mock_reupload_file.configure.return_value.defer_async = AsyncMock(
+            return_value=None
+        )
+        mock_catalog_port = MagicMock()
+        mock_catalog_port.reupload_service_task.return_value = mock_reupload_service
+        mock_catalog_port.reupload_file_task.return_value = mock_reupload_file
+        mock_catalog_port.priority_queue_threshold_bytes = 10_000_000
 
+        with patch(
+            "app.modules.catalog.datasets.api.router_reupload.get_catalog_port",
+            return_value=mock_catalog_port,
+        ):
             resp = await client.post(
                 f"/datasets/{dataset.id}/reupload/{job.id}/commit",
                 json={"token": "super-secret-token"},
