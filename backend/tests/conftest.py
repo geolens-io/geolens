@@ -5,6 +5,7 @@ import sqlalchemy
 import structlog
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.modules.auth.models import Role, User, UserRole
@@ -34,6 +35,45 @@ POLYGON_GEOJSON = {
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture
+def community_edition(monkeypatch):
+    from app.core.edition import init_edition
+
+    monkeypatch.delenv("GEOLENS_EDITION", raising=False)
+    init_edition([])
+    yield
+    init_edition([])
+
+
+@pytest.fixture
+def enterprise_edition(monkeypatch):
+    from app.core.edition import init_edition
+
+    monkeypatch.delenv("GEOLENS_EDITION", raising=False)
+    init_edition(["enterprise"])
+    yield
+    init_edition([])
+
+
+def _drop_test_database_if_exists(db_name: str) -> None:
+    teardown_engine = sqlalchemy.create_engine(
+        settings.database_url_sync, isolation_level="AUTOCOMMIT"
+    )
+    try:
+        with teardown_engine.connect() as conn:
+            conn.execute(
+                text(
+                    f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
+                )
+            )
+            conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
+    except Exception:
+        pass
+    finally:
+        teardown_engine.dispose()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -67,34 +107,42 @@ def _test_db_lifecycle():
 
     # --- Init: extensions, schemas, roles ---
     test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
-    with test_engine_sync.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
-        conn.execute(text("CREATE SCHEMA IF NOT EXISTS catalog"))
-        conn.execute(text("CREATE SCHEMA IF NOT EXISTS data"))
+    try:
+        with test_engine_sync.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+            conn.execute(text("CREATE SCHEMA IF NOT EXISTS catalog"))
+            conn.execute(text("CREATE SCHEMA IF NOT EXISTS data"))
 
-        # Idempotent role grants
-        conn.execute(
-            text(
-                "DO $$ BEGIN "
-                "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN "
-                "CREATE ROLE geolens_reader NOLOGIN; "
-                "END IF; END $$"
+            # Idempotent role grants
+            conn.execute(
+                text(
+                    "DO $$ BEGIN "
+                    "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN "
+                    "CREATE ROLE geolens_reader NOLOGIN; "
+                    "END IF; END $$"
+                )
             )
-        )
-        conn.execute(text("GRANT USAGE ON SCHEMA data TO geolens_reader"))
-        conn.execute(
-            text("GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader")
-        )
-        conn.execute(
-            text(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA data "
-                "GRANT SELECT ON TABLES TO geolens_reader"
+            conn.execute(text("GRANT USAGE ON SCHEMA data TO geolens_reader"))
+            conn.execute(
+                text("GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader")
             )
-        )
-        conn.commit()
+            conn.execute(
+                text(
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA data "
+                    "GRANT SELECT ON TABLES TO geolens_reader"
+                )
+            )
+            conn.commit()
+    except SQLAlchemyError:
+        # DB is reachable but missing required extensions (for example pgvector).
+        # Let DB-light tests run; DB-backed tests will fail when they request DB fixtures.
+        test_engine_sync.dispose()
+        _drop_test_database_if_exists(db_name)
+        yield
+        return
     test_engine_sync.dispose()
 
     # --- Migrate: run alembic against the test database ---
