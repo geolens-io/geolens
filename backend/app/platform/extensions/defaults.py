@@ -425,6 +425,196 @@ class DefaultProcessingPort:
         return result.unique().scalar_one_or_none()
 
 
+class DefaultCatalogPort:
+    """Community default: delegates catalog calls into app.processing.* lazily."""
+
+    @property
+    def priority_queue_threshold_bytes(self) -> int:
+        from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
+
+        return PRIORITY_QUEUE_THRESHOLD_BYTES
+
+    def ingestion_error_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.ogr import IngestionError
+
+        return IngestionError
+
+    def raster_asset_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.raster.models import RasterAsset
+
+        return RasterAsset
+
+    def vrt_generation_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.raster.models import VrtGeneration
+
+        return VrtGeneration
+
+    def record_embedding_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.models import RecordEmbedding
+
+        return RecordEmbedding
+
+    def vrt_mutation_response_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import VrtMutationResponse
+
+        return VrtMutationResponse
+
+    def presigned_complete_request_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import PresignedCompleteRequest
+
+        return PresignedCompleteRequest
+
+    def presigned_upload_request_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import PresignedUploadRequest
+
+        return PresignedUploadRequest
+
+    def presigned_upload_response_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import PresignedUploadResponse
+
+        return PresignedUploadResponse
+
+    def upload_response_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import UploadResponse
+
+        return UploadResponse
+
+    def visibility_default(self) -> str:
+        return "private"
+
+    async def compute_quality_score(self, session, table_name, column_info, dataset):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import compute_quality_score
+
+        return await compute_quality_score(session, table_name, column_info, dataset)
+
+    def quote_table(self, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _qtable
+
+        return _qtable(table_name)
+
+    async def generate_table_name(self, title, session):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import generate_table_name
+
+        return await generate_table_name(title, session)
+
+    def validate_file_content(self, file_path, filename):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.validation import validate_file_content
+
+        return validate_file_content(file_path, filename)
+
+    def validate_file_extension(self, filename, allowed):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import validate_file_extension
+
+        return validate_file_extension(filename, allowed)
+
+    async def create_ingest_job(self, session, filename, file_path, user_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import create_ingest_job
+
+        return await create_ingest_job(session, filename, file_path, user_id)
+
+    async def save_upload_file(self, file, job_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import save_upload_file
+
+        return await save_upload_file(file, job_id)
+
+    async def resolve_file_path(self, file_path, job_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import resolve_file_path
+
+        return await resolve_file_path(file_path, job_id)
+
+    async def run_ogrinfo_preview(self, file_path, *, layer_name=None, sample_limit=5):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.ogr import run_ogrinfo_preview
+
+        return await run_ogrinfo_preview(
+            file_path, layer_name=layer_name, sample_limit=sample_limit
+        )
+
+    def reupload_file_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_file
+
+        return reupload_file
+
+    def reupload_service_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_service
+
+        return reupload_service
+
+    def ingest_part_size(self) -> int:
+        from app.processing.ingest.router import PART_SIZE
+
+        return PART_SIZE
+
+    def safe_content_disposition(self, filename):  # type: ignore[no-untyped-def]
+        from app.processing.export.service import safe_content_disposition
+
+        return safe_content_disposition(filename)
+
+    def extract_srid_from_json(self, coordinate_system):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.ogr import extract_srid_from_json
+
+        return extract_srid_from_json(coordinate_system)
+
+    def resolve_service_type(self, raw):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import resolve_service_type
+
+        return resolve_service_type(raw)
+
+    def humanize_column_name(self, column_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _humanize_column_name
+
+        return _humanize_column_name(column_name)
+
+    def infer_units(self, column_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _infer_units
+
+        return _infer_units(column_name)
+
+    def infer_semantic_role(self, field_name, data_type):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _infer_semantic_role
+
+        return _infer_semantic_role(field_name, data_type)
+
+    def infer_domain_type(self, data_type):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _infer_domain_type
+
+        return _infer_domain_type(data_type)
+
+    def validate_table_name(self, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _validate_table_name
+
+        return _validate_table_name(table_name)
+
+    async def add_4326_column(self, session, table_name, source_srid):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import add_4326_column
+
+        return await add_4326_column(session, table_name, source_srid)
+
+    async def grant_reader_access(self, session, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import grant_reader_access
+
+        return await grant_reader_access(session, table_name)
+
+    async def get_column_info(self, session, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import get_column_info
+
+        return await get_column_info(session, table_name)
+
+    async def has_embeddings(self, session):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.helpers import has_embeddings
+
+        return await has_embeddings(session)
+
+    async def generate_embedding(self, text, session):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.service import generate_embedding
+
+        return await generate_embedding(text, session)
+
+    async def set_hnsw_recall(self, session):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.helpers import set_hnsw_recall
+
+        return await set_hnsw_recall(session)
+
+
 class DefaultAnthropicProvider:
     """Community-edition default: Anthropic native tool-calling loop (Phase 226 D-17).
 
