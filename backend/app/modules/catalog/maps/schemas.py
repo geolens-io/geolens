@@ -329,7 +329,10 @@ class SharedMapResponse(BaseModel):
 class ShareTokenRequest(BaseModel):
     expires_at: datetime | None = Field(
         default=None,
-        description="Expiration timestamp; null = never expires",
+        description=(
+            "Expiration timestamp. Null creates a basic non-expiring share link; "
+            "non-null expiration requires GeoLens Enterprise."
+        ),
     )
 
     @field_validator("expires_at")

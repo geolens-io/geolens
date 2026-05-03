@@ -227,7 +227,7 @@
     "restrictToDomains": "Restrict to domains",
     "domainHint": "Comma-separated origins. Leave empty for unrestricted access.",
     "visibilityLabel": "Map visibility: {{status}}",
-    "embedTokenFailed": "Failed to create embed token. Domain restriction may not be applied.",
+    "embedTokenFailed": "Failed to create embed token.",
     "openShareLink": "Open in new tab",
     "summaryExpires": "Expires",
     "summaryNever": "Never",

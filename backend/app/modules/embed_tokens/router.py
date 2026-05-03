@@ -63,7 +63,11 @@ async def create_embed_token_endpoint(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenCreatedResponse:
-    """Create an embed token scoped to a map's current layers."""
+    """Create an embed token scoped to a map's current layers.
+
+    Community supports the default 30-day unrestricted token. Custom lifetimes
+    and non-empty origin restrictions require GeoLens Enterprise.
+    """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
@@ -135,7 +139,10 @@ async def update_embed_token_endpoint(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
-    """Update embed token allowed_origins."""
+    """Update embed token allowed_origins.
+
+    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
