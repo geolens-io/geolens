@@ -38,14 +38,15 @@ fi
 export HOME="${APP_HOME}"
 export XDG_CACHE_HOME="${APP_CACHE_DIR}"
 export UV_CACHE_DIR
+export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Install enterprise extensions if mounted
-# Uses `uv add --editable` so the package is visible in the uv-managed venv
-# that `uv run python -m app.worker` uses.
+# Uses `uv add --editable --no-dev` so the package is visible in the
+# uv-managed production venv that `uv run --no-dev python -m app.worker` uses.
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
     echo "Installing enterprise extensions..."
-    uv add --editable "${ENTERPRISE_PATH}" 2>&1 || {
+    uv add --editable "${ENTERPRISE_PATH}" --no-dev 2>&1 || {
         echo "WARNING: Enterprise package install failed" >&2
     }
     # Re-own cache after root install so appuser can access it later
@@ -55,7 +56,7 @@ if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; th
 fi
 
 if [ "$#" -eq 0 ]; then
-    set -- sh -c "uv run python -m app.worker"
+    set -- sh -c "uv run --no-dev python -m app.worker"
 fi
 
 if [ "$(id -u)" -eq 0 ]; then

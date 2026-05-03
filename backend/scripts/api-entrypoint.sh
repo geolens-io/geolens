@@ -38,15 +38,17 @@ fi
 export HOME="${APP_HOME}"
 export XDG_CACHE_HOME="${APP_CACHE_DIR}"
 export UV_CACHE_DIR
+export PYTHONPATH="/app${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Install enterprise extensions if mounted
-# Uses `uv add --editable` so the package is visible in the uv-managed venv
-# that `uv run uvicorn` uses. Plain `uv pip install` would install to system
+# Uses `uv add --editable --no-dev` so the package is visible in the
+# uv-managed production venv that `uv run --no-dev uvicorn` uses.
+# Plain `uv pip install` would install to system
 # Python which is invisible to the project environment.
 ENTERPRISE_PATH="${GEOLENS_ENTERPRISE_PATH:-/enterprise}"
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
     echo "Installing enterprise extensions..."
-    uv add --editable "${ENTERPRISE_PATH}" 2>&1 || {
+    uv add --editable "${ENTERPRISE_PATH}" --no-dev 2>&1 || {
         echo "WARNING: Enterprise package install failed" >&2
     }
     # Re-own cache after root install so appuser can access it later
@@ -61,16 +63,16 @@ echo "Running database migrations..."
 migration_rc=0
 if [ "$(id -u)" -eq 0 ]; then
     setpriv --reuid="${APP_UID}" --regid="${APP_GID}" --clear-groups \
-        uv run alembic upgrade head 2>&1 || migration_rc=$?
+        uv run --no-dev alembic upgrade head 2>&1 || migration_rc=$?
 else
-    uv run alembic upgrade head 2>&1 || migration_rc=$?
+    uv run --no-dev alembic upgrade head 2>&1 || migration_rc=$?
 fi
 if [ "${migration_rc}" -ne 0 ]; then
     echo "WARNING: alembic upgrade head exited with code ${migration_rc} — migrations may already be applied by the migrate service, or a real error occurred. Check migrate service logs if the API fails to start." >&2
 fi
 
 if [ "$#" -eq 0 ]; then
-    set -- sh -c "uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+    set -- sh -c "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
 fi
 
 if [ "$(id -u)" -eq 0 ]; then

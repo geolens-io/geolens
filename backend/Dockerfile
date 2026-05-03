@@ -9,9 +9,12 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
 
 WORKDIR /app
 
+# Refresh base image packages before installing runtime dependencies so
+# release scans pick up patched OpenSSL/libssl packages from Debian.
 # Install GDAL/ogr2ogr for geospatial file processing
 # libexpat1 is required for rasterio manylinux wheel on slim base
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
     gdal-bin \
     libexpat1 \
     xmlsec1 libxmlsec1-openssl \
@@ -25,6 +28,7 @@ RUN groupadd --system --gid 1001 appgroup && \
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 ENV UV_SYSTEM_PYTHON=1
+ENV PYTHONPATH=/app
 
 # Install dependencies first (cached layer)
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -49,4 +53,4 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
 USER appuser
 
 ENTRYPOINT ["/app/scripts/api-entrypoint.sh"]
-CMD ["sh", "-c", "uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
