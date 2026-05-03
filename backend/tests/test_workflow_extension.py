@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+import uuid
 
+from fastapi import HTTPException
 import pytest
 
 
@@ -36,6 +38,41 @@ def _context(from_status: str, to_status: str, *, mode: str = "status"):
         to_status=to_status,
         mode=mode,
     )
+
+
+def _dataset(record_status: str):
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        record=SimpleNamespace(record_status=record_status),
+    )
+
+
+class _FakeScalarResult:
+    def __init__(self, dataset):
+        self._dataset = dataset
+
+    def unique(self):
+        return self
+
+    def scalar_one_or_none(self):
+        return self._dataset
+
+
+class _FakeDB:
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self.committed = False
+        self.refreshed = None
+
+    async def execute(self, stmt):
+        self.statement = stmt
+        return _FakeScalarResult(self.dataset)
+
+    async def commit(self):
+        self.committed = True
+
+    async def refresh(self, dataset):
+        self.refreshed = dataset
 
 
 def test_default_workflow_extension_registered():
@@ -135,3 +172,106 @@ async def test_overlay_workflow_extension_is_dispatched():
     assert await extension.allowed_transitions(context) == {"review"}
     await extension.on_transition(context)
     assert context.dataset.transition_seen is True
+
+
+@pytest.mark.asyncio
+async def test_status_endpoint_uses_overlay_added_transition():
+    """The /status/ endpoint can accept overlay-added transitions."""
+    import app.platform.extensions as ext_mod
+    from app.modules.catalog.datasets.api.router_data import update_publication_status
+    from app.modules.catalog.datasets.domain.schemas import StatusUpdate
+    from app.platform.extensions.defaults import DefaultWorkflowExtension
+
+    class DirectPublishWorkflow(DefaultWorkflowExtension):
+        async def allowed_transitions(self, context):
+            allowed = await super().allowed_transitions(context)
+            if context.from_status == "ready":
+                allowed.add("published")
+            return allowed
+
+    dataset = _dataset("ready")
+    db = _FakeDB(dataset)
+    ext_mod._extensions["workflow"] = DirectPublishWorkflow()
+
+    response = await update_publication_status(
+        dataset.id,
+        StatusUpdate(status="published"),
+        SimpleNamespace(),
+        SimpleNamespace(id="admin"),
+        db,
+    )
+
+    assert response.record_status == "published"
+    assert dataset.record.record_status == "published"
+    assert db.committed is True
+    assert db.refreshed is dataset
+
+
+@pytest.mark.asyncio
+async def test_target_status_endpoint_observes_each_intermediate_transition():
+    """The /target-status/ endpoint calls on_transition for every step."""
+    import app.platform.extensions as ext_mod
+    from app.modules.catalog.datasets.api.router_data import set_target_status
+    from app.modules.catalog.datasets.domain.schemas import StatusUpdate
+    from app.platform.extensions.defaults import DefaultWorkflowExtension
+
+    observed: list[tuple[str, str, str]] = []
+
+    class ObservingWorkflow(DefaultWorkflowExtension):
+        async def on_transition(self, context) -> None:
+            observed.append((context.from_status, context.to_status, context.mode))
+
+    dataset = _dataset("draft")
+    db = _FakeDB(dataset)
+    ext_mod._extensions["workflow"] = ObservingWorkflow()
+
+    response = await set_target_status(
+        dataset.id,
+        StatusUpdate(status="published"),
+        SimpleNamespace(),
+        SimpleNamespace(id="admin"),
+        db,
+    )
+
+    assert response.record_status == "published"
+    assert observed == [
+        ("draft", "ready", "target_status"),
+        ("ready", "internal", "target_status"),
+        ("internal", "published", "target_status"),
+    ]
+    assert db.committed is True
+
+
+@pytest.mark.asyncio
+async def test_target_status_endpoint_uses_overlay_block():
+    """The /target-status/ endpoint returns 422 when an overlay blocks a step."""
+    import app.platform.extensions as ext_mod
+    from app.modules.catalog.datasets.api.router_data import set_target_status
+    from app.modules.catalog.datasets.domain.schemas import StatusUpdate
+    from app.platform.extensions.defaults import DefaultWorkflowExtension
+
+    class BlockingWorkflow(DefaultWorkflowExtension):
+        async def allowed_transitions(self, context):
+            if (
+                context.from_status == "internal"
+                and context.to_status == "published"
+            ):
+                return set()
+            return await super().allowed_transitions(context)
+
+    dataset = _dataset("draft")
+    db = _FakeDB(dataset)
+    ext_mod._extensions["workflow"] = BlockingWorkflow()
+
+    with pytest.raises(HTTPException) as exc:
+        await set_target_status(
+            dataset.id,
+            StatusUpdate(status="published"),
+            SimpleNamespace(),
+            SimpleNamespace(id="admin"),
+            db,
+        )
+
+    assert exc.value.status_code == 422
+    assert "Cannot transition from 'internal' to 'published'" in exc.value.detail
+    assert db.committed is False
