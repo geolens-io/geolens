@@ -9,6 +9,7 @@ env:
   REGISTRY: ghcr.io
 
 permissions:
+  actions: read
   contents: read
   packages: write
   id-token: write
