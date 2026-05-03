@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 if TYPE_CHECKING:
+    from app.core.identity import Identity
     from app.modules.catalog.datasets.domain.schemas import DatasetMeta
 
 from sqlalchemy import func, select, text
@@ -19,6 +20,8 @@ from app.modules.catalog.datasets.domain.models import (
     Dataset,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
+from app.platform.extensions import get_workflow_extension
+from app.platform.extensions.protocols import WorkflowTransitionContext
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -157,9 +160,31 @@ async def _apply_record_status_change(
     record: Any,
     dataset: Dataset,
     new_status: str,
+    actor: "Identity | None" = None,
 ) -> bool:
     """Set record.record_status; on transition TO published, validate metadata."""
-    if new_status == "published" and record.record_status != "published":
+    current_status = record.record_status
+    if new_status == current_status:
+        record.record_status = new_status
+        return True
+
+    workflow = get_workflow_extension()
+    context = WorkflowTransitionContext(
+        session=session,
+        dataset=dataset,
+        actor=actor,
+        from_status=current_status,
+        to_status=new_status,
+        mode="metadata_patch",
+    )
+    allowed = await workflow.allowed_transitions(context)
+    if new_status not in allowed:
+        raise ValueError(
+            f"Cannot transition from '{current_status}' to '{new_status}'. "
+            f"Allowed: {allowed}"
+        )
+
+    if new_status == "published" and current_status != "published":
         from app.core.persistent_config import REQUIRE_METADATA_FOR_PUBLISH
 
         require_metadata = await REQUIRE_METADATA_FOR_PUBLISH.get(session)
@@ -172,6 +197,7 @@ async def _apply_record_status_change(
                 raise ValueError(f"Cannot publish: {'; '.join(error_msgs)}")
         record.published_at = func.now()
     record.record_status = new_status
+    await workflow.on_transition(context)
     return True
 
 
@@ -215,6 +241,7 @@ async def update_user_metadata(
     meta: "DatasetMeta",
     *,
     actor_id: uuid.UUID | None = None,
+    actor: "Identity | None" = None,
 ) -> Dataset:
     """Update user-editable fields including extended metadata.
 
@@ -240,7 +267,7 @@ async def update_user_metadata(
     if meta.record_status is not None:
         mutated_flags.append(
             await _apply_record_status_change(
-                session, record, dataset, meta.record_status
+                session, record, dataset, meta.record_status, actor
             )
         )
     if meta.is_dem is not None:
