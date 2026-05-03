@@ -92,7 +92,7 @@
 4. A test overlay can block, add, or observe transitions without modifying core.
 5. Tests or architecture guards fail if dataset publication code bypasses the extension.
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -102,7 +102,7 @@ Plans:
 - [x] 233-02-route-publication-endpoints-PLAN.md — Route /status/ and /target-status/ through WorkflowExtension while preserving Community behavior.
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 233-03-metadata-custom-state-PLAN.md — Relax record_status persistence and route metadata PATCH status writes through WorkflowExtension.
+- [x] 233-03-metadata-custom-state-PLAN.md — Relax record_status persistence and route metadata PATCH status writes through WorkflowExtension.
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 233-04-guard-and-verification-PLAN.md — Add workflow bypass architecture guard, negative-control proof, and phase verification artifact.
