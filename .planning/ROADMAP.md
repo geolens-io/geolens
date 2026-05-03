@@ -55,7 +55,7 @@
 - [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
 - [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
 - [ ] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−)
-- [ ] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py`
+- [x] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py` (COMPLETE — 2026-05-03)
 - [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A−
 
 #### Phase 225: processing-port-protocol-cycle-inversion
@@ -218,7 +218,7 @@ Plans:
 - [x] 231-02-PLAN.md — caller-migration + helpers.py deletion: migrate generate_embedding + probe_embedding_dimensions to provider dispatch (D-12 hardcoded "openai_compatible"); DELETE helpers.py:8 from openai import OpenAI + _cached_openai_clients + build_openai_client + resolve_embedding_base_url + import httpx; migrate 4 of 5 test_embedding_service.py tests to provider-boundary mocks per D-27; SC#3 binding satisfied (Wave 2, EMBPROV-03/05a/05c)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 231-03-PLAN.md — architecture-guard rename + final verification: rename test_no_module_level_provider_sdk_imports_in_processing_ai → test_no_module_level_provider_sdk_imports_in_processing (D-13); broaden pathspec to backend/app/processing/ (D-14); delete carve-out paragraph; update negative-control example to embeddings (D-15); update test_layering.py module docstring crediting Phase 231 (D-16); automated negative-control demo (Wave 3, EMBPROV-04)
+- [x] 231-03-PLAN.md — architecture-guard rename + final verification: rename test_no_module_level_provider_sdk_imports_in_processing_ai → test_no_module_level_provider_sdk_imports_in_processing (D-13); broaden pathspec to backend/app/processing/ (D-14); delete carve-out paragraph; update negative-control example to embeddings (D-15); update test_layering.py module docstring crediting Phase 231 (D-16); automated negative-control demo (Wave 3, EMBPROV-04)
 
 #### Phase 229: post-impl-audit-v13.4
 
