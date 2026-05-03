@@ -96,11 +96,11 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           if [ "${VERSION}" = "latest" ]; then
-            gh release view --repo "${REPOSITORY}" --json tagName,isLatest,url
+            gh release view --repo "${REPOSITORY}" --json tagName,isDraft,isPrerelease,url
           else
             case "${VERSION}" in
               v*) TAG="${VERSION}" ;;
               *) TAG="v${VERSION}" ;;
             esac
-            gh release view "${TAG}" --repo "${REPOSITORY}" --json tagName,isLatest,url
+            gh release view "${TAG}" --repo "${REPOSITORY}" --json tagName,isDraft,isPrerelease,url
           fi
