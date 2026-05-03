@@ -23,7 +23,7 @@
 - [x] **WORK-02**: The default workflow implementation preserves the current `draft -> ready -> internal -> published` lifecycle, status ordering, audit behavior, and API responses.
 - [x] **WORK-03**: Dataset publication endpoints consult the workflow extension for every status transition instead of directly relying on hardcoded transition dictionaries.
 - [x] **WORK-04**: A test overlay can block, add, or observe a workflow transition without modifying core files.
-- [ ] **WORK-05**: Architecture or regression tests prevent future bypasses of the workflow extension at dataset publication transition call sites.
+- [x] **WORK-05**: Architecture or regression tests prevent future bypasses of the workflow extension at dataset publication transition call sites.
 
 ### Governance Contract Verification
 
@@ -87,7 +87,7 @@ Explicitly excluded from v13.5.
 | WORK-02 | Phase 233 | Complete |
 | WORK-03 | Phase 233 | Complete |
 | WORK-04 | Phase 233 | Complete |
-| WORK-05 | Phase 233 | Pending |
+| WORK-05 | Phase 233 | Complete |
 | SHARE-01 | Phase 234 | Pending |
 | SHARE-02 | Phase 234 | Pending |
 | SHARE-03 | Phase 234 | Pending |

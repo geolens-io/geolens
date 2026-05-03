@@ -52,7 +52,7 @@
 ### Active Phases — v13.5 Enterprise Governance Seams
 
 - [x] **Phase 232: permission-extension-protocol** — Add a first-class `PermissionExtension` seam for action checks and catalog visibility filtering. (completed 2026-05-03)
-- [ ] **Phase 233: workflow-extension-protocol** — Add a first-class `WorkflowExtension` seam for publication lifecycle transitions and transition hooks.
+- [x] **Phase 233: workflow-extension-protocol** — Add a first-class `WorkflowExtension` seam for publication lifecycle transitions and transition hooks. (completed 2026-05-03)
 - [ ] **Phase 234: governance-contract-verification** — Verify advanced-sharing gates and GTM/API/UI copy stay aligned after the 2026-05-03 Branch A fix.
 - [ ] **Phase 235: post-impl-audit-v13.5** — Run the close audit and verify Seam Quality, Boundary Integrity, and Inventory Accuracy targets.
 
@@ -92,7 +92,7 @@
 4. A test overlay can block, add, or observe transitions without modifying core.
 5. Tests or architecture guards fail if dataset publication code bypasses the extension.
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -105,7 +105,7 @@ Plans:
 - [x] 233-03-metadata-custom-state-PLAN.md — Relax record_status persistence and route metadata PATCH status writes through WorkflowExtension.
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 233-04-guard-and-verification-PLAN.md — Add workflow bypass architecture guard, negative-control proof, and phase verification artifact.
+- [x] 233-04-guard-and-verification-PLAN.md — Add workflow bypass architecture guard, negative-control proof, and phase verification artifact.
 
 #### Phase 234: governance-contract-verification
 
