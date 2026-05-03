@@ -204,6 +204,10 @@ class TestReuploadOrphanGuard:
             failing_defer = AsyncMock(
                 side_effect=RuntimeError("reupload_service queue down")
             )
+            mock_port = MagicMock()
+            mock_task = MagicMock()
+            mock_task.defer_async = failing_defer
+            mock_port.reupload_service_task.return_value = mock_task
 
             with (
                 patch(
@@ -211,10 +215,10 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.reupload_service"
-                ) as mock_task,
+                    "app.modules.catalog.datasets.api.router_reupload.get_catalog_port",
+                    return_value=mock_port,
+                ),
             ):
-                mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
                     await reupload_commit(
                         dataset_id, job.id, request, mock_user, mock_db
@@ -249,6 +253,14 @@ class TestReuploadOrphanGuard:
             request = ReuploadCommitRequest(token=None)
 
             failing_defer = AsyncMock(side_effect=RuntimeError("priority queue dead"))
+            mock_port = MagicMock()
+            mock_task = MagicMock()
+            priority_task = MagicMock()
+            priority_task.defer_async = failing_defer
+            mock_task.configure.return_value = priority_task
+            mock_task.defer_async = failing_defer
+            mock_port.reupload_file_task.return_value = mock_task
+            mock_port.priority_queue_threshold_bytes = 10_000_000
 
             with (
                 patch(
@@ -256,13 +268,10 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.reupload_file"
-                ) as mock_task,
+                    "app.modules.catalog.datasets.api.router_reupload.get_catalog_port",
+                    return_value=mock_port,
+                ),
             ):
-                priority_task = MagicMock()
-                priority_task.defer_async = failing_defer
-                mock_task.configure.return_value = priority_task
-                mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
                     await reupload_commit(
                         dataset_id, job.id, request, mock_user, mock_db
@@ -294,6 +303,11 @@ class TestReuploadOrphanGuard:
             request = ReuploadCommitRequest(token=None)
 
             failing_defer = AsyncMock(side_effect=RuntimeError("default queue dead"))
+            mock_port = MagicMock()
+            mock_task = MagicMock()
+            mock_task.defer_async = failing_defer
+            mock_port.reupload_file_task.return_value = mock_task
+            mock_port.priority_queue_threshold_bytes = 10_000_000
 
             with (
                 patch(
@@ -301,10 +315,10 @@ class TestReuploadOrphanGuard:
                     new=AsyncMock(return_value=mock_dataset),
                 ),
                 patch(
-                    "app.modules.catalog.datasets.api.router_reupload.reupload_file"
-                ) as mock_task,
+                    "app.modules.catalog.datasets.api.router_reupload.get_catalog_port",
+                    return_value=mock_port,
+                ),
             ):
-                mock_task.defer_async = failing_defer
                 with pytest.raises(HTTPException) as exc_info:
                     await reupload_commit(
                         dataset_id, job.id, request, mock_user, mock_db
