@@ -282,7 +282,7 @@ jobs:
       POSTGRES_PASSWORD: geolens_test
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
-      POSTGRES_DB: geolens_test
+      POSTGRES_DB: postgres
       # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
       JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
       GEOLENS_ADMIN_USERNAME: admin
@@ -319,13 +319,13 @@ jobs:
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
           docker run -d --name test-postgres \
-            -e POSTGRES_DB=geolens_test \
+            -e POSTGRES_DB=postgres \
             -e POSTGRES_USER=geolens \
             -e POSTGRES_PASSWORD=geolens_test \
             -p 5432:5432 \
             geolens-test-db
           for i in $(seq 1 30); do
-            if docker exec test-postgres pg_isready -U geolens -d geolens_test >/dev/null 2>&1; then
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
               echo "PostgreSQL is ready"
               break
             fi
@@ -353,6 +353,12 @@ jobs:
         run: |
           if [ -d "../geolens-enterprise" ] && [ -f "../geolens-enterprise/pyproject.toml" ]; then
             uv add --editable ../geolens-enterprise
+            # pysaml2 7.5.4 can resolve pyOpenSSL 22.x, which breaks against
+            # the backend's patched cryptography line in CI. Force a compatible
+            # runtime wheel after installing the editable overlay and keep uv
+            # from syncing the resolver's stale transitive choice back in.
+            uv pip install "pyOpenSSL>=25.3.0"
+            echo "UV_NO_SYNC=1" >> $GITHUB_ENV
             echo "OVERLAY_INSTALLED=1" >> $GITHUB_ENV
             echo "geolens-enterprise installed; lifecycle marker will be collected"
           else
@@ -362,14 +368,14 @@ jobs:
 
       - name: Set up database extensions, roles, and schemas
         run: |
-          PGPASSWORD=geolens_test psql -h localhost -U geolens -d geolens_test -c "
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
             CREATE EXTENSION IF NOT EXISTS postgis;
             CREATE EXTENSION IF NOT EXISTS pg_trgm;
             CREATE EXTENSION IF NOT EXISTS vector;
             CREATE EXTENSION IF NOT EXISTS unaccent;
             CREATE SCHEMA IF NOT EXISTS catalog;
             CREATE SCHEMA IF NOT EXISTS data;
-            ALTER DATABASE geolens_test SET search_path TO catalog, data, public;
+            ALTER DATABASE postgres SET search_path TO catalog, data, public;
             DO \$\$ BEGIN
               IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
                 CREATE ROLE geolens_reader NOLOGIN;

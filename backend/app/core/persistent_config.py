@@ -18,9 +18,9 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.service import AuditEvent, audit_emit
 from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
+from app.platform.audit import AuditEvent, audit_emit
 from app.core.config import settings
 from app.core.public_urls import (
     _is_env_only,
@@ -637,9 +637,8 @@ ENABLED_WIDGETS = PersistentConfig[list[str] | None](
 
 
 # -- Permissions tab --
-# Import DEFAULT_ROLE_PERMISSIONS lazily to avoid circular imports
 def _default_role_permissions() -> dict:
-    from app.modules.auth.permissions import DEFAULT_ROLE_PERMISSIONS
+    from app.core.permissions import DEFAULT_ROLE_PERMISSIONS
 
     return DEFAULT_ROLE_PERMISSIONS
 

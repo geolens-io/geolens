@@ -3,9 +3,8 @@
 Uses only stdlib types where possible. AsyncSession (Phase 222 / Phase 214
 precedent at ``app/core/identity.py:29``) is imported because Protocol method
 signatures need the type and SQLAlchemy does not import from ``app.modules.*``.
-``AuditEvent`` is forward-referenced via ``TYPE_CHECKING`` to avoid an
-``platform.extensions → modules.audit.events`` edge that would invert the
-layering Phase 212/214 closed.
+``AuditEvent`` is forward-referenced via ``TYPE_CHECKING`` to avoid loading
+the audit facade at Protocol import time.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from app.modules.audit.events import AuditEvent
+    from app.platform.audit import AuditEvent
     from app.processing.ai.llm_loop import (
         ActionCollector,
         ToolExecutor,
