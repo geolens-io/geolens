@@ -144,7 +144,13 @@ async def update_embed_token_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    token = await update_embed_token(db, token_id, map_id, body.allowed_origins)
+    try:
+        token = await update_embed_token(db, token_id, map_id, body.allowed_origins)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
