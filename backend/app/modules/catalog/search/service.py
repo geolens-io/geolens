@@ -41,18 +41,14 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.modules.catalog.datasets.domain.utils import extract_bbox
-from app.processing.embeddings.helpers import has_embeddings
-from app.processing.embeddings.models import RecordEmbedding
-from app.processing.embeddings.service import (
-    EmbeddingUnavailableError,
-    generate_embedding,
-)
 from app.standards.ogc.utils import build_url
 from app.core.persistent_config import EMBEDDING_MODEL, SEMANTIC_SEARCH_ENABLED
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.core.geo import make_bbox_filter
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
+EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class()
 
 
 class FacetCounts(TypedDict):
@@ -253,12 +249,14 @@ async def _get_vector_ranks(
     Returns an empty dict on any failure (silent fallback).
     """
     # Check if any embeddings exist at all
-    if not await has_embeddings(session):
+    if not await get_catalog_port().has_embeddings(session):
         return {}
 
     # Generate query embedding
     try:
-        query_vector = await generate_embedding(query_text.strip(), session)
+        query_vector = await get_catalog_port().generate_embedding(
+            query_text.strip(), session
+        )
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
         return {}
@@ -273,9 +271,8 @@ async def _get_vector_ranks(
         model_name = await EMBEDDING_MODEL.get(session)
 
         # Tune HNSW recall — default ef_search=40 may miss relevant results
-        from app.processing.embeddings.helpers import set_hnsw_recall
-
-        await set_hnsw_recall(session)
+        await get_catalog_port().set_hnsw_recall(session)
+        RecordEmbedding = get_catalog_port().record_embedding_orm_class()
 
         # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
         vector_stmt = (
