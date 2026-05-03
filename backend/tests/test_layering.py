@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, 230, 231, and 232.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, 230, 231, 232, and 233.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -29,6 +29,9 @@ Enforces open-core boundaries closed by:
 - Phase 232 PERM-05 - known permission/visibility chokepoints must route
   through PermissionExtension: require_permission(), apply_visibility_filter(),
   and dataset detail access helpers.
+- Phase 233 WORK-05 - known dataset publication transition chokepoints must
+  route through WorkflowExtension: /status/, /target-status/, and metadata
+  PATCH record_status writes.
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -41,6 +44,7 @@ Scope:
 - `from app.modules.auth.visibility` anywhere under `backend/` (Phase 213 LAYER-02)
 - Broader `auth.visibility` reference catch (Phase 213 LAYER-02)
 - PermissionExtension chokepoint delegation (Phase 232 PERM-05)
+- WorkflowExtension publication chokepoint delegation (Phase 233 WORK-05)
 - `from app.modules.auth.models import .*\\bUser\\b` outside the 18-file
   allowlist (Phase 214 IDENT-02 - pathspec excludes auth/**, admin/**,
   audit/{models,service}.py, api/main.py, processing/ingest/tasks_raster.py,
@@ -313,6 +317,71 @@ def test_permission_chokepoints_use_extension() -> None:
             "delegate access decisions to PermissionExtension. Expected "
             "get_permission_extension().can_access_dataset(...) in "
             f"{catalog_path.relative_to(REPO_ROOT)}."
+        )
+
+
+@pytest.mark.architecture
+def test_workflow_publication_chokepoints_use_extension() -> None:
+    """Phase 233 WORK-05: known publication transitions use WorkflowExtension.
+
+    This guard is intentionally narrow. It checks the two publication endpoints
+    plus the metadata PATCH record_status helper, and it does not scan seed,
+    ingest, or factory paths that assign initial record_status values.
+    """
+    router_path = REPO_ROOT / "backend/app/modules/catalog/datasets/api/router_data.py"
+    metadata_path = (
+        REPO_ROOT / "backend/app/modules/catalog/datasets/domain/service_metadata.py"
+    )
+
+    router_source = router_path.read_text()
+    metadata_source = metadata_path.read_text()
+
+    status_idx = router_source.find("async def update_publication_status")
+    target_idx = router_source.find("async def set_target_status")
+    if status_idx == -1 or target_idx == -1:
+        pytest.fail("publication status endpoint boundary not found in router_data.py")
+    status_block = router_source[status_idx:target_idx]
+    target_block = router_source[target_idx:]
+
+    for label, block, mode in (
+        ("/status/", status_block, 'mode="status"'),
+        ("/target-status/", target_block, 'mode="target_status"'),
+    ):
+        if (
+            "get_workflow_extension()" not in block
+            or "WorkflowTransitionContext(" not in block
+            or ".allowed_transitions(" not in block
+            or ".on_transition(" not in block
+            or mode not in block
+        ):
+            pytest.fail(
+                "Phase 233 WORK-05 invariant violated: "
+                f"{label} must delegate publication transitions to "
+                "WorkflowExtension. Expected get_workflow_extension(), "
+                "WorkflowTransitionContext, allowed_transitions(...), "
+                f"on_transition(...), and {mode} in "
+                f"{router_path.relative_to(REPO_ROOT)}."
+            )
+
+    metadata_idx = metadata_source.find("async def _apply_record_status_change")
+    is_dem_idx = metadata_source.find("async def _apply_is_dem")
+    if metadata_idx == -1 or is_dem_idx == -1:
+        pytest.fail("metadata record_status helper boundary not found")
+    metadata_block = metadata_source[metadata_idx:is_dem_idx]
+    if (
+        "get_workflow_extension()" not in metadata_block
+        or "WorkflowTransitionContext(" not in metadata_block
+        or ".allowed_transitions(" not in metadata_block
+        or ".on_transition(" not in metadata_block
+        or 'mode="metadata_patch"' not in metadata_block
+    ):
+        pytest.fail(
+            "Phase 233 WORK-05 invariant violated: metadata PATCH record_status "
+            "writes must delegate to WorkflowExtension. Expected "
+            "get_workflow_extension(), WorkflowTransitionContext, "
+            "allowed_transitions(...), on_transition(...), and "
+            "mode=\"metadata_patch\" in "
+            f"{metadata_path.relative_to(REPO_ROOT)}."
         )
 
 
