@@ -24,6 +24,43 @@ from app.modules.catalog.maps.service import create_share_token, update_share_to
 from tests.factories import create_dataset, get_user_id
 
 
+def test_maps_service_facade_exports_public_api() -> None:
+    """The public maps service facade preserves existing caller imports."""
+    from app.modules.catalog.maps import service
+
+    required = {
+        "DatasetMeta",
+        "LayerRow",
+        "check_map_ownership",
+        "get_dataset_meta",
+        "generate_default_style",
+        "create_map",
+        "get_map",
+        "get_map_with_layers",
+        "list_maps",
+        "update_map",
+        "delete_map",
+        "bulk_check_dataset_access",
+        "duplicate_map",
+        "add_layer",
+        "remove_layer",
+        "validate_public_visibility",
+        "find_public_maps_using_dataset",
+        "create_share_token",
+        "update_share_token",
+        "get_active_share_token",
+        "get_shared_map",
+        "list_share_tokens",
+        "revoke_share_token",
+        "get_maps_for_dataset",
+        "revoke_share_token_by_map",
+    }
+
+    assert required.issubset(set(service.__all__))
+    missing = {name for name in required if not hasattr(service, name)}
+    assert missing == set()
+
+
 def _future_expires_at() -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=7)
 
