@@ -38,7 +38,7 @@ from app.modules.catalog.datasets.domain.service import (
     get_related_datasets,
 )
 from app.core.dependencies import get_db
-from app.processing.ingest.metadata import compute_quality_score
+from app.platform.extensions import get_catalog_port
 from app.modules.catalog.validation.schemas import (
     ValidationIssue as ValidationIssueSchema,
     ValidationResultResponse,
@@ -151,7 +151,7 @@ async def validate_dataset(
     validation = await run_validation(db, dataset.record, dataset)
 
     if refresh or dataset.quality_detail is None:
-        quality = await compute_quality_score(
+        quality = await get_catalog_port().compute_quality_score(
             db, dataset.table_name, dataset.column_info or [], dataset
         )
         dataset.quality_detail = quality

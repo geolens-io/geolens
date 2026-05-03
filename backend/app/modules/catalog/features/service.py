@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.processing.ingest.metadata import _qtable
+from app.platform.extensions import get_catalog_port
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
@@ -135,7 +135,7 @@ async def get_features(
 
     # Data query
     data_sql = (
-        f"SELECT {select_cols} FROM {_qtable(table_name)} t "
+        f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} t "
         f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
     )
     bind_values["limit"] = limit
@@ -152,7 +152,10 @@ async def get_features(
         count_bind = {
             k: v for k, v in bind_values.items() if k not in ("limit", "offset")
         }
-        count_sql = f"SELECT COUNT(*) FROM {_qtable(table_name)} t {where_sql}"
+        count_sql = (
+            f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)} "
+            f"t {where_sql}"
+        )
         count_result = await db.execute(text(count_sql).bindparams(**count_bind))
         total = count_result.scalar_one()
 
@@ -181,7 +184,8 @@ async def get_features_geojson_z(
     )
     # Fetch cap+1 to detect truncation without a separate COUNT query
     data_sql = (
-        f"SELECT {select_cols} FROM {_qtable(table_name)} t ORDER BY gid LIMIT :limit"
+        f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} "
+        "t ORDER BY gid LIMIT :limit"
     )
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]
@@ -197,7 +201,7 @@ async def get_features_geojson_z(
         # Use caller-supplied cached count to avoid extra query
         total_count = cached_feature_count
     else:
-        count_sql = f"SELECT COUNT(*) FROM {_qtable(table_name)}"
+        count_sql = f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)}"
         count_result = await db.execute(text(count_sql))
         total_count = count_result.scalar_one()
 
@@ -223,7 +227,10 @@ async def get_feature_by_id(
     else:
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
 
-    sql = f"SELECT {select_cols} FROM {_qtable(table_name)} t WHERE gid = :gid"
+    sql = (
+        f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} "
+        "t WHERE gid = :gid"
+    )
     result = await db.execute(text(sql).bindparams(gid=gid))
     row = result.first()
     if row is None:
@@ -305,7 +312,7 @@ async def insert_feature(
                 params[param_name] = value
 
     sql = (
-        f"INSERT INTO {_qtable(table_name)} ({', '.join(cols)}) "
+        f"INSERT INTO {get_catalog_port().quote_table(table_name)} ({', '.join(cols)}) "
         f"VALUES ({', '.join(vals)}) RETURNING gid"
     )
     result = await db.execute(text(sql).bindparams(**params))
@@ -349,7 +356,10 @@ async def replace_feature(
             sets.append(f'"{col_name}" = :{param}')
             params[param] = properties.get(col_name)
 
-    sql = f"UPDATE {_qtable(table_name)} SET {', '.join(sets)} WHERE gid = :gid"
+    sql = (
+        f"UPDATE {get_catalog_port().quote_table(table_name)} "
+        f"SET {', '.join(sets)} WHERE gid = :gid"
+    )
     result = await db.execute(text(sql).bindparams(**params))
     if result.rowcount == 0:
         raise ValueError("Feature not found")
@@ -397,7 +407,10 @@ async def update_feature(
     if not sets:
         raise ValueError("Nothing to update")
 
-    sql = f"UPDATE {_qtable(table_name)} SET {', '.join(sets)} WHERE gid = :gid"
+    sql = (
+        f"UPDATE {get_catalog_port().quote_table(table_name)} "
+        f"SET {', '.join(sets)} WHERE gid = :gid"
+    )
     result = await db.execute(text(sql).bindparams(**params))
     if result.rowcount == 0:
         raise ValueError("Feature not found")
@@ -418,7 +431,9 @@ async def delete_feature(
     Raises ValueError if the feature does not exist.
     """
     result = await db.execute(
-        text(f"DELETE FROM {_qtable(table_name)} WHERE gid = :gid").bindparams(gid=gid)
+        text(
+            f"DELETE FROM {get_catalog_port().quote_table(table_name)} WHERE gid = :gid"
+        ).bindparams(gid=gid)
     )
     if result.rowcount == 0:
         raise ValueError("Feature not found")
@@ -437,7 +452,7 @@ async def _refresh_count_and_extent(
             f"SELECT COUNT(*), "
             f"CASE WHEN ST_Extent(geom_4326) IS NULL THEN NULL "
             f"ELSE ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)) END "
-            f"FROM {_qtable(table_name)}"
+            f"FROM {get_catalog_port().quote_table(table_name)}"
         )
     )
     row = result.one()

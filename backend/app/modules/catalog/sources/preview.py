@@ -6,9 +6,10 @@ import os
 
 import structlog
 
-from app.processing.ingest.ogr import IngestionError, extract_srid_from_json
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
+IngestionError = get_catalog_port().ingestion_error_class()
 
 
 def build_gdal_source(
@@ -149,7 +150,7 @@ async def run_service_preview(
         if not coord_system:
             coord_system = geom_fields[0].get("coordinateSystem", {})
 
-    srid = extract_srid_from_json(coord_system or {})
+    srid = get_catalog_port().extract_srid_from_json(coord_system or {})
 
     result = {
         "srid": srid,

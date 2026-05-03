@@ -454,6 +454,11 @@ class DefaultCatalogPort:
 
         return RecordEmbedding
 
+    def embedding_unavailable_error_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.service import EmbeddingUnavailableError
+
+        return EmbeddingUnavailableError
+
     def vrt_mutation_response_model(self):  # type: ignore[no-untyped-def]
         from app.processing.ingest.schemas import VrtMutationResponse
 
@@ -538,6 +543,11 @@ class DefaultCatalogPort:
         from app.processing.ingest.tasks import reupload_service
 
         return reupload_service
+
+    def regenerate_vrt_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import regenerate_vrt
+
+        return regenerate_vrt
 
     def ingest_part_size(self) -> int:
         from app.processing.ingest.router import PART_SIZE
