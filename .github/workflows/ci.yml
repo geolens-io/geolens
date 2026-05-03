@@ -24,8 +24,8 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -55,15 +55,15 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -94,15 +94,15 @@ jobs:
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -125,15 +125,15 @@ jobs:
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -177,7 +177,7 @@ jobs:
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Start PostgreSQL with PostGIS + pgvector
         working-directory: .
@@ -203,12 +203,12 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -289,7 +289,7 @@ jobs:
       GEOLENS_ADMIN_PASSWORD: admin
       PYTHONPATH: .
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Probe enterprise token availability
         env:
@@ -303,7 +303,7 @@ jobs:
 
       - name: Checkout geolens-enterprise (skip on fork PRs without secret)
         if: env.HAS_ENTERPRISE_TOKEN == '1'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: geolens-io/geolens-enterprise
           token: ${{ secrets.GEOLENS_ENTERPRISE_TOKEN }}
@@ -333,13 +333,13 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -431,7 +431,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -465,7 +465,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
@@ -497,15 +497,15 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -533,7 +533,7 @@ jobs:
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create .env file
         run: |
