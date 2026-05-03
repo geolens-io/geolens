@@ -2,7 +2,11 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.core.edition import is_enterprise
+
+ADVANCED_SHARING_ERROR = "Advanced sharing controls require the GeoLens Enterprise overlay"
 
 
 def _normalize_origin(origin: str) -> str:
@@ -64,6 +68,14 @@ class EmbedTokenCreate(BaseModel):
     def validate_origins(cls, v: list[str] | None) -> list[str] | None:
         return _validate_origins(v)
 
+    @model_validator(mode="after")
+    def validate_enterprise_controls(self):
+        if not is_enterprise() and (
+            self.expires_in_days != 30 or bool(self.allowed_origins)
+        ):
+            raise ValueError(ADVANCED_SHARING_ERROR)
+        return self
+
 
 class EmbedTokenUpdate(BaseModel):
     allowed_origins: list[str] | None = Field(
@@ -76,6 +88,12 @@ class EmbedTokenUpdate(BaseModel):
     @classmethod
     def validate_origins(cls, v: list[str] | None) -> list[str] | None:
         return _validate_origins(v)
+
+    @model_validator(mode="after")
+    def validate_enterprise_controls(self):
+        if not is_enterprise() and bool(self.allowed_origins):
+            raise ValueError(ADVANCED_SHARING_ERROR)
+        return self
 
 
 class EmbedTokenResponse(BaseModel):
