@@ -247,7 +247,11 @@ Plans:
 3. Post-audit grade re-run records Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−** in the report's grades table.
 4. v13.4 milestone is unblocked for close — `/gsd-complete-milestone` runs without surfacing unresolved P1 findings.
 
-**Plans:** TBD
+**Plans:** 1 plan
+
+Plans:
+**Wave 1**
+- [ ] 229-01-PLAN.md — post-impl audit evidence pack: focused baseline checks, dated audit report, P1 disposition, grade table, verification artifact, and requirements/roadmap/state closeout (PIAUDIT-01/02/03)
 
 ---
 
