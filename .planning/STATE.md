@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.4
 milestone_name: Boundary Closeout
 status: executing
-stopped_at: Phase 228 Plan 02 complete; Plan 03 hot publish checkpoint ready
-last_updated: "2026-05-02T23:26:51Z"
-last_activity: 2026-05-02
+stopped_at: Phase 228 complete; Phase 231 Plan 03 architecture guard cleanup ready
+last_updated: "2026-05-03T01:55:00Z"
+last_activity: 2026-05-03
 progress:
   total_phases: 18
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 18
-  completed_plans: 15
-  percent: 83
+  completed_plans: 17
+  percent: 94
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 228 — run-cold-publish-workflows
+**Current focus:** Phase 231 — embedding-provider-extension-protocol
 
 ## Current Position
 
-Phase: 228 (run-cold-publish-workflows) — EXECUTING
-Plan: 3 of 4
-Status: Ready for hot publish checkpoints
-Last activity: 2026-05-02
+Phase: 231 (embedding-provider-extension-protocol) — EXECUTING
+Plan: 3 of 3
+Status: Ready for architecture-guard cleanup
+Last activity: 2026-05-03
 
 ## Roadmap Snapshot
 
@@ -57,15 +57,15 @@ Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 wit
 
 ## Next Action
 
-Phase 228 Plan 03 is next: trigger the `publish-sdks.yml` and `publish-cli.yml` dry-run/live publish checkpoints.
+Phase 228 is complete:
 
-Plan 02 credential setup is complete:
+- `geolens==1.0.0` is published on PyPI as the Python SDK.
+- `geolens-cli==1.0.0` is published on PyPI as the CLI distribution; the installed executable remains `geolens`.
+- `@geolens/sdk==1.0.0` is published on npm and verified from a clean Node container.
+- `verify-published.yml` passed in run `25266870449`.
+- `geolens-sdk` is not published on PyPI; remove the stale pending publisher from PyPI account settings if it still appears.
 
-- `NPM_TOKEN` exists in `geolens-io/geolens`; `PYPI_TOKEN` is absent.
-- `geolens` PyPI project exists and has the `publish-sdks.yml` Trusted Publisher configured for the Python SDK.
-- `geolens` PyPI project was bootstrapped with `geolens==0.0.0`; the pivot decision now makes `geolens` the Python SDK package, and the workflow gate permits first publishing `geolens==1.0.0`.
-- `geolens-cli` is now the CLI PyPI package name; it needs a pending publisher for `publish-cli.yml` before live CLI publish.
-- Temporary PyPI account token should be revoked now that bootstrap is complete.
+Next implementation action: finish Phase 231 Plan 03 (`test_no_module_level_provider_sdk_imports_in_processing` guard rename/pathspec broaden), then proceed to Phase 230.
 
 Phase 229 (post-impl audit gate) now depends on Phases 225, 226, 227, 228, 230, 231 — runs last.
 
@@ -98,7 +98,7 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 
 Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
 
-Tier C — external blocker resolved: Phase 228 Wave 2 credential setup completed 2026-05-02. Hot publish checkpoints remain in Phase 228 Wave 3.
+Tier C — external blocker resolved: Phase 228 completed 2026-05-03. SDK and CLI packages are live and clean-machine verification passed.
 
 ## Phase 218 / 219 close-gate record
 

@@ -43,7 +43,7 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 - Open-core boundary closed: `core/` no longer imports from `modules/settings/`; `auth/visibility.py` relocated to `catalog/authorization.py` with broadened architecture-guard (212, 213).
 - `IdentityProtocol` extracted: 51 cross-domain `User` import sites retyped to `Identity`; `get_identity_extension()` hook lets enterprise overlays register custom backends without core changes (214).
-- Auto-generated SDKs: Python (`pip install geolens-sdk`) + TypeScript (`@geolens/sdk`) regenerate one-shot via `make sdks`; `make sdks-check` CI gate prevents drift (215).
+- Auto-generated SDKs: Python (`pip install geolens`) + TypeScript (`@geolens/sdk`) regenerate one-shot via `make sdks`; `make sdks-check` CI gate prevents drift (215).
 - `geolens` CLI MVP: Apache-2.0 standalone tool consuming only the generated SDK (zero hand-rolled HTTP); `login` (keyring + headless), `scan`, `publish`, `export stac` (216).
 - SAML enterprise overlay: `geolens-enterprise` registers via entry_points with dual `AuthExtension` + `IdentityExtension`; admin UI 3-layer gated; SAML implementation lives outside core (217).
 - Audit gate met: Phase 218 produced closing audit; Phase 219 closed OAuth IdP→role mapping P0 surfaced by Phase 218 via `is_enterprise()` schema + service gate; audit doc amended in place to VERIFIED (218, 219).

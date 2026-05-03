@@ -34,10 +34,10 @@
 
 ### Cold Publish Workflows (Phase 228)
 
-- [x] **PUBLISH-01**: `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` are confirmed present (or migrated to PyPI Trusted Publishing via `id-token: write` permission)
-- [x] **PUBLISH-02**: `.github/workflows/publish-sdks.yml` runs end-to-end at least once, publishing `geolens-sdk` to PyPI and `@geolens/sdk` to npm
-- [x] **PUBLISH-03**: `.github/workflows/publish-cli.yml` runs end-to-end at least once, publishing `geolens` CLI to PyPI
-- [x] **PUBLISH-04**: README install instructions are validated against the published artifacts (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens` succeed on a clean machine)
+- [x] **PUBLISH-01**: `secrets.NPM_TOKEN` is confirmed present and `secrets.PYPI_TOKEN` is absent because PyPI publishes use Trusted Publishing via `id-token: write`
+- [x] **PUBLISH-02**: `.github/workflows/publish-sdks.yml` runs end-to-end at least once, publishing `geolens` to PyPI and verifying `@geolens/sdk` on npm
+- [x] **PUBLISH-03**: `.github/workflows/publish-cli.yml` runs end-to-end at least once, publishing the `geolens-cli` distribution to PyPI
+- [x] **PUBLISH-04**: README install instructions are validated against the published artifacts (`pip install geolens`, `npm install @geolens/sdk`, `pip install geolens-cli` succeed on a clean machine)
 
 ### Symmetric CatalogPort Protocol (Phase 230)
 
@@ -108,10 +108,10 @@
 | TESTFIX-01 | Phase 227 | [ ] not started |
 | TESTFIX-02 | Phase 227 | [ ] not started |
 | TESTFIX-03 | Phase 227 | [ ] not started |
-| PUBLISH-01 | Phase 228 | [ ] not started |
-| PUBLISH-02 | Phase 228 | [ ] not started |
-| PUBLISH-03 | Phase 228 | [ ] not started |
-| PUBLISH-04 | Phase 228 | [ ] not started |
+| PUBLISH-01 | Phase 228 | [x] complete — Plan 02 / 228-VERIFICATION |
+| PUBLISH-02 | Phase 228 | [x] complete — Plan 03 |
+| PUBLISH-03 | Phase 228 | [x] complete — Plan 03 |
+| PUBLISH-04 | Phase 228 | [x] complete — Plan 04 |
 | CATPORT-01 | Phase 230 | [ ] not started |
 | CATPORT-02 | Phase 230 | [ ] not started |
 | CATPORT-03 | Phase 230 | [ ] not started |

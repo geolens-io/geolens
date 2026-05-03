@@ -59,7 +59,7 @@ completed: 2026-05-02
 - Migrated `publish-sdks.yml` Python publish step from `UV_PUBLISH_TOKEN` env injection to `uv publish --trusted-publishing automatic` (OIDC); TypeScript path unchanged
 - Added pre-flight name-availability gates to both publish jobs in `publish-sdks.yml` (Python + TypeScript) and one gate in `publish-cli.yml`
 - Migrated `publish-cli.yml` Python publish step same as above
-- Created new `verify-published.yml` with two clean-machine Docker smoke jobs: `python:3.13-slim` (pip install geolens-sdk geolens + smoke import) and `node:22-slim` (npm install @geolens/sdk + typeof createGeolensClient check)
+- Created new `verify-published.yml` with two clean-machine Docker smoke jobs: `python:3.13-slim` (pip install geolens geolens-cli + smoke import) and `node:22-slim` (npm install @geolens/sdk + createGeolensClient export check)
 - All three YAML files parse cleanly via `yaml.safe_load`
 
 ## Task Commits
@@ -122,8 +122,8 @@ id-token (must be 0 — verify has no OIDC): 0
 ## User Setup Required
 
 Plan 02 (checkpoint) — human steps required before first hot publish:
-1. Configure PyPI pending publisher for `geolens-sdk` at https://pypi.org/manage/account/publishing/
-2. Configure PyPI pending publisher for `geolens` at https://pypi.org/manage/account/publishing/
+1. Configure PyPI Trusted Publisher for `geolens` at https://pypi.org/manage/account/publishing/
+2. Configure PyPI Trusted Publisher for `geolens-cli` at https://pypi.org/manage/account/publishing/
 3. Create `@geolens` npm org at https://www.npmjs.com/org/create
 4. Generate npm granular token (Bypass 2FA + Read/Write, @geolens scope) and add as `NPM_TOKEN` repo secret
 

@@ -155,7 +155,7 @@ Plans:
 3. `publish-cli.yml` completes a green end-to-end run; `geolens-cli` is installable from PyPI by version and `geolens --version` returns the published version on a fresh `pip install`.
 4. README install instructions are validated against the published artifacts on a machine without the GeoLens checkout — all three install commands (`pip install geolens`, `npm install @geolens/sdk`, `pip install geolens-cli`) succeed.
 
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -165,10 +165,10 @@ Plans:
 - [x] 228-02-PLAN.md - credential setup checkpoint: combined out-of-band runbook (claim @geolens npm org, configure PyPI Trusted Publishing pending publishers x2, generate npm granular access token with Bypass 2FA, set NPM_TOKEN repo secret) (Wave 2, autonomous: false, PUBLISH-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 228-03-PLAN.md - hot publish triggers: dry-run-first cadence for both publish-sdks.yml (target=both) and publish-cli.yml; two checkpoint tasks one per workflow; immutable 1.0.0 release on PyPI/npm (Wave 3, autonomous: false, PUBLISH-02/03)
+- [x] 228-03-PLAN.md - hot publish triggers: dry-run-first cadence for publish-sdks.yml and publish-cli.yml; Python SDK `geolens==1.0.0` and CLI `geolens-cli==1.0.0` published to PyPI; `@geolens/sdk==1.0.0` verified on npm (Wave 3, autonomous: false, PUBLISH-02/03)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 228-04-PLAN.md - verify-published smoke + docs update + 228-VERIFICATION.md: trigger verify-published.yml workflow_dispatch (autonomous), update docs/sdks.md and docs/cli.md to reflect Trusted Publishing + npm granular token reality, write consolidated phase verification (Wave 4, autonomous, PUBLISH-04)
+- [x] 228-04-PLAN.md - verify-published smoke + docs update + 228-VERIFICATION.md: verify-published.yml passed, docs/changelog aligned with final package names, consolidated phase verification written (Wave 4, autonomous, PUBLISH-04)
 
 #### Phase 230: catalog-port-protocol-symmetric
 

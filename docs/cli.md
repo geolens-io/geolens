@@ -156,7 +156,7 @@ Precedence: **CLI flag > env var > `credentials.toml` > keyring**.
 
 ## Lockstep Version Policy
 
-The CLI version is bound to the GeoLens backend's OpenAPI version. `geolens-cli` v1.4.0 ships against the backend's v1.4.x OpenAPI snapshot; the CLI's `geolens` SDK dependency pins to `>=1.4.0,<2.0.0` (lockstep across patch + minor of the same OpenAPI version).
+The CLI version is bound to the GeoLens backend's OpenAPI version. For example, `geolens-cli` v1.0.0 ships against the backend's v1.0.x OpenAPI snapshot; the CLI's `geolens` SDK dependency pins to `>=1.0.0,<2.0.0` (lockstep across patch + minor of the same OpenAPI version).
 
 On a backend major-version bump, the CLI gets a coordinated bump too. `make sdks-check` catches version skew in CI on every PR — the `scripts/sync_sdk_versions.py` extension landed in Phase 216 / Plan 06 writes `cli/pyproject.toml`'s version field along with the two SDK targets, so the existing drift gate now covers the CLI automatically (CONTEXT.md D-39).
 
@@ -180,14 +180,14 @@ Both gates fire on every PR that touches `cli/**` or `sdks/python/**`, so a regr
 
 ## Publishing
 
-First-publish runbook (one-time setup; mirrors `docs/sdks.md`):
+Publishing runbook (mirrors `docs/sdks.md`):
 
 1. Configure PyPI Trusted Publishing for project `geolens-cli`, owner `geolens-io`, repository `geolens`, workflow `publish-cli.yml`, environment blank.
 2. Trigger the **Publish CLI** workflow from the GitHub Actions UI:
-   - Select `dry_run: true` for the first run (builds the wheel + sdist but does not upload).
+   - Select `dry_run: true` to build the wheel + sdist without uploading.
    - Select `dry_run: false` for the real publish.
 
-The first publish is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub.
+Publishing is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub. The first public CLI release has shipped as `geolens-cli==1.0.0`.
 
 ## Known Rough Edges
 
@@ -243,4 +243,4 @@ STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` ex
 - [`docs/sdks.md`](sdks.md) — the underlying Python SDK (`geolens`)
 - [`docs/install-guide.md`](install-guide.md) — running a GeoLens instance
 - [GitHub repository](https://github.com/geolens-io/geolens) — source for the CLI under `cli/`
-- [PyPI](https://pypi.org/project/geolens-cli/) — the published package (after the first publish lands)
+- [PyPI](https://pypi.org/project/geolens-cli/) — the published package
