@@ -53,7 +53,7 @@
 
 - [x] **Phase 232: permission-extension-protocol** — Add a first-class `PermissionExtension` seam for action checks and catalog visibility filtering. (completed 2026-05-03)
 - [x] **Phase 233: workflow-extension-protocol** — Add a first-class `WorkflowExtension` seam for publication lifecycle transitions and transition hooks. (completed 2026-05-03)
-- [ ] **Phase 234: governance-contract-verification** — Verify advanced-sharing gates and GTM/API/UI copy stay aligned after the 2026-05-03 Branch A fix.
+- [x] **Phase 234: governance-contract-verification** — Verify advanced-sharing gates and GTM/API/UI copy stay aligned after the 2026-05-03 Branch A fix. (completed 2026-05-03)
 - [ ] **Phase 235: post-impl-audit-v13.5** — Run the close audit and verify Seam Quality, Boundary Integrity, and Inventory Accuracy targets.
 
 #### Phase 232: permission-extension-protocol
@@ -124,7 +124,7 @@ Plans:
 4. GTM docs, API schema descriptions, docstrings, and UI copy no longer claim behavior that the code does not enforce.
 5. Focused backend/frontend tests verify both Community and Enterprise behavior where practical.
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 #### Phase 235: post-impl-audit-v13.5
 
