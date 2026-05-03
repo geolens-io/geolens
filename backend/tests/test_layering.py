@@ -747,8 +747,7 @@ def test_no_catalog_imports_processing() -> None:
             "Phase 230 CATPORT-02/04 invariant violated: "
             "backend/app/modules/catalog/ contains a module-level import from "
             "app.processing.*. All processing access must go through CatalogPort "
-            "(app.core.catalog_port). Offending lines:\n"
-            + result.stdout
+            "(app.core.catalog_port). Offending lines:\n" + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
