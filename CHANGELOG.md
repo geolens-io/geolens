@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [1.0.0] - 2026-05-03
+
+### Added — Public package distribution (2026-05-03)
+
+- **Python SDK published to PyPI as `geolens==1.0.0`.** Install with `pip install geolens`; the generated SDK exposes the hand-written `GeolensClient` auth wrapper plus the OpenAPI-generated endpoint clients.
+- **CLI published to PyPI as `geolens-cli==1.0.0`.** Install with `pip install geolens-cli`; the executable command remains `geolens`.
+- **TypeScript SDK published to npm as `@geolens/sdk==1.0.0`.** Install with `npm install @geolens/sdk`; the package exports `createGeolensClient`.
+- **Clean-machine package verifier added.** `.github/workflows/verify-published.yml` installs `geolens`, `geolens-cli`, and `@geolens/sdk` inside fresh Docker containers and smoke-tests the runtime exports.
+
 ### Changed — Pre-public migration squash (2026-05-02)
 
 - **Alembic migration chain squashed from 23 migrations to 2** (`0001_baseline` + `0002_procrastinate`). The pre-public chain `0001_fdn` → `0002_tbl` → `0003_prc` → ... → `t6u7v8w9x0y1` collapses into a single application-schema baseline plus the procrastinate queue infrastructure migration kept separate. Verified by round-tripping every migration against a throwaway database and diffing the resulting `pg_dump` schema-only output against the squashed-baseline output: all 37 tables / 39 indexes / 24 functions / 8 triggers / 3 sequences / 3 types match 1:1; remaining diff is column-ordering only (no functional impact).
@@ -29,28 +40,28 @@ Two further "drift" items are intentional open-core boundaries and are preserved
 - `OAuthProvider.chk_oauth_providers_type` — the model declares the OSS+enterprise *union* (`'oidc', 'google', 'microsoft', 'saml'`); the OSS baseline narrows the constraint to OSS-only values; enterprise migration `e002_add_saml_columns` re-adds `'saml'` when the overlay is loaded.
 - `OAuthProvider` SAML columns (`idp_entity_id`, `idp_sso_url`, `idp_certificate`, `sp_entity_id`) — the model declares them with `deferred=True` so the OSS overlay never selects them; the OSS baseline does not create them; enterprise migration `e002_add_saml_columns` adds them.
 
-### Added — v13.3 Boundary A+ Cleanup (2026-04-30)
+### Added — Open-core boundary cleanup (2026-04-30)
 
 - **`AuditSink` Protocol** (Phase 222) — write-side hook for audit-event emission, sibling to the existing `AuditExtension` (read-side export-format gating). Defined in `backend/app/platform/extensions/protocols.py`; default implementation (`DefaultAuditSink`) writes one `audit_logs` row per emit. Enterprise overlays subscribe by appending to `_extensions["audit_sinks"]` via `setdefault + append`. New facade `audit_emit(session, event)` in `backend/app/modules/audit/service.py` wraps each sink in per-sink try/except + `structlog.exception()` so a failed sink never rolls back the surrounding business operation. Mechanically rewrote 65 `log_action(...)` call sites across 19 files to use the new facade. New `make audit-sink-discipline` Makefile target enforces the invariant that no application code calls `log_action()` directly.
 - **`BillingExtension` Protocol** (Phase 223) — startup hook for billing-system registration. Defined in `backend/app/platform/extensions/protocols.py` with signature `async def on_startup(self, app: FastAPI) -> None`. Default implementation (`DefaultBillingExtension`) is a no-op. The FastAPI lifespan dispatches each registered extension under `asyncio.wait_for(timeout=10.0)` with per-extension try/except so a hung or buggy overlay cannot block startup or crash the application. The `geolens-enterprise` overlay's `MarketplaceBillingExtension` registers the AWS Marketplace `RegisterUsage` call via this seam.
 - **`make billing-extraction-discipline`** Makefile target — architecture guard asserting `app.core.marketplace` is no longer importable from any `backend/app/` module.
 
-### Changed — v13.3 Boundary A+ Cleanup (2026-04-30)
+### Changed — Open-core boundary cleanup (2026-04-30)
 
 - **AWS Marketplace metering moved out of core** — `backend/app/core/marketplace.py` deleted (the 30-line `register_marketplace_usage` body relocated verbatim to `geolens-enterprise`'s `MarketplaceBillingExtension._register`). The lifespan startup block at `backend/app/api/main.py:184-203` is now a generic `for ext in get_billing_extensions(): ...` dispatch loop that fires zero AWS API calls in community deployments.
 - **`AWS_MARKETPLACE_PRODUCT_CODE` and `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` are now enterprise-overlay-only env vars.** Removed from `backend/app/core/config.py:Settings`. The enterprise overlay reads them directly via `os.environ.get(...)` and short-circuits when unset. `.env.example` documents these under a clear "**Enterprise overlay only — NO EFFECT on community**" warning. Operators of the open-core community edition no longer have these settings on the core `Settings` surface.
 
-### Removed — v13.3 Boundary A+ Cleanup (2026-04-30)
+### Removed — Open-core boundary cleanup (2026-04-30)
 
 - **`backend/app/core/marketplace.py`** — file deleted. AWS Marketplace billing is now exclusively an enterprise-overlay concern.
 - **`Settings.aws_marketplace_product_code` / `Settings.aws_marketplace_public_key_version`** — removed from core `Settings`.
 
-### Migration notes — v13.3
+### Migration notes — Open-core boundary cleanup
 
 - **Community deployments:** no action required. The marketplace block at `api/main.py:184-203` was inert when `AWS_MARKETPLACE_PRODUCT_CODE` was unset (the default for all community deployments); replacing it with a no-op dispatch loop preserves that behavior byte-identically.
 - **Enterprise deployments running the AWS Marketplace AMI:** install the `geolens-enterprise` overlay (already required for SAML/audit-export); the new `MarketplaceBillingExtension` registers automatically via the existing `geolens.extensions` entry-point group. Set `AWS_MARKETPLACE_PRODUCT_CODE` and (optionally) `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` exactly as before — the env-var contract is unchanged. The overlay reads them directly; core no longer does.
 
-### Added — v13.1 Open-Core Separation (2026-04-29)
+### Added — Open-core separation (2026-04-29)
 
 - **`geolens` CLI** (Apache-2.0) — standalone command installed from the `geolens-cli` Python package; supports `login` (OS keyring + `--no-keyring` headless fallback), `scan <dir>` (vector + raster file detection), `publish <file>` (SDK-driven 3-step ingest), `export stac <id>` (STAC 1.1 raster metadata). Source at `cli/`; published to PyPI as `geolens-cli`.
 - **Python + TypeScript SDKs** auto-generated from `backend/openapi.json` — `geolens` (Python via `openapi-python-client`) and `@geolens/sdk` (TypeScript via `@hey-api/openapi-ts`). Source at `sdks/python/` and `sdks/typescript/`; published to PyPI/npm via `.github/workflows/publish-sdks.yml`. Regenerate via `make sdks`; `make sdks-check` is a CI drift gate.
@@ -59,14 +70,14 @@ Two further "drift" items are intentional open-core boundaries and are preserved
 - **`docs/sdks.md`** (305 lines) and **`docs/cli.md`** (248 lines) — user-facing documentation for SDK + CLI surfaces including install, auth modes, exit codes, and known rough edges.
 - **`docs/saml.md`** (223 lines) — install + per-IdP configuration walkthroughs, hardening posture, multi-instance limitations, NameID format guidance for the optional `geolens-enterprise` SAML overlay.
 
-### Changed — v13.1 Open-Core Separation (2026-04-29)
+### Changed — Open-core separation (2026-04-29)
 
 - **Open-core boundary closed** — `backend/app/core/` no longer imports from `backend/app/modules/settings/`; `AppSetting` model relocated to `backend/app/core/db/models.py`. New architecture-guard test in `backend/tests/test_layering.py` prevents regression.
 - **`backend/app/modules/auth/visibility.py` removed** — visibility/authorization logic moved to `backend/app/modules/catalog/authorization.py`. 23 inbound callers migrated; dataset-visibility semantics unchanged.
 - **`IdentityProtocol` introduced** — 51 cross-domain `User` import sites retyped to depend on `Identity` (the Protocol alias) rather than the concrete `User` ORM model. Allowlist guard at `test_layering.py:237` keeps 18 SQL-attribute files on the concrete model. Enables enterprise overlays to register custom identity backends without modifying core.
 - **OAuth IdP→role mapping is now enterprise-only** — `group_claim` and `group_role_mapping` are rejected by `OAuthProviderCreate`/`OAuthProviderUpdate` schemas with `ValueError("Group-based role mapping requires the GeoLens Enterprise overlay")` in community deployments; only applied at the service layer when `is_enterprise()` returns True. Pre-existing OAuth providers without group mapping are unaffected.
 
-### Note on SAML availability (v13.1)
+### Note on SAML availability
 
 The "**SAML support has been removed**" entry below remains accurate for the **community edition** — the dead scaffold (XML metadata parser, broken `provider_type='saml'` accepted but non-functional, 4 unused `oauth_providers` columns) is gone from core. As of v13.1, working SAML is available via the optional `geolens-enterprise` overlay, which registers via the new auth-extension hook. The community edition is unchanged: no SAML controls in admin UI, `/admin/saml` returns 404, no `provider_type='saml'` accepted by API.
 
@@ -182,8 +193,6 @@ UPDATE catalog.records
    AND record_status = 'draft'
    AND visibility = 'public';
 ```
-
-## [1.0.0] - 2026-04-01
 
 ### Added
 - Heatmap visualization mode in map builder with gradient legend, opacity controls, and render mode toggle
