@@ -63,9 +63,11 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - AIProviderExtension Protocol (Phase 226) — replace hardcoded provider dispatch with extensible Protocol
 - SAML test fixture cleanup (Phase 227) — stop polluting `git status` after every test run
 - Run cold PyPI/npm publish workflows (Phase 228) — convert WIRED → SHIPPED for SDKs + CLI
-- Post-impl audit at close (Phase 229) — codify the v13.2/v13.3 post-impl pattern as a planned gate
+- CatalogPort Protocol (Phase 230) — invert the remaining catalog→processing direction symmetrically
+- EmbeddingProviderExtension Protocol (Phase 231) — remove the final module-level provider-SDK import from `processing/`
+- Post-impl audit at close (Phase 229) — audit Phases 225-228 plus 230/231 before milestone close
 
-**Audit-grade targets:** Boundary Integrity A+ (hold); Coupling Health B → **B+** (cycle broken); Seam Quality B+ → **A−** (AI seam closes last 🔴).
+**Audit-grade targets:** Boundary Integrity A+ (hold); Coupling Health B → **A−** (both catalog↔processing directions inverted via Phases 225 + 230); Seam Quality B+ → **A−** (AI + embeddings provider seams closed via Phases 226 + 231).
 
 ## Core Value
 
@@ -596,4 +598,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-01 — v13.4 Boundary Closeout milestone started (ProcessingPort + AIProviderExtension + SAML fixture cleanup + cold publishes + post-impl audit, post-v13.3 audit-driven)*
+*Last updated: 2026-05-03 — v13.4 Boundary Closeout updated after Phase 231 verification (CatalogPort + EmbeddingProviderExtension promotions reflected)*
