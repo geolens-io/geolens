@@ -11,11 +11,11 @@
 
 ### Permission Extension
 
-- [ ] **PERM-01**: A `PermissionExtension` Protocol exists in `backend/app/platform/extensions/protocols.py` for action-level checks and catalog visibility filtering.
-- [ ] **PERM-02**: The default permission implementation preserves the current role/capability matrix, admin overrides, lockout prevention, and API behavior for Community users.
-- [ ] **PERM-03**: `require_permission()` and catalog visibility filtering consult the permission extension instead of relying only on hardcoded matrix/query logic.
-- [ ] **PERM-04**: A test overlay can allow, deny, or filter access through `PermissionExtension` without modifying core files.
-- [ ] **PERM-05**: Architecture or regression tests prevent future bypasses of the permission extension at known permission and visibility chokepoints.
+- [x] **PERM-01**: A `PermissionExtension` Protocol exists in `backend/app/platform/extensions/protocols.py` for action-level checks and catalog visibility filtering.
+- [x] **PERM-02**: The default permission implementation preserves the current role/capability matrix, admin overrides, lockout prevention, and API behavior for Community users.
+- [x] **PERM-03**: `require_permission()` and catalog visibility filtering consult the permission extension instead of relying only on hardcoded matrix/query logic.
+- [x] **PERM-04**: A test overlay can allow, deny, or filter access through `PermissionExtension` without modifying core files.
+- [x] **PERM-05**: Architecture or regression tests prevent future bypasses of the permission extension at known permission and visibility chokepoints.
 
 ### Workflow Extension
 
@@ -78,11 +78,11 @@ Explicitly excluded from v13.5.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERM-01 | Phase 232 | Pending |
-| PERM-02 | Phase 232 | Pending |
-| PERM-03 | Phase 232 | Pending |
-| PERM-04 | Phase 232 | Pending |
-| PERM-05 | Phase 232 | Pending |
+| PERM-01 | Phase 232 | Complete |
+| PERM-02 | Phase 232 | Complete |
+| PERM-03 | Phase 232 | Complete |
+| PERM-04 | Phase 232 | Complete |
+| PERM-05 | Phase 232 | Complete |
 | WORK-01 | Phase 233 | Pending |
 | WORK-02 | Phase 233 | Pending |
 | WORK-03 | Phase 233 | Pending |
