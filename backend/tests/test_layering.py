@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, and 231.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, 230, and 231.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -11,6 +11,9 @@ Enforces open-core boundaries closed by:
   holder for SQL queries).
 - Phase 225 PROCESS-02/04 - processing/ must not import from app.modules.catalog.*;
   all catalog access goes through ProcessingPort (app.core.processing_port).
+- Phase 230 CATPORT-02/04 - catalog/ must not have module-level imports from
+  app.processing.*; all processing access goes through CatalogPort
+  (app.core.catalog_port).
 - Phase 226 AIEXT-03/05 - processing/ai/ must not contain hardcoded
   `if provider == "anthropic"/"openai_compatible"` dispatch; all provider
   dispatch goes through `get_ai_provider(name).complete(...)` from
@@ -694,6 +697,58 @@ def test_no_processing_imports_catalog() -> None:
             "contains a module-level import from app.modules.catalog.*. All catalog "
             "access must go through ProcessingPort (app.core.processing_port). "
             f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_catalog_imports_processing() -> None:
+    """Phase 230 CATPORT-02/04: catalog/ must not have module-level imports from app.processing.*.
+
+    All processing-owned helper, task, schema, and ORM-class access from
+    backend/app/modules/catalog/ must go through CatalogPort
+    (app.core.catalog_port). Strict zero-hit for module-level imports.
+
+    Scope: this guard catches top-level import lines starting at column 0:
+    ``from app.processing``, ``import app.processing``, and the equivalent
+    ``backend.app.processing`` forms. Function-local lazy imports are allowed by
+    the phase context as deferred boundaries; new module-level edges are not.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 230 CATPORT-04 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"^(from|import) (backend\.)?app\.processing",
+            "--",
+            "backend/app/modules/catalog/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 230 CATPORT-02/04 invariant violated: "
+            "backend/app/modules/catalog/ contains a module-level import from "
+            "app.processing.*. All processing access must go through CatalogPort "
+            "(app.core.catalog_port). Offending lines:\n"
+            + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(
