@@ -7,7 +7,7 @@ Public exports:
 
 Typical usage::
 
-    from geolens_sdk import GeolensClient
+    from geolens import GeolensClient
     client = GeolensClient(base_url="https://geolens.example.com", bearer_token="<JWT>")
 
 This file is hand-maintained alongside ``auth.py``; ``make sdks`` cp-stashes it

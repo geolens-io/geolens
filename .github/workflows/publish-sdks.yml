@@ -1,6 +1,6 @@
 # Manual-trigger publish workflow for the GeoLens SDKs.
 # Phase 228 ships the cold-start credentials:
-#   1. PyPI Trusted Publishing configured for `geolens-sdk` at https://pypi.org/manage/account/publishing/
+#   1. PyPI Trusted Publishing configured for `geolens` at https://pypi.org/manage/account/publishing/
 #   2. npm granular token (Bypass 2FA + Read/Write) in repo secret NPM_TOKEN
 #   3. The @geolens npm org claimed by the maintainer (one-time)
 # See docs/sdks.md (§Publishing) for the full first-publish runbook.
@@ -57,18 +57,43 @@ jobs:
         working-directory: sdks/python
         run: ls -la dist/
 
-      - name: Pre-flight name-availability gate (geolens-sdk on PyPI)
+      - name: Pre-flight version gate (geolens on PyPI)
         if: ${{ !inputs.dry_run }}
+        working-directory: sdks/python
         run: |
           set -e
-          if pip3 index versions geolens-sdk 2>&1 | grep -q "No matching distribution"; then
-            echo "PyPI geolens-sdk: unclaimed (safe to publish)"
+          PROJECT_NAME=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["name"])
+          PY
+          )
+          PACKAGE_VERSION=$(python - <<'PY'
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              print(tomllib.load(f)["project"]["version"])
+          PY
+          )
+          VERSION_PATTERN=$(printf '%s\n' "$PACKAGE_VERSION" | python -c 'import re, sys; print(re.escape(sys.stdin.read().strip()))')
+          if PIP_OUTPUT=$(pip3 index versions "$PROJECT_NAME" 2>&1); then
+            echo "$PIP_OUTPUT"
+            if echo "$PIP_OUTPUT" | grep -Eq "(^|[ ,(])${VERSION_PATTERN}([, )]|$)"; then
+              if [ "${{ inputs.force_publish }}" = "true" ]; then
+                echo "::warning::PyPI $PROJECT_NAME already has $PACKAGE_VERSION — force_publish=true override active; proceeding"
+              else
+                echo "::error::PyPI $PROJECT_NAME already has $PACKAGE_VERSION. Refusing to re-publish without force_publish=true."
+                exit 1
+              fi
+            else
+              echo "PyPI $PROJECT_NAME exists but $PACKAGE_VERSION is not present; proceeding with first publish of this version"
+            fi
+          elif echo "$PIP_OUTPUT" | grep -q "No matching distribution"; then
+            echo "PyPI $PROJECT_NAME: unclaimed (safe to publish)"
           elif [ "${{ inputs.force_publish }}" = "true" ]; then
-            CURRENT=$(pip3 index versions geolens-sdk 2>&1 | head -1)
-            echo "::warning::PyPI geolens-sdk already published: $CURRENT — force_publish=true override active; proceeding"
+            echo "::warning::PyPI $PROJECT_NAME lookup failed — force_publish=true override active; proceeding"
           else
-            CURRENT=$(pip3 index versions geolens-sdk 2>&1 | head -1)
-            echo "::error::PyPI geolens-sdk already published: $CURRENT. Refusing to publish without explicit force_publish=true input. If this is an intentional re-publish, re-run the workflow with force_publish=true."
+            echo "::error::Could not determine PyPI state for $PROJECT_NAME:"
+            echo "$PIP_OUTPUT"
             exit 1
           fi
 

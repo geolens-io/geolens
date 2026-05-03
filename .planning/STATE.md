@@ -62,8 +62,9 @@ Phase 228 Plan 03 is next: trigger the `publish-sdks.yml` and `publish-cli.yml` 
 Plan 02 credential setup is complete:
 
 - `NPM_TOKEN` exists in `geolens-io/geolens`; `PYPI_TOKEN` is absent.
-- `geolens-sdk` PyPI pending publisher is configured.
-- `geolens` PyPI project was bootstrapped with `geolens==0.0.0`; the existing-project Trusted Publisher for `publish-cli.yml` is configured.
+- `geolens` PyPI project exists and has the `publish-sdks.yml` Trusted Publisher configured for the Python SDK.
+- `geolens` PyPI project was bootstrapped with `geolens==0.0.0`; the pivot decision now makes `geolens` the Python SDK package, and the workflow gate permits first publishing `geolens==1.0.0`.
+- `geolens-cli` is now the CLI PyPI package name; it needs a pending publisher for `publish-cli.yml` before live CLI publish.
 - Temporary PyPI account token should be revoked now that bootstrap is complete.
 
 Phase 229 (post-impl audit gate) now depends on Phases 225, 226, 227, 228, 230, 231 — runs last.

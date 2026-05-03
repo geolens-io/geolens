@@ -54,9 +54,9 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _SDK_PY_PATH = _REPO_ROOT / "sdks" / "python"
 _CLI_PATH = _REPO_ROOT / "cli"
 
-if not (_SDK_PY_PATH / "geolens_sdk" / "auth.py").is_file():
+if not (_SDK_PY_PATH / "geolens" / "auth.py").is_file():
     pytest.skip(
-        "geolens_sdk source tree not present at "
+        "geolens source tree not present at "
         f"{_SDK_PY_PATH} (expected when running inside the api container; "
         "host pytest and full-checkout CI runners exercise this module)",
         allow_module_level=True,

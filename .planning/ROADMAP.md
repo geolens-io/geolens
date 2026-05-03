@@ -141,7 +141,7 @@ Plans:
 
 #### Phase 228: run-cold-publish-workflows
 
-**Goal:** Convert the wired-but-cold `.github/workflows/publish-{sdks,cli}.yml` workflows from "wired" to "shipped" by executing them at least once end-to-end. Confirm `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` exist (or migrate to PyPI Trusted Publishing via `id-token: write`). Validate published artifacts against the README install instructions on a clean machine: `pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens` should each install successfully without local checkout context.
+**Goal:** Convert the wired-but-cold `.github/workflows/publish-{sdks,cli}.yml` workflows from "wired" to "shipped" by executing them at least once end-to-end. Confirm `secrets.NPM_TOKEN` exists and PyPI uses Trusted Publishing. Validate published artifacts against the README install instructions on a clean machine: `pip install geolens`, `npm install @geolens/sdk`, `pip install geolens-cli` should each install successfully without local checkout context.
 
 **Source:** `oc-separation-audit-20260430-b.md` §6 (WIRED — never run) / §7 P2. Promoted from Phase 999.17.
 
@@ -150,10 +150,10 @@ Plans:
 **Depends on:** None — independent of 225/226/227 (publish pipeline lives entirely in `.github/workflows/` + package metadata).
 
 **Success Criteria** (what must be TRUE):
-1. `secrets.PYPI_TOKEN` and `secrets.NPM_TOKEN` are confirmed present in repository secrets (or replaced with Trusted Publishing for PyPI), documented in the phase VERIFICATION.md.
-2. `publish-sdks.yml` completes a green end-to-end run on `main` or a release tag; `geolens-sdk` is installable from PyPI and `@geolens/sdk` from npm by version.
-3. `publish-cli.yml` completes a green end-to-end run; `geolens` CLI is installable from PyPI by version and `geolens --version` returns the published version on a fresh `pip install`.
-4. README install instructions are validated against the published artifacts on a machine without the GeoLens checkout — all three install commands (`pip install geolens-sdk`, `npm install @geolens/sdk`, `pip install geolens`) succeed.
+1. `secrets.NPM_TOKEN` is confirmed present and `secrets.PYPI_TOKEN` is absent because PyPI uses Trusted Publishing, documented in the phase VERIFICATION.md.
+2. `publish-sdks.yml` completes a green end-to-end run on `main` or a release tag; `geolens` is installable from PyPI and `@geolens/sdk` from npm by version.
+3. `publish-cli.yml` completes a green end-to-end run; `geolens-cli` is installable from PyPI by version and `geolens --version` returns the published version on a fresh `pip install`.
+4. README install instructions are validated against the published artifacts on a machine without the GeoLens checkout — all three install commands (`pip install geolens`, `npm install @geolens/sdk`, `pip install geolens-cli`) succeed.
 
 **Plans:** 2/4 plans executed
 

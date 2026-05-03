@@ -25,12 +25,12 @@ jobs:
     name: Verify Python packages on python:3.13-slim
     runs-on: ubuntu-latest
     steps:
-      - name: pip install + smoke import (geolens-sdk + geolens CLI)
+      - name: pip install + smoke import (geolens SDK + geolens-cli)
         run: |
           docker run --rm python:3.13-slim sh -c "
-            pip install --no-cache-dir geolens-sdk geolens &&
+            pip install --no-cache-dir geolens geolens-cli &&
             geolens --version &&
-            python -c 'from geolens_sdk import GeolensClient; print(GeolensClient)'
+            python -c 'from geolens import GeolensClient; print(GeolensClient)'
           "
 
   verify-typescript:

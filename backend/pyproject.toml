@@ -1,5 +1,5 @@
 [project]
-name = "geolens"
+name = "geolens-backend"
 version = "1.0.0"
 description = "PostGIS-native GIS data catalog"
 requires-python = ">=3.13"

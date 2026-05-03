@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "geolens"
+name = "geolens-cli"
 version = "1.0.0"
 description = "Apache-2.0 command-line interface for the GeoLens API. Login, scan, publish, and export STAC against any GeoLens instance."
 readme = "README.md"
@@ -31,7 +31,7 @@ dependencies = [
   "tomli_w>=1.0.0,<2.0.0",
   "platformdirs>=4.0.0,<5.0.0",
   "structlog>=25.0.0,<26.0.0",
-  "geolens-sdk>=1.0.0,<2.0.0",
+  "geolens>=1.0.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +43,7 @@ dev = [
 # it resolves dependencies from `cli/`; standard pip + the published wheel
 # ignore the [tool.uv] table entirely (this stays a dev/CI-only override).
 #
-# Pre-Phase-228 publish, `geolens-sdk` is not yet on PyPI — so a bare
+# Pre-Phase-228 publish, `geolens` is not yet on PyPI — so a bare
 # `uv sync` / `uv run` from `cli/` would fail to resolve the dependency
 # declared above. Pointing it at the local sibling tree lets uv-managed
 # tooling (CI, contributors, pre-publish smoke) succeed without first
@@ -52,7 +52,7 @@ dev = [
 # published artifacts (which only carry the `dependencies` list) resolve
 # from PyPI for end-users.
 [tool.uv.sources]
-geolens-sdk = { path = "../sdks/python", editable = true }
+geolens = { path = "../sdks/python", editable = true }
 
 [project.scripts]
 geolens = "geolens_cli.main:app"

@@ -6,7 +6,7 @@ Both SDKs are derived from `backend/openapi.json` (the canonical OpenAPI 3.1 sna
 
 | SDK | Package | Source | License |
 |-----|---------|--------|---------|
-| Python | `geolens-sdk` (PyPI) | `sdks/python/` | Apache-2.0 |
+| Python | `geolens` (PyPI) | `sdks/python/` | Apache-2.0 |
 | TypeScript | `@geolens/sdk` (npm) | `sdks/typescript/` | Apache-2.0 |
 
 ## Installation
@@ -14,11 +14,13 @@ Both SDKs are derived from `backend/openapi.json` (the canonical OpenAPI 3.1 sna
 ### Python
 
 ```bash
-pip install geolens-sdk
-# or with uv: uv add geolens-sdk
+pip install geolens
+# or with uv: uv add geolens
 ```
 
 Requires Python 3.10+. Runtime dependencies: `httpx`, `attrs`, `python-dateutil`.
+
+> `geolens-sdk==1.0.0` exists on PyPI as a pre-pivot package. New Python SDK installs should use `geolens`.
 
 ### TypeScript / JavaScript
 
@@ -35,8 +37,8 @@ Requires Node 18+ (for native `fetch`). Single runtime dependency: `@hey-api/cli
 ### Python
 
 ```python
-from geolens_sdk import GeolensClient
-from geolens_sdk.api.search import (
+from geolens import GeolensClient
+from geolens.api.search import (
     search_datasets_endpoint_search_datasets_get,
 )
 
@@ -72,7 +74,7 @@ client.set_bearer_token("<JWT>")
 The generated models are `attrs`-based dataclasses, **not** pydantic models. To deserialize a dict into a model:
 
 ```python
-from geolens_sdk.models import DatasetResponse
+from geolens.models import DatasetResponse
 
 payload = {"id": "...", "name": "..."}
 dataset = DatasetResponse.from_dict(payload)
@@ -131,15 +133,15 @@ This:
 1. Re-snapshots `backend/openapi.json` (idempotent — same as `make openapi`).
 2. Runs `scripts/flatten_openapi_defs.py` to rewrite OpenAPI 3.1 inline `$defs` references into `#/components/schemas/...` form. The committed snapshot is left intact; only the generators consume the flattened intermediate.
 3. cp-stashes the hand-written `auth.py`, `__init__.py`, `auth.ts`, and `index.ts` to `/tmp` so the generators' `--overwrite` cannot delete them.
-4. Runs `openapi-python-client@0.28.3` to overwrite `sdks/python/geolens_sdk/`.
+4. Runs `openapi-python-client@0.28.3` to overwrite `sdks/python/geolens/`.
 5. Runs `@hey-api/openapi-ts@0.96.1` to overwrite `sdks/typescript/src/client/`.
 6. Restores the cp-stashed hand-written files.
 7. Runs `scripts/sync_sdk_versions.py` to copy `backend/openapi.json` `info.version` into both SDK package metadata files.
 
 Hand-written files preserved across regeneration:
 
-- `sdks/python/geolens_sdk/auth.py` (the `GeolensClient` wrapper)
-- `sdks/python/geolens_sdk/__init__.py` (re-exports `GeolensClient`)
+- `sdks/python/geolens/auth.py` (the `GeolensClient` wrapper)
+- `sdks/python/geolens/__init__.py` (re-exports `GeolensClient`)
 - `sdks/typescript/src/auth.ts` (the `createGeolensClient` factory)
 - `sdks/typescript/src/index.ts` (public package re-exports)
 - Both `pyproject.toml` / `package.json` (only the `version` field is rewritten by the sync script)
@@ -179,15 +181,13 @@ This means SDK 1.4.2 always corresponds to backend 1.4.2 — no version skew, no
 
 ## Publishing
 
-> **Phase 215 ships the publish infrastructure but does not publish.** First publish requires user-managed credentials (PyPI token, npm token) and a one-time npm `@geolens` org claim.
+SDK publishing is manual-triggered through GitHub Actions. PyPI uses Trusted Publishing (OIDC), so there is no long-lived `PYPI_TOKEN` secret. npm uses the repository `NPM_TOKEN` secret until npm trusted publishing is GA for this package.
 
 ### One-time setup (user actions)
 
-1. **Claim the `@geolens` npm organization** at <https://www.npmjs.com/org/create>. The org must exist before the first `npm publish`.
-
-2. **Create a PyPI token** scoped to the `geolens-sdk` project (after first publish; for the very first publish, scope it to "Entire account") at <https://pypi.org/manage/account/token/>. Add it to the GitHub repository secrets as `PYPI_TOKEN`.
-
-3. **Create an npm token** with publish access at <https://www.npmjs.com/settings/_username_/tokens>. Add it to the GitHub repository secrets as `NPM_TOKEN`.
+1. **PyPI Trusted Publisher for `geolens`:** project `geolens`, owner `geolens-io`, repository `geolens`, workflow `publish-sdks.yml`, environment blank.
+2. **Claim the `@geolens` npm organization** at <https://www.npmjs.com/org/create>. The org must exist before the first `npm publish`.
+3. **Create an npm granular access token** with Read/Write and Bypass 2FA enabled, scoped to the `@geolens` org. Add it to the GitHub repository secrets as `NPM_TOKEN`.
 
 ### Publishing via the GitHub Actions workflow
 
@@ -200,7 +200,7 @@ The `Publish SDKs` workflow (`.github/workflows/publish-sdks.yml`) is manual-tri
 
 The workflow:
 
-- For Python: `uv build` produces a wheel + sdist in `sdks/python/dist/`; `uv publish` uploads to PyPI using `UV_PUBLISH_TOKEN`.
+- For Python: `uv build` produces a wheel + sdist in `sdks/python/dist/`; `uv publish --trusted-publishing automatic` uploads to PyPI through GitHub Actions OIDC.
 - For TypeScript: `npm ci && npm run build` produces compiled JS + type declarations in `sdks/typescript/dist/`; `npm publish --access public` uploads to npm using `NODE_AUTH_TOKEN`.
 
 ### Publishing locally (alternative)
@@ -208,10 +208,9 @@ The workflow:
 If you prefer to publish from your workstation:
 
 ```bash
-# Python — requires UV_PUBLISH_TOKEN env var
+# Python — prefer the GitHub Actions Trusted Publishing workflow for release
 cd sdks/python
 uv build
-UV_PUBLISH_TOKEN=$YOUR_PYPI_TOKEN uv publish
 
 # TypeScript — requires npm login or NPM_TOKEN
 cd sdks/typescript
@@ -230,7 +229,7 @@ FastAPI auto-generates `operationId`s by concatenating the function name with th
 
 ```python
 # Python
-from geolens_sdk.api.datasets import (
+from geolens.api.datasets import (
     get_single_dataset_datasets_dataset_id_get,
 )
 ```
@@ -243,7 +242,7 @@ import { getSingleDatasetDatasetsDatasetIdGet } from '@geolens/sdk';
 Workaround — import-as aliasing:
 
 ```python
-from geolens_sdk.api.datasets import (
+from geolens.api.datasets import (
     get_single_dataset_datasets_dataset_id_get as get_dataset,
 )
 ```
@@ -285,7 +284,7 @@ The published SDK declares `"engines": { "node": ">=18" }`. The CI workflow uses
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `ImportError: cannot import name 'GeolensClient'` | Stale package version | `pip install --upgrade geolens-sdk` |
+| `ImportError: cannot import name 'GeolensClient'` | Stale package version | `pip install --upgrade geolens` |
 | `ERR_REQUIRE_ESM` | CommonJS consumer trying to require ESM SDK | Use `import` (ESM) — the SDK does not ship a CJS wrapper for v13.1 |
 | `make sdks-check` fails locally with version-only diff | Stale local clone | `make openapi && make sdks` to refresh |
 | `make sdks` fails with "uvx: command not found" | uv not installed | `brew install uv` (macOS) or see <https://docs.astral.sh/uv/getting-started/> |

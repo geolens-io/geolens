@@ -55,7 +55,7 @@ class AppState:
 
     def sdk(self):
         """Lazy-construct an authenticated SDK client for the active instance."""
-        from geolens_sdk import GeolensClient
+        from geolens import GeolensClient
 
         instance = self.active_instance()
         if not instance:
@@ -149,9 +149,9 @@ def login(
         return
 
     # Interactive flow (D-08)
-    from geolens_sdk import GeolensClient
-    from geolens_sdk.api.auth import login_auth_login_post
-    from geolens_sdk.models.body_login_auth_login_post import BodyLoginAuthLoginPost
+    from geolens import GeolensClient
+    from geolens.api.auth import login_auth_login_post
+    from geolens.models.body_login_auth_login_post import BodyLoginAuthLoginPost
 
     username = typer.prompt("Username")
     password = getpass.getpass("Password: ")
@@ -194,7 +194,7 @@ def whoami(ctx: typer.Context) -> None:
         state.output.error("No active instance. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
 
-    from geolens_sdk.api.auth import me_auth_me_get
+    from geolens.api.auth import me_auth_me_get
 
     sdk = state.sdk()
     resp = call_sdk(me_auth_me_get.sync_detailed, client=sdk.client)
@@ -364,7 +364,7 @@ def publish(
         )
 
     # Lazy SDK imports — keeps `geolens --help` snappy.
-    from geolens_sdk.api.datasets import (
+    from geolens.api.datasets import (
         commit_import_ingest_commit_job_id_post as _commit,
         preview_file_ingest_preview_job_id_post as _preview,
     )

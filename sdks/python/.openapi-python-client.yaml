@@ -1,7 +1,7 @@
 # Source: github.com/openapi-generators/openapi-python-client README §Configuration
 # Hand-maintained — read by `uvx openapi-python-client@0.28.3 generate --config ...`
-project_name_override: geolens-sdk
-package_name_override: geolens_sdk
+project_name_override: geolens
+package_name_override: geolens
 # Rewritten on every `make sdks` run by scripts/sync_sdk_versions.py to match
 # backend/openapi.json info.version. Do not edit by hand.
 package_version_override: 1.0.0

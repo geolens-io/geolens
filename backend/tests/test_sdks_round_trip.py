@@ -23,9 +23,9 @@ operationIds in the OpenAPI snapshot (verified 2026-04-27) are:
 (Single-underscore separators per generator naming, NOT the double-underscore
 prose paths from the ROADMAP — RESEARCH Pitfall 5.)
 
-Note: ``GeolensClient`` is imported from ``geolens_sdk.auth`` (its definition
+Note: ``GeolensClient`` is imported from ``geolens.auth`` (its definition
 module). Plan 05 also added ``__init__.py`` to the Makefile cp-stash so
-``from geolens_sdk import GeolensClient`` works for SDK consumers; the
+``from geolens import GeolensClient`` works for SDK consumers; the
 explicit submodule path is kept here for test stability across regenerations.
 """
 
@@ -45,7 +45,7 @@ import httpx
 import pytest
 from httpx import ASGITransport
 
-# Make the in-repo geolens_sdk package importable without `pip install -e`.
+# Make the in-repo geolens package importable without `pip install -e`.
 # The sdks/python tree is NOT a uv workspace member; it's a sibling distribution
 # whose contents are committed for consumer inspection. Adding it to sys.path
 # is the smallest mechanism to import it from a backend test.
@@ -58,9 +58,9 @@ from httpx import ASGITransport
 # CI's dedicated `sdks-check` job catches generation drift independently.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _SDK_PY_PATH = _REPO_ROOT / "sdks" / "python"
-if not (_SDK_PY_PATH / "geolens_sdk" / "auth.py").is_file():
+if not (_SDK_PY_PATH / "geolens" / "auth.py").is_file():
     pytest.skip(
-        "geolens_sdk source tree not present at "
+        "geolens source tree not present at "
         f"{_SDK_PY_PATH} (expected when running inside the api container; "
         "host pytest and full-checkout CI runners exercise this module)",
         allow_module_level=True,
@@ -68,8 +68,8 @@ if not (_SDK_PY_PATH / "geolens_sdk" / "auth.py").is_file():
 if str(_SDK_PY_PATH) not in _sys.path:
     _sys.path.insert(0, str(_SDK_PY_PATH))
 
-from geolens_sdk.auth import GeolensClient  # noqa: E402
-from geolens_sdk.client import AuthenticatedClient, Client  # noqa: E402
+from geolens.auth import GeolensClient  # noqa: E402
+from geolens.client import AuthenticatedClient, Client  # noqa: E402
 
 
 # --------------------------- Helpers ---------------------------
@@ -170,7 +170,7 @@ class TestPythonRoundTrip:
     @pytest.mark.anyio
     async def test_search_datasets(self, client, admin_auth_header) -> None:
         from app.api.main import app
-        from geolens_sdk.api.search import (
+        from geolens.api.search import (
             search_datasets_endpoint_search_datasets_get,
         )
 
@@ -198,7 +198,7 @@ class TestPythonRoundTrip:
     ) -> None:
         """A non-existent UUID returns 404 — proves the route + auth work."""
         from app.api.main import app
-        from geolens_sdk.api.datasets import (
+        from geolens.api.datasets import (
             get_single_dataset_datasets_dataset_id_get,
         )
 
@@ -227,8 +227,8 @@ class TestPythonRoundTrip:
         "request reaches the route, gets a structured response".
         """
         from app.api.main import app
-        from geolens_sdk.api.datasets import upload_file_ingest_upload_post
-        from geolens_sdk.models.body_upload_file_ingest_upload_post import (
+        from geolens.api.datasets import upload_file_ingest_upload_post
+        from geolens.models.body_upload_file_ingest_upload_post import (
             BodyUploadFileIngestUploadPost,
         )
 
@@ -271,7 +271,7 @@ class TestPythonRoundTrip:
         """Closes Pitfall 4: X-API-Key works via the wrapper despite not being
         in the OpenAPI spec (only OAuth2PasswordBearer is advertised)."""
         from app.api.main import app
-        from geolens_sdk.api.search import (
+        from geolens.api.search import (
             search_datasets_endpoint_search_datasets_get,
         )
 

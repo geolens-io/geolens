@@ -106,7 +106,7 @@ class TestBuildCommitRequest:
 
     def test_no_description_leaves_summary_unset(self) -> None:
         from geolens_cli.publish import build_commit_request
-        from geolens_sdk.types import UNSET
+        from geolens.types import UNSET
 
         req = build_commit_request(title="cities", description=None)
         # When summary isn't supplied, the field stays UNSET so it never
@@ -141,14 +141,14 @@ class TestIsDuplicateCommitResponse:
 
         resp = MagicMock(status_code=HTTPStatus.BAD_REQUEST, parsed=MagicMock(detail="Job already processed"))
         # Make isinstance(resp.parsed, ProblemDetail) work for the helper:
-        from geolens_sdk.models.problem_detail import ProblemDetail
+        from geolens.models.problem_detail import ProblemDetail
         resp.parsed = ProblemDetail(detail="Job already processed", status=400, title="Bad Request", type_="about:blank")
         resp.status_code = HTTPStatus.BAD_REQUEST
         assert is_duplicate_commit_response(resp) is True
 
     def test_409_with_already_processed_detail(self) -> None:
         from geolens_cli.publish import is_duplicate_commit_response
-        from geolens_sdk.models.problem_detail import ProblemDetail
+        from geolens.models.problem_detail import ProblemDetail
 
         resp = MagicMock()
         resp.status_code = HTTPStatus.CONFLICT
@@ -157,7 +157,7 @@ class TestIsDuplicateCommitResponse:
 
     def test_400_with_unrelated_detail_returns_false(self) -> None:
         from geolens_cli.publish import is_duplicate_commit_response
-        from geolens_sdk.models.problem_detail import ProblemDetail
+        from geolens.models.problem_detail import ProblemDetail
 
         resp = MagicMock()
         resp.status_code = HTTPStatus.BAD_REQUEST
@@ -243,24 +243,24 @@ def patch_sdk_for_publish(monkeypatch):
 
     The helper takes upload/preview/commit/job_status mocks and patches:
       - geolens_cli.publish.upload_file
-      - geolens_sdk.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed
-      - geolens_sdk.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed
-      - geolens_sdk.api.admin.get_job_status_jobs_job_id_get.sync_detailed
+      - geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed
+      - geolens.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed
+      - geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed
     """
 
     def _install(*, upload, preview, commit, job_status=None):
         monkeypatch.setattr("geolens_cli.publish.upload_file", lambda c, p: upload)
         monkeypatch.setattr(
-            "geolens_sdk.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
+            "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: preview,
         )
         monkeypatch.setattr(
-            "geolens_sdk.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed",
+            "geolens.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed",
             lambda **kw: commit,
         )
         if job_status is not None:
             monkeypatch.setattr(
-                "geolens_sdk.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+                "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
                 lambda **kw: job_status,
             )
 
@@ -353,7 +353,7 @@ class TestPublishCli:
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson, patch_sdk_for_publish
     ) -> None:
         from geolens_cli.main import app
-        from geolens_sdk.models.problem_detail import ProblemDetail
+        from geolens.models.problem_detail import ProblemDetail
 
         instance = "https://x.example.com"
         _seed_login(instance, mock_keyring)
@@ -384,7 +384,7 @@ class TestPublishCli:
     ) -> None:
         """Task 0 Q3: backend actually emits 400 (not 409) for duplicate commits."""
         from geolens_cli.main import app
-        from geolens_sdk.models.problem_detail import ProblemDetail
+        from geolens.models.problem_detail import ProblemDetail
 
         instance = "https://x.example.com"
         _seed_login(instance, mock_keyring)
@@ -453,7 +453,7 @@ class TestPublishCli:
     ) -> None:
         """The CommitRequest title falls back to file.stem when --name is omitted."""
         from geolens_cli.main import app
-        from geolens_sdk.models.commit_request import CommitRequest
+        from geolens.models.commit_request import CommitRequest
 
         instance = "https://x.example.com"
         _seed_login(instance, mock_keyring)
@@ -475,11 +475,11 @@ class TestPublishCli:
 
         monkeypatch.setattr("geolens_cli.publish.upload_file", lambda c, p: _ok_upload())
         monkeypatch.setattr(
-            "geolens_sdk.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
+            "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: _ok_preview(),
         )
         monkeypatch.setattr(
-            "geolens_sdk.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed",
+            "geolens.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed",
             capture_commit,
         )
 
@@ -492,7 +492,7 @@ class TestPublishCli:
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
     ) -> None:
         from geolens_cli.main import app
-        from geolens_sdk.models.commit_request import CommitRequest
+        from geolens.models.commit_request import CommitRequest
 
         instance = "https://x.example.com"
         _seed_login(instance, mock_keyring)
@@ -514,11 +514,11 @@ class TestPublishCli:
 
         monkeypatch.setattr("geolens_cli.publish.upload_file", lambda c, p: _ok_upload())
         monkeypatch.setattr(
-            "geolens_sdk.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
+            "geolens.api.datasets.preview_file_ingest_preview_job_id_post.sync_detailed",
             lambda **kw: _ok_preview(),
         )
         monkeypatch.setattr(
-            "geolens_sdk.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed",
+            "geolens.api.datasets.commit_import_ingest_commit_job_id_post.sync_detailed",
             capture_commit,
         )
 
