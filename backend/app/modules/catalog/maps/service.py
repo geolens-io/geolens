@@ -22,7 +22,7 @@ from app.modules.catalog.authorization import apply_visibility_filter, get_user_
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.catalog.maps.schemas import MapLayerInput
-from app.processing.raster.models import RasterAsset
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -1001,6 +1001,8 @@ async def get_shared_map(
         return None
     if isinstance(token_obj, str):
         return token_obj  # "expired"
+
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
 
     # Single query: Map metadata + visible layers in one round trip.
     stmt = (
