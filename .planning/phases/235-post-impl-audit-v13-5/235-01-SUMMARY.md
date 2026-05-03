@@ -103,7 +103,7 @@ v13.5 is ready to close. The remaining risks are normal post-milestone backlog a
 
 - Key files exist on disk.
 - `git log --oneline --all --grep="235-01"` returns Phase 235 commits.
-- No `## Self-Check: FAILED` marker is present.
+- No failed self-check marker is present.
 
 ---
 *Phase: 235-post-impl-audit-v13-5*
