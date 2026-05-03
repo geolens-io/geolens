@@ -49,7 +49,7 @@ Scope:
   allowlist (Phase 214 IDENT-02 - pathspec excludes auth/**, admin/**,
   audit/{models,service}.py, api/main.py, processing/ingest/tasks_raster.py,
   embed_tokens/service.py, catalog/{maps/service,collections/router,
-  datasets/api/router_export,datasets/domain/helpers,search/service}.py, and
+  datasets/api/router_export,datasets/domain/helpers,search/service_semantic}.py, and
   tests/)
 
 Phase 218 will re-run `/oc-audit` to verify Boundary B -> A-, Seam Quality
@@ -419,8 +419,8 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
                                                 for export header personalization (Pitfall 1)
     - `catalog/datasets/domain/helpers.py` - `select(User).where(User.id.in_(ids))`
                                               for batched user resolution (Pitfall 1)
-    - `catalog/search/service.py` - `select(User).where(User.id.in_(actor_ids))`
-                                     for search-result enrichment (Pitfall 1)
+    - `catalog/search/service_semantic.py` - `select(User).where(User.id.in_(actor_ids))`
+                                              for search-result enrichment (Pitfall 1)
     - `tests/`          - fixtures construct `User(...)` directly; structurally
                           valid as Identity at the call site
 
@@ -461,7 +461,7 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             ":!backend/app/modules/catalog/collections/router.py",
             ":!backend/app/modules/catalog/datasets/api/router_export.py",
             ":!backend/app/modules/catalog/datasets/domain/helpers.py",
-            ":!backend/app/modules/catalog/search/service.py",
+            ":!backend/app/modules/catalog/search/service_semantic.py",
             ":!backend/tests/",
         ],
         cwd=REPO_ROOT,
