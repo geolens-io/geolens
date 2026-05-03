@@ -20,7 +20,7 @@ pip install geolens
 
 Requires Python 3.10+. Runtime dependencies: `httpx`, `attrs`, `python-dateutil`.
 
-> `geolens-sdk==1.0.0` exists on PyPI as a pre-pivot package. New Python SDK installs should use `geolens`.
+> The Python SDK package is `geolens`. Do not use the abandoned pre-pivot name `geolens-sdk`.
 
 ### TypeScript / JavaScript
 
@@ -181,12 +181,12 @@ This means SDK 1.4.2 always corresponds to backend 1.4.2 — no version skew, no
 
 ## Publishing
 
-SDK publishing is manual-triggered through GitHub Actions. PyPI uses Trusted Publishing (OIDC), so there is no long-lived `PYPI_TOKEN` secret. npm uses the repository `NPM_TOKEN` secret until npm trusted publishing is GA for this package.
+SDK publishing is manual-triggered through GitHub Actions. PyPI uses Trusted Publishing (OIDC), so there is no long-lived `PYPI_TOKEN` secret. npm uses the repository `NPM_TOKEN` secret until npm trusted publishing is GA for this package. The first public release has shipped as `geolens==1.0.0` and `@geolens/sdk==1.0.0`.
 
 ### One-time setup (user actions)
 
 1. **PyPI Trusted Publisher for `geolens`:** project `geolens`, owner `geolens-io`, repository `geolens`, workflow `publish-sdks.yml`, environment blank.
-2. **Claim the `@geolens` npm organization** at <https://www.npmjs.com/org/create>. The org must exist before the first `npm publish`.
+2. **Claim the `@geolens` npm organization** at <https://www.npmjs.com/org/create>. The org must exist before publishing `@geolens/sdk`.
 3. **Create an npm granular access token** with Read/Write and Bypass 2FA enabled, scoped to the `@geolens` org. Add it to the GitHub repository secrets as `NPM_TOKEN`.
 
 ### Publishing via the GitHub Actions workflow
@@ -219,7 +219,7 @@ npm run build
 npm publish --access public  # --access public REQUIRED for first publish of @scope/name
 ```
 
-The `--access public` flag is required for the first publish of `@geolens/sdk` because npm scoped packages default to private (paid org tier required for private). The `package.json` already includes `"publishConfig": { "access": "public" }` as a belt-and-suspenders measure.
+The `--access public` flag is required for scoped npm packages because scoped packages default to private (paid org tier required for private). The `package.json` already includes `"publishConfig": { "access": "public" }` as a belt-and-suspenders measure.
 
 ## Known rough edges (v13.1)
 
