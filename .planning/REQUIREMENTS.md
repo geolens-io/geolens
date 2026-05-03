@@ -41,11 +41,11 @@
 
 ### Symmetric CatalogPort Protocol (Phase 230)
 
-- [ ] **CATPORT-01**: A `CatalogPort` Protocol exists at `backend/app/core/catalog_port.py` mirroring the `ProcessingPort` shape from Phase 225, opposite direction (exposes processing-owned types catalog modules need)
-- [ ] **CATPORT-02**: The 17 existing top-of-file `catalog/*` → `processing/*` imports rewire through Protocol-typed boundaries (no module-level cross-domain imports). Function-local deferred imports inside catalog are explicitly permitted (mirror Phase 225 scoping)
-- [ ] **CATPORT-03**: High-leverage call sites consume processing data via the Port: `catalog/maps/service.py:25` (RasterAsset), `catalog/layers/service.py:15-26`, `catalog/search/service.py:44-46`, `catalog/features/service.py:12`, plus the 5 `catalog/datasets/api/router_*.py` files
-- [ ] **CATPORT-04**: Architecture-guard test `test_no_catalog_imports_processing` fails CI if any `backend/app/modules/catalog/` module has a top-of-file import from `backend/app/processing/` (mirrors Phase 225's `test_no_processing_imports_catalog` pattern)
-- [ ] **CATPORT-05**: Default `CatalogPort` implementation delegates to `app.processing.*` via deferred imports inside method bodies (mirror `DefaultProcessingPort` pattern); single-slot `get_catalog_port()` accessor lives at `backend/app/platform/extensions/__init__.py`; full backend test suite passes with zero functional regressions
+- [x] **CATPORT-01**: A `CatalogPort` Protocol exists at `backend/app/core/catalog_port.py` mirroring the `ProcessingPort` shape from Phase 225, opposite direction (exposes processing-owned types catalog modules need)
+- [x] **CATPORT-02**: The 17 existing top-of-file `catalog/*` → `processing/*` imports rewire through Protocol-typed boundaries (no module-level cross-domain imports). Function-local deferred imports inside catalog are explicitly permitted (mirror Phase 225 scoping)
+- [x] **CATPORT-03**: High-leverage call sites consume processing data via the Port: `catalog/maps/service.py:25` (RasterAsset), `catalog/layers/service.py:15-26`, `catalog/search/service.py:44-46`, `catalog/features/service.py:12`, plus the 5 `catalog/datasets/api/router_*.py` files
+- [x] **CATPORT-04**: Architecture-guard test `test_no_catalog_imports_processing` fails CI if any `backend/app/modules/catalog/` module has a top-of-file import from `backend/app/processing/` (mirrors Phase 225's `test_no_processing_imports_catalog` pattern)
+- [x] **CATPORT-05**: Default `CatalogPort` implementation delegates to `app.processing.*` via deferred imports inside method bodies (mirror `DefaultProcessingPort` pattern); single-slot `get_catalog_port()` accessor lives at `backend/app/platform/extensions/__init__.py`; full backend test suite passes with zero functional regressions
 
 ### EmbeddingProviderExtension Protocol (Phase 231)
 
@@ -57,9 +57,9 @@
 
 ### Post-Implementation Audit Gate (Phase 229)
 
-- [ ] **PIAUDIT-01**: A `/post-impl` audit produces a dated `docs-internal/audits/post-impl-2026MMDD-*.md` report covering the v13.4 implementation surface (Phases 225–228 + 230 + 231)
-- [ ] **PIAUDIT-02**: All P1 findings from the audit are either fixed inline or explicitly deferred with rationale + a tracked backlog phase
-- [ ] **PIAUDIT-03**: Post-audit re-run holds the milestone audit-grade targets — Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−**
+- [x] **PIAUDIT-01**: A `/post-impl` audit produces a dated `docs-internal/audits/post-impl-2026MMDD-*.md` report covering the v13.4 implementation surface (Phases 225–228 + 230 + 231)
+- [x] **PIAUDIT-02**: All P1 findings from the audit are either fixed inline or explicitly deferred with rationale + a tracked backlog phase
+- [x] **PIAUDIT-03**: Post-audit re-run holds the milestone audit-grade targets — Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−**
 
 ---
 
@@ -100,14 +100,14 @@
 | PROCESS-03 | Phase 225 | [x] complete — Plan 02 |
 | PROCESS-04 | Phase 225 | [x] complete — Plan 04 |
 | PROCESS-05 | Phase 225 | [x] complete — Plan 01 |
-| AIEXT-01 | Phase 226 | [ ] not started |
-| AIEXT-02 | Phase 226 | [ ] not started |
-| AIEXT-03 | Phase 226 | [ ] not started |
-| AIEXT-04 | Phase 226 | [ ] not started |
-| AIEXT-05 | Phase 226 | [ ] not started |
-| TESTFIX-01 | Phase 227 | [ ] not started |
-| TESTFIX-02 | Phase 227 | [ ] not started |
-| TESTFIX-03 | Phase 227 | [ ] not started |
+| AIEXT-01 | Phase 226 | [x] complete — Plan 01 |
+| AIEXT-02 | Phase 226 | [x] complete — Plan 01 |
+| AIEXT-03 | Phase 226 | [x] complete — Plan 02 |
+| AIEXT-04 | Phase 226 | [x] complete — Plan 04 |
+| AIEXT-05 | Phase 226 | [x] complete — Plan 04 |
+| TESTFIX-01 | Phase 227 | [x] complete — Plans 01/02 |
+| TESTFIX-02 | Phase 227 | [x] complete — Plan 02 |
+| TESTFIX-03 | Phase 227 | [x] complete — Plan 02 |
 | PUBLISH-01 | Phase 228 | [x] complete — Plan 02 / 228-VERIFICATION |
 | PUBLISH-02 | Phase 228 | [x] complete — Plan 03 |
 | PUBLISH-03 | Phase 228 | [x] complete — Plan 03 |
@@ -122,8 +122,8 @@
 | EMBPROV-03 | Phase 231 | [x] complete — Plan 02 |
 | EMBPROV-04 | Phase 231 | [x] completed |
 | EMBPROV-05 | Phase 231 | [x] complete — Plans 01/02 |
-| PIAUDIT-01 | Phase 229 | [ ] not started |
-| PIAUDIT-02 | Phase 229 | [ ] not started |
-| PIAUDIT-03 | Phase 229 | [ ] not started |
+| PIAUDIT-01 | Phase 229 | [x] complete — 229 audit report |
+| PIAUDIT-02 | Phase 229 | [x] complete — P1 findings fixed inline |
+| PIAUDIT-03 | Phase 229 | [x] complete — grades table |
 
 **Coverage:** 30/30 v13.4 requirements mapped to exactly one phase. No orphans, no duplicates. (Original 20 + 10 added 2026-05-02 with Phase 230/231 promotions.)

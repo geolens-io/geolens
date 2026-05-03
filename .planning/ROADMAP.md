@@ -51,12 +51,12 @@
 ### Active Phases — v13.4 Boundary Closeout
 
 - [x] **Phase 225: processing-port-protocol-cycle-inversion** — Invert the catalog↔processing cycle behind a `ProcessingPort` Protocol; inline architecture-guard test (COMPLETE — 2026-05-01)
-- [ ] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup
-- [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
-- [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
+- [x] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup (COMPLETE — 2026-05-02)
+- [x] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path` (COMPLETE — 2026-05-01)
+- [x] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine (COMPLETE — 2026-05-03)
 - [x] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−) (completed 2026-05-03)
 - [x] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py` (COMPLETE — 2026-05-03)
-- [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A−
+- [x] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A− (COMPLETE — 2026-05-03)
 
 #### Phase 225: processing-port-protocol-cycle-inversion
 
@@ -247,11 +247,11 @@ Plans:
 3. Post-audit grade re-run records Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−** in the report's grades table.
 4. v13.4 milestone is unblocked for close — `/gsd-complete-milestone` runs without surfacing unresolved P1 findings.
 
-**Plans:** 1 plan
+**Plans:** 1/1 plan complete
 
 Plans:
 **Wave 1**
-- [ ] 229-01-PLAN.md — post-impl audit evidence pack: focused baseline checks, dated audit report, P1 disposition, grade table, verification artifact, and requirements/roadmap/state closeout (PIAUDIT-01/02/03)
+- [x] 229-01-PLAN.md — post-impl audit evidence pack: focused baseline checks, dated audit report, P1 disposition, grade table, verification artifact, and requirements/roadmap/state closeout (PIAUDIT-01/02/03)
 
 ---
 
