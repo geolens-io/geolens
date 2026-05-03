@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: phase_232_complete
-stopped_at: Phase 232 complete; ready to discuss or plan Phase 233
-last_updated: "2026-05-03T15:53:45Z"
+status: phase_233_context_gathered
+stopped_at: Phase 233 context gathered; ready to plan Phase 233
+last_updated: "2026-05-03T16:30:35Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 
 Phase: 233 pending
 Plan: —
-Status: Phase 232 complete; ready to discuss or plan Phase 233
-Last activity: 2026-05-03 — Phase 232 shipped with 3/3 plans complete and verification passed
+Status: Phase 233 context gathered; ready to plan Phase 233
+Last activity: 2026-05-03 — Phase 233 context captured in `.planning/phases/233-workflow-extension-protocol/233-CONTEXT.md`
 
 ## Roadmap Snapshot
 
@@ -54,14 +54,14 @@ Coverage: 16/16 v13.5 requirements mapped.
 
 ## Next Action
 
-Define and then plan Phase 233:
+Plan and execute Phase 233:
 
 - Phase 232 promoted former backlog 999.8 into the active v13.5 milestone and is complete.
-- Phase 233 promotes former backlog 999.9 into the active v13.5 milestone.
+- Phase 233 context is captured and ready for planning.
 - Phase 234 verifies the advanced-sharing Branch A gates shipped on 2026-05-03 remain aligned across GTM docs, API copy, UI affordances, schema validators, and service safeguards.
 - Phase 235 closes the milestone with a post-implementation/open-core audit.
 
-Next GSD action: `$gsd-discuss-phase 233 --auto`.
+Next GSD action: `$gsd-plan-phase 233 --auto`.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
@@ -197,6 +197,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-05-03T15:14:00Z
-Stopped at: Phase 229 complete
-Resume file: .planning/phases/229-post-impl-audit-v13-4/229-VERIFICATION.md
+Last session: 2026-05-03T16:30:35Z
+Stopped at: Phase 233 context gathered
+Resume file: .planning/phases/233-workflow-extension-protocol/233-CONTEXT.md
