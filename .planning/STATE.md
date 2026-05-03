@@ -1,50 +1,47 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.4
-milestone_name: Boundary Closeout
-status: archived
-stopped_at: v13.4 archived; ready for next milestone planning
-last_updated: "2026-05-03T15:25:00Z"
+milestone: v13.5
+milestone_name: Enterprise Governance Seams
+status: defining_requirements
+stopped_at: v13.5 started; requirements and roadmap being defined
+last_updated: "2026-05-03T15:31:26Z"
 last_activity: 2026-05-03
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 23
-  completed_plans: 23
-  percent: 100
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-03 after v13.4 close)
+See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone
+**Current focus:** v13.5 Enterprise Governance Seams
 
 ## Current Position
 
-Phase: v13.4 Boundary Closeout — ARCHIVED
-Plan: 23 of 23 complete
-Status: Milestone archived and ready for next milestone planning
-Last activity: 2026-05-03
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements and roadmap for v13.5 Enterprise Governance Seams
+Last activity: 2026-05-03 — Milestone v13.5 started
 
 ## Roadmap Snapshot
 
 | Phase | Name | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 225 | processing-port-protocol-cycle-inversion | PROCESS-01, PROCESS-02, PROCESS-03, PROCESS-04, PROCESS-05 | 224 (✅ shipped) |
-| 226 | ai-provider-extension-protocol | AIEXT-01, AIEXT-02, AIEXT-03, AIEXT-04, AIEXT-05 | 225 |
-| 227 | saml-test-fixture-tmp-path | TESTFIX-01, TESTFIX-02, TESTFIX-03 | — |
-| 228 | run-cold-publish-workflows | PUBLISH-01, PUBLISH-02, PUBLISH-03, PUBLISH-04 | — |
-| 230 | catalog-port-protocol-symmetric | CATPORT-01, CATPORT-02, CATPORT-03, CATPORT-04, CATPORT-05 | 225 (sequential — both touch core/Protocol surface) |
-| 231 | embedding-provider-extension-protocol | EMBPROV-01, EMBPROV-02, EMBPROV-03, EMBPROV-04, EMBPROV-05 | — (independent, can ship in parallel) |
-| 229 | post-impl-audit-v13.4 | PIAUDIT-01, PIAUDIT-02, PIAUDIT-03 | 225, 226, 227, 228, 230, 231 |
+| 232 | permission-extension-protocol | PERM-01..05 | 231 (✅ shipped) |
+| 233 | workflow-extension-protocol | WORK-01..05 | 232 (soft sequencing: shared extension registry/test patterns) |
+| 234 | governance-contract-verification | SHARE-01..03 | 232, 233 |
+| 235 | post-impl-audit-v13.5 | GOVAUD-01..03 | 232, 233, 234 |
 
-Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 with Phase 230/231 promotions).
+Coverage target: 18/18 v13.5 requirements mapped once `.planning/REQUIREMENTS.md` and `.planning/ROADMAP.md` are finalized.
 
-**Audit-grade targets (verified by Phase 229):** Boundary Integrity ≥ **A+** (hold v13.3 close grade) · Coupling Health **B → A−** (BOTH cycle directions inverted via 225 + 230) · Seam Quality **B+ → A−** (Phase 226 closes AI dispatch 🔴; Phase 231 closes the embeddings 🔴).
+**Audit-grade targets:** Seam Quality **A− → A** (PermissionExtension + WorkflowExtension close the remaining governance seams); Boundary Integrity ≥ **A** (advanced sharing gate remains enforced); Inventory Accuracy ≥ **A−** (GTM/API/UI copy matches implementation).
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -57,17 +54,14 @@ Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 wit
 
 ## Next Action
 
-Phases 230 and 231 are complete and verified:
+Define and then plan Phase 232:
 
-- Phase 230 shipped `CatalogPort`, `DefaultCatalogPort`, `get_catalog_port()`, migrated catalog's top-of-file processing imports, and added `test_no_catalog_imports_processing`.
-- `EmbeddingProviderExtension` Protocol, default OpenAI-compatible provider, and `get_embedding_provider(name)` registry accessor are shipped.
-- Embedding generation and dimension probing route through the extension registry.
-- `backend/app/processing/embeddings/` has zero module-level OpenAI SDK imports.
-- `test_no_module_level_provider_sdk_imports_in_processing` now covers all of `backend/app/processing/`.
+- Phase 232 promotes former backlog 999.8 into the active v13.5 milestone.
+- Phase 233 promotes former backlog 999.9 into the active v13.5 milestone.
+- Phase 234 verifies the advanced-sharing Branch A gates shipped on 2026-05-03 remain aligned across GTM docs, API copy, UI affordances, schema validators, and service safeguards.
+- Phase 235 closes the milestone with a post-implementation/open-core audit.
 
-Phase 229 completed 2026-05-03. The dated audit report is `docs-internal/audits/post-impl-20260503-v13-4.md`; Boundary Integrity A+, Coupling Health A−, and Seam Quality A− meet the v13.4 close targets.
-
-v13.4 has been archived to `.planning/milestones/v13.4-ROADMAP.md` and `.planning/milestones/v13.4-REQUIREMENTS.md`. Next GSD action: `$gsd-new-milestone`.
+Next GSD action after initialization: `$gsd-discuss-phase 232`.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
@@ -75,7 +69,8 @@ The audit produced 16 findings. Three trivial fixes were applied inline (env-var
 
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
 - **v13.4 (shipped):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), 230 (999.20 → 230 CatalogPort), 231 (999.19 → 231 EmbeddingProviderExtension), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
-- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py), 999.23 (share/embed token expiration gating product decision).
+- **v13.5 (active):** Phase 232 (999.8 → PermissionExtension), Phase 233 (999.9 → WorkflowExtension), Phase 234 (advanced-sharing contract verification), Phase 235 (close audit).
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py).
 
 ## /oc-audit follow-ups (2026-05-02 audit run)
 
@@ -94,7 +89,7 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 - 999.19 (EmbeddingProviderExtension) → **Phase 231** (embedding-provider-extension-protocol)
 - 999.21 (split catalog/maps/service.py) — stays backlog P2
 - 999.22 (split catalog/search/service.py) — stays backlog P2
-- 999.23 (share/embed token expiration gating — product decision) — stays backlog P2, decision-blocked. Strip-the-copy stopgap landed in `6db19582` (2026-05-02); this phase resolves the underlying GTM-vs-implementation contract question (Branch A: apply Phase-219 gates / Branch B: drop the feature from GTM Team tier).
+- 999.23 (share/embed token expiration gating) — resolved by Branch A on 2026-05-03 per `docs-internal/audits/oc-separation-audit-20260503.md`; v13.5 keeps a verification phase to prevent GTM/API/UI drift from recurring.
 
 Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
 

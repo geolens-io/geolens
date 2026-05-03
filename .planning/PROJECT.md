@@ -24,6 +24,16 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 **Known close note:** In-progress advanced-sharing controls were stashed before archival as `stash@{0}` and are not part of v13.4.
 
+## Current Milestone: v13.5 Enterprise Governance Seams
+
+**Goal:** Turn the remaining governance-adjacent permission and workflow chokepoints into first-class extension seams so Enterprise overlays can implement advanced RBAC and approval workflows without forking core.
+
+**Target features:**
+- `PermissionExtension` Protocol for action checks and catalog visibility filtering
+- `WorkflowExtension` Protocol for publication lifecycle transitions and transition hooks
+- Governance contract verification for advanced sharing gates and GTM/API/UI copy
+- Close audit confirming the seam-quality lift and clean boundary posture
+
 <details>
 <summary>Earlier milestone — v13.3 Boundary A+ Cleanup (shipped 2026-05-01)</summary>
 
@@ -350,7 +360,10 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-_No active milestone. Run `/gsd-new-milestone` to populate from `.planning/REQUIREMENTS.md` once requirements are defined._
+- [ ] Add `PermissionExtension` so permission decisions and catalog visibility filtering can be overlaid without core changes
+- [ ] Add `WorkflowExtension` so publication-state transitions and transition hooks can be overlaid without core changes
+- [ ] Verify advanced sharing controls remain correctly gated and documented after the 2026-05-03 Branch A fix
+- [ ] Run a close audit to confirm the governance seam target and track any remaining P1/P2 backlog
 
 ### Out of Scope
 
@@ -598,4 +611,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 after v13.4 milestone close*
+*Last updated: 2026-05-03 after v13.5 milestone start*
