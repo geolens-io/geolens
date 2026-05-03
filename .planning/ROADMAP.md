@@ -92,11 +92,11 @@
 4. A test overlay can block, add, or observe transitions without modifying core.
 5. Tests or architecture guards fail if dataset publication code bypasses the extension.
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
-- [ ] 233-01-additive-scaffold-PLAN.md — WorkflowExtension Protocol, DefaultWorkflowExtension, get_workflow_extension(), and seam tests.
+- [x] 233-01-additive-scaffold-PLAN.md — WorkflowExtension Protocol, DefaultWorkflowExtension, get_workflow_extension(), and seam tests.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 233-02-route-publication-endpoints-PLAN.md — Route /status/ and /target-status/ through WorkflowExtension while preserving Community behavior.
