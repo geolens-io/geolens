@@ -62,6 +62,7 @@ class _FakeDB:
     def __init__(self, dataset):
         self.dataset = dataset
         self.committed = False
+        self.flushed = False
         self.refreshed = None
 
     async def execute(self, stmt):
@@ -70,6 +71,9 @@ class _FakeDB:
 
     async def commit(self):
         self.committed = True
+
+    async def flush(self):
+        self.flushed = True
 
     async def refresh(self, dataset):
         self.refreshed = dataset
@@ -275,3 +279,74 @@ async def test_target_status_endpoint_uses_overlay_block():
     assert exc.value.status_code == 422
     assert "Cannot transition from 'internal' to 'published'" in exc.value.detail
     assert db.committed is False
+
+
+@pytest.mark.asyncio
+async def test_metadata_patch_endpoint_uses_overlay_block():
+    """PATCH /datasets/{id} cannot bypass WorkflowExtension for record_status."""
+    import app.platform.extensions as ext_mod
+    from app.modules.catalog.datasets.api.router import update_dataset_metadata
+    from app.modules.catalog.datasets.domain.schemas import DatasetMeta
+    from app.platform.extensions.defaults import DefaultWorkflowExtension
+
+    class BlockingWorkflow(DefaultWorkflowExtension):
+        async def allowed_transitions(self, context):
+            assert context.mode == "metadata_patch"
+            assert context.actor.id == "admin"
+            return set()
+
+    dataset = _dataset("draft")
+    db = _FakeDB(dataset)
+    ext_mod._extensions["workflow"] = BlockingWorkflow()
+
+    with patch(
+        "app.modules.catalog.datasets.domain.service_metadata.get_dataset",
+        return_value=dataset,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await update_dataset_metadata(
+                dataset.id,
+                DatasetMeta(record_status="published"),
+                SimpleNamespace(client=None),
+                SimpleNamespace(id="admin"),
+                db,
+            )
+
+    assert exc.value.status_code == 422
+    assert "Cannot transition from 'draft' to 'published'" in exc.value.detail
+    assert dataset.record.record_status == "draft"
+    assert db.committed is False
+
+
+@pytest.mark.asyncio
+async def test_status_endpoint_persists_extension_defined_custom_status():
+    """Relaxed workflow validation allows an overlay-defined status through /status/."""
+    import app.platform.extensions as ext_mod
+    from app.modules.catalog.datasets.api.router_data import update_publication_status
+    from app.modules.catalog.datasets.domain.schemas import StatusUpdate
+    from app.platform.extensions.defaults import DefaultWorkflowExtension
+
+    class ReviewWorkflow(DefaultWorkflowExtension):
+        def status_order(self):
+            return ("draft", "review", "published")
+
+        async def allowed_transitions(self, context):
+            if context.from_status == "draft":
+                return {"review"}
+            return set()
+
+    dataset = _dataset("draft")
+    db = _FakeDB(dataset)
+    ext_mod._extensions["workflow"] = ReviewWorkflow()
+
+    response = await update_publication_status(
+        dataset.id,
+        StatusUpdate(status="review"),
+        SimpleNamespace(),
+        SimpleNamespace(id="admin"),
+        db,
+    )
+
+    assert response.record_status == "review"
+    assert dataset.record.record_status == "review"
+    assert db.committed is True
