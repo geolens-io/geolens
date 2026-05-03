@@ -21,7 +21,7 @@
 
 - [x] **WORK-01**: A `WorkflowExtension` Protocol exists in `backend/app/platform/extensions/protocols.py` for allowed publication transitions and transition hooks.
 - [x] **WORK-02**: The default workflow implementation preserves the current `draft -> ready -> internal -> published` lifecycle, status ordering, audit behavior, and API responses.
-- [ ] **WORK-03**: Dataset publication endpoints consult the workflow extension for every status transition instead of directly relying on hardcoded transition dictionaries.
+- [x] **WORK-03**: Dataset publication endpoints consult the workflow extension for every status transition instead of directly relying on hardcoded transition dictionaries.
 - [x] **WORK-04**: A test overlay can block, add, or observe a workflow transition without modifying core files.
 - [ ] **WORK-05**: Architecture or regression tests prevent future bypasses of the workflow extension at dataset publication transition call sites.
 
@@ -85,7 +85,7 @@ Explicitly excluded from v13.5.
 | PERM-05 | Phase 232 | Complete |
 | WORK-01 | Phase 233 | Complete |
 | WORK-02 | Phase 233 | Complete |
-| WORK-03 | Phase 233 | Pending |
+| WORK-03 | Phase 233 | Complete |
 | WORK-04 | Phase 233 | Complete |
 | WORK-05 | Phase 233 | Pending |
 | SHARE-01 | Phase 234 | Pending |

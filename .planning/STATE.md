@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: phase_233_wave_1_complete
-stopped_at: Completed Phase 233 Plan 01 additive scaffold; ready for Plan 02 route publication endpoints
-last_updated: "2026-05-03T16:49:57Z"
+status: phase_233_wave_2_complete
+stopped_at: Completed Phase 233 Plan 02 route publication endpoints; ready for Plan 03 metadata custom state
+last_updated: "2026-05-03T16:54:46Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 25
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 ## Current Position
 
 Phase: 233 in progress
-Plan: 01/04 complete
-Status: Wave 1 additive scaffold complete; Wave 2 publication endpoint routing is next
-Last activity: 2026-05-03 — Phase 233 Plan 01 created WorkflowExtension Protocol/default/accessor and seam tests in `.planning/phases/233-workflow-extension-protocol/233-01-SUMMARY.md`
+Plan: 02/04 complete
+Status: Wave 2 publication endpoint routing complete; Wave 3 metadata/custom-state routing is next
+Last activity: 2026-05-03 — Phase 233 Plan 02 routed `/status/` and `/target-status/` through WorkflowExtension in `.planning/phases/233-workflow-extension-protocol/233-02-SUMMARY.md`
 
 ## Roadmap Snapshot
 
@@ -57,12 +57,12 @@ Coverage: 16/16 v13.5 requirements mapped.
 Continue Phase 233 execution:
 
 - Phase 232 promoted former backlog 999.8 into the active v13.5 milestone and is complete.
-- Phase 233 Plan 01 is complete: `WorkflowExtension`, `DefaultWorkflowExtension`, `get_workflow_extension()`, and focused seam tests are in place.
-- Phase 233 Plan 02 routes `/status/` and `/target-status/` through the workflow seam.
+- Phase 233 Plans 01-02 are complete: `WorkflowExtension`, `DefaultWorkflowExtension`, `get_workflow_extension()`, focused seam tests, and publication endpoint routing are in place.
+- Phase 233 Plan 03 routes metadata PATCH status writes through the workflow seam and relaxes persistence for custom states.
 - Phase 234 verifies the advanced-sharing Branch A gates shipped on 2026-05-03 remain aligned across GTM docs, API copy, UI affordances, schema validators, and service safeguards.
 - Phase 235 closes the milestone with a post-implementation/open-core audit.
 
-Next GSD action: continue executing `.planning/phases/233-workflow-extension-protocol/233-02-route-publication-endpoints-PLAN.md`.
+Next GSD action: continue executing `.planning/phases/233-workflow-extension-protocol/233-03-metadata-custom-state-PLAN.md`.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
@@ -198,6 +198,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-05-03T16:49:57Z
-Stopped at: Completed Phase 233 Plan 01 additive scaffold
-Resume file: .planning/phases/233-workflow-extension-protocol/233-02-route-publication-endpoints-PLAN.md
+Last session: 2026-05-03T16:54:46Z
+Stopped at: Completed Phase 233 Plan 02 route publication endpoints
+Resume file: .planning/phases/233-workflow-extension-protocol/233-03-metadata-custom-state-PLAN.md
