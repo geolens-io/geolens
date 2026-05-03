@@ -92,7 +92,20 @@
 4. A test overlay can block, add, or observe transitions without modifying core.
 5. Tests or architecture guards fail if dataset publication code bypasses the extension.
 
-**Plans:** TBD after Phase 232 planning or in parallel if write scopes are explicitly split.
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+- [ ] 233-01-additive-scaffold-PLAN.md — WorkflowExtension Protocol, DefaultWorkflowExtension, get_workflow_extension(), and seam tests.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 233-02-route-publication-endpoints-PLAN.md — Route /status/ and /target-status/ through WorkflowExtension while preserving Community behavior.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 233-03-metadata-custom-state-PLAN.md — Relax record_status persistence and route metadata PATCH status writes through WorkflowExtension.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 233-04-guard-and-verification-PLAN.md — Add workflow bypass architecture guard, negative-control proof, and phase verification artifact.
 
 #### Phase 234: governance-contract-verification
 
