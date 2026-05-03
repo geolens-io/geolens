@@ -97,7 +97,7 @@
 5. Semantic and hybrid search preserve embedding-provider dispatch, RRF merge behavior, fallback behavior, and actor identity enrichment.
 
 **Plans:**
-2/6 plans executed
+3/6 plans executed
 
 #### Phase 238: boundary-guards-and-contract-stabilization
 
