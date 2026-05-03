@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: roadmap_defined
-stopped_at: v13.5 initialized; ready to discuss or plan Phase 232
-last_updated: "2026-05-03T15:34:59Z"
+status: context_defined
+stopped_at: Phase 232 context gathered; auto-chain to plan/execute requested
+last_updated: "2026-05-03T15:40:41Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 
 Phase: 232 pending
 Plan: —
-Status: Milestone initialized; ready to discuss or plan Phase 232
-Last activity: 2026-05-03 — Milestone v13.5 requirements and roadmap defined
+Status: Phase 232 context captured; ready to plan Phase 232
+Last activity: 2026-05-03 — Phase 232 context captured at `.planning/phases/232-permission-extension-protocol/232-CONTEXT.md`
 
 ## Roadmap Snapshot
 
@@ -61,7 +61,7 @@ Define and then plan Phase 232:
 - Phase 234 verifies the advanced-sharing Branch A gates shipped on 2026-05-03 remain aligned across GTM docs, API copy, UI affordances, schema validators, and service safeguards.
 - Phase 235 closes the milestone with a post-implementation/open-core audit.
 
-Next GSD action after initialization: `$gsd-discuss-phase 232`.
+Next GSD action after context capture: `$gsd-plan-phase 232 --auto`.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
