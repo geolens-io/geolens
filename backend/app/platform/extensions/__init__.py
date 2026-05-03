@@ -19,6 +19,7 @@ from app.platform.extensions.defaults import (
     DefaultAuthExtension,
     DefaultBillingExtension,  # NEW (Phase 223)
     DefaultBrandingExtension,
+    DefaultCatalogPort,  # NEW (Phase 230)
     DefaultIdentityExtension,
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
@@ -33,6 +34,7 @@ from app.platform.extensions.protocols import (
 )
 
 if TYPE_CHECKING:
+    from app.core.catalog_port import CatalogPort  # NEW (Phase 230)
     from app.core.identity import IdentityExtension
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231)
@@ -222,6 +224,19 @@ def get_processing_port() -> "ProcessingPort":
     ext = _extensions.get("processing_port")
     if ext is None:
         return DefaultProcessingPort()
+    return ext  # type: ignore[return-value]
+
+
+def get_catalog_port() -> "CatalogPort":
+    """Return the registered CatalogPort or the community default.
+
+    Phase 230 / CATPORT-01 — symmetric partner to get_processing_port().
+    CatalogPort is single-slot because it is a singleton boundary surface;
+    overlays replace it under the "catalog_port" registry key.
+    """
+    ext = _extensions.get("catalog_port")
+    if ext is None:
+        return DefaultCatalogPort()
     return ext  # type: ignore[return-value]
 
 
