@@ -3,7 +3,7 @@ phase: 234-governance-contract-verification
 status: passed
 verified: true
 score: 5/5
-verified_at: 2026-05-03T18:21:00Z
+verified_at: 2026-05-03T18:00:00Z
 requirements:
   SHARE-01: passed
   SHARE-02: passed

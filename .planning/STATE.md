@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.5
 milestone_name: Enterprise Governance Seams
-status: phase_233_complete
-stopped_at: Phase 233 complete and verified; ready for Phase 234
-last_updated: "2026-05-03T17:04:16Z"
+status: phase_234_complete
+stopped_at: Phase 234 complete and verified; ready for Phase 235
+last_updated: "2026-05-03T18:00:15Z"
 last_activity: 2026-05-03
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 50
+  completed_phases: 3
+  total_plans: 14
+  completed_plans: 14
+  percent: 75
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.5 milestone start)
 
 ## Current Position
 
-Phase: 234 pending
+Phase: 235 pending
 Plan: —
-Status: Phase 233 complete and verified; ready to plan Phase 234
-Last activity: 2026-05-03 — Phase 233 completed with verification passed in `.planning/phases/233-workflow-extension-protocol/233-VERIFICATION.md`
+Status: Phase 234 complete and verified; ready to plan Phase 235
+Last activity: 2026-05-03 — Phase 234 completed with verification passed in `.planning/phases/234-governance-contract-verification/234-VERIFICATION.md`
 
 ## Roadmap Snapshot
 
@@ -54,15 +54,16 @@ Coverage: 16/16 v13.5 requirements mapped.
 
 ## Next Action
 
-Plan and execute Phase 234:
+Plan and execute Phase 235:
 
 - Phase 232 promoted former backlog 999.8 into the active v13.5 milestone and is complete.
 - Phase 233 Plans 01-04 are complete: `WorkflowExtension`, `DefaultWorkflowExtension`, `get_workflow_extension()`, publication endpoint routing, metadata PATCH routing, relaxed persistence for custom states, bypass guard, and verification artifact are in place.
 - Phase 233 verification passed with local DB-backed checks blocked only by missing PostGIS/pgvector in the reachable Postgres service.
-- Phase 234 verifies the advanced-sharing Branch A gates shipped on 2026-05-03 remain aligned across GTM docs, API copy, UI affordances, schema validators, and service safeguards.
+- Phase 234 Plans 01-05 are complete: schema validators, service guards, builder affordance gates, API/GTM/UI copy alignment, regenerated OpenAPI, negative-control proof, and verification artifact are in place.
+- Phase 234 verification passed with focused backend DB-backed checks on `POSTGRES_PORT=5434`, frontend Vitest/lint, ruff, `make openapi-check`, and a schema-guard negative control.
 - Phase 235 closes the milestone with a post-implementation/open-core audit.
 
-Next GSD action: `$gsd-plan-phase 234 --auto`.
+Next GSD action: `$gsd-plan-phase 235 --auto`.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
