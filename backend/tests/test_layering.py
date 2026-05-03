@@ -291,7 +291,9 @@ def test_permission_chokepoints_use_extension() -> None:
     apply_visibility_idx = catalog_source.find("def apply_visibility_filter")
     get_roles_idx = catalog_source.find("async def get_user_roles")
     if apply_visibility_idx == -1 or get_roles_idx == -1:
-        pytest.fail("catalog apply_visibility_filter()/get_user_roles boundary not found")
+        pytest.fail(
+            "catalog apply_visibility_filter()/get_user_roles boundary not found"
+        )
     apply_visibility_block = catalog_source[apply_visibility_idx:get_roles_idx]
     if (
         "get_permission_extension()" not in apply_visibility_block
@@ -380,7 +382,7 @@ def test_workflow_publication_chokepoints_use_extension() -> None:
             "writes must delegate to WorkflowExtension. Expected "
             "get_workflow_extension(), WorkflowTransitionContext, "
             "allowed_transitions(...), on_transition(...), and "
-            "mode=\"metadata_patch\" in "
+            'mode="metadata_patch" in '
             f"{metadata_path.relative_to(REPO_ROOT)}."
         )
 
@@ -407,8 +409,10 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
                           - Procrastinate worker `Base.metadata` registration
     - `embed_tokens/service.py` - function-scope `select(...User.username...)`
                                    for admin embed-token list (Pitfall 1)
-    - `catalog/maps/service.py` - `User.username.label()` in JOINs/SELECTs
-                                   for owner display (Pitfall 1)
+    - `catalog/maps/service_{shared,crud,public}.py`
+                          - `User.username.label()` in JOINs/SELECTs
+                            for owner display after maps service decomposition
+                            (Pitfall 1)
     - `catalog/collections/router.py` - `select(User).where(User.id.in_(actor_ids))`
                                          for actor enrichment (Pitfall 1)
     - `catalog/datasets/api/router_export.py` - `select(User).where(User.id == ...)`
@@ -451,7 +455,9 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             ":!backend/app/api/main.py",
             ":!backend/app/processing/ingest/tasks_raster.py",
             ":!backend/app/modules/embed_tokens/service.py",
-            ":!backend/app/modules/catalog/maps/service.py",
+            ":!backend/app/modules/catalog/maps/service_shared.py",
+            ":!backend/app/modules/catalog/maps/service_crud.py",
+            ":!backend/app/modules/catalog/maps/service_public.py",
             ":!backend/app/modules/catalog/collections/router.py",
             ":!backend/app/modules/catalog/datasets/api/router_export.py",
             ":!backend/app/modules/catalog/datasets/domain/helpers.py",
