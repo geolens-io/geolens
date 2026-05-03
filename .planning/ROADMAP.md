@@ -97,7 +97,7 @@
 5. Semantic and hybrid search preserve embedding-provider dispatch, RRF merge behavior, fallback behavior, and actor identity enrichment.
 
 **Plans:**
-- [ ] TBD by `$gsd-plan-phase 237`
+1/6 plans executed
 
 #### Phase 238: boundary-guards-and-contract-stabilization
 
