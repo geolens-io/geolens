@@ -136,6 +136,35 @@ class DefaultPermissionExtension:
         return True
 
 
+class DefaultWorkflowExtension:
+    """Community-edition default publication workflow policy."""
+
+    DEFAULT_STATUS_ORDER = ("draft", "ready", "internal", "published")
+    DEFAULT_ALLOWED_TRANSITIONS = {
+        "draft": {"ready"},
+        "ready": {"draft", "internal"},
+        "internal": {"ready", "published"},
+        "published": {"internal"},
+    }
+
+    def status_order(self) -> tuple[str, ...]:
+        return self.DEFAULT_STATUS_ORDER
+
+    async def allowed_transitions(self, context):  # type: ignore[no-untyped-def]
+        statuses = set(self.DEFAULT_STATUS_ORDER)
+        if context.from_status not in statuses or context.to_status not in statuses:
+            return set()
+
+        if context.mode == "metadata_patch":
+            return statuses - {context.from_status}
+
+        return set(self.DEFAULT_ALLOWED_TRANSITIONS.get(context.from_status, set()))
+
+    async def on_transition(self, context) -> None:  # type: ignore[no-untyped-def]
+        del context
+        return
+
+
 class DefaultIdentityExtension:
     """Default identity: no alternate backend registered (Phase 214 D-14).
 

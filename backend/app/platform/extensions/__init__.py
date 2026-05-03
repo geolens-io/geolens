@@ -25,6 +25,7 @@ from app.platform.extensions.defaults import (
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
     DefaultPermissionExtension,  # NEW (Phase 232)
     DefaultProcessingPort,  # NEW (Phase 225)
+    DefaultWorkflowExtension,  # NEW (Phase 233)
 )
 from app.platform.extensions.protocols import (
     AuditExtension,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
         AIProviderExtension,
         EmbeddingProviderExtension,
         PermissionExtension,
+        WorkflowExtension,
     )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -136,6 +138,19 @@ def get_permission_extension() -> "PermissionExtension":
     ext = _extensions.get("permission")
     if ext is None:
         return DefaultPermissionExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_workflow_extension() -> "WorkflowExtension":
+    """Return the registered WorkflowExtension or the community default.
+
+    Phase 233 / WORK-01 follows the same single-slot shape as PermissionExtension.
+    Workflow policy is a singleton authority; overlays that need additive
+    behavior can wrap DefaultWorkflowExtension explicitly.
+    """
+    ext = _extensions.get("workflow")
+    if ext is None:
+        return DefaultWorkflowExtension()
     return ext  # type: ignore[return-value]
 
 
