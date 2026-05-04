@@ -9,7 +9,7 @@ last_activity: 2026-05-04
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 16
+  total_plans: 18
   completed_plans: 16
   percent: 80
 ---
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 ## Current Position
 
 Phase: 240 — full-gate-and-deprecation-cleanup
-Plan: —
-Status: Cleanup phase added from milestone audit tech debt
-Last activity: 2026-05-04 — Phase 240 added to close v13.6 audit tech debt: broader backend/frontend/E2E confidence gates and Pydantic/Alembic/Authlib deprecation-warning review.
+Plan: 240-01 — broader-confidence-gates
+Status: Plans created; ready to execute
+Last activity: 2026-05-04 — Phase 240 added and planned to close v13.6 audit tech debt: broader backend/frontend/E2E confidence gates and Pydantic/Alembic/Authlib deprecation-warning review.
 
 ## Roadmap Snapshot
 
