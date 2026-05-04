@@ -16,7 +16,9 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 
-ADVANCED_SHARING_ERROR = "Advanced sharing controls require the GeoLens Enterprise overlay"
+ADVANCED_SHARING_ERROR = (
+    "Advanced sharing controls require the GeoLens Enterprise overlay"
+)
 
 # MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
 # because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
