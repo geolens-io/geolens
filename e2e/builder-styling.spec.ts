@@ -191,7 +191,9 @@ test.describe.serial('Builder Data-Driven Styling', () => {
 
     // Switch to Labels tab and toggle labels on
     await page.getByRole('tab', { name: 'Labels', exact: true }).click();
-    const labelsSwitch = page.getByRole('switch');
+    const labelsSwitch = page
+      .getByRole('tabpanel', { name: 'Labels' })
+      .getByRole('switch');
     await expect(labelsSwitch).toBeVisible();
     await labelsSwitch.click();
 
