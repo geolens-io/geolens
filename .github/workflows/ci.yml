@@ -256,6 +256,16 @@ jobs:
           print('OK: no httpx/requests direct deps in cli/pyproject.toml')
           "
 
+      - name: Manifest CLI contract tests
+        working-directory: cli
+        run: |
+          uv run --project ../backend pytest -v \
+            tests/test_manifest_schema.py \
+            tests/test_manifest_validate.py \
+            tests/test_manifest_apply.py \
+            tests/test_manifest_examples.py \
+            tests/test_manifest_cli_offline.py
+
       # CLI unit tests: run from cli/ so pytest picks up cli/pyproject.toml's
       # [tool.pytest.ini_options] testpaths, but use the SHARED backend venv
       # (which has cli + sdk + cli's deps installed editable) via
@@ -264,6 +274,10 @@ jobs:
       - name: CLI unit tests
         working-directory: cli
         run: uv run --project ../backend pytest -v
+
+      - name: Manifest CLI round-trip contract test
+        working-directory: backend
+        run: uv run pytest tests/test_cli_round_trip.py::TestManifestApplyRoundTrip -v
 
       - name: CLI round-trip integration test
         working-directory: backend
@@ -387,6 +401,16 @@ jobs:
 
       - name: Run migrations
         run: uv run alembic upgrade head
+
+      - name: Manifest backend apply contract tests
+        run: |
+          uv run pytest -v \
+            tests/test_manifest_apply_api.py \
+            tests/test_manifest_apply_service.py \
+            tests/test_manifest_apply_vrt.py \
+            tests/test_manifest_apply_roundtrip.py \
+            tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports \
+            tests/test_layering.py::test_manifest_apply_router_uses_upload_permission
 
       - name: Run tests with coverage
         run: |

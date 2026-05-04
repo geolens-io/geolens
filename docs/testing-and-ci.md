@@ -126,6 +126,80 @@ env \
 - Coverage output is generated under `backend/htmlcov/`, plus `backend/.coverage` and `backend/coverage.xml`. Do not commit those artifacts.
 - Warning-only output is currently expected from some third-party deprecations.
 
+## Manifest Contract Gates
+
+CI includes focused manifest gates for faster signal in addition to the broad
+backend and CLI suites.
+
+Run the CLI manifest contract tests from `cli/`:
+
+```bash
+uv run pytest \
+  tests/test_manifest_schema.py \
+  tests/test_manifest_validate.py \
+  tests/test_manifest_apply.py \
+  tests/test_manifest_examples.py \
+  tests/test_manifest_cli_offline.py \
+  -q
+```
+
+Run the backend manifest apply contract tests from `backend/` with the Compose
+database env described above:
+
+```bash
+env \
+  PYTHONPATH=. \
+  POSTGRES_USER="${POSTGRES_USER:-geolens}" \
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-geolens}" \
+  POSTGRES_HOST=localhost \
+  POSTGRES_PORT="${DB_PORT:-5434}" \
+  POSTGRES_DB="${POSTGRES_DB:-geolens}" \
+  JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars \
+  GEOLENS_ADMIN_USERNAME=admin \
+  GEOLENS_ADMIN_PASSWORD=admin \
+  uv run pytest \
+    tests/test_manifest_apply_api.py \
+    tests/test_manifest_apply_service.py \
+    tests/test_manifest_apply_vrt.py \
+    tests/test_manifest_apply_roundtrip.py \
+    tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports \
+    tests/test_layering.py::test_manifest_apply_router_uses_upload_permission \
+    -q
+```
+
+Run the CLI-to-backend manifest apply smoke from `backend/`:
+
+```bash
+env \
+  PYTHONPATH=. \
+  POSTGRES_USER="${POSTGRES_USER:-geolens}" \
+  POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-geolens}" \
+  POSTGRES_HOST=localhost \
+  POSTGRES_PORT="${DB_PORT:-5434}" \
+  POSTGRES_DB="${POSTGRES_DB:-geolens}" \
+  JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars \
+  GEOLENS_ADMIN_USERNAME=admin \
+  GEOLENS_ADMIN_PASSWORD=admin \
+  uv run pytest tests/test_cli_round_trip.py::TestManifestApplyRoundTrip -v
+```
+
+Generated contract drift remains a separate gate:
+
+```bash
+make openapi-check
+make sdks-check
+```
+
+For a local aggregate, run from the repo root:
+
+```bash
+make manifest-contract-check
+```
+
+Commit generated `backend/openapi.json` and SDK output only when the source API
+change requires it. Do not commit coverage output, Playwright reports, virtual
+environments, or dependency directories produced while running these checks.
+
 ## Recommended Local Order
 
 When validating a branch before merging:

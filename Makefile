@@ -1,4 +1,4 @@
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline
+.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline
 
 dev:
 	docker compose up --build
@@ -108,6 +108,12 @@ sdks-check:
 # Stub today; Plan 04 creates backend/tests/test_sdks_round_trip.py.
 sdks-test:
 	cd backend && PYTHONPATH=. uv run pytest tests/test_sdks_round_trip.py -v
+
+manifest-contract-check:
+	cd cli && uv run pytest tests/test_manifest_schema.py tests/test_manifest_validate.py tests/test_manifest_apply.py tests/test_manifest_examples.py tests/test_manifest_cli_offline.py -q
+	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=admin uv run pytest tests/test_manifest_apply_api.py tests/test_manifest_apply_service.py tests/test_manifest_apply_vrt.py tests/test_manifest_apply_roundtrip.py tests/test_layering.py::test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports tests/test_layering.py::test_manifest_apply_router_uses_upload_permission -q
+	$(MAKE) openapi-check
+	$(MAKE) sdks-check
 
 # Publish targets — require local registry credentials.
 # Phase 215 ships the recipe; running it is a manual user action (D-16).
