@@ -20,6 +20,7 @@ from rich.table import Table
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
+from . import manifest_apply as _manifest_apply
 from . import output as _output
 from . import publish as _publish
 from . import scan as _scan
@@ -199,6 +200,75 @@ def validate(
         for line in format_validation_error_lines(path, errors):
             state.output.error(line)
     raise typer.Exit(EXIT_USAGE)
+
+
+@app.command("apply")
+def apply_manifest_command(
+    ctx: typer.Context,
+    path: Annotated[
+        Path,
+        typer.Argument(help="Manifest path to apply"),
+    ] = Path("geolens.yaml"),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview backend apply outcomes without writes"),
+    ] = False,
+) -> None:
+    """Apply a geolens.yaml manifest through the configured GeoLens API."""
+    from .manifest.reporting import (
+        format_validation_error_lines,
+        validation_report_payload,
+    )
+    from .manifest.schema import load_manifest, validate_manifest
+
+    state: AppState = ctx.obj
+    try:
+        document = load_manifest(path)
+    except ValueError as exc:
+        if state.json_mode:
+            state.output.json(
+                {
+                    "error": str(exc),
+                    "ok": False,
+                    "path": str(path),
+                }
+            )
+        else:
+            state.output.error(f"{path}: {exc}")
+        raise typer.Exit(EXIT_USAGE)
+
+    errors = validate_manifest(document)
+    if errors:
+        if state.json_mode:
+            state.output.json(validation_report_payload(path, errors))
+        else:
+            for line in format_validation_error_lines(path, errors):
+                state.output.error(line)
+        raise typer.Exit(EXIT_USAGE)
+
+    sdk = state.sdk()
+    payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
+    try:
+        response = _manifest_apply.post_manifest_apply(sdk.client, payload)
+    except _manifest_apply.ManifestApplyRequestError as exc:
+        state.output.error(exc.message)
+        raise typer.Exit(exc.exit_code)
+
+    report = _manifest_apply.apply_report_payload(path, response)
+    if state.json_mode:
+        state.output.json(report)
+    else:
+        _manifest_apply.render_apply_summary(
+            state.output.console_stdout,
+            path,
+            response,
+        )
+
+    if not response.get("accepted", False):
+        state.output.error("Manifest apply response had accepted=false.")
+        raise typer.Exit(EXIT_GENERIC)
+    if _manifest_apply.has_apply_errors(response):
+        raise typer.Exit(EXIT_GENERIC)
 
 
 @app.command()
