@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import structlog
 
@@ -22,6 +23,15 @@ from app.processing.ingest.tasks_common import (
     _validate_upload_file_safety,
     task_app,
 )
+
+
+def _is_manifest_vrt_job(job: Any) -> bool:
+    """Return true when a raster queue job represents a manifest VRT source."""
+    metadata = job.user_metadata or {}
+    source_filename = (job.source_filename or "").lower()
+    return metadata.get("manifest_source_type") == "vrt" or source_filename.endswith(
+        ".vrt"
+    )
 
 
 async def create_raster_dataset(
@@ -211,29 +221,35 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                     "Missing CRS: raster has no coordinate reference system."
                 )
 
-            # 6. Check/convert to COG. Verify disk space first — COG conversion
-            # can produce output up to ~3× source size (decompressed + tiled +
-            # overviews); a stretched disk crashes here with opaque IOError and
-            # may leave concurrent ingests in a half-converted state.
-            tmp_dir = tempfile.mkdtemp()
-            source_bytes = os.path.getsize(file_path)
-            free_bytes = shutil.disk_usage(tmp_dir).free
-            min_free = source_bytes * 3
-            if free_bytes < min_free:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-                raise ValueError(
-                    f"Insufficient disk space for COG conversion: need ~{min_free // (1024 * 1024)} MB, "
-                    f"have {free_bytes // (1024 * 1024)} MB free at staging directory."
+            is_manifest_vrt = _is_manifest_vrt_job(job)
+
+            if is_manifest_vrt:
+                local_cog_path = file_path
+                cog_status = "verified"
+            else:
+                # 6. Check/convert to COG. Verify disk space first — COG conversion
+                # can produce output up to ~3× source size (decompressed + tiled +
+                # overviews); a stretched disk crashes here with opaque IOError and
+                # may leave concurrent ingests in a half-converted state.
+                tmp_dir = tempfile.mkdtemp()
+                source_bytes = os.path.getsize(file_path)
+                free_bytes = shutil.disk_usage(tmp_dir).free
+                min_free = source_bytes * 3
+                if free_bytes < min_free:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    raise ValueError(
+                        f"Insufficient disk space for COG conversion: need ~{min_free // (1024 * 1024)} MB, "
+                        f"have {free_bytes // (1024 * 1024)} MB free at staging directory."
+                    )
+                local_cog_path, cog_status = await asyncio.to_thread(
+                    check_and_prepare_cog,
+                    file_path,
+                    tmp_dir,
+                    compression=user_compression,
+                    resampling=user_resampling,
+                    nodata=user_nodata,
+                    assign_crs=assign_crs if assign_crs and crs_missing else None,
                 )
-            local_cog_path, cog_status = await asyncio.to_thread(
-                check_and_prepare_cog,
-                file_path,
-                tmp_dir,
-                compression=user_compression,
-                resampling=user_resampling,
-                nodata=user_nodata,
-                assign_crs=assign_crs if assign_crs and crs_missing else None,
-            )
             assert (
                 local_cog_path is not None
             )  # check_and_prepare_cog always returns a path
@@ -249,20 +265,39 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             # 9. Create DB records
             um = job.user_metadata or {}
             title = um.get("title") or job.source_filename or "raster_dataset"
-            record, dataset, raster_asset = await create_raster_dataset(
-                session,
-                meta=meta,
-                source_sha256=source_sha256,
-                asset_sha256=asset_sha256,
-                cog_status=cog_status,
-                cog_size=cog_size,
-                source_filename=job.source_filename,
-                created_by=uuid.UUID(user_id),
-                title=title,
-                summary=um.get("summary"),
-                visibility=um.get("visibility", "private"),
-                record_status=um.get("record_status", "published"),
-            )
+            if is_manifest_vrt:
+                from app.processing.ingest.tasks_vrt import create_vrt_dataset
+
+                record, dataset, raster_asset = await create_vrt_dataset(
+                    session,
+                    meta=meta,
+                    asset_sha256=asset_sha256,
+                    vrt_size=cog_size,
+                    source_filename=job.source_filename,
+                    created_by=uuid.UUID(user_id),
+                    title=title,
+                    summary=um.get("summary"),
+                    visibility=um.get("visibility", "private"),
+                    record_status=um.get("record_status", "published"),
+                    vrt_type=um.get("vrt_type", "mosaic"),
+                    resolution_strategy=um.get("resolution_strategy", "finest"),
+                    source_dataset_ids=[],
+                )
+            else:
+                record, dataset, raster_asset = await create_raster_dataset(
+                    session,
+                    meta=meta,
+                    source_sha256=source_sha256,
+                    asset_sha256=asset_sha256,
+                    cog_status=cog_status,
+                    cog_size=cog_size,
+                    source_filename=job.source_filename,
+                    created_by=uuid.UUID(user_id),
+                    title=title,
+                    summary=um.get("summary"),
+                    visibility=um.get("visibility", "private"),
+                    record_status=um.get("record_status", "published"),
+                )
 
             # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
@@ -285,7 +320,11 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
             storage = get_storage()
             base_key = f"rasters/{dataset.id}/{asset_sha256}"
-            cog_key = f"{base_key}/source.cog.tif"
+            cog_key = (
+                f"{base_key}/source.vrt"
+                if is_manifest_vrt
+                else f"{base_key}/source.cog.tif"
+            )
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
 
@@ -307,7 +346,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
             distribution = RecordDistribution(
                 record_id=record.id,
                 distribution_type="download",
-                format="geotiff",
+                format="vrt" if is_manifest_vrt else "geotiff",
                 url=cog_key,
             )
             session.add(distribution)

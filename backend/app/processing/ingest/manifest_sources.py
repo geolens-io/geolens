@@ -114,15 +114,13 @@ async def classify_manifest_source(
     source: ManifestSource,
 ) -> ManifestPreparedSource:
     """Validate and classify the first source for existing ingest task routing."""
-    if source.type == "vrt":
-        raise ManifestSourceError("VRT manifest sources are reserved for Plan 03")
-    if source.type not in {"vector", "raster_cog"}:
+    if source.type not in {"vector", "raster_cog", "vrt"}:
         raise ManifestSourceError(f"Unsupported manifest source type: {source.type}")
 
     filename = derive_source_filename(source)
     extension = derive_source_extension(source)
     parsed = urlparse(source.uri)
-    file_type = "raster" if source.type == "raster_cog" else None
+    file_type = "raster" if source.type in {"raster_cog", "vrt"} else None
 
     if parsed.scheme in {"http", "https"}:
         try:

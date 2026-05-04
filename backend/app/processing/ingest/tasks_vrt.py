@@ -35,6 +35,7 @@ async def create_vrt_dataset(
     vrt_type: str,
     resolution_strategy: str,
     source_dataset_ids: list[uuid.UUID],
+    record_status: str = "published",
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a VRT dataset.
 
@@ -66,7 +67,7 @@ async def create_vrt_dataset(
         # Without this a public VRT stayed in `draft`, and the anonymous
         # raster tile-access check at tiles/router.py `_resolve_raster_access`
         # returned 404 for every public VRT tile request.
-        record_status="published",
+        record_status=record_status,
         updated_by=created_by,
     )
     if meta.get("bbox_wkt"):

@@ -74,6 +74,8 @@ async def _validate_prepared_source(
     db: AsyncSession, prepared: ManifestPreparedSource
 ) -> None:
     allowed = await get_allowed_extensions_list(db)
+    if prepared.source.type == "vrt" and ".vrt" not in allowed:
+        allowed = [*allowed, ".vrt"]
     validate_file_extension(prepared.source_filename, allowed)
 
 
