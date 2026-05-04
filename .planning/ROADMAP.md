@@ -62,7 +62,7 @@
 - [x] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit. (completed 2026-05-04)
 - [ ] **Phase 240: full-gate-and-deprecation-cleanup** — Close v13.6 audit tech debt by running broader CI-style gates and resolving or explicitly documenting remaining deprecation warnings.
 
-21/21 v13.6 requirements mapped. 20/21 satisfied after Phase 240 Plan 01; DEBT-02 pending Phase 240 cleanup.
+21/21 v13.6 requirements mapped. 21/21 satisfied after Phase 240 warning cleanup; TD-01 and TD-02 closed with exact evidence.
 
 #### Phase 236: maps-service-decomposition
 
@@ -150,7 +150,7 @@
 **Gap Closure:** Closes TD-01 and TD-02 from `.planning/v13.6-MILESTONE-AUDIT.md`.
 
 **Plans:**
-1/2 plans complete
+2/2 plans complete
 
 ---
 

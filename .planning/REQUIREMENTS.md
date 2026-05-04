@@ -41,7 +41,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Tech Debt Closure
 
 - [x] **DEBT-01**: Maintainer can run broader v13.6 confidence gates beyond the focused maps/search backend suite, including full backend validation, frontend validation, and Playwright smoke/E2E coverage where local prerequisites are available, with exact outcomes or environmental blockers recorded.
-- [ ] **DEBT-02**: Maintainer can review the Pydantic, Alembic, and Authlib deprecation warnings observed in focused backend verification with either fixes or explicit owner/versioned follow-up documented in close evidence.
+- [x] **DEBT-02**: Maintainer can review the Pydantic, Alembic, and Authlib deprecation warnings observed in focused backend verification with either fixes or explicit owner/versioned follow-up documented in close evidence.
 
 ## Future Requirements
 
@@ -99,15 +99,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QUAL-02 | 239 | Complete |
 | QUAL-03 | 239 | Complete |
 | DEBT-01 | 240 | Complete |
-| DEBT-02 | 240 | Pending |
+| DEBT-02 | 240 | Complete |
 
 **Coverage:**
 - v13.6 requirements: 21 total
 - Mapped to phases: 21
 - Unmapped: 0
-- Satisfied: 20
-- Pending: 1
+- Satisfied: 21
+- Pending: 0
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-04 after Phase 240 Plan 01 execution*
+*Last updated: 2026-05-04 after Phase 240 warning cleanup*
