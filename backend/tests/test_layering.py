@@ -1197,3 +1197,88 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
             f"git grep failed unexpectedly: rc={result.returncode}\n"
             f"stderr: {result.stderr}"
         )
+
+
+def _manifest_backend_files() -> list[Path]:
+    manifest_dir = REPO_ROOT / "backend/app/processing/ingest"
+    return sorted(manifest_dir.glob("manifest_*.py"))
+
+
+def _iter_imported_modules(tree: ast.AST) -> list[tuple[str, int]]:
+    modules: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend((alias.name, node.lineno) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            modules.append((node.module, node.lineno))
+    return modules
+
+
+def _is_forbidden_manifest_import(module: str) -> bool:
+    normalized = _normalized_import_root(module)
+    forbidden_roots = {
+        "cli",
+        "geolens",
+        "geolens_cli",
+        "geolens_sdk",
+        "sdks",
+    }
+    if any(
+        normalized == root or normalized.startswith(f"{root}.")
+        for root in forbidden_roots
+    ):
+        return True
+    return "enterprise" in normalized.split(".")
+
+
+@pytest.mark.architecture
+def test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports() -> None:
+    """Phase 243 INGEST-03: backend manifest apply stays backend-local.
+
+    The backend apply path must not import CLI internals, generated SDK clients,
+    or Enterprise-only modules. Community extension ports such as
+    ``app.platform.extensions`` remain allowed.
+    """
+
+    offenders: list[str] = []
+    for path in _manifest_backend_files():
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        source = path.read_text()
+        try:
+            tree = ast.parse(source, filename=rel)
+        except SyntaxError as exc:
+            pytest.fail(f"Could not parse {rel}: {exc}")
+
+        lines = source.splitlines()
+        for module, lineno in _iter_imported_modules(tree):
+            if _is_forbidden_manifest_import(module):
+                offenders.append(f"{rel}:{lineno}:{lines[lineno - 1].strip()}")
+
+    if offenders:
+        pytest.fail(
+            "Phase 243 INGEST-03 invariant violated: backend manifest apply "
+            "imports CLI, generated SDK, or Enterprise-only modules directly. "
+            "Keep manifest apply backend-local and use existing community "
+            "extension ports. Offending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_manifest_apply_router_uses_upload_permission() -> None:
+    """Phase 243 INGEST-03: manifest apply reuses the existing upload permission."""
+
+    router_path = REPO_ROOT / "backend/app/processing/ingest/manifest_router.py"
+    source = router_path.read_text()
+    tree = ast.parse(source, filename=router_path.relative_to(REPO_ROOT).as_posix())
+
+    permissions: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "require_permission":
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Constant):
+            pytest.fail("manifest_router.py uses non-literal require_permission().")
+        permissions.append(str(node.args[0].value))
+
+    assert permissions == ["upload"]

@@ -10,7 +10,6 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from app.core.config import settings
-from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 from app.processing.ingest.manifest_schemas import (
     ManifestDataset,
     ManifestPublication,
@@ -123,9 +122,11 @@ async def classify_manifest_source(
     file_type = "raster" if source.type in {"raster_cog", "vrt"} else None
 
     if parsed.scheme in {"http", "https"}:
+        from app.modules.catalog.sources import security as source_security
+
         try:
-            await validate_url_for_ssrf(source.uri)
-        except SSRFError as exc:
+            await source_security.validate_url_for_ssrf(source.uri)
+        except source_security.SSRFError as exc:
             raise ManifestSourceError(str(exc)) from exc
         return ManifestPreparedSource(
             kind="http",
