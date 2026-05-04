@@ -4,15 +4,32 @@
 
 An on-premises, PostGIS-native GIS data catalog that lets GIS analysts, data engineers, and non-technical staff search, preview, and export geospatial datasets — both vector and raster — through a fast, search-first web UI. Built on a "database-first" architecture using FastAPI for catalog, tile serving (ST_AsMVT for vector, Titiler for raster), feature serving, metadata, search, RBAC, and job orchestration.
 
-Shipped 47 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.5; plus cross-repo marketing/docs milestones). Production-hardened with refresh token auth, non-root containers, Trivy CI scanning, Prometheus metrics, automated S3 backups, Redis circuit breaker, magic byte file validation, and route-based code splitting. Cloud-ready with provider-agnostic storage (S3), caching (Redis/Valkey), managed database support, and presigned uploads. Full-featured GIS catalog with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, raster dataset support (COG ingest, tile serving, export), VRT mosaics with lifecycle management, STAC 1.1 export for raster interop, publication lifecycle (draft/ready/internal/published), and internationalization (i18n). Accessible UI with 44px mobile touch targets, keyboard-focusable tables, WCAG AA badge contrast, semantic collection markup, responsive detail headers, and raster/VRT preview resilience with bounded retry. Deployable by other organizations via `docker compose up`.
+Shipped 48 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.6; plus cross-repo marketing/docs milestones). Production-hardened with refresh token auth, non-root containers, Trivy CI scanning, Prometheus metrics, automated S3 backups, Redis circuit breaker, magic byte file validation, and route-based code splitting. Cloud-ready with provider-agnostic storage (S3), caching (Redis/Valkey), managed database support, and presigned uploads. Full-featured GIS catalog with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, raster dataset support (COG ingest, tile serving, export), VRT mosaics with lifecycle management, STAC 1.1 export for raster interop, publication lifecycle (draft/ready/internal/published), and internationalization (i18n). Accessible UI with 44px mobile touch targets, keyboard-focusable tables, WCAG AA badge contrast, semantic collection markup, responsive detail headers, and raster/VRT preview resilience with bounded retry. Deployable by other organizations via `docker compose up`.
 
 ## Current State
 
-47 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.5; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), and bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards. Latest v13.5 close-gate grades: Seam Quality **A**, Boundary Integrity **A**, Inventory Accuracy **A−** per `post-impl-20260503-v13-5.md`.
+48 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.6; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, and maps/search service facades protected by private-module import guards plus size-budget checks. Latest v13.6 milestone audit passed with 21/21 requirements satisfied and no unresolved P0/P1 findings.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Last Milestone (this repo): v13.5 Enterprise Governance Seams (shipped 2026-05-03)
+## Last Milestone (this repo): v13.6 Catalog Maps/Search Service Decomposition (shipped 2026-05-04)
+
+**Delivered:** 5 phases (236-240), 18 plans, 21/21 requirements satisfied — see [milestones/v13.6-ROADMAP.md](milestones/v13.6-ROADMAP.md).
+
+- **Maps service facade stabilized** — `backend/app/modules/catalog/maps/service.py` is now a thin public re-export surface over focused shared, CRUD, layer, and public/share modules.
+- **Search service facade stabilized** — `backend/app/modules/catalog/search/service.py` is now a thin public re-export surface over focused filter, facet, collection, semantic, dataset, and OGC record modules.
+- **Boundary guards added** — private maps/search split modules cannot be imported directly by external production modules, and size-budget checks guard against facade or private-module regrowth.
+- **Contract tests hardened** — brittle VRT/search source-introspection checks now assert helper/facade behavior instead of inline implementation blocks.
+- **Formal milestone audit passed** — [milestones/v13.6-MILESTONE-AUDIT.md](milestones/v13.6-MILESTONE-AUDIT.md) records 21/21 requirements satisfied, 21/21 integration checks, 7/7 verified flows, no orphaned requirements, and no critical gaps.
+
+**Known close note:** Full backend coverage and Playwright smoke are not fully green locally; Phase 240 records exact outcomes and blockers. The focused v13.6-owned maps/search backend suite and touched-module lint/format gates passed.
+
+## Next Milestone Goals
+
+Fresh requirements are intentionally not defined yet. Use `$gsd-new-milestone` to choose the next milestone scope and regenerate `.planning/REQUIREMENTS.md`.
+
+<details>
+<summary>Earlier milestone — v13.5 Enterprise Governance Seams (shipped 2026-05-03)</summary>
 
 **Delivered:** 4 phases (232-235), 13 plans, 16/16 requirements satisfied — see [milestones/v13.5-ROADMAP.md](milestones/v13.5-ROADMAP.md).
 
@@ -24,15 +41,7 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 **Known close note:** Full-suite merge readiness still belongs to normal CI/full-suite validation; the close audit used focused governance and architecture checks.
 
-## Current Milestone: v13.6 Catalog Maps/Search Service Decomposition
-
-**Goal:** Split the remaining large catalog map and search services into focused modules behind stable public façades so future map/search work can land without growing the current 1,300-line service files or regressing public API behavior.
-
-**Target features:**
-- Decompose `backend/app/modules/catalog/maps/service.py` by concern while preserving existing map-builder, sharing, thumbnail, and layer contracts.
-- Decompose `backend/app/modules/catalog/search/service.py` by concern while preserving catalog search, facets, semantic merge, OGC record conversion, and collection behavior.
-- Add architecture and regression guards that keep the new module boundaries stable and prevent re-growth of god-service files.
-- Run focused map/search verification plus a milestone close audit to prove public behavior, OpenAPI shape, and audit-grade maintainability targets hold.
+</details>
 
 <details>
 <summary>Earlier milestone — v13.4 Boundary Closeout (shipped 2026-05-03)</summary>
@@ -378,25 +387,27 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ Advanced sharing controls are gated consistently in Community vs Enterprise across schema validators, service guards, builder affordances, API/OpenAPI text, and GTM docs — v13.5
 - ✓ Basic Community share/embed flows remain intact: non-expiring share links and default unrestricted 30-day embed tokens can still be created/revoked — v13.5
 - ✓ v13.5 close audit records Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings — v13.5
+- ✓ `catalog/maps/service.py` is split into focused service modules with a stable facade and no map-builder, layer, sharing, thumbnail, token, or public-viewer regressions — v13.6
+- ✓ `catalog/search/service.py` is split into focused service modules with a stable facade and no search, facet, semantic/hybrid, OGC/STAC, AI, or collection regressions — v13.6
+- ✓ Architecture guards prevent direct external imports of private maps/search split modules and keep facade/private service modules inside reviewed size budgets — v13.6
+- ✓ Focused maps/search tests, lint, format checks, close-audit evidence, and formal milestone audit prove the decomposition preserved existing public behavior — v13.6
+- ✓ Project-owned Pydantic deprecation warnings from the focused maps/search gate are fixed; remaining Alembic/Authlib warnings have explicit owner follow-up — v13.6
 
 ### Active
 
-- [ ] `catalog/maps/service.py` is split into focused service modules with a stable façade and no map-builder or sharing regressions
-- [ ] `catalog/search/service.py` is split into focused service modules with a stable façade and no search, facet, semantic, OGC, or collection regressions
-- [ ] Architecture guards prevent direct external imports of private split modules and keep service façade files small
-- [ ] Focused map/search tests, lint, and close-audit evidence prove the decomposition preserved existing behavior
+- [ ] Next milestone requirements to be defined by `$gsd-new-milestone`
 
 ### Out of Scope
 
-- New map-builder features, visual styling controls, layer editing behavior, or sharing semantics — this milestone preserves behavior while restructuring service code
-- Search relevance changes, new filters, connector work, or index redesign — this milestone keeps the existing search contract and ranking behavior intact
-- Frontend UI changes except for test updates required by backend response-contract preservation
+- New map-builder features, visual styling controls, layer editing behavior, or sharing semantics — v13.6 preserved behavior while restructuring service code; future changes need their own milestone scope
+- Search relevance changes, new filters, connector work, or index redesign — v13.6 kept the existing search contract and ranking behavior intact
+- Frontend UI changes beyond test/type updates required by backend response-contract preservation
 - Tenant scoping, `geolens.yaml` manifests, persistent connector registry, Helm/AMI/SBOM distribution, and `geolens-schemas` extraction — still backlog candidates for later milestones
 
-- New map authoring capabilities (3D, live collaboration, time sliders) — this milestone hardens the existing builder instead of widening scope
-- AI capability expansion — AI chat and map generation stay as-is; the focus is usability, correctness, and maintainability
-- Phone-specific map-builder optimization — this milestone targets tablet and desktop workflows only
-- Power-user resizable/persisted sidebar widths — useful enhancement, but secondary to fixing the default tablet/desktop shell
+- New map authoring capabilities (3D, live collaboration, time sliders) — still separate future scope from service decomposition and builder hardening
+- AI capability expansion — AI chat and map generation stay as-is until a dedicated AI milestone changes scope
+- Phone-specific map-builder optimization — still separate from the tablet/desktop builder scope already shipped
+- Power-user resizable/persisted sidebar widths — useful enhancement, but secondary to the default tablet/desktop shell already shipped
 - Full STAC certification — STAC 1.1 endpoints implemented and tested, formal certification deferred
 - STAC for vector datasets — STAC is raster-centric; vector records served via OGC Records
 - STAC temporal model (per-asset timestamps) — awkward for vector catalogs
@@ -444,6 +455,11 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
+| Maps/search service modules use thin public facades | Preserve stable imports for routers, AI, OGC/STAC, and tests while making implementation files small enough to maintain | ✓ Good — v13.6 facade export tests plus private-module import guards protect the contract |
+| AST-based private-module guards over grep checks | Covers all Python import shapes without brittle line-pattern assumptions | ✓ Good — v13.6 guards catch direct external imports of private maps/search split modules |
+| Explicit per-file size budgets for maps/search service modules | Prevents facade regrowth while allowing reviewed exceptions for known larger private modules | ✓ Good — v13.6 guard enforces thin facades and bounded private modules |
+| Behavior-focused VRT/search tests over source introspection | Source checks became brittle after decomposition; helper/facade behavior is the real public contract | ✓ Good — v13.6 replaced search source-inspection assertions with contract tests |
+| Record broader gate failures instead of expanding v13.6 scope | Full backend/Playwright failures were outside the owned maps/search decomposition surface | ✓ Good — Phase 240 documents exact blockers while focused v13.6-owned gates pass |
 | pg_featureserv + pg_tileserv over custom serving | Eliminates custom geospatial plumbing, OGC-compliant out of the box | ✓ Good initially — pg_featureserv replaced by native FastAPI in v2.2, pg_tileserv replaced by FastAPI tile gateway (ST_AsMVT) in v7.0 |
 | PostgreSQL full-text search over OpenSearch | Keeps deployment to a single stateful system, sufficient for < 50 datasets | ✓ Good — sub-second search with tsvector generated columns and GIN index |
 | Local auth first, OIDC later | Simplifies MVP, avoids IdP dependency for pilots | ✓ Good — AuthProvider Protocol enables OIDC swap without downstream changes |
@@ -637,4 +653,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 after v13.6 milestone start*
+*Last updated: 2026-05-04 after v13.6 milestone completion*

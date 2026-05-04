@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
-status: milestone_ready_to_archive
-stopped_at: Phase 240 complete; v13.6 ready to archive
-last_updated: "2026-05-04T01:26:34Z"
+status: milestone_archived
+stopped_at: v13.6 archived; ready to define next milestone
+last_updated: "2026-05-04T11:43:20Z"
 last_activity: 2026-05-04
 progress:
   total_phases: 5
@@ -18,17 +18,16 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
+See: .planning/PROJECT.md (updated 2026-05-04 after v13.6 milestone completion)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.6 Catalog Maps/Search Service Decomposition
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 240 — full-gate-and-deprecation-cleanup
-Plan: 240-02 — deprecation-warning-close-evidence
-Status: Phase 240 complete and verified; v13.6 ready to archive
-Last activity: 2026-05-04 — Phase 240 closed TD-01/TD-02 by recording broader gate evidence, fixing project-owned Pydantic deprecations, documenting Alembic/Authlib follow-up, and refreshing the v13.6 audit to `passed`.
+Milestone: v13.6 — Catalog Maps/Search Service Decomposition
+Status: Archived and tagged locally
+Last activity: 2026-05-04 — v13.6 archived to `.planning/milestones/`, roadmap collapsed to an archive link, requirements archived, and project state updated for next-milestone planning.
 
 ## Roadmap Snapshot
 
@@ -53,7 +52,7 @@ Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 21 satisfied after Phase 
 
 ## Next Action
 
-Next GSD action: Complete/archive milestone v13.6.
+Next GSD action: Start the next milestone with `$gsd-new-milestone`.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
@@ -62,7 +61,7 @@ The audit produced 16 findings. Three trivial fixes were applied inline (env-var
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
 - **v13.4 (shipped):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), 230 (999.20 → 230 CatalogPort), 231 (999.19 → 231 EmbeddingProviderExtension), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
 - **v13.5 (complete):** Phase 232 (999.8 → PermissionExtension), Phase 233 (999.9 → WorkflowExtension), Phase 234 (advanced-sharing contract verification), Phase 235 (close audit).
-- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py).
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction).
 
 ## /oc-audit follow-ups (2026-05-02 audit run)
 
@@ -79,8 +78,8 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 
 - 999.20 (CatalogPort) → **Phase 230** (catalog-port-protocol-symmetric) — lifts Coupling target B+ → A−
 - 999.19 (EmbeddingProviderExtension) → **Phase 231** (embedding-provider-extension-protocol)
-- 999.21 (split catalog/maps/service.py) — stays backlog P2
-- 999.22 (split catalog/search/service.py) — stays backlog P2
+- 999.21 (split catalog/maps/service.py) → **Phase 236** (maps-service-decomposition) — shipped in v13.6
+- 999.22 (split catalog/search/service.py) → **Phase 237** (search-service-decomposition) — shipped in v13.6
 - 999.23 (share/embed token expiration gating) — resolved by Branch A on 2026-05-03 per `docs-internal/audits/oc-separation-audit-20260503.md`; v13.5 keeps a verification phase to prevent GTM/API/UI drift from recurring.
 
 Existing 999.12/14/16 remain cross-referenced to the 2026-05-02 audit with no promotion.

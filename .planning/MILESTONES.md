@@ -1,5 +1,39 @@
 # Milestones
 
+## v13.6 Catalog Maps/Search Service Decomposition (Shipped: 2026-05-04)
+
+**Milestone goal:** Split the remaining large catalog map and search services into focused modules behind stable public facades so future map/search work can land without regrowing the old service files or regressing public API behavior.
+
+**Stats:**
+
+- **Phases:** 5 (236, 237, 238, 239, 240)
+- **Plans:** 18 / 18 complete
+- **Timeline:** 2026-05-03 -> 2026-05-04
+- **Commits:** 40 milestone-scoped commits (`044c07f6^..8128aa67`, excluding two unrelated docs/frontend commits in the raw time window)
+- **Diff:** 63 owned files, +7,495 / -2,727
+
+**Requirements:** 21/21 satisfied (MAPS-01..06, SRCH-01..06, BOUND-01..04, QUAL-01..03, DEBT-01..02)
+
+**Key accomplishments:**
+
+1. **Maps service decomposed behind a stable facade** — `catalog/maps/service.py` is now a thin public re-export surface over shared, CRUD, layer, and public/share modules while preserving map CRUD, layers, sharing, thumbnails, tokens, and public-viewer behavior.
+2. **Search service decomposed behind a stable facade** — `catalog/search/service.py` now re-exports focused filter, facet, collection, semantic, dataset, and OGC record modules while preserving search, facets, cache, OGC/STAC/AI contracts, and semantic/hybrid behavior.
+3. **Boundary and size guards added** — architecture tests prevent direct external imports of private maps/search split modules and enforce facade/private module size budgets.
+4. **Brittle source-introspection tests replaced** — VRT/search coverage now asserts helper and facade behavior instead of inspecting inline implementation blocks.
+5. **Close evidence passed** — the focused maps/search backend suite, touched-module ruff/format gates, v13.6 close audit, broader confidence-gate evidence, and warning cleanup are recorded; formal milestone audit passed with 21/21 requirements and 7/7 verified flows.
+
+**Known gaps:** None blocking for v13.6. Full backend coverage and Playwright smoke are not fully green locally; exact failures/blockers are documented in Phase 240 and treated as nonblocking because the focused v13.6-owned maps/search surface passed.
+
+**Archives:**
+
+- `.planning/milestones/v13.6-ROADMAP.md`
+- `.planning/milestones/v13.6-REQUIREMENTS.md`
+- `.planning/milestones/v13.6-MILESTONE-AUDIT.md`
+
+**Tag:** `v13.6`
+
+---
+
 ## v13.5 Enterprise Governance Seams (Shipped: 2026-05-03)
 
 **Milestone goal:** Turn the remaining governance-adjacent permission and workflow chokepoints into first-class extension seams so Enterprise overlays can implement advanced RBAC and approval workflows without forking core.

@@ -2,6 +2,45 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v13.6 — Catalog Maps/Search Service Decomposition
+
+**Shipped:** 2026-05-04
+**Phases:** 5 (236, 237, 238, 239, 240) | **Plans:** 18 | **Commits:** 40 milestone-scoped
+
+### What Was Built
+- `catalog/maps/service.py` is now a thin public facade over focused shared, CRUD, layer, and public/share modules.
+- `catalog/search/service.py` is now a thin public facade over focused filter, facet, collection, semantic, dataset, and OGC record modules.
+- Architecture guards prevent direct external imports of private maps/search service modules and enforce facade/private module size budgets.
+- VRT/search tests now assert helper and facade contracts instead of brittle source-introspection blocks.
+- Phase 240 records broader backend/frontend/E2E gate outcomes and closes project-owned Pydantic deprecation warnings.
+
+### What Worked
+- **Facade-first decomposition.** Keeping public imports stable let the services split without broad router, AI, OGC/STAC, or test call-site churn.
+- **Boundary guards matched the risk.** Private import guards and size budgets protect the exact regression mode this milestone was meant to prevent.
+- **Focused close gates stayed high-signal.** Maps/search pytest plus touched-module ruff/format checks proved the owned surface without overstating unrelated full-suite failures.
+- **Audit debt was closed before archival.** Phase 240 turned an initial tech-debt audit into a passed milestone audit with exact residual-risk evidence.
+
+### What Was Inefficient
+- **Generic GSD counts are still too broad.** The milestone CLI counted archived/backlog history until corrected manually to phases 236-240.
+- **Full-suite local readiness remains uneven.** Full backend coverage and Playwright smoke exposed existing blockers outside the maps/search decomposition surface.
+- **Warning cleanup mixed local and upstream ownership.** Pydantic warnings were easy local fixes; Alembic/Authlib warnings needed documented owner follow-up instead of risky suppression.
+
+### Patterns Established
+- Large service decompositions should land behind stable facade modules with explicit `__all__`, facade export tests, private import guards, and size budgets.
+- Source-introspection tests should be replaced with behavior contracts when a refactor changes file layout but not public behavior.
+- Broader gate failures outside the owned milestone surface should be documented precisely, not folded into unrelated refactor scope.
+
+### Key Lessons
+1. Manual scope validation is required before milestone archival in this repo; helper output is advisory when archives and backlog phases coexist.
+2. A thin facade plus architecture guard is the lowest-friction pattern for service decomposition with stable API behavior.
+3. Close audits should record exact unowned full-suite blockers while keeping focused owned-surface gates green and repeatable.
+
+### Cost Observations
+- Model mix: inherited frontier model for implementation review, audit synthesis, and archival.
+- Notable: most code churn was net movement out of two large service files; the durable value is the guardrail suite around future maps/search work.
+
+---
+
 ## Milestone: v13.5 — Enterprise Governance Seams
 
 **Shipped:** 2026-05-03
@@ -130,6 +169,7 @@
 
 | Milestone | Phases | Key Change |
 |-----------|--------|------------|
+| v13.6 | 5 (236, 237, 238, 239, 240) | Maps/search service decomposition behind stable facades; private-module import and size-budget guards; audit debt closed |
 | v13.5 | 4 (232, 233, 234, 235) | Governance seams for permissions and workflows; advanced-sharing contract aligned across schema/service/UI/API/GTM; close gate at A/A/A− |
 | v13.4 | 7 (225, 226, 227, 228, 230, 231, 229) | Symmetric Protocol boundaries for catalog/processing; AI + embeddings provider seams; post-impl close gate with A+/A−/A− grades |
 | v13.1 | 8 (212–219) | Architecture-guard tests as CI-enforced layering invariants; mid-milestone phase additions to close audit-surfaced P0s; per-phase verification gate plan as standard pattern |
@@ -138,6 +178,7 @@
 
 | Milestone | Backend Tests | Notable |
 |-----------|---------------|---------|
+| v13.6 | Focused maps/search pytest, touched-module ruff/format checks, frontend build/lint/coverage green; full backend/Playwright blockers documented | Maps/search facades are stable and guarded; project-owned Pydantic deprecation warnings fixed |
 | v13.5 | Focused permission/workflow architecture guards, advanced-sharing DB-backed tests, frontend sharing tests, and OpenAPI check green; full-suite not rerun | PermissionExtension and WorkflowExtension now rated Ready; advanced-sharing paid/free contract is enforced and documented |
 | v13.4 | Focused architecture/provider/reupload checks green; full-suite limited by local DB/dirty-worktree constraints | Bidirectional import guards and provider-SDK guards now enforce open-core boundaries |
 | v13.1 | 1999+ pass (baseline maintained throughout) | 12 SDK round-trip + 9 SAML integration + 9 enterprise + 112 CLI unit + 6 CLI round-trip new |
