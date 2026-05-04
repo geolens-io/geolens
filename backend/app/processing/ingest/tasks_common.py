@@ -722,6 +722,7 @@ async def _finalize_ingest(ctx: IngestContext):
         visibility=user_metadata.get("visibility", "private"),
         ingestion=ingestion,
     )
+    dataset.record.record_status = user_metadata.get("record_status", "published")
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(

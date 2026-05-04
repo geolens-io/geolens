@@ -37,6 +37,7 @@ async def create_raster_dataset(
     title: str,
     summary: str | None,
     visibility: str,
+    record_status: str = "published",
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a raster ingest.
 
@@ -63,7 +64,7 @@ async def create_raster_dataset(
         summary=summary,
         record_type="raster_dataset",
         visibility=visibility,
-        record_status="published",
+        record_status=record_status,
         updated_by=created_by,
     )
     if meta.get("bbox_wkt"):
@@ -260,6 +261,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 title=title,
                 summary=um.get("summary"),
                 visibility=um.get("visibility", "private"),
+                record_status=um.get("record_status", "published"),
             )
 
             # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).

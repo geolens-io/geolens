@@ -133,6 +133,7 @@ async def create_dataset(
     *,
     summary: str | None = None,
     visibility: str = "private",
+    record_status: str = "published",
     ingestion: IngestionResult | None = None,
     # Legacy kwargs — kept for backward compatibility with call sites that
     # still pass ingestion fields directly. New call sites should use
@@ -198,7 +199,7 @@ async def create_dataset(
         title=title,
         summary=summary,
         visibility=visibility,
-        record_status="published",
+        record_status=record_status,
         record_type=record_type,
         spatial_extent=spatial_extent_value,
         created_by=created_by,
