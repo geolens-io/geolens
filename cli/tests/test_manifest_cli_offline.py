@@ -9,11 +9,27 @@ from geolens_cli.main import AppState, app
 
 
 MANIFEST_PACKAGE = Path(__file__).resolve().parents[1] / "geolens_cli" / "manifest"
-FORBIDDEN_IMPORTS = {
+MANIFEST_APPLY_MODULE = (
+    Path(__file__).resolve().parents[1] / "geolens_cli" / "manifest_apply.py"
+)
+OFFLINE_FORBIDDEN_IMPORTS = {
     "app",
+    "app_enterprise",
     "backend.app",
     "geolens.api",
     "geolens.models",
+    "geolens_enterprise",
+    "httpx",
+    "osgeo",
+    "rasterio",
+    "requests",
+    "sqlalchemy",
+}
+APPLY_FORBIDDEN_IMPORTS = {
+    "app",
+    "app_enterprise",
+    "backend.app",
+    "geolens_enterprise",
     "httpx",
     "osgeo",
     "rasterio",
@@ -22,11 +38,32 @@ FORBIDDEN_IMPORTS = {
 }
 
 
-def _import_matches_forbidden(module: str) -> bool:
+def _import_matches_forbidden(module: str, forbidden_imports: set[str]) -> bool:
     return any(
         module == forbidden or module.startswith(f"{forbidden}.")
-        for forbidden in FORBIDDEN_IMPORTS
+        for forbidden in forbidden_imports
     )
+
+
+def _import_offenders(path: Path, forbidden_imports: set[str]) -> list[str]:
+    offenders: list[str] = []
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    lines = path.read_text(encoding="utf-8").splitlines()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if _import_matches_forbidden(alias.name, forbidden_imports):
+                    offenders.append(
+                        f"{path}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                    )
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if _import_matches_forbidden(node.module, forbidden_imports):
+                offenders.append(
+                    f"{path}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                )
+
+    return offenders
 
 
 def test_help_lists_manifest_commands(runner, tmp_xdg_home) -> None:
@@ -61,14 +98,12 @@ def test_manifest_helpers_do_not_import_service_dependencies() -> None:
     offenders: list[str] = []
 
     for path in sorted(MANIFEST_PACKAGE.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if _import_matches_forbidden(alias.name):
-                        offenders.append(f"{path}:{node.lineno}:{alias.name}")
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                if _import_matches_forbidden(node.module):
-                    offenders.append(f"{path}:{node.lineno}:{node.module}")
+        offenders.extend(_import_offenders(path, OFFLINE_FORBIDDEN_IMPORTS))
+
+    assert offenders == []
+
+
+def test_manifest_apply_does_not_import_backend_or_direct_http_clients() -> None:
+    offenders = _import_offenders(MANIFEST_APPLY_MODULE, APPLY_FORBIDDEN_IMPORTS)
 
     assert offenders == []

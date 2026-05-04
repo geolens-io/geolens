@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 from geolens_cli.manifest import (
     ManifestValidationError,
     load_manifest,
@@ -140,6 +142,97 @@ def test_enterprise_only_manifest_fields_are_rejected() -> None:
         ("$.datasets[0].stored_credentials", "additionalProperties"),
         ("$.datasets[0].publication.approval_workflow", "additionalProperties"),
     }.issubset(_error_pairs(document))
+
+
+@pytest.mark.parametrize(
+    ("path", "mutate", "expected"),
+    [
+        (
+            "$.approval",
+            lambda document: document.update({"approval": {"required": True}}),
+            ("$.approval", "additionalProperties"),
+        ),
+        (
+            "$.catalog.workflow",
+            lambda document: document["catalog"].update({"workflow": "review"}),
+            ("$.catalog.workflow", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].credentials",
+            lambda document: document["datasets"][0].update(
+                {"credentials": {"secret": "value"}}
+            ),
+            ("$.datasets[0].credentials", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].sources[0].credential_ref",
+            lambda document: document["datasets"][0]["sources"][0].update(
+                {"credential_ref": "vault/path"}
+            ),
+            ("$.datasets[0].sources[0].credential_ref", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].sources[0].schedule",
+            lambda document: document["datasets"][0]["sources"][0].update(
+                {"schedule": "0 * * * *"}
+            ),
+            ("$.datasets[0].sources[0].schedule", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].metadata.connector",
+            lambda document: document["datasets"][0]["metadata"].update(
+                {"connector": "snowflake"}
+            ),
+            ("$.datasets[0].metadata.connector", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].metadata.sync",
+            lambda document: document["datasets"][0]["metadata"].update(
+                {"sync": {"mode": "scheduled"}}
+            ),
+            ("$.datasets[0].metadata.sync", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].metadata.tenant_id",
+            lambda document: document["datasets"][0]["metadata"].update(
+                {"tenant_id": "tenant-1"}
+            ),
+            ("$.datasets[0].metadata.tenant_id", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].metadata.org_id",
+            lambda document: document["datasets"][0]["metadata"].update(
+                {"org_id": "org-1"}
+            ),
+            ("$.datasets[0].metadata.org_id", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].publication.quota",
+            lambda document: document["datasets"][0]["publication"].update(
+                {"quota": {"rows": 1000}}
+            ),
+            ("$.datasets[0].publication.quota", "additionalProperties"),
+        ),
+        (
+            "$.datasets[0].publication.policy",
+            lambda document: document["datasets"][0]["publication"].update(
+                {"policy": "enterprise-governed"}
+            ),
+            ("$.datasets[0].publication.policy", "additionalProperties"),
+        ),
+    ],
+)
+def test_enterprise_only_fields_are_rejected_at_every_manifest_level(
+    path: str,
+    mutate,
+    expected: tuple[str, str],
+) -> None:
+    document = _minimal_manifest()
+    document["datasets"][0]["metadata"] = {"tags": ["roads"]}
+
+    mutate(document)
+
+    assert expected in _error_pairs(document), path
 
 
 def test_invalid_fixture_validation_output_is_repeatable() -> None:

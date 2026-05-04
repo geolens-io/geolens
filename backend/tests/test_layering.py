@@ -1217,10 +1217,12 @@ def _iter_imported_modules(tree: ast.AST) -> list[tuple[str, int]]:
 def _is_forbidden_manifest_import(module: str) -> bool:
     normalized = _normalized_import_root(module)
     forbidden_roots = {
+        "app_enterprise",
         "cli",
         "geolens",
         "geolens_cli",
         "geolens_sdk",
+        "geolens_enterprise",
         "sdks",
     }
     if any(
