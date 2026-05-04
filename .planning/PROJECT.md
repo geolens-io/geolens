@@ -8,7 +8,7 @@ Shipped 48 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-48 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.6; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, and maps/search service facades protected by private-module import guards plus size-budget checks. Latest v13.6 milestone audit passed with 21/21 requirements satisfied and no unresolved P0/P1 findings.
+48 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.6; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, and maps/search service facades protected by private-module import guards plus size-budget checks. Latest v13.6 milestone audit passed with 21/21 requirements satisfied and no unresolved P0/P1 findings. Current v13.7 work targets the remaining P1 open-core adoption wedge: declarative `geolens.yaml` manifests plus CLI/backend apply workflows.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
@@ -24,9 +24,15 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 
 **Known close note:** Full backend coverage and Playwright smoke are not fully green locally; Phase 240 records exact outcomes and blockers. The focused v13.6-owned maps/search backend suite and touched-module lint/format gates passed.
 
-## Next Milestone Goals
+## Current Milestone: v13.7 Manifest-Driven Catalog Automation
 
-Fresh requirements are intentionally not defined yet. Use `$gsd-new-milestone` to choose the next milestone scope and regenerate `.planning/REQUIREMENTS.md`.
+**Goal:** Let a new organization describe datasets, sources, metadata, and publication intent in `geolens.yaml`, validate it locally, and apply it through the CLI/backend path into a browsable GeoLens catalog.
+
+**Target features:**
+- Versioned `geolens.yaml` manifest schema with good/bad fixtures and compatibility tests.
+- `geolens init`, `geolens validate`, and `geolens apply` CLI workflows with dry-run summaries and stable exit codes.
+- Backend manifest ingestion/apply service that reuses existing auth, storage validation, ingest jobs, catalog metadata, search, and map-preview contracts.
+- Examples and docs that prove the "docker compose up to browsable catalog in 10 minutes" adoption path.
 
 <details>
 <summary>Earlier milestone — v13.5 Enterprise Governance Seams (shipped 2026-05-03)</summary>
@@ -395,14 +401,20 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-- [ ] Next milestone requirements to be defined by `$gsd-new-milestone`
+- [ ] v13.7 requirements defined in `.planning/REQUIREMENTS.md` (19/19 mapped to phases 241-245)
+- [ ] Phase 241: manifest-spec-and-schema — versioned `geolens.yaml` schema, examples, and validation fixtures
+- [ ] Phase 242: cli-init-validate — `geolens init` and offline `geolens validate`
+- [ ] Phase 243: backend-manifest-apply-ingest — typed backend apply boundary and idempotent ingest orchestration
+- [ ] Phase 244: cli-apply-and-adoption-docs — `geolens apply`, dry-run summaries, and first-catalog examples
+- [ ] Phase 245: contract-gates-and-close-audit — OpenAPI/SDK/CLI drift gates, CI coverage, architecture checks, and milestone audit
 
 ### Out of Scope
 
-- New map-builder features, visual styling controls, layer editing behavior, or sharing semantics — v13.6 preserved behavior while restructuring service code; future changes need their own milestone scope
-- Search relevance changes, new filters, connector work, or index redesign — v13.6 kept the existing search contract and ranking behavior intact
-- Frontend UI changes beyond test/type updates required by backend response-contract preservation
-- Tenant scoping, `geolens.yaml` manifests, persistent connector registry, Helm/AMI/SBOM distribution, and `geolens-schemas` extraction — still backlog candidates for later milestones
+- Persistent connector registry, scheduled mirroring, encrypted credential vault, and connector UI — still Phase 999.13 / Enterprise backlog
+- Tenant scoping for the future Cloud tier — still Phase 999.6 and not needed for single-tenant self-hosted manifest apply
+- Helm/AMI distribution, SBOM/signed image pipeline, and `geolens-schemas` extraction — still separate P2 distribution/package milestones
+- New map-builder features, search ranking changes, visual styling controls, layer editing behavior, or sharing semantics — v13.7 publishes existing catalog capabilities through manifests, not new viewer/editor features
+- Enterprise-only publishing policies or approval workflows — manifests may declare Community-safe publication state, but advanced governance remains overlay scope
 
 - New map authoring capabilities (3D, live collaboration, time sliders) — still separate future scope from service decomposition and builder hardening
 - AI capability expansion — AI chat and map generation stay as-is until a dedicated AI milestone changes scope
@@ -433,7 +445,7 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ## Context
 
-- **Current state**: v13.5 shipped. 47 milestones delivered. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, and catalog/processing boundaries.
+- **Current state**: v13.7 active after v13.6 shipped. 48 milestones delivered. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, catalog/processing boundaries, and maps/search service facades. v13.7 adds declarative catalog manifests and apply automation on top of those existing contracts.
 - **Architecture**: Database-first. PostgreSQL 17 + PostGIS 3.5 is the system of record. FastAPI serves vector tiles (ST_AsMVT with signed URL tokens), raster tiles (via Titiler with RBAC-gated token endpoint), features (paginated GeoJSON with bbox/property filtering), catalog metadata, search, auth, OGC discovery, and job orchestration. Background worker runs Procrastinate ingestion tasks. Titiler serves XYZ raster tiles from COG files. Frontend is a static SPA served by nginx with reverse proxy to the API.
 - **OGC Compliance**: OGC API Common Core, OGC API Records Core, OGC API Features Part 3 (Filtering/CQL2). Conformance classes declared at `/api/conformance`.
 - **Users**: Mix of GIS analysts (power users), data engineers (API consumers), and non-technical staff (browsing/downloading). Search-first UI serves all three. Machine clients (QGIS, GDAL, scripts) can now consume the catalog programmatically.

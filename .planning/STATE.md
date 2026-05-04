@@ -1,45 +1,47 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.6
-milestone_name: Catalog Maps/Search Service Decomposition
-status: milestone_archived
-stopped_at: v13.6 archived; ready to define next milestone
-last_updated: "2026-05-04T11:43:20Z"
+milestone: v13.7
+milestone_name: Manifest-Driven Catalog Automation
+status: roadmap_defined
+stopped_at: v13.7 initialized; ready to discuss or plan Phase 241
+last_updated: "2026-05-04T13:00:42Z"
 last_activity: 2026-05-04
 progress:
   total_phases: 5
-  completed_phases: 5
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-04 after v13.6 milestone completion)
+See: .planning/PROJECT.md (updated 2026-05-04 after v13.7 milestone initialization)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone
+**Current focus:** v13.7 Manifest-Driven Catalog Automation
 
 ## Current Position
 
-Milestone: v13.6 — Catalog Maps/Search Service Decomposition
-Status: Archived and tagged locally
-Last activity: 2026-05-04 — v13.6 archived to `.planning/milestones/`, roadmap collapsed to an archive link, requirements archived, and project state updated for next-milestone planning.
+Milestone: v13.7 — Manifest-Driven Catalog Automation
+Phase: 241 — manifest-spec-and-schema (not started)
+Plan: —
+Status: Roadmap defined; ready for `$gsd-discuss-phase 241` or `$gsd-plan-phase 241`
+Last activity: 2026-05-04 — v13.7 initialized from the remaining P1 open-core backlog item 999.12 (`geolens.yaml` manifest spec) with requirements and phases 241-245.
 
 ## Roadmap Snapshot
 
-v13.6 Catalog Maps/Search Service Decomposition contains 5 phases:
+v13.7 Manifest-Driven Catalog Automation contains 5 phases:
 
-- **Phase 236: maps-service-decomposition** — split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map CRUD, layers, sharing, thumbnails, and public viewer behavior. Requirements: MAPS-01..06.
-- **Phase 237: search-service-decomposition** — split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving dataset search, facets, collections, OGC/STAC/AI contracts, and semantic/hybrid search behavior. Requirements: SRCH-01..06.
-- **Phase 238: boundary-guards-and-contract-stabilization** — add architecture guards and source-introspection-safe contract checks for the new maps/search module boundaries. Requirements: BOUND-01..04.
-- **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
-- **Phase 240: full-gate-and-deprecation-cleanup** — run broader CI-style confidence gates and resolve or document remaining deprecation warnings from the v13.6 milestone audit. Requirements: DEBT-01..02.
+- **Phase 241: manifest-spec-and-schema** — define the versioned `geolens.yaml` schema, examples, validation fixtures, and compatibility contract. Requirements: MAN-01..05.
+- **Phase 242: cli-init-validate** — add `geolens init` and offline `geolens validate` with deterministic errors and exit codes. Requirements: CLI-01..02.
+- **Phase 243: backend-manifest-apply-ingest** — add typed backend apply ingestion that preserves auth, storage safety, idempotency, and existing catalog contracts. Requirements: INGEST-01..04.
+- **Phase 244: cli-apply-and-adoption-docs** — add `geolens apply`, dry-run summaries, and docs/examples for the first-catalog path. Requirements: CLI-03..04, DOCS-01..02.
+- **Phase 245: contract-gates-and-close-audit** — update OpenAPI/SDK/CLI contracts, add CI coverage, enforce architecture boundaries, and run the milestone audit. Requirements: QUAL-01..04.
 
-Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 21 satisfied after Phase 240 warning cleanup, 0 pending.
+Coverage: 19/19 v13.7 requirements mapped, 0 unmapped, 0 satisfied, 19 pending.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -52,7 +54,7 @@ Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 21 satisfied after Phase 
 
 ## Next Action
 
-Next GSD action: Start the next milestone with `$gsd-new-milestone`.
+Next GSD action: `$gsd-discuss-phase 241` to gather implementation context, or `$gsd-plan-phase 241` to plan the manifest schema phase directly.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
@@ -61,7 +63,8 @@ The audit produced 16 findings. Three trivial fixes were applied inline (env-var
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
 - **v13.4 (shipped):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), 230 (999.20 → 230 CatalogPort), 231 (999.19 → 231 EmbeddingProviderExtension), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
 - **v13.5 (complete):** Phase 232 (999.8 → PermissionExtension), Phase 233 (999.9 → WorkflowExtension), Phase 234 (advanced-sharing contract verification), Phase 235 (close audit).
-- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction).
+- **v13.7 (active):** Phase 241-245 promoted from 999.12 (`geolens.yaml` manifest) to define the manifest schema, CLI init/validate/apply, backend apply ingestion, adoption docs, and close gates.
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction).
 
 ## /oc-audit follow-ups (2026-05-02 audit run)
 
@@ -82,7 +85,7 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 - 999.22 (split catalog/search/service.py) → **Phase 237** (search-service-decomposition) — shipped in v13.6
 - 999.23 (share/embed token expiration gating) — resolved by Branch A on 2026-05-03 per `docs-internal/audits/oc-separation-audit-20260503.md`; v13.5 keeps a verification phase to prevent GTM/API/UI drift from recurring.
 
-Existing 999.12/14/16 remain cross-referenced to the 2026-05-02 audit with no promotion.
+Existing 999.14/16 remain cross-referenced to the 2026-05-02 audit with no promotion; 999.12 is now v13.7.
 
 Tier C — external blocker resolved: Phase 228 completed 2026-05-03. SDK and CLI packages are live and clean-machine verification passed.
 

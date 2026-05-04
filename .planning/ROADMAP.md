@@ -47,8 +47,116 @@
 - ✅ **v13.4 Boundary Closeout** — Phases 225-231 (shipped 2026-05-03) — see [archive](milestones/v13.4-ROADMAP.md)
 - ✅ **v13.5 Enterprise Governance Seams** — Phases 232-235 (shipped 2026-05-03) — see [archive](milestones/v13.5-ROADMAP.md)
 - ✅ **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-240 (shipped 2026-05-04) — see [archive](milestones/v13.6-ROADMAP.md)
+- **v13.7 Manifest-Driven Catalog Automation** — Phases 241-245 (active)
 
 ## Phases
+
+### Active Phase Details — v13.7 Manifest-Driven Catalog Automation
+
+- [ ] **Phase 241: manifest-spec-and-schema** — Define the versioned `geolens.yaml` schema, examples, validation fixtures, and compatibility contract.
+- [ ] **Phase 242: cli-init-validate** — Add `geolens init` and offline `geolens validate` with deterministic errors and exit codes.
+- [ ] **Phase 243: backend-manifest-apply-ingest** — Add typed backend apply ingestion that preserves auth, storage safety, idempotency, and existing catalog contracts.
+- [ ] **Phase 244: cli-apply-and-adoption-docs** — Add `geolens apply`, dry-run summaries, and docs/examples for the first-catalog path.
+- [ ] **Phase 245: contract-gates-and-close-audit** — Update OpenAPI/SDK/CLI contracts, add CI coverage, enforce architecture boundaries, and run the milestone audit.
+
+19/19 v13.7 requirements mapped. Requirements live in `.planning/REQUIREMENTS.md`.
+
+#### Phase 241: manifest-spec-and-schema
+
+**Goal:** Define the Apache-2.0 `geolens.yaml` catalog manifest format as a versioned, testable contract for dataset identity, sources, metadata, and Community-safe publication intent.
+
+**Source:** Promoted from backlog Phase 999.12 (`geolens.yaml catalog manifest spec`, P1), identified by the open-core audits as the largest unshipped adoption wedge.
+
+**Requirements:** MAN-01, MAN-02, MAN-03, MAN-04, MAN-05
+
+**Depends on:** v13.6 archived and merged; existing CLI and catalog/processing boundaries from v13.1-v13.6.
+
+**Success Criteria** (what must be TRUE):
+1. A versioned manifest schema exists with documented fields for catalog metadata, dataset identity, source entries, metadata, and publication intent.
+2. Good and bad fixture manifests cover vector, raster COG, VRT, relative path, URL, and storage URI examples.
+3. Validation produces stable, path-specific errors that can be consumed by the CLI without importing backend internals.
+4. Compatibility tests lock the schema versioning behavior and prevent accidental breaking changes.
+
+**Plans:**
+- [ ] TBD
+
+#### Phase 242: cli-init-validate
+
+**Goal:** Make the public `geolens` CLI able to scaffold and validate manifests locally before any backend apply path exists.
+
+**Source:** Backlog Phase 999.12 required `geolens init` and `geolens validate` as part of the open-core manifest workflow.
+
+**Requirements:** CLI-01, CLI-02
+
+**Depends on:** Phase 241 manifest schema.
+
+**Success Criteria** (what must be TRUE):
+1. `geolens init` creates a minimal `geolens.yaml` without overwriting an existing file unless an explicit force flag is used.
+2. `geolens validate` validates manifests without a running API and exits deterministically for valid, invalid, and unreadable inputs.
+3. CLI validation output includes manifest-path locations and human-readable remediation text.
+4. CLI tests run without network or service dependencies.
+
+**Plans:**
+- [ ] TBD
+
+#### Phase 243: backend-manifest-apply-ingest
+
+**Goal:** Add a typed backend apply service/API boundary that consumes validated manifests and reuses existing catalog, storage, auth, and ingest behavior.
+
+**Source:** Backlog Phase 999.12 required the backend ingest path to consume `geolens.yaml` rather than leaving manifests as CLI-only metadata.
+
+**Requirements:** INGEST-01, INGEST-02, INGEST-03, INGEST-04
+
+**Depends on:** Phase 241 manifest schema; existing catalog/processing ports and ingest jobs.
+
+**Success Criteria** (what must be TRUE):
+1. Backend manifest apply accepts a typed payload and enqueues existing ingest work per dataset rather than creating a parallel ingestion stack.
+2. Apply runs are idempotent by stable dataset key and report create/update/skip/error per entry.
+3. Auth, RBAC, storage validation, file-safety checks, and edition boundaries remain in force for manifest-driven ingestion.
+4. Vector, raster COG, and VRT manifest entries round-trip into existing search, metadata, and map-preview contracts.
+
+**Plans:**
+- [ ] TBD
+
+#### Phase 244: cli-apply-and-adoption-docs
+
+**Goal:** Complete the user-facing manifest workflow with `geolens apply`, dry-run summaries, and examples that prove the first-catalog path.
+
+**Source:** Backlog Phase 999.12 tied manifests to the falsifiable adoption target: a new user can publish a working geospatial catalog in 10 minutes.
+
+**Requirements:** CLI-03, CLI-04, DOCS-01, DOCS-02
+
+**Depends on:** Phase 242 CLI validation; Phase 243 backend apply ingestion.
+
+**Success Criteria** (what must be TRUE):
+1. `geolens apply` uses the configured GeoLens API to create or update datasets from a manifest.
+2. `geolens apply --dry-run` previews create/update/skip/error outcomes without writing data.
+3. Docs and examples cover local paths, URL/storage sources, and Community-safe publication states.
+4. A documented path takes a clean local user from `docker compose up` to a browsable catalog with a sample manifest.
+
+**Plans:**
+- [ ] TBD
+
+#### Phase 245: contract-gates-and-close-audit
+
+**Goal:** Lock the manifest surface into CI, update generated contracts, and run the formal v13.7 close audit.
+
+**Source:** GSD close-gate discipline from v13.1-v13.6 plus Backlog Phase 999.12's open-core adoption requirement.
+
+**Requirements:** QUAL-01, QUAL-02, QUAL-03, QUAL-04
+
+**Depends on:** Phases 241-244.
+
+**Success Criteria** (what must be TRUE):
+1. OpenAPI snapshot, SDK drift checks, and CLI docs reflect any manifest/apply API changes.
+2. Focused backend, CLI, and schema-fixture tests run in CI for manifest validation and apply behavior.
+3. Architecture checks prevent CLI-to-backend-internal coupling and Enterprise-only dependencies in Community manifest support.
+4. Formal milestone audit verifies 19/19 requirements, examples, CI evidence, and the adoption path.
+
+**Plans:**
+- [ ] TBD
+
+---
 
 ### Archived Phase Details — v13.6 Catalog Maps/Search Service Decomposition
 
@@ -363,7 +471,7 @@ Inlined into Phase 225 (`processing-port-protocol-cycle-inversion`) because addi
 
 ---
 
-### Phase 999.12: geolens.yaml catalog manifest spec (BACKLOG — P1)
+### ~~Phase 999.12: geolens.yaml catalog manifest spec~~ — PROMOTED to v13.7 Phases 241-245 (2026-05-04)
 
 **Goal:** Define and ship the `geolens.yaml` catalog manifest format (Apache-2.0) — declarative descriptor for datasets, sources, and publishing rules. Implement `geolens init` / `geolens apply` / `geolens validate` CLI commands; backend ingest path consumes the manifest. The largest unshipped open-core enabler per the strategic guidance.
 **Source:** `oc-separation-audit-20260430-b.md` §6 (FAIL — zero source-tree hits) → confirmed unchanged in `oc-separation-audit-20260502.md` §6.6 (still missing) / §7 P2 (action item #11). v13.1 close audit and v13.2 audit both flagged this as biggest unshipped OC adoption wedge.
@@ -371,7 +479,11 @@ Inlined into Phase 225 (`processing-port-protocol-cycle-inversion`) because addi
 **Why this matters:** "A new user should be able to publish a working geospatial catalog in 10 minutes — from `docker compose up` to a browsable, shareable catalog of their own data" is the GTM falsifiable adoption target. Without a declarative manifest + `apply` workflow, that target is hand-wavy.
 
 Plans:
-- [ ] TBD
+- [ ] Promoted into Phase 241 `manifest-spec-and-schema`
+- [ ] Promoted into Phase 242 `cli-init-validate`
+- [ ] Promoted into Phase 243 `backend-manifest-apply-ingest`
+- [ ] Promoted into Phase 244 `cli-apply-and-adoption-docs`
+- [ ] Promoted into Phase 245 `contract-gates-and-close-audit`
 
 ---
 
