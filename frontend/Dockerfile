@@ -7,7 +7,7 @@ COPY . .
 RUN npm run build:app
 
 # Stage 2: Serve (non-root nginx)
-FROM nginxinc/nginx-unprivileged:1.29.5-alpine
+FROM nginxinc/nginx-unprivileged:1.29.8-alpine
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"
