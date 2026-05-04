@@ -60,7 +60,7 @@
 - [x] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior. (completed 2026-05-03)
 - [x] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded. (completed 2026-05-04)
 - [x] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit. (completed 2026-05-04)
-- [ ] **Phase 240: full-gate-and-deprecation-cleanup** — Close v13.6 audit tech debt by running broader CI-style gates and resolving or explicitly documenting remaining deprecation warnings.
+- [x] **Phase 240: full-gate-and-deprecation-cleanup** — Close v13.6 audit tech debt by running broader CI-style gates and resolving or explicitly documenting remaining deprecation warnings. (completed 2026-05-04)
 
 21/21 v13.6 requirements mapped. 21/21 satisfied after Phase 240 warning cleanup; TD-01 and TD-02 closed with exact evidence.
 

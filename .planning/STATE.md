@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
-status: phase_verified
-stopped_at: Phase 240 verified after warning cleanup; ready to mark phase complete
-last_updated: "2026-05-04T01:22:01Z"
+status: milestone_ready_to_archive
+stopped_at: Phase 240 complete; v13.6 ready to archive
+last_updated: "2026-05-04T01:26:34Z"
 last_activity: 2026-05-04
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
   completed_plans: 18
   percent: 100
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 
 Phase: 240 — full-gate-and-deprecation-cleanup
 Plan: 240-02 — deprecation-warning-close-evidence
-Status: Plan 240-02 completed and Phase 240 verification passed; ready to mark the phase complete
-Last activity: 2026-05-04 — Plan 240-02 fixed project-owned Pydantic deprecation warnings, documented remaining Alembic/Authlib follow-up, and created `240-VERIFICATION.md`.
+Status: Phase 240 complete and verified; v13.6 ready to archive
+Last activity: 2026-05-04 — Phase 240 closed TD-01/TD-02 by recording broader gate evidence, fixing project-owned Pydantic deprecations, documenting Alembic/Authlib follow-up, and refreshing the v13.6 audit to `passed`.
 
 ## Roadmap Snapshot
 
@@ -53,7 +53,7 @@ Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 21 satisfied after Phase 
 
 ## Next Action
 
-Next GSD action: Mark Phase 240 complete, then complete/archive milestone v13.6.
+Next GSD action: Complete/archive milestone v13.6.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
