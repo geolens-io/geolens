@@ -293,8 +293,6 @@ async def download_cog(
         io.BytesIO(data),
         media_type="image/tiff",
         headers={
-            "Content-Disposition": get_catalog_port().safe_content_disposition(
-                filename
-            )
+            "Content-Disposition": get_catalog_port().safe_content_disposition(filename)
         },
     )

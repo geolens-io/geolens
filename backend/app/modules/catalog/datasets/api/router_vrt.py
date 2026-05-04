@@ -362,9 +362,7 @@ async def regenerate_vrt_endpoint(
     vrt_asset.current_generation_id = generation.id
 
     # Create IngestJob
-    job = await get_catalog_port().create_ingest_job(
-        db, "vrt_regenerate", "", user.id
-    )
+    job = await get_catalog_port().create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
     await db.commit()
@@ -375,10 +373,14 @@ async def regenerate_vrt_endpoint(
     # leave the VRT permanently stuck and the generation row dangling
     # until manual operator intervention.
     async def _defer() -> None:
-            await get_catalog_port().regenerate_vrt_task().defer_async(
-            job_id=str(job.id),
-            vrt_dataset_id=str(dataset_id),
-            triggered_by=str(user.id),
+        await (
+            get_catalog_port()
+            .regenerate_vrt_task()
+            .defer_async(
+                job_id=str(job.id),
+                vrt_dataset_id=str(dataset_id),
+                triggered_by=str(user.id),
+            )
         )
 
     async def _rollback(defer_exc: BaseException) -> None:

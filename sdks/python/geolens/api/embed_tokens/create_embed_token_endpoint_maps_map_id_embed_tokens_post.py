@@ -106,6 +106,9 @@ def sync_detailed(
 
      Create an embed token scoped to a map's current layers.
 
+    Community supports the default 30-day unrestricted token. Custom lifetimes
+    and non-empty origin restrictions require GeoLens Enterprise.
+
     Args:
         map_id (UUID):
         body (EmbedTokenCreate):
@@ -140,6 +143,9 @@ def sync(
 
      Create an embed token scoped to a map's current layers.
 
+    Community supports the default 30-day unrestricted token. Custom lifetimes
+    and non-empty origin restrictions require GeoLens Enterprise.
+
     Args:
         map_id (UUID):
         body (EmbedTokenCreate):
@@ -168,6 +174,9 @@ async def asyncio_detailed(
     """Create Embed Token Endpoint
 
      Create an embed token scoped to a map's current layers.
+
+    Community supports the default 30-day unrestricted token. Custom lifetimes
+    and non-empty origin restrictions require GeoLens Enterprise.
 
     Args:
         map_id (UUID):
@@ -200,6 +209,9 @@ async def asyncio(
     """Create Embed Token Endpoint
 
      Create an embed token scoped to a map's current layers.
+
+    Community supports the default 30-day unrestricted token. Custom lifetimes
+    and non-empty origin restrictions require GeoLens Enterprise.
 
     Args:
         map_id (UUID):

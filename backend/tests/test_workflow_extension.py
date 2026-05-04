@@ -99,9 +99,7 @@ async def test_default_workflow_extension_status_order_and_transitions():
     extension = DefaultWorkflowExtension()
 
     assert extension.status_order() == ("draft", "ready", "internal", "published")
-    assert await extension.allowed_transitions(_context("draft", "ready")) == {
-        "ready"
-    }
+    assert await extension.allowed_transitions(_context("draft", "ready")) == {"ready"}
     assert await extension.allowed_transitions(_context("ready", "draft")) == {
         "draft",
         "internal",
@@ -125,12 +123,18 @@ async def test_default_workflow_extension_metadata_patch_allows_direct_status_ch
     assert await extension.allowed_transitions(
         _context("draft", "published", mode="metadata_patch")
     ) == {"ready", "internal", "published"}
-    assert await extension.allowed_transitions(
-        _context("review", "published", mode="metadata_patch")
-    ) == set()
-    assert await extension.allowed_transitions(
-        _context("draft", "review", mode="metadata_patch")
-    ) == set()
+    assert (
+        await extension.allowed_transitions(
+            _context("review", "published", mode="metadata_patch")
+        )
+        == set()
+    )
+    assert (
+        await extension.allowed_transitions(
+            _context("draft", "review", mode="metadata_patch")
+        )
+        == set()
+    )
 
 
 @pytest.mark.asyncio
@@ -256,10 +260,7 @@ async def test_target_status_endpoint_uses_overlay_block():
 
     class BlockingWorkflow(DefaultWorkflowExtension):
         async def allowed_transitions(self, context):
-            if (
-                context.from_status == "internal"
-                and context.to_status == "published"
-            ):
+            if context.from_status == "internal" and context.to_status == "published":
                 return set()
             return await super().allowed_transitions(context)
 

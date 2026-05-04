@@ -361,13 +361,17 @@ async def reupload_commit(
         source_url = job.source_url
 
         async def _defer_service() -> None:
-            await get_catalog_port().reupload_service_task().defer_async(
-                job_id=str(job.id),
-                dataset_id=str(dataset_id),
-                source_url=source_url,
-                source_layer=job.source_layer or "",
-                user_id=str(user.id),
-                token=request.token,
+            await (
+                get_catalog_port()
+                .reupload_service_task()
+                .defer_async(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    source_url=source_url,
+                    source_layer=job.source_layer or "",
+                    user_id=str(user.id),
+                    token=request.token,
+                )
             )
 
         await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
@@ -391,27 +395,37 @@ async def reupload_commit(
             except OSError:
                 pass  # If we can't stat, use default queue
 
-        if file_size > 0 and file_size <= get_catalog_port().priority_queue_threshold_bytes:
+        if (
+            file_size > 0
+            and file_size <= get_catalog_port().priority_queue_threshold_bytes
+        ):
 
             async def _defer_priority() -> None:
-                await get_catalog_port().reupload_file_task().configure(
-                    queue="priority"
-                ).defer_async(
-                    job_id=str(job.id),
-                    dataset_id=str(dataset_id),
-                    file_path=file_path,
-                    user_id=str(user.id),
+                await (
+                    get_catalog_port()
+                    .reupload_file_task()
+                    .configure(queue="priority")
+                    .defer_async(
+                        job_id=str(job.id),
+                        dataset_id=str(dataset_id),
+                        file_path=file_path,
+                        user_id=str(user.id),
+                    )
                 )
 
             await defer_with_orphan_guard(_defer_priority, rollback=rollback, db=db)
         else:
 
             async def _defer_default() -> None:
-                await get_catalog_port().reupload_file_task().defer_async(
-                    job_id=str(job.id),
-                    dataset_id=str(dataset_id),
-                    file_path=file_path,
-                    user_id=str(user.id),
+                await (
+                    get_catalog_port()
+                    .reupload_file_task()
+                    .defer_async(
+                        job_id=str(job.id),
+                        dataset_id=str(dataset_id),
+                        file_path=file_path,
+                        user_id=str(user.id),
+                    )
                 )
 
             await defer_with_orphan_guard(_defer_default, rollback=rollback, db=db)
@@ -478,9 +492,7 @@ async def request_presigned_reupload(
             detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
         )
 
-    job = await get_catalog_port().create_ingest_job(
-        db, request.filename, "", user.id
-    )
+    job = await get_catalog_port().create_ingest_job(db, request.filename, "", user.id)
     job.dataset_id = dataset_id
     storage = get_storage()
     s3_key = f"staging/{job.id}/{request.filename}"
