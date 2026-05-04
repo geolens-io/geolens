@@ -69,7 +69,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     setPhase('idle');
     setEntries([]);
     setAutoOpenVrt(false);
-  }, []);
+  }, [setPhase]);
 
   const handleFilesAccepted = async (files: File[]) => {
     if (phase !== 'idle') return;

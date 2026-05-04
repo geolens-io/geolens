@@ -63,7 +63,11 @@ async def create_embed_token_endpoint(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenCreatedResponse:
-    """Create an embed token scoped to a map's current layers."""
+    """Create an embed token scoped to a map's current layers.
+
+    Community supports the default 30-day unrestricted token. Custom lifetimes
+    and non-empty origin restrictions require GeoLens Enterprise.
+    """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
@@ -135,7 +139,10 @@ async def update_embed_token_endpoint(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmbedTokenResponse:
-    """Update embed token allowed_origins."""
+    """Update embed token allowed_origins.
+
+    Null clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.
+    """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(
@@ -144,7 +151,13 @@ async def update_embed_token_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    token = await update_embed_token(db, token_id, map_id, body.allowed_origins)
+    try:
+        token = await update_embed_token(db, token_id, map_id, body.allowed_origins)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

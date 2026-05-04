@@ -1,50 +1,45 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.4
-milestone_name: Boundary Closeout
-status: executing
-stopped_at: Phase 228 complete; Phase 231 Plan 03 architecture guard cleanup ready
-last_updated: "2026-05-03T01:55:00Z"
-last_activity: 2026-05-03
+milestone: v13.6
+milestone_name: Catalog Maps/Search Service Decomposition
+status: milestone_archived
+stopped_at: v13.6 archived; ready to define next milestone
+last_updated: "2026-05-04T11:43:20Z"
+last_activity: 2026-05-04
 progress:
-  total_phases: 18
-  completed_phases: 4
+  total_phases: 5
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 17
-  percent: 94
+  completed_plans: 18
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (refreshed 2026-05-01 after v13.3 close)
+See: .planning/PROJECT.md (updated 2026-05-04 after v13.6 milestone completion)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 231 — embedding-provider-extension-protocol
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 231 (embedding-provider-extension-protocol) — EXECUTING
-Plan: 3 of 3
-Status: Ready for architecture-guard cleanup
-Last activity: 2026-05-03
+Milestone: v13.6 — Catalog Maps/Search Service Decomposition
+Status: Archived and tagged locally
+Last activity: 2026-05-04 — v13.6 archived to `.planning/milestones/`, roadmap collapsed to an archive link, requirements archived, and project state updated for next-milestone planning.
 
 ## Roadmap Snapshot
 
-| Phase | Name | Requirements | Depends on |
-|-------|------|--------------|------------|
-| 225 | processing-port-protocol-cycle-inversion | PROCESS-01, PROCESS-02, PROCESS-03, PROCESS-04, PROCESS-05 | 224 (✅ shipped) |
-| 226 | ai-provider-extension-protocol | AIEXT-01, AIEXT-02, AIEXT-03, AIEXT-04, AIEXT-05 | 225 |
-| 227 | saml-test-fixture-tmp-path | TESTFIX-01, TESTFIX-02, TESTFIX-03 | — |
-| 228 | run-cold-publish-workflows | PUBLISH-01, PUBLISH-02, PUBLISH-03, PUBLISH-04 | — |
-| 230 | catalog-port-protocol-symmetric | CATPORT-01, CATPORT-02, CATPORT-03, CATPORT-04, CATPORT-05 | 225 (sequential — both touch core/Protocol surface) |
-| 231 | embedding-provider-extension-protocol | EMBPROV-01, EMBPROV-02, EMBPROV-03, EMBPROV-04, EMBPROV-05 | — (independent, can ship in parallel) |
-| 229 | post-impl-audit-v13.4 | PIAUDIT-01, PIAUDIT-02, PIAUDIT-03 | 225, 226, 227, 228, 230, 231 |
+v13.6 Catalog Maps/Search Service Decomposition contains 5 phases:
 
-Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 with Phase 230/231 promotions).
+- **Phase 236: maps-service-decomposition** — split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map CRUD, layers, sharing, thumbnails, and public viewer behavior. Requirements: MAPS-01..06.
+- **Phase 237: search-service-decomposition** — split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving dataset search, facets, collections, OGC/STAC/AI contracts, and semantic/hybrid search behavior. Requirements: SRCH-01..06.
+- **Phase 238: boundary-guards-and-contract-stabilization** — add architecture guards and source-introspection-safe contract checks for the new maps/search module boundaries. Requirements: BOUND-01..04.
+- **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
+- **Phase 240: full-gate-and-deprecation-cleanup** — run broader CI-style confidence gates and resolve or document remaining deprecation warnings from the v13.6 milestone audit. Requirements: DEBT-01..02.
 
-**Audit-grade targets (verified by Phase 229):** Boundary Integrity ≥ **A+** (hold v13.3 close grade) · Coupling Health **B → A−** (BOTH cycle directions inverted via 225 + 230) · Seam Quality **B+ → A−** (Phase 226 closes AI dispatch 🔴; Phase 231 closes the embeddings 🔴).
+Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 21 satisfied after Phase 240 warning cleanup, 0 pending.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -57,25 +52,16 @@ Coverage: 30/30 v13.4 requirements mapped (original 20 + 10 added 2026-05-02 wit
 
 ## Next Action
 
-Phase 228 is complete:
+Next GSD action: Start the next milestone with `$gsd-new-milestone`.
 
-- `geolens==1.0.0` is published on PyPI as the Python SDK.
-- `geolens-cli==1.0.0` is published on PyPI as the CLI distribution; the installed executable remains `geolens`.
-- `@geolens/sdk==1.0.0` is published on npm and verified from a clean Node container.
-- `verify-published.yml` passed in run `25266870449`.
-- `geolens-sdk` is not published on PyPI; remove the stale pending publisher from PyPI account settings if it still appears.
-
-Next implementation action: finish Phase 231 Plan 03 (`test_no_module_level_provider_sdk_imports_in_processing` guard rename/pathspec broaden), then proceed to Phase 230.
-
-Phase 229 (post-impl audit gate) now depends on Phases 225, 226, 227, 228, 230, 231 — runs last.
-
-## Phase 224 Queue (from /oc-audit follow-ups)
+## Historical /oc-audit Queue (from Phase 224)
 
 The audit produced 16 findings. Three trivial fixes were applied inline (env-var move from base compose to enterprise overlay, GEOLENS_EDITION explicit set in overlay, GTM doc amendment for Phase 223 completion). The remaining 13 findings split:
 
 - **Phase 224 (P0):** catalog-god-module-split — Split `backend/app/modules/catalog/datasets/domain/service.py` (1407 LOC) into 4 cohesive modules (`service_create.py`, `service_query.py`, `service_lifecycle.py`, `service_grants.py`) behind a thin façade. Largest enterprise-overlay obstacle. ✅ shipped 2026-05-01.
-- **v13.4 (active):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
-- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.8 (PermissionExtension), 999.9 (WorkflowExtension), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction), 999.19 (EmbeddingProviderExtension), 999.20 (CatalogPort), 999.21 (split catalog/maps/service.py), 999.22 (split catalog/search/service.py).
+- **v13.4 (shipped):** Phases 225 (999.7 → 225 ProcessingPort), 226 (999.10 → 226 AIProviderExtension), 227 (999.18 → 227 SAML fixture tmp_path), 228 (999.17 → 228 cold publish), 230 (999.20 → 230 CatalogPort), 231 (999.19 → 231 EmbeddingProviderExtension), plus inlined architecture guard (former 999.11 → folded into 225) and milestone audit gate (229).
+- **v13.5 (complete):** Phase 232 (999.8 → PermissionExtension), Phase 233 (999.9 → WorkflowExtension), Phase 234 (advanced-sharing contract verification), Phase 235 (close audit).
+- **Backlog (remaining):** Phase 999.6 (tenant scoping — Cloud prereq), 999.12 (geolens.yaml manifest), 999.13 (persistent connector registry), 999.14 (Helm + AMI), 999.15 (SBOM + signed images), 999.16 (geolens-schemas extraction).
 
 ## /oc-audit follow-ups (2026-05-02 audit run)
 
@@ -92,11 +78,11 @@ Tier B — 5 backlog entries added 2026-05-02; 2 immediately promoted to v13.4 p
 
 - 999.20 (CatalogPort) → **Phase 230** (catalog-port-protocol-symmetric) — lifts Coupling target B+ → A−
 - 999.19 (EmbeddingProviderExtension) → **Phase 231** (embedding-provider-extension-protocol)
-- 999.21 (split catalog/maps/service.py) — stays backlog P2
-- 999.22 (split catalog/search/service.py) — stays backlog P2
-- 999.23 (share/embed token expiration gating — product decision) — stays backlog P2, decision-blocked. Strip-the-copy stopgap landed in `6db19582` (2026-05-02); this phase resolves the underlying GTM-vs-implementation contract question (Branch A: apply Phase-219 gates / Branch B: drop the feature from GTM Team tier).
+- 999.21 (split catalog/maps/service.py) → **Phase 236** (maps-service-decomposition) — shipped in v13.6
+- 999.22 (split catalog/search/service.py) → **Phase 237** (search-service-decomposition) — shipped in v13.6
+- 999.23 (share/embed token expiration gating) — resolved by Branch A on 2026-05-03 per `docs-internal/audits/oc-separation-audit-20260503.md`; v13.5 keeps a verification phase to prevent GTM/API/UI drift from recurring.
 
-Existing 999.8/9/12/14/16 cross-referenced to the 2026-05-02 audit (no promotion).
+Existing 999.12/14/16 remain cross-referenced to the 2026-05-02 audit with no promotion.
 
 Tier C — external blocker resolved: Phase 228 completed 2026-05-03. SDK and CLI packages are live and clean-machine verification passed.
 
@@ -202,6 +188,6 @@ These were surfaced by `gsd-sdk query audit-open` at v13.1 close. None are funct
 
 ## Session Continuity
 
-Last session: 2026-05-02T19:15:54.160Z
-Stopped at: Phase 231 context gathered (auto-resolved)
-Resume file: None
+Last session: 2026-05-03T17:04:16Z
+Stopped at: Phase 233 complete and verified
+Resume file: .planning/phases/233-workflow-extension-protocol/233-VERIFICATION.md

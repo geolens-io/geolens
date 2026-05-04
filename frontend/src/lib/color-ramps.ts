@@ -58,7 +58,7 @@ export function getRampColors(rampName: string, count: number): string[] {
  */
 export function buildCategoricalExpression(
   column: string,
-  valueColorMap: [string, string][],
+  valueColorMap: [unknown, string][],
   fallback: string,
 ): unknown[] {
   const pairs: unknown[] = [];

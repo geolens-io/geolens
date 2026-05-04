@@ -44,19 +44,44 @@
 - ✅ **v13.1 Open-Core Separation P1** — Phases 212-219 (shipped 2026-04-29) — see [archive](milestones/v13.1-ROADMAP.md)
 - ✅ **v13.2 Edition Lifecycle Hardening** — Phases 220-221 (shipped 2026-04-30) — see [archive](milestones/v13.2-ROADMAP.md)
 - ✅ **v13.3 Boundary A+ Cleanup** — Phases 222-224 (shipped 2026-05-01) — see [archive](milestones/v13.3-ROADMAP.md)
-- 🚧 **v13.4 Boundary Closeout** — Phases 225-231 (in progress)
+- ✅ **v13.4 Boundary Closeout** — Phases 225-231 (shipped 2026-05-03) — see [archive](milestones/v13.4-ROADMAP.md)
+- ✅ **v13.5 Enterprise Governance Seams** — Phases 232-235 (shipped 2026-05-03) — see [archive](milestones/v13.5-ROADMAP.md)
+- ✅ **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-240 (shipped 2026-05-04) — see [archive](milestones/v13.6-ROADMAP.md)
 
 ## Phases
 
-### Active Phases — v13.4 Boundary Closeout
+### Archived Phase Details — v13.6 Catalog Maps/Search Service Decomposition
+
+- [x] **Phase 236: maps-service-decomposition** — Split `backend/app/modules/catalog/maps/service.py` behind a stable public facade while preserving map-builder, layer, sharing, thumbnail, and public-viewer behavior. (completed 2026-05-03)
+- [x] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public facade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior. (completed 2026-05-03)
+- [x] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search facades stable and private decomposition modules bounded. (completed 2026-05-04)
+- [x] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit. (completed 2026-05-04)
+- [x] **Phase 240: full-gate-and-deprecation-cleanup** — Close v13.6 audit tech debt by running broader CI-style gates and resolving or documenting remaining deprecation warnings. (completed 2026-05-04)
+
+21/21 v13.6 requirements satisfied. Formal milestone audit passed in `milestones/v13.6-MILESTONE-AUDIT.md`. Close evidence: focused maps/search backend suite and touched-module ruff/format gates passed; broader backend/Playwright residuals are documented as nonblocking in Phase 240.
+
+---
+
+### Archived Phase Details — v13.5 Enterprise Governance Seams
+
+- [x] **Phase 232: permission-extension-protocol** — Add a first-class `PermissionExtension` seam for action checks and catalog visibility filtering. (completed 2026-05-03)
+- [x] **Phase 233: workflow-extension-protocol** — Add a first-class `WorkflowExtension` seam for publication lifecycle transitions and transition hooks. (completed 2026-05-03)
+- [x] **Phase 234: governance-contract-verification** — Verify advanced-sharing gates and GTM/API/UI copy stay aligned after the 2026-05-03 Branch A fix. (completed 2026-05-03)
+- [x] **Phase 235: post-impl-audit-v13.5** — Run the close audit and verify Seam Quality, Boundary Integrity, and Inventory Accuracy targets. (completed 2026-05-03)
+
+16/16 v13.5 requirements satisfied. Formal milestone audit passed in `milestones/v13.5-MILESTONE-AUDIT.md`. Close-gate grades: Seam Quality A, Boundary Integrity A, Inventory Accuracy A− per `docs-internal/audits/post-impl-20260503-v13-5.md`.
+
+---
+
+### Archived Phase Details — v13.4 Boundary Closeout
 
 - [x] **Phase 225: processing-port-protocol-cycle-inversion** — Invert the catalog↔processing cycle behind a `ProcessingPort` Protocol; inline architecture-guard test (COMPLETE — 2026-05-01)
-- [ ] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup
-- [ ] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path`
-- [ ] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine
-- [ ] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−)
-- [ ] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py`
-- [ ] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A−
+- [x] **Phase 226: ai-provider-extension-protocol** — Replace hardcoded provider dispatch with `AIProviderExtension` extension lookup (COMPLETE — 2026-05-02)
+- [x] **Phase 227: saml-test-fixture-tmp-path** — Stop committed SAML fixture mutation; route generator output to pytest `tmp_path` (COMPLETE — 2026-05-01)
+- [x] **Phase 228: run-cold-publish-workflows** — Execute publish-sdks / publish-cli workflows end-to-end and validate install on a clean machine (COMPLETE — 2026-05-03)
+- [x] **Phase 230: catalog-port-protocol-symmetric** — Invert the remaining 17-file `catalog → processing` direction behind a symmetric `CatalogPort` Protocol (lifts Coupling Health B+ → A−) (completed 2026-05-03)
+- [x] **Phase 231: embedding-provider-extension-protocol** — Close the last direct provider-SDK import in `processing/` via an `EmbeddingProviderExtension` Protocol covering `processing/embeddings/helpers.py` (COMPLETE — 2026-05-03)
+- [x] **Phase 229: post-impl-audit-v13.4** — Post-implementation audit gate confirming Boundary ≥ A+, Coupling ≥ A−, Seam ≥ A− (COMPLETE — 2026-05-03)
 
 #### Phase 225: processing-port-protocol-cycle-inversion
 
@@ -189,7 +214,18 @@ Plans:
 4. Full backend test suite passes with the default `CatalogPort` wired in (zero functional regressions vs. the v13.4 baseline going into this phase).
 5. `DefaultCatalogPort` delegates to `app.processing.*` via deferred imports inside method bodies (mirrors `DefaultProcessingPort` pattern from Phase 225); single-slot `get_catalog_port()` accessor lives at `backend/app/platform/extensions/__init__.py`.
 
-**Plans:** TBD
+**Plans:** 4/4 plans complete
+
+Plans:
+**Wave 1**
+- [x] 230-01-PLAN.md — additive-scaffold: CatalogPort Protocol + DefaultCatalogPort + get_catalog_port() accessor (CATPORT-01/05)
+
+**Wave 2**
+- [x] 230-02-PLAN.md — migrate-helper-callers: dataset API, feature/layer helpers, source preview/router/STAC helper imports routed through CatalogPort (CATPORT-02/03/05)
+- [x] 230-03-PLAN.md — migrate-query-callers: maps RasterAsset and search embedding query composition routed through CatalogPort (CATPORT-02/03/05)
+
+**Wave 3**
+- [x] 230-04-PLAN.md — architecture guard + verification: test_no_catalog_imports_processing, negative-control proof, 230-VERIFICATION.md (CATPORT-04)
 
 #### Phase 231: embedding-provider-extension-protocol
 
@@ -208,7 +244,7 @@ Plans:
 4. The existing architecture guard `test_no_module_level_provider_sdk_imports_in_processing_ai` is **renamed/expanded** to `test_no_module_level_provider_sdk_imports_in_processing` covering both `processing/ai/` and `processing/embeddings/`. The carve-out for embeddings is removed from the docstring.
 5. Existing embeddings tests pass unchanged with the default provider wired in (no behavior delta for community users); a test overlay registered via `importlib.metadata` entry_points is dispatched correctly.
 
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -218,7 +254,7 @@ Plans:
 - [x] 231-02-PLAN.md — caller-migration + helpers.py deletion: migrate generate_embedding + probe_embedding_dimensions to provider dispatch (D-12 hardcoded "openai_compatible"); DELETE helpers.py:8 from openai import OpenAI + _cached_openai_clients + build_openai_client + resolve_embedding_base_url + import httpx; migrate 4 of 5 test_embedding_service.py tests to provider-boundary mocks per D-27; SC#3 binding satisfied (Wave 2, EMBPROV-03/05a/05c)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 231-03-PLAN.md — architecture-guard rename + final verification: rename test_no_module_level_provider_sdk_imports_in_processing_ai → test_no_module_level_provider_sdk_imports_in_processing (D-13); broaden pathspec to backend/app/processing/ (D-14); delete carve-out paragraph; update negative-control example to embeddings (D-15); update test_layering.py module docstring crediting Phase 231 (D-16); automated negative-control demo (Wave 3, EMBPROV-04)
+- [x] 231-03-PLAN.md — architecture-guard rename + final verification: rename test_no_module_level_provider_sdk_imports_in_processing_ai → test_no_module_level_provider_sdk_imports_in_processing (D-13); broaden pathspec to backend/app/processing/ (D-14); delete carve-out paragraph; update negative-control example to embeddings (D-15); update test_layering.py module docstring crediting Phase 231 (D-16); automated negative-control demo (Wave 3, EMBPROV-04)
 
 #### Phase 229: post-impl-audit-v13.4
 
@@ -236,7 +272,11 @@ Plans:
 3. Post-audit grade re-run records Boundary Integrity ≥ **A+**, Coupling Health ≥ **A−**, Seam Quality ≥ **A−** in the report's grades table.
 4. v13.4 milestone is unblocked for close — `/gsd-complete-milestone` runs without surfacing unresolved P1 findings.
 
-**Plans:** TBD
+**Plans:** 1/1 plan complete
+
+Plans:
+**Wave 1**
+- [x] 229-01-PLAN.md — post-impl audit evidence pack: focused baseline checks, dated audit report, P1 disposition, grade table, verification artifact, and requirements/roadmap/state closeout (PIAUDIT-01/02/03)
 
 ---
 
@@ -295,39 +335,31 @@ Plans:
 
 ---
 
-### Phase 999.8: PermissionExtension Protocol (BACKLOG — P1)
+### ~~Phase 999.8: PermissionExtension Protocol~~ — PROMOTED to Phase 232 (v13.5, 2026-05-03)
 
 **Goal:** Add `PermissionExtension` Protocol at `backend/app/platform/extensions/protocols.py` with `check_permission(user, action, resource)` + `filter_visible(user, query)` hooks. Convert the hardcoded `DEFAULT_ROLE_PERMISSIONS` matrix at `backend/app/modules/auth/permissions.py:43-74` to `DefaultPermissionExtension`. Move the visibility chokepoint at `backend/app/modules/catalog/authorization.py:34` to consult the extension.
 **Source:** `oc-separation-audit-20260430-b.md` §2 Seam #5 (🔴) → `oc-separation-audit-20260502.md` §2 Seam #5 (🟡 — re-rated since static matrix is admin-customizable but the SQL chokepoint at `catalog/authorization.py:34` remains hardcoded). Largest residual Enterprise-relevant 🟡 in the seam set as of 2026-05-02. / §7 P2 (action item #8)
-**Estimated effort:** 3–5 days for Protocol; weeks for field-level
-**Unblocks:** Field-level RBAC, attribute-based access control (ABAC), row-level filters by user attribute — all unreachable today since the matrix is fixed-list.
-
-Plans:
-- [ ] TBD
+Promoted into the v13.5 Enterprise Governance Seams milestone as Phase 232 (`permission-extension-protocol`). See [v13.5 archive](milestones/v13.5-ROADMAP.md).
 
 ---
 
-### Phase 999.9: WorkflowExtension Protocol (BACKLOG — P1)
+### ~~Phase 999.9: WorkflowExtension Protocol~~ — PROMOTED to Phase 233 (v13.5, 2026-05-03)
 
 **Goal:** Add `WorkflowExtension` Protocol with `allowed_transitions()` + `on_transition(from, to, user)` hooks. Convert the hardcoded `ALLOWED_TRANSITIONS` dict at `backend/app/modules/catalog/datasets/api/router_data.py:210-215` and `_STATUS_ORDER` at `:260` to `DefaultWorkflowExtension`. No registry, no events, no approver concept exist today.
 **Source:** `oc-separation-audit-20260430-b.md` §2 Seam #6 (🔴) → `oc-separation-audit-20260502.md` §2 Seam #6 (🟡 — re-rated since lifecycle states + pending-account approval show the basic state-machine substrate, but no extension Protocol exists). / §7 P2 (action item #9)
-**Estimated effort:** 3–5 days for Protocol; 2–3w full workflow
-**Unblocks:** Multi-step approvals (draft → review → publish), reviewer assignment, custom states. Required for Enterprise §3 (Governance & Workflow — "BIG MONEY AREA" per GTM doc).
-
-Plans:
-- [ ] TBD
+Promoted into the v13.5 Enterprise Governance Seams milestone as Phase 233 (`workflow-extension-protocol`). See [v13.5 archive](milestones/v13.5-ROADMAP.md).
 
 ---
 
 ### ~~Phase 999.10: AIProviderExtension Protocol~~ — PROMOTED to Phase 226 (v13.4, 2026-05-01)
 
-Promoted into the v13.4 Boundary Closeout milestone as Phase 226 (`ai-provider-extension-protocol`). See Active Phases above.
+Promoted into the v13.4 Boundary Closeout milestone as Phase 226 (`ai-provider-extension-protocol`). See Archived Phase Details above.
 
 ---
 
 ### ~~Phase 999.11: test_no_processing_imports_catalog architecture guard~~ — INLINED into Phase 225 (v13.4, 2026-05-01)
 
-Inlined into Phase 225 (`processing-port-protocol-cycle-inversion`) because adding the guard before the cycle is inverted would fail CI immediately. The guard ships in the same phase as the cycle inversion. See Active Phases above.
+Inlined into Phase 225 (`processing-port-protocol-cycle-inversion`) because adding the guard before the cycle is inverted would fail CI immediately. The guard ships in the same phase as the cycle inversion. See Archived Phase Details above.
 
 ---
 
@@ -391,92 +423,48 @@ Plans:
 
 ### ~~Phase 999.17: Run cold PyPI/npm publish workflows~~ — PROMOTED to Phase 228 (v13.4, 2026-05-01)
 
-Promoted into the v13.4 Boundary Closeout milestone as Phase 228 (`run-cold-publish-workflows`). See Active Phases above.
+Promoted into the v13.4 Boundary Closeout milestone as Phase 228 (`run-cold-publish-workflows`). See Archived Phase Details above.
 
 ---
 
 ### ~~Phase 999.18: SAML test fixture generator → tmp_path~~ — PROMOTED to Phase 227 (v13.4, 2026-05-01)
 
-Promoted into the v13.4 Boundary Closeout milestone as Phase 227 (`saml-test-fixture-tmp-path`). See Active Phases above.
+Promoted into the v13.4 Boundary Closeout milestone as Phase 227 (`saml-test-fixture-tmp-path`). See Archived Phase Details above.
 
 ---
 
 ### ~~Phase 999.19: EmbeddingProviderExtension Protocol~~ — PROMOTED to Phase 231 (v13.4, 2026-05-02)
 
-Promoted into the v13.4 Boundary Closeout milestone as Phase 231 (`embedding-provider-extension-protocol`). See Active Phases above.
+Promoted into the v13.4 Boundary Closeout milestone as Phase 231 (`embedding-provider-extension-protocol`). See Archived Phase Details above.
 
 ---
 
 ### ~~Phase 999.20: Symmetric CatalogPort Protocol~~ — PROMOTED to Phase 230 (v13.4, 2026-05-02)
 
-Promoted into the v13.4 Boundary Closeout milestone as Phase 230 (`catalog-port-protocol-symmetric`). See Active Phases above. Lifts the v13.4 Coupling Health audit-grade target from B+ → A−.
+Promoted into the v13.4 Boundary Closeout milestone as Phase 230 (`catalog-port-protocol-symmetric`). See Archived Phase Details above. Lifts the v13.4 Coupling Health audit-grade target from B+ → A−.
 
 ---
 
-### Phase 999.21: Split catalog/maps/service.py (BACKLOG — P2)
+### ~~Phase 999.21: Split catalog/maps/service.py~~ — PROMOTED to Phase 236 (v13.6, 2026-05-03)
 
-**Goal:** Apply the Phase 224 façade pattern to `backend/app/modules/catalog/maps/service.py` (1297 LOC). Split into ≤500-LOC sibling modules behind a thin re-export façade; add a `test_no_external_imports_of_maps_service_submodules` architecture guard.
-**Source:** `oc-separation-audit-20260502.md` §5 (Catalog god-module split — next candidates) / §7 P2 (action item #7)
-**Estimated effort:** 3–5 days
-**Unblocks:** Future enterprise-overlay friction reduction (single largest service module after Phase 224); easier targeted code review; lays groundwork for `catalog/maps` extension seams (sharing controls, scheduled cleanup).
-**Reference:** Phase 224 (catalog-god-module-split) is the textbook precedent — 1407 LOC → 87-LOC façade + 5 modules averaging 340 LOC.
-
-Plans:
-- [ ] TBD
+Promoted into the v13.6 Catalog Maps/Search Service Decomposition milestone as Phase 236 (`maps-service-decomposition`). See Archived Phase Details above.
 
 ---
 
-### Phase 999.22: Split catalog/search/service.py (BACKLOG — P2)
+### ~~Phase 999.22: Split catalog/search/service.py~~ — PROMOTED to Phase 237 (v13.6, 2026-05-03)
 
-**Goal:** Apply the Phase 224 façade pattern to `backend/app/modules/catalog/search/service.py` (1312 LOC). Same approach as Phase 999.21.
-**Source:** `oc-separation-audit-20260502.md` §5 (Catalog god-module split — next candidates) / §7 P2 (action item #8)
-**Estimated effort:** 3–5 days
-**Unblocks:** Same as 999.21; also reduces friction for future search-related extension seams (e.g., a `SearchScorerExtension` for enterprise-tier custom relevance).
-
-Plans:
-- [ ] TBD
+Promoted into the v13.6 Catalog Maps/Search Service Decomposition milestone as Phase 237 (`search-service-decomposition`). See Archived Phase Details above.
 
 ---
 
-### Phase 999.23: Share/embed token expiration gating — product decision (BACKLOG — P2, decision-blocked)
+### ~~Phase 999.23: Share/embed token expiration gating~~ — RESOLVED, VERIFY in Phase 234 (v13.5, 2026-05-03)
 
 **Goal:** Resolve the contract mismatch between (a) `docs-internal/GTM/pricing-to-tiers.md:42` listing "Advanced sharing controls (expiring links, domain restrictions)" as a Team-tier paid feature, and (b) the current implementation + ~20 test cases that treat these as free features in `embed_tokens/` and `catalog/maps/share/`. The 2026-05-02 oc-audit (§1) flagged this as four 🟡 boundary risks: field descriptions and one endpoint docstring claimed "(enterprise only)" while neither schema nor service actually applied the Phase-219 dual-layer gate.
 
 **Source:** `oc-separation-audit-20260502.md` §1 (4 🟡 findings) + §7 P0 (action item #1). The audit's literal recommendation was binary: "either gate ... OR strip the misleading copy."
 
-**Stopgap shipped:** The strip-the-copy path landed in commit `6db19582` (2026-05-02) — descriptions no longer lie, audit finding closed at the contract-drift level. This phase resolves the underlying *product* question.
+**Stopgap shipped:** The strip-the-copy path landed in commit `6db19582` (2026-05-02) — descriptions no longer lie, audit finding closed at the contract-drift level.
 
-**Estimated effort:** decision = 1 hour; implementation depends on the branch chosen (see below).
+**Resolution shipped:** Branch A landed on 2026-05-03 per `docs-internal/audits/oc-separation-audit-20260503.md`: Community rejects custom embed-token lifetimes, embed domain restrictions, and expiring share links at schema and service layers; Enterprise continues to allow them; the builder UI hides expiration/domain controls in Community while preserving basic share-link revoke.
 
-**Decision branches:**
-
-**Branch A — Gate them (matches GTM contract):**
-1. Apply Phase-219 dual-layer gating pattern (`oauth/schemas.py:171-191` + `oauth/service.py:265-270`) to:
-   - `embed_tokens/schemas.py:EmbedTokenCreate.expires_in_days` — reject `!= 30` (default) in community
-   - `embed_tokens/schemas.py:EmbedTokenCreate.allowed_origins` — reject non-empty list in community
-   - `embed_tokens/schemas.py:EmbedTokenUpdate.allowed_origins` — same
-   - `catalog/maps/schemas.py:ShareTokenRequest.expires_at` — reject non-`None` in community
-2. Add `is_enterprise()` short-circuits in services: `embed_tokens/service.create_embed_token`, `embed_tokens/service.update_embed_token_origins`, `catalog/maps/service.create_share_token`, `catalog/maps/service.update_share_token`.
-3. Add `Depends(require_enterprise)` to `catalog/maps/router.py:update_map_share_token_endpoint` (whole endpoint is enterprise-only — its purpose is changing expiration).
-4. Add an `enterprise_edition` fixture to `backend/tests/conftest.py` that calls `init_edition(["enterprise"])` on setup and `init_edition([])` on teardown.
-5. Refactor ~20 test cases in `test_embed_tokens.py` (lines 211, 235, 425, 564-700+, 1083+) and any test_maps.py share-token tests to wrap with the `enterprise_edition` fixture for non-default-value cases.
-6. Add new community-side rejection tests confirming the gate fires.
-7. Coordinate with the `geolens-enterprise` overlay — overlay does NOT need to change; the gate just lifts in enterprise context.
-8. Estimated effort: 4–6 hours.
-
-**Branch B — Drop them from GTM (match free-tier reality):**
-1. Update `docs-internal/GTM/pricing-to-tiers.md:42` — remove "Advanced sharing controls (expiring links, domain restrictions)" from Team-tier list.
-2. Update `docs-internal/GTM/free-vs-enterprise.md` §Sharing — explicitly call out expiring links + domain-restricted embeds as Community features.
-3. No code or test changes.
-4. Identify a different Team-tier add-on to replace this lever (Team tier becomes weaker without it).
-5. Estimated effort: 30 min + GTM strategy thinking.
-
-**Notes:**
-- This is a genuine product decision with no single right answer — the GTM doc could be wrong (original pricing strategy may not match what real customers value enough to pay for) OR the implementation could be wrong (feature was built before GTM tier-split was finalized).
-- Either way, the audit's contract drift is closed (commit `6db19582`). This phase resolves the deeper question.
-- Decision should be informed by: (a) what your first paying customer asked for; (b) which Team-tier features actually drive Team-tier sales; (c) whether multi-domain embed lockdown is "advanced" or "table stakes."
-
-**Decision-blocked:** Cannot draft a single PLAN.md until the user picks A vs B. Once picked, scope is mechanical.
-
-Plans:
-- [ ] TBD (decision required first — see branches above)
+**v13.5 follow-up:** Phase 234 verified the contract stays aligned across GTM docs, API text, UI affordances, schema validators, and service guards. See [v13.5 archive](milestones/v13.5-ROADMAP.md).

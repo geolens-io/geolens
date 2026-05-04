@@ -12,23 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import AttributeMetadata, Dataset
 from app.modules.catalog.datasets.domain.service import create_dataset
-from app.processing.ingest.metadata import (
-    _humanize_column_name,
-    _infer_domain_type,
-    _infer_semantic_role,
-    _infer_units,
-    _validate_table_name,
-    add_4326_column,
-    compute_quality_score,
-    get_column_info,
-    grant_reader_access,
-)
-from app.processing.ingest.service import generate_table_name
 from app.modules.catalog.layers.schemas import (
     ALLOWED_COLUMN_TYPES,
     COLUMN_NAME_RE,
     RESERVED_COLUMNS,
 )
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -56,7 +45,9 @@ async def create_layer(
     Returns the created Dataset record.
     """
     # 1. Generate table name
-    table_name, collision_warning = await generate_table_name(name, session)
+    table_name, collision_warning = await get_catalog_port().generate_table_name(
+        name, session
+    )
     if collision_warning:
         logger.info("layer.table_name_collision", warning=collision_warning)
 
@@ -76,13 +67,13 @@ async def create_layer(
     await session.execute(text(ddl))
 
     # 3. Add geom_4326 column + spatial index (source is already 4326)
-    await add_4326_column(session, table_name, 4326)
+    await get_catalog_port().add_4326_column(session, table_name, 4326)
 
     # 4. Grant geolens_reader SELECT
-    await grant_reader_access(session, table_name)
+    await get_catalog_port().grant_reader_access(session, table_name)
 
     # 5. Get column info for catalog record
-    column_info = await get_column_info(session, table_name)
+    column_info = await get_catalog_port().get_column_info(session, table_name)
 
     # 6. Create dataset in catalog
     from app.modules.catalog.datasets.domain.schemas import IngestionResult
@@ -104,7 +95,7 @@ async def create_layer(
     )
 
     # 7. Compute quality score
-    quality_score = await compute_quality_score(
+    quality_score = await get_catalog_port().compute_quality_score(
         session, table_name, column_info, dataset
     )
     dataset.quality_detail = quality_score
@@ -124,7 +115,7 @@ async def add_column(
     Validates the table name, column name, and column type before executing
     ALTER TABLE. Refreshes column_info from information_schema afterwards.
     """
-    _validate_table_name(dataset.table_name)
+    get_catalog_port().validate_table_name(dataset.table_name)
 
     # Validate column name
     if not COLUMN_NAME_RE.match(column_name):
@@ -155,7 +146,7 @@ async def add_column(
     await session.execute(text(ddl))
 
     # Refresh column_info
-    column_info = await get_column_info(session, dataset.table_name)
+    column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
 
     # Create AttributeMetadata row for the new column
@@ -165,11 +156,13 @@ async def add_column(
         am = AttributeMetadata(
             dataset_id=dataset.id,
             field_name=column_name,
-            title=_humanize_column_name(column_name),
+            title=get_catalog_port().humanize_column_name(column_name),
             data_type=data_type,
-            units=_infer_units(column_name),
-            semantic_role=_infer_semantic_role(column_name, data_type),
-            domain_type=_infer_domain_type(data_type),
+            units=get_catalog_port().infer_units(column_name),
+            semantic_role=get_catalog_port().infer_semantic_role(
+                column_name, data_type
+            ),
+            domain_type=get_catalog_port().infer_domain_type(data_type),
             ordinal_position=new_col.get("ordinal_position"),
             is_nullable=new_col.get("is_nullable"),
             is_current=True,
@@ -193,7 +186,7 @@ async def rename_column(
     name is not already in use. Refreshes ``column_info`` and migrates the
     matching ``AttributeMetadata`` row to the new name afterwards.
     """
-    _validate_table_name(dataset.table_name)
+    get_catalog_port().validate_table_name(dataset.table_name)
 
     if not COLUMN_NAME_RE.match(column_name):
         raise ValueError(f"Column name {column_name!r} is not a valid column name.")
@@ -218,7 +211,7 @@ async def rename_column(
     )
     await session.execute(text(ddl))
 
-    column_info = await get_column_info(session, dataset.table_name)
+    column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
 
     # Migrate the AttributeMetadata row in place so attribute history follows
@@ -250,7 +243,7 @@ async def alter_column_type(
     the standard cast — incompatible existing values raise the underlying
     Postgres error and abort the transaction.
     """
-    _validate_table_name(dataset.table_name)
+    get_catalog_port().validate_table_name(dataset.table_name)
 
     if not COLUMN_NAME_RE.match(column_name):
         raise ValueError(f"Column name {column_name!r} is not a valid column name.")
@@ -276,7 +269,7 @@ async def alter_column_type(
     )
     await session.execute(text(ddl))
 
-    column_info = await get_column_info(session, dataset.table_name)
+    column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
 
     # Refresh AttributeMetadata.data_type so quality metrics + UI labels match.
@@ -292,7 +285,7 @@ async def alter_column_type(
         new_col = next((c for c in column_info if c["name"] == column_name), None)
         if new_col:
             am.data_type = new_col.get("type", am.data_type)
-            am.domain_type = _infer_domain_type(am.data_type)
+            am.domain_type = get_catalog_port().infer_domain_type(am.data_type)
 
     await session.flush()
     return column_info
@@ -309,7 +302,7 @@ async def drop_column(
     and verifies the column exists before executing ALTER TABLE.
     Refreshes column_info from information_schema afterwards.
     """
-    _validate_table_name(dataset.table_name)
+    get_catalog_port().validate_table_name(dataset.table_name)
 
     # Validate column name format
     if not COLUMN_NAME_RE.match(column_name):
@@ -329,7 +322,7 @@ async def drop_column(
     await session.execute(text(ddl))
 
     # Refresh column_info
-    column_info = await get_column_info(session, dataset.table_name)
+    column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
     dataset.column_info = column_info
 
     # Mark AttributeMetadata row as removed

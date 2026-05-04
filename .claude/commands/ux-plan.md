@@ -29,8 +29,8 @@ Arguments: $ARGUMENTS (optional scope — feature name, route, or file path)
 1. **Read the codebase context:**
    - `CLAUDE.md`, `README.md`, `tailwind.config.*`, `components.json` (shadcn)
    - Existing design token files (`tokens.css`, `theme.ts`, `globals.css`)
-   - Any `src/components/ui/` or design system directory
-   - `package.json` — identify: React version, component library, animation lib,
+   - Any `frontend/src/components/ui/` or design system directory
+   - `frontend/package.json` — identify: React version, component library, animation lib,
      form lib, routing lib, state/data-fetching lib
 
 2. **Map the current UI surface:**
@@ -211,7 +211,7 @@ Include a performance budget table: current estimated / target / owner for each 
 ### Subagent D — Component inventory & gap analysis
 **Goal: map what exists, what's missing, and what's duplicated**
 
-Inventory every component in `src/components/`:
+Inventory every component in `frontend/src/components/`:
 
 For each component, record:
 - Name, location, props surface

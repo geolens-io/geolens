@@ -130,6 +130,9 @@ Embed token module:
 - `backend/app/modules/embed_tokens/router.py`
 - `backend/app/modules/embed_tokens/service.py`
 - `backend/app/modules/embed_tokens/schemas.py`
+- `frontend/src/hooks/use-edition.ts`
+- `frontend/src/api/edition.ts`
+- `frontend/src/components/builder/__tests__/SharePanel.test.tsx`
 
 ### Step 8: Map the API surface
 
@@ -228,6 +231,10 @@ All generated paint, layout, and filter properties MUST conform to the MapLibre 
 - Embed iframe MUST NOT include navigation chrome
 - Embed MUST respect domain restrictions (backend-enforced via `Referer` check)
 - Attribution MUST be visible on all viewers (MapLibre, basemap, data source)
+- Edition behavior MUST be explicit:
+  - Community hides advanced sharing controls and backend rejects custom share expiration, custom embed token lifetimes, and non-empty domain restrictions
+  - Community still preserves basic share link create/revoke, public/internal/private visibility changes, and default unrestricted embed token creation
+  - Enterprise overlay permits advanced controls (custom expiration/lifetimes/domain restrictions) without changing Community source
 
 ---
 
@@ -473,15 +480,16 @@ Each subagent must:
 1. **Share workflow (frontend):**
    - Read `SharePanel.tsx` and associated components
    - Verify: share token creation flow — user creates token, gets a link, link works
-   - Check: token expiry UI — can the user set expiry? Is expiry validated (no past dates)?
+   - Check edition gates: in Community, token expiry UI is hidden and share creation does not send `expiresAt`; in Enterprise, token expiry UI is visible, validates no past dates, and persists successfully
    - Check: copy-to-clipboard functionality — does it give feedback on success?
    - Verify: share link includes the token as a URL parameter
-   - Check: revoking a share token — is it reflected immediately in the UI?
+   - Check: revoking a share token — is it reflected immediately in the UI and remains available in Community
 
 2. **Embed workflow:**
    - Verify: embed code generation produces a valid `<iframe>` snippet
    - Check: embed iframe URL points to the correct viewer route
-   - Check: domain restrictions UI — can the user add/remove allowed domains?
+   - Check edition gates: in Community, domain restrictions UI is hidden, `allowedOrigins` is never sent, and default 30-day unrestricted embed tokens still generate; in Enterprise, allowed domains can be added/removed
+   - Check custom lifetimes: if the UI exposes embed token lifetime controls, Community must hide/reject custom lifetimes while Enterprise permits them
    - Verify: embed preview shows what the iframe will look like
 
 3. **Viewer rendering:**
@@ -500,12 +508,19 @@ Each subagent must:
 5. **Backend enforcement:**
    - Read share token validation in the maps router/service
    - Read embed token validation in `backend/app/modules/embed_tokens/service.py`
+   - Read `backend/app/modules/catalog/maps/schemas.py` and `backend/app/modules/embed_tokens/schemas.py`
    - Verify: share tokens are validated on every request (not just on initial load)
    - Verify: expired tokens return 401/403 with a clear message
    - Verify: domain restriction check uses the `Referer` header correctly
    - Check: are share tokens hashed in the database?
    - Verify: embed tokens scope tile access to specific dataset IDs (`scoped_dataset_ids`)
    - Check: embed token cache invalidation — does revoking a token take effect within the cache TTL?
+   - Verify edition enforcement is backend-backed, not UI-only:
+     - `ShareTokenRequest.expires_at` rejects non-null values in Community
+     - `create_share_token()` / `update_share_token()` reject custom expiration in Community
+     - `EmbedTokenCreate.expires_in_days != 30` rejects in Community
+     - `EmbedTokenCreate.allowed_origins` / `EmbedTokenUpdate.allowed_origins` reject non-empty origins in Community
+     - `create_embed_token()` / `update_embed_token()` repeat the same Community rejection in service code
 
 6. **Tile signing flow:**
    - Read `frontend/src/lib/tile-utils.ts` and `frontend/src/components/viewer/hooks/use-viewer-tokens.ts`
@@ -534,7 +549,7 @@ Each subagent must:
 
 ### Subagent 6: AI Chat Integration
 
-**Goal:** Verify the AI chat panel integrates correctly with the builder — tool calls produce valid map changes, streaming works, and errors are handled.
+**Goal:** Verify the AI chat panel integrates correctly with the builder — tool calls produce valid map changes, streaming works, configured providers succeed, and missing-provider-key paths fail gracefully without blocking core builder workflows.
 
 **Process:**
 
@@ -545,6 +560,7 @@ Each subagent must:
    - Verify: smart suggestion chips (`chat-suggestions.ts`) are contextual to current map state
    - Check: can the user send while a response is streaming? (Should queue or disable)
    - Check: error display — what happens when the AI endpoint fails?
+   - Check: with no provider key configured, AI controls are disabled or explain the missing configuration; map editing, styling, save, share, and viewer workflows remain usable
    - Check: chat history persistence — is it per-map or per-session?
 
 2. **Tool call integration:**

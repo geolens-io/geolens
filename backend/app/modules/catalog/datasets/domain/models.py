@@ -35,10 +35,6 @@ class Record(Base):
             name="chk_records_visibility",
         ),
         CheckConstraint(
-            "record_status IN ('draft', 'ready', 'internal', 'published')",
-            name="chk_records_record_status",
-        ),
-        CheckConstraint(
             "update_frequency IS NULL OR update_frequency IN ("
             "'continual', 'daily', 'weekly', 'monthly', 'quarterly', "
             "'biannually', 'annually', 'asNeeded', 'irregular', 'notPlanned', 'unknown')",

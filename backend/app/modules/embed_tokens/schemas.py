@@ -2,7 +2,13 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.core.edition import is_enterprise
+
+ADVANCED_SHARING_ERROR = (
+    "Advanced sharing controls require the GeoLens Enterprise overlay"
+)
 
 
 def _normalize_origin(origin: str) -> str:
@@ -42,40 +48,63 @@ class EmbedTokenCreate(BaseModel):
         default=30,
         ge=1,
         le=365,
-        description="Token lifetime in days (1-365).",
-        example=90,
+        description=(
+            "Token lifetime in days (1-365). The default 30-day lifetime is "
+            "available in Community; custom lifetimes require GeoLens Enterprise."
+        ),
+        json_schema_extra={"example": 90},
     )
     name: str | None = Field(
         default=None,
         min_length=1,
         max_length=255,
         description="Human-readable label for the token",
-        example="Public dashboard embed",
+        json_schema_extra={"example": "Public dashboard embed"},
     )
     allowed_origins: list[str] | None = Field(
         default=None,
         max_length=50,
-        description="Restrict embedding to these origins. Omit to allow any origin.",
-        example=["https://dashboard.example.com"],
+        description=(
+            "Restrict embedding to these origins. Omit or null allows any origin; "
+            "non-empty origin restrictions require GeoLens Enterprise."
+        ),
+        json_schema_extra={"example": ["https://dashboard.example.com"]},
     )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def validate_origins(cls, v: list[str] | None) -> list[str] | None:
         return _validate_origins(v)
+
+    @model_validator(mode="after")
+    def validate_enterprise_controls(self):
+        if not is_enterprise() and (
+            self.expires_in_days != 30 or bool(self.allowed_origins)
+        ):
+            raise ValueError(ADVANCED_SHARING_ERROR)
+        return self
 
 
 class EmbedTokenUpdate(BaseModel):
     allowed_origins: list[str] | None = Field(
         default=None,
         max_length=50,
-        description="Updated list of allowed embedding origins",
+        description=(
+            "Updated list of allowed embedding origins. Null clears restrictions; "
+            "non-empty origin restrictions require GeoLens Enterprise."
+        ),
     )
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def validate_origins(cls, v: list[str] | None) -> list[str] | None:
         return _validate_origins(v)
+
+    @model_validator(mode="after")
+    def validate_enterprise_controls(self):
+        if not is_enterprise() and bool(self.allowed_origins):
+            raise ValueError(ADVANCED_SHARING_ERROR)
+        return self
 
 
 class EmbedTokenResponse(BaseModel):

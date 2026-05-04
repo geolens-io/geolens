@@ -4,9 +4,21 @@ from enum import Enum
 from datetime import datetime, timezone
 from typing import Annotated, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
+from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
+
+ADVANCED_SHARING_ERROR = (
+    "Advanced sharing controls require the GeoLens Enterprise overlay"
+)
 
 # MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
 # because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
@@ -123,13 +135,15 @@ class MapCreate(BaseModel):
         min_length=1,
         max_length=255,
         description="Map display name",
-        example="NYC Infrastructure",
+        json_schema_extra={"example": "NYC Infrastructure"},
     )
     description: str | None = Field(
         default=None,
         max_length=2000,
         description="Short description for sharing",
-        example="Buildings, parks, and transit routes in Manhattan",
+        json_schema_extra={
+            "example": "Buildings, parks, and transit routes in Manhattan"
+        },
     )
     notes: str | None = Field(
         default=None,
@@ -319,7 +333,10 @@ class SharedMapResponse(BaseModel):
 class ShareTokenRequest(BaseModel):
     expires_at: datetime | None = Field(
         default=None,
-        description="Expiration timestamp; null = never expires",
+        description=(
+            "Expiration timestamp. Null creates a basic non-expiring share link; "
+            "non-null expiration requires GeoLens Enterprise."
+        ),
     )
 
     @field_validator("expires_at")
@@ -328,6 +345,12 @@ class ShareTokenRequest(BaseModel):
         if v is not None and v < datetime.now(timezone.utc):
             raise ValueError("expires_at must be in the future")
         return v
+
+    @model_validator(mode="after")
+    def validate_enterprise_controls(self):
+        if not is_enterprise() and self.expires_at is not None:
+            raise ValueError(ADVANCED_SHARING_ERROR)
+        return self
 
 
 class ShareTokenResponse(BaseModel):

@@ -10,10 +10,13 @@ Validate that GeoLens is ready for public launch and demo deployment. Checks the
 
 If available, read these for the authoritative launch checklist:
 
-1. `docs/GTM/GTM-EVALUATION.md` — Sections 10 (Easy Wins) and 12 (Launch Checklist)
-2. `docs/GTM/free-vs-enterprise.md` — Community edition scope (what must work in a demo)
+1. `docs-internal/GTM/GTM-EVALUATION.md` — Sections 10 (Easy Wins) and 12 (Launch Checklist)
+2. `docs-internal/GTM/free-vs-enterprise.md` — Community edition scope (what must work in a demo)
+3. `docs-internal/GTM/pricing-to-tiers.md` — launch-safe tier boundaries and deferred Cloud notes
 
 If missing, use the embedded checklist below.
+
+Public launch evidence comes from the repo plus deployed sites. Verify `https://getgeolens.com` for marketing and `https://docs.getgeolens.com` for docs; do not treat old `docs/GTM/` paths as source-of-truth.
 
 ### Step 2: Snapshot the project state
 
@@ -36,6 +39,10 @@ cat .env.example 2>/dev/null || cat .env.sample 2>/dev/null || cat .env.template
 # Docs
 ls -la docs/ 2>/dev/null
 find docs/ -name "*.md" -maxdepth 2 2>/dev/null | sort
+ls -la docs-internal/GTM/ 2>/dev/null
+find docs-internal/GTM/ -maxdepth 1 -name "*.md" 2>/dev/null | sort
+curl -I https://getgeolens.com 2>/dev/null | head -5
+curl -I https://docs.getgeolens.com 2>/dev/null | head -5
 
 # Git state
 git tag --list 2>/dev/null | tail -10
@@ -46,12 +53,12 @@ git log --oneline -5 2>/dev/null
 
 ## EMBEDDED LAUNCH CHECKLIST
 
-Source of truth if GTM docs are unavailable. Derived from `GTM-EVALUATION.md` Section 12.
+Source of truth if GTM docs are unavailable. Derived from `docs-internal/GTM/GTM-EVALUATION.md` Section 12.
 
 ### Launch-blocking (MUST have)
 
 - [ ] Public GitHub repo with clean README
-- [ ] Apache 2.0 license file (or chosen license)
+- [ ] Apache-2.0 license file (or chosen license)
 - [ ] Installation quickstart: clone → `.env` → `docker compose up` → working deployment in < 10 minutes
 - [ ] v1.0 tag with release notes
 - [ ] No default credentials, hardcoded secrets, or `.env` files committed to git
@@ -198,8 +205,8 @@ Run these 6 subagents in parallel.
    # Default admin credentials
    grep -rn "admin.*password\|default.*password\|changeme\|password123\|secret123" backend/ --include="*.py" --include="*.yml" --include="*.yaml" --include="*.env*" 2>/dev/null | grep -v __pycache__
 
-   # JWT/session secret defaults
-   grep -rn "SECRET_KEY\|JWT_SECRET\|SESSION_SECRET" backend/ --include="*.py" 2>/dev/null | grep -v __pycache__
+   # JWT secret defaults
+   grep -rn "JWT_SECRET_KEY\|JWT_ALGORITHM" backend/ --include="*.py" 2>/dev/null | grep -v __pycache__
    ```
 
 3. **Debug/development mode exposure:**
@@ -352,7 +359,7 @@ Run these 6 subagents in parallel.
    | **Visualize data** | Map viewer + map builder must render with sample data. |
    | **Share data** | Share links / public viewer must work without auth. |
    | **Standards** | OGC/STAC/DCAT endpoints must return real data. |
-   | **AI** | Basic AI chat should work (may need API key — flag if so). |
+   | **AI** | If provider key is configured, AI chat should work. If not configured, the demo must remain fully usable and AI controls must show a graceful disabled/error state. |
 
    ```bash
    # Public/unauthenticated access paths
@@ -478,7 +485,7 @@ Run these 6 subagents in parallel.
 
    # Third-party license compatibility (quick check)
    # Python
-   cat backend/requirements*.txt backend/pyproject.toml 2>/dev/null | grep -v "^#" | grep -v "^$" | head -30
+   sed -n '/^dependencies = \\[/,/^\\]/p;/^dev = \\[/,/^\\]/p' backend/pyproject.toml 2>/dev/null | head -40
    # Node
    cat frontend/package.json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); [print(k) for k in {**d.get('dependencies',{}), **d.get('devDependencies',{})}.keys()]" 2>/dev/null | head -30
    ```
@@ -552,7 +559,7 @@ Map findings against the embedded launch checklist. For each item:
 | Checklist Item | Status | Evidence | Action needed |
 |----------------|--------|----------|---------------|
 | Public repo with clean README | ✅/⚠️/❌ | ... | ... |
-| Apache 2.0 license file | ✅/⚠️/❌ | ... | ... |
+| Apache-2.0 license file | ✅/⚠️/❌ | ... | ... |
 | Installation quickstart (<10 min) | ✅/⚠️/❌ | ... | ... |
 | v1.0 tag with release notes | ✅/⚠️/❌ | ... | ... |
 | No default credentials | ✅/⚠️/❌ | ... | ... |
@@ -666,7 +673,7 @@ Write the report to: `docs-internal/audits/demo-ready-{YYYYMMDD}.md`
 Avoid false positives on these:
 
 - **No pricing page** — Explicitly not required for launch per GTM docs. Only build after Team tier features exist.
-- **No SAML/SCIM/enterprise features** — These are post-launch. Do not flag their absence.
+- **Enterprise overlay features not required in Community demo** — SAML/SCIM and advanced-sharing gates do not need to work in the Community demo. If public docs mention them, verify they are tagged Enterprise and match shipped overlay/gate reality.
 - **No CI/CD pipeline** — Nice-to-have for launch, not a blocker. Note if missing but do not mark as P0.
 - **Debug mode in development compose** — Only flag if `docker-compose.yml` (the one users run) has debug on. A separate `docker-compose.dev.yml` with debug is fine.
 - **Exposed FastAPI docs (/docs, /redoc)** — For an open-source project this is a feature, not a security issue. Only flag if it exposes internal/admin endpoints that should be auth-gated.

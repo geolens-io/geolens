@@ -1,5 +1,137 @@
 # Milestones
 
+## v13.6 Catalog Maps/Search Service Decomposition (Shipped: 2026-05-04)
+
+**Milestone goal:** Split the remaining large catalog map and search services into focused modules behind stable public facades so future map/search work can land without regrowing the old service files or regressing public API behavior.
+
+**Stats:**
+
+- **Phases:** 5 (236, 237, 238, 239, 240)
+- **Plans:** 18 / 18 complete
+- **Timeline:** 2026-05-03 -> 2026-05-04
+- **Commits:** 40 milestone-scoped commits (`044c07f6^..8128aa67`, excluding two unrelated docs/frontend commits in the raw time window)
+- **Diff:** 63 owned files, +7,495 / -2,727
+
+**Requirements:** 21/21 satisfied (MAPS-01..06, SRCH-01..06, BOUND-01..04, QUAL-01..03, DEBT-01..02)
+
+**Key accomplishments:**
+
+1. **Maps service decomposed behind a stable facade** — `catalog/maps/service.py` is now a thin public re-export surface over shared, CRUD, layer, and public/share modules while preserving map CRUD, layers, sharing, thumbnails, tokens, and public-viewer behavior.
+2. **Search service decomposed behind a stable facade** — `catalog/search/service.py` now re-exports focused filter, facet, collection, semantic, dataset, and OGC record modules while preserving search, facets, cache, OGC/STAC/AI contracts, and semantic/hybrid behavior.
+3. **Boundary and size guards added** — architecture tests prevent direct external imports of private maps/search split modules and enforce facade/private module size budgets.
+4. **Brittle source-introspection tests replaced** — VRT/search coverage now asserts helper and facade behavior instead of inspecting inline implementation blocks.
+5. **Close evidence passed** — the focused maps/search backend suite, touched-module ruff/format gates, v13.6 close audit, broader confidence-gate evidence, and warning cleanup are recorded; formal milestone audit passed with 21/21 requirements and 7/7 verified flows.
+
+**Known gaps:** None blocking for v13.6. Full backend coverage and Playwright smoke are not fully green locally; exact failures/blockers are documented in Phase 240 and treated as nonblocking because the focused v13.6-owned maps/search surface passed.
+
+**Archives:**
+
+- `.planning/milestones/v13.6-ROADMAP.md`
+- `.planning/milestones/v13.6-REQUIREMENTS.md`
+- `.planning/milestones/v13.6-MILESTONE-AUDIT.md`
+
+**Tag:** `v13.6`
+
+---
+
+## v13.5 Enterprise Governance Seams (Shipped: 2026-05-03)
+
+**Milestone goal:** Turn the remaining governance-adjacent permission and workflow chokepoints into first-class extension seams so Enterprise overlays can implement advanced RBAC and approval workflows without forking core.
+
+**Stats:**
+
+- **Phases:** 4 (232, 233, 234, 235)
+- **Plans:** 13 / 13 complete
+- **Timeline:** 2026-05-03 (same-day close)
+- **Commits:** 49 in milestone range (`v13.4..e57042a8`)
+- **Diff:** 63 files, +5,359 / -376
+
+**Requirements:** 16/16 satisfied (PERM-01..05, WORK-01..05, SHARE-01..03, GOVAUD-01..03)
+
+**Key accomplishments:**
+
+1. **PermissionExtension seam shipped** — action checks, catalog visibility filtering, and dataset detail access now route through a platform extension with Community default behavior preserved, overlay tests, and an architecture guard.
+2. **WorkflowExtension seam shipped** — publication `/status/`, `/target-status/`, and metadata `record_status` writes now route through extension-defined transitions and hooks while preserving the Community lifecycle.
+3. **Advanced-sharing boundary verified** — Community keeps basic share/embed behavior while custom embed lifetimes, origin restrictions, and expiring share links are gated consistently across schema, service, UI, API/OpenAPI, and GTM docs.
+4. **Close audit passed** — `docs-internal/audits/post-impl-20260503-v13-5.md` records Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings.
+5. **Formal milestone audit passed** — `.planning/milestones/v13.5-MILESTONE-AUDIT.md` records 16/16 requirements satisfied, no orphaned requirements, and no critical gaps.
+
+**Known gaps:** None blocking. Full-suite merge readiness remains normal CI/full-suite work; local DB provisioning limitations are recorded as nonblocking residual risk.
+
+**Archives:**
+
+- `.planning/milestones/v13.5-ROADMAP.md`
+- `.planning/milestones/v13.5-REQUIREMENTS.md`
+- `.planning/milestones/v13.5-MILESTONE-AUDIT.md`
+
+**Tag:** `v13.5`
+
+---
+
+## v13.4 Boundary Closeout (Shipped: 2026-05-03)
+
+**Milestone goal:** Close the last open-core boundary, coupling, and provider-seam gaps from the 2026-04-30 and 2026-05-02 audits so the committed GeoLens surface is ready for the next public-launch milestone.
+
+**Stats:**
+
+- **Phases:** 7 (225, 226, 227, 228, 230, 231, 229)
+- **Plans:** 23 / 23 complete
+- **Timeline:** 2026-05-01 → 2026-05-03 (3 days)
+- **Commits:** 170 in milestone range (`325a4418^..9c63a890`)
+- **Diff:** 924 files, +33,593 / -18,204
+
+**Requirements:** 30/30 satisfied (PROCESS-01..05, AIEXT-01..05, TESTFIX-01..03, PUBLISH-01..04, CATPORT-01..05, EMBPROV-01..05, PIAUDIT-01..03)
+
+**Key accomplishments:**
+
+1. **Bidirectional catalog/processing cycle inverted** — Phase 225 added `ProcessingPort` for processing→catalog access; Phase 230 added symmetric `CatalogPort` for catalog→processing access. Architecture guards now enforce both directions.
+2. **AI and embeddings provider seams closed** — Phase 226 moved AI provider dispatch behind `AIProviderExtension`; Phase 231 moved embeddings behind `EmbeddingProviderExtension` and expanded the provider-SDK import guard across all `backend/app/processing/`.
+3. **Cold publish workflows shipped** — Phase 228 verified `geolens==1.0.0`, `geolens-cli==1.0.0`, and `@geolens/sdk==1.0.0` from public registries and documented final package names.
+4. **SAML fixture churn removed** — Phase 227 stopped committed SAML fixtures from mutating during tests.
+5. **Post-implementation close gate passed** — Phase 229 produced `docs-internal/audits/post-impl-20260503-v13-4.md` with Boundary Integrity A+, Coupling Health A−, Seam Quality A−, and no unresolved P1 findings.
+
+**Known gaps:** None for the committed v13.4 scope. In-progress advanced-sharing controls were stashed before milestone archival as `stash@{0}` and are not part of this milestone.
+
+**Archives:**
+
+- `.planning/milestones/v13.4-ROADMAP.md`
+- `.planning/milestones/v13.4-REQUIREMENTS.md`
+
+**Tag:** `v13.4`
+
+---
+
+## v13.3 Boundary A+ Cleanup (Shipped: 2026-05-01)
+
+**Milestone goal:** Close the P1 architectural items from the post-v13.2 open-core audit so the repo could claim Boundary Integrity A+ and a fully overlay-capable audit/billing surface.
+
+**Stats:**
+
+- **Phases:** 3 (222, 223, 224)
+- **Plans:** 18 / 18 complete
+- **Timeline:** 2026-04-30 → 2026-05-01 (2 days)
+- **Commits:** 83 in milestone range
+- **Diff:** 141 files, +19,316 / -2,211
+
+**Requirements:** 15/15 satisfied (AUDIT-01..05, BILLING-01..06, DECOUPLE-01..04)
+
+**Key accomplishments:**
+
+1. **AuditSink seam shipped** — 65 `log_action()` sites now route through `audit_emit()` and registered sinks with per-sink failure isolation.
+2. **Marketplace billing extracted** — AWS Marketplace registration moved out of core behind `BillingExtension.on_startup()`; `core/marketplace.py` was deleted.
+3. **Catalog dataset god-module decomposed** — `catalog/datasets/domain/service.py` became an 87-LOC façade over five cohesive sub-modules, with architecture guards preventing external bypass.
+4. **SQL safety centralized** — shared table/column validation moved behind a single private helper module and guard.
+5. **Post-implementation quality target met** — Overall readiness moved 3.39 → 3.85 (A) per `post-impl-20260501-b.md`.
+
+**Archives:**
+
+- `.planning/milestones/v13.3-ROADMAP.md`
+- `.planning/milestones/v13.3-REQUIREMENTS.md`
+
+**Tag:** `v13.3`
+
+---
+
 ## v13.2 Edition Lifecycle Hardening (Shipped: 2026-04-30)
 
 **Milestone goal:** Close the deactivation/reactivation lifecycle gap surfaced during v13.1 close-out — make enterprise→community downgrade safe and re-upgrade lossless before any paying customer hits these gaps.

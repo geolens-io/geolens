@@ -109,7 +109,7 @@ class TestInvalidStatusValue:
     async def test_invalid_status_value_rejected(
         self, client, test_db_session, admin_auth_header
     ):
-        """A status value not in the allowed set should return 422."""
+        """Unknown statuses are rejected at the workflow boundary."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(
             test_db_session,
@@ -125,6 +125,76 @@ class TestInvalidStatusValue:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
+        assert "Cannot transition" in resp.json()["detail"]
+
+    async def test_blank_status_value_rejected(
+        self, client, test_db_session, admin_auth_header
+    ):
+        """Blank status values fail syntactic request validation."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            record_status="draft",
+        )
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{dataset.id}/status/",
+            json={"status": "   "},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Target status walking tests
+# ---------------------------------------------------------------------------
+
+
+class TestTargetStatus:
+    async def test_target_status_walks_forward_chain(
+        self, client, test_db_session, admin_auth_header
+    ):
+        """draft -> published through target-status completes server-side."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            record_status="draft",
+        )
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{dataset.id}/target-status/",
+            json={"status": "published"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["record_status"] == "published"
+
+    async def test_target_status_no_change_returns_current(
+        self, client, test_db_session, admin_auth_header
+    ):
+        """No-change target-status preserves existing response behavior."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            record_status="ready",
+        )
+        await test_db_session.commit()
+
+        resp = await client.patch(
+            f"/datasets/{dataset.id}/target-status/",
+            json={"status": "ready"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"id": str(dataset.id), "record_status": "ready"}
 
 
 # ---------------------------------------------------------------------------

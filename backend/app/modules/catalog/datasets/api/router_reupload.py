@@ -32,27 +32,12 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
 )
 from app.core.dependencies import get_db
-from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
-from app.processing.ingest.ogr import IngestionError, run_ogrinfo_preview
-from app.processing.ingest.schemas import (
-    PresignedCompleteRequest,
-    PresignedUploadRequest,
-    PresignedUploadResponse,
-    UploadResponse,
-)
-from app.processing.ingest.service import (
-    create_ingest_job,
-    resolve_file_path,
-    save_upload_file,
-    validate_file_extension,
-)
-from app.processing.ingest.tasks import reupload_file, reupload_service
-from app.processing.ingest.validation import validate_file_content
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import IngestJob
+from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
@@ -62,6 +47,13 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 router = APIRouter(
     prefix="/datasets", tags=["Datasets - Reupload"], responses=ERROR_RESPONSES_WRITE
 )
+
+_catalog_port = get_catalog_port()
+IngestionError = _catalog_port.ingestion_error_class()
+PresignedCompleteRequest = _catalog_port.presigned_complete_request_model()
+PresignedUploadRequest = _catalog_port.presigned_upload_request_model()
+PresignedUploadResponse = _catalog_port.presigned_upload_response_model()
+UploadResponse = _catalog_port.upload_response_model()
 
 
 @router.post(
@@ -85,28 +77,30 @@ async def reupload_dataset(
 
     try:
         allowed_list = await get_allowed_extensions_list(db)
-        validate_file_extension(file.filename, allowed_list)
+        get_catalog_port().validate_file_extension(file.filename, allowed_list)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
 
-    job = await create_ingest_job(db, file.filename, "", user.id)
+    job = await get_catalog_port().create_ingest_job(db, file.filename, "", user.id)
     job.dataset_id = dataset_id
     job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
 
-    saved_path = await save_upload_file(file, str(job.id))
+    saved_path = await get_catalog_port().save_upload_file(file, str(job.id))
     validation_path = str(saved_path)
     downloaded_validation_path: Path | None = None
 
     if not isinstance(saved_path, Path):
-        validation_path = await resolve_file_path(saved_path, str(job.id))
+        validation_path = await get_catalog_port().resolve_file_path(
+            saved_path, str(job.id)
+        )
         downloaded_validation_path = Path(validation_path)
 
     # Inline content validation for immediate feedback
     try:
-        validate_file_content(validation_path, file.filename)
+        get_catalog_port().validate_file_content(validation_path, file.filename)
     except ValueError as exc:
         if isinstance(saved_path, Path):
             saved_path.unlink(missing_ok=True)
@@ -279,11 +273,9 @@ async def reupload_preview(
     # Resolve S3 key to local file for ogrinfo
     file_path = job.file_path
     if file_path and not Path(file_path).exists():
-        from app.processing.ingest.service import resolve_file_path
+        file_path = await get_catalog_port().resolve_file_path(file_path, str(job.id))
 
-        file_path = await resolve_file_path(file_path, str(job.id))
-
-    info = await run_ogrinfo_preview(file_path)
+    info = await get_catalog_port().run_ogrinfo_preview(file_path)
 
     diff = compute_schema_diff(
         dataset.column_info or [],
@@ -369,13 +361,17 @@ async def reupload_commit(
         source_url = job.source_url
 
         async def _defer_service() -> None:
-            await reupload_service.defer_async(
-                job_id=str(job.id),
-                dataset_id=str(dataset_id),
-                source_url=source_url,
-                source_layer=job.source_layer or "",
-                user_id=str(user.id),
-                token=request.token,
+            await (
+                get_catalog_port()
+                .reupload_service_task()
+                .defer_async(
+                    job_id=str(job.id),
+                    dataset_id=str(dataset_id),
+                    source_url=source_url,
+                    source_layer=job.source_layer or "",
+                    user_id=str(user.id),
+                    token=request.token,
+                )
             )
 
         await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
@@ -399,25 +395,37 @@ async def reupload_commit(
             except OSError:
                 pass  # If we can't stat, use default queue
 
-        if file_size > 0 and file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES:
+        if (
+            file_size > 0
+            and file_size <= get_catalog_port().priority_queue_threshold_bytes
+        ):
 
             async def _defer_priority() -> None:
-                await reupload_file.configure(queue="priority").defer_async(
-                    job_id=str(job.id),
-                    dataset_id=str(dataset_id),
-                    file_path=file_path,
-                    user_id=str(user.id),
+                await (
+                    get_catalog_port()
+                    .reupload_file_task()
+                    .configure(queue="priority")
+                    .defer_async(
+                        job_id=str(job.id),
+                        dataset_id=str(dataset_id),
+                        file_path=file_path,
+                        user_id=str(user.id),
+                    )
                 )
 
             await defer_with_orphan_guard(_defer_priority, rollback=rollback, db=db)
         else:
 
             async def _defer_default() -> None:
-                await reupload_file.defer_async(
-                    job_id=str(job.id),
-                    dataset_id=str(dataset_id),
-                    file_path=file_path,
-                    user_id=str(user.id),
+                await (
+                    get_catalog_port()
+                    .reupload_file_task()
+                    .defer_async(
+                        job_id=str(job.id),
+                        dataset_id=str(dataset_id),
+                        file_path=file_path,
+                        user_id=str(user.id),
+                    )
                 )
 
             await defer_with_orphan_guard(_defer_default, rollback=rollback, db=db)
@@ -473,7 +481,7 @@ async def request_presigned_reupload(
             ".xlsx",
             ".xls",
         ]
-    validate_file_extension(request.filename, allowed_list)
+    get_catalog_port().validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
@@ -484,13 +492,13 @@ async def request_presigned_reupload(
             detail=f"File size ({request.file_size / (1024 * 1024):.1f} MB) exceeds the maximum allowed ({max_size_mb} MB).",
         )
 
-    job = await create_ingest_job(db, request.filename, "", user.id)
+    job = await get_catalog_port().create_ingest_job(db, request.filename, "", user.id)
     job.dataset_id = dataset_id
     storage = get_storage()
     s3_key = f"staging/{job.id}/{request.filename}"
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
-    from app.processing.ingest.router import PART_SIZE
+    part_size = get_catalog_port().ingest_part_size()
 
     if request.file_size > threshold:
         upload_id = await asyncio.to_thread(
@@ -498,7 +506,7 @@ async def request_presigned_reupload(
             s3_key,
             request.content_type,
         )
-        num_parts = math.ceil(request.file_size / PART_SIZE)
+        num_parts = math.ceil(request.file_size / part_size)
         urls = list(
             await asyncio.gather(
                 *[
@@ -526,7 +534,7 @@ async def request_presigned_reupload(
             urls=urls,
             s3_key=s3_key,
             upload_id=upload_id,
-            part_size=PART_SIZE,
+            part_size=part_size,
         )
     else:
         url = await asyncio.to_thread(

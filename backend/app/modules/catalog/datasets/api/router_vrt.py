@@ -27,13 +27,15 @@ from app.modules.catalog.datasets.domain.schemas import (
     VrtStatusResponse,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
-from app.processing.ingest.schemas import VrtMutationResponse
 from app.core.dependencies import get_db
+from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 router = APIRouter(
     prefix="/datasets", tags=["Datasets - VRT"], responses=ERROR_RESPONSES_WRITE
 )
+
+VrtMutationResponse = get_catalog_port().vrt_mutation_response_model()
 
 
 def _advisory_lock_key(dataset_id: uuid.UUID) -> int:
@@ -100,8 +102,10 @@ async def get_vrt_status(
     db: AsyncSession = Depends(get_db),
 ) -> VrtStatusResponse:
     """Return VRT dataset status, last generation time, source count, and per-source health."""
-    from app.processing.raster.models import RasterAsset, VrtGeneration
     from app.platform.storage import get_storage
+
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
+    VrtGeneration = get_catalog_port().vrt_generation_orm_class()
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
@@ -234,7 +238,7 @@ async def list_vrt_generations(
     db: AsyncSession = Depends(get_db),
 ) -> VrtGenerationListResponse:
     """Return paginated generation history for a VRT dataset."""
-    from app.processing.raster.models import VrtGeneration
+    VrtGeneration = get_catalog_port().vrt_generation_orm_class()
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
@@ -287,10 +291,10 @@ async def regenerate_vrt_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> VrtMutationResponse:
     """Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds."""
-    from app.processing.ingest.service import create_ingest_job
-    from app.processing.ingest.tasks import regenerate_vrt
     from app.platform.jobs.defer_guard import defer_with_orphan_guard
-    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
+    VrtGeneration = get_catalog_port().vrt_generation_orm_class()
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None or getattr(dataset.record, "record_type", None) != "vrt_dataset":
@@ -358,7 +362,7 @@ async def regenerate_vrt_endpoint(
     vrt_asset.current_generation_id = generation.id
 
     # Create IngestJob
-    job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
+    job = await get_catalog_port().create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
     await db.commit()
@@ -369,10 +373,14 @@ async def regenerate_vrt_endpoint(
     # leave the VRT permanently stuck and the generation row dangling
     # until manual operator intervention.
     async def _defer() -> None:
-        await regenerate_vrt.defer_async(
-            job_id=str(job.id),
-            vrt_dataset_id=str(dataset_id),
-            triggered_by=str(user.id),
+        await (
+            get_catalog_port()
+            .regenerate_vrt_task()
+            .defer_async(
+                job_id=str(job.id),
+                vrt_dataset_id=str(dataset_id),
+                triggered_by=str(user.id),
+            )
         )
 
     async def _rollback(defer_exc: BaseException) -> None:

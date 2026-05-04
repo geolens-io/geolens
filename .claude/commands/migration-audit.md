@@ -24,9 +24,9 @@ done
 
 # Current head(s)
 cd backend 2>/dev/null || true
-alembic heads 2>/dev/null
-alembic branches 2>/dev/null
-alembic history --verbose 2>/dev/null | head -60
+uv run alembic heads 2>/dev/null
+uv run alembic branches 2>/dev/null
+uv run alembic history --verbose 2>/dev/null | head -60
 cd - 2>/dev/null || true
 ```
 
@@ -54,7 +54,7 @@ psql "$DATABASE_URL" -c "SELECT extname, extversion FROM pg_extension ORDER BY e
 
 # Check current migration state
 cd backend 2>/dev/null || true
-alembic current 2>/dev/null
+uv run alembic current 2>/dev/null
 cd - 2>/dev/null || true
 ```
 
@@ -112,13 +112,13 @@ Run these 6 subagents in parallel.
    cd backend 2>/dev/null || true
 
    # Check for multiple heads (branching)
-   alembic heads 2>/dev/null
+   uv run alembic heads 2>/dev/null
 
    # Check for branches
-   alembic branches 2>/dev/null
+   uv run alembic branches 2>/dev/null
 
    # Full history
-   alembic history --verbose 2>/dev/null
+   uv run alembic history --verbose 2>/dev/null
    cd - 2>/dev/null || true
    ```
    - Multiple heads indicate an unmerged branch — this will break `alembic upgrade head`
@@ -161,10 +161,10 @@ Run these 6 subagents in parallel.
    ```bash
    cd backend 2>/dev/null || true
    # Check current position
-   alembic current 2>/dev/null
+   uv run alembic current 2>/dev/null
 
    # Check if head matches current
-   alembic check 2>/dev/null
+   uv run alembic check 2>/dev/null
    cd - 2>/dev/null || true
    ```
 
@@ -182,8 +182,8 @@ Run these 6 subagents in parallel.
    ```bash
    cd backend 2>/dev/null || true
    # Generate but DO NOT apply — just capture the output
-   alembic revision --autogenerate -m "drift_check_DO_NOT_COMMIT" --sql 2>/dev/null || \
-   alembic revision --autogenerate -m "drift_check_DO_NOT_COMMIT" 2>/dev/null
+   uv run alembic revision --autogenerate -m "drift_check_DO_NOT_COMMIT" --sql 2>/dev/null || \
+   uv run alembic revision --autogenerate -m "drift_check_DO_NOT_COMMIT" 2>/dev/null
 
    # Read the generated migration
    DRIFT_FILE=$(find . -path "*/alembic/versions/*drift_check*" 2>/dev/null | head -1)

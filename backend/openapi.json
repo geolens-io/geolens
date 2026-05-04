@@ -5136,7 +5136,7 @@
                 "type": "null"
               }
             ],
-            "description": "Restrict embedding to these origins. Omit to allow any origin.",
+            "description": "Restrict embedding to these origins. Omit or null allows any origin; non-empty origin restrictions require GeoLens Enterprise.",
             "example": [
               "https://dashboard.example.com"
             ],
@@ -5144,7 +5144,7 @@
           },
           "expires_in_days": {
             "default": 30,
-            "description": "Token lifetime in days (1-365).",
+            "description": "Token lifetime in days (1-365). The default 30-day lifetime is available in Community; custom lifetimes require GeoLens Enterprise.",
             "example": 90,
             "maximum": 365.0,
             "minimum": 1.0,
@@ -5395,7 +5395,7 @@
                 "type": "null"
               }
             ],
-            "description": "Updated list of allowed embedding origins",
+            "description": "Updated list of allowed embedding origins. Null clears restrictions; non-empty origin restrictions require GeoLens Enterprise.",
             "title": "Allowed Origins"
           }
         },
@@ -10741,7 +10741,7 @@
                 "type": "null"
               }
             ],
-            "description": "Expiration timestamp; null = never expires",
+            "description": "Expiration timestamp. Null creates a basic non-expiring share link; non-null expiration requires GeoLens Enterprise.",
             "title": "Expires At"
           }
         },
@@ -30542,7 +30542,7 @@
         ]
       },
       "post": {
-        "description": "Create an embed token scoped to a map's current layers.",
+        "description": "Create an embed token scoped to a map's current layers.\n\nCommunity supports the default 30-day unrestricted token. Custom lifetimes\nand non-empty origin restrictions require GeoLens Enterprise.",
         "operationId": "create_embed_token_endpoint_maps__map_id__embed_tokens__post",
         "parameters": [
           {
@@ -30792,7 +30792,7 @@
         ]
       },
       "patch": {
-        "description": "Update embed token allowed_origins.",
+        "description": "Update embed token allowed_origins.\n\nNull clears restrictions. Non-empty origin restrictions require GeoLens Enterprise.",
         "operationId": "update_embed_token_endpoint_maps__map_id__embed_tokens__token_id___patch",
         "parameters": [
           {
@@ -31402,7 +31402,7 @@
         ]
       },
       "patch": {
-        "description": "Update expiration on an existing share token. Owner or admin only.",
+        "description": "Update expiration on an existing share token. Owner or admin only.\n\nNull clears expiration. Setting a non-null expiration requires GeoLens Enterprise.",
         "operationId": "update_map_share_token_endpoint_maps__map_id__share__patch",
         "parameters": [
           {
@@ -31526,7 +31526,7 @@
         ]
       },
       "post": {
-        "description": "Create or retrieve a share token for a public map.",
+        "description": "Create or retrieve a share token for a public map.\n\nCommunity supports basic non-expiring share links. Non-null expiration\nrequires GeoLens Enterprise.",
         "operationId": "share_map_endpoint_maps__map_id__share__post",
         "parameters": [
           {

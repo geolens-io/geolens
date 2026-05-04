@@ -1,4 +1,4 @@
-"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, and 231.
+"""Layering rules across Phases 212, 213, 214, 222, 223, 224, 225, 226, 230, 231, 232, and 233.
 
 Enforces open-core boundaries closed by:
 - Phase 212 LAYER-01 - core/ must not depend on modules/settings/.
@@ -11,6 +11,9 @@ Enforces open-core boundaries closed by:
   holder for SQL queries).
 - Phase 225 PROCESS-02/04 - processing/ must not import from app.modules.catalog.*;
   all catalog access goes through ProcessingPort (app.core.processing_port).
+- Phase 230 CATPORT-02/04 - catalog/ must not have module-level imports from
+  app.processing.*; all processing access goes through CatalogPort
+  (app.core.catalog_port).
 - Phase 226 AIEXT-03/05 - processing/ai/ must not contain hardcoded
   `if provider == "anthropic"/"openai_compatible"` dispatch; all provider
   dispatch goes through `get_ai_provider(name).complete(...)` from
@@ -23,6 +26,12 @@ Enforces open-core boundaries closed by:
   to test_no_module_level_provider_sdk_imports_in_processing, pathspec
   broadened from backend/app/processing/ai/ to backend/app/processing/,
   and the embeddings carve-out paragraph removed from the docstring.
+- Phase 232 PERM-05 - known permission/visibility chokepoints must route
+  through PermissionExtension: require_permission(), apply_visibility_filter(),
+  and dataset detail access helpers.
+- Phase 233 WORK-05 - known dataset publication transition chokepoints must
+  route through WorkflowExtension: /status/, /target-status/, and metadata
+  PATCH record_status writes.
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -34,11 +43,13 @@ Scope:
   deleted-path regression)
 - `from app.modules.auth.visibility` anywhere under `backend/` (Phase 213 LAYER-02)
 - Broader `auth.visibility` reference catch (Phase 213 LAYER-02)
+- PermissionExtension chokepoint delegation (Phase 232 PERM-05)
+- WorkflowExtension publication chokepoint delegation (Phase 233 WORK-05)
 - `from app.modules.auth.models import .*\\bUser\\b` outside the 18-file
   allowlist (Phase 214 IDENT-02 - pathspec excludes auth/**, admin/**,
   audit/{models,service}.py, api/main.py, processing/ingest/tasks_raster.py,
   embed_tokens/service.py, catalog/{maps/service,collections/router,
-  datasets/api/router_export,datasets/domain/helpers,search/service}.py, and
+  datasets/api/router_export,datasets/domain/helpers,search/service_semantic}.py, and
   tests/)
 
 Phase 218 will re-run `/oc-audit` to verify Boundary B -> A-, Seam Quality
@@ -51,6 +62,7 @@ Markers:
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 from pathlib import Path
@@ -99,6 +111,76 @@ def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def _iter_backend_app_python_files() -> list[Path]:
+    return sorted((REPO_ROOT / "backend/app").rglob("*.py"))
+
+
+def _normalized_import_root(name: str | None) -> str:
+    if name is None:
+        return ""
+    if name.startswith("backend."):
+        return name.removeprefix("backend.")
+    return name
+
+
+def _is_allowed_private_service_importer(path: Path, package_path: str) -> bool:
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    return rel == f"{package_path}/service.py" or (
+        rel.startswith(f"{package_path}/service_") and rel.endswith(".py")
+    )
+
+
+def _private_service_import_offenders(
+    *,
+    package: str,
+    package_path: str,
+    private_modules: set[str],
+) -> list[str]:
+    offenders: list[str] = []
+    normalized_package = _normalized_import_root(package)
+
+    for path in _iter_backend_app_python_files():
+        if _is_allowed_private_service_importer(path, package_path):
+            continue
+
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        try:
+            tree = ast.parse(path.read_text(), filename=rel)
+        except SyntaxError as exc:
+            pytest.fail(f"Could not parse {rel}: {exc}")
+
+        lines = path.read_text().splitlines()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported = _normalized_import_root(alias.name)
+                    if any(
+                        imported == f"{normalized_package}.{module}"
+                        or imported.startswith(f"{normalized_package}.{module}.")
+                        for module in private_modules
+                    ):
+                        offenders.append(
+                            f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                        )
+            elif isinstance(node, ast.ImportFrom):
+                imported_from = _normalized_import_root(node.module)
+                if imported_from in {
+                    f"{normalized_package}.{module}" for module in private_modules
+                }:
+                    offenders.append(
+                        f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                    )
+                    continue
+                if imported_from == normalized_package:
+                    imported_names = {alias.name for alias in node.names}
+                    if imported_names.intersection(private_modules):
+                        offenders.append(
+                            f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                        )
+
+    return offenders
 
 
 @pytest.mark.architecture
@@ -248,6 +330,135 @@ def test_no_auth_visibility_module_referenced() -> None:
 
 
 @pytest.mark.architecture
+def test_permission_chokepoints_use_extension() -> None:
+    """Phase 232 PERM-05: known permission chokepoints must use PermissionExtension.
+
+    This guard is intentionally narrow. It seals the two Phase 232 surfaces
+    from the roadmap instead of scanning every auth/catalog file:
+    - ``require_permission()`` delegates capability decisions.
+    - catalog visibility helpers delegate list filtering and detail access.
+    """
+    auth_path = REPO_ROOT / "backend/app/modules/auth/dependencies.py"
+    catalog_path = REPO_ROOT / "backend/app/modules/catalog/authorization.py"
+
+    auth_source = auth_path.read_text()
+    catalog_source = catalog_path.read_text()
+
+    require_permission_idx = auth_source.find("def require_permission")
+    if require_permission_idx == -1:
+        pytest.fail("require_permission() not found in auth dependencies")
+    require_permission_block = auth_source[require_permission_idx:]
+    if (
+        "get_permission_extension()" not in require_permission_block
+        or ".check_permission(" not in require_permission_block
+    ):
+        pytest.fail(
+            "Phase 232 PERM-05 invariant violated: require_permission() must "
+            "delegate capability decisions to PermissionExtension. Expected "
+            "get_permission_extension().check_permission(...) in "
+            f"{auth_path.relative_to(REPO_ROOT)}."
+        )
+
+    apply_visibility_idx = catalog_source.find("def apply_visibility_filter")
+    get_roles_idx = catalog_source.find("async def get_user_roles")
+    if apply_visibility_idx == -1 or get_roles_idx == -1:
+        pytest.fail(
+            "catalog apply_visibility_filter()/get_user_roles boundary not found"
+        )
+    apply_visibility_block = catalog_source[apply_visibility_idx:get_roles_idx]
+    if (
+        "get_permission_extension()" not in apply_visibility_block
+        or ".filter_visible(" not in apply_visibility_block
+    ):
+        pytest.fail(
+            "Phase 232 PERM-05 invariant violated: apply_visibility_filter() "
+            "must delegate query filtering to PermissionExtension. Expected "
+            "get_permission_extension().filter_visible(...) in "
+            f"{catalog_path.relative_to(REPO_ROOT)}."
+        )
+
+    access_idx = catalog_source.find("async def check_dataset_access_or_anonymous")
+    if access_idx == -1:
+        pytest.fail("catalog dataset-access helpers not found")
+    access_block = catalog_source[access_idx:]
+    if (
+        "get_permission_extension()" not in access_block
+        or ".can_access_dataset(" not in access_block
+    ):
+        pytest.fail(
+            "Phase 232 PERM-05 invariant violated: dataset detail access must "
+            "delegate access decisions to PermissionExtension. Expected "
+            "get_permission_extension().can_access_dataset(...) in "
+            f"{catalog_path.relative_to(REPO_ROOT)}."
+        )
+
+
+@pytest.mark.architecture
+def test_workflow_publication_chokepoints_use_extension() -> None:
+    """Phase 233 WORK-05: known publication transitions use WorkflowExtension.
+
+    This guard is intentionally narrow. It checks the two publication endpoints
+    plus the metadata PATCH record_status helper, and it does not scan seed,
+    ingest, or factory paths that assign initial record_status values.
+    """
+    router_path = REPO_ROOT / "backend/app/modules/catalog/datasets/api/router_data.py"
+    metadata_path = (
+        REPO_ROOT / "backend/app/modules/catalog/datasets/domain/service_metadata.py"
+    )
+
+    router_source = router_path.read_text()
+    metadata_source = metadata_path.read_text()
+
+    status_idx = router_source.find("async def update_publication_status")
+    target_idx = router_source.find("async def set_target_status")
+    if status_idx == -1 or target_idx == -1:
+        pytest.fail("publication status endpoint boundary not found in router_data.py")
+    status_block = router_source[status_idx:target_idx]
+    target_block = router_source[target_idx:]
+
+    for label, block, mode in (
+        ("/status/", status_block, 'mode="status"'),
+        ("/target-status/", target_block, 'mode="target_status"'),
+    ):
+        if (
+            "get_workflow_extension()" not in block
+            or "WorkflowTransitionContext(" not in block
+            or ".allowed_transitions(" not in block
+            or ".on_transition(" not in block
+            or mode not in block
+        ):
+            pytest.fail(
+                "Phase 233 WORK-05 invariant violated: "
+                f"{label} must delegate publication transitions to "
+                "WorkflowExtension. Expected get_workflow_extension(), "
+                "WorkflowTransitionContext, allowed_transitions(...), "
+                f"on_transition(...), and {mode} in "
+                f"{router_path.relative_to(REPO_ROOT)}."
+            )
+
+    metadata_idx = metadata_source.find("async def _apply_record_status_change")
+    is_dem_idx = metadata_source.find("async def _apply_is_dem")
+    if metadata_idx == -1 or is_dem_idx == -1:
+        pytest.fail("metadata record_status helper boundary not found")
+    metadata_block = metadata_source[metadata_idx:is_dem_idx]
+    if (
+        "get_workflow_extension()" not in metadata_block
+        or "WorkflowTransitionContext(" not in metadata_block
+        or ".allowed_transitions(" not in metadata_block
+        or ".on_transition(" not in metadata_block
+        or 'mode="metadata_patch"' not in metadata_block
+    ):
+        pytest.fail(
+            "Phase 233 WORK-05 invariant violated: metadata PATCH record_status "
+            "writes must delegate to WorkflowExtension. Expected "
+            "get_workflow_extension(), WorkflowTransitionContext, "
+            "allowed_transitions(...), on_transition(...), and "
+            'mode="metadata_patch" in '
+            f"{metadata_path.relative_to(REPO_ROOT)}."
+        )
+
+
+@pytest.mark.architecture
 def test_cross_domain_does_not_import_user_from_auth_models() -> None:
     """`from app.modules.auth.models import .*User` must only appear in the allowlist.
 
@@ -269,16 +480,18 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
                           - Procrastinate worker `Base.metadata` registration
     - `embed_tokens/service.py` - function-scope `select(...User.username...)`
                                    for admin embed-token list (Pitfall 1)
-    - `catalog/maps/service.py` - `User.username.label()` in JOINs/SELECTs
-                                   for owner display (Pitfall 1)
+    - `catalog/maps/service_{shared,crud,public}.py`
+                          - `User.username.label()` in JOINs/SELECTs
+                            for owner display after maps service decomposition
+                            (Pitfall 1)
     - `catalog/collections/router.py` - `select(User).where(User.id.in_(actor_ids))`
                                          for actor enrichment (Pitfall 1)
     - `catalog/datasets/api/router_export.py` - `select(User).where(User.id == ...)`
                                                 for export header personalization (Pitfall 1)
     - `catalog/datasets/domain/helpers.py` - `select(User).where(User.id.in_(ids))`
                                               for batched user resolution (Pitfall 1)
-    - `catalog/search/service.py` - `select(User).where(User.id.in_(actor_ids))`
-                                     for search-result enrichment (Pitfall 1)
+    - `catalog/search/service_semantic.py` - `select(User).where(User.id.in_(actor_ids))`
+                                              for search-result enrichment (Pitfall 1)
     - `tests/`          - fixtures construct `User(...)` directly; structurally
                           valid as Identity at the call site
 
@@ -313,11 +526,13 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
             ":!backend/app/api/main.py",
             ":!backend/app/processing/ingest/tasks_raster.py",
             ":!backend/app/modules/embed_tokens/service.py",
-            ":!backend/app/modules/catalog/maps/service.py",
+            ":!backend/app/modules/catalog/maps/service_shared.py",
+            ":!backend/app/modules/catalog/maps/service_crud.py",
+            ":!backend/app/modules/catalog/maps/service_public.py",
             ":!backend/app/modules/catalog/collections/router.py",
             ":!backend/app/modules/catalog/datasets/api/router_export.py",
             ":!backend/app/modules/catalog/datasets/domain/helpers.py",
-            ":!backend/app/modules/catalog/search/service.py",
+            ":!backend/app/modules/catalog/search/service_semantic.py",
             ":!backend/tests/",
         ],
         cwd=REPO_ROOT,
@@ -429,6 +644,110 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
             "Cross-imports between the 5 sub-modules themselves are "
             "permitted (D-05) — only external bypasses are forbidden.\n"
             "Offending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_no_external_imports_of_maps_private_service_modules() -> None:
+    """Phase 238 BOUND-01: maps callers must use the public service façade.
+
+    Phases 236 and 238 keep `app.modules.catalog.maps.service` as the stable
+    import surface. Focused private modules may collaborate with each other and
+    the façade may re-export them, but production modules outside the service
+    split must not import service_shared/service_crud/service_layers/
+    service_public directly.
+    """
+    private_modules = {
+        "service_shared",
+        "service_crud",
+        "service_layers",
+        "service_public",
+    }
+    offenders = _private_service_import_offenders(
+        package="app.modules.catalog.maps",
+        package_path="backend/app/modules/catalog/maps",
+        private_modules=private_modules,
+    )
+
+    if offenders:
+        pytest.fail(
+            "Phase 238 BOUND-01 invariant violated: production code imports "
+            "maps private service modules directly. External callers must "
+            "import from `app.modules.catalog.maps.service`; only the maps "
+            "facade and maps service_*.py modules may import private service "
+            "modules directly.\nOffending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_no_external_imports_of_search_private_service_modules() -> None:
+    """Phase 238 BOUND-01: search callers must use the public service façade."""
+    private_modules = {
+        "service_filters",
+        "service_facets",
+        "service_collections",
+        "service_semantic",
+        "service_datasets",
+        "service_records",
+    }
+    offenders = _private_service_import_offenders(
+        package="app.modules.catalog.search",
+        package_path="backend/app/modules/catalog/search",
+        private_modules=private_modules,
+    )
+
+    if offenders:
+        pytest.fail(
+            "Phase 238 BOUND-01 invariant violated: production code imports "
+            "search private service modules directly. External callers must "
+            "import from `app.modules.catalog.search.service`; only the search "
+            "facade and search service_*.py modules may import private service "
+            "modules directly.\nOffending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_maps_search_service_modules_stay_within_size_budgets() -> None:
+    """Phase 238 BOUND-02: maps/search service splits stay bounded."""
+    facade_line_budgets = {
+        "backend/app/modules/catalog/maps/service.py": 100,
+        "backend/app/modules/catalog/search/service.py": 80,
+    }
+    private_service_default_line_budget = 350
+    private_service_line_budget_allowlist = {
+        "backend/app/modules/catalog/maps/service_crud.py": 550,
+        "backend/app/modules/catalog/maps/service_public.py": 575,
+        "backend/app/modules/catalog/search/service_records.py": 500,
+    }
+
+    files_to_check = list(facade_line_budgets)
+    files_to_check.extend(
+        path.relative_to(REPO_ROOT).as_posix()
+        for root in (
+            REPO_ROOT / "backend/app/modules/catalog/maps",
+            REPO_ROOT / "backend/app/modules/catalog/search",
+        )
+        for path in sorted(root.glob("service_*.py"))
+    )
+
+    violations: list[str] = []
+    for rel in sorted(set(files_to_check)):
+        line_count = len((REPO_ROOT / rel).read_text().splitlines())
+        if rel in facade_line_budgets:
+            cap = facade_line_budgets[rel]
+        else:
+            cap = private_service_line_budget_allowlist.get(
+                rel, private_service_default_line_budget
+            )
+        if line_count > cap:
+            violations.append(f"{rel}: {line_count} lines > cap {cap}")
+
+    if violations:
+        pytest.fail(
+            "Phase 238 BOUND-02 invariant violated: maps/search service "
+            "modules exceeded their line-count budgets. Split the module or "
+            "add a reviewed explicit cap only when growth is intentional.\n"
+            + "\n".join(violations)
         )
 
 
@@ -694,6 +1013,57 @@ def test_no_processing_imports_catalog() -> None:
             "contains a module-level import from app.modules.catalog.*. All catalog "
             "access must go through ProcessingPort (app.core.processing_port). "
             f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_catalog_imports_processing() -> None:
+    """Phase 230 CATPORT-02/04: catalog/ must not have module-level imports from app.processing.*.
+
+    All processing-owned helper, task, schema, and ORM-class access from
+    backend/app/modules/catalog/ must go through CatalogPort
+    (app.core.catalog_port). Strict zero-hit for module-level imports.
+
+    Scope: this guard catches top-level import lines starting at column 0:
+    ``from app.processing``, ``import app.processing``, and the equivalent
+    ``backend.app.processing`` forms. Function-local lazy imports are allowed by
+    the phase context as deferred boundaries; new module-level edges are not.
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 230 CATPORT-04 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"^(from|import) (backend\.)?app\.processing",
+            "--",
+            "backend/app/modules/catalog/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 230 CATPORT-02/04 invariant violated: "
+            "backend/app/modules/catalog/ contains a module-level import from "
+            "app.processing.*. All processing access must go through CatalogPort "
+            "(app.core.catalog_port). Offending lines:\n" + result.stdout
         )
     if result.returncode != 1:
         pytest.fail(

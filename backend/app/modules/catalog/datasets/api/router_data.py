@@ -38,7 +38,9 @@ from app.modules.catalog.datasets.domain.service import (
     get_related_datasets,
 )
 from app.core.dependencies import get_db
-from app.processing.ingest.metadata import compute_quality_score
+from app.platform.extensions import get_catalog_port, get_workflow_extension
+from app.platform.extensions.defaults import DefaultWorkflowExtension
+from app.platform.extensions.protocols import WorkflowTransitionContext
 from app.modules.catalog.validation.schemas import (
     ValidationIssue as ValidationIssueSchema,
     ValidationResultResponse,
@@ -151,7 +153,7 @@ async def validate_dataset(
     validation = await run_validation(db, dataset.record, dataset)
 
     if refresh or dataset.quality_detail is None:
-        quality = await compute_quality_score(
+        quality = await get_catalog_port().compute_quality_score(
             db, dataset.table_name, dataset.column_info or [], dataset
         )
         dataset.quality_detail = quality
@@ -208,10 +210,8 @@ async def dataset_maps(
 # ---------------------------------------------------------------------------
 
 ALLOWED_TRANSITIONS = {
-    "draft": {"ready"},
-    "ready": {"draft", "internal"},
-    "internal": {"ready", "published"},
-    "published": {"internal"},
+    status: set(targets)
+    for status, targets in DefaultWorkflowExtension.DEFAULT_ALLOWED_TRANSITIONS.items()
 }
 
 
@@ -241,23 +241,33 @@ async def update_publication_status(
 
     current = dataset.record.record_status
     target = body.status
-    if target not in ALLOWED_TRANSITIONS.get(current, set()):
+    workflow = get_workflow_extension()
+    context = WorkflowTransitionContext(
+        session=db,
+        dataset=dataset,
+        actor=user,
+        from_status=current,
+        to_status=target,
+        mode="status",
+    )
+    allowed = await workflow.allowed_transitions(context)
+    if target not in allowed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"Cannot transition from '{current}' to '{target}'. "
-                f"Allowed: {ALLOWED_TRANSITIONS.get(current, set())}"
+                f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed}"
             ),
         )
 
     dataset.record.record_status = target
+    await workflow.on_transition(context)
     await db.commit()
     await db.refresh(dataset)
     return StatusUpdateResponse(id=str(dataset.id), record_status=target)
 
 
 # Ordered status chain used by target_status to walk transitions
-_STATUS_ORDER = ["draft", "ready", "internal", "published"]
+_STATUS_ORDER = list(DefaultWorkflowExtension.DEFAULT_STATUS_ORDER)
 
 
 @router.patch("/{dataset_id}/target-status/", response_model=StatusUpdateResponse)
@@ -286,12 +296,14 @@ async def set_target_status(
 
     current = dataset.record.record_status
     target = body.status
+    workflow = get_workflow_extension()
 
     if current == target:
         return StatusUpdateResponse(id=str(dataset.id), record_status=current)
 
-    cur_idx = _STATUS_ORDER.index(current) if current in _STATUS_ORDER else -1
-    tgt_idx = _STATUS_ORDER.index(target) if target in _STATUS_ORDER else -1
+    status_order = list(workflow.status_order())
+    cur_idx = status_order.index(current) if current in status_order else -1
+    tgt_idx = status_order.index(target) if target in status_order else -1
     if cur_idx == -1 or tgt_idx == -1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -302,16 +314,27 @@ async def set_target_status(
     idx = cur_idx
     while idx != tgt_idx:
         next_idx = idx + step
-        next_status = _STATUS_ORDER[next_idx]
-        if next_status not in ALLOWED_TRANSITIONS.get(_STATUS_ORDER[idx], set()):
+        from_status = status_order[idx]
+        next_status = status_order[next_idx]
+        context = WorkflowTransitionContext(
+            session=db,
+            dataset=dataset,
+            actor=user,
+            from_status=from_status,
+            to_status=next_status,
+            mode="target_status",
+        )
+        allowed = await workflow.allowed_transitions(context)
+        if next_status not in allowed:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"Cannot transition from '{_STATUS_ORDER[idx]}' to '{next_status}'. "
-                    f"Allowed: {ALLOWED_TRANSITIONS.get(_STATUS_ORDER[idx], set())}"
+                    f"Cannot transition from '{from_status}' to '{next_status}'. "
+                    f"Allowed: {allowed}"
                 ),
             )
         dataset.record.record_status = next_status
+        await workflow.on_transition(context)
         idx = next_idx
 
     await db.commit()

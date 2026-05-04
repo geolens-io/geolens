@@ -284,7 +284,7 @@ frontend/node_modules/
 frontend/dist/
 
 # Alembic (include versions but not local state)
-alembic/versions/__pycache__/
+backend/alembic/versions/__pycache__/
 
 # Dev/test artifacts
 tests/
@@ -318,14 +318,17 @@ The golden rule: **most-stable layers first, most-volatile layers last**.
 
 Common anti-patterns to find and fix:
 ```dockerfile
-# WRONG — COPY . invalidates cache before pip install
+# WRONG — COPY . invalidates cache before uv dependency sync
 COPY . /app
-RUN pip install -r requirements.txt   # re-runs on ANY file change
+RUN uv sync --locked --no-dev         # re-runs on ANY source change
 
-# CORRECT — copy only requirements first, then source
-COPY requirements.txt .
-RUN pip install -r requirements.txt   # cached until requirements change
-COPY . /app                           # only this layer re-runs on source change
+# CORRECT — install locked deps before source, then install the project
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project --no-dev
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 ```
 ```dockerfile
 # WRONG — COPY . before npm install
@@ -339,13 +342,14 @@ COPY . /app
 ```
 
 For your stack, the correct layer order for the API Dockerfile:
-1. `FROM python:X.Y-slim`
+1. `FROM python:3.14.3-slim` or newer compatible with `requires-python >=3.13`
 2. System dependencies (`apt-get install`) — changes rarely
-3. `COPY requirements.txt .` — changes occasionally
-4. `pip install` — cached when requirements.txt unchanged
+3. `COPY pyproject.toml uv.lock ./` or BuildKit bind mounts for those files
+4. `uv sync --locked --no-install-project --no-dev` — cached when lockfile unchanged
 5. `COPY . /app` — changes frequently
-6. `USER app`
-7. `CMD`
+6. `uv sync --locked --no-dev`
+7. `USER app`
+8. `CMD`
 
 Flag any Dockerfile where `COPY . ` appears before package installs =
 [LAYER-COPY-ORDER].
@@ -380,22 +384,22 @@ grep -rn "apt-get install" Dockerfile* | grep -v "no-install-recommends"
 Without `--no-install-recommends`, apt installs suggested packages that
 aren't needed = [LAYER-APT-RECOMMENDS] — can add 100–300MB.
 
-**pip install cache:**
+**uv dependency cache:**
 ```bash
-grep -rn "pip install" Dockerfile* | grep -v "\-\-no-cache-dir"
+grep -rn "uv sync" backend/Dockerfile Dockerfile* 2>/dev/null | grep -v "mount=type=cache" | grep -v "bind,source=uv.lock"
 ```
 
-pip caches downloaded wheels in the image layer by default:
+uv caches resolved/downloaded wheels unless BuildKit cache mounts are used:
 ```dockerfile
-# WRONG — wheel cache baked into image
-RUN pip install -r requirements.txt
+# WRONG — dependency cache may be baked into an image layer
+RUN uv sync --locked --no-dev
 
-# CORRECT — no cache in image, use BuildKit cache mount for speed
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.txt
+# CORRECT — cache is external to the image layer
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-install-project --no-dev
 ```
 
-Missing `--no-cache-dir` = [LAYER-PIP-CACHE] — adds 50–150MB for typical stacks.
+Missing a BuildKit uv cache mount = [LAYER-UV-CACHE] — slower builds and possible image bloat.
 
 **Multi-stage build usage:**
 ```bash
@@ -403,47 +407,38 @@ grep -rn "^FROM.*AS\|^FROM.*as" Dockerfile* 2>/dev/null || \
   echo "No multi-stage builds found"
 ```
 
-Single-stage builds include all build tools in the final image. Your stack
-should use multi-stage for:
+Single-stage builds include all build tools in the final image. Use multi-stage
+when build tools are present in the final image. GeoLens's API image can remain
+single-stage when it uses wheel/runtime dependencies only and avoids compilers.
+Your stack should use multi-stage for:
 - Frontend: build stage (Node + full deps) → runtime stage (nginx or static files only)
-- API: builder stage (gcc, build deps for PostGIS/pgvector) → runtime stage (slim)
+- API: builder stage (gcc, native build deps) → runtime stage (slim), only if source builds require those tools
 
-Example for your API with geo dependencies:
+Example for the current GeoLens API single-stage uv image:
 ```dockerfile
 # syntax=docker/dockerfile:1
 
-# ── Build stage ──────────────────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.14.3-slim AS base
+COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ \
-    libgdal-dev libgeos-dev libproj-dev \   # PostGIS/Shapely build deps
-    libpq-dev \                              # psycopg build dep
+    gdal-bin libexpat1 xmlsec1 libxmlsec1-openssl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+RUN groupadd --system --gid 1001 appgroup \
+    && useradd --system --gid 1001 --uid 1001 --create-home appuser \
+    && chown -R appuser:appgroup /app
 
-# ── Runtime stage ────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
-
-# Runtime libs only — no compilers
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgdal32 libgeos-c1v5 libproj25 \      # runtime .so files
-    libpq5 \                                 # psycopg runtime
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /install /usr/local
-COPY --from=builder /app /app
-
-RUN addgroup --system --gid 1001 app \
-    && adduser --system --uid 1001 --gid 1001 --no-create-home app
-
-USER app
-WORKDIR /app
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+USER appuser
+CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
 ```
 
 Missing multi-stage build when build tools are present in the final image
@@ -668,7 +663,7 @@ Any non-trivially-hardcoded value in `environment:` that isn't an override
 # WRONG — hardcoded DB credentials
 environment:
   POSTGRES_PASSWORD: mysecretpassword
-  POSTGRES_USER: myapp
+  POSTGRES_USER: hardcoded_user
 
 # CORRECT — reference from .env file or shell environment
 environment:
@@ -832,13 +827,13 @@ for their specific container requirements**
 **PostGIS container configuration:**
 ```bash
 grep -rn "postgis\|POSTGRES\|PGDATA\|postgres" docker-compose*.yml \
-  Dockerfile* -A5 | head -60
+  $(find . -name "Dockerfile*" -not -path "*/.git/*" -not -path "*/node_modules/*") -A5 | head -60
 ```
 
 **Required PostGIS environment variables:**
 ```yaml
 db:
-  image: postgis/postgis:16-3.4
+  image: postgis/postgis:17-3.5
   environment:
     POSTGRES_USER: ${POSTGRES_USER}
     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -883,7 +878,7 @@ PostGIS geo queries are memory-intensive. Recommend a custom `postgresql.conf`
 or command arguments:
 ```yaml
 db:
-  image: postgis/postgis:16-3.4
+  image: postgis/postgis:17-3.5
   command: >
     postgres
     -c shared_buffers=256MB
@@ -1101,13 +1096,13 @@ for svc in dev_services & prod_services:
 ```yaml
    # dev: plain postgres (faster to pull)
    db:
-     image: postgres:16
+     image: postgres:17
 
    # prod: PostGIS (has the extensions you need)
    db:
-     image: postgis/postgis:16-3.4   # ← this must also be dev
+     image: postgis/postgis:17-3.5   # ← this must also be dev
 ```
-   Using `postgres:16` in dev and `postgis/postgis:16-3.4` in prod means
+   Using `postgres:17` in dev and `postgis/postgis:17-3.5` in prod means
    spatial queries work in prod but fail locally = [PARITY-DB-IMAGE].
 
 3. **Different environment variables between dev and prod** — missing a
@@ -1147,7 +1142,7 @@ for svc in dev_services & prod_services:
    # Check if dev DB container uses postgis image
    grep -rn "image:.*postgres\b" docker-compose.yml | grep -v "postgis"
 ```
-   Dev using plain `postgres:16` instead of `postgis/postgis:16-3.4` means
+   Dev using plain `postgres:17` instead of `postgis/postgis:17-3.5` means
    PostGIS queries silently fail locally but work in prod, or vice versa.
    This is the most common source of "works in prod, fails locally" for
    spatial applications = [PARITY-DB-IMAGE] HIGH.
@@ -1241,8 +1236,8 @@ The following files will be modified:
 1. Dockerfile (api)
    - Add non-root USER directive (lines 38-40)
    - Add HEALTHCHECK (line 41)
-   - Fix layer order: move COPY requirements.txt before COPY . (lines 12-13 swap)
-   - Add --no-cache-dir to pip install (line 15)
+   - Fix layer order: sync `pyproject.toml`/`uv.lock` before copying source
+   - Add BuildKit cache mounts around `uv sync`
    - Switch CMD to exec form (line 44)
 
 2. docker-compose.yml
@@ -1250,7 +1245,7 @@ The following files will be modified:
    - Add healthcheck to db service
    - Bind postgres port to 127.0.0.1 only
    - Add restart: unless-stopped to all services
-   - Change db image from postgres:16 to postgis/postgis:16-3.4
+   - Change db image from postgres:17 to postgis/postgis:17-3.5
 
 3. .dockerignore (create new)
    - Full .dockerignore for your stack
@@ -1268,7 +1263,7 @@ Also generate:
 
 ## Phase 5 — Deliver
 
-**1. Write `docs/docker-audit-[date].md`** with the full report.
+**1. Write `docs-internal/audits/docker-audit-{YYYYMMDD}.md`** with the full report.
 
 **2. If `--fix` not passed, output corrected file snippets inline** for each
 finding so the developer can apply them without re-running the command.
@@ -1279,23 +1274,25 @@ finding so the developer can apply them without re-running the command.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml up --abort-on-container-exit
 
 services:
-  api:
-    build:
-      context: .
-      target: runtime
-    environment:
-      DATABASE_URL: postgresql+asyncpg://test:test@db:5432/testdb
-      ENVIRONMENT: test
-    depends_on:
-      db:
-        condition: service_healthy
+	  api:
+	    build:
+	      context: ./backend
+	    environment:
+	      DATABASE_URL_OVERRIDE: postgresql+asyncpg://test:test@db:5432/testdb
+	      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+	      GEOLENS_ADMIN_USERNAME: admin
+	      GEOLENS_ADMIN_PASSWORD: admin
+	    depends_on:
+	      db:
+	        condition: service_healthy
     command: >
-      sh -c "alembic upgrade head && pytest -x -q"
+      sh -c "uv run alembic upgrade head && uv run pytest -x -q"
 
-  db:
-    image: postgis/postgis:16-3.4
-    environment:
-      POSTGRES_USER: test
+	  db:
+	    build:
+	      context: ./db
+	    environment:
+	      POSTGRES_USER: test
       POSTGRES_PASSWORD: test
       POSTGRES_DB: testdb
     healthcheck:

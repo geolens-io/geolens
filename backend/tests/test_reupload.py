@@ -11,7 +11,7 @@ Requirements:
 
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -19,6 +19,7 @@ from sqlalchemy import select
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.service import compute_schema_diff
+from app.modules.catalog.datasets.api import router_reupload
 from app.platform.jobs.models import IngestJob
 from app.modules.catalog.sources.security import SSRFError
 
@@ -73,20 +74,31 @@ async def _create_dataset(
 
 
 @pytest.fixture(autouse=True)
-def mock_reupload_task():
+def mock_reupload_catalog_port():
+    """Pin a single catalog port instance so method patches affect router calls."""
+    port = router_reupload.get_catalog_port()
+    with patch.object(router_reupload, "get_catalog_port", return_value=port):
+        yield port
+
+
+@pytest.fixture(autouse=True)
+def mock_reupload_task(mock_reupload_catalog_port):
     """Prevent procrastinate task deferral in reupload tests."""
-    with patch(
-        "app.modules.catalog.datasets.api.router_reupload.reupload_file"
-    ) as mock_task:
-        # Default queue path
-        mock_task.defer_async = AsyncMock(return_value=None)
-        # Priority queue path (reupload_file.configure(...).defer_async(...))
-        mock_task.configure.return_value.defer_async = AsyncMock(return_value=None)
+    mock_task = MagicMock()
+    # Default queue path
+    mock_task.defer_async = AsyncMock(return_value=None)
+    # Priority queue path (reupload_file.configure(...).defer_async(...))
+    mock_task.configure.return_value.defer_async = AsyncMock(return_value=None)
+    with patch.object(
+        mock_reupload_catalog_port,
+        "reupload_file_task",
+        return_value=mock_task,
+    ):
         yield mock_task
 
 
 @pytest.fixture(autouse=True)
-def mock_reupload_file_save():
+def mock_reupload_file_save(mock_reupload_catalog_port):
     """Mock file-save helper while still writing a real temp file for validation."""
 
     async def _fake_save(file, job_id: str) -> Path:
@@ -107,8 +119,9 @@ def mock_reupload_file_save():
         await file.seek(0)
         return out_path
 
-    with patch(
-        "app.modules.catalog.datasets.api.router_reupload.save_upload_file",
+    with patch.object(
+        mock_reupload_catalog_port,
+        "save_upload_file",
         new_callable=AsyncMock,
     ) as mock_save:
         mock_save.side_effect = _fake_save
@@ -116,10 +129,11 @@ def mock_reupload_file_save():
 
 
 @pytest.fixture(autouse=True)
-def mock_ogrinfo_preview():
+def mock_ogrinfo_preview(mock_reupload_catalog_port):
     """Mock ogrinfo preview to return predictable data."""
-    with patch(
-        "app.modules.catalog.datasets.api.router_reupload.run_ogrinfo_preview",
+    with patch.object(
+        mock_reupload_catalog_port,
+        "run_ogrinfo_preview",
         new_callable=AsyncMock,
     ) as mock_preview:
         mock_preview.return_value = {

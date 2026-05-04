@@ -14,9 +14,8 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
-from app.processing.ingest.ogr import IngestionError
-from app.processing.ingest.tasks import resolve_service_type
 from app.platform.jobs.models import IngestJob
+from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
     normalize_arcgis_url,
@@ -37,6 +36,7 @@ from app.modules.catalog.sources.security import (
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.stdlib.get_logger(__name__)
+IngestionError = get_catalog_port().ingestion_error_class()
 
 router = APIRouter(
     prefix="/services", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
@@ -261,7 +261,7 @@ async def preview_service_layer(
     # The stored URL includes the layer suffix (via enrich_source_url), so
     # we reconstruct the enriched form before querying.
     try:
-        _, source_format = resolve_service_type(request.service_type)
+        _, source_format = get_catalog_port().resolve_service_type(request.service_type)
         # Normalize then re-enrich to match the stored URL form.
         # normalize_arcgis_url extracts the layer_id from the URL if already embedded.
         try:

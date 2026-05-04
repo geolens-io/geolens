@@ -2,6 +2,122 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v13.6 — Catalog Maps/Search Service Decomposition
+
+**Shipped:** 2026-05-04
+**Phases:** 5 (236, 237, 238, 239, 240) | **Plans:** 18 | **Commits:** 40 milestone-scoped
+
+### What Was Built
+- `catalog/maps/service.py` is now a thin public facade over focused shared, CRUD, layer, and public/share modules.
+- `catalog/search/service.py` is now a thin public facade over focused filter, facet, collection, semantic, dataset, and OGC record modules.
+- Architecture guards prevent direct external imports of private maps/search service modules and enforce facade/private module size budgets.
+- VRT/search tests now assert helper and facade contracts instead of brittle source-introspection blocks.
+- Phase 240 records broader backend/frontend/E2E gate outcomes and closes project-owned Pydantic deprecation warnings.
+
+### What Worked
+- **Facade-first decomposition.** Keeping public imports stable let the services split without broad router, AI, OGC/STAC, or test call-site churn.
+- **Boundary guards matched the risk.** Private import guards and size budgets protect the exact regression mode this milestone was meant to prevent.
+- **Focused close gates stayed high-signal.** Maps/search pytest plus touched-module ruff/format checks proved the owned surface without overstating unrelated full-suite failures.
+- **Audit debt was closed before archival.** Phase 240 turned an initial tech-debt audit into a passed milestone audit with exact residual-risk evidence.
+
+### What Was Inefficient
+- **Generic GSD counts are still too broad.** The milestone CLI counted archived/backlog history until corrected manually to phases 236-240.
+- **Full-suite local readiness remains uneven.** Full backend coverage and Playwright smoke exposed existing blockers outside the maps/search decomposition surface.
+- **Warning cleanup mixed local and upstream ownership.** Pydantic warnings were easy local fixes; Alembic/Authlib warnings needed documented owner follow-up instead of risky suppression.
+
+### Patterns Established
+- Large service decompositions should land behind stable facade modules with explicit `__all__`, facade export tests, private import guards, and size budgets.
+- Source-introspection tests should be replaced with behavior contracts when a refactor changes file layout but not public behavior.
+- Broader gate failures outside the owned milestone surface should be documented precisely, not folded into unrelated refactor scope.
+
+### Key Lessons
+1. Manual scope validation is required before milestone archival in this repo; helper output is advisory when archives and backlog phases coexist.
+2. A thin facade plus architecture guard is the lowest-friction pattern for service decomposition with stable API behavior.
+3. Close audits should record exact unowned full-suite blockers while keeping focused owned-surface gates green and repeatable.
+
+### Cost Observations
+- Model mix: inherited frontier model for implementation review, audit synthesis, and archival.
+- Notable: most code churn was net movement out of two large service files; the durable value is the guardrail suite around future maps/search work.
+
+---
+
+## Milestone: v13.5 — Enterprise Governance Seams
+
+**Shipped:** 2026-05-03
+**Phases:** 4 (232, 233, 234, 235) | **Plans:** 13 | **Commits:** 49
+
+### What Was Built
+- `PermissionExtension` now covers action checks, catalog visibility filtering, and dataset detail access with a Community default, overlay tests, and a chokepoint architecture guard.
+- `WorkflowExtension` now covers publication transitions and transition hooks for `/status/`, `/target-status/`, and metadata `record_status` writes.
+- Advanced-sharing gates now line up across schema validators, service guards, builder UI affordances, API/OpenAPI text, and GTM docs.
+- Formal close audit verified Seam Quality A, Boundary Integrity A, Inventory Accuracy A−, and no unresolved P0/P1 findings.
+
+### What Worked
+- **Single-slot governance seams.** Permission and workflow policy both fit the established typed-accessor pattern, keeping overlay behavior explicit and testable.
+- **Architecture guards kept the contract small.** The permission and workflow guards verify the exact chokepoints that would regress the seam, without pretending to prove every future policy surface.
+- **Contract verification paid off.** Phase 234 checked schemas, services, UI, OpenAPI, and GTM copy together, preventing paid/free claims from drifting away from actual enforcement.
+- **Close audit stayed honest.** Phase 235 separated seam readiness from future product UI scope and did not claim unrun full-suite coverage.
+
+### What Was Inefficient
+- **GSD milestone helpers misread this repo shape.** `init milestone-op` reported `v1.0`, and the generic milestone CLI counted archived/backlog phases. The close path needed manual scoping to phases 232-235.
+- **Local DB provisioning remains uneven.** Some phase checks needed `POSTGRES_PORT=5434` or DB-provisioning bypasses because the default reachable database lacked PostGIS/pgvector.
+- **Plan artifacts remain ignored by default.** `.planning/` archival files require intentional force-adds, which is easy to miss at milestone close.
+
+### Patterns Established
+- Governance seams should ship with Protocol + default + typed accessor + production chokepoint routing + overlay test + architecture guard.
+- Paid/free product contracts need dual-layer enforcement (schema + service) plus UI and OpenAPI/GTM copy review.
+- Formal milestone audits should explicitly note any tool-scoping anomalies rather than let helper output drive archive scope.
+
+### Key Lessons
+1. Treat GSD helper output as advisory when old archives and backlog phases are present; use `STATE.md` and the active ROADMAP section as the source of truth.
+2. For open-core seams, "Ready" means a real overlay can alter behavior without core changes and a guard catches known bypasses.
+3. Keep focused close-audit evidence separate from full-suite readiness, especially when local DB provisioning differs from CI.
+
+### Cost Observations
+- Model mix: inherited frontier model for planning and audit synthesis; Sonnet-class helper configuration noted by GSD tooling but not used for a spawned checker.
+- Notable: same-day milestone with a low file count compared to v13.4, but high leverage because it closed two governance seams and the advanced-sharing product contract.
+
+---
+
+## Milestone: v13.4 — Boundary Closeout
+
+**Shipped:** 2026-05-03
+**Phases:** 7 (225, 226, 227, 228, 230, 231, 229) | **Plans:** 23 | **Commits:** 170
+
+### What Was Built
+- `ProcessingPort` and `CatalogPort` now invert both directions of the catalog/processing dependency cycle.
+- `AIProviderExtension` and `EmbeddingProviderExtension` make chat/completion and embeddings provider dispatch extensible.
+- SAML overlay tests write generated fixture output to temporary paths instead of mutating committed fixtures.
+- Cold publish workflows verified public registry artifacts: `geolens`, `geolens-cli`, and `@geolens/sdk` at `1.0.0`.
+- Post-implementation close gate produced `post-impl-20260503-v13-4.md` with Boundary Integrity A+, Coupling Health A−, Seam Quality A−.
+
+### What Worked
+- **Symmetric boundary ports.** Phase 225's `ProcessingPort` pattern was reusable for Phase 230's `CatalogPort`, making the second half of the cycle inversion faster and more auditable.
+- **Architecture guards carried the milestone.** Bidirectional catalog/processing import guards plus provider-SDK import guards gave simple evidence for the close audit.
+- **Cold publish verification closed an external blocker.** Phase 228 turned package workflows from wired-but-cold into verified public registry artifacts.
+- **Post-impl audit fixed real P1s inline.** Format drift and stale test patch targets were caught and fixed before close.
+
+### What Was Inefficient
+- **The milestone roster changed midstream.** Phase 230 and 231 were promoted after the 2026-05-02 audit, which meant state/roadmap tools sometimes misidentified backlog `999.*` work as next.
+- **Local DB provisioning still limits full-suite signal.** Host Postgres without pgvector forced focused checks or Compose-specific env usage.
+- **Dirty unrelated work affected full-suite audit evidence.** In-progress advanced-sharing changes caused one embed-token failure during Phase 229 until stashed before archival.
+
+### Patterns Established
+- Protocol seams should ship with a default adapter, registry accessor, focused seam tests, and an architecture guard in the same phase.
+- Post-impl close gates should treat local dirty worktree changes as residual risk unless they are part of the committed milestone surface.
+- For open-core feature gates, schema validators and service-layer checks should agree.
+
+### Key Lessons
+1. Promote audit-discovered backlog items into the active milestone only after updating both roadmap and state, otherwise transition tooling can point at backlog phases.
+2. Keep milestone-close tags on a clean worktree; stash unrelated in-progress work before archival.
+3. Full-suite claims need a stable local PostGIS + pgvector database, otherwise reports should use focused checks and document the environment gap.
+
+### Cost Observations
+- Model mix: planner/executor agents used inherited frontier model for hard refactors; Sonnet-class agents handled research/checking.
+- Notable: 7 phases in 3 days, with generated/publication artifacts contributing heavily to file count.
+
+---
+
 ## Milestone: v13.1 — Open-Core Separation P1
 
 **Shipped:** 2026-04-29
@@ -53,14 +169,23 @@
 
 | Milestone | Phases | Key Change |
 |-----------|--------|------------|
+| v13.6 | 5 (236, 237, 238, 239, 240) | Maps/search service decomposition behind stable facades; private-module import and size-budget guards; audit debt closed |
+| v13.5 | 4 (232, 233, 234, 235) | Governance seams for permissions and workflows; advanced-sharing contract aligned across schema/service/UI/API/GTM; close gate at A/A/A− |
+| v13.4 | 7 (225, 226, 227, 228, 230, 231, 229) | Symmetric Protocol boundaries for catalog/processing; AI + embeddings provider seams; post-impl close gate with A+/A−/A− grades |
 | v13.1 | 8 (212–219) | Architecture-guard tests as CI-enforced layering invariants; mid-milestone phase additions to close audit-surfaced P0s; per-phase verification gate plan as standard pattern |
 
 ### Cumulative Quality
 
 | Milestone | Backend Tests | Notable |
 |-----------|---------------|---------|
+| v13.6 | Focused maps/search pytest, touched-module ruff/format checks, frontend build/lint/coverage green; full backend/Playwright blockers documented | Maps/search facades are stable and guarded; project-owned Pydantic deprecation warnings fixed |
+| v13.5 | Focused permission/workflow architecture guards, advanced-sharing DB-backed tests, frontend sharing tests, and OpenAPI check green; full-suite not rerun | PermissionExtension and WorkflowExtension now rated Ready; advanced-sharing paid/free contract is enforced and documented |
+| v13.4 | Focused architecture/provider/reupload checks green; full-suite limited by local DB/dirty-worktree constraints | Bidirectional import guards and provider-SDK guards now enforce open-core boundaries |
 | v13.1 | 1999+ pass (baseline maintained throughout) | 12 SDK round-trip + 9 SAML integration + 9 enterprise + 112 CLI unit + 6 CLI round-trip new |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. *Pending — first retrospective; lessons will compound across future milestones.*
+1. Architecture guard tests are the strongest close-gate evidence for boundary milestones.
+2. Post-impl audits should fix P1s inline before milestone archival.
+3. Keep the worktree clean before milestone tags; stash unrelated WIP explicitly.
+4. GSD milestone helpers need manual scope validation in repos with archived and backlog phase history.

@@ -16,12 +16,19 @@ find . -name "*.md" -not -path "*/node_modules/*" -not -path "*/.git/*" -not -pa
 
 # Doc directory structure
 ls docs/ 2>/dev/null
-ls docs/GTM/ 2>/dev/null
+ls docs-internal/GTM/ 2>/dev/null
+find docs-internal/GTM/ -maxdepth 1 -name "*.md" 2>/dev/null | sort
+
+# Deployed public docs / marketing surfaces
+curl -I https://getgeolens.com 2>/dev/null | head -5
+curl -I https://docs.getgeolens.com 2>/dev/null | head -5
 
 # CLAUDE.md files
 find .claude/ -name "*.md" 2>/dev/null | sort
 ls .claude/commands/ 2>/dev/null
 ```
+
+Treat `docs-internal/GTM/` as the product and launch source-of-truth. Treat `README.md`, `docs/`, `getgeolens.com`, and `docs.getgeolens.com` as public evidence to verify against it. Do not use stale `docs/GTM/` paths as authoritative.
 
 ### Step 2: Read core documentation
 
@@ -35,7 +42,7 @@ cat CLAUDE.md 2>/dev/null
 
 ```bash
 # Probe for a running instance
-curl -s http://localhost:8000/openapi.json 2>/dev/null | python3 -c "
+curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/openapi.json 2>/dev/null | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 print(f'Endpoints: {len(d.get(\"paths\", {}))}; Schemas: {len(d.get(\"components\", {}).get(\"schemas\", {}))}')
@@ -160,7 +167,7 @@ Run these 6 subagents in parallel (or the single targeted subagent if a scope wa
 
 1. **OpenAPI spec coverage (if instance running):**
    ```bash
-   curl -s http://localhost:8000/openapi.json 2>/dev/null > /tmp/geolens_openapi.json
+   curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/openapi.json 2>/dev/null > /tmp/geolens_openapi.json
 
    if [ -s /tmp/geolens_openapi.json ]; then
      python3 -c "

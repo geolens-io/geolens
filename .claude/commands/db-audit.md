@@ -39,19 +39,19 @@ done
 ### Step 4: Get current PostgreSQL runtime settings (if DB is running)
 
 ```bash
-docker compose exec -T db psql -U postgres -c "SHOW ALL;" 2>/dev/null | grep -E "shared_buffers|work_mem|effective_cache_size|maintenance_work_mem|max_connections|random_page_cost|jit|max_worker_processes|max_parallel_workers|checkpoint_completion_target|wal_buffers|min_wal_size|max_wal_size|autovacuum|log_min_duration"
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW ALL;" 2>/dev/null | grep -E "shared_buffers|work_mem|effective_cache_size|maintenance_work_mem|max_connections|random_page_cost|jit|max_worker_processes|max_parallel_workers|checkpoint_completion_target|wal_buffers|min_wal_size|max_wal_size|autovacuum|log_min_duration"
 ```
 
 ### Step 5: Get extension versions
 
 ```bash
-docker compose exec -T db psql -U postgres -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;" 2>/dev/null || echo "NO_DB_CONNECTION"
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;" 2>/dev/null || echo "NO_DB_CONNECTION"
 ```
 
 ### Step 6: Get table sizes and row counts
 
 ```bash
-docker compose exec -T db psql -U postgres -c "
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
   SELECT relname, n_live_tup, pg_size_pretty(pg_total_relation_size(relid))
   FROM pg_stat_user_tables
   ORDER BY pg_total_relation_size(relid) DESC
@@ -122,7 +122,7 @@ Run these 6 subagents in parallel.
 
 2. **Compare runtime settings to targets:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT name, setting, unit, source, boot_val
      FROM pg_settings
      WHERE name IN (
@@ -145,7 +145,7 @@ Run these 6 subagents in parallel.
 
 3. **Memory budget check:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        current_setting('shared_buffers') AS shared_buffers,
        current_setting('work_mem') AS work_mem,
@@ -160,7 +160,7 @@ Run these 6 subagents in parallel.
 
 4. **Logging configuration:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT name, setting FROM pg_settings
      WHERE name LIKE 'log%' AND setting != 'off' AND setting != '-1'
      ORDER BY name;
@@ -184,7 +184,7 @@ Run these 6 subagents in parallel.
 
 1. **Extension version matrix:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT extname, extversion, extrelocatable
      FROM pg_extension
      ORDER BY extname;
@@ -199,13 +199,13 @@ Run these 6 subagents in parallel.
 2. **Extension-specific settings verification:**
    ```bash
    # JIT must be off for pgvector
-   docker compose exec -T db psql -U postgres -c "SHOW jit;" 2>/dev/null
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SHOW jit;" 2>/dev/null
 
    # PostGIS configuration
-   docker compose exec -T db psql -U postgres -c "SELECT PostGIS_Full_Version();" 2>/dev/null
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "SELECT PostGIS_Full_Version();" 2>/dev/null
 
    # pgvector available index types
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT amname FROM pg_am WHERE amname IN ('ivfflat', 'hnsw');
    " 2>/dev/null
    ```
@@ -226,7 +226,7 @@ Run these 6 subagents in parallel.
 
 4. **Extension upgrade path safety:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT * FROM pg_available_extension_versions
      WHERE name IN ('postgis', 'vector', 'pg_trgm')
      ORDER BY name, version;
@@ -247,7 +247,7 @@ Run these 6 subagents in parallel.
 
 1. **Dead tuple accumulation:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        relname,
        n_live_tup,
@@ -273,7 +273,7 @@ Run these 6 subagents in parallel.
 
 2. **Table bloat estimation:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        current_database(), schemaname, tablename,
        pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) AS total_size,
@@ -288,7 +288,7 @@ Run these 6 subagents in parallel.
 
 3. **Index bloat estimation:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        schemaname, relname, indexrelname,
        pg_size_pretty(pg_relation_size(indexrelid)) AS index_size,
@@ -308,7 +308,7 @@ Run these 6 subagents in parallel.
 
 4. **Autovacuum settings:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT name, setting FROM pg_settings
      WHERE name LIKE 'autovacuum%'
      ORDER BY name;
@@ -323,7 +323,7 @@ Run these 6 subagents in parallel.
 
 5. **Toast table overhead:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        c.relname AS table_name,
        t.relname AS toast_table,
@@ -365,7 +365,7 @@ Run these 6 subagents in parallel.
 
 2. **Check for sequential scans on large tables:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        relname,
        seq_scan,
@@ -386,7 +386,7 @@ Run these 6 subagents in parallel.
 
 3. **Index usage stats:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        schemaname, relname, indexrelname,
        idx_scan, idx_tup_read, idx_tup_fetch,
@@ -403,7 +403,7 @@ Run these 6 subagents in parallel.
    grep -rn "ForeignKey" backend/app/ --include="*.py" | grep -v __pycache__ | grep -v alembic
 
    # Check live database for unindexed foreign keys
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        conrelid::regclass AS table_name,
        conname AS constraint_name,
@@ -422,7 +422,7 @@ Run these 6 subagents in parallel.
 5. **EXPLAIN ANALYZE on representative spatial queries (if DB has data):**
    ```bash
    # Check if there is data to query
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT relname, n_live_tup
      FROM pg_stat_user_tables
      WHERE n_live_tup > 0
@@ -439,12 +439,12 @@ Run these 6 subagents in parallel.
 6. **Slow query detection:**
    ```bash
    # Check if pg_stat_statements is available
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements';
    " 2>/dev/null
 
    # If available, get top slow queries
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        calls,
        round(mean_exec_time::numeric, 2) AS avg_ms,
@@ -486,7 +486,7 @@ Run these 6 subagents in parallel.
 
 2. **Current connection state (if DB is running):**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        count(*) AS total,
        count(*) FILTER (WHERE state = 'active') AS active,
@@ -505,7 +505,7 @@ Run these 6 subagents in parallel.
 
 3. **Connection detail:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        pid, state, wait_event_type, wait_event,
        age(clock_timestamp(), backend_start) AS connection_age,
@@ -565,7 +565,7 @@ Run these 6 subagents in parallel.
 
 2. **Current database size (for dump time estimation):**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        pg_size_pretty(pg_database_size(current_database())) AS db_size;
    " 2>/dev/null
@@ -575,7 +575,7 @@ Run these 6 subagents in parallel.
 
 3. **WAL configuration for PITR:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT name, setting FROM pg_settings
      WHERE name IN (
        'wal_level', 'archive_mode', 'archive_command',
@@ -595,12 +595,12 @@ Run these 6 subagents in parallel.
 4. **Large object and BLOB handling:**
    ```bash
    # Check for large objects that pg_dump might miss with --no-blobs
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT count(*) AS large_object_count FROM pg_largeobject_metadata;
    " 2>/dev/null
 
    # Raster data storage (large binary in toast tables)
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT
        c.relname,
        pg_size_pretty(pg_relation_size(t.oid)) AS toast_size
@@ -613,7 +613,7 @@ Run these 6 subagents in parallel.
 
 5. **Recovery time objective estimate:**
    ```bash
-   docker compose exec -T db psql -U postgres -c "
+   docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
      SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size;
    " 2>/dev/null
    ```

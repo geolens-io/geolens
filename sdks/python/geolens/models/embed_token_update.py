@@ -18,7 +18,8 @@ T = TypeVar("T", bound="EmbedTokenUpdate")
 class EmbedTokenUpdate:
     """
     Attributes:
-        allowed_origins (list[str] | None | Unset): Updated list of allowed embedding origins
+        allowed_origins (list[str] | None | Unset): Updated list of allowed embedding origins. Null clears restrictions;
+            non-empty origin restrictions require GeoLens Enterprise.
     """
 
     allowed_origins: list[str] | None | Unset = UNSET

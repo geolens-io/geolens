@@ -144,7 +144,10 @@ export function DatasetPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { data: dataset, isLoading, error } = useDataset(id ?? '', {
-    refetchInterval: (query) => query.state.data?.raster?.status === 'regenerating' ? 5_000 : false,
+    refetchInterval: (query) => {
+      const data = (query as { state: { data?: DatasetResponse } }).state.data;
+      return data?.raster?.status === 'regenerating' ? 5_000 : false;
+    },
   });
   const [activeDialog, setActiveDialog] = useState<'delete' | 'reupload' | 'vrt' | 'unpublish' | null>(null);
   const setTargetStatus = useSetTargetStatus();
@@ -330,6 +333,7 @@ export function DatasetPage() {
   };
 
   const handleUnpublish = async () => {
+    if (!id) return;
     try {
       await setTargetStatus.mutateAsync({ datasetId: id, status: UNPUBLISH_TARGET });
       toast.success(t('publish.unpublished'));
@@ -510,7 +514,7 @@ export function DatasetPage() {
 
       <PendingEditsBar
         pendingCount={metadataPendingCount}
-        onSaveAll={savePendingDrafts}
+        onSaveAll={async () => { await savePendingDrafts(); }}
         onCancelAll={discardPendingDrafts}
         isSaving={isSavingPendingEdits}
       />

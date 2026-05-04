@@ -1,6 +1,6 @@
 # /admin-audit — Admin Control Plane & Governance Audit
 
-Audit the GeoLens admin control plane for authorization integrity, permission matrix correctness, user management safety, API key hygiene, audit log completeness, settings governance, and config import security. GeoLens uses a capability-based access control (CBAC) system with 3 roles (admin/editor/viewer), 8 granular permissions, and a customizable permission matrix stored in the database — this audit verifies that the CBAC system is correctly enforced end-to-end, not just that endpoints exist.
+Audit the GeoLens admin control plane for authorization integrity, permission matrix correctness, user management safety, API key hygiene, audit log completeness, settings governance, and config import security. GeoLens uses a capability-based access control (CBAC) system with 3 roles (admin/editor/viewer), 8 granular permissions, a customizable permission matrix stored in the database, and v13.5 governance seams (`PermissionExtension`, `WorkflowExtension`) for enterprise policy overlays — this audit verifies that governance is correctly enforced end-to-end, not just that endpoints exist.
 
 **Usage:** `/admin-audit` (full audit) or `/admin-audit <area>` where area is `authz`, `users`, `api-keys`, `settings`, `audit-logs`, or `config-ops`
 
@@ -53,11 +53,22 @@ cat backend/app/platform/config_ops/router.py
 # Embed tokens admin router (admin-scoped, uses manage_users)
 cat backend/app/modules/embed_tokens/admin_router.py 2>/dev/null
 
-# Share token management
-find backend/app -name "*.py" -path "*share*" | head -5
+# Share / embed token management and edition gates
+cat backend/app/modules/catalog/maps/schemas.py 2>/dev/null
+cat backend/app/modules/catalog/maps/service.py 2>/dev/null
+cat backend/app/modules/embed_tokens/schemas.py 2>/dev/null
+cat backend/app/modules/embed_tokens/service.py 2>/dev/null
 ```
 
-### Step 3: Map the admin UI
+### Step 3: Read extension governance seams
+
+```bash
+cat backend/app/platform/extensions/protocols.py
+cat backend/app/platform/extensions/defaults.py
+cat backend/app/platform/extensions/__init__.py
+```
+
+### Step 4: Map the admin UI
 
 ```bash
 # Admin pages
@@ -71,7 +82,7 @@ grep -rn "admin\|settings\|audit" frontend/src/api/ --include="*.ts" 2>/dev/null
 grep -rn "admin\|settings\|audit" frontend/src/hooks/ --include="*.ts" 2>/dev/null | head -30
 ```
 
-### Step 4: Read the persistent config system
+### Step 5: Read the persistent config system
 
 ```bash
 cat backend/app/core/persistent_config.py 2>/dev/null
@@ -79,7 +90,7 @@ cat backend/app/modules/settings/service.py 2>/dev/null
 cat backend/app/modules/settings/schemas.py 2>/dev/null
 ```
 
-### Step 5: Read the audit logging system
+### Step 6: Read the audit logging system
 
 ```bash
 cat backend/app/modules/audit/models.py 2>/dev/null
@@ -111,6 +122,9 @@ These are the expected permission semantics. Deviations are findings.
 ### Protection invariants
 
 - Every admin endpoint MUST use `require_permission("manage_users")` or `require_permission("manage_settings")`
+- Permission checks MUST flow through the v13.5 `PermissionExtension` seam (`get_permission_extension()`), while Community still preserves the default role matrix semantics
+- Catalog visibility and dataset access checks MUST also use `PermissionExtension`; direct role-name shortcuts are findings unless they are purely UI hints backed by server checks
+- Dataset publication workflow transitions MUST flow through the v13.5 `WorkflowExtension` seam (`get_workflow_extension()`); Enterprise approval workflow code must not be hardcoded in Community routes/services
 - The permission matrix is customizable BUT locked capabilities SHOULD NOT be grantable to non-admin roles (verify enforcement — known weak spot)
 - Last-admin protection: the system must prevent deletion/deactivation of the last admin user
 - Self-deletion prevention: a user must not be able to delete their own account via the admin API
@@ -118,6 +132,7 @@ These are the expected permission semantics. Deviations are findings.
 - Audit log entries must be immutable — no delete or update endpoints
 - Config import must validate before applying — dry-run mode should be available
 - Settings changes must be audit-logged with before/after values
+- Advanced sharing gates MUST be enforced in both schemas and services: Community allows basic share link create/revoke, public/internal/private visibility, and default unrestricted embed tokens, but rejects custom share expiration, custom embed lifetimes, and non-empty embed domain restrictions unless the Enterprise overlay is active
 
 ---
 
@@ -192,9 +207,22 @@ Run these 7 subagents in parallel.
 
    Check:
    - Does it check the effective permission matrix (not just role name)?
+   - Does it delegate the final decision to `get_permission_extension().check_permission(...)` so enterprise RBAC/ABAC overlays can participate?
    - Does it handle missing/expired tokens correctly (401 not 500)?
    - Does it log permission denials?
    - Can the permission check be bypassed by manipulating request headers?
+
+6. **Verify v13.5 governance seam usage:**
+   ```bash
+   grep -rn "get_permission_extension\|get_workflow_extension\|PermissionExtension\|WorkflowExtension" backend/app/ --include="*.py" | grep -v __pycache__
+   grep -rn "record_status\|publish\|approval\|workflow" backend/app/modules/catalog/ --include="*.py" | grep -v __pycache__
+   ```
+
+   Check:
+   - `require_permission()` delegates to `PermissionExtension`, not a hardcoded role-only path
+   - Catalog visibility/dataset access paths call `PermissionExtension.filter_visible()` / `can_access_dataset()`
+   - Dataset status transitions call `WorkflowExtension.allowed_transitions()` and `on_transition()`
+   - Enterprise approval workflow concepts do not appear in Community code except behind the seam
 
 **Output:** Endpoint protection map — Endpoint | Method | Required permission | Actual protection | Status (Protected/Unprotected/Mismatched).
 
@@ -229,6 +257,7 @@ Run these 7 subagents in parallel.
    - Can a custom matrix grant `manage_users` to viewers? (Must not be possible)
    - Can a custom matrix revoke `manage_users` from all admins? (Must not — lockout prevention)
    - Is the matrix validated on write, or only on read?
+   - Does `DefaultPermissionExtension` preserve matrix behavior while still allowing Enterprise overlays to add resource-aware policy?
 
 3. **Check for privilege escalation paths:**
    ```bash
@@ -541,6 +570,7 @@ Run these 7 subagents in parallel.
    - Dry-run mode is available and functional
    - Import cannot inject new admin users or API keys
    - Import cannot change the permission matrix to grant unauthorized access
+   - Import cannot bypass `PermissionExtension`, `WorkflowExtension`, or advanced-sharing Community/Enterprise gates by writing lower-level config directly
    - Overwrite mode has additional confirmation requirements
 
 5. **Settings rollback:**
@@ -561,6 +591,19 @@ Run these 7 subagents in parallel.
    ```
 
    Verify that public settings don't leak: internal URLs, secret keys, database credentials, or admin configuration details.
+
+7. **Advanced sharing governance:**
+   ```bash
+   grep -rn "ADVANCED_SHARING_ERROR\|expires_at\|expires_in_days\|allowed_origins\|is_enterprise" backend/app/modules/catalog/maps/ backend/app/modules/embed_tokens/ --include="*.py"
+   grep -rn "advanced-sharing\|useEdition\|isEnterprise\|allowedOrigins\|expiresAt" frontend/src/pages/admin frontend/src/components/admin frontend/src/components/builder --include="*.tsx" --include="*.ts" 2>/dev/null
+   ```
+
+   Check:
+   - Community basic share create/revoke still works without Enterprise
+   - Community rejects custom share expiration and non-default embed token lifetimes at schema and service layers
+   - Community rejects non-empty embed `allowed_origins` / domain restrictions at schema and service layers
+   - Admin shared-map views do not expose Enterprise-only quota/domain/lifetime controls unless the Enterprise overlay is active
+   - Enterprise can enable the advanced controls without modifying Community source
 
 **Output:** Settings governance — Setting/Operation | Validated? | Dangerous? | Audit-logged? | Status.
 

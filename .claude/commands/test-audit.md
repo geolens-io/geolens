@@ -1,8 +1,8 @@
 # /test-audit — Test Health & Coverage Audit
 
-Audit test suite health across the GeoLens backend (pytest) and frontend (vitest): coverage gaps, test quality, flaky tests, missing edge cases, and test infrastructure. GeoLens's spatial + vector + trigram stack has testing challenges that generic tools miss: spatial assertion precision, embedding dimension fixtures, database-dependent test isolation, and MapLibre component testability.
+Audit test suite health across the GeoLens backend (pytest), frontend (vitest), and Playwright E2E suites: coverage gaps, test quality, flaky tests, missing edge cases, smoke-suite drift, and test infrastructure. GeoLens's spatial + vector + trigram stack has testing challenges that generic tools miss: spatial assertion precision, embedding dimension fixtures, database-dependent test isolation, MapLibre component testability, and authenticated browser-state reuse.
 
-**Usage:** `/test-audit` (full audit) or `/test-audit <scope>` where scope is `backend`, `frontend`, `coverage`, `flaky`, or `quality`
+**Usage:** `/test-audit` (full audit) or `/test-audit <scope>` where scope is `backend`, `frontend`, `e2e`, `coverage`, `flaky`, or `quality`
 
 ---
 
@@ -16,26 +16,34 @@ cat backend/pyproject.toml 2>/dev/null | grep -A 30 "\[tool.pytest"
 cat backend/pytest.ini 2>/dev/null
 cat backend/setup.cfg 2>/dev/null | grep -A 20 "\[tool:pytest\]"
 
-# Frontend vitest config
-cat frontend/vitest.config.ts 2>/dev/null || cat frontend/vitest.config.js 2>/dev/null
-cat frontend/vite.config.ts 2>/dev/null | grep -A 20 "test"
+# Frontend vitest config (Vitest is configured inside Vite)
+cat frontend/vite.config.ts 2>/dev/null
+grep -n "test:" -A 40 frontend/vite.config.ts 2>/dev/null
 
 # Coverage config
 cat backend/.coveragerc 2>/dev/null
 cat backend/pyproject.toml 2>/dev/null | grep -A 20 "\[tool.coverage"
-cat frontend/vitest.config.ts 2>/dev/null | grep -A 10 "coverage"
+grep -n "coverage:" -A 20 frontend/vite.config.ts 2>/dev/null
+
+# Playwright / E2E config and root scripts
+cat playwright.config.ts 2>/dev/null
+cat package.json 2>/dev/null | grep -n "\"e2e"
 ```
 
 ### Step 2: Count tests and get the lay of the land
 
 ```bash
 # Backend test count
-cd backend && python -m pytest --collect-only -q 2>/dev/null | tail -1
+cd backend && uv run pytest --collect-only -q 2>/dev/null | tail -1
 cd - 2>/dev/null || true
 
 # Frontend test count
-cd frontend && npx vitest run --reporter=verbose 2>/dev/null | tail -5
+cd frontend && npm run test:coverage -- --reporter=verbose 2>/dev/null | tail -5
 cd - 2>/dev/null || true
+
+# E2E spec inventory and smoke command surface
+find e2e \( -name "*.spec.ts" -o -name "*.setup.ts" -o -name "*.ts" \) -type f 2>/dev/null | sort
+cat package.json 2>/dev/null | grep -n "\"e2e"
 
 # Test file inventory
 find backend/tests -name "test_*.py" -o -name "*_test.py" 2>/dev/null | sort
@@ -52,11 +60,15 @@ find backend/tests -name "conftest.py" 2>/dev/null | while read f; do
 done
 
 # Frontend test setup
-cat frontend/src/test-setup.ts 2>/dev/null || cat frontend/src/setupTests.ts 2>/dev/null
+cat frontend/src/test/setup.ts 2>/dev/null
 find frontend/src -name "test-utils.*" -o -name "testUtils.*" 2>/dev/null | while read f; do
   echo "=== $f ==="
   cat "$f"
 done
+
+# E2E auth state, fixtures, and helpers
+cat e2e/auth.setup.ts 2>/dev/null
+find e2e/fixtures e2e/helpers -maxdepth 2 -type f 2>/dev/null | sort
 ```
 
 ### Step 4: Check CI test commands
@@ -65,7 +77,7 @@ done
 # GitHub Actions workflows referencing tests
 find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null | while read f; do
   echo "=== $f ==="
-  grep -n "pytest\|vitest\|test\|coverage" "$f" 2>/dev/null
+  grep -n "pytest\|vitest\|playwright\|e2e\|test\|coverage" "$f" 2>/dev/null
 done
 ```
 
@@ -104,7 +116,7 @@ These are the hard rules for test health in a spatial + vector + trigram stack. 
 
 ## SUBAGENT DISPATCH (Parallel)
 
-Run these 6 subagents in parallel.
+Run these 7 subagents in parallel.
 
 ### Subagent 1: Coverage Analysis
 
@@ -115,7 +127,7 @@ Run these 6 subagents in parallel.
 1. **Backend coverage:**
    ```bash
    cd backend 2>/dev/null || true
-   python -m pytest --cov=app --cov-report=term-missing -q 2>/dev/null | head -100
+   uv run pytest --cov=app --cov-report=term-missing -q 2>/dev/null | head -100
    cd - 2>/dev/null || true
    ```
 
@@ -127,7 +139,7 @@ Run these 6 subagents in parallel.
 2. **Frontend coverage:**
    ```bash
    cd frontend 2>/dev/null || true
-   npx vitest run --coverage 2>/dev/null | head -100
+   npm run test:coverage 2>/dev/null | head -100
    cd - 2>/dev/null || true
    ```
 
@@ -249,7 +261,7 @@ Run these 6 subagents in parallel.
 1. **Slow test detection:**
    ```bash
    cd backend 2>/dev/null || true
-   python -m pytest --durations=20 -q 2>/dev/null | head -30
+   uv run pytest --durations=20 -q 2>/dev/null | head -30
    cd - 2>/dev/null || true
    ```
 
@@ -575,6 +587,95 @@ Run these 6 subagents in parallel.
 
 ---
 
+### Subagent 7: Playwright / E2E Health
+
+**Goal:** Audit the browser and API E2E suite as a release signal: root package scripts, spec coverage, authenticated state, fixtures, traces, and smoke-suite parity.
+
+**Process:**
+
+1. **Command and project surface:**
+   ```bash
+   # Root package scripts are the canonical Playwright entrypoints
+   cat package.json 2>/dev/null | grep -n "\"e2e"
+   cat playwright.config.ts 2>/dev/null
+
+   # Confirm scripts point at existing specs and projects
+   find e2e -maxdepth 2 \( -name "*.spec.ts" -o -name "*.setup.ts" -o -name "*.ts" \) -type f 2>/dev/null | sort
+   ```
+
+   Verify:
+   - `npm run e2e`, `e2e:smoke`, `e2e:smoke:*`, `e2e:export`, and `e2e:ui` resolve to existing specs.
+   - Smoke scripts exercise the same core surfaces the full suite claims: auth, admin, search, dataset detail, collections, permissions, upload, non-spatial ingest, builder, styling, and export.
+   - API-only export tests use the API project intentionally and do not depend on browser auth state.
+
+2. **Smoke-suite parity:**
+   ```bash
+   # Compare full spec inventory with smoke script coverage
+   find e2e -maxdepth 1 -name "*.spec.ts" -print | sort
+   cat package.json 2>/dev/null | grep -n "e2e:smoke"
+   ```
+
+   Flag:
+   - Core product specs absent from smoke scripts without a documented reason.
+   - Smoke scripts that reference deleted or renamed specs.
+   - Specs duplicated across smoke groups in a way that hides failures or inflates runtime.
+
+3. **Authenticated state lifecycle:**
+   ```bash
+   cat e2e/auth.setup.ts 2>/dev/null
+   grep -rn "storageState\|auth.setup\|\\.auth\|admin.*admin\|login" playwright.config.ts e2e/ --include="*.ts" 2>/dev/null
+   ```
+
+   Verify:
+   - Auth setup writes a deterministic storage state path ignored by git.
+   - Tests that require auth declare the authenticated project or storage state instead of logging in ad hoc.
+   - Anonymous/share/embed specs explicitly opt out of authenticated state.
+   - Credentials come from env or documented local defaults, never committed secrets.
+
+4. **Fixtures and test data:**
+   ```bash
+   find e2e/fixtures e2e/helpers -maxdepth 3 -type f 2>/dev/null | sort
+   grep -rn "fixtures/\|sample\|upload\|create.*Dataset\|delete.*Dataset\|cleanup" e2e/ --include="*.ts" 2>/dev/null
+   ```
+
+   Verify:
+   - Fixtures cover vector, non-spatial table, raster/VRT/export cases where those flows are in scope.
+   - Test-created datasets/maps are uniquely named and cleaned up or isolated.
+   - Helpers avoid brittle selectors and keep API setup separate from UI assertions.
+
+5. **Trace, retry, and artifact policy:**
+   ```bash
+   grep -n "trace\|screenshot\|video\|retries\|workers\|reporter\|outputDir" playwright.config.ts 2>/dev/null
+   cat .gitignore 2>/dev/null | grep -n "test-results\|playwright-report\|\\.auth"
+   ```
+
+   Verify:
+   - Traces/screenshots/videos are retained on failure but not committed.
+   - CI retries are explicit and do not mask deterministic local failures.
+   - Parallel workers do not share mutable records unless fixtures isolate state.
+
+6. **E2E-only blind spots:**
+   ```bash
+   grep -rn "test\\(|describe\\(" e2e/ --include="*.spec.ts" 2>/dev/null
+   grep -rn "getByRole\|getByLabel\|locator\\(\"\\[data-testid\\|page\\.waitForTimeout\|networkidle" e2e/ --include="*.ts" 2>/dev/null
+   ```
+
+   Prioritize missing or weak E2E coverage for:
+   - upload → preview → commit → dataset detail
+   - VRT creation and source lifecycle
+   - feature edit and schema edit persistence
+   - public viewer/share-token behavior
+   - advanced-sharing Community rejection cases and Enterprise-positive cases when overlay is active
+   - export formats and CRS behavior
+   - `PermissionExtension` and `WorkflowExtension` regression coverage for access and publication/status transitions
+   - OGC/STAC/DCAT public endpoint access in the free product surface
+   - no-key AI paths: builder/demo remain usable and AI controls fail gracefully
+   - permission boundaries between anonymous, readonly, authenticated, and admin users
+
+**Output:** E2E health table — Script/spec | Flow covered | Auth state | Fixtures | Artifact policy | Smoke parity | Finding.
+
+---
+
 ## SYNTHESIS (Serial — after all subagents complete)
 
 ### Scoring
@@ -587,6 +688,7 @@ Run these 6 subagents in parallel.
 | **Missing Tests** | Coverage of critical paths: auth, error handling, spatial ops, vector ops |
 | **Infrastructure** | Fixture organization, isolation strategy, CI alignment |
 | **Frontend Patterns** | Behavior-focused tests, hook coverage, a11y assertions, state coverage |
+| **Playwright/E2E** | Smoke-suite parity, auth state, fixtures, trace policy, and core browser-flow coverage |
 
 Grade each A-F using:
 - **A** — Excellent. Comprehensive coverage, strong patterns, minimal gaps.
@@ -615,6 +717,8 @@ Summarize total test debt:
 - Number of backend routes with zero test coverage
 - Number of frontend components with zero test coverage
 - Number of service functions without tests
+- Number of root E2E scripts with stale or incomplete spec coverage
+- Number of critical E2E flows absent from smoke scripts
 - Number of spatial operations tested vs untested
 - Number of error paths tested vs untested
 - Count of flaky-risk tests
@@ -665,13 +769,16 @@ Write the report to: `docs-internal/audits/test-audit-{YYYYMMDD}.md`
 ## 6. Frontend Test Patterns
 <!-- Subagent 6 findings -->
 
-## 7. Test Debt Summary
+## 7. Playwright / E2E Health
+<!-- Subagent 7 findings -->
+
+## 8. Test Debt Summary
 <!-- Aggregate metrics -->
 
-## 8. Prioritized Action Items
+## 9. Prioritized Action Items
 <!-- Action items table -->
 
-## 9. Comparison to Prior Audit
+## 10. Comparison to Prior Audit
 <!-- If a previous test-audit exists, diff findings -->
 ```
 
@@ -686,6 +793,7 @@ Write the report to: `docs-internal/audits/test-audit-{YYYYMMDD}.md`
 
 - `/post-impl` — covers code quality including test-adjacent concerns. This command dives deep into test-specific health.
 - `/ship` — runs tests and auto-fixes failures. This command audits whether the test suite itself is healthy.
+- `/smoke-check` — runs Playwright smoke suites. This command audits whether those suites are complete and trustworthy.
 - `/sec-audit` — checks for security vulnerabilities. This command checks whether security-sensitive code paths have test coverage.
 
 ---

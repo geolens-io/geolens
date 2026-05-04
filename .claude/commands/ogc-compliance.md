@@ -12,7 +12,10 @@ Audit GeoLens OGC API Features, OGC API Records, STAC, and DCAT endpoints for sp
 - `backend/app/standards/` — OGC Features router, STAC router, DCAT serialization service
 - `backend/app/modules/catalog/` — OGC Records (served via the search infrastructure), DCAT endpoints (in the dataset export router)
 
-The OGC router is mounted at the API root (`/api/`), not under `/api/ogc/`. STAC is at `/api/stac/`. DCAT is at `/api/datasets/dcat/`.
+The OGC router is mounted at the GeoLens API root, not under `/api/ogc/`.
+Through the frontend or reverse proxy, that root is `/api/`; when curling the
+FastAPI backend directly on port 8000, the proxy prefix is stripped and the
+same endpoints are at `/`, `/stac/`, and `/datasets/dcat/`.
 
 ```bash
 # Discover all standards-related modules (flat structure — no nested subdirs)
@@ -77,8 +80,9 @@ grep -rn "problem.json\|ProblemDetail\|application/problem" backend/app/standard
 
 ```bash
 # Check if docker is running and geolens is up
-# OGC landing page is at API root (/api/), not /api/ogc/
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/ 2>/dev/null || \
+# Direct backend probe: OGC landing page is at / on port 8000.
+# Through the frontend/reverse proxy, the same endpoint is /api/.
+curl -s -o /dev/null -w "%{http_code}" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/ 2>/dev/null || \
 echo "NO_RUNNING_INSTANCE"
 ```
 
@@ -116,7 +120,7 @@ GeoLens declares 4 OGC Common conformance classes. These are foundational requir
 
 **Required endpoints:**
 
-**GeoLens architecture note:** The OGC router (`ogc_router`) is mounted at the API root — endpoints are at `/api/`, `/api/conformance`, etc. (NOT `/api/ogc/`). The per-dataset router (`ogc_features_router`) handles `/api/collections/{dataset_id}/...`. There is no dedicated `/collections` list endpoint on the OGC router — collection discovery happens through the catalog search infrastructure (`/api/search/`).
+**GeoLens architecture note:** The OGC router (`ogc_router`) is mounted at the API root. Public/proxy paths are `/api/`, `/api/conformance`, etc. (NOT `/api/ogc/`); direct backend-port probes use `/`, `/conformance`, etc. because the proxy prefix is stripped. The per-dataset router (`ogc_features_router`) handles `/collections/{dataset_id}/...` directly and `/api/collections/{dataset_id}/...` through the proxy. There is no dedicated `/collections` list endpoint on the OGC router — collection discovery happens through the catalog search infrastructure (`/search/datasets/` directly or `/api/search/datasets/` through the proxy).
 
 | Path | Method | Purpose | Required | GeoLens Status |
 |------|--------|---------|----------|----------------|
@@ -462,26 +466,27 @@ Run these 5 subagents in parallel. Subagent 1 covers OGC Common + Features + CQL
 
 10. **Live testing (if instance available):**
    ```bash
-   # Landing page (OGC router is at API root, NOT /api/ogc/)
-   curl -s http://localhost:8000/api/ | python3 -m json.tool
+   # Direct backend port: OGC router is at /, NOT /api/ogc/.
+   # Use /api/ only when testing through the frontend/reverse proxy.
+   curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/ | python3 -m json.tool
 
    # Conformance
-   curl -s http://localhost:8000/api/conformance | python3 -m json.tool
+   curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/conformance | python3 -m json.tool
 
    # Items with bbox filter (use a valid bbox for test data)
-   curl -s "http://localhost:8000/api/collections/{test_collection}/items?limit=2&bbox=-180,-90,180,90"
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/{test_collection}/items?limit=2&bbox=-180,-90,180,90"
 
    # Single feature
-   curl -s "http://localhost:8000/api/collections/{test_collection}/items/{test_feature_id}"
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/{test_collection}/items/{test_feature_id}"
 
    # CQL2 filtering
-   curl -s "http://localhost:8000/api/collections/datasets/queryables" | python3 -m json.tool
-   curl -s "http://localhost:8000/api/collections/datasets/items?filter=title%20LIKE%20'%25test%25'&filter-lang=cql2-text"
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/datasets/queryables" | python3 -m json.tool
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/datasets/items?filter=title%20LIKE%20'%25test%25'&filter-lang=cql2-text"
 
    # Error cases — verify RFC 7807 response body
-   curl -s "http://localhost:8000/api/collections/nonexistent"
-   curl -s "http://localhost:8000/api/collections/{test_collection}/items?limit=-1"
-   curl -s "http://localhost:8000/api/collections/{test_collection}/items?bbox=invalid"
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/nonexistent"
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/{test_collection}/items?limit=-1"
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/collections/{test_collection}/items?bbox=invalid"
    ```
 
 **Output:** Compliance table: Requirement | Status | Evidence | Notes
@@ -493,7 +498,7 @@ Run these 5 subagents in parallel. Subagent 1 covers OGC Common + Features + CQL
 **Goal:** Verify OGC API Records Part 1 (Core) conformance.
 
 **Key files — Records is NOT in the OGC standards directory. It's served through the catalog search infrastructure:**
-- `backend/app/modules/catalog/search/router.py` — Records search endpoint (`GET /api/search/`)
+- `backend/app/modules/catalog/search/router.py` — Records search endpoint (`GET /api/search/datasets/`)
 - `backend/app/modules/catalog/search/schemas.py` — `OGCRecordProperties`, `OGCRecordResponse`, `OGCFeatureCollectionResponse`
 - `backend/app/modules/catalog/search/service.py` — `SearchFilters`, `search_datasets()`, `get_facet_counts()`
 - Conformance is declared in `backend/app/standards/ogc/router.py` (the shared `/conformance` endpoint)
@@ -522,20 +527,20 @@ Run these 5 subagents in parallel. Subagent 1 covers OGC Common + Features + CQL
    - Does `sortby` parameter work with `+`/`-` direction prefix?
    - Check `SearchFilters.sort_by` in `search/service.py` for supported sort fields (relevance, title, created, updated)
 
-5. **Conformance URIs:** Verify the Records-specific conformance classes are declared and implemented. The conformance endpoint is shared with Features at `GET /api/conformance`.
+5. **Conformance URIs:** Verify the Records-specific conformance classes are declared and implemented. The conformance endpoint is shared with Features at `GET /conformance` on the direct backend port and `GET /api/conformance` through the frontend/reverse proxy.
 
 6. **Cross-reference with Features:** Records is built on Features Core but uses a separate router implementation. Verify that all Features Core requirements (links, pagination, error handling) also hold for Records responses from the search router. Check `OGCFeatureCollectionResponse` for `numberMatched`/`numberReturned`, proper link rels, etc.
 
 7. **Live testing (if instance available):**
-   ```bash
-   # Records-specific search (search router, not OGC router)
-   curl -s "http://localhost:8000/api/search/?q=elevation"
-   curl -s "http://localhost:8000/api/search/?type=dataset"
+	   ```bash
+	   # Records-specific search (search router, not OGC router)
+	   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/search/datasets/?q=elevation"
+	   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/search/datasets/?limit=10"
 
-   # Verify record properties
-   curl -s "http://localhost:8000/api/search/?limit=1" | \
-     python3 -c "import sys,json; fc=json.load(sys.stdin); r=fc.get('features',[{}])[0]; p=r.get('properties',{}); [print(f'MISSING: {k}') for k in ['title','description','type','created','updated','keywords','themes','contacts','formats','license'] if k not in p]"
-   ```
+	   # Verify record properties
+	   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/search/datasets/?limit=1" | \
+	     python3 -c "import sys,json; fc=json.load(sys.stdin); r=fc.get('features',[{}])[0]; p=r.get('properties',{}); [print(f'MISSING: {k}') for k in ['title','description','type','created','updated','keywords','themes','contacts','formats','license'] if k not in p]"
+	   ```
 
 **Output:** Compliance table + record schema coverage matrix
 
@@ -613,7 +618,7 @@ Run these 5 subagents in parallel. Subagent 1 covers OGC Common + Features + CQL
 8. **Live testing (if instance available):**
    ```bash
    # Root catalog
-   curl -s http://localhost:8000/api/stac/ | python3 -c "
+   curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/stac/ | python3 -c "
    import sys,json; c=json.load(sys.stdin)
    assert c.get('type')=='Catalog', f'type={c.get(\"type\")}'
    assert c.get('stac_version')=='1.0.0', f'stac_version={c.get(\"stac_version\")}'
@@ -623,7 +628,7 @@ Run these 5 subagents in parallel. Subagent 1 covers OGC Common + Features + CQL
    "
 
    # Validate an item
-   curl -s "http://localhost:8000/api/stac/collections/{collection}/items?limit=1" | python3 -c "
+   curl -s "${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/stac/collections/{collection}/items?limit=1" | python3 -c "
    import sys,json; fc=json.load(sys.stdin)
    item=fc['features'][0] if fc.get('features') else None
    if not item: print('No items found'); sys.exit()
@@ -711,13 +716,13 @@ Run these 5 subagents in parallel. Subagent 1 covers OGC Common + Features + CQL
 7. **Live testing (if instance available):**
    ```bash
    # DCAT catalog (all public datasets)
-   curl -s http://localhost:8000/api/datasets/dcat/ | python3 -m json.tool
+   curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/datasets/dcat/ | python3 -m json.tool
 
    # Single dataset DCAT record
-   curl -s http://localhost:8000/api/datasets/{dataset_id}/dcat/ | python3 -m json.tool
+   curl -s ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/datasets/{dataset_id}/dcat/ | python3 -m json.tool
 
    # With content negotiation:
-   curl -s -H "Accept: application/ld+json" http://localhost:8000/api/datasets/dcat/
+   curl -s -H "Accept: application/ld+json" ${API_ORIGIN:-http://localhost:${API_PORT:-8001}}/datasets/dcat/
    ```
 
 **Output:** Compliance table + JSON-LD context completeness matrix

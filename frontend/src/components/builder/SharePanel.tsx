@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { ApiError } from '@/api/client';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { useEdition } from '@/hooks/use-edition';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,7 @@ interface ShareLinkSettingsProps {
   shareExpires: string | null;
   configDomains: string | null;
   resolvedEmbedTokenId: string | null;
+  canUseAdvancedSharing: boolean;
   onRevoked: () => void;
 }
 
@@ -76,6 +78,7 @@ function ShareLinkSettings({
   shareExpires,
   configDomains,
   resolvedEmbedTokenId,
+  canUseAdvancedSharing,
   onRevoked,
 }: ShareLinkSettingsProps) {
   const { t } = useTranslation('builder');
@@ -156,31 +159,33 @@ function ShareLinkSettings({
       {showSettings && (
         <div className="space-y-4 ps-4 border-s-2 border-border">
           {/* Expiration */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
-            <div className="flex gap-2">
-              <Input
-                type="date"
-                value={expiresValue}
-                onChange={(e) => setExpiresValue(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                className="h-8 text-sm flex-1"
-                placeholder={t('share.expirationPlaceholder')}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSaveExpiration}
-                disabled={updateShareToken.isPending}
-              >
-                {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
-              </Button>
+          {canUseAdvancedSharing && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={expiresValue}
+                  onChange={(e) => setExpiresValue(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="h-8 text-sm flex-1"
+                  placeholder={t('share.expirationPlaceholder')}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveExpiration}
+                  disabled={updateShareToken.isPending}
+                >
+                  {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
             </div>
-            <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
-          </div>
+          )}
 
           {/* Domain restriction */}
-          {resolvedEmbedTokenId && (
+          {canUseAdvancedSharing && resolvedEmbedTokenId && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
@@ -271,6 +276,7 @@ interface ShareDialogProps {
 
 export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDialogProps) {
   const { t } = useTranslation('builder');
+  const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
   const createShareToken = useCreateShareToken();
   const createEmbedToken = useCreateEmbedToken();
@@ -294,6 +300,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
   const configDomains = activeEmbedToken?.allowed_origins?.join(', ') ?? null;
 
   const isPublic = visibility === 'public';
+  const canUseAdvancedSharing = isEnterprise;
 
   async function handleVisibilityChange(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
@@ -340,7 +347,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
     if (embedTokenRaw) return;
     if (activeEmbedToken) return;
     try {
-      const origins = parseOrigins(domainInput);
+      const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
       const tokenResult = await createEmbedToken.mutateAsync({
         mapId,
         allowedOrigins: origins.length > 0 ? origins : undefined,
@@ -377,7 +384,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
     if (!activeEmbedToken) return;
     try {
       await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
-      const origins = parseOrigins(domainInput);
+      const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
       const tokenResult = await createEmbedToken.mutateAsync({
         mapId,
         allowedOrigins: origins.length > 0 ? origins : undefined,
@@ -537,6 +544,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                       shareExpires={shareExpires}
                       configDomains={configDomains}
                       resolvedEmbedTokenId={resolvedEmbedTokenId}
+                      canUseAdvancedSharing={canUseAdvancedSharing}
                       onRevoked={handleRevoked}
                     />
                   </div>

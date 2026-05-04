@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.processing.ingest.schemas import Visibility
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -26,8 +25,8 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
     RecordKeyword,
 )
-from app.processing.raster.models import RasterAsset
 from app.core.dependencies import get_db
+from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     connect_stac_api,
     list_stac_collections,
@@ -38,6 +37,7 @@ from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssr
 import httpx
 
 logger = structlog.stdlib.get_logger(__name__)
+Visibility = Literal["private", "restricted", "internal", "public"]
 
 
 async def _fetch_cog_info(url: str) -> dict | None:
@@ -510,7 +510,7 @@ async def stac_import(
                 ci = cog_info_map.get(item.data_asset_href) or {}
                 nodata_raw = ci.get("nodata")
 
-                raster_asset = RasterAsset(
+                raster_asset = get_catalog_port().raster_asset_orm_class()(
                     dataset_id=dataset.id,
                     asset_uri=item.data_asset_href,
                     storage_backend="remote",
