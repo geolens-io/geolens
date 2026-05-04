@@ -144,11 +144,29 @@ class TestManifestApplyEndpoint:
             ],
         )
 
-        with patch(
-            "app.processing.ingest.manifest_service.apply_manifest",
-            new_callable=AsyncMock,
-            return_value=expected_response,
-        ) as mock_apply:
+        with (
+            patch(
+                "app.processing.ingest.manifest_service.apply_manifest",
+                new_callable=AsyncMock,
+                return_value=expected_response,
+            ) as mock_apply,
+            patch(
+                "app.processing.ingest.router.create_ingest_job",
+                new_callable=AsyncMock,
+            ) as mock_create_job,
+            patch(
+                "app.processing.ingest.router.save_upload_file",
+                new_callable=AsyncMock,
+            ) as mock_save_upload,
+            patch(
+                "app.processing.ingest.router.run_ogrinfo_preview",
+                new_callable=AsyncMock,
+            ) as mock_preview,
+            patch(
+                "app.processing.ingest.router.queue_ingest_job",
+                new_callable=AsyncMock,
+            ) as mock_queue_job,
+        ):
             resp = await client.post(
                 "/ingest/manifest/apply",
                 json=payload,
@@ -175,3 +193,57 @@ class TestManifestApplyEndpoint:
         assert isinstance(request, ManifestApplyRequest)
         assert request.datasets[0].key == "roads"
         assert user.username.startswith("editor_")
+        mock_create_job.assert_not_awaited()
+        mock_save_upload.assert_not_awaited()
+        mock_preview.assert_not_awaited()
+        mock_queue_job.assert_not_awaited()
+
+    async def test_requires_authentication(self, client: AsyncClient):
+        with patch(
+            "app.processing.ingest.manifest_service.apply_manifest",
+            new_callable=AsyncMock,
+        ) as mock_apply:
+            resp = await client.post(
+                "/ingest/manifest/apply",
+                json=valid_manifest_payload(),
+            )
+
+        assert resp.status_code == 401
+        mock_apply.assert_not_awaited()
+
+    async def test_requires_upload_permission(
+        self, client: AsyncClient, viewer_auth_header: dict
+    ):
+        with patch(
+            "app.processing.ingest.manifest_service.apply_manifest",
+            new_callable=AsyncMock,
+        ) as mock_apply:
+            resp = await client.post(
+                "/ingest/manifest/apply",
+                json=valid_manifest_payload(),
+                headers=viewer_auth_header,
+            )
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Missing permission: upload"
+        mock_apply.assert_not_awaited()
+
+    async def test_invalid_payload_returns_422_before_service(
+        self, client: AsyncClient, editor_auth_header: dict
+    ):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["type"] = "wms"
+
+        with patch(
+            "app.processing.ingest.manifest_service.apply_manifest",
+            new_callable=AsyncMock,
+        ) as mock_apply:
+            resp = await client.post(
+                "/ingest/manifest/apply",
+                json=payload,
+                headers=editor_auth_header,
+            )
+
+        assert resp.status_code == 422
+        assert "body.datasets.0.sources.0.type" in resp.text
+        mock_apply.assert_not_awaited()
