@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.edition import is_enterprise
 
-ADVANCED_SHARING_ERROR = "Advanced sharing controls require the GeoLens Enterprise overlay"
+ADVANCED_SHARING_ERROR = (
+    "Advanced sharing controls require the GeoLens Enterprise overlay"
+)
 
 
 def _normalize_origin(origin: str) -> str:
@@ -50,14 +52,14 @@ class EmbedTokenCreate(BaseModel):
             "Token lifetime in days (1-365). The default 30-day lifetime is "
             "available in Community; custom lifetimes require GeoLens Enterprise."
         ),
-        example=90,
+        json_schema_extra={"example": 90},
     )
     name: str | None = Field(
         default=None,
         min_length=1,
         max_length=255,
         description="Human-readable label for the token",
-        example="Public dashboard embed",
+        json_schema_extra={"example": "Public dashboard embed"},
     )
     allowed_origins: list[str] | None = Field(
         default=None,
@@ -66,7 +68,7 @@ class EmbedTokenCreate(BaseModel):
             "Restrict embedding to these origins. Omit or null allows any origin; "
             "non-empty origin restrictions require GeoLens Enterprise."
         ),
-        example=["https://dashboard.example.com"],
+        json_schema_extra={"example": ["https://dashboard.example.com"]},
     )
 
     @field_validator("allowed_origins", mode="before")
