@@ -25,7 +25,10 @@ _ADDITIONAL_RE = re.compile(r"'([^']+)' was unexpected")
 def normalize_validation_errors(errors: Iterable[Any]) -> list[ManifestValidationError]:
     """Convert jsonschema errors into a deterministic CLI-facing shape."""
 
-    return sorted(_normalize_one(error) for error in _sort_jsonschema_errors(errors))
+    normalized: list[ManifestValidationError] = []
+    for error in _sort_jsonschema_errors(errors):
+        normalized.extend(_normalize_one(error))
+    return sorted(normalized)
 
 
 def _sort_jsonschema_errors(errors: Iterable[Any]) -> list[Any]:
@@ -39,7 +42,7 @@ def _sort_jsonschema_errors(errors: Iterable[Any]) -> list[Any]:
     )
 
 
-def _normalize_one(error: Any) -> ManifestValidationError:
+def _normalize_one(error: Any) -> list[ManifestValidationError]:
     code = _code(error)
     path = _json_path(error.path)
     message = str(error.message)
@@ -50,12 +53,18 @@ def _normalize_one(error: Any) -> ManifestValidationError:
             path = _append_path(path, missing)
             message = f"Missing required field: {missing}"
     elif error.validator == "additionalProperties":
-        extra = _match(_ADDITIONAL_RE, message)
-        if extra:
-            path = _append_path(path, extra)
-            message = f"Unexpected field: {extra}"
+        extras = _additional_properties(message)
+        if extras:
+            return [
+                ManifestValidationError(
+                    path=_append_path(path, extra),
+                    code=code,
+                    message=f"Unexpected field: {extra}",
+                )
+                for extra in extras
+            ]
 
-    return ManifestValidationError(path=path, code=code, message=message)
+    return [ManifestValidationError(path=path, code=code, message=message)]
 
 
 def _code(error: Any) -> str:
@@ -109,3 +118,10 @@ def _match(pattern: re.Pattern[str], value: str) -> str | None:
     if match is None:
         return None
     return match.group(1)
+
+
+def _additional_properties(message: str) -> list[str]:
+    match = _ADDITIONAL_RE.search(message)
+    if match is not None:
+        return [match.group(1)]
+    return re.findall(r"'([^']+)'", message)

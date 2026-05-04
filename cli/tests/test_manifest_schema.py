@@ -110,6 +110,51 @@ def test_version_and_enum_errors_are_stable() -> None:
     }.issubset(_error_pairs(document))
 
 
+def test_manifest_v1_version_compatibility_is_locked() -> None:
+    assert validate_manifest(_minimal_manifest()) == []
+
+    future_version = _minimal_manifest()
+    future_version["manifest_version"] = "2"
+    numeric_version = _minimal_manifest()
+    numeric_version["manifest_version"] = 1
+
+    assert ("$.manifest_version", "const") in _error_pairs(future_version)
+    assert ("$.manifest_version", "type") in _error_pairs(numeric_version)
+
+
+def test_unknown_top_level_fields_are_rejected() -> None:
+    document = _minimal_manifest()
+    document["tenant_id"] = "enterprise-only"
+
+    assert ("$.tenant_id", "additionalProperties") in _error_pairs(document)
+
+
+def test_enterprise_only_manifest_fields_are_rejected() -> None:
+    document = _minimal_manifest()
+    document["datasets"][0]["connector_schedule"] = "0 * * * *"
+    document["datasets"][0]["stored_credentials"] = {"secret_ref": "vault/path"}
+    document["datasets"][0]["publication"]["approval_workflow"] = "manager-review"
+
+    assert {
+        ("$.datasets[0].connector_schedule", "additionalProperties"),
+        ("$.datasets[0].stored_credentials", "additionalProperties"),
+        ("$.datasets[0].publication.approval_workflow", "additionalProperties"),
+    }.issubset(_error_pairs(document))
+
+
+def test_invalid_fixture_validation_output_is_repeatable() -> None:
+    path = FIXTURE_ROOT / "invalid" / "bad-source-uri.yaml"
+    document = load_manifest(path)
+
+    first = validate_manifest(document)
+    second = validate_manifest(document)
+
+    assert first == second
+    assert [(error.path, error.code) for error in first] == [
+        ("$.datasets[0].sources[0].uri", "pattern")
+    ]
+
+
 def test_validation_error_order_is_deterministic() -> None:
     document = {
         "catalog": {},
