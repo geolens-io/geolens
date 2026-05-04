@@ -38,6 +38,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **QUAL-02**: Maintainer can run backend lint/format checks for the touched catalog modules with no ruff or formatting violations.
 - [x] **QUAL-03**: Maintainer can review a close-gate audit that records decomposition results, requirement coverage, residual risks, and confirms no unresolved P0/P1 findings for v13.6.
 
+### Tech Debt Closure
+
+- [ ] **DEBT-01**: Maintainer can run broader v13.6 confidence gates beyond the focused maps/search backend suite, including full backend validation, frontend validation, and Playwright smoke/E2E coverage where local prerequisites are available, with exact outcomes or environmental blockers recorded.
+- [ ] **DEBT-02**: Maintainer can review the Pydantic, Alembic, and Authlib deprecation warnings observed in focused backend verification with either fixes or explicit owner/versioned follow-up documented in close evidence.
+
 ## Future Requirements
 
 Deferred to future releases. Tracked but not in the current roadmap.
@@ -93,12 +98,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QUAL-01 | 239 | Complete |
 | QUAL-02 | 239 | Complete |
 | QUAL-03 | 239 | Complete |
+| DEBT-01 | 240 | Pending |
+| DEBT-02 | 240 | Pending |
 
 **Coverage:**
-- v13.6 requirements: 19 total
-- Mapped to phases: 19
+- v13.6 requirements: 21 total
+- Mapped to phases: 21
 - Unmapped: 0
+- Satisfied: 19
+- Pending: 2
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-04 after Phase 239 completion*
+*Last updated: 2026-05-04 after Phase 240 cleanup planning*

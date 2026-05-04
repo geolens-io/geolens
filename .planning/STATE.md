@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
-status: phase_completed
-stopped_at: Phase 239 complete and verified; --no-transition requested
-last_updated: "2026-05-04T00:31:16.625Z"
+status: phase_planned
+stopped_at: Phase 240 cleanup phase added from v13.6 milestone audit tech debt; planning requested with --auto --chain
+last_updated: "2026-05-04T00:48:21Z"
 last_activity: 2026-05-04
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 16
   completed_plans: 16
-  percent: 100
+  percent: 80
 ---
 
 # Project State
@@ -25,21 +25,22 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 
 ## Current Position
 
-Phase: 239 — close-audit-and-verification
+Phase: 240 — full-gate-and-deprecation-cleanup
 Plan: —
-Status: Complete and verified
-Last activity: 2026-05-04 — Phase 239 complete and verified. Focused maps/search pytest gates, ruff check, ruff format, and the v13.6 close audit passed; 2/2 plans complete and QUAL-01..03 satisfied.
+Status: Cleanup phase added from milestone audit tech debt
+Last activity: 2026-05-04 — Phase 240 added to close v13.6 audit tech debt: broader backend/frontend/E2E confidence gates and Pydantic/Alembic/Authlib deprecation-warning review.
 
 ## Roadmap Snapshot
 
-v13.6 Catalog Maps/Search Service Decomposition contains 4 phases:
+v13.6 Catalog Maps/Search Service Decomposition contains 5 phases:
 
 - **Phase 236: maps-service-decomposition** — split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map CRUD, layers, sharing, thumbnails, and public viewer behavior. Requirements: MAPS-01..06.
 - **Phase 237: search-service-decomposition** — split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving dataset search, facets, collections, OGC/STAC/AI contracts, and semantic/hybrid search behavior. Requirements: SRCH-01..06.
 - **Phase 238: boundary-guards-and-contract-stabilization** — add architecture guards and source-introspection-safe contract checks for the new maps/search module boundaries. Requirements: BOUND-01..04.
 - **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
+- **Phase 240: full-gate-and-deprecation-cleanup** — run broader CI-style confidence gates and resolve or document remaining deprecation warnings from the v13.6 milestone audit. Requirements: DEBT-01..02.
 
-Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 19 satisfied after Phase 239.
+Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 19 satisfied after Phase 239, 2 pending Phase 240.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -52,7 +53,7 @@ Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 19 satisfied after Phase 
 
 ## Next Action
 
-Next GSD action: Phase 239 stopped after verification and roadmap update because `--no-transition` was requested. Run the transition/progress workflow when ready to move beyond v13.6.
+Next GSD action: Plan and execute Phase 240, then re-run `$gsd-audit-milestone v13.6` before completing the milestone.
 
 ## Historical /oc-audit Queue (from Phase 224)
 

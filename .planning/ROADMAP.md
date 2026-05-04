@@ -46,7 +46,7 @@
 - ✅ **v13.3 Boundary A+ Cleanup** — Phases 222-224 (shipped 2026-05-01) — see [archive](milestones/v13.3-ROADMAP.md)
 - ✅ **v13.4 Boundary Closeout** — Phases 225-231 (shipped 2026-05-03) — see [archive](milestones/v13.4-ROADMAP.md)
 - ✅ **v13.5 Enterprise Governance Seams** — Phases 232-235 (shipped 2026-05-03) — see [archive](milestones/v13.5-ROADMAP.md)
-- ✅ **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-239 (shipped 2026-05-04)
+- 🚧 **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-240 (cleanup phase planned after milestone audit)
 
 ## Phases
 
@@ -60,8 +60,9 @@
 - [x] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior. (completed 2026-05-03)
 - [x] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded. (completed 2026-05-04)
 - [x] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit. (completed 2026-05-04)
+- [ ] **Phase 240: full-gate-and-deprecation-cleanup** — Close v13.6 audit tech debt by running broader CI-style gates and resolving or explicitly documenting remaining deprecation warnings.
 
-19/19 v13.6 requirements mapped. 19/19 satisfied after Phase 239.
+21/21 v13.6 requirements mapped. 19/21 satisfied after Phase 239; DEBT-01..02 pending Phase 240 cleanup.
 
 #### Phase 236: maps-service-decomposition
 
@@ -131,6 +132,25 @@
 
 **Plans:**
 2/2 plans complete
+
+#### Phase 240: full-gate-and-deprecation-cleanup
+
+**Goal:** Close v13.6 milestone-audit tech debt by broadening verification beyond the focused maps/search backend close gate, reviewing remaining Pydantic/Alembic/Authlib deprecation warnings, and updating close evidence so the milestone can be re-audited cleanly.
+
+**Requirements:** DEBT-01, DEBT-02
+
+**Depends on:** Phase 239
+
+**Success Criteria** (what must be TRUE):
+1. Broader v13.6 confidence gates have exact recorded outcomes, including full backend validation, frontend validation, and Playwright smoke/E2E coverage where local prerequisites are available.
+2. Any environmental blockers for broader gates are documented with the nearest equivalent command evidence and clear residual risk.
+3. Existing Pydantic, Alembic, and Authlib deprecation warnings from focused backend verification are fixed or explicitly documented with owner/versioned follow-up if upstream-blocked.
+4. The v13.6 audit evidence is updated to show whether the milestone can close without the prior tech-debt status.
+
+**Gap Closure:** Closes TD-01 and TD-02 from `.planning/v13.6-MILESTONE-AUDIT.md`.
+
+**Plans:**
+0/2 plans complete
 
 ---
 
