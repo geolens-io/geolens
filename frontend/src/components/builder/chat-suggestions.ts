@@ -1,4 +1,3 @@
-import type { TFunction } from 'i18next';
 import type { MapLayerResponse } from '@/types/api';
 
 /**
@@ -11,9 +10,7 @@ function mentionName(layer: MapLayerResponse): string {
   return name.includes(' ') ? `@[${name}]` : `@${name}`;
 }
 
-// Accept a TFunction bound to any namespace; the caller provides its own
-// scoped instance (e.g. from useTranslation('builder')).
-type AnyTFunction = TFunction<string, undefined>;
+type AnyTFunction = (key: string, options?: Record<string, unknown>) => string;
 
 export function getSmartSuggestions(layers: MapLayerResponse[], t: AnyTFunction): string[] {
   const suggestions: string[] = [];
@@ -35,7 +32,7 @@ export function getSmartSuggestions(layers: MapLayerResponse[], t: AnyTFunction)
     } else if (geom.includes('line')) {
       if (suggestions.length < 4)
         suggestions.push(t('chat.suggestions.colorByAttribute', { name: mention }));
-    } else if (layer.layer_type === 'raster' || geom === '') {
+    } else if (layer.layer_type === 'raster_geolens' || !geom) {
       if (suggestions.length < 4)
         suggestions.push(t('chat.suggestions.adjustOpacity', { name: mention }));
     }

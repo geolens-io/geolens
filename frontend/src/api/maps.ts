@@ -48,7 +48,7 @@ export async function getMap(id: string): Promise<MapResponse> {
   const resp = await apiFetch<MapResponse>(`/maps/${id}`);
   if (resp.layers) {
     for (const l of resp.layers) {
-      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.dataset_geometry_type) ?? undefined;
+      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.dataset_geometry_type);
     }
   }
   return resp;
@@ -110,7 +110,7 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   const resp = await apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
   if (resp.layers) {
     for (const l of resp.layers) {
-      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.geometry_type) ?? undefined;
+      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.geometry_type);
     }
   }
   return resp;

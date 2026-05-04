@@ -180,7 +180,7 @@ export function DataDrivenStyleEditor({
     if (ramp === 'custom') setRamp(effectiveRamp);
 
     const colors = getRampColors(effectiveRamp, Math.max(values.length, 1));
-    const valueColorMap: [string, string][] = values.map((v, i) => [v, colors[i]]);
+    const valueColorMap: [unknown, string][] = values.map((v, i) => [v, colors[i]]);
     const expression = buildCategoricalExpression(column, valueColorMap, MAP_COLORS.fallback);
 
     const categories = values.map((v, i) => ({ value: v, color: colors[i] }));
@@ -356,14 +356,14 @@ export function DataDrivenStyleEditor({
   const layerPaint = layer.paint;
 
   const handleCategoryColorChange = useCallback(
-    (value: string, newColor: string) => {
+    (value: string | number | null, newColor: string) => {
       if (!styleConfig?.categories) return;
 
       const updated = styleConfig.categories.map((c) =>
         c.value === value ? { ...c, color: newColor } : c,
       );
       const colorProp = getColorProperty(geomType);
-      const valueColorMap: [string, string][] = updated.map((c) => [c.value, c.color]);
+      const valueColorMap: [unknown, string][] = updated.map((c) => [c.value, c.color]);
       const expression = buildCategoricalExpression(
         styleConfig.column,
         valueColorMap,
@@ -532,7 +532,7 @@ export function DataDrivenStyleEditor({
           <div className="text-xs text-muted-foreground">{t('dataDriven.colors')}</div>
           <div className="max-h-36 overflow-y-auto space-y-0.5">
             {layer.style_config.categories.map((cat) => (
-              <div key={cat.value} className="flex items-center gap-2">
+              <div key={String(cat.value)} className="flex items-center gap-2">
                 <Popover>
                   <PopoverTrigger asChild>
                     <button

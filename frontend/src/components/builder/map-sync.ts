@@ -2,7 +2,7 @@ import type { Map as MaplibreMap, GeoJSONSource } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
-import type { TileToken } from '@/api/tiles';
+import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
@@ -55,8 +55,8 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     paint: layer.paint ?? {},
     layout: layer.layout ?? {},
     filter: layer.filter,
-    label_config: layer.label_config,
-    style_config: layer.style_config,
+    label_config: layer.label_config ?? null,
+    style_config: layer.style_config ?? null,
     is_3d: layer.is_3d,
     feature_count: layer.dataset_feature_count,
   };
@@ -113,7 +113,7 @@ export function getLayerId(layerId: string) {
 function syncRasterLayer(
   map: MaplibreMap,
   adapterInput: AdapterLayerInput,
-  token: TileToken,
+  token: RasterTileToken,
   desiredSources: Set<string>,
 ) {
   adapterInput.tileUrl = token.tile_url;
@@ -135,7 +135,7 @@ function syncVectorLayer(
   layer: SyncLayerInput,
   adapterInput: AdapterLayerInput,
   tileBaseUrl: string | undefined,
-  token: TileToken | null,
+  token: VectorTileToken | null,
   desiredSources: Set<string>,
   geojsonDataMap: Map<string, GeoJSON.FeatureCollection> | undefined,
   prefix: string | undefined,

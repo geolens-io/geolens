@@ -73,7 +73,7 @@ export function normalizeStyleConfig(
     (raw.value_field && !raw.column);
 
   // Start from canonical schema or map legacy field names
-  const normalized: StyleConfig = isLegacy
+  const normalized: StyleConfig | null = isLegacy
     ? {
         mode: 'graduated',
         column: (raw.column_name ?? raw.value_field ?? '') as string,
@@ -84,7 +84,7 @@ export function normalizeStyleConfig(
         ...(raw.render_mode ? { render_mode: raw.render_mode as StyleConfig['render_mode'] } : {}),
       }
     : (typeof raw.mode === 'string' && typeof raw.column === 'string'
-        ? { ...(raw as StyleConfig) }
+        ? { ...(raw as unknown as StyleConfig) }
         : null);
   if (!normalized) return null;
 
