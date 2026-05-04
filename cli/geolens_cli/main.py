@@ -6,6 +6,7 @@ by Plans 02 (auth), 03 (scan), 04 (publish), 05 (export stac). This file
 holds the global @app.callback() that builds AppState and the stub bodies
 that downstream plans replace.
 """
+
 from __future__ import annotations
 
 import getpass
@@ -38,6 +39,7 @@ class AppState:
     available (CLI flag > GEOLENS_TOKEN env > credentials.toml > keyring per
     CONTEXT.md D-35).
     """
+
     output: _output.Formatter
     config: _config.AppConfig
     instance_override: Optional[str] = None
@@ -74,6 +76,7 @@ class AppState:
 def _version_callback(value: bool) -> None:
     if value:
         from importlib.metadata import PackageNotFoundError, version
+
         try:
             ver = version("geolens")
         except PackageNotFoundError:
@@ -85,9 +88,15 @@ def _version_callback(value: bool) -> None:
 @app.callback()
 def root(
     ctx: typer.Context,
-    json_: Annotated[bool, typer.Option("--json", help="Machine-readable JSON output")] = False,
-    verbose: Annotated[bool, typer.Option("-v", "--verbose", help="Debug logging to stderr")] = False,
-    quiet: Annotated[bool, typer.Option("-q", "--quiet", help="Suppress non-error output")] = False,
+    json_: Annotated[
+        bool, typer.Option("--json", help="Machine-readable JSON output")
+    ] = False,
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Debug logging to stderr")
+    ] = False,
+    quiet: Annotated[
+        bool, typer.Option("-q", "--quiet", help="Suppress non-error output")
+    ] = False,
     instance: Annotated[
         Optional[str],
         typer.Option("--instance", help="Override active instance for this command"),
@@ -116,12 +125,52 @@ def root(
 
 
 @app.command()
+def init(
+    ctx: typer.Context,
+    path: Annotated[
+        Path,
+        typer.Argument(help="Manifest path to create"),
+    ] = Path("geolens.yaml"),
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite an existing manifest"),
+    ] = False,
+) -> None:
+    """Create a starter geolens.yaml manifest."""
+    from .manifest.template import write_minimal_manifest
+
+    state: AppState = ctx.obj
+    try:
+        created = write_minimal_manifest(path, force=force)
+    except FileExistsError:
+        state.output.error(
+            f"Manifest already exists: {path}. Use --force to overwrite."
+        )
+        raise typer.Exit(EXIT_USAGE)
+    except OSError as exc:
+        state.output.error(f"Could not create manifest at {path}: {exc}")
+        raise typer.Exit(EXIT_USAGE)
+
+    state.output.success(f"Created manifest: {created}")
+
+
+@app.command()
 def login(
     ctx: typer.Context,
-    instance_url: Annotated[str, typer.Argument(help="Instance URL, e.g. https://geolens.example.com")],
-    token: Annotated[Optional[str], typer.Option("--token", help="Skip prompt; store this JWT directly")] = None,
-    api_key: Annotated[Optional[str], typer.Option("--api-key", help="Skip prompt; store as API key")] = None,
-    no_keyring: Annotated[bool, typer.Option("--no-keyring", help="Use credentials.toml instead of OS keyring")] = False,
+    instance_url: Annotated[
+        str, typer.Argument(help="Instance URL, e.g. https://geolens.example.com")
+    ],
+    token: Annotated[
+        Optional[str],
+        typer.Option("--token", help="Skip prompt; store this JWT directly"),
+    ] = None,
+    api_key: Annotated[
+        Optional[str], typer.Option("--api-key", help="Skip prompt; store as API key")
+    ] = None,
+    no_keyring: Annotated[
+        bool,
+        typer.Option("--no-keyring", help="Use credentials.toml instead of OS keyring"),
+    ] = False,
 ) -> None:
     """Log in to a GeoLens instance and store credentials."""
     state: AppState = ctx.obj
@@ -207,7 +256,9 @@ def whoami(ctx: typer.Context) -> None:
         sdk = state.sdk()  # re-construct with the rotated token
         resp = call_sdk(me_auth_me_get.sync_detailed, client=sdk.client)
     user = unwrap(resp, expected=200)
-    email = getattr(user, "email", None) or getattr(user, "username", None) or "<unknown>"
+    email = (
+        getattr(user, "email", None) or getattr(user, "username", None) or "<unknown>"
+    )
     if state.json_mode:
         payload = {
             "instance": instance,
@@ -223,6 +274,7 @@ def whoami(ctx: typer.Context) -> None:
 # Stub subcommands so `geolens --help` lists them and exit-code tests can run
 # before Plans 03-05 fill them in. Each raises Exit(2) (EXIT_USAGE) with
 # "not yet implemented" — replaced atomically when its plan lands.
+
 
 @app.command()
 def scan(
@@ -250,7 +302,9 @@ def scan(
     ] = None,
     json_local: Annotated[
         bool,
-        typer.Option("--json", help="Emit JSON array (overrides global --json setting)"),
+        typer.Option(
+            "--json", help="Emit JSON array (overrides global --json setting)"
+        ),
     ] = False,
 ) -> None:
     """Walk a directory and report what would be ingested (no upload)."""
@@ -315,15 +369,23 @@ def publish(
     ] = None,
     tags: Annotated[
         Optional[str],
-        typer.Option("--tags", help="Comma-separated keyword tags (currently a no-op; see docs/cli.md)"),
+        typer.Option(
+            "--tags",
+            help="Comma-separated keyword tags (currently a no-op; see docs/cli.md)",
+        ),
     ] = None,
     collection: Annotated[
         Optional[str],
-        typer.Option("--collection", help="Add to this collection after commit (currently a no-op; see docs/cli.md)"),
+        typer.Option(
+            "--collection",
+            help="Add to this collection after commit (currently a no-op; see docs/cli.md)",
+        ),
     ] = None,
     wait: Annotated[
         bool,
-        typer.Option("--wait/--no-wait", help="Wait for ingestion to resolve the dataset id"),
+        typer.Option(
+            "--wait/--no-wait", help="Wait for ingestion to resolve the dataset id"
+        ),
     ] = True,
 ) -> None:
     """Upload a vector or raster file and publish it as a dataset.
@@ -389,12 +451,16 @@ def publish(
 
         # Stage 2 — Preview.
         progress.add_task("Previewing...", total=None)
-        preview_resp = call_sdk(_preview.sync_detailed, job_id=job_id, client=sdk.client)
+        preview_resp = call_sdk(
+            _preview.sync_detailed, job_id=job_id, client=sdk.client
+        )
         unwrap(preview_resp, expected=_publish.PREVIEW_OK_STATUS)
 
         # Stage 3 — Commit (NOT idempotent — Pitfall 6).
         progress.add_task("Committing...", total=None)
-        commit_body = _publish.build_commit_request(title=title, description=description)
+        commit_body = _publish.build_commit_request(
+            title=title, description=description
+        )
         commit_resp = call_sdk(
             _commit.sync_detailed,
             job_id=job_id,
@@ -444,7 +510,9 @@ def export_stac(
     ] = None,
     compact: Annotated[
         bool,
-        typer.Option("--compact", help="Single-line JSON for piping to jq / curl --data"),
+        typer.Option(
+            "--compact", help="Single-line JSON for piping to jq / curl --data"
+        ),
     ] = False,
 ) -> None:
     """Export STAC 1.1 metadata for a raster dataset.
