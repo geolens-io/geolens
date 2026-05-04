@@ -1,0 +1,24 @@
+manifest_version: "1"
+catalog:
+  title: City mobility catalog
+  description: Public transportation and street network datasets.
+  organization: City GIS Office
+datasets:
+  - key: roads
+    title: Road centerlines
+    description: Local road centerline geometry.
+    sources:
+      - type: vector
+        uri: ./data/roads.geojson
+        format: geojson
+    metadata:
+      tags:
+        - transportation
+        - roads
+      organization: City GIS Office
+      crs: EPSG:4326
+      license: CC-BY-4.0
+      attribution: City GIS Office
+      bbox: [-74.1, 40.5, -73.7, 40.9]
+    publication:
+      intent: draft

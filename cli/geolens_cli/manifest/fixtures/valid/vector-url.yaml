@@ -1,0 +1,22 @@
+manifest_version: "1"
+catalog:
+  title: Regional open data catalog
+  organization: Regional Planning Agency
+datasets:
+  - key: parcels
+    title: Parcel boundaries
+    sources:
+      - type: vector
+        uri: https://data.example.com/parcels.gpkg
+        format: geopackage
+        layer: parcels
+    metadata:
+      tags:
+        - cadastre
+        - planning
+      organization: Regional Planning Agency
+      crs: EPSG:3857
+      license: ODbL-1.0
+      attribution: Regional Planning Agency
+    publication:
+      intent: ready

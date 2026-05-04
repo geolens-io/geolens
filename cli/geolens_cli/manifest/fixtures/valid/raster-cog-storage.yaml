@@ -1,0 +1,23 @@
+manifest_version: "1"
+catalog:
+  title: Imagery catalog
+  description: Cloud optimized raster examples.
+datasets:
+  - key: naip-2025-tile-001
+    title: NAIP 2025 tile 001
+    description: Cloud Optimized GeoTIFF imagery tile.
+    sources:
+      - type: raster_cog
+        uri: s3://example-geolens-public/rasters/naip-2025-tile-001.tif
+        format: cog
+    metadata:
+      tags:
+        - imagery
+        - aerial
+      organization: Imagery Program
+      crs: EPSG:32618
+      license: Public Domain
+      attribution: Imagery Program
+      bbox: [-76.0, 38.0, -75.5, 38.5]
+    publication:
+      intent: published

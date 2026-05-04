@@ -1,0 +1,22 @@
+manifest_version: "1"
+catalog:
+  title: Raster mosaic catalog
+datasets:
+  - key: flood-depth-mosaic
+    title: Flood depth mosaic
+    description: Local VRT mosaic assembled from staged GeoTIFF sources.
+    sources:
+      - type: vrt
+        uri: ./rasters/flood-depth-mosaic.vrt
+        format: vrt
+    metadata:
+      tags:
+        - hydrology
+        - flood
+      organization: Emergency Management
+      crs: EPSG:4326
+      license: CC0-1.0
+      attribution: Emergency Management
+      bbox: [-96.0, 29.0, -94.5, 30.5]
+    publication:
+      intent: internal
