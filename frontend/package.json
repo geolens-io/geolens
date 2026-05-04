@@ -23,7 +23,7 @@
     "@fontsource-variable/ibm-plex-sans": "^5.2.8",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@tailwindcss/vite": "^4.2.4",
-    "@tanstack/react-query": "^5.96.2",
+    "@tanstack/react-query": "^5.100.9",
     "@tanstack/react-table": "^8.21.3",
     "@turf/area": "^7.3.4",
     "@turf/distance": "^7.3.4",
