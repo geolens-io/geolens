@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
-status: phase_planned
-stopped_at: Phase 240 cleanup phase added from v13.6 milestone audit tech debt; planning requested with --auto --chain
-last_updated: "2026-05-04T00:48:21Z"
+status: phase_in_progress
+stopped_at: Completed 240-01-broader-confidence-gates; ready for 240-02-deprecation-warning-close-evidence
+last_updated: "2026-05-04T01:10:00Z"
 last_activity: 2026-05-04
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 18
-  completed_plans: 16
-  percent: 80
+  completed_plans: 17
+  percent: 94
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 ## Current Position
 
 Phase: 240 — full-gate-and-deprecation-cleanup
-Plan: 240-01 — broader-confidence-gates
-Status: Plans created; ready to execute
-Last activity: 2026-05-04 — Phase 240 added and planned to close v13.6 audit tech debt: broader backend/frontend/E2E confidence gates and Pydantic/Alembic/Authlib deprecation-warning review.
+Plan: 240-02 — deprecation-warning-close-evidence
+Status: Plan 240-01 completed; ready to execute remaining Phase 240 plan
+Last activity: 2026-05-04 — Plan 240-01 ran broader backend/frontend/E2E confidence gates and recorded exact DEBT-01 outcomes/blockers in `240-01-SUMMARY.md`.
 
 ## Roadmap Snapshot
 
@@ -40,7 +40,7 @@ v13.6 Catalog Maps/Search Service Decomposition contains 5 phases:
 - **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
 - **Phase 240: full-gate-and-deprecation-cleanup** — run broader CI-style confidence gates and resolve or document remaining deprecation warnings from the v13.6 milestone audit. Requirements: DEBT-01..02.
 
-Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 19 satisfied after Phase 239, 2 pending Phase 240.
+Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 20 satisfied after Plan 240-01, 1 pending Phase 240.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -53,7 +53,7 @@ Coverage: 21/21 v13.6 requirements mapped, 0 unmapped, 19 satisfied after Phase 
 
 ## Next Action
 
-Next GSD action: Plan and execute Phase 240, then re-run `$gsd-audit-milestone v13.6` before completing the milestone.
+Next GSD action: Execute Plan 240-02, then re-run `$gsd-audit-milestone v13.6` before completing the milestone.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
