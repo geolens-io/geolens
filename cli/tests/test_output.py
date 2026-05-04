@@ -1,4 +1,5 @@
 """Output formatter — JSON vs human; NO_COLOR honored; quiet/verbose toggles."""
+
 from __future__ import annotations
 
 import json

@@ -4,6 +4,7 @@
 Hand-maintained — NOT regenerated. Centralizes stdout/stderr formatting so
 every command respects --json / --quiet / --verbose / NO_COLOR.
 """
+
 from __future__ import annotations
 
 import json as _json
@@ -24,8 +25,17 @@ class Formatter:
 
     def __post_init__(self) -> None:
         no_color = bool(os.environ.get("NO_COLOR"))
-        self._stdout = Console(no_color=no_color, file=sys.stdout, force_terminal=False if self.json_mode else None)
-        self._stderr = Console(no_color=no_color, file=sys.stderr, stderr=True, force_terminal=False if self.json_mode else None)
+        self._stdout = Console(
+            no_color=no_color,
+            file=sys.stdout,
+            force_terminal=False if self.json_mode else None,
+        )
+        self._stderr = Console(
+            no_color=no_color,
+            file=sys.stderr,
+            stderr=True,
+            force_terminal=False if self.json_mode else None,
+        )
 
     @property
     def is_tty(self) -> bool:
@@ -46,16 +56,20 @@ class Formatter:
             typer.echo(_json.dumps({"ok": True, "message": message}))
             return
         if not self.quiet:
-            self._stdout.print(message)
+            self._stdout.print(message, soft_wrap=True)
 
     def error(self, message: str) -> None:
         if self.json_mode:
             typer.echo(_json.dumps({"ok": False, "error": message}), err=True)
             return
-        self._stderr.print(f"[red]Error:[/red] {message}")
+        self._stderr.print(f"Error: {message}", style="red", soft_wrap=True)
 
     def json(self, payload: Any) -> None:
-        typer.echo(_json.dumps(payload, indent=2 if self.is_tty else None, sort_keys=True, default=str))
+        typer.echo(
+            _json.dumps(
+                payload, indent=2 if self.is_tty else None, sort_keys=True, default=str
+            )
+        )
 
     def info(self, message: str) -> None:
         if self.json_mode or self.quiet:

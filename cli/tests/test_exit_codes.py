@@ -8,7 +8,12 @@ Plan 03 wires scan to walk + classify (exits 0 even on all-ingest:no per
 D-17). Plan 04 wires publish to the 3-step ingest flow (per-command
 behavior in test_publish_unit.py::TestPublishCli). The remaining stub
 command (export stac) still exits 2 until Plan 05 lands.
+
+Phase 242 adds offline manifest commands:
+- init creates geolens.yaml locally and refuses overwrite with EXIT_USAGE (2)
+- validate exits 0 for valid manifests and EXIT_USAGE (2) for invalid input
 """
+
 from __future__ import annotations
 
 from geolens_cli._sdk_helpers import (
@@ -20,6 +25,7 @@ from geolens_cli._sdk_helpers import (
     EXIT_USAGE,
 )
 from geolens_cli.main import app
+from geolens_cli.manifest.template import minimal_manifest_text
 
 
 class TestExitCodeConstants:
@@ -50,32 +56,106 @@ class TestRemainingStubsExitWithUsage:
 class TestAuthCommandExitCodes:
     """Real per-command behavior (Plan 02 replaces the Plan 01 stubs)."""
 
-    def test_login_mutually_exclusive_token_and_api_key(self, runner, tmp_xdg_home) -> None:
+    def test_login_mutually_exclusive_token_and_api_key(
+        self, runner, tmp_xdg_home
+    ) -> None:
         result = runner.invoke(
             app,
-            ["login", "https://x.example.com", "--token", "abc", "--api-key", "xyz", "--no-keyring"],
+            [
+                "login",
+                "https://x.example.com",
+                "--token",
+                "abc",
+                "--api-key",
+                "xyz",
+                "--no-keyring",
+            ],
         )
         assert result.exit_code == 2
 
     def test_login_rejects_non_http_url(self, runner, tmp_xdg_home) -> None:
-        result = runner.invoke(app, ["login", "ftp://x.example.com", "--token", "abc", "--no-keyring"])
+        result = runner.invoke(
+            app, ["login", "ftp://x.example.com", "--token", "abc", "--no-keyring"]
+        )
         assert result.exit_code == 2
 
-    def test_login_with_token_succeeds(self, runner, tmp_xdg_home, mock_keyring) -> None:
-        result = runner.invoke(app, ["login", "https://x.example.com", "--token", "abc.def.ghi"])
+    def test_login_with_token_succeeds(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
+        result = runner.invoke(
+            app, ["login", "https://x.example.com", "--token", "abc.def.ghi"]
+        )
         assert result.exit_code == 0, result.output
 
-    def test_logout_with_no_instance_exits_2(self, runner, tmp_xdg_home, mock_keyring) -> None:
+    def test_logout_with_no_instance_exits_2(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
         result = runner.invoke(app, ["logout"])
         assert result.exit_code == 2
 
-    def test_logout_after_login_succeeds(self, runner, tmp_xdg_home, mock_keyring) -> None:
+    def test_logout_after_login_succeeds(
+        self, runner, tmp_xdg_home, mock_keyring
+    ) -> None:
         runner.invoke(app, ["login", "https://x.example.com", "--token", "abc.def.ghi"])
         result = runner.invoke(app, ["logout"])
         assert result.exit_code == 0, result.output
 
-    def test_whoami_with_no_instance_exits_3(self, runner, tmp_xdg_home, mock_keyring, monkeypatch) -> None:
+    def test_whoami_with_no_instance_exits_3(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
         monkeypatch.delenv("GEOLENS_INSTANCE", raising=False)
         monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
         result = runner.invoke(app, ["whoami"])
         assert result.exit_code == EXIT_AUTH, result.output
+
+
+class TestManifestCommandExitCodes:
+    """Offline manifest commands use usage errors for local input problems."""
+
+    def test_init_existing_manifest_exits_2(
+        self,
+        runner,
+        tmp_path,
+        tmp_xdg_home,
+        monkeypatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "geolens.yaml").write_text("existing: true\n", encoding="utf-8")
+
+        result = runner.invoke(app, ["init"])
+
+        assert result.exit_code == EXIT_USAGE, result.output
+
+    def test_validate_valid_manifest_exits_0(
+        self,
+        runner,
+        tmp_path,
+        tmp_xdg_home,
+        monkeypatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "geolens.yaml").write_text(
+            minimal_manifest_text(),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(app, ["validate"])
+
+        assert result.exit_code == EXIT_OK, result.output
+
+    def test_validate_invalid_manifest_exits_2(
+        self,
+        runner,
+        tmp_path,
+        tmp_xdg_home,
+        monkeypatch,
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "geolens.yaml").write_text(
+            'manifest_version: "1"\ncatalog: {}\ndatasets: []\n',
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(app, ["validate"])
+
+        assert result.exit_code == EXIT_USAGE, result.output

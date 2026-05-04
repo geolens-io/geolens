@@ -155,6 +155,53 @@ def init(
 
 
 @app.command()
+def validate(
+    ctx: typer.Context,
+    path: Annotated[
+        Path,
+        typer.Argument(help="Manifest path to validate"),
+    ] = Path("geolens.yaml"),
+) -> None:
+    """Validate a geolens.yaml manifest without contacting an API."""
+    from .manifest.reporting import (
+        format_validation_error_lines,
+        validation_report_payload,
+    )
+    from .manifest.schema import load_manifest, validate_manifest
+
+    state: AppState = ctx.obj
+    try:
+        document = load_manifest(path)
+    except ValueError as exc:
+        if state.json_mode:
+            state.output.json(
+                {
+                    "error": str(exc),
+                    "ok": False,
+                    "path": str(path),
+                }
+            )
+        else:
+            state.output.error(f"{path}: {exc}")
+        raise typer.Exit(EXIT_USAGE)
+
+    errors = validate_manifest(document)
+    if not errors:
+        if state.json_mode:
+            state.output.json(validation_report_payload(path, errors))
+        else:
+            state.output.success(f"Manifest valid: {path}")
+        return
+
+    if state.json_mode:
+        state.output.json(validation_report_payload(path, errors))
+    else:
+        for line in format_validation_error_lines(path, errors):
+            state.output.error(line)
+    raise typer.Exit(EXIT_USAGE)
+
+
+@app.command()
 def login(
     ctx: typer.Context,
     instance_url: Annotated[
