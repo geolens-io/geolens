@@ -1,7 +1,15 @@
+import uuid
+from unittest.mock import AsyncMock, patch
+
 import pytest
+from httpx import AsyncClient
 from pydantic import ValidationError
 
-from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+from app.processing.ingest.manifest_schemas import (
+    ManifestApplyEntryResult,
+    ManifestApplyRequest,
+    ManifestApplyResponse,
+)
 
 
 def valid_manifest_payload() -> dict:
@@ -115,3 +123,55 @@ class TestManifestApplySchemas:
 
         assert "draft" in str(exc.value)
         assert "published" in str(exc.value)
+
+
+class TestManifestApplyEndpoint:
+    async def test_valid_request_delegates_to_manifest_service(
+        self, client: AsyncClient, editor_auth_header: dict
+    ):
+        dataset_id = uuid.uuid4()
+        payload = valid_manifest_payload()
+        expected_response = ManifestApplyResponse(
+            accepted=True,
+            dry_run=False,
+            results=[
+                ManifestApplyEntryResult(
+                    dataset_key="roads",
+                    action="create",
+                    dataset_id=dataset_id,
+                    message="created roads",
+                )
+            ],
+        )
+
+        with patch(
+            "app.processing.ingest.manifest_service.apply_manifest",
+            new_callable=AsyncMock,
+            return_value=expected_response,
+        ) as mock_apply:
+            resp = await client.post(
+                "/ingest/manifest/apply",
+                json=payload,
+                headers=editor_auth_header,
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "accepted": True,
+            "dry_run": False,
+            "results": [
+                {
+                    "dataset_key": "roads",
+                    "action": "create",
+                    "job_id": None,
+                    "dataset_id": str(dataset_id),
+                    "message": "created roads",
+                    "errors": [],
+                }
+            ],
+        }
+        mock_apply.assert_awaited_once()
+        _, request, user = mock_apply.await_args.args
+        assert isinstance(request, ManifestApplyRequest)
+        assert request.datasets[0].key == "roads"
+        assert user.username.startswith("editor_")

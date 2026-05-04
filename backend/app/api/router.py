@@ -25,6 +25,7 @@ from app.modules.embed_tokens.admin_router import router as embed_tokens_admin_r
 from app.modules.embed_tokens.router import router as embed_tokens_router
 from app.processing.export.router import router as export_router
 from app.modules.catalog.features.router import features_router
+from app.processing.ingest.manifest_router import manifest_router
 from app.processing.ingest.router import router as ingest_router
 from app.platform.jobs.router import router as jobs_router
 from app.modules.catalog.layers.router import layers_router
@@ -47,6 +48,7 @@ api_router.include_router(auth_router)
 api_router.include_router(admin_router)
 api_router.include_router(audit_router)
 api_router.include_router(ingest_router)
+api_router.include_router(manifest_router)
 
 # Export must stay before dataset CRUD because /dcat conflicts with /{dataset_id}.
 api_router.include_router(datasets_export_router)
