@@ -23,10 +23,13 @@ jobs:
       matrix:
         include:
           - image: geolens-api
-            context: ./backend
+            target: api
             description: "PostGIS-native GIS data catalog API"
+          - image: geolens-worker
+            target: worker
+            description: "PostGIS-native GIS data catalog worker"
           - image: geolens-frontend
-            context: ./frontend
+            target: frontend
             description: "PostGIS-native GIS data catalog frontend"
 
     steps:
@@ -63,7 +66,9 @@ jobs:
       - name: Build image for scanning
         uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.context }}
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
           load: true
           tags: ${{ matrix.image }}:scan
           cache-from: type=gha,scope=${{ matrix.image }}
@@ -83,7 +88,9 @@ jobs:
         id: push
         uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.context }}
+          context: .
+          file: Dockerfile
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -44,6 +44,7 @@ Prebuilt container images are published to GitHub Container Registry:
 
 ```bash
 docker pull ghcr.io/geolens-io/geolens-api:1.0.0
+docker pull ghcr.io/geolens-io/geolens-worker:1.0.0
 docker pull ghcr.io/geolens-io/geolens-frontend:1.0.0
 ```
 

@@ -78,7 +78,9 @@ services:
 
   migrate:
     build:
-      context: ./backend
+      context: .
+      dockerfile: Dockerfile
+      target: api
     command: sh -c "uv run alembic upgrade head"
     volumes:
       - ./backend/alembic:/app/alembic
@@ -91,7 +93,9 @@ services:
 
   api:
     build:
-      context: ./backend
+      context: .
+      dockerfile: Dockerfile
+      target: api
     # Runs as root so the entrypoint can fix volume ownership, then drops to
     # uid 1001 (appuser) via setpriv before exec-ing the application.
     user: "0:0"
@@ -142,7 +146,9 @@ services:
 
   worker:
     build:
-      context: ./backend
+      context: .
+      dockerfile: Dockerfile
+      target: worker
     # See api service comment — same root-then-drop pattern for volume ownership.
     user: "0:0"
     init: true

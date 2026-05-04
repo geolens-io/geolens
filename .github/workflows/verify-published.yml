@@ -77,12 +77,13 @@ jobs:
     name: Verify GHCR images
     runs-on: ubuntu-latest
     steps:
-      - name: docker pull public API and frontend images
+      - name: docker pull public runtime images
         env:
           VERSION: ${{ env.VERIFY_VERSION }}
           OWNER: ${{ github.repository_owner }}
         run: |
           docker pull "ghcr.io/${OWNER}/geolens-api:${VERSION}"
+          docker pull "ghcr.io/${OWNER}/geolens-worker:${VERSION}"
           docker pull "ghcr.io/${OWNER}/geolens-frontend:${VERSION}"
 
   verify-github-release:

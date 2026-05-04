@@ -34,9 +34,11 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_PORT:-8080}:8080"
     volumes: []
     depends_on:
       api:
