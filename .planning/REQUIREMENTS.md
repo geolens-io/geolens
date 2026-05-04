@@ -27,10 +27,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Boundary Guards
 
-- [ ] **BOUND-01**: Maintainer can rely on `catalog.maps.service` and `catalog.search.service` as stable public façades; external modules cannot import private split modules directly.
-- [ ] **BOUND-02**: Maintainer can run an architecture guard that fails when the map or search façade grows back into a god module or when private decomposition modules exceed the agreed size budget without an explicit allowlist.
-- [ ] **BOUND-03**: Maintainer can run the existing catalog/processing boundary guards after the split with no module-level `catalog ↔ processing` cycle regressions.
-- [ ] **BOUND-04**: Maintainer can update any source-introspection regression tests to assert behavior across the façade plus helper modules, avoiding brittle checks tied to inline implementation blocks.
+- [x] **BOUND-01**: Maintainer can rely on `catalog.maps.service` and `catalog.search.service` as stable public façades; external modules cannot import private split modules directly.
+- [x] **BOUND-02**: Maintainer can run an architecture guard that fails when the map or search façade grows back into a god module or when private decomposition modules exceed the agreed size budget without an explicit allowlist.
+- [x] **BOUND-03**: Maintainer can run the existing catalog/processing boundary guards after the split with no module-level `catalog ↔ processing` cycle regressions.
+- [x] **BOUND-04**: Maintainer can update any source-introspection regression tests to assert behavior across the façade plus helper modules, avoiding brittle checks tied to inline implementation blocks.
 
 ### Verification and Close Gate
 
@@ -86,10 +86,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRCH-04 | 237 | Complete |
 | SRCH-05 | 237 | Complete |
 | SRCH-06 | 237 | Complete |
-| BOUND-01 | 238 | Pending |
-| BOUND-02 | 238 | Pending |
-| BOUND-03 | 238 | Pending |
-| BOUND-04 | 238 | Pending |
+| BOUND-01 | 238 | Complete |
+| BOUND-02 | 238 | Complete |
+| BOUND-03 | 238 | Complete |
+| BOUND-04 | 238 | Complete |
 | QUAL-01 | 239 | Pending |
 | QUAL-02 | 239 | Pending |
 | QUAL-03 | 239 | Pending |
@@ -101,4 +101,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-03 after Phase 237 completion*
+*Last updated: 2026-05-04 after Phase 238 completion*

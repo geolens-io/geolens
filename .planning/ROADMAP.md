@@ -58,10 +58,10 @@
 
 - [x] **Phase 236: maps-service-decomposition** — Split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map-builder, layer, sharing, thumbnail, and public-viewer behavior. (completed 2026-05-03)
 - [x] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior. (completed 2026-05-03)
-- [ ] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded.
+- [x] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded. (completed 2026-05-04)
 - [ ] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit.
 
-19/19 v13.6 requirements mapped. 12/19 satisfied after Phase 237.
+19/19 v13.6 requirements mapped. 16/19 satisfied after Phase 238.
 
 #### Phase 236: maps-service-decomposition
 
@@ -114,7 +114,7 @@
 4. Source-introspection regression tests are updated to assert behavior across the façade and helper modules without coupling to inline implementation blocks.
 
 **Plans:**
-- [ ] TBD by `$gsd-plan-phase 238`
+3/3 plans complete
 
 #### Phase 239: close-audit-and-verification
 

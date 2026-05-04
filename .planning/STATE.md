@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.6
 milestone_name: Catalog Maps/Search Service Decomposition
 status: phase_completed
-stopped_at: Phase 237 complete and verified; ready for Phase 238 planning
-last_updated: "2026-05-03T23:40:29Z"
-last_activity: 2026-05-03
+stopped_at: Phase 238 complete and verified; ready for Phase 239 planning
+last_updated: "2026-05-04T00:20:00Z"
+last_activity: 2026-05-04
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 11
-  completed_plans: 11
-  percent: 50
+  completed_phases: 3
+  total_plans: 14
+  completed_plans: 14
+  percent: 75
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-03 after v13.6 milestone start)
 
 ## Current Position
 
-Phase: 238 — boundary-guards-and-contract-stabilization
+Phase: 239 — close-audit-and-verification
 Plan: —
 Status: Ready for planning
-Last activity: 2026-05-03 — Phase 237 complete and verified. Search service split into focused sibling modules behind a stable public facade; 6/6 plans complete and SRCH-01..06 satisfied.
+Last activity: 2026-05-04 — Phase 238 complete and verified. Maps/search boundary guards, size budgets, catalog-processing cycle checks, and source-introspection-safe VRT search contracts are in place; 3/3 plans complete and BOUND-01..04 satisfied.
 
 ## Roadmap Snapshot
 
@@ -39,7 +39,7 @@ v13.6 Catalog Maps/Search Service Decomposition contains 4 phases:
 - **Phase 238: boundary-guards-and-contract-stabilization** — add architecture guards and source-introspection-safe contract checks for the new maps/search module boundaries. Requirements: BOUND-01..04.
 - **Phase 239: close-audit-and-verification** — run focused map/search verification, ruff/format checks, and the v13.6 close audit. Requirements: QUAL-01..03.
 
-Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 12 satisfied after Phase 237.
+Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 16 satisfied after Phase 238.
 
 ## v13.3 Close-Out Summary (shipped 2026-05-01)
 
@@ -52,7 +52,7 @@ Coverage: 19/19 v13.6 requirements mapped, 0 unmapped, 12 satisfied after Phase 
 
 ## Next Action
 
-Next GSD action: run `$gsd-plan-phase 238` to plan the boundary guards and contract stabilization phase.
+Next GSD action: run `$gsd-plan-phase 239 --auto --chain` to plan and execute the v13.6 close audit and verification phase.
 
 ## Historical /oc-audit Queue (from Phase 224)
 
