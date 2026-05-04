@@ -424,6 +424,17 @@ async function resolveRuntimeDataset(
       return null;
     }
 
+    if (
+      !toBBox(detail.extent_bbox) &&
+      !computeBBoxFromPositions(baselinePositions)
+    ) {
+      return null;
+    }
+
+    if (!buildWherePredicate(baseline, detail.column_info)) {
+      return null;
+    }
+
     const projectedResponse = await exportDataset(
       request,
       authHeader,

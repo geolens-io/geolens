@@ -10,6 +10,13 @@ export interface SearchSeed {
   query: string;
 }
 
+type SearchFeature = {
+  id?: string;
+  properties?: {
+    title?: string;
+  };
+};
+
 export function getAuthToken(): string {
   const raw = fs.readFileSync(AUTH_FILE, 'utf-8');
   const state = JSON.parse(raw);
@@ -56,7 +63,7 @@ export async function getSearchSeed(): Promise<SearchSeed> {
     }
 
     const initialPayload = await initialResponse.json();
-    const features = initialPayload.features ?? [];
+    const features: SearchFeature[] = initialPayload.features ?? [];
     for (const feature of features) {
       const title = feature.properties?.title;
       const id = feature.id;
@@ -70,11 +77,16 @@ export async function getSearchSeed(): Promise<SearchSeed> {
         if (!matchResponse.ok) continue;
 
         const matchPayload = await matchResponse.json();
-        const match = (matchPayload.features ?? []).find(
-          (candidate: { id?: string; properties?: { title?: string } }) =>
-            candidate.id === id || candidate.properties?.title === title,
+        const matches: SearchFeature[] = matchPayload.features ?? [];
+        const [firstMatch] = matches;
+        const exactTitleMatches = matches.filter(
+          (candidate) => candidate.properties?.title === title,
         );
-        if (match) {
+
+        if (
+          firstMatch?.id === id &&
+          exactTitleMatches.length === 1
+        ) {
           return {
             id,
             title,
