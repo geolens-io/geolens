@@ -69,7 +69,7 @@ function makeCogSource(
       crs: `EPSG:${overrides.epsg ?? 4326}`,
       geometry_type: null,
       feature_count: null,
-      contact: null,
+      contacts: null,
       license: null,
       source_organization: null,
       record_type: 'raster_dataset',

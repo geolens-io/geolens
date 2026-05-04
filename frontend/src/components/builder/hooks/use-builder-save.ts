@@ -296,7 +296,7 @@ export function useBuilderSave(state: SaveState) {
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [updateMap.isPending]);
 
   return {
     handleSave,

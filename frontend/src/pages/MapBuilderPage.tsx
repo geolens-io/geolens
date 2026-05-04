@@ -227,7 +227,7 @@ export function MapBuilderPage() {
 
   const handleMarkDirty = useCallback(
     () => { layers.setHasUnsavedChanges(true); },
-    [layers.setHasUnsavedChanges],
+    [layers],
   );
 
   const railProps = useMemo(() => ({

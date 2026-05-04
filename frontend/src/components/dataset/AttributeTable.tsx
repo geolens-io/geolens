@@ -218,6 +218,7 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     }));
   }, [data?.columns, canEdit, handleCellSave, updateFeature.isPending]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table returns imperative helpers; this component keeps table state local.
   const table = useReactTable({
     data: data?.rows ?? [],
     columns,

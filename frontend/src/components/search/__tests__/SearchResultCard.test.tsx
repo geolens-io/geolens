@@ -31,7 +31,7 @@ function makeFeature(
       crs: 'EPSG:4326',
       geometry_type: 'Polygon',
       feature_count: 195,
-      contact: null,
+      contacts: null,
       license: null,
       source_organization: 'Natural Earth',
       quality_detail: null,

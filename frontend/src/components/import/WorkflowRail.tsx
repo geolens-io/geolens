@@ -5,7 +5,7 @@ import { TypeTag } from './TypeTag';
 import type { DataKind } from './TypeTag';
 import type { BatchPhase } from '@/types/api';
 
-type Mode = 'upload' | 'register' | 'service';
+type Mode = 'upload' | 'register' | 'service' | 'stac';
 
 interface WorkflowRailProps {
   mode: Mode;
@@ -37,7 +37,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
     },
   ];
 
-  if (mode === 'register' || mode === 'service') {
+  if (mode === 'register' || mode === 'service' || mode === 'stac') {
     return <NonUploadRail mode={mode} />;
   }
 
@@ -116,9 +116,10 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
   );
 }
 
-function NonUploadRail({ mode }: { mode: 'register' | 'service' }) {
+function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
   const { t } = useTranslation('import');
   const isRegister = mode === 'register';
+  const isStac = mode === 'stac';
 
   return (
     <aside className="sticky top-28 flex flex-col gap-4">
@@ -126,17 +127,23 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' }) {
         <p className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           {isRegister
             ? t('rail.registerHint', { defaultValue: 'Registering existing infrastructure' })
-            : t('rail.serviceHint', { defaultValue: 'Connecting remote services' })}
+            : isStac
+              ? t('rail.stacHint', { defaultValue: 'Importing from STAC' })
+              : t('rail.serviceHint', { defaultValue: 'Connecting remote services' })}
         </p>
         <p className="mb-2.5 text-[12.5px] text-muted-foreground leading-relaxed">
           {isRegister
             ? t('rail.registerDesc', { defaultValue: 'Register existing PostGIS tables as datasets — GeoLens tiles them on the fly from your database.' })
-            : t('rail.serviceDesc', { defaultValue: 'Connect a remote WFS, ArcGIS FeatureServer, or OGC API Features service. GeoLens imports the layer into the catalog for tiling and querying.' })}
+            : isStac
+              ? t('rail.stacDesc', { defaultValue: 'Connect a STAC catalog or collection and import selected assets into GeoLens.' })
+              : t('rail.serviceDesc', { defaultValue: 'Connect a remote WFS, ArcGIS FeatureServer, or OGC API Features service. GeoLens imports the layer into the catalog for tiling and querying.' })}
         </p>
         <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
           {isRegister
             ? t('rail.registerNote', { defaultValue: 'No data copied · tiles generated directly from your tables' })
-            : t('rail.serviceNote', { defaultValue: 'Service tokens are used during import only and are not persisted' })}
+            : isStac
+              ? t('rail.stacNote', { defaultValue: 'STAC metadata is discovered first, then selected assets are imported' })
+              : t('rail.serviceNote', { defaultValue: 'Service tokens are used during import only and are not persisted' })}
         </p>
       </div>
 
@@ -147,7 +154,9 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' }) {
         <p className="text-[12.5px] text-muted-foreground leading-relaxed">
           {isRegister
             ? t('rail.compareRegister', { defaultValue: 'Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.' })
-            : t('rail.compareService', { defaultValue: 'Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying.' })}
+            : isStac
+              ? t('rail.compareStac', { defaultValue: 'Upload ingests local files. STAC imports discover remote assets first, then stages selected items for catalog use.' })
+              : t('rail.compareService', { defaultValue: 'Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying.' })}
         </p>
       </div>
     </aside>

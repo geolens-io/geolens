@@ -79,6 +79,8 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
   const extraCount = preview.columns.length - MAX_VISIBLE_COLUMNS;
   const hasSampleData =
     preview.columns.length > 0 && preview.sample_rows.length > 0;
+  const detectedGeometryColumns =
+    'detected_geometry_columns' in preview ? preview.detected_geometry_columns : null;
 
   return (
     <Card>
@@ -100,9 +102,9 @@ export function ImportPreview({ preview }: ImportPreviewProps) {
               <Badge variant="secondary">
                 {getGeometryTypeLabel(t, preview.geometry_type)}
               </Badge>
-            ) : preview.detected_geometry_columns &&
-              (preview.detected_geometry_columns.x_column ||
-                preview.detected_geometry_columns.wkt_column) ? (
+            ) : detectedGeometryColumns &&
+              (detectedGeometryColumns.x_column ||
+                detectedGeometryColumns.wkt_column) ? (
               <Badge
                 variant="outline"
                 className={semanticBadgeColors.info}

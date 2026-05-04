@@ -89,7 +89,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     localName: 'Test Map',
     localDescription: 'A test',
     dockNotes: '',
-    mapInstanceRef: { current: createMockMap() } as SaveState['mapInstanceRef'],
+    mapInstanceRef: { current: createMockMap() } as unknown as SaveState['mapInstanceRef'],
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
     hasThumbnail: true,
@@ -191,7 +191,7 @@ describe('useBuilderSave', () => {
 
   it('handleExportPNG captures immediately when map is loaded', () => {
     const mockMap = createMockMap({ loaded: true });
-    const state = makeSaveState({ mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'] });
+    const state = makeSaveState({ mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'] });
     const { result } = renderHook(() => useBuilderSave(state));
 
     act(() => {
@@ -280,7 +280,7 @@ describe('useBuilderSave', () => {
     });
 
     function triggerSaveSuccess(mockMap: ReturnType<typeof createMockMap>) {
-      const state = makeSaveState({ mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'] });
+      const state = makeSaveState({ mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'] });
       const { result } = renderHook(() => useBuilderSave(state));
       act(() => { result.current.handleSave(); });
       // Call the onSuccess callback
@@ -356,7 +356,7 @@ describe('useBuilderSave', () => {
   describe('handleExportPNG (idle handling)', () => {
     it('defers export via idle event when map is not loaded', () => {
       const mockMap = createMockMap({ loaded: false });
-      const state = makeSaveState({ mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'] });
+      const state = makeSaveState({ mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'] });
       const { result } = renderHook(() => useBuilderSave(state));
 
       act(() => { result.current.handleExportPNG(); });
@@ -383,7 +383,7 @@ describe('useBuilderSave', () => {
       const state = makeSaveState({
         hasThumbnail: false,
         localLayers: [makeLayer()],
-        mapInstanceRef: { current: mockMap } as SaveState['mapInstanceRef'],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
       });
 
       const { result } = renderHook(() => useBuilderSave(state));
