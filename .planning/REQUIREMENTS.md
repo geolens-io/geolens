@@ -34,9 +34,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Verification and Close Gate
 
-- [ ] **QUAL-01**: Maintainer can run focused backend verification for maps and search, including `test_maps`, `test_search`, hybrid search, search facets, search cache, and VRT search enrichment tests.
-- [ ] **QUAL-02**: Maintainer can run backend lint/format checks for the touched catalog modules with no ruff or formatting violations.
-- [ ] **QUAL-03**: Maintainer can review a close-gate audit that records decomposition results, requirement coverage, residual risks, and confirms no unresolved P0/P1 findings for v13.6.
+- [x] **QUAL-01**: Maintainer can run focused backend verification for maps and search, including `test_maps`, `test_search`, hybrid search, search facets, search cache, and VRT search enrichment tests.
+- [x] **QUAL-02**: Maintainer can run backend lint/format checks for the touched catalog modules with no ruff or formatting violations.
+- [x] **QUAL-03**: Maintainer can review a close-gate audit that records decomposition results, requirement coverage, residual risks, and confirms no unresolved P0/P1 findings for v13.6.
 
 ## Future Requirements
 
@@ -90,9 +90,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BOUND-02 | 238 | Complete |
 | BOUND-03 | 238 | Complete |
 | BOUND-04 | 238 | Complete |
-| QUAL-01 | 239 | Pending |
-| QUAL-02 | 239 | Pending |
-| QUAL-03 | 239 | Pending |
+| QUAL-01 | 239 | Complete |
+| QUAL-02 | 239 | Complete |
+| QUAL-03 | 239 | Complete |
 
 **Coverage:**
 - v13.6 requirements: 19 total
@@ -101,4 +101,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-03*
-*Last updated: 2026-05-04 after Phase 238 completion*
+*Last updated: 2026-05-04 after Phase 239 completion*

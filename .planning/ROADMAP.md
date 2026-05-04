@@ -46,7 +46,7 @@
 - ✅ **v13.3 Boundary A+ Cleanup** — Phases 222-224 (shipped 2026-05-01) — see [archive](milestones/v13.3-ROADMAP.md)
 - ✅ **v13.4 Boundary Closeout** — Phases 225-231 (shipped 2026-05-03) — see [archive](milestones/v13.4-ROADMAP.md)
 - ✅ **v13.5 Enterprise Governance Seams** — Phases 232-235 (shipped 2026-05-03) — see [archive](milestones/v13.5-ROADMAP.md)
-- 🔄 **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-239 (roadmap created 2026-05-03)
+- ✅ **v13.6 Catalog Maps/Search Service Decomposition** — Phases 236-239 (shipped 2026-05-04)
 
 ## Phases
 
@@ -59,9 +59,9 @@
 - [x] **Phase 236: maps-service-decomposition** — Split `backend/app/modules/catalog/maps/service.py` behind a stable public façade while preserving map-builder, layer, sharing, thumbnail, and public-viewer behavior. (completed 2026-05-03)
 - [x] **Phase 237: search-service-decomposition** — Split `backend/app/modules/catalog/search/service.py` behind a stable public façade while preserving catalog search, facets, semantic/hybrid merge, OGC record conversion, and collection behavior. (completed 2026-05-03)
 - [x] **Phase 238: boundary-guards-and-contract-stabilization** — Add architecture guards and source-introspection-safe contract checks that keep maps/search façades stable and private decomposition modules bounded. (completed 2026-05-04)
-- [ ] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit.
+- [x] **Phase 239: close-audit-and-verification** — Run focused maps/search verification, lint/format checks, and the v13.6 close audit. (completed 2026-05-04)
 
-19/19 v13.6 requirements mapped. 16/19 satisfied after Phase 238.
+19/19 v13.6 requirements mapped. 19/19 satisfied after Phase 239.
 
 #### Phase 236: maps-service-decomposition
 
@@ -130,7 +130,7 @@
 3. A dated v13.6 close-gate audit records decomposition results, requirement coverage, residual risks, and confirms no unresolved P0/P1 findings.
 
 **Plans:**
-- [ ] TBD by `$gsd-plan-phase 239`
+2/2 plans complete
 
 ---
 
