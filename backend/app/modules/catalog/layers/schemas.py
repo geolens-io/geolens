@@ -103,11 +103,11 @@ class CreateLayerRequest(BaseModel):
         min_length=1,
         max_length=500,
         description="Display name for the new layer",
-        example="Survey Points",
+        json_schema_extra={"example": "Survey Points"},
     )
     geometry_type: str = Field(
         description="OGC geometry type: Point, MultiPoint, LineString, MultiLineString, Polygon, or MultiPolygon",
-        example="Point",
+        json_schema_extra={"example": "Point"},
     )
     summary: str | None = Field(
         default=None,

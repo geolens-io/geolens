@@ -135,13 +135,15 @@ class MapCreate(BaseModel):
         min_length=1,
         max_length=255,
         description="Map display name",
-        example="NYC Infrastructure",
+        json_schema_extra={"example": "NYC Infrastructure"},
     )
     description: str | None = Field(
         default=None,
         max_length=2000,
         description="Short description for sharing",
-        example="Buildings, parks, and transit routes in Manhattan",
+        json_schema_extra={
+            "example": "Buildings, parks, and transit routes in Manhattan"
+        },
     )
     notes: str | None = Field(
         default=None,

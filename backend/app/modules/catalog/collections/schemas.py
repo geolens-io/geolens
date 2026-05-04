@@ -12,13 +12,13 @@ class CollectionCreate(BaseModel):
         min_length=1,
         max_length=255,
         description="Display name for the collection",
-        example="NYC Open Data",
+        json_schema_extra={"example": "NYC Open Data"},
     )
     description: str | None = Field(
         default=None,
         max_length=2000,
         description="Optional text description",
-        example="Datasets from the NYC Open Data portal",
+        json_schema_extra={"example": "Datasets from the NYC Open Data portal"},
     )
 
     @field_validator("name", "description", mode="before")
