@@ -62,6 +62,7 @@ Markers:
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 from pathlib import Path
@@ -110,6 +111,76 @@ def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def _iter_backend_app_python_files() -> list[Path]:
+    return sorted((REPO_ROOT / "backend/app").rglob("*.py"))
+
+
+def _normalized_import_root(name: str | None) -> str:
+    if name is None:
+        return ""
+    if name.startswith("backend."):
+        return name.removeprefix("backend.")
+    return name
+
+
+def _is_allowed_private_service_importer(path: Path, package_path: str) -> bool:
+    rel = path.relative_to(REPO_ROOT).as_posix()
+    return rel == f"{package_path}/service.py" or (
+        rel.startswith(f"{package_path}/service_") and rel.endswith(".py")
+    )
+
+
+def _private_service_import_offenders(
+    *,
+    package: str,
+    package_path: str,
+    private_modules: set[str],
+) -> list[str]:
+    offenders: list[str] = []
+    normalized_package = _normalized_import_root(package)
+
+    for path in _iter_backend_app_python_files():
+        if _is_allowed_private_service_importer(path, package_path):
+            continue
+
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        try:
+            tree = ast.parse(path.read_text(), filename=rel)
+        except SyntaxError as exc:
+            pytest.fail(f"Could not parse {rel}: {exc}")
+
+        lines = path.read_text().splitlines()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported = _normalized_import_root(alias.name)
+                    if any(
+                        imported == f"{normalized_package}.{module}"
+                        or imported.startswith(f"{normalized_package}.{module}.")
+                        for module in private_modules
+                    ):
+                        offenders.append(
+                            f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                        )
+            elif isinstance(node, ast.ImportFrom):
+                imported_from = _normalized_import_root(node.module)
+                if imported_from in {
+                    f"{normalized_package}.{module}" for module in private_modules
+                }:
+                    offenders.append(
+                        f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                    )
+                    continue
+                if imported_from == normalized_package:
+                    imported_names = {alias.name for alias in node.names}
+                    if imported_names.intersection(private_modules):
+                        offenders.append(
+                            f"{rel}:{node.lineno}:{lines[node.lineno - 1].strip()}"
+                        )
+
+    return offenders
 
 
 @pytest.mark.architecture
@@ -573,6 +644,110 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
             "Cross-imports between the 5 sub-modules themselves are "
             "permitted (D-05) — only external bypasses are forbidden.\n"
             "Offending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_no_external_imports_of_maps_private_service_modules() -> None:
+    """Phase 238 BOUND-01: maps callers must use the public service façade.
+
+    Phases 236 and 238 keep `app.modules.catalog.maps.service` as the stable
+    import surface. Focused private modules may collaborate with each other and
+    the façade may re-export them, but production modules outside the service
+    split must not import service_shared/service_crud/service_layers/
+    service_public directly.
+    """
+    private_modules = {
+        "service_shared",
+        "service_crud",
+        "service_layers",
+        "service_public",
+    }
+    offenders = _private_service_import_offenders(
+        package="app.modules.catalog.maps",
+        package_path="backend/app/modules/catalog/maps",
+        private_modules=private_modules,
+    )
+
+    if offenders:
+        pytest.fail(
+            "Phase 238 BOUND-01 invariant violated: production code imports "
+            "maps private service modules directly. External callers must "
+            "import from `app.modules.catalog.maps.service`; only the maps "
+            "facade and maps service_*.py modules may import private service "
+            "modules directly.\nOffending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_no_external_imports_of_search_private_service_modules() -> None:
+    """Phase 238 BOUND-01: search callers must use the public service façade."""
+    private_modules = {
+        "service_filters",
+        "service_facets",
+        "service_collections",
+        "service_semantic",
+        "service_datasets",
+        "service_records",
+    }
+    offenders = _private_service_import_offenders(
+        package="app.modules.catalog.search",
+        package_path="backend/app/modules/catalog/search",
+        private_modules=private_modules,
+    )
+
+    if offenders:
+        pytest.fail(
+            "Phase 238 BOUND-01 invariant violated: production code imports "
+            "search private service modules directly. External callers must "
+            "import from `app.modules.catalog.search.service`; only the search "
+            "facade and search service_*.py modules may import private service "
+            "modules directly.\nOffending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_maps_search_service_modules_stay_within_size_budgets() -> None:
+    """Phase 238 BOUND-02: maps/search service splits stay bounded."""
+    facade_line_budgets = {
+        "backend/app/modules/catalog/maps/service.py": 100,
+        "backend/app/modules/catalog/search/service.py": 80,
+    }
+    private_service_default_line_budget = 350
+    private_service_line_budget_allowlist = {
+        "backend/app/modules/catalog/maps/service_crud.py": 550,
+        "backend/app/modules/catalog/maps/service_public.py": 575,
+        "backend/app/modules/catalog/search/service_records.py": 500,
+    }
+
+    files_to_check = list(facade_line_budgets)
+    files_to_check.extend(
+        path.relative_to(REPO_ROOT).as_posix()
+        for root in (
+            REPO_ROOT / "backend/app/modules/catalog/maps",
+            REPO_ROOT / "backend/app/modules/catalog/search",
+        )
+        for path in sorted(root.glob("service_*.py"))
+    )
+
+    violations: list[str] = []
+    for rel in sorted(set(files_to_check)):
+        line_count = len((REPO_ROOT / rel).read_text().splitlines())
+        if rel in facade_line_budgets:
+            cap = facade_line_budgets[rel]
+        else:
+            cap = private_service_line_budget_allowlist.get(
+                rel, private_service_default_line_budget
+            )
+        if line_count > cap:
+            violations.append(f"{rel}: {line_count} lines > cap {cap}")
+
+    if violations:
+        pytest.fail(
+            "Phase 238 BOUND-02 invariant violated: maps/search service "
+            "modules exceeded their line-count budgets. Split the module or "
+            "add a reviewed explicit cap only when growth is intentional.\n"
+            + "\n".join(violations)
         )
 
 
