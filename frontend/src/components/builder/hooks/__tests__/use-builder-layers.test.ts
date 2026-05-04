@@ -35,6 +35,7 @@ function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
     id: 'map-1',
     name: 'Test Map',
     description: null,
+    notes: null,
     center_lng: 0,
     center_lat: 0,
     zoom: 2,

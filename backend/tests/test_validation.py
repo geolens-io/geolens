@@ -277,6 +277,7 @@ async def test_publish_succeeds_when_all_required_fields_present(
     assert resp.status_code == 200
     data = resp.json()
     assert data["record_status"] == "published"
+    assert data["published_at"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -442,3 +443,4 @@ async def test_publish_allowed_when_require_metadata_off(
     )
     assert resp.status_code == 200
     assert resp.json()["record_status"] == "published"
+    assert resp.json()["published_at"] is not None

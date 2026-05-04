@@ -27,6 +27,26 @@ from app.modules.catalog.datasets.domain.models import (
 from tests.factories import get_user_id
 
 
+def test_search_service_facade_exports_public_api():
+    """Public search service facade keeps existing import names available."""
+    from app.modules.catalog.search import service
+
+    required = {
+        "FacetCounts",
+        "SearchFilters",
+        "get_facet_counts",
+        "search_collections",
+        "search_datasets",
+        "build_assets",
+        "dataset_to_ogc_record",
+        "parse_ogc_datetime",
+        "_compute_rrf_scores",
+    }
+    missing = sorted(name for name in required if not hasattr(service, name))
+    assert not missing
+    assert required.issubset(set(service.__all__))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

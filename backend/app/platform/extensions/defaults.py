@@ -24,6 +24,143 @@ class DefaultAuthExtension:
         return []
 
 
+class DefaultPermissionExtension:
+    """Community-edition default permission policy (Phase 232 / PERM-02).
+
+    This class owns the baseline behavior for the PermissionExtension seam.
+    Imports stay inside methods so the platform extension package does not
+    take module-layer dependencies at import time.
+    """
+
+    async def check_permission(
+        self,
+        db,
+        user,
+        capability,
+        *,
+        user_roles,
+        permission_matrix=None,
+        resource=None,
+    ):  # type: ignore[no-untyped-def]
+        del user, resource
+        matrix = permission_matrix
+        if matrix is None:
+            from app.modules.auth.permissions import get_effective_permissions
+
+            matrix = await get_effective_permissions(db)
+        return any(matrix.get(role, {}).get(capability, False) for role in user_roles)
+
+    def filter_visible(self, stmt, user, user_roles, record_cls, grant_cls=None):  # type: ignore[no-untyped-def]
+        from sqlalchemy import and_, or_, select
+
+        from app.modules.auth.models import UserRole
+
+        if "admin" in user_roles:
+            return stmt
+
+        if user is None:
+            return stmt.where(
+                record_cls.visibility == "public",
+                record_cls.record_status == "published",
+            )
+
+        conditions = [
+            record_cls.visibility == "public",
+            and_(
+                record_cls.visibility == "private",
+                record_cls.created_by == user.id,
+            ),
+        ]
+
+        if grant_cls is not None:
+            conditions.append(
+                and_(
+                    record_cls.visibility == "restricted",
+                    record_cls.id.in_(
+                        select(grant_cls.dataset_id)
+                        .join(UserRole, grant_cls.role_id == UserRole.role_id)
+                        .where(UserRole.user_id == user.id)
+                    ),
+                )
+            )
+
+        status_filter = or_(
+            record_cls.record_status == "published",
+            record_cls.created_by == user.id,
+        )
+        return stmt.where(and_(or_(*conditions), status_filter))
+
+    async def can_access_dataset(
+        self,
+        db,
+        dataset,
+        dataset_id,
+        user,
+        *,
+        user_roles,
+    ):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        from app.modules.auth.models import UserRole
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        record = dataset.record
+
+        if user is None:
+            return record.visibility == "public" and record.record_status == "published"
+
+        if "admin" in user_roles:
+            return True
+
+        if record.record_status != "published" and record.created_by != user.id:
+            return False
+
+        if record.visibility == "private" and record.created_by != user.id:
+            return False
+
+        if record.visibility == "restricted":
+            grant_result = await db.execute(
+                select(DatasetGrant.dataset_id)
+                .join(UserRole, DatasetGrant.role_id == UserRole.role_id)
+                .where(
+                    DatasetGrant.dataset_id == dataset_id,
+                    UserRole.user_id == user.id,
+                )
+            )
+            return grant_result.scalar_one_or_none() is not None
+
+        return True
+
+
+class DefaultWorkflowExtension:
+    """Community-edition default publication workflow policy."""
+
+    DEFAULT_STATUS_ORDER = ("draft", "ready", "internal", "published")
+    DEFAULT_ALLOWED_TRANSITIONS = {
+        "draft": {"ready"},
+        "ready": {"draft", "internal"},
+        "internal": {"ready", "published"},
+        "published": {"internal"},
+    }
+
+    def status_order(self) -> tuple[str, ...]:
+        return self.DEFAULT_STATUS_ORDER
+
+    async def allowed_transitions(self, context):  # type: ignore[no-untyped-def]
+        statuses = set(self.DEFAULT_STATUS_ORDER)
+        if context.from_status not in statuses or context.to_status not in statuses:
+            return set()
+
+        if context.mode == "metadata_patch":
+            return statuses - {context.from_status}
+
+        return set(self.DEFAULT_ALLOWED_TRANSITIONS.get(context.from_status, set()))
+
+    async def on_transition(self, context) -> None:  # type: ignore[no-untyped-def]
+        del context
+        return
+
+
 class DefaultIdentityExtension:
     """Default identity: no alternate backend registered (Phase 214 D-14).
 
@@ -423,6 +560,206 @@ class DefaultProcessingPort:
         )
         result = await session.execute(stmt)
         return result.unique().scalar_one_or_none()
+
+
+class DefaultCatalogPort:
+    """Community default: delegates catalog calls into app.processing.* lazily."""
+
+    @property
+    def priority_queue_threshold_bytes(self) -> int:
+        from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
+
+        return PRIORITY_QUEUE_THRESHOLD_BYTES
+
+    def ingestion_error_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.ogr import IngestionError
+
+        return IngestionError
+
+    def raster_asset_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.raster.models import RasterAsset
+
+        return RasterAsset
+
+    def vrt_generation_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.raster.models import VrtGeneration
+
+        return VrtGeneration
+
+    def record_embedding_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.models import RecordEmbedding
+
+        return RecordEmbedding
+
+    def embedding_unavailable_error_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.service import EmbeddingUnavailableError
+
+        return EmbeddingUnavailableError
+
+    def vrt_mutation_response_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import VrtMutationResponse
+
+        return VrtMutationResponse
+
+    def presigned_complete_request_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import PresignedCompleteRequest
+
+        return PresignedCompleteRequest
+
+    def presigned_upload_request_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import PresignedUploadRequest
+
+        return PresignedUploadRequest
+
+    def presigned_upload_response_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import PresignedUploadResponse
+
+        return PresignedUploadResponse
+
+    def upload_response_model(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.schemas import UploadResponse
+
+        return UploadResponse
+
+    def visibility_default(self) -> str:
+        return "private"
+
+    async def compute_quality_score(self, session, table_name, column_info, dataset):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import compute_quality_score
+
+        return await compute_quality_score(session, table_name, column_info, dataset)
+
+    def quote_table(self, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _qtable
+
+        return _qtable(table_name)
+
+    async def generate_table_name(self, title, session):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import generate_table_name
+
+        return await generate_table_name(title, session)
+
+    def validate_file_content(self, file_path, filename):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.validation import validate_file_content
+
+        return validate_file_content(file_path, filename)
+
+    def validate_file_extension(self, filename, allowed):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import validate_file_extension
+
+        return validate_file_extension(filename, allowed)
+
+    async def create_ingest_job(self, session, filename, file_path, user_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import create_ingest_job
+
+        return await create_ingest_job(session, filename, file_path, user_id)
+
+    async def save_upload_file(self, file, job_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import save_upload_file
+
+        return await save_upload_file(file, job_id)
+
+    async def resolve_file_path(self, file_path, job_id):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import resolve_file_path
+
+        return await resolve_file_path(file_path, job_id)
+
+    async def run_ogrinfo_preview(self, file_path, *, layer_name=None, sample_limit=5):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.ogr import run_ogrinfo_preview
+
+        return await run_ogrinfo_preview(
+            file_path, layer_name=layer_name, sample_limit=sample_limit
+        )
+
+    def reupload_file_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_file
+
+        return reupload_file
+
+    def reupload_service_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_service
+
+        return reupload_service
+
+    def regenerate_vrt_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import regenerate_vrt
+
+        return regenerate_vrt
+
+    def ingest_part_size(self) -> int:
+        from app.processing.ingest.router import PART_SIZE
+
+        return PART_SIZE
+
+    def safe_content_disposition(self, filename):  # type: ignore[no-untyped-def]
+        from app.processing.export.service import safe_content_disposition
+
+        return safe_content_disposition(filename)
+
+    def extract_srid_from_json(self, coordinate_system):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.ogr import extract_srid_from_json
+
+        return extract_srid_from_json(coordinate_system)
+
+    def resolve_service_type(self, raw):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import resolve_service_type
+
+        return resolve_service_type(raw)
+
+    def humanize_column_name(self, column_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _humanize_column_name
+
+        return _humanize_column_name(column_name)
+
+    def infer_units(self, column_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _infer_units
+
+        return _infer_units(column_name)
+
+    def infer_semantic_role(self, field_name, data_type):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _infer_semantic_role
+
+        return _infer_semantic_role(field_name, data_type)
+
+    def infer_domain_type(self, data_type):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _infer_domain_type
+
+        return _infer_domain_type(data_type)
+
+    def validate_table_name(self, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import _validate_table_name
+
+        return _validate_table_name(table_name)
+
+    async def add_4326_column(self, session, table_name, source_srid):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import add_4326_column
+
+        return await add_4326_column(session, table_name, source_srid)
+
+    async def grant_reader_access(self, session, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import grant_reader_access
+
+        return await grant_reader_access(session, table_name)
+
+    async def get_column_info(self, session, table_name):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import get_column_info
+
+        return await get_column_info(session, table_name)
+
+    async def has_embeddings(self, session):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.helpers import has_embeddings
+
+        return await has_embeddings(session)
+
+    async def generate_embedding(self, text, session):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.service import generate_embedding
+
+        return await generate_embedding(text, session)
+
+    async def set_hnsw_recall(self, session):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.helpers import set_hnsw_recall
+
+        return await set_hnsw_recall(session)
 
 
 class DefaultAnthropicProvider:

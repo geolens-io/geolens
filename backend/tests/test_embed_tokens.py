@@ -23,18 +23,33 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
-from app.platform.cache.provider import get_cache
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
-from app.modules.embed_tokens.models import EmbedToken
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.embed_tokens.models import EmbedToken
+from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
+from app.modules.embed_tokens.service import create_embed_token, update_embed_token
+from app.platform.cache.provider import get_cache
 
 from tests.factories import create_dataset, get_user_id
 
 
 @pytest.fixture(autouse=True)
-async def _init_tile_pool_for_tests():
+async def _init_tile_pool_for_tests(request):
     """Initialize asyncpg pool for tile tests."""
+    db_fixtures = {
+        "admin_auth_header",
+        "clean_tables",
+        "cleanup_data_tables",
+        "client",
+        "editor_auth_header",
+        "test_db_session",
+        "viewer_auth_header",
+    }
+    if not db_fixtures.intersection(request.fixturenames):
+        yield
+        return
+
     import app.processing.tiles.pool as pool_module
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
@@ -208,8 +223,58 @@ class TestCreateEmbedToken:
         # So expires_at must be in [before + 30d, after + 30d].
         assert before + timedelta(days=30) <= expires_at <= after + timedelta(days=30)
 
+    async def test_custom_expiration_requires_enterprise(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        community_edition,
+    ):
+        """Community cannot create embed tokens with custom expiration."""
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset = await _create_private_dataset(test_db_session, created_by=user_id)
+        map_obj, _ = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+
+        resp = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/",
+            json={"expires_in_days": 90},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert ADVANCED_SHARING_ERROR in resp.text
+
+    async def test_allowed_origins_require_enterprise(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        community_edition,
+    ):
+        """Community cannot create embed tokens with origin restrictions."""
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset = await _create_private_dataset(test_db_session, created_by=user_id)
+        map_obj, _ = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+
+        resp = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/",
+            json={"allowed_origins": ["https://example.com"]},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
+        assert ADVANCED_SHARING_ERROR in resp.text
+
     async def test_create_embed_token_max_expiration(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        enterprise_edition,
     ):
         """EMBED-03: Expiration is capped at 365 days even if requesting more.
         The schema enforces le=365 so 400 is expected.
@@ -241,6 +306,43 @@ class TestCreateEmbedToken:
         expires_at = datetime.fromisoformat(data["expires_at"])
         # Bound the expected expiration to [before + 365d, after + 365d].
         assert before + timedelta(days=365) <= expires_at <= after + timedelta(days=365)
+
+
+class TestEmbedTokenServiceGuards:
+    """Service-layer guards for schema bypasses."""
+
+    async def test_create_custom_expiration_guard_runs_before_db_lookup(
+        self, community_edition
+    ):
+        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
+            await create_embed_token(
+                object(),
+                uuid.uuid4(),
+                uuid.uuid4(),
+                expires_in_days=90,
+            )
+
+    async def test_create_allowed_origins_guard_runs_before_db_lookup(
+        self, community_edition
+    ):
+        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
+            await create_embed_token(
+                object(),
+                uuid.uuid4(),
+                uuid.uuid4(),
+                allowed_origins=["https://example.com"],
+            )
+
+    async def test_update_allowed_origins_guard_runs_before_db_lookup(
+        self, community_edition
+    ):
+        with pytest.raises(ValueError, match=ADVANCED_SHARING_ERROR):
+            await update_embed_token(
+                object(),
+                uuid.uuid4(),
+                uuid.uuid4(),
+                ["https://example.com"],
+            )
 
 
 class TestListEmbedTokens:
@@ -422,7 +524,7 @@ class TestTileEmbedTokenAccess:
             # Create embed token
             create_resp = await client.post(
                 f"/maps/{map_obj.id}/embed-tokens/",
-                json={"expires_in_days": 1},
+                json={},
                 headers=admin_auth_header,
             )
             assert create_resp.status_code == 201
@@ -563,6 +665,8 @@ class TestTileEmbedTokenAccess:
 class TestCreateEmbedTokenWithOrigins:
     """DOMAIN-01: Token creation with allowed_origins."""
 
+    pytestmark = pytest.mark.usefixtures("enterprise_edition")
+
     async def test_create_with_allowed_origins(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
@@ -585,6 +689,8 @@ class TestCreateEmbedTokenWithOrigins:
 
 class TestTileDomainLocking:
     """DOMAIN-02, DOMAIN-03, DOMAIN-04: Origin validation on tile requests."""
+
+    pytestmark = pytest.mark.usefixtures("enterprise_edition")
 
     async def _setup(
         self,
@@ -1081,6 +1187,8 @@ class TestBulkRevokeEmbedTokens:
 
 class TestUpdateEmbedToken:
     """PATCH endpoint for updating embed token allowed_origins."""
+
+    pytestmark = pytest.mark.usefixtures("enterprise_edition")
 
     async def test_patch_embed_token_update_origins(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

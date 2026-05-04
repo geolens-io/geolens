@@ -10,8 +10,10 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
+from app.core.edition import is_enterprise
 from app.platform.cache.provider import get_cache
 from app.modules.embed_tokens.models import EmbedToken
+from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.catalog.maps.models import MapLayer
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -73,6 +75,9 @@ async def create_embed_token(
 
     Returns (token_record, raw_token). The raw token is only available at creation.
     """
+    if not is_enterprise() and (expires_in_days != 30 or bool(allowed_origins)):
+        raise ValueError(ADVANCED_SHARING_ERROR)
+
     # Revoke any existing active tokens for this map
     existing = await db.execute(
         select(EmbedToken)
@@ -178,6 +183,9 @@ async def update_embed_token(
     allowed_origins: list[str] | None,
 ) -> EmbedToken | None:
     """Update allowed_origins on an embed token. Invalidates cache."""
+    if not is_enterprise() and bool(allowed_origins):
+        raise ValueError(ADVANCED_SHARING_ERROR)
+
     result = await db.execute(
         select(EmbedToken).where(
             EmbedToken.id == token_id,

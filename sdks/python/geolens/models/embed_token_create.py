@@ -18,9 +18,10 @@ T = TypeVar("T", bound="EmbedTokenCreate")
 class EmbedTokenCreate:
     """
     Attributes:
-        allowed_origins (list[str] | None | Unset): Restrict embedding to these origins. Omit to allow any origin.
-            Example: ['https://dashboard.example.com'].
-        expires_in_days (int | Unset): Token lifetime in days (1-365). Default: 30. Example: 90.
+        allowed_origins (list[str] | None | Unset): Restrict embedding to these origins. Omit or null allows any origin;
+            non-empty origin restrictions require GeoLens Enterprise. Example: ['https://dashboard.example.com'].
+        expires_in_days (int | Unset): Token lifetime in days (1-365). The default 30-day lifetime is available in
+            Community; custom lifetimes require GeoLens Enterprise. Default: 30. Example: 90.
         name (None | str | Unset): Human-readable label for the token Example: Public dashboard embed.
     """
 

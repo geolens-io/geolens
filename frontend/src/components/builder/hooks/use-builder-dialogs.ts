@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 const SIDEBAR_COLLAPSED_KEY = 'geolens-builder-sidebar-collapsed';
 
-export function useBuilderDialogs(aiAvailable: boolean | undefined, isMobile = false) {
+export function useBuilderDialogs(_aiAvailable: boolean | undefined, isMobile = false) {
   const [showChat, setShowChat] = useState(false);
   const [showAddData, setShowAddData] = useState(false);
   const [showShare, setShowShare] = useState(false);

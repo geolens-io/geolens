@@ -2,10 +2,7 @@ import type { Geometry } from 'geojson';
 import type { FilterSpecification, HeatmapLayerSpecification, CircleLayerSpecification } from 'maplibre-gl';
 
 /** OGC/PostGIS geometry type values returned by the API. */
-export type GeometryTypeName =
-  | 'Point' | 'LineString' | 'Polygon'
-  | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon'
-  | 'GeometryCollection';
+export type GeometryTypeName = string;
 
 /** Layer type discriminator for map layers. */
 export type MapLayerType = 'vector_geolens' | 'raster_geolens' | 'geojson';
@@ -712,12 +709,13 @@ export interface PopupConfig {
 
 // Data-driven styling
 export interface StyleConfig {
+  [key: string]: unknown;
   mode: 'categorical' | 'graduated';
   column: string;
   ramp: string;
   classCount?: number;
   method?: 'equal_interval' | 'quantile';
-  categories?: { value: string; color: string }[];
+  categories?: { value: string | number | null; color: string }[];
   breaks?: number[];
   colors?: string[];
   /** Styling target — defaults to 'color' when absent for backward compatibility */
@@ -767,9 +765,9 @@ export interface MapLayerResponse {
   paint: Record<string, unknown>;
   layout: Record<string, unknown>;
   filter: FilterSpecification | null;
-  label_config: LabelConfig | null;
-  popup_config: PopupConfig | null;
-  style_config: StyleConfig | null;
+  label_config?: LabelConfig | null;
+  popup_config?: PopupConfig | null;
+  style_config?: StyleConfig | null;
   layer_type?: MapLayerType | null;
   dataset_record_type?: RecordType | null;
   show_in_legend?: boolean;

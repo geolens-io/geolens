@@ -19,10 +19,13 @@ from app.platform.extensions.defaults import (
     DefaultAuthExtension,
     DefaultBillingExtension,  # NEW (Phase 223)
     DefaultBrandingExtension,
+    DefaultCatalogPort,  # NEW (Phase 230)
     DefaultIdentityExtension,
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
+    DefaultPermissionExtension,  # NEW (Phase 232)
     DefaultProcessingPort,  # NEW (Phase 225)
+    DefaultWorkflowExtension,  # NEW (Phase 233)
 )
 from app.platform.extensions.protocols import (
     AuditExtension,
@@ -33,11 +36,14 @@ from app.platform.extensions.protocols import (
 )
 
 if TYPE_CHECKING:
+    from app.core.catalog_port import CatalogPort  # NEW (Phase 230)
     from app.core.identity import IdentityExtension
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231)
         AIProviderExtension,
         EmbeddingProviderExtension,
+        PermissionExtension,
+        WorkflowExtension,
     )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -118,6 +124,33 @@ def get_auth_extension() -> AuthExtension:
     ext = _extensions.get("auth")
     if ext is None:
         return DefaultAuthExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_permission_extension() -> "PermissionExtension":
+    """Return the registered PermissionExtension or the community default.
+
+    Phase 232 / PERM-01 follows the single-slot extension shape used by
+    identity, processing_port, and catalog_port. Permission policy is a single
+    authority; overlays that need additive behavior can wrap
+    DefaultPermissionExtension explicitly.
+    """
+    ext = _extensions.get("permission")
+    if ext is None:
+        return DefaultPermissionExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_workflow_extension() -> "WorkflowExtension":
+    """Return the registered WorkflowExtension or the community default.
+
+    Phase 233 / WORK-01 follows the same single-slot shape as PermissionExtension.
+    Workflow policy is a singleton authority; overlays that need additive
+    behavior can wrap DefaultWorkflowExtension explicitly.
+    """
+    ext = _extensions.get("workflow")
+    if ext is None:
+        return DefaultWorkflowExtension()
     return ext  # type: ignore[return-value]
 
 
@@ -222,6 +255,19 @@ def get_processing_port() -> "ProcessingPort":
     ext = _extensions.get("processing_port")
     if ext is None:
         return DefaultProcessingPort()
+    return ext  # type: ignore[return-value]
+
+
+def get_catalog_port() -> "CatalogPort":
+    """Return the registered CatalogPort or the community default.
+
+    Phase 230 / CATPORT-01 — symmetric partner to get_processing_port().
+    CatalogPort is single-slot because it is a singleton boundary surface;
+    overlays replace it under the "catalog_port" registry key.
+    """
+    ext = _extensions.get("catalog_port")
+    if ext is None:
+        return DefaultCatalogPort()
     return ext  # type: ignore[return-value]
 
 

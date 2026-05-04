@@ -20,7 +20,8 @@ T = TypeVar("T", bound="ShareTokenRequest")
 class ShareTokenRequest:
     """
     Attributes:
-        expires_at (datetime.datetime | None | Unset): Expiration timestamp; null = never expires
+        expires_at (datetime.datetime | None | Unset): Expiration timestamp. Null creates a basic non-expiring share
+            link; non-null expiration requires GeoLens Enterprise.
     """
 
     expires_at: datetime.datetime | None | Unset = UNSET

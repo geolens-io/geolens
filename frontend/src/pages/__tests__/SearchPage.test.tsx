@@ -69,7 +69,7 @@ function makeFeature(id: string, title: string): OGCRecordResponse {
       crs: null,
       geometry_type: null,
       feature_count: 10,
-      contact: null,
+      contacts: null,
       license: null,
       source_organization: 'GeoLens',
       quality_detail: null,

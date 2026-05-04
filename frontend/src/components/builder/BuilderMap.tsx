@@ -33,14 +33,6 @@ import 'maplibre-gl/dist/maplibre-gl.css';
  * the `layer-adapters` registry and `map-sync` helpers so styling renders
  * identically in editing and viewing modes.
  */
-interface SelectedFeature {
-  properties: Record<string, unknown>;
-  layerName: string;
-  columnInfo: { name: string; type: string }[] | null;
-  title?: string | null;
-  visibleFields?: string[] | null;
-}
-
 interface BuilderMapProps {
   layers: MapLayerResponse[];
   basemapStyle: string;
@@ -54,7 +46,7 @@ interface BuilderMapProps {
   onMapRef?: (map: MaplibreMap | null) => void;
   showBasemapLabels?: boolean;
   /** Called when the user clicks a map feature. `null` when clicking empty space. */
-  onFeatureSelect?: (feature: SelectedFeature | null) => void;
+  onFeatureSelect?: (feature: FeatureInfo | null) => void;
 }
 
 export const BuilderMap = memo(function BuilderMap({
@@ -349,7 +341,7 @@ export const BuilderMap = memo(function BuilderMap({
         // Map already torn down — nothing to reset.
       }
     };
-  }, [mapReady, t, lookupHitLayer]);
+  }, [mapReady, t, lookupHitLayer, onFeatureSelect]);
 
   // Structural key: only changes when layers are added/removed/reordered/toggled —
   // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).

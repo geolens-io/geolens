@@ -303,7 +303,7 @@ export function useBuilderLayers(
       paint: updatedPaint,
       layout: layer.layout ?? {},
       filter: layer.filter,
-      label_config: layer.label_config,
+      label_config: layer.label_config ?? null,
       sourceId,
       layerId: mapLayerId,
       sourceLayer,

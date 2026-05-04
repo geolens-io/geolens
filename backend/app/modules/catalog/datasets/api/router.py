@@ -279,6 +279,7 @@ async def update_dataset_metadata(
             dataset_id,
             meta,
             actor_id=user.id,
+            actor=user,
         )
     except ValueError as e:
         msg = str(e)

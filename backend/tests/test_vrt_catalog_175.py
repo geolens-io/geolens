@@ -13,6 +13,7 @@ All tests are pure unit tests -- no DB, no real files, no network.
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -658,66 +659,95 @@ class TestTileTokenVrt:
 class TestSearchEnrichmentVrt:
     """Search enrichment includes vrt_dataset in band_count batch fetch (regression guard)."""
 
-    def test_search_router_includes_vrt_dataset_in_raster_ids_filter(self):
-        """search router includes vrt_dataset in raster enrichment.
-
-        After KISS-2 refactor, the bulk-fetch logic moved into the
-        _bulk_fetch_dataset_metadata helper that _handle_search calls.
-        Inspect both functions so the regression guard still applies.
-        """
+    @pytest.mark.anyio
+    async def test_bulk_fetch_dataset_metadata_includes_raster_and_vrt_records(
+        self, monkeypatch
+    ):
+        """The search metadata helper requests raster metadata for raster and VRT rows."""
         import app.modules.catalog.search.router as search_module
-        import inspect
 
-        source = inspect.getsource(
-            search_module._bulk_fetch_dataset_metadata
-        ) + inspect.getsource(search_module._handle_search)
+        vector = _make_mock_dataset("vector_dataset", "Vector")
+        raster = _make_mock_dataset("raster_dataset", "Raster")
+        vrt = _make_mock_dataset("vrt_dataset", "VRT")
 
-        # Both record_types must be in the enrichment filter
-        assert "vrt_dataset" in source, (
-            "search router must include 'vrt_dataset' in raster enrichment filter "
-            "(checked _handle_search + _bulk_fetch_dataset_metadata)"
-        )
-        assert "raster_dataset" in source
+        seen_ids: list[uuid.UUID] = []
 
-    def test_search_enrichment_assigns_band_count_to_vrt_features(self):
-        """Search enrichment assigns band_count to features with vrt_dataset record_type.
+        async def fake_fetch_raster_meta_bulk(_db, dataset_ids):
+            seen_ids.extend(dataset_ids)
+            return {
+                str(raster.id): {"band_count": 1},
+                str(vrt.id): {"band_count": 3, "vrt_type": "mosaic"},
+            }
 
-        See test_search_router_includes_vrt_dataset_in_raster_ids_filter for
-        why both _handle_search and _bulk_fetch_dataset_metadata are inspected.
-        """
-        import app.modules.catalog.search.router as search_module
-        import inspect
-
-        source = inspect.getsource(
-            search_module._bulk_fetch_dataset_metadata
-        ) + inspect.getsource(search_module._handle_search)
-
-        # The assignment branch must also check vrt_dataset
-        lines_with_vrt = [
-            ln.strip() for ln in source.splitlines() if "vrt_dataset" in ln
-        ]
-        assert len(lines_with_vrt) >= 2, (
-            "vrt_dataset must appear in both the raster_ids filter AND the feature assignment loop"
+        monkeypatch.setattr(
+            "app.processing.raster.queries.fetch_raster_meta_bulk",
+            fake_fetch_raster_meta_bulk,
         )
 
-    def test_band_count_assignment_covers_vrt_dataset(self):
-        """Both the raster_ids filter and the assignment loop in the search router cover vrt_dataset.
+        class FakeScalarResult:
+            def all(self):
+                return []
 
-        See test_search_router_includes_vrt_dataset_in_raster_ids_filter for
-        why both _handle_search and _bulk_fetch_dataset_metadata are inspected.
-        """
-        import app.modules.catalog.search.router as search_module
-        import inspect
+        class FakeExecuteResult:
+            def __init__(self, rows=None):
+                self._rows = rows or []
 
-        source = inspect.getsource(
-            search_module._bulk_fetch_dataset_metadata
-        ) + inspect.getsource(search_module._handle_search)
+            def scalars(self):
+                return FakeScalarResult()
 
-        # Count how many times vrt_dataset appears — must be at least 2
-        # (once in raster_ids filter, once in the assignment branch)
-        count = source.count("vrt_dataset")
-        assert count >= 2, (
-            f"Expected vrt_dataset to appear in at least 2 locations across "
-            f"_handle_search + _bulk_fetch_dataset_metadata, found {count}. "
-            "Both the raster_ids filter and the band_count assignment loop must handle vrt_dataset."
+            def all(self):
+                return self._rows
+
+        class FakeSession:
+            def __init__(self):
+                self.execute_count = 0
+
+            async def execute(self, _stmt):
+                self.execute_count += 1
+                if self.execute_count == 2:
+                    row = MagicMock()
+                    row.dataset_id = vrt.id
+                    row.source_count = 2
+                    return FakeExecuteResult(rows=[row])
+                return FakeExecuteResult()
+
+        _, raster_meta, _ = await search_module._bulk_fetch_dataset_metadata(
+            FakeSession(), [vector, raster, vrt]
         )
+
+        assert set(seen_ids) == {raster.id, vrt.id}
+        assert vector.id not in seen_ids
+        assert raster_meta[str(vrt.id)]["vrt_type"] == "mosaic"
+        assert raster_meta[str(vrt.id)]["source_count"] == 2
+
+    def test_dataset_to_ogc_record_exposes_vrt_raster_meta_from_facade(self):
+        """The public search facade exposes VRT raster metadata in OGC records."""
+        from app.modules.catalog.search.service import dataset_to_ogc_record
+
+        dataset = _make_mock_dataset("vrt_dataset", "VRT")
+        dataset.record.id = uuid.uuid4()
+        dataset.record.keywords = []
+        dataset.record.contacts = []
+        dataset.record.distributions = []
+        dataset.quicklook_256_uri = None
+        raster_meta = {"band_count": 3, "vrt_type": "mosaic", "source_count": 2}
+
+        result = dataset_to_ogc_record(
+            dataset,
+            "https://example.test",
+            raster_meta=raster_meta,
+        )
+
+        properties = result["properties"]
+        assert properties["record_type"] == "vrt_dataset"
+        assert properties["band_count"] == 3
+        assert properties["vrt_type"] == "mosaic"
+        assert properties["source_count"] == 2
+
+
+def test_search_enrichment_vrt_no_longer_uses_source_introspection():
+    source = Path(__file__).read_text()
+
+    for target in ("_handle_search", "_bulk_fetch_dataset_metadata"):
+        forbidden = "inspect.getsource(search_module." + target + ")"
+        assert forbidden not in source

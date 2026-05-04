@@ -5,7 +5,7 @@ import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary'
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { experimentalBadgeColor } from '@/lib/status-colors';
-import type { MapLayerResponse } from '@/api/maps';
+import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));

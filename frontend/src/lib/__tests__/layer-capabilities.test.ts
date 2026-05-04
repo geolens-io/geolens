@@ -115,7 +115,7 @@ describe('getLayerCapabilities', () => {
   });
 
   it('all raster-like kinds disable style/filter/label editors', () => {
-    for (const recordType of ['raster_dataset', 'vrt_dataset']) {
+    for (const recordType of ['raster_dataset', 'vrt_dataset'] as const) {
       const caps = getLayerCapabilities({
         layer_type: 'raster_geolens',
         dataset_record_type: recordType,

@@ -13,6 +13,8 @@ import { CheckCircle2, XCircle, Database, Search } from 'lucide-react';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 
+type DatasetVisibilityChoice = 'private' | 'restricted' | 'public';
+
 function toDisplayName(tableName: string): string {
   return tableName
     .replace(/_/g, ' ')
@@ -28,7 +30,7 @@ export function RegisterForm() {
 
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [visibility, setVisibility] = useState<'private' | 'restricted' | 'public'>('private');
+  const [visibility, setVisibility] = useState<DatasetVisibilityChoice>('private');
   const [results, setResults] = useState<BulkRegisterResult[] | null>(null);
 
   const tables = data?.tables ?? [];
@@ -228,8 +230,8 @@ function TableDetail({
   isPending,
 }: {
   table: DiscoveredTable;
-  visibility: string;
-  onVisibilityChange: (v: string) => void;
+  visibility: DatasetVisibilityChoice;
+  onVisibilityChange: (v: DatasetVisibilityChoice) => void;
   onRegister: () => void;
   isPending: boolean;
 }) {
@@ -266,7 +268,7 @@ function TableDetail({
       <fieldset disabled={isPending} className="flex items-center gap-3 flex-wrap mt-5 disabled:opacity-60">
         <select
           value={visibility}
-          onChange={(e) => onVisibilityChange(e.target.value)}
+          onChange={(e) => onVisibilityChange(e.target.value as DatasetVisibilityChoice)}
           className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring/50"
         >
           <option value="private">{t('register.visibilityPrivate')}</option>
