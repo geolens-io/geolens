@@ -1,0 +1,38 @@
+manifest_version: "1"
+catalog:
+  title: Publication state examples
+  description: Community-safe manifest publication intent examples.
+  organization: City GIS Office
+datasets:
+  - key: draft-sidewalks
+    title: Draft sidewalks
+    sources:
+      - type: vector
+        uri: staging/draft-sidewalks.geojson
+        format: geojson
+    publication:
+      intent: draft
+  - key: ready-bike-routes
+    title: Ready bike routes
+    sources:
+      - type: vector
+        uri: staging/ready-bike-routes.geojson
+        format: geojson
+    publication:
+      intent: ready
+  - key: internal-facilities
+    title: Internal facilities
+    sources:
+      - type: vector
+        uri: staging/internal-facilities.geojson
+        format: geojson
+    publication:
+      intent: internal
+  - key: published-parks
+    title: Published parks
+    sources:
+      - type: vector
+        uri: staging/published-parks.geojson
+        format: geojson
+    publication:
+      intent: published

@@ -1,0 +1,24 @@
+manifest_version: "1"
+catalog:
+  title: URL source catalog
+  description: Example manifest that references a public HTTP vector source.
+  organization: Regional Open Data Office
+datasets:
+  - key: regional-trails
+    title: Regional trails from HTTPS
+    description: Adapt this entry to a reachable HTTPS GeoPackage or GeoJSON source.
+    sources:
+      - type: vector
+        uri: https://data.example.com/geolens/regional-trails.geojson
+        format: geojson
+    metadata:
+      tags:
+        - trails
+        - recreation
+      organization: Regional Open Data Office
+      crs: EPSG:4326
+      license: CC-BY-4.0
+      attribution: Regional Open Data Office
+      bbox: [-78.0, 38.0, -76.5, 39.5]
+    publication:
+      intent: ready

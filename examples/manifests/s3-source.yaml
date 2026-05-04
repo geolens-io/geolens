@@ -1,0 +1,24 @@
+manifest_version: "1"
+catalog:
+  title: S3 raster source catalog
+  description: Example manifest for an S3-backed COG source; requires GeoLens S3 storage configuration.
+  organization: Imagery Program
+datasets:
+  - key: spring-imagery-cog
+    title: Spring imagery COG stored in S3
+    description: Adapt this URI after configuring STORAGE_PROVIDER=s3 and matching bucket settings.
+    sources:
+      - type: raster_cog
+        uri: s3://example-geolens-data/imagery/spring-imagery-cog.tif
+        format: cog
+    metadata:
+      tags:
+        - imagery
+        - cog
+      organization: Imagery Program
+      crs: EPSG:3857
+      license: Public Domain
+      attribution: Imagery Program
+      bbox: [-77.5, 38.5, -76.5, 39.25]
+    publication:
+      intent: internal

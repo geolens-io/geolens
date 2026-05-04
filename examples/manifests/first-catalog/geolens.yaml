@@ -1,0 +1,25 @@
+manifest_version: "1"
+catalog:
+  title: First GeoLens catalog
+  description: Starter catalog for validating and applying a local vector dataset.
+  organization: City GIS Office
+datasets:
+  - key: city-parks
+    title: City parks
+    description: Public park locations for a first catalog walkthrough.
+    sources:
+      - type: vector
+        uri: staging/city-parks.geojson
+        format: geojson
+    metadata:
+      tags:
+        - parks
+        - recreation
+        - first-catalog
+      organization: City GIS Office
+      crs: EPSG:4326
+      license: CC-BY-4.0
+      attribution: City GIS Office
+      bbox: [-77.05, 38.88, -77.0, 38.92]
+    publication:
+      intent: published
