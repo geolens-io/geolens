@@ -121,7 +121,7 @@ Applies a validated manifest through the configured GeoLens API. The default pat
 
 `geolens apply` always loads and validates the manifest locally before constructing an SDK client. Local validation failures exit with code 2 and use the same human or JSON report shape as `geolens validate`.
 
-After local validation passes, the CLI POSTs the manifest to `POST /ingest/manifest/apply` through the SDK-owned HTTP client (`client.get_httpx_client()`). This is a temporary raw transport bridge until Phase 245 regenerates OpenAPI and SDK methods for the manifest apply endpoint; the CLI still does not construct its own HTTP client.
+After local validation passes, the CLI POSTs the manifest to `POST /ingest/manifest/apply` through the SDK-owned HTTP client (`client.get_httpx_client()`). The endpoint is present in the committed OpenAPI snapshot and generated SDKs as `ManifestApplyRequest` / `ManifestApplyResponse`; the CLI still does not construct its own HTTP client.
 
 Backend result actions:
 

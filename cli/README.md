@@ -22,4 +22,4 @@ geolens export stac <dataset-id> -o cities.stac.json
 
 For the Docker Compose first-catalog walkthrough using `examples/manifests/first-catalog/geolens.yaml`, see `docs/cli.md` in the GeoLens repo.
 
-The CLI consumes the [`geolens`](https://github.com/geolens-io/geolens/blob/main/docs/sdks.md) Python SDK package — there is no hand-rolled HTTP client.
+The CLI consumes the [`geolens`](https://github.com/geolens-io/geolens/blob/main/docs/sdks.md) Python SDK package. Manifest apply posts to the generated `POST /ingest/manifest/apply` contract through the SDK-owned client transport; there is no hand-rolled HTTP client.

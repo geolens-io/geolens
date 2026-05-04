@@ -83,6 +83,11 @@ payload_back = dataset.to_dict()
 
 > Note: pydantic v2 methods (`model_validate`, `model_dump`) are NOT available — `openapi-python-client` emits attrs dataclasses, not pydantic models. Use `.from_dict()` / `.to_dict()` instead.
 
+Manifest apply is part of the generated Python SDK contract. Use
+`geolens.api.datasets.apply_manifest_endpoint_ingest_manifest_apply_post` with
+`ManifestApplyRequest` and `ManifestApplyResponse` models for
+`POST /ingest/manifest/apply`.
+
 ### TypeScript
 
 ```typescript
@@ -111,6 +116,10 @@ const sdk = createGeolensClient({
   apiKey: '<KEY>',                          // sent as X-API-Key header
 });
 ```
+
+Manifest apply is exported from the generated TypeScript SDK as
+`applyManifestEndpointIngestManifestApplyPost`, with
+`ManifestApplyRequest` and `ManifestApplyResponse` types.
 
 ## Why these generators?
 

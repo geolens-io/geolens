@@ -3734,6 +3734,213 @@ export type LineageDraftResponse = {
 };
 
 /**
+ * ManifestApplyEntryResult
+ */
+export type ManifestApplyEntryResult = {
+    /**
+     * Action
+     */
+    action: 'create' | 'update' | 'skip' | 'error';
+    /**
+     * Dataset Id
+     */
+    dataset_id?: string | null;
+    /**
+     * Dataset Key
+     */
+    dataset_key: string;
+    /**
+     * Errors
+     */
+    errors?: Array<string>;
+    /**
+     * Job Id
+     */
+    job_id?: string | null;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * ManifestApplyRequest
+ */
+export type ManifestApplyRequest = {
+    catalog: ManifestCatalog;
+    /**
+     * Datasets
+     */
+    datasets: Array<ManifestDataset>;
+    /**
+     * Dry Run
+     */
+    dry_run?: boolean;
+    /**
+     * Manifest Version
+     */
+    manifest_version: '1';
+};
+
+/**
+ * ManifestApplyResponse
+ */
+export type ManifestApplyResponse = {
+    /**
+     * Accepted
+     */
+    accepted: boolean;
+    /**
+     * Dry Run
+     */
+    dry_run: boolean;
+    /**
+     * Results
+     */
+    results: Array<ManifestApplyEntryResult>;
+};
+
+/**
+ * ManifestCatalog
+ */
+export type ManifestCatalog = {
+    contact?: ManifestContact | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Organization
+     */
+    organization?: string | null;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * ManifestContact
+ */
+export type ManifestContact = {
+    /**
+     * Email
+     */
+    email?: string | null;
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Url
+     */
+    url?: string | null;
+};
+
+/**
+ * ManifestDataset
+ */
+export type ManifestDataset = {
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Key
+     *
+     * Stable dataset identity key used for idempotent apply operations.
+     */
+    key: string;
+    metadata?: ManifestMetadata | null;
+    publication: ManifestPublication;
+    /**
+     * Sources
+     */
+    sources: Array<ManifestSource>;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * ManifestMetadata
+ */
+export type ManifestMetadata = {
+    /**
+     * Attribution
+     */
+    attribution?: string | null;
+    /**
+     * Bbox
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Crs
+     */
+    crs?: string | null;
+    /**
+     * License
+     */
+    license?: string | null;
+    /**
+     * Organization
+     */
+    organization?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string> | null;
+};
+
+/**
+ * ManifestPublication
+ */
+export type ManifestPublication = {
+    /**
+     * Intent
+     */
+    intent: 'draft' | 'ready' | 'internal' | 'published';
+};
+
+/**
+ * ManifestSource
+ */
+export type ManifestSource = {
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Format
+     */
+    format?: string | null;
+    /**
+     * Layer
+     */
+    layer?: string | null;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'vector' | 'raster_cog' | 'vrt';
+    /**
+     * Uri
+     *
+     * Relative path, HTTP(S) URL, or storage URI.
+     */
+    uri: string;
+};
+
+/**
  * MapCreate
  */
 export type MapCreate = {
@@ -14347,6 +14554,55 @@ export type DiscoverTablesIngestDiscoverGetResponses = {
 };
 
 export type DiscoverTablesIngestDiscoverGetResponse = DiscoverTablesIngestDiscoverGetResponses[keyof DiscoverTablesIngestDiscoverGetResponses];
+
+export type ApplyManifestEndpointIngestManifestApplyPostData = {
+    body: ManifestApplyRequest;
+    path?: never;
+    query?: never;
+    url: '/ingest/manifest/apply';
+};
+
+export type ApplyManifestEndpointIngestManifestApplyPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ApplyManifestEndpointIngestManifestApplyPostError = ApplyManifestEndpointIngestManifestApplyPostErrors[keyof ApplyManifestEndpointIngestManifestApplyPostErrors];
+
+export type ApplyManifestEndpointIngestManifestApplyPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ManifestApplyResponse;
+};
+
+export type ApplyManifestEndpointIngestManifestApplyPostResponse = ApplyManifestEndpointIngestManifestApplyPostResponses[keyof ApplyManifestEndpointIngestManifestApplyPostResponses];
 
 export type PreviewFileIngestPreviewJobIdPostData = {
     body?: never;

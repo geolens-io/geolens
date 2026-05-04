@@ -233,6 +233,18 @@ from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection
 )
 from .list_maps_endpoint_maps_get_sort_by import ListMapsEndpointMapsGetSortBy
 from .list_maps_endpoint_maps_get_sort_dir import ListMapsEndpointMapsGetSortDir
+from .manifest_apply_entry_result import ManifestApplyEntryResult
+from .manifest_apply_entry_result_action import ManifestApplyEntryResultAction
+from .manifest_apply_request import ManifestApplyRequest
+from .manifest_apply_response import ManifestApplyResponse
+from .manifest_catalog import ManifestCatalog
+from .manifest_contact import ManifestContact
+from .manifest_dataset import ManifestDataset
+from .manifest_metadata import ManifestMetadata
+from .manifest_publication import ManifestPublication
+from .manifest_publication_intent import ManifestPublicationIntent
+from .manifest_source import ManifestSource
+from .manifest_source_type import ManifestSourceType
 from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
@@ -678,6 +690,18 @@ __all__ = (
     "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection",
     "ListMapsEndpointMapsGetSortBy",
     "ListMapsEndpointMapsGetSortDir",
+    "ManifestApplyEntryResult",
+    "ManifestApplyEntryResultAction",
+    "ManifestApplyRequest",
+    "ManifestApplyResponse",
+    "ManifestCatalog",
+    "ManifestContact",
+    "ManifestDataset",
+    "ManifestMetadata",
+    "ManifestPublication",
+    "ManifestPublicationIntent",
+    "ManifestSource",
+    "ManifestSourceType",
     "MapCreate",
     "MapDefaultsResponse",
     "MapGenerateRequest",
