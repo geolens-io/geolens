@@ -1,0 +1,11 @@
+manifest_version: "1"
+catalog:
+  title: Bad source URI catalog
+datasets:
+  - key: roads
+    title: Road centerlines
+    sources:
+      - type: vector
+        uri: ftp://example.com/roads.gpkg
+    publication:
+      intent: draft

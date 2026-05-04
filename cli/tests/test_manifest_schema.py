@@ -7,9 +7,27 @@ from pathlib import Path
 
 from geolens_cli.manifest import (
     ManifestValidationError,
+    load_manifest,
     manifest_schema,
     validate_manifest,
 )
+
+
+FIXTURE_ROOT = (
+    Path(__file__).resolve().parents[1] / "geolens_cli" / "manifest" / "fixtures"
+)
+
+INVALID_FIXTURE_ERRORS = {
+    "bad-bbox.yaml": {("$.datasets[0].metadata.bbox", "minItems")},
+    "bad-publication-intent.yaml": {
+        ("$.datasets[0].publication.intent", "enum"),
+    },
+    "bad-source-type.yaml": {("$.datasets[0].sources[0].type", "enum")},
+    "bad-source-uri.yaml": {("$.datasets[0].sources[0].uri", "pattern")},
+    "bad-version.yaml": {("$.manifest_version", "const")},
+    "empty-datasets.yaml": {("$.datasets", "minItems")},
+    "missing-dataset-key.yaml": {("$.datasets[0].key", "required")},
+}
 
 
 def _minimal_manifest() -> dict:
@@ -40,6 +58,29 @@ def test_schema_resource_loads() -> None:
 
 def test_minimal_manifest_validates() -> None:
     assert validate_manifest(_minimal_manifest()) == []
+
+
+def test_valid_manifest_fixtures_pass() -> None:
+    valid_fixtures = sorted((FIXTURE_ROOT / "valid").glob("*.yaml"))
+
+    assert {path.name for path in valid_fixtures} == {
+        "raster-cog-storage.yaml",
+        "vector-relative.yaml",
+        "vector-url.yaml",
+        "vrt-relative.yaml",
+    }
+    for path in valid_fixtures:
+        assert validate_manifest(load_manifest(path)) == [], path.name
+
+
+def test_invalid_manifest_fixtures_report_expected_errors() -> None:
+    invalid_fixtures = sorted((FIXTURE_ROOT / "invalid").glob("*.yaml"))
+
+    assert {path.name for path in invalid_fixtures} == set(INVALID_FIXTURE_ERRORS)
+    for path in invalid_fixtures:
+        assert INVALID_FIXTURE_ERRORS[path.name].issubset(
+            _error_pairs(load_manifest(path))
+        ), path.name
 
 
 def test_required_field_errors_are_path_specific() -> None:

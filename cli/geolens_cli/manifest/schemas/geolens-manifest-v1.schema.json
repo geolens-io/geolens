@@ -121,7 +121,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2000,
-          "pattern": "^(?:(?:\\.{1,2}/)?[^\\s:/][^\\s]*|https?://[^\\s]+|s3://[^\\s]+|gs://[^\\s]+|az://[^\\s]+|abfs://[^\\s]+)$",
+          "pattern": "^(?:(?:\\.{1,2}/)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+|gs://[^\\s]+|az://[^\\s]+|abfs://[^\\s]+)$",
           "description": "Relative path, HTTP(S) URL, or storage URI."
         },
         "title": {

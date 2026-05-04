@@ -1,0 +1,10 @@
+manifest_version: "1"
+catalog:
+  title: Missing key catalog
+datasets:
+  - title: Road centerlines
+    sources:
+      - type: vector
+        uri: ./data/roads.geojson
+    publication:
+      intent: draft
