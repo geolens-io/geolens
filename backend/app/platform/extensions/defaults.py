@@ -50,9 +50,7 @@ class DefaultPermissionExtension:
             matrix = await get_effective_permissions(db)
         return any(matrix.get(role, {}).get(capability, False) for role in user_roles)
 
-    def filter_visible(
-        self, stmt, user, user_roles, record_cls, grant_cls=None
-    ):  # type: ignore[no-untyped-def]
+    def filter_visible(self, stmt, user, user_roles, record_cls, grant_cls=None):  # type: ignore[no-untyped-def]
         from sqlalchemy import and_, or_, select
 
         from app.modules.auth.models import UserRole
@@ -109,9 +107,7 @@ class DefaultPermissionExtension:
         record = dataset.record
 
         if user is None:
-            return (
-                record.visibility == "public" and record.record_status == "published"
-            )
+            return record.visibility == "public" and record.record_status == "published"
 
         if "admin" in user_roles:
             return True

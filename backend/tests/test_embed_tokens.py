@@ -524,7 +524,7 @@ class TestTileEmbedTokenAccess:
             # Create embed token
             create_resp = await client.post(
                 f"/maps/{map_obj.id}/embed-tokens/",
-                json={"expires_in_days": 1},
+                json={},
                 headers=admin_auth_header,
             )
             assert create_resp.status_code == 201

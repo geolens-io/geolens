@@ -261,9 +261,7 @@ async def preview_service_layer(
     # The stored URL includes the layer suffix (via enrich_source_url), so
     # we reconstruct the enriched form before querying.
     try:
-        _, source_format = get_catalog_port().resolve_service_type(
-            request.service_type
-        )
+        _, source_format = get_catalog_port().resolve_service_type(request.service_type)
         # Normalize then re-enrich to match the stored URL form.
         # normalize_arcgis_url extracts the layer_id from the URL if already embedded.
         try:
