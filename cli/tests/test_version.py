@@ -1,4 +1,5 @@
 """OCCLI-01: `geolens --version` prints version and exits 0 (no config, no SDK)."""
+
 from __future__ import annotations
 
 from geolens_cli import __version__
@@ -18,5 +19,14 @@ class TestVersion:
     def test_help_lists_subcommands(self, runner) -> None:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0, result.output
-        for cmd in ("login", "logout", "whoami", "scan", "publish", "export"):
+        for cmd in (
+            "init",
+            "validate",
+            "login",
+            "logout",
+            "whoami",
+            "scan",
+            "publish",
+            "export",
+        ):
             assert cmd in result.output, f"missing {cmd} in --help"
