@@ -44,6 +44,7 @@ import json
 import socket
 import sys as _sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -341,6 +342,174 @@ class TestPublishRoundTrip:
                 f"unit test cli/tests/test_publish_unit.py covers the "
                 f"formatter logic with a mocked SDK. Output:\n{result.output}"
             )
+
+
+def _write_first_catalog_manifest(tmp_path: Path) -> Path:
+    source_root = _REPO_ROOT / "examples" / "manifests" / "first-catalog"
+    staging = tmp_path / "staging"
+    staging.mkdir(exist_ok=True)
+    (staging / "city-parks.geojson").write_bytes(
+        (source_root / "city-parks.geojson").read_bytes()
+    )
+    manifest = tmp_path / "geolens.yaml"
+    manifest.write_text(
+        (source_root / "geolens.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return manifest
+
+
+async def _search_live_catalog(base_url: str, token: str, query: str) -> dict:
+    from geolens import GeolensClient
+
+    sdk = GeolensClient(base_url=base_url, bearer_token=token)
+    http_client = sdk.client.get_httpx_client()
+    try:
+        response = await asyncio.to_thread(
+            http_client.get,
+            "/search/datasets/",
+            params={"q": query},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+    finally:
+        await asyncio.to_thread(http_client.close)
+
+
+class TestManifestApplyRoundTrip:
+    """Phase 244 — live CLI manifest apply smoke over uvicorn."""
+
+    @pytest.mark.anyio
+    async def test_apply_dry_run_reaches_manifest_endpoint(
+        self,
+        runner,
+        cli_xdg_home,
+        in_memory_keyring,
+        uvicorn_url,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        base_url, token = uvicorn_url
+        await _invoke(runner, ["login", base_url, "--token", token])
+        manifest = _write_first_catalog_manifest(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        result = await _invoke(
+            runner,
+            ["--json", "apply", "--dry-run", str(manifest)],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["dry_run"] is True
+        assert payload["counts"]["create"] >= 1
+        results = {entry["dataset_key"]: entry for entry in payload["results"]}
+        assert results["city-parks"]["action"] == "create"
+
+    @pytest.mark.anyio
+    @pytest.mark.requires_ogr2ogr
+    async def test_apply_write_mode_creates_browsable_first_catalog_dataset(
+        self,
+        runner,
+        cli_xdg_home,
+        in_memory_keyring,
+        uvicorn_url,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        from app.processing.ingest.tasks_vector import ingest_file
+        from sqlalchemy import inspect as sa_inspect
+
+        base_url, token = uvicorn_url
+        await _invoke(runner, ["login", base_url, "--token", token])
+        manifest = _write_first_catalog_manifest(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        queued: dict[str, str] = {}
+
+        async def _capture_vector_ingest(job, user_id, *, db, token=None) -> None:
+            queued["job_id"] = str(sa_inspect(job).identity[0])
+            queued["file_path"] = job.__dict__.get("file_path") or (
+                "staging/city-parks.geojson"
+            )
+            queued["user_id"] = str(user_id)
+
+        with patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job",
+            new=_capture_vector_ingest,
+        ):
+            result = await _invoke(
+                runner,
+                ["--json", "apply", str(manifest)],
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        results = {entry["dataset_key"]: entry for entry in payload["results"]}
+        city_parks = results["city-parks"]
+        assert city_parks["action"] == "create"
+        assert city_parks["job_id"]
+        assert city_parks["job_id"] == queued["job_id"]
+
+        async def _fake_run_ogrinfo(file_path, layer_name=None):
+            return {
+                "columns": [{"name": "name", "type": "String"}],
+                "geometry_type": "Point",
+                "srid": 4326,
+            }
+
+        async def _fake_run_ogr2ogr(
+            file_path,
+            table_name,
+            db_conn_str,
+            source_srid=None,
+            geometry_type=None,
+            layer_name=None,
+        ):
+            from app.core.db import async_session
+            from sqlalchemy import text
+
+            async with async_session() as session:
+                await session.execute(
+                    text(
+                        f'CREATE TABLE data."{table_name}" ('
+                        "gid serial PRIMARY KEY, "
+                        "name text, "
+                        "geom geometry(Point, 4326)"
+                        ")"
+                    )
+                )
+                await session.execute(
+                    text(
+                        f'INSERT INTO data."{table_name}" (name, geom) VALUES '
+                        "('Riverfront Park', ST_SetSRID(ST_Point(-77.0365, 38.8977), 4326)), "
+                        "('Market Square', ST_SetSRID(ST_Point(-77.0091, 38.8895), 4326))"
+                    )
+                )
+                await session.commit()
+
+        with (
+            patch("app.processing.ingest.ogr.run_ogrinfo", new=_fake_run_ogrinfo),
+            patch("app.processing.ingest.ogr.run_ogr2ogr", new=_fake_run_ogr2ogr),
+            patch(
+                "app.processing.ingest.tasks_common.invalidate_catalog_cache",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.processing.ingest.tasks_common.defer_embedding",
+                new=AsyncMock(),
+            ),
+        ):
+            await ingest_file.func(
+                job_id=queued["job_id"],
+                file_path=queued["file_path"],
+                user_id=queued["user_id"],
+            )
+
+        search = await _search_live_catalog(base_url, token, "City parks")
+        assert search["numberMatched"] >= 1
+        feature = search["features"][0]
+        assert feature["id"]
+        assert feature["properties"]["title"] == "City parks"
 
 
 class TestExportStacRoundTrip:
