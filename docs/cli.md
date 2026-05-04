@@ -43,6 +43,12 @@ geolens publish ./data/elevation.tif --name "Bay Area DEM"
 
 # Export STAC 1.1 metadata for a raster dataset
 geolens export stac <dataset-id> -o cities.stac.json
+
+# Start a manifest-driven catalog
+geolens init
+geolens validate geolens.yaml
+geolens apply --dry-run geolens.yaml
+geolens apply geolens.yaml
 ```
 
 ## Commands
@@ -88,6 +94,116 @@ Raster formats: `.tif`, `.tiff` (treated as candidate COG; the server validates)
 The CLI's allowlist is informational — the GeoLens server validates content via `puremagic` on upload, so file-type spoofing is caught server-side. `geolens scan` is a pure-local dry-run; it never uploads anything and exits with code 0 even when every entry is `ingest: no`.
 
 Shapefile sibling-grouping: when a `.shp` is detected, the scan emits a single row for the dataset and lists the sidecars under `sidecar_files` in the JSON output. Missing required sidecars produce `ingest: no, reason: "missing .dbf"` (or `.shx`, `.prj`).
+
+### `geolens init [path]`
+
+Creates a starter manifest. The default path is `geolens.yaml`.
+
+| Flag | Purpose |
+|---|---|
+| `--force` | Overwrite an existing manifest |
+
+The generated file is intentionally minimal and validates offline with `geolens validate`.
+
+### `geolens validate [path]`
+
+Validates a manifest without contacting an API. The default path is `geolens.yaml`.
+
+Validation uses the committed manifest v1 JSON Schema and returns deterministic errors with schema paths and remediation text. Invalid YAML, a non-mapping document root, missing files, and schema errors exit with code 2.
+
+### `geolens apply [path]`
+
+Applies a validated manifest through the configured GeoLens API. The default path is `geolens.yaml`.
+
+| Flag | Purpose |
+|---|---|
+| `--dry-run` | Ask the backend to preview create/update/skip/error outcomes without writes |
+
+`geolens apply` always loads and validates the manifest locally before constructing an SDK client. Local validation failures exit with code 2 and use the same human or JSON report shape as `geolens validate`.
+
+After local validation passes, the CLI POSTs the manifest to `POST /ingest/manifest/apply` through the SDK-owned HTTP client (`client.get_httpx_client()`). This is a temporary raw transport bridge until Phase 245 regenerates OpenAPI and SDK methods for the manifest apply endpoint; the CLI still does not construct its own HTTP client.
+
+Backend result actions:
+
+| Action | Meaning |
+|---|---|
+| `create` | A new dataset ingest job was queued, or would be queued in dry-run mode |
+| `update` | An existing manifest-managed dataset would be reuploaded or was queued for reupload |
+| `skip` | The matching manifest dataset is already queued/running or already up to date |
+| `error` | That dataset entry could not be applied; the result includes a message and errors |
+
+Human output prints a summary count and a table with `DATASET`, `ACTION`, `DATASET ID`, `JOB ID`, and `MESSAGE`. `--dry-run` labels the output as a dry run.
+
+JSON output is enabled with the global flag:
+
+```bash
+geolens --json apply geolens.yaml --dry-run
+```
+
+The JSON payload includes:
+
+```json
+{
+  "accepted": true,
+  "counts": {"create": 1, "error": 0, "skip": 0, "update": 0},
+  "dry_run": true,
+  "ok": true,
+  "path": "geolens.yaml",
+  "results": []
+}
+```
+
+Exit behavior:
+
+| Code | Meaning for apply |
+|---|---|
+| 0 | Backend accepted the manifest and no result action is `error` |
+| 1 | Backend returned `accepted=false`, any result action is `error`, or another generic command failure occurred |
+| 2 | Local validation failed, arguments were invalid, or the backend returned 422 |
+| 3 | Auth failed or credentials are missing |
+| 4 | Network error, timeout, DNS failure, or refused connection |
+| 5 | Backend/server failure |
+
+#### First-catalog walkthrough
+
+This path is covered by the automated `TestManifestApplyRoundTrip` smoke: `geolens apply` authenticates against live FastAPI, queues the `city-parks` job, the test completes that job, and `/search/datasets/?q=City parks` returns the created catalog dataset.
+
+Start the local stack and log the CLI into the API:
+
+```bash
+docker compose up -d --wait
+geolens login http://localhost:8000
+```
+
+Stage the sample data where the API container can read it:
+
+```bash
+docker compose exec api mkdir -p /app/staging
+docker compose cp examples/manifests/first-catalog/city-parks.geojson api:/app/staging/city-parks.geojson
+```
+
+Validate, preview, and apply the manifest:
+
+```bash
+geolens validate examples/manifests/first-catalog/geolens.yaml
+geolens apply --dry-run examples/manifests/first-catalog/geolens.yaml
+geolens apply examples/manifests/first-catalog/geolens.yaml
+```
+
+Manifest local paths are backend-local paths. The first-catalog manifest references `staging/city-parks.geojson`, which resolves inside the GeoLens API process/container as `/app/staging/city-parks.geojson`; `geolens apply` does not upload manifest source files from your shell.
+
+After the worker processes the queued ingest job, browse the catalog at `http://localhost:8080` and search for `City parks`.
+
+#### Public manifest examples
+
+Public examples live under `examples/manifests/` and are validated by the same offline validator used by `geolens validate` and `geolens apply`.
+
+| Example | What it shows |
+|---|---|
+| `examples/manifests/first-catalog/geolens.yaml` | Backend-local vector source path plus sample GeoJSON data |
+| `examples/manifests/url-source.yaml` | HTTP(S) vector source |
+| `examples/manifests/s3-source.yaml` | S3 raster COG source; requires storage configuration such as `STORAGE_PROVIDER=s3` and matching bucket settings |
+| `examples/manifests/publication-states.yaml` | Community-safe publication intents: `draft`, `ready`, `internal`, and `published` |
 
 ### `geolens publish <file>`
 
@@ -225,6 +341,8 @@ STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` ex
 | `Session expired — run \`geolens login\` again` (exit 3) | Refresh token also expired | Re-login |
 | `Job <id> was already committed` (exit 1) | Re-running publish on a job that completed | Each `geolens publish` starts a new job; resume of in-flight commits is not supported |
 | `STAC export is supported for raster datasets only` (exit 2) | Trying STAC export on a vector dataset | Use `GET /datasets/{id}` for vector metadata |
+| `Manifest apply response had accepted=false` (exit 1) | Backend returned only error results or rejected the apply response | Re-run with `geolens --json apply ...` and inspect `results[*].errors` |
+| `Could not read manifest` or schema remediation lines (exit 2) | Manifest path is wrong or the YAML does not satisfy manifest v1 | Run `geolens validate <path>` locally before applying |
 | OCCLI-06 violation in CI | A PR added `import httpx` or `import requests` to `cli/geolens_cli/`, or added an httpx/requests dep to `cli/pyproject.toml` | Re-run `make cli-check` locally; the only legitimate path to httpx is via the SDK's `client.get_httpx_client()` |
 
 ## Exit Codes
