@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500" role="img" aria-labelledby="title desc">
+  <title id="title">GeoLens GitHub avatar</title>
+  <desc id="desc">A square GeoLens mark showing a map reticle inside a magnifying lens.</desc>
+  <defs>
+    <clipPath id="lens">
+      <circle cx="225" cy="214" r="132"/>
+    </clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020617" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+
+  <rect width="500" height="500" fill="#0f172a"/>
+  <circle cx="365" cy="100" r="220" fill="#134e4a" opacity="0.38"/>
+  <circle cx="150" cy="390" r="240" fill="#14532d" opacity="0.34"/>
+
+  <g opacity="0.24" stroke="#7dd3fc" stroke-width="4" fill="none">
+    <path d="M58 155c72-38 136-34 192 10s120 47 192 4"/>
+    <path d="M42 244c79-36 153-31 221 13 62 40 129 43 201 8"/>
+    <path d="M67 332c57-26 108-23 154 8 61 42 134 42 219 1"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <circle cx="225" cy="214" r="132" fill="#0f172a" fill-opacity="0.28"/>
+    <circle cx="225" cy="214" r="132" fill="none" stroke="#38bdf8" stroke-width="28"/>
+    <circle cx="225" cy="214" r="116" fill="none" stroke="#22c55e" stroke-width="7" opacity="0.86"/>
+
+    <g clip-path="url(#lens)" stroke="#e0f2fe" fill="none" stroke-linecap="round">
+      <path d="M82 214h286" stroke-width="10" opacity="0.44"/>
+      <path d="M225 71v286" stroke-width="10" opacity="0.44"/>
+      <ellipse cx="225" cy="214" rx="72" ry="132" stroke-width="8" opacity="0.55"/>
+      <ellipse cx="225" cy="214" rx="132" ry="72" stroke-width="8" opacity="0.55"/>
+      <path d="M115 278c50-38 97-39 141-2 36 30 77 33 124 9" stroke-width="9" opacity="0.7"/>
+    </g>
+
+    <g stroke="#f8fafc" stroke-width="16" stroke-linecap="round">
+      <path d="M225 38v30"/>
+      <path d="M225 360v30"/>
+      <path d="M49 214h30"/>
+      <path d="M371 214h30"/>
+    </g>
+
+    <circle cx="225" cy="214" r="18" fill="#f8fafc"/>
+    <circle cx="225" cy="214" r="8" fill="#22c55e"/>
+
+    <path d="M320 309l94 94" fill="none" stroke="#f8fafc" stroke-width="38" stroke-linecap="round"/>
+    <path d="M320 309l94 94" fill="none" stroke="#22c55e" stroke-width="18" stroke-linecap="round"/>
+  </g>
+</svg>

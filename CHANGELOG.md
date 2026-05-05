@@ -13,6 +13,11 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [1.0.2] - 2026-05-05
 
+### Added
+
+- GitHub-ready GeoLens organization avatar asset sized to GitHub profile image
+  guidance.
+
 ### Changed
 
 - Synchronized backend, frontend, CLI, and SDK package metadata for the
