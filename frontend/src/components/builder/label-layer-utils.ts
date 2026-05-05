@@ -53,6 +53,7 @@ export function buildLabelLayerSpec(opts: {
       'text-color': lc.textColor ?? MAP_COLORS.label.color,
       'text-halo-color': lc.haloColor ?? MAP_COLORS.label.halo,
       'text-halo-width': lc.haloWidth ?? 1.5,
+      'text-opacity': lc.textOpacity ?? 1,
     },
   } as AddLayerObject;
 }

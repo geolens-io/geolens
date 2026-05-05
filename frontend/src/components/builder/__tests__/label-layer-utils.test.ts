@@ -46,6 +46,28 @@ describe('buildLabelLayerSpec', () => {
     expect(paint['text-color']).toBe('#111');
     expect(paint['text-halo-color']).toBe('#fff');
     expect(paint['text-halo-width']).toBe(2);
+    expect(paint['text-opacity']).toBe(1);
+  });
+
+  it('passes through font size and text opacity expressions on add', () => {
+    const fontSizeExpression = ['interpolate', ['linear'], ['zoom'], 4, 10, 12, 18];
+    const opacityExpression = ['step', ['zoom'], 0.2, 10, 0.9];
+    const spec = buildLabelLayerSpec({
+      labelId: 'label-expr',
+      sourceId: 'source-expr',
+      sourceLayer: 'data.labels',
+      lc: {
+        column: 'name',
+        fontSize: fontSizeExpression as LabelConfig['fontSize'],
+        textOpacity: opacityExpression as LabelConfig['textOpacity'],
+      },
+      geomType: 'circle',
+    }) as unknown as SpecRecord;
+
+    const layout = spec.layout as Record<string, unknown>;
+    const paint = spec.paint as Record<string, unknown>;
+    expect(layout['text-size']).toEqual(fontSizeExpression);
+    expect(paint['text-opacity']).toEqual(opacityExpression);
   });
 
   it('uses line placement for line geometry', () => {
@@ -156,8 +178,24 @@ describe('syncLabelLayer', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('label-1', 'text-color', '#111');
     expect(map.setPaintProperty).toHaveBeenCalledWith('label-1', 'text-halo-color', '#fff');
     expect(map.setPaintProperty).toHaveBeenCalledWith('label-1', 'text-halo-width', 2);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('label-1', 'text-opacity', 1);
 
     expect(map.setLayerZoomRange).toHaveBeenCalledWith('label-1', 3, 18);
+  });
+
+  it('passes through font size and text opacity expressions on sync', () => {
+    const map = createMockMap();
+    const fontSizeExpression = ['interpolate', ['linear'], ['zoom'], 4, 10, 12, 18];
+    const opacityExpression = ['step', ['zoom'], 0.2, 10, 0.9];
+
+    syncLabelLayer(map, 'label-expr', {
+      column: 'name',
+      fontSize: fontSizeExpression as LabelConfig['fontSize'],
+      textOpacity: opacityExpression as LabelConfig['textOpacity'],
+    }, 'circle');
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('label-expr', 'text-size', fontSizeExpression);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('label-expr', 'text-opacity', opacityExpression);
   });
 
   it('clears text-anchor and text-offset for line placement', () => {

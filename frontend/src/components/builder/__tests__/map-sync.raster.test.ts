@@ -342,8 +342,13 @@ describe('syncLayersToMap', () => {
       dataset_geometry_type: null,
       opacity: 0.8,
       paint: {
+        'raster-brightness-min': 0.15,
+        'raster-brightness-max': 0.9,
         'raster-contrast': 0.45,
+        'raster-saturation': -0.3,
+        'raster-hue-rotate': 75,
         'raster-resampling': 'nearest',
+        'raster-fade-duration': 125,
       },
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
@@ -362,8 +367,13 @@ describe('syncLayersToMap', () => {
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
     expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-brightness-min', 0.15);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-brightness-max', 0.9);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-contrast', 0.45);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-saturation', -0.3);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-hue-rotate', 75);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-resampling', 'nearest');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-fade-duration', 125);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-opacity', 0.8);
   });
 
