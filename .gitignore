@@ -50,6 +50,7 @@ tests/load/results/*.txt
 .claude/
 .agents/
 .codex/
+docker-compose.enterprise.yml
 plans/
 artifacts/
 data/

@@ -10,8 +10,9 @@ Re-upgrade is structurally the inverse of deactivation. If you followed the safe
 # Stop community-only stack
 docker compose down
 
-# Bring up the enterprise stack (loads geolens-enterprise + ensures e002 is at head)
-docker compose -f docker-compose.yml -f docker-compose.enterprise.yml up -d --build
+# Bring up the enterprise stack with the compose overlay from a sibling
+# geolens-enterprise checkout (loads geolens-enterprise + ensures e002 is at head)
+docker compose -f docker-compose.yml -f ../geolens-enterprise/docker-compose.enterprise.yml up -d --build
 
 # Migrations run automatically on container start; if needed manually:
 docker compose exec api uv run alembic upgrade heads

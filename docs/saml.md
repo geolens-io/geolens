@@ -30,14 +30,14 @@ What V1 does **not** include (deferred to future iterations):
 
 ## Installation
 
-The enterprise overlay ships as a separate Python package (`geolens-enterprise`) plus an enterprise Docker compose file:
+The enterprise overlay ships as a separate Python package (`geolens-enterprise`). Docker Compose users should use the compose overlay shipped by the private `geolens-enterprise` repository; the public community repo intentionally does not own that file.
 
 ```bash
 # Stop community-only stack if it is running
 docker compose down
 
-# Start the enterprise stack (loads the overlay + runs the e002 migration)
-docker compose -f docker-compose.yml -f docker-compose.enterprise.yml up -d --build
+# Start the enterprise stack from a sibling geolens-enterprise checkout
+docker compose -f docker-compose.yml -f ../geolens-enterprise/docker-compose.enterprise.yml up -d --build
 ```
 
 Loading the overlay triggers the `e002_add_saml_columns` Alembic migration, which:
@@ -66,7 +66,7 @@ If the SAML routes are missing, confirm `geolens-enterprise` is installed (`uv p
 
 ### Deactivating SAML
 
-To turn SAML off, follow the canonical path in [`docs/edition-deactivation.md`](edition-deactivation.md). The TL;DR: stop loading the `geolens-enterprise` overlay (drop `docker-compose.enterprise.yml` from your compose stack or `pip uninstall geolens-enterprise`) and restart. Your SAML provider rows survive; your users' identities survive; reactivation is a clean re-mount.
+To turn SAML off, follow the canonical path in [`docs/edition-deactivation.md`](edition-deactivation.md). The TL;DR: stop loading the `geolens-enterprise` overlay (remove the enterprise repo's compose overlay from your compose command or `pip uninstall geolens-enterprise`) and restart. Your SAML provider rows survive; your users' identities survive; reactivation is a clean re-mount.
 
 ## IdP Configuration
 

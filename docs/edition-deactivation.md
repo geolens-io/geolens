@@ -19,7 +19,7 @@ GeoLens decides at startup whether it is running in `enterprise` or `community` 
 
 This means `GEOLENS_EDITION=community` makes `is_enterprise()` return `False`, but it does **not** unregister extensions that were discovered at import time. The typed accessors (`get_audit_extension()`, `get_branding_extension()`, `get_auth_extension()`, `get_identity_extension()`) return whatever `register_extensions()` populated in the registry — they do not consult `is_enterprise()`. Setting only the env var leaves the audit-export and branding overlays silently active in the registry.
 
-The complete deactivation lever is at the entry-point discovery layer. Removing the overlay package (or unmounting `docker-compose.enterprise.yml`) means `entry_points(group="geolens.extensions")` returns nothing, the registry is never populated, and `is_enterprise()` flips to `False` because there are no enterprise extensions to find. The runtime overlay install conditional in `backend/scripts/api-entrypoint.sh` makes this explicit:
+The complete deactivation lever is at the entry-point discovery layer. Removing the overlay package (or stopping use of the enterprise repo's compose overlay) means `entry_points(group="geolens.extensions")` returns nothing, the registry is never populated, and `is_enterprise()` flips to `False` because there are no enterprise extensions to find. The runtime overlay install conditional in `backend/scripts/api-entrypoint.sh` makes this explicit:
 
 ```bash
 if [ -d "${ENTERPRISE_PATH}" ] && [ -f "${ENTERPRISE_PATH}/pyproject.toml" ]; then
@@ -95,7 +95,7 @@ Use a full container teardown — **not** `docker compose restart`. A restart-wi
 ### Step 2: Restart without the enterprise overlay file
 
 ```bash
-# Community baseline — no -f docker-compose.enterprise.yml
+# Community baseline — no enterprise compose overlay
 docker compose up -d --build
 ```
 
