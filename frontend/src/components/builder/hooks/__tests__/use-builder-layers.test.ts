@@ -43,6 +43,7 @@ function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
     pitch: 0,
     basemap_style: 'positron',
     show_basemap_labels: true,
+    terrain_config: null,
     visibility: 'private',
     thumbnail_url: null,
     created_by: null,
@@ -84,6 +85,25 @@ describe('useBuilderLayers', () => {
     expect(result.current.localLayers).toHaveLength(1);
     expect(result.current.localLayers[0].id).toBe('layer-1');
     expect(result.current.savedLayerBaseline).toEqual([layer]);
+  });
+
+  it('initializes localTerrainConfig from mapData', () => {
+    const mapData = {
+      ...makeMapData(),
+      terrain_config: {
+        enabled: true,
+        source_dataset_id: 'dem-1',
+        exaggeration: 1.5,
+      },
+    };
+
+    const { result } = renderBuilderLayers(mapData);
+
+    expect(result.current.localTerrainConfig).toEqual({
+      enabled: true,
+      source_dataset_id: 'dem-1',
+      exaggeration: 1.5,
+    });
   });
 
   it('refreshes savedLayerBaseline from API layer refetches when clean', () => {

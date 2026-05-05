@@ -12,6 +12,7 @@ from sqlalchemy.orm import aliased
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -48,6 +49,21 @@ class LayerRow(NamedTuple):
     sample_values: dict | None
     record_type: str | None
     is_3d: bool | None
+    is_dem: bool | None
+    dem_vertical_units: str | None
+
+
+def _extract_dem_vertical_units(band_info: object) -> str | None:
+    if not isinstance(band_info, list):
+        return None
+    for band in band_info:
+        if not isinstance(band, dict):
+            continue
+        for key in ("unit", "units", "unit_name"):
+            value = band.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
 
 
 async def get_dataset_meta(
@@ -135,6 +151,7 @@ async def _fetch_layer_rows_ordered(
     clause MUST live in the explicit SELECT — there is no relationship-level
     ordering to leverage.
     """
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
     stmt = (
         select(
             MapLayer,
@@ -147,14 +164,33 @@ async def _fetch_layer_rows_ordered(
             Dataset.sample_values,
             Record.record_type,
             Dataset.is_3d,
+            RasterAsset.is_dem,
+            RasterAsset.band_info,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(MapLayer.map_id == map_id)
         .order_by(MapLayer.sort_order)
     )
     result = await session.execute(stmt)
-    return [LayerRow(*row) for row in result.all()]
+    return [
+        LayerRow(
+            layer=row[0],
+            title=row[1],
+            geometry_type=row[2],
+            table_name=row[3],
+            spatial_extent=row[4],
+            column_info=row[5],
+            feature_count=row[6],
+            sample_values=row[7],
+            record_type=row[8],
+            is_3d=row[9],
+            is_dem=bool(row[10]) if row[10] is not None else None,
+            dem_vertical_units=_extract_dem_vertical_units(row[11]),
+        )
+        for row in result.all()
+    ]
 
 
 async def _resolve_save_response_metadata(

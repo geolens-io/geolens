@@ -146,6 +146,14 @@ class MapVisibility(str, Enum):
     public = "public"
 
 
+class TerrainConfig(BaseModel):
+    enabled: bool = Field(default=False)
+    source_dataset_id: uuid.UUID | None = Field(default=None)
+    exaggeration: float = Field(default=1.0, ge=0.0, le=10.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
     sort_order: int = Field(
@@ -297,6 +305,10 @@ class MapCreate(BaseModel):
         max_length=50_000,
         description="Private notes (not shown publicly)",
     )
+    terrain_config: TerrainConfig | None = Field(
+        default=None,
+        description="Map-level terrain source and exaggeration preferences",
+    )
 
     @field_validator("name", "description", "notes", mode="before")
     @classmethod
@@ -327,6 +339,10 @@ class MapUpdate(BaseModel):
         default=None, max_length=2000, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
+    terrain_config: TerrainConfig | None = Field(
+        default=None,
+        description="Map-level terrain source and exaggeration preferences",
+    )
     visibility: MapVisibility | None = Field(
         default=None, description="private, internal, or public"
     )
@@ -354,6 +370,8 @@ class DatasetMetaKwargs(TypedDict, total=False):
     sample_values: dict | None
     record_type: str | None
     is_3d: bool | None
+    is_dem: bool | None
+    dem_vertical_units: str | None
 
 
 class MapLayerResponse(BaseModel):
@@ -380,6 +398,8 @@ class MapLayerResponse(BaseModel):
     style_config: dict | None = None
     show_in_legend: bool = True
     is_3d: bool | None = None
+    is_dem: bool | None = None
+    dem_vertical_units: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -396,6 +416,7 @@ class MapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool
+    terrain_config: TerrainConfig | None = None
     visibility: MapVisibility
     thumbnail_url: str | None = None
     forked_from_id: uuid.UUID | None = Field(
@@ -459,6 +480,7 @@ class SharedLayerResponse(BaseModel):
     show_in_legend: bool = True
     tile_url: str
     is_dem: bool | None = None
+    dem_vertical_units: str | None = None
     is_3d: bool | None = None
     feature_count: int | None = None
 
@@ -473,6 +495,7 @@ class SharedMapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool = True
+    terrain_config: TerrainConfig | None = None
     has_non_public_layers: bool = False
     layers: list[SharedLayerResponse]
 

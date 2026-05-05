@@ -16,7 +16,10 @@ from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Re
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
 from app.modules.catalog.maps.schemas import ADVANCED_SHARING_ERROR
 from app.modules.catalog.maps.service_crud import get_map
-from app.modules.catalog.maps.service_shared import _apply_map_visibility_filter
+from app.modules.catalog.maps.service_shared import (
+    _apply_map_visibility_filter,
+    _extract_dem_vertical_units,
+)
 from app.platform.extensions import get_catalog_port
 
 
@@ -164,6 +167,7 @@ def _build_shared_layer_dict(
     ds_is_3d: bool | None,
     ds_feature_count: int | None,
     ds_is_dem: bool | None,
+    ds_dem_vertical_units: str | None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
 
@@ -197,6 +201,7 @@ def _build_shared_layer_dict(
         "show_in_legend": layer.show_in_legend,
         "tile_url": tile_url,
         "is_dem": bool(ds_is_dem) if ds_is_dem else None,
+        "dem_vertical_units": ds_dem_vertical_units,
         "is_3d": bool(ds_is_3d) if ds_is_3d else None,
         "feature_count": ds_feature_count,
     }, not is_public
@@ -245,6 +250,7 @@ async def get_shared_map(
             Dataset.is_3d,
             Dataset.feature_count,
             RasterAsset.is_dem,
+            RasterAsset.band_info,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
@@ -273,6 +279,7 @@ async def get_shared_map(
             "pitch": map_obj.pitch,
             "basemap_style": map_obj.basemap_style,
             "show_basemap_labels": map_obj.show_basemap_labels,
+            "terrain_config": map_obj.terrain_config,
             "has_non_public_layers": False,
         }
         return map_data, []
@@ -291,6 +298,7 @@ async def get_shared_map(
         ds_is_3d,
         ds_feature_count,
         ds_is_dem,
+        ds_band_info,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
             layer,
@@ -303,6 +311,7 @@ async def get_shared_map(
             ds_is_3d,
             ds_feature_count,
             ds_is_dem,
+            _extract_dem_vertical_units(ds_band_info),
         )
         if is_non_public:
             has_non_public = True
@@ -319,6 +328,7 @@ async def get_shared_map(
         "pitch": map_row.pitch,
         "basemap_style": map_row.basemap_style,
         "show_basemap_labels": map_row.show_basemap_labels,
+        "terrain_config": map_row.terrain_config,
         "has_non_public_layers": has_non_public,
     }
 

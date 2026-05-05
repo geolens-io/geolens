@@ -7,6 +7,12 @@ export type GeometryTypeName = string;
 /** Layer type discriminator for map layers. */
 export type MapLayerType = 'vector_geolens' | 'raster_geolens' | 'geojson';
 
+export interface MapTerrainConfig {
+  enabled: boolean;
+  source_dataset_id: string | null;
+  exaggeration: number;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -794,6 +800,8 @@ export interface MapLayerResponse {
   dataset_record_type?: RecordType | null;
   show_in_legend?: boolean;
   is_3d?: boolean | null;
+  is_dem?: boolean | null;
+  dem_vertical_units?: string | null;
 }
 
 export interface MapResponse {
@@ -808,6 +816,7 @@ export interface MapResponse {
   pitch: number;
   basemap_style: string;
   show_basemap_labels: boolean;
+  terrain_config: MapTerrainConfig | null;
   visibility: MapVisibility;
   thumbnail_url: string | null;
   created_by: string | null;
@@ -854,6 +863,7 @@ export interface MapBrowseParams {
 export interface MapCreateRequest {
   name: string;
   description?: string | null;
+  terrain_config?: MapTerrainConfig | null;
 }
 
 export interface MapUpdateRequest {
@@ -867,6 +877,7 @@ export interface MapUpdateRequest {
   pitch?: number | null;
   basemap_style?: string | null;
   show_basemap_labels?: boolean | null;
+  terrain_config?: MapTerrainConfig | null;
   visibility?: MapVisibility | null;
   layers?: MapLayerInput[];
   widgets?: string[] | null;
@@ -937,6 +948,7 @@ export interface SharedLayerResponse {
   layer_type?: MapLayerType;
   dataset_record_type?: RecordType;
   is_dem?: boolean;
+  dem_vertical_units?: string | null;
   is_3d?: boolean | null;
   tile_url: string;
   feature_count?: number | null;
@@ -952,6 +964,7 @@ export interface SharedMapResponse {
   pitch: number;
   basemap_style: string;
   show_basemap_labels?: boolean;
+  terrain_config?: MapTerrainConfig | null;
   has_non_public_layers: boolean;
   layers: SharedLayerResponse[];
 }

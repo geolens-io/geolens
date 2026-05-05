@@ -108,6 +108,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     localLayers: [],
     localBasemap: 'openfreemap-positron',
     showBasemapLabels: true,
+    terrainConfig: null,
     localName: 'Test Map',
     localDescription: 'A test',
     dockNotes: '',
@@ -253,6 +254,7 @@ describe('useBuilderSave', () => {
     expect(payload.id).toBe('map-1');
     expect(payload.data.name).toBe('Test Map');
     expect(payload.data.basemap_style).toBe('openfreemap-positron');
+    expect(payload.data.terrain_config).toBeNull();
     expect(payload.data.center_lng).toBe(-73.9);
     expect(payload.data.center_lat).toBe(40.7);
     expect(payload.data.zoom).toBe(10);
@@ -285,6 +287,36 @@ describe('useBuilderSave', () => {
       }),
     );
     expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
+  });
+
+  it('persists terrain config in metadata saves without forcing layer replacement', async () => {
+    const state = makeSaveState({
+      terrainConfig: {
+        enabled: true,
+        source_dataset_id: 'dem-dataset-1',
+        exaggeration: 1.8,
+      },
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'map-1',
+        data: expect.objectContaining({
+          terrain_config: {
+            enabled: true,
+            source_dataset_id: 'dem-dataset-1',
+            exaggeration: 1.8,
+          },
+        }),
+      }),
+    );
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
   it('skips layer PATCH when the layer diff is empty', async () => {

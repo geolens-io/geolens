@@ -12,7 +12,7 @@ import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-ma
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
-import type { MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapUpdateRequest } from '@/types/api';
+import type { MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
@@ -271,6 +271,7 @@ interface SaveState {
   localLayers: MapLayerResponse[];
   localBasemap: string;
   showBasemapLabels: boolean;
+  terrainConfig: MapTerrainConfig | null;
   localName: string;
   localDescription: string;
   dockNotes: string;
@@ -301,7 +302,17 @@ export function useBuilderSave(state: SaveState) {
   }, [state.hasUnsavedChanges, state.localLayers]);
 
   async function handleSave() {
-    const { mapId: id, mapInstanceRef, localName, localDescription, dockNotes, localBasemap, localLayers, showBasemapLabels } = state;
+    const {
+      mapId: id,
+      mapInstanceRef,
+      localName,
+      localDescription,
+      dockNotes,
+      localBasemap,
+      localLayers,
+      showBasemapLabels,
+      terrainConfig,
+    } = state;
     if (!id) return;
 
     // Block save if any layer's popup expression references unknown columns.
@@ -330,6 +341,7 @@ export function useBuilderSave(state: SaveState) {
       notes: dockNotes.trim() || null,
       basemap_style: localBasemap,
       show_basemap_labels: showBasemapLabels,
+      terrain_config: terrainConfig,
       center_lng: center?.lng ?? null,
       center_lat: center?.lat ?? null,
       zoom: zoom ?? null,

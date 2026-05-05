@@ -96,6 +96,8 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
             sample_values=None,
             record_type=None,
             is_3d=None,
+            is_dem=None,
+            dem_vertical_units=None,
         )
     return DatasetMetaKwargs(
         dataset_name=meta.title,
@@ -107,6 +109,8 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
         sample_values=meta.sample_values,
         record_type=meta.record_type,
         is_3d=meta.is_3d,
+        is_dem=None,
+        dem_vertical_units=None,
     )
 
 
@@ -139,6 +143,8 @@ def _build_layer_response(
         style_config=layer.style_config,
         show_in_legend=layer.show_in_legend,
         is_3d=meta.get("is_3d"),
+        is_dem=meta.get("is_dem"),
+        dem_vertical_units=meta.get("dem_vertical_units"),
     )
 
 
@@ -157,6 +163,8 @@ def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
                 sample_values=row.sample_values,
                 record_type=row.record_type,
                 is_3d=row.is_3d,
+                is_dem=row.is_dem,
+                dem_vertical_units=row.dem_vertical_units,
             ),
         )
         for row in layer_rows
@@ -210,6 +218,7 @@ def _build_map_response(
         pitch=map_obj.pitch,
         basemap_style=map_obj.basemap_style,
         show_basemap_labels=map_obj.show_basemap_labels,
+        terrain_config=map_obj.terrain_config,
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
         forked_from_id=map_obj.forked_from,
@@ -237,8 +246,18 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
+    terrain_config = (
+        body.terrain_config.model_dump(mode="json")
+        if body.terrain_config is not None
+        else None
+    )
     map_obj = await create_map(
-        db, body.name, body.description, user.id, notes=body.notes
+        db,
+        body.name,
+        body.description,
+        user.id,
+        notes=body.notes,
+        terrain_config=terrain_config,
     )
     await audit_emit(
         db,
@@ -422,6 +441,8 @@ async def update_map_endpoint(
     # Build update kwargs from fields the client actually sent. This preserves
     # explicit widgets=null, which restores client-default widget behavior.
     kwargs = body.model_dump(exclude_unset=True)
+    if "terrain_config" in kwargs and body.terrain_config is not None:
+        kwargs["terrain_config"] = body.terrain_config.model_dump(mode="json")
     if "layers" in kwargs and body.layers is not None:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 

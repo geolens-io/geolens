@@ -101,12 +101,14 @@ async def create_map(
     description: str | None,
     created_by: uuid.UUID,
     notes: str | None = None,
+    terrain_config: dict | None = None,
 ) -> Map:
     """Create a map. Does NOT commit."""
     map_obj = Map(
         name=name,
         description=description,
         notes=notes,
+        terrain_config=terrain_config,
         created_by=created_by,
     )
     session.add(map_obj)
@@ -282,6 +284,7 @@ async def update_map(
     pitch: float | None = None,
     basemap_style: str | None = None,
     show_basemap_labels: bool | None = None,
+    terrain_config: dict | None | object = _UNSET,
     visibility: str | None = None,
     widgets: list[str] | None | object = _UNSET,
     layers: list[dict] | None = None,
@@ -318,6 +321,8 @@ async def update_map(
     for key, value in scalar_fields.items():
         if value is not None:
             setattr(map_obj, key, value)
+    if terrain_config is not _UNSET:
+        map_obj.terrain_config = cast(dict | None, terrain_config)
     if widgets is not _UNSET:
         map_obj.widgets = cast(list[str] | None, widgets)
 
@@ -593,6 +598,7 @@ async def duplicate_map(
         pitch=source.pitch,
         basemap_style=source.basemap_style,
         show_basemap_labels=source.show_basemap_labels,
+        terrain_config=source.terrain_config,
         widgets=source.widgets,
         thumbnail_uri=None,
         visibility="private",

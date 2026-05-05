@@ -11,7 +11,7 @@ import type { LayerActions } from '@/components/builder/ChatPanel';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
-import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
+import type { MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
@@ -35,6 +35,7 @@ export function useBuilderLayers(
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
+  const [localTerrainConfig, setLocalTerrainConfig] = useState<MapTerrainConfig | null>(null);
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -73,6 +74,7 @@ export function useBuilderLayers(
       savedLayerBaselineRef.current = mapData.layers ?? [];
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
+      setLocalTerrainConfig(mapData.terrain_config ?? null);
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
       initializedRef.current = true;
@@ -422,6 +424,7 @@ export function useBuilderLayers(
     expandedLayerId,
     activeEditorTab,
     showBasemapLabels, setShowBasemapLabels,
+    localTerrainConfig, setLocalTerrainConfig,
     ephemeralResult,
     initialViewState,
     handleToggleVisibility,

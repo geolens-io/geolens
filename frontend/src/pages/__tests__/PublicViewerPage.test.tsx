@@ -63,6 +63,7 @@ const SHARED_MAP: SharedMapResponse = {
   pitch: 0,
   basemap_style: 'carto-light',
   show_basemap_labels: true,
+  terrain_config: null,
   has_non_public_layers: false,
   layers: [
     {

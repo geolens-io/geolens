@@ -201,6 +201,7 @@ export function MapBuilderPage() {
     localLayers: layers.localLayers,
     localBasemap: layers.localBasemap,
     showBasemapLabels: layers.showBasemapLabels,
+    terrainConfig: layers.localTerrainConfig,
     localName: layers.localName,
     localDescription: layers.localDescription,
     dockNotes,

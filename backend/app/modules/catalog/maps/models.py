@@ -56,6 +56,9 @@ class Map(Base):
     # Active widget IDs (null = use client defaults, [] = no widgets)
     widgets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
+    # Map-level terrain configuration (null = terrain disabled/unconfigured)
+    terrain_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+
     # Visibility
     visibility: Mapped[str] = mapped_column(
         String(20), default="private", server_default="private"
