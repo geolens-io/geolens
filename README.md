@@ -92,7 +92,7 @@ Spatial data ends up scattered -- shapefiles on shared drives, tables in databas
 GeoLens replaces that workflow:
 
 - **One catalog** -- upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
-- **Works with your tools** -- OGC API Features/Records, STAC 1.1, direct tile URLs for QGIS, ArcGIS, and MapLibre
+- **Works with your tools** -- OGC API Features/Records with CQL2 filtering, STAC 1.0, and direct tile URLs for QGIS, ArcGIS, and MapLibre
 - **Semantic + spatial search** -- find datasets by meaning, not just keywords, powered by pgvector and pg_trgm full-text search
 - **Built-in map builder** -- compose multi-layer maps, style them, and share via public link or embeddable iframe
 - **AI-assisted (optional)** -- chat with your maps, auto-generate descriptions, search by natural language. Bring any OpenAI-compatible API key or skip it entirely
@@ -151,7 +151,7 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 ### Standards and Interop
 
 - OGC API - Features and OGC API - Records compliant
-- STAC 1.1 catalog endpoint
+- STAC 1.0 catalog endpoint
 - Direct tile URLs for QGIS, ArcGIS, MapLibre, and any OGC client
 - API key authentication for external tool integration
 - JWT + OAuth 2.0/OIDC, RBAC with per-dataset permissions

@@ -108,7 +108,7 @@ class RasterAsset(Base):
         if self.res_x is not None and self.res_y is not None:
             props["gsd"] = min(abs(self.res_x), abs(self.res_y))
 
-        # Bands (STAC 1.1 common metadata format)
+        # Bands metadata is exposed with the STAC item properties.
         if self.band_info:
             bands = []
             for b in self.band_info:

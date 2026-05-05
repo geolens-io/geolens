@@ -632,7 +632,7 @@ def export_stac(
         ),
     ] = False,
 ) -> None:
-    """Export STAC 1.1 metadata for a raster dataset.
+    """Export STAC 1.0 metadata for a raster dataset.
 
     Pre-flight (D-26): GET /datasets/{id} — non-raster record_types are
     rejected with EXIT_USAGE (2) and a clear message before we ever touch
@@ -647,7 +647,7 @@ def export_stac(
         or ``curl --data @-``.
 
     No client-side STAC validation (D-28) — the backend already produces
-    conformant STAC 1.1.
+    conformant STAC 1.0.
     """
     state: AppState = ctx.obj
     sdk = state.sdk()

@@ -1,4 +1,4 @@
-"""Unit tests for STAC serializer: OGC Record -> STAC 1.1 Item transformation.
+"""Unit tests for STAC serializer: OGC Record -> STAC 1.0 Item transformation.
 
 Pure unit tests -- no database or fixtures required.
 """
