@@ -11,7 +11,12 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Changed
+
+- Enterprise-only SAML and lifecycle operator runbooks now live with the private
+  `geolens-enterprise` source; public docs keep short ownership stubs only.
+- AWS Marketplace environment examples moved out of the public `.env.example`
+  and into the enterprise overlay documentation.
 
 ## [1.0.1] - 2026-05-04
 
@@ -72,7 +77,7 @@ Two further "drift" items are intentional open-core boundaries and are preserved
 ### Changed — Open-core boundary cleanup (2026-04-30)
 
 - **AWS Marketplace metering moved out of core** — `backend/app/core/marketplace.py` deleted (the 30-line `register_marketplace_usage` body relocated verbatim to `geolens-enterprise`'s `MarketplaceBillingExtension._register`). The lifespan startup block at `backend/app/api/main.py:184-203` is now a generic `for ext in get_billing_extensions(): ...` dispatch loop that fires zero AWS API calls in community deployments.
-- **`AWS_MARKETPLACE_PRODUCT_CODE` and `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` are now enterprise-overlay-only env vars.** Removed from `backend/app/core/config.py:Settings`. The enterprise overlay reads them directly via `os.environ.get(...)` and short-circuits when unset. `.env.example` documents these under a clear "**Enterprise overlay only — NO EFFECT on community**" warning. Operators of the open-core community edition no longer have these settings on the core `Settings` surface.
+- **`AWS_MARKETPLACE_PRODUCT_CODE` and `AWS_MARKETPLACE_PUBLIC_KEY_VERSION` are now enterprise-overlay-only env vars.** Removed from `backend/app/core/config.py:Settings`. The enterprise overlay reads them directly via `os.environ.get(...)` and short-circuits when unset. Operators of the open-core community edition no longer have these settings on the core `Settings` surface.
 
 ### Removed — Open-core boundary cleanup (2026-04-30)
 
@@ -91,7 +96,7 @@ Two further "drift" items are intentional open-core boundaries and are preserved
 - **Extension hook for enterprise overlays** — `backend/app/core/identity.py` defines `IdentityProtocol`, `RoleProtocol`, and `IdentityExtension`; `backend/app/platform/extensions/__init__.py` exposes `get_identity_extension()` typed accessor. Overlays register via `importlib.metadata` entry_points. The companion `geolens-enterprise` package uses this seam to provide SAML SP-initiated SSO with assertion validation, JIT provisioning via `find_or_create_oauth_user()`, and audited attribute→role mapping.
 - **`backend/openapi.json` snapshot committed** as the SDK source of truth — reproducible SDK regeneration from this artifact.
 - **`docs/sdks.md`** (305 lines) and **`docs/cli.md`** (248 lines) — user-facing documentation for SDK + CLI surfaces including install, auth modes, exit codes, and known rough edges.
-- **`docs/saml.md`** (223 lines) — install + per-IdP configuration walkthroughs, hardening posture, multi-instance limitations, NameID format guidance for the optional `geolens-enterprise` SAML overlay.
+- **SAML operator documentation** — install + per-IdP configuration walkthroughs, hardening posture, multi-instance limitations, and NameID format guidance for the optional `geolens-enterprise` SAML overlay.
 
 ### Changed — Open-core separation (2026-04-29)
 
