@@ -11,7 +11,12 @@ from app.core.edition import is_enterprise
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
-from app.modules.auth.oauth.schemas import OAuthProviderCreate, OAuthProviderUpdate
+from app.modules.auth.oauth.schemas import (
+    SAML_PROVIDER_ERROR,
+    SAML_PROVIDER_FIELDS,
+    OAuthProviderCreate,
+    OAuthProviderUpdate,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -38,6 +43,8 @@ async def create_provider(
     incomplete configs at the schema layer, so we can trust the data shape here.
     """
     is_saml = data.provider_type == "saml"
+    if is_saml and not is_enterprise():
+        raise ValueError(SAML_PROVIDER_ERROR)
 
     # NOT-NULL placeholder strings for SAML rows (DB columns require non-null).
     client_id_value = data.client_id if not is_saml else "saml-no-client-id"
@@ -121,6 +128,12 @@ async def update_provider(
     fields flow through the standard ``setattr`` loop.
     """
     update_data = data.model_dump(exclude_unset=True)
+    if not is_enterprise() and (
+        provider.provider_type == "saml"
+        or update_data.get("provider_type") == "saml"
+        or any(field in update_data for field in SAML_PROVIDER_FIELDS)
+    ):
+        raise ValueError(SAML_PROVIDER_ERROR)
 
     # Handle client_secret specially: encrypt before storing
     if "client_secret" in update_data:

@@ -19,10 +19,10 @@ from app.processing.ai.metadata_schemas import (
     QualityStatementDraftResponse,
     SummaryDraftResponse,
 )
-from app.processing.ai.llm_loop import get_anthropic_client, get_openai_client
 from app.core.config import settings
+from app.platform.extensions import get_ai_provider
 from app.processing.embeddings.helpers import get_nearest_record_ids
-from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER, OPENAI_BASE_URL
+from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -226,15 +226,7 @@ async def _generate_structured(
     response_model: type[BaseModel],
     db: AsyncSession | None = None,
 ) -> BaseModel:
-    """Generate structured output using Anthropic or OpenAI provider.
-
-    Uses tool-use pattern for Anthropic, structured output for OpenAI.
-    """
-    # Build JSON schema from the Pydantic model for tool definition
-    model_schema = response_model.model_json_schema()
-    # Remove unnecessary schema metadata keys
-    model_schema.pop("title", None)
-    model_schema.pop("description", None)
+    """Generate structured output through the configured AI provider."""
 
     # Resolve provider and model from PersistentConfig
     provider = (
@@ -249,76 +241,19 @@ async def _generate_structured(
             settings.llm_model if settings.anthropic_api_key else settings.openai_model
         )
     )
-
-    if provider == "anthropic":
-        if not settings.anthropic_api_key:
-            raise ValueError("Anthropic API key not configured")
-        client = get_anthropic_client()
-
-        # Define the response model as a tool
-        tool = {
-            "name": "output",
-            "description": "Output the structured result",
-            "input_schema": model_schema,
-        }
-
-        logger.info(
-            "AI metadata request",
-            provider="anthropic",
-            model=model,
-            response_model=response_model.__name__,
-        )
-
-        response = await client.messages.create(
-            model=model,
-            max_tokens=1024,
-            temperature=0.3,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-            tools=[tool],
-            tool_choice={"type": "tool", "name": "output"},
-        )
-
-        # Extract tool_use block
-        for block in response.content:
-            if block.type == "tool_use":
-                return response_model.model_validate(block.input)
-
-        raise ValueError("No tool_use block in Anthropic response")
-
-    elif provider == "openai_compatible":
-        if not settings.openai_api_key:
-            raise ValueError("OpenAI-compatible API key not configured")
-        base_url = await OPENAI_BASE_URL.get(db) if db is not None else None
-        if not base_url:
-            base_url = settings.openai_base_url or "https://api.openai.com/v1"
-        client = get_openai_client(base_url)
-
-        logger.info(
-            "AI metadata request",
-            provider="openai",
-            model=model,
-            response_model=response_model.__name__,
-        )
-
-        response = await client.beta.chat.completions.parse(
-            model=model,
-            max_tokens=1024,
-            temperature=0.3,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            response_format=response_model,
-        )
-
-        parsed = response.choices[0].message.parsed
-        if parsed is None:
-            raise ValueError("OpenAI returned no parsed response")
-        return parsed
-
-    else:
-        raise ValueError(f"Unknown LLM provider: {provider}")
+    provider_ext = get_ai_provider(provider)
+    runtime_config = (
+        await provider_ext.resolve_runtime_config(db) if db is not None else {}
+    )
+    return await provider_ext.structured_complete(
+        model=model,
+        system_prompt=system,
+        user_message=prompt,
+        response_model=response_model,
+        base_url=runtime_config.get("base_url"),
+        max_tokens=1024,
+        temperature=0.3,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     Record,
 )
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -100,7 +101,6 @@ async def get_datasets_list(
         _load_actor_identities,
         dataset_to_response,
     )
-    from app.processing.raster.models import RasterAsset
 
     is_admin = "admin" in user_roles
     datasets, total = await list_datasets(db, user, user_roles, skip=skip, limit=limit)
@@ -120,13 +120,9 @@ async def get_datasets_list(
         for d in datasets
         if getattr(d.record, "record_type", None) in ("raster_dataset", "vrt_dataset")
     ]
-    raster_assets_by_dataset_id: dict[uuid.UUID, Any] = {}
-    if raster_ids:
-        ra_result = await db.execute(
-            select(RasterAsset).where(RasterAsset.dataset_id.in_(raster_ids))
-        )
-        for ra in ra_result.scalars().all():
-            raster_assets_by_dataset_id[ra.dataset_id] = ra
+    raster_assets_by_dataset_id = await get_catalog_port().list_raster_assets(
+        db, raster_ids
+    )
 
     # Batch source_count query for VRT datasets
     vrt_ids = [
@@ -180,7 +176,6 @@ async def get_dataset_detail(
         dataset_to_response,
     )
     from app.modules.catalog.datasets.domain.schemas import StacAsset
-    from app.processing.raster.models import DatasetAsset, RasterAsset
 
     if dataset is None:
         dataset = await get_dataset(db, dataset_id)
@@ -193,10 +188,8 @@ async def get_dataset_detail(
     )
 
     # Fetch RasterAsset, vrt_source_links count, and DatasetAsset rows in
-    # parallel (dataset detail page is a hot path; serial awaits add ~30 ms
-    # of unnecessary roundtrip latency per render). All three queries run
-    # against the same async session — SQLAlchemy serializes them, but
-    # asyncio.gather still removes the inter-await scheduling overhead.
+    # parallel through CatalogPort so catalog does not import processing-owned
+    # raster ORM classes directly.
     record_type = getattr(dataset.record, "record_type", None)
     needs_raster = record_type in ("raster_dataset", "vrt_dataset")
     needs_vrt_count = record_type == "vrt_dataset"
@@ -208,9 +201,7 @@ async def get_dataset_detail(
         coros.append(
             (
                 "ra",
-                db.execute(
-                    select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
-                ),
+                get_catalog_port().get_raster_asset(db, dataset.id),
             )
         )
     if needs_vrt_count:
@@ -228,20 +219,17 @@ async def get_dataset_detail(
     coros.append(
         (
             "da",
-            db.execute(
-                select(DatasetAsset).where(DatasetAsset.dataset_id == dataset.id)
-            ),
+            get_catalog_port().get_dataset_assets(db, dataset.id),
         )
     )
 
     results = dict(
         zip([k for k, _ in coros], await asyncio.gather(*(c for _, c in coros)))
     )
-    raster_asset = results["ra"].scalar_one_or_none() if "ra" in results else None
+    raster_asset = results["ra"] if "ra" in results else None
     source_count = results["sc"].scalar() if "sc" in results else None
-    da_result = results["da"]
 
-    dataset_asset_rows = da_result.scalars().all()
+    dataset_asset_rows = results["da"]
     stac_assets_dict = {}
     for da in dataset_asset_rows:
         stac_assets_dict[da.key] = StacAsset(

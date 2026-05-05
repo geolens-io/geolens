@@ -20,7 +20,7 @@ from app.modules.catalog.datasets.domain.models import (
     Dataset,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
-from app.platform.extensions import get_workflow_extension
+from app.platform.extensions import get_catalog_port, get_workflow_extension
 from app.platform.extensions.protocols import WorkflowTransitionContext
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -205,12 +205,7 @@ async def _apply_is_dem(
     session: AsyncSession, dataset_id: uuid.UUID, is_dem: bool
 ) -> bool:
     """Set is_dem on the dataset's RasterAsset row, if one exists."""
-    from app.processing.raster.models import RasterAsset
-
-    ra_result = await session.execute(
-        select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
-    )
-    ra = ra_result.scalar_one_or_none()
+    ra = await get_catalog_port().get_raster_asset(session, dataset_id)
     if ra is None:
         return False
     ra.is_dem = is_dem
@@ -220,9 +215,7 @@ async def _apply_is_dem(
 async def _maybe_defer_embedding(record_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
     """Best-effort defer of embedding regeneration. Failures are logged, not raised."""
     try:
-        from app.processing.embeddings.tasks import embed_record
-
-        await embed_record.defer_async(record_id=str(record_id))
+        await get_catalog_port().defer_embed_record(record_id)
     except Exception:
         # Non-fatal -- embedding will catch up on next edit or backfill.
         # Log with traceback so operators can notice if this fails consistently
@@ -391,22 +384,16 @@ async def reset_attribute(
     Clears user_modified_fields and description.
     Raises ValueError if attribute not found.
     """
-    from app.processing.ingest.metadata import (
-        _humanize_column_name,
-        _infer_domain_type,
-        _infer_semantic_role,
-        _infer_units,
-    )
-
     attr = await get_attribute(session, attribute_id)
     if attr is None:
         raise ValueError("Attribute not found")
 
     # Re-compute inferred values
-    attr.title = _humanize_column_name(attr.field_name)
-    attr.semantic_role = _infer_semantic_role(attr.field_name, attr.data_type or "")
-    attr.domain_type = _infer_domain_type(attr.data_type or "")
-    attr.units = _infer_units(attr.field_name)
+    port = get_catalog_port()
+    attr.title = port.humanize_column_name(attr.field_name)
+    attr.semantic_role = port.infer_semantic_role(attr.field_name, attr.data_type or "")
+    attr.domain_type = port.infer_domain_type(attr.data_type or "")
+    attr.units = port.infer_units(attr.field_name)
     attr.description = None
     attr.user_modified_fields = []
 

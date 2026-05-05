@@ -1023,16 +1023,12 @@ def test_no_processing_imports_catalog() -> None:
 
 @pytest.mark.architecture
 def test_no_catalog_imports_processing() -> None:
-    """Phase 230 CATPORT-02/04: catalog/ must not have module-level imports from app.processing.*.
+    """Phase 230 CATPORT-02/04: catalog/ must not import app.processing.*.
 
     All processing-owned helper, task, schema, and ORM-class access from
     backend/app/modules/catalog/ must go through CatalogPort
-    (app.core.catalog_port). Strict zero-hit for module-level imports.
-
-    Scope: this guard catches top-level import lines starting at column 0:
-    ``from app.processing``, ``import app.processing``, and the equivalent
-    ``backend.app.processing`` forms. Function-local lazy imports are allowed by
-    the phase context as deferred boundaries; new module-level edges are not.
+    (app.core.catalog_port). Strict zero-hit across module-level imports,
+    function-local imports, and comments that try to preserve a direct edge.
     """
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
@@ -1048,7 +1044,7 @@ def test_no_catalog_imports_processing() -> None:
             "grep",
             "-n",
             "-E",
-            r"^(from|import) (backend\.)?app\.processing",
+            r"(backend\.)?app\.processing",
             "--",
             "backend/app/modules/catalog/",
         ],
@@ -1061,7 +1057,7 @@ def test_no_catalog_imports_processing() -> None:
     if result.returncode == 0:
         pytest.fail(
             "Phase 230 CATPORT-02/04 invariant violated: "
-            "backend/app/modules/catalog/ contains a module-level import from "
+            "backend/app/modules/catalog/ contains a direct reference to "
             "app.processing.*. All processing access must go through CatalogPort "
             "(app.core.catalog_port). Offending lines:\n" + result.stdout
         )
@@ -1078,28 +1074,9 @@ def test_no_hardcoded_ai_provider_branches() -> None:
 
     SC#3 binding (ROADMAP §Phase 226): ``grep -RE "if .*provider *== *['\"]
     (anthropic|openai_compatible)" backend/app/processing/ai/`` returns zero
-    hits after the Phase 226 migration. Replaces ten dispatch sites that
-    previously branched on the provider name string (5 in scope after the
-    migration; 4 in deferred-scope files documented below).
-
-    Excluded paths:
-      - ``backend/app/processing/ai/streaming.py`` — true LLM-token
-        streaming via ``_stream_anthropic_chat`` / ``_stream_openai_chat``
-        (~200 LOC each) is explicitly deferred per RESEARCH.md Open
-        Question 1. CONTEXT.md §deferred lists "True LLM-token streaming"
-        as a follow-up phase. The if/elif provider branches at
-        ``streaming.py:516,531`` will migrate when the ``stream()`` Protocol
-        method is implemented for real (current default raises
-        NotImplementedError per D-03).
-      - ``backend/app/processing/ai/metadata_service.py`` — structured-output
-        APIs (``client.beta.chat.completions.parse`` for OpenAI Pydantic
-        response_format; ``tool_choice={"type":"tool","name":"output"}``
-        for Anthropic forced-tool-use) don't map to the wide ``complete()``
-        Protocol shape, which returns ``ToolLoopResult`` (not a Pydantic
-        model). RESEARCH.md Open Question 2: a future phase adds
-        ``structured_complete(response_model, ...)`` to the Protocol; until
-        then the dispatch at ``metadata_service.py:255,291`` is
-        pathspec-excluded.
+    hits after the provider-seam migration. Streaming chat now dispatches
+    through ``AIProviderExtension.stream_chat_events(...)`` and metadata
+    drafts use ``AIProviderExtension.structured_complete(...)``.
 
     Negative-control (D-14): temporarily reintroduce
     ``if provider == "anthropic":`` in ``processing/ai/sql_generator.py``,
@@ -1125,8 +1102,6 @@ def test_no_hardcoded_ai_provider_branches() -> None:
             r"if\s+.*provider\s*==\s*['\"](?:anthropic|openai_compatible)",
             "--",
             "backend/app/processing/",
-            ":!backend/app/processing/ai/streaming.py",
-            ":!backend/app/processing/ai/metadata_service.py",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -1139,7 +1114,7 @@ def test_no_hardcoded_ai_provider_branches() -> None:
             "Phase 226 AIEXT-03 invariant violated: hardcoded AI provider "
             "dispatch (`if provider == 'anthropic'/'openai_compatible'`) found "
             "in backend/app/processing/. Replace with "
-            "`get_ai_provider(name).complete(...)` from "
+            "`get_ai_provider(name)` dispatch from "
             "`app.platform.extensions`.\nOffending lines:\n" + result.stdout
         )
     if result.returncode != 1:

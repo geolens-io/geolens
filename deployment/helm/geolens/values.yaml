@@ -1,0 +1,89 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+api:
+  replicas: 2
+  image:
+    repository: geolens-api
+    tag: "1.0.1"
+    pullPolicy: IfNotPresent
+  publicAppUrl: "https://geolens.example.com"
+  publicApiUrl: "https://geolens.example.com/api"
+  corsAllowedOrigins: ""
+  uploadMaxSizeMb: "500"
+  resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+
+worker:
+  replicas: 1
+  image:
+    repository: geolens-worker
+    tag: "1.0.1"
+    pullPolicy: IfNotPresent
+  resources: {}
+  extraEnv: []
+  extraVolumeMounts: []
+
+frontend:
+  replicas: 2
+  image:
+    repository: geolens-frontend
+    tag: "1.0.1"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources: {}
+  extraEnv: []
+
+migrate:
+  enabled: true
+  backoffLimit: 2
+
+service:
+  api:
+    type: ClusterIP
+    port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: geolens.example.com
+  tls: []
+
+secrets:
+  existingSecret: ""
+  databaseUrlOverride: ""
+  secretKey: ""
+  tileSigningSecret: ""
+  openaiApiKey: ""
+  anthropicApiKey: ""
+
+redis:
+  url: ""
+
+storage:
+  backend: "local"
+  s3Endpoint: ""
+  s3Region: ""
+  s3Bucket: ""
+  s3AccessKeyId: ""
+  s3SecretAccessKey: ""
+
+enterprise:
+  enabled: false
+  edition: "enterprise"
+  path: "/enterprise"
+  extraEnv: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+extraVolumes: []

@@ -41,7 +41,13 @@ _SP_ENTITY_ID_MAX = 512  # oauth_providers.sp_entity_id: String(512)
 
 # SAML provider fields — required when provider_type='saml', forbidden otherwise.
 # Enforced by the per-type model_validator below.
-_SAML_FIELDS = ("idp_entity_id", "idp_sso_url", "idp_certificate", "sp_entity_id")
+SAML_PROVIDER_FIELDS = (
+    "idp_entity_id",
+    "idp_sso_url",
+    "idp_certificate",
+    "sp_entity_id",
+)
+SAML_PROVIDER_ERROR = "SAML SSO requires the GeoLens Enterprise overlay"
 
 
 class OAuthProviderCreate(BaseModel):
@@ -153,7 +159,9 @@ class OAuthProviderCreate(BaseModel):
         fields populated (mixed config is rejected to prevent ambiguity).
         """
         if self.provider_type == "saml":
-            missing = [f for f in _SAML_FIELDS if not getattr(self, f)]
+            if not is_enterprise():
+                raise ValueError(SAML_PROVIDER_ERROR)
+            missing = [f for f in SAML_PROVIDER_FIELDS if not getattr(self, f)]
             if missing:
                 raise ValueError(f"SAML providers require: {', '.join(missing)}")
         else:
@@ -161,11 +169,25 @@ class OAuthProviderCreate(BaseModel):
                 raise ValueError(
                     f"{self.provider_type} providers require client_id and client_secret"
                 )
-            extra = [f for f in _SAML_FIELDS if getattr(self, f)]
+            extra = [f for f in SAML_PROVIDER_FIELDS if getattr(self, f)]
             if extra:
                 raise ValueError(
                     f"{self.provider_type} providers must not set SAML fields: {', '.join(extra)}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_saml_gate(self):
+        """Gate SAML provider mutations behind the enterprise edition."""
+        if is_enterprise():
+            return self
+        if self.provider_type == "saml":
+            raise ValueError(SAML_PROVIDER_ERROR)
+        saml_fields_set = [
+            field for field in SAML_PROVIDER_FIELDS if field in self.model_fields_set
+        ]
+        if saml_fields_set:
+            raise ValueError(SAML_PROVIDER_ERROR)
         return self
 
     @model_validator(mode="after")
@@ -282,6 +304,20 @@ class OAuthProviderUpdate(BaseModel):
     @classmethod
     def _check_idp_url(cls, value: str | None) -> str | None:
         return _validate_optional_http_url(value)
+
+    @model_validator(mode="after")
+    def _validate_saml_gate(self):
+        """Gate SAML provider mutations behind the enterprise edition."""
+        if is_enterprise():
+            return self
+        if self.provider_type == "saml":
+            raise ValueError(SAML_PROVIDER_ERROR)
+        saml_fields_set = [
+            field for field in SAML_PROVIDER_FIELDS if field in self.model_fields_set
+        ]
+        if saml_fields_set:
+            raise ValueError(SAML_PROVIDER_ERROR)
+        return self
 
     @model_validator(mode="after")
     def _validate_idp_mapping_gate(self):

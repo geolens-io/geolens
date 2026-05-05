@@ -26,6 +26,8 @@ class CatalogPort(Protocol):
 
     def raster_asset_orm_class(self) -> Any: ...
 
+    def dataset_asset_orm_class(self) -> Any: ...
+
     def vrt_generation_orm_class(self) -> Any: ...
 
     def record_embedding_orm_class(self) -> Any: ...
@@ -118,6 +120,16 @@ class CatalogPort(Protocol):
         self, session: AsyncSession, table_name: str
     ) -> list[dict[str, Any]]: ...
 
+    async def generate_attribute_metadata(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        column_info: list[dict[str, Any]],
+        *,
+        geometry_type: str | None = None,
+        sample_values: dict[str, Any] | None = None,
+    ) -> None: ...
+
     async def has_embeddings(self, session: AsyncSession) -> bool: ...
 
     async def generate_embedding(
@@ -125,3 +137,57 @@ class CatalogPort(Protocol):
     ) -> list[float]: ...
 
     async def set_hnsw_recall(self, session: AsyncSession) -> None: ...
+
+    async def get_record_embedding(
+        self, session: AsyncSession, record_id: uuid.UUID
+    ) -> list[float] | None: ...
+
+    async def get_nearest_record_ids(
+        self,
+        session: AsyncSession,
+        record_id: uuid.UUID,
+        *,
+        limit: int = 5,
+        max_distance: float = 0.7,
+    ) -> list[uuid.UUID]: ...
+
+    async def get_embedding_distances(
+        self,
+        session: AsyncSession,
+        embedding: list[float],
+        record_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, float]: ...
+
+    async def defer_embed_record(self, record_id: uuid.UUID) -> None: ...
+
+    async def get_raster_asset(
+        self, session: AsyncSession, dataset_id: uuid.UUID
+    ) -> Any | None: ...
+
+    async def list_raster_assets(
+        self, session: AsyncSession, dataset_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, Any]: ...
+
+    async def get_dataset_assets(
+        self, session: AsyncSession, dataset_id: uuid.UUID
+    ) -> list[Any]: ...
+
+    async def list_dataset_assets(
+        self, session: AsyncSession, dataset_ids: list[uuid.UUID]
+    ) -> list[Any]: ...
+
+    async def fetch_raster_meta_one(
+        self, session: AsyncSession, dataset_id: uuid.UUID
+    ) -> dict[str, Any] | None: ...
+
+    async def fetch_raster_meta_bulk(
+        self, session: AsyncSession, dataset_ids: list[uuid.UUID]
+    ) -> dict[str, dict[str, Any]]: ...
+
+    async def get_vrt_generation_source_count(
+        self, session: AsyncSession, generation_id: uuid.UUID
+    ) -> int | None: ...
+
+    async def get_ingest_job_or_404(
+        self, session: AsyncSession, job_id: uuid.UUID, user: Any
+    ) -> Any: ...

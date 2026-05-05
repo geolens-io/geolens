@@ -1,0 +1,37 @@
+{{- if .Values.migrate.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "geolens.fullname" . }}-migrate
+  labels:
+    {{- include "geolens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "geolens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - uv run --no-dev alembic upgrade head
+          envFrom:
+            - configMapRef:
+                name: {{ include "geolens.fullname" . }}-config
+            - secretRef:
+                name: {{ include "geolens.secretName" . }}
+          {{- with .Values.enterprise.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

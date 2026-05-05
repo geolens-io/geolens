@@ -9,6 +9,7 @@ the audit facade at Protocol import time.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -89,6 +90,55 @@ class BillingExtension(Protocol):
     async def on_startup(self, app: FastAPI) -> None: ...
 
 
+@dataclass(frozen=True)
+class ConnectorDefinition:
+    """Public descriptor for a persistent connector implementation."""
+
+    name: str
+    display_name: str
+    config_schema: dict[str, Any]
+    supports_credentials: bool = False
+    supports_scheduled_sync: bool = False
+
+
+@dataclass(frozen=True)
+class ConnectorCredentialRef:
+    """Opaque reference to a stored connector credential.
+
+    The reference intentionally carries no secret material. Enterprise
+    connector overlays own the backing secret store and resolve the reference
+    internally when they run a sync.
+    """
+
+    id: str
+    connector_name: str
+    display_name: str
+    secret_ref: str
+
+
+@runtime_checkable
+class ConnectorExtension(Protocol):
+    """Persistent connector registry seam.
+
+    Community edition returns no connectors. Enterprise overlays can replace
+    this singleton with stored-credential and scheduled-sync connectors without
+    adding connector-specific branches to core ingest/catalog code.
+    """
+
+    def list_connectors(self) -> list[ConnectorDefinition]: ...
+
+    async def validate_config(
+        self, connector_name: str, config: dict[str, Any]
+    ) -> dict[str, Any]: ...
+
+    async def get_credential_ref(
+        self,
+        db: AsyncSession,
+        connector_name: str,
+        credential_id: str,
+    ) -> ConnectorCredentialRef | None: ...
+
+
 @runtime_checkable
 class AIProviderExtension(Protocol):
     """LLM provider dispatch table entry (Phase 226 D-01 / AIEXT-01).
@@ -149,6 +199,33 @@ class AIProviderExtension(Protocol):
         base_url: "str | None" = None,
         temperature: float = 0.5,
     ) -> "ToolLoopResult": ...
+
+    def stream_chat_events(
+        self,
+        *,
+        message: str,
+        system_prompt: str,
+        session: AsyncSession,
+        user: "Identity",
+        user_roles: set[str],
+        layers: list[Any],
+        model: str,
+        base_url: str | None = None,
+        history: list[dict] | None = None,
+        port: Any,
+    ) -> AsyncIterator[dict[str, object]]: ...
+
+    async def structured_complete(
+        self,
+        *,
+        model: str,
+        system_prompt: str,
+        user_message: str,
+        response_model: type[Any],
+        base_url: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.3,
+    ) -> Any: ...
 
     async def resolve_runtime_config(self, db: AsyncSession) -> dict[str, object]: ...
 

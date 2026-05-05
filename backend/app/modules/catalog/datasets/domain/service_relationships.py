@@ -27,6 +27,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.datasets.domain.service_query import get_dataset
+from app.platform.extensions import get_catalog_port
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -44,8 +45,6 @@ async def _load_self_record_and_embedding(
     db: AsyncSession, dataset_id: uuid.UUID
 ) -> tuple[uuid.UUID, list[float]] | None:
     """Return (record_id, embedding) for the dataset, or None if either is absent."""
-    from app.processing.embeddings.models import RecordEmbedding
-
     record_id_row = (
         await db.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
     ).first()
@@ -53,16 +52,10 @@ async def _load_self_record_and_embedding(
         return None
     record_id = record_id_row[0]
 
-    emb_row = (
-        await db.execute(
-            select(RecordEmbedding.embedding)
-            .where(RecordEmbedding.record_id == record_id)
-            .limit(1)
-        )
-    ).first()
-    if emb_row is None:
+    embedding = await get_catalog_port().get_record_embedding(db, record_id)
+    if embedding is None:
         return None
-    return record_id, emb_row[0]
+    return record_id, embedding
 
 
 async def _compute_neighbor_distances(
@@ -71,17 +64,9 @@ async def _compute_neighbor_distances(
     neighbor_record_ids: list[uuid.UUID],
 ) -> dict[uuid.UUID, float]:
     """Cosine-distance every neighbor against the seed embedding."""
-    from app.processing.embeddings.helpers import set_hnsw_recall
-    from app.processing.embeddings.models import RecordEmbedding
-
-    # Tune HNSW recall (default ef_search=40 may miss relevant matches).
-    await set_hnsw_recall(db)
-    stmt = select(
-        RecordEmbedding.record_id,
-        RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
-    ).where(RecordEmbedding.record_id.in_(neighbor_record_ids))
-    result = await db.execute(stmt)
-    return {r.record_id: r.distance for r in result.all()}
+    return await get_catalog_port().get_embedding_distances(
+        db, embedding, neighbor_record_ids
+    )
 
 
 async def get_related_datasets(
@@ -105,9 +90,7 @@ async def get_related_datasets(
         record_id, embedding = seed
 
         # Find nearest neighbors using shared helper (over-fetch for RBAC filtering).
-        from app.processing.embeddings.helpers import get_nearest_record_ids
-
-        neighbor_record_ids = await get_nearest_record_ids(
+        neighbor_record_ids = await get_catalog_port().get_nearest_record_ids(
             db, record_id, limit=limit * 3, max_distance=0.7
         )
         if not neighbor_record_ids:
@@ -464,9 +447,7 @@ async def get_related_records(
     )
 
     # Get column info for target table
-    from app.processing.ingest.metadata import get_column_info
-
-    columns = await get_column_info(session, target_ds.table_name)
+    columns = await get_catalog_port().get_column_info(session, target_ds.table_name)
     col_list = [{"name": c["name"], "type": c["type"]} for c in columns]
 
     next_cursor = after + limit if after + limit < total else None

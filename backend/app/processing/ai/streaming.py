@@ -21,8 +21,6 @@ from app.processing.ai.constants import (
 from app.processing.ai.tool_call_parser import parse_xml_tool_calls
 from app.processing.ai.llm_loop import (
     add_tool_cache_control,
-    get_anthropic_client,
-    get_openai_client,
     build_history_messages,
     resolve_provider,
 )
@@ -32,7 +30,7 @@ from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
 from typing import TYPE_CHECKING
 
 from app.core.identity import Identity
-from app.core.config import settings
+from app.platform.extensions import get_ai_provider
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -107,11 +105,10 @@ async def _stream_anthropic_chat(
     *,
     model: str,
     history: list[dict] | None = None,
+    client,
     port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
-    client = get_anthropic_client()
-
     messages = build_history_messages(history)
     messages.append({"role": "user", "content": message})
 
@@ -271,13 +268,11 @@ async def _stream_openai_chat(
     layers: list,
     *,
     model: str,
-    base_url: str,
     history: list[dict] | None = None,
+    client,
     port: "ProcessingPort",
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
-    client = get_openai_client(base_url)
-
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(build_history_messages(history))
     messages.append({"role": "user", "content": message})
@@ -519,53 +514,25 @@ async def stream_chat_edit(
     """Main streaming orchestrator. Yields typed event dicts."""
     try:
         provider, model, runtime_config = await resolve_provider(db)
-        # Phase 226 D-21: resolve_provider now returns (name, model, runtime_config dict).
-        # streaming.py's if-branches below read base_url from OPENAI_BASE_URL directly;
-        # runtime_config["base_url"] is available if needed. The if/elif branches at
-        # lines 516/531 are pathspec-excluded from the architecture guard per
-        # RESEARCH.md Open Question 1 (true LLM-token streaming deferred).
         system_prompt = build_chat_system_prompt(
             layers, language=language, basemap_style=basemap_style
         )
 
         history_dicts = history_to_dicts(history)
-
-        if provider == "anthropic":
-            if not settings.anthropic_api_key:
-                raise ValueError("Anthropic API key not configured")
-            async for event in _stream_anthropic_chat(
-                message,
-                system_prompt,
-                db,
-                user,
-                user_roles,
-                layers,
-                model=model,
-                history=history_dicts,
-                port=port,
-            ):
-                yield event
-        elif provider == "openai_compatible":
-            if not settings.openai_api_key:
-                raise ValueError("OpenAI-compatible API key not configured")
-            from app.core.persistent_config import OPENAI_BASE_URL
-
-            oai_base_url = await OPENAI_BASE_URL.get(db) or "https://api.openai.com/v1"
-            async for event in _stream_openai_chat(
-                message,
-                system_prompt,
-                db,
-                user,
-                user_roles,
-                layers,
-                model=model,
-                base_url=oai_base_url,
-                history=history_dicts,
-                port=port,
-            ):
-                yield event
-        else:
-            raise ValueError(f"Unknown LLM provider: {provider}")
+        provider_ext = get_ai_provider(provider)
+        async for event in provider_ext.stream_chat_events(
+            message=message,
+            system_prompt=system_prompt,
+            session=db,
+            user=user,
+            user_roles=user_roles,
+            layers=layers,
+            model=model,
+            base_url=runtime_config.get("base_url"),
+            history=history_dicts,
+            port=port,
+        ):
+            yield event
     except Exception as e:
         error_msg = "An unexpected error occurred. Please try again."
         if isinstance(e, (ValueError, KeyError)):

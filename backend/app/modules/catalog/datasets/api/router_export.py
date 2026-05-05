@@ -203,7 +203,6 @@ async def download_cog(
     from slugify import slugify
 
     from app.modules.auth.permissions import get_effective_permissions
-    from app.processing.raster.models import RasterAsset
 
     # 0. Verify export permission
     user_roles = await get_user_roles(db, user)
@@ -233,10 +232,7 @@ async def download_cog(
         )
 
     # 4. Fetch RasterAsset
-    ra_result = await db.execute(
-        select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
-    )
-    raster_asset = ra_result.scalar_one_or_none()
+    raster_asset = await get_catalog_port().get_raster_asset(db, dataset.id)
     if raster_asset is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

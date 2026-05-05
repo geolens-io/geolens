@@ -18,7 +18,7 @@ from app.modules.auth.oauth.schemas import (
 )
 from app.core.config import settings as app_settings
 from app.core.dependencies import get_client_ip, get_db
-from app.core.edition import get_edition
+from app.core.edition import get_edition, is_enterprise
 from app.core.persistent_config import (
     BASEMAPS,
     BRANDING_SHOW_BADGE,
@@ -491,6 +491,8 @@ async def update_oauth_provider(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found"
         )
+    if not is_enterprise() and provider.provider_type == "saml":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
     # Snapshot non-secret fields BEFORE the update so we can diff old vs. new.
     old_values = _snapshot_provider(provider)

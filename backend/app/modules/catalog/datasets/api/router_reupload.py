@@ -576,9 +576,7 @@ async def complete_presigned_reupload(
             detail="Dataset not found",
         )
 
-    from app.processing.ingest.service import get_job_or_404
-
-    job = await get_job_or_404(db, job_id, user)
+    job = await get_catalog_port().get_ingest_job_or_404(db, job_id, user)
     um = job.user_metadata or {}
 
     if not um.get("presigned"):

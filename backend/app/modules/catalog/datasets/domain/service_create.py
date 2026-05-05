@@ -24,6 +24,7 @@ from app.modules.catalog.datasets.domain.schemas import IngestionResult
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
 )
+from app.platform.extensions import get_catalog_port
 
 __all__ = ["create_empty_dataset", "create_dataset"]
 
@@ -48,9 +49,6 @@ async def create_empty_dataset(
 
     ``request`` should be a CreateEmptyDatasetRequest with ``title`` and ``columns``.
     """
-    from app.processing.ingest.metadata import grant_reader_access
-    from app.processing.ingest.service import generate_table_name
-
     # Validate column names
     seen_names: set[str] = set()
     for col in request.columns:
@@ -73,7 +71,9 @@ async def create_empty_dataset(
         raise ValueError("At least one column is required.")
 
     # Generate table name
-    table_name, _collision_warning = await generate_table_name(request.title, session)
+    table_name, _collision_warning = await get_catalog_port().generate_table_name(
+        request.title, session
+    )
 
     # Build column definitions SQL
     col_defs = []
@@ -94,7 +94,7 @@ async def create_empty_dataset(
     await session.execute(text(create_sql))
 
     # Grant reader access
-    await grant_reader_access(session, table_name)
+    await get_catalog_port().grant_reader_access(session, table_name)
 
     # Build column_info in standard format
     column_info = []
@@ -241,9 +241,7 @@ async def create_dataset(
 
     # Auto-generate attribute metadata from column_info
     if ing.column_info:
-        from app.processing.ingest.metadata import generate_attribute_metadata
-
-        await generate_attribute_metadata(
+        await get_catalog_port().generate_attribute_metadata(
             session,
             dataset.id,
             ing.column_info,

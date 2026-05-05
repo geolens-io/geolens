@@ -626,7 +626,7 @@ async def test_saml_acs_redirect_includes_source_query_param(
 # ---------------------------------------------------------------------------
 
 
-def test_oauth_provider_create_saml_requires_all_4_fields():
+def test_oauth_provider_create_saml_requires_all_4_fields(enterprise_edition):
     """SAML provider creation must reject any missing SAML field with a clear
     ValidationError naming the missing field(s) (RESEARCH §6 model_validator)."""
     from pydantic import ValidationError
@@ -648,7 +648,7 @@ def test_oauth_provider_create_saml_requires_all_4_fields():
     assert "sp_entity_id" in msg
 
 
-def test_oauth_provider_create_saml_accepts_all_4_fields():
+def test_oauth_provider_create_saml_accepts_all_4_fields(enterprise_edition):
     """Complete SAML payload validates without error (RESEARCH §6 happy path)."""
     from app.modules.auth.oauth.schemas import OAuthProviderCreate
 
@@ -665,6 +665,36 @@ def test_oauth_provider_create_saml_accepts_all_4_fields():
     assert m.client_id is None
     assert m.client_secret is None
     assert m.idp_entity_id == "https://fixture-idp.geolens.test/idp"
+
+
+def test_oauth_provider_create_saml_rejects_community(community_edition):
+    """Community edition must reject SAML provider CRUD before DB insert."""
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderCreate
+
+    with pytest.raises(ValidationError) as excinfo:
+        OAuthProviderCreate(
+            slug="community-saml",
+            display_name="Community SAML",
+            provider_type="saml",
+            idp_entity_id="https://fixture-idp.geolens.test/idp",
+            idp_sso_url="https://fixture-idp.geolens.test/sso",
+            idp_certificate="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            sp_entity_id="https://geolens.test/auth/saml/community-saml",
+        )
+    assert "SAML SSO requires the GeoLens Enterprise overlay" in str(excinfo.value)
+
+
+def test_oauth_provider_update_saml_fields_reject_community(community_edition):
+    """Community edition must reject SAML provider update fields too."""
+    from pydantic import ValidationError
+
+    from app.modules.auth.oauth.schemas import OAuthProviderUpdate
+
+    with pytest.raises(ValidationError) as excinfo:
+        OAuthProviderUpdate(idp_sso_url="https://fixture-idp.geolens.test/sso")
+    assert "SAML SSO requires the GeoLens Enterprise overlay" in str(excinfo.value)
 
 
 def test_oauth_provider_create_oauth_rejects_saml_fields():
@@ -802,7 +832,11 @@ async def test_saml_provider_update_logs_old_new_role_mapping(
 
 
 async def test_saml_provider_update_redacts_secret_fields(
-    client, test_db_session, admin_auth_header, _cleanup_saml_providers
+    client,
+    test_db_session,
+    admin_auth_header,
+    saml_router_mounted,
+    _cleanup_saml_providers,
 ):
     """Pitfall 9 / T-217-03-AUDIT-LEAK HIGH: updating ``idp_certificate`` in
     a SAML provider must record the change in the audit log as

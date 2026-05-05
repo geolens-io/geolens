@@ -209,6 +209,8 @@ async def dataset_maps(
 # Publication status transitions
 # ---------------------------------------------------------------------------
 
+# Compatibility export for legacy tests/docs. Runtime status changes below use
+# WorkflowExtension directly so overlays can replace the transition policy.
 ALLOWED_TRANSITIONS = {
     status: set(targets)
     for status, targets in DefaultWorkflowExtension.DEFAULT_ALLOWED_TRANSITIONS.items()
@@ -264,10 +266,6 @@ async def update_publication_status(
     await db.commit()
     await db.refresh(dataset)
     return StatusUpdateResponse(id=str(dataset.id), record_status=target)
-
-
-# Ordered status chain used by target_status to walk transitions
-_STATUS_ORDER = list(DefaultWorkflowExtension.DEFAULT_STATUS_ORDER)
 
 
 @router.patch("/{dataset_id}/target-status/", response_model=StatusUpdateResponse)

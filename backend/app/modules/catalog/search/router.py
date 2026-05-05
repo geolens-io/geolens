@@ -15,6 +15,7 @@ from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.platform.extensions import get_catalog_port
 from app.modules.auth.dependencies import get_current_active_user, get_optional_user
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
@@ -146,9 +147,7 @@ async def _build_raster_assets(
 
     For VRT datasets, also looks up source_count from VrtGeneration.
     """
-    from app.processing.raster.queries import fetch_raster_meta_one
-
-    meta = await fetch_raster_meta_one(db, dataset_id)
+    meta = await get_catalog_port().fetch_raster_meta_one(db, dataset_id)
     if meta is None:
         return None
 
@@ -157,16 +156,11 @@ async def _build_raster_assets(
         meta.get("vrt_type") is not None
         and meta.get("current_generation_id") is not None
     ):
-        from app.processing.raster.models import VrtGeneration
-
-        vg_row = await db.execute(
-            select(VrtGeneration.source_count).where(
-                VrtGeneration.id == meta["current_generation_id"]
-            )
+        source_count = await get_catalog_port().get_vrt_generation_source_count(
+            db, meta["current_generation_id"]
         )
-        vg = vg_row.scalar_one_or_none()
-        if vg is not None:
-            meta["source_count"] = vg
+        if source_count is not None:
+            meta["source_count"] = source_count
 
     # Drop the internal generation_id from the public response (kept only for the join above).
     meta.pop("current_generation_id", None)
@@ -1262,9 +1256,6 @@ async def get_collection_item(
     await check_dataset_access_or_anonymous(db, dataset, record_id, user)
 
     # Query DatasetAsset rows for STAC assets
-    from app.processing.raster.models import DatasetAsset as DA
-
-    da_result = await db.execute(select(DA).where(DA.dataset_id == record_id))
     stac_asset_rows = [
         {
             "key": da.key,
@@ -1274,7 +1265,7 @@ async def get_collection_item(
             "title": da.title,
             "description": da.description,
         }
-        for da in da_result.scalars().all()
+        for da in await get_catalog_port().get_dataset_assets(db, record_id)
     ]
 
     # Fetch raster metadata for STAC property enrichment (best-effort —
@@ -1323,9 +1314,8 @@ async def _bulk_fetch_dataset_metadata(
     Returns ``(stac_assets_by_dataset, raster_meta, extent_geojson_map)``,
     each keyed by ``str(dataset_id)``.
 
-    Function-local imports for ``app.processing.raster.*`` are intentionally
-    preserved to keep the raster module out of the top-level import surface
-    on every search request (KISS-6 boundary).
+    Raster and STAC asset access routes through CatalogPort so search does not
+    import processing-owned modules directly.
 
     Block order is load-bearing: block 3 mutates block 2's output in place,
     so do NOT flatten with asyncio.gather.
@@ -1342,13 +1332,7 @@ async def _bulk_fetch_dataset_metadata(
     # Block 1 — STAC assets
     if all_dataset_ids:
         try:
-            from app.processing.raster.models import DatasetAsset
-
-            da_stmt = select(DatasetAsset).where(
-                DatasetAsset.dataset_id.in_(all_dataset_ids)
-            )
-            da_result = await db.execute(da_stmt)
-            for da in da_result.scalars().all():
+            for da in await get_catalog_port().list_dataset_assets(db, all_dataset_ids):
                 ds_key = str(da.dataset_id)
                 stac_assets_by_dataset.setdefault(ds_key, []).append(
                     {
@@ -1376,9 +1360,9 @@ async def _bulk_fetch_dataset_metadata(
     ]
     if raster_ids:
         try:
-            from app.processing.raster.queries import fetch_raster_meta_bulk
-
-            raster_meta.update(await fetch_raster_meta_bulk(db, raster_ids))
+            raster_meta.update(
+                await get_catalog_port().fetch_raster_meta_bulk(db, raster_ids)
+            )
         except Exception:
             logger.warning(
                 "search_bulk_fetch_raster_meta_failed",
@@ -1390,14 +1374,14 @@ async def _bulk_fetch_dataset_metadata(
         # Block 3 — VRT source_count (mutates raster_meta IN PLACE)
         if raster_meta:
             try:
-                from app.processing.raster.models import RasterAsset, VrtGeneration
-
                 vrt_dataset_ids = [
                     did
                     for did in raster_ids
                     if raster_meta.get(str(did), {}).get("vrt_type") is not None
                 ]
                 if vrt_dataset_ids:
+                    RasterAsset = get_catalog_port().raster_asset_orm_class()
+                    VrtGeneration = get_catalog_port().vrt_generation_orm_class()
                     vg_stmt = (
                         select(
                             RasterAsset.dataset_id,

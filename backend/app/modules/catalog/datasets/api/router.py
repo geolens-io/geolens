@@ -12,7 +12,6 @@ from fastapi import (
     Response,
     status,
 )
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
@@ -56,6 +55,7 @@ from app.modules.catalog.datasets.domain.service import (
 from app.core.dependencies import get_db
 from app.core.public_urls import get_dataset_service_url
 from app.platform.storage import get_storage
+from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.get_logger()
@@ -212,12 +212,7 @@ async def get_quicklook(
     record_type = getattr(dataset.record, "record_type", None)
 
     if record_type in ("raster_dataset", "vrt_dataset"):
-        from app.processing.raster.models import RasterAsset
-
-        ra_result = await db.execute(
-            select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
-        )
-        raster_asset = ra_result.scalar_one_or_none()
+        raster_asset = await get_catalog_port().get_raster_asset(db, dataset.id)
         if raster_asset is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

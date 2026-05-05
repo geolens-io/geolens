@@ -20,6 +20,7 @@ from app.platform.extensions.defaults import (
     DefaultBillingExtension,  # NEW (Phase 223)
     DefaultBrandingExtension,
     DefaultCatalogPort,  # NEW (Phase 230)
+    DefaultConnectorExtension,
     DefaultIdentityExtension,
     DefaultOpenAICompatibleProvider,  # NEW (Phase 226)
     DefaultOpenAIEmbeddingProvider,  # NEW (Phase 231)
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort  # NEW (Phase 225)
     from app.platform.extensions.protocols import (  # NEW (Phase 226 + 231)
         AIProviderExtension,
+        ConnectorExtension,
         EmbeddingProviderExtension,
         PermissionExtension,
         WorkflowExtension,
@@ -151,6 +153,14 @@ def get_workflow_extension() -> "WorkflowExtension":
     ext = _extensions.get("workflow")
     if ext is None:
         return DefaultWorkflowExtension()
+    return ext  # type: ignore[return-value]
+
+
+def get_connector_extension() -> "ConnectorExtension":
+    """Return the registered ConnectorExtension or the community default."""
+    ext = _extensions.get("connectors")
+    if ext is None:
+        return DefaultConnectorExtension()
     return ext  # type: ignore[return-value]
 
 

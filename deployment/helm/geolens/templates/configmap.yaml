@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "geolens.fullname" . }}-config
+  labels:
+    {{- include "geolens.labels" . | nindent 4 }}
+data:
+  PUBLIC_APP_URL: {{ .Values.api.publicAppUrl | quote }}
+  PUBLIC_API_URL: {{ .Values.api.publicApiUrl | quote }}
+  CORS_ALLOWED_ORIGINS: {{ .Values.api.corsAllowedOrigins | quote }}
+  UPLOAD_MAX_SIZE_MB: {{ .Values.api.uploadMaxSizeMb | quote }}
+  STORAGE_PROVIDER: {{ .Values.storage.backend | quote }}
+  S3_ENDPOINT: {{ .Values.storage.s3Endpoint | quote }}
+  S3_REGION: {{ .Values.storage.s3Region | quote }}
+  S3_BUCKET: {{ .Values.storage.s3Bucket | quote }}
+  REDIS_URL: {{ .Values.redis.url | quote }}
+  GEOLENS_EDITION: {{ ternary .Values.enterprise.edition "community" .Values.enterprise.enabled | quote }}
+  GEOLENS_ENTERPRISE_PATH: {{ ternary .Values.enterprise.path "" .Values.enterprise.enabled | quote }}

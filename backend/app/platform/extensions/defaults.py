@@ -232,6 +232,21 @@ class DefaultBillingExtension:
         return
 
 
+class DefaultConnectorExtension:
+    """Community-edition default: no persistent connectors."""
+
+    def list_connectors(self) -> list:
+        return []
+
+    async def validate_config(self, connector_name, config):  # type: ignore[no-untyped-def]
+        del config
+        raise ValueError(f"Unknown connector: {connector_name}")
+
+    async def get_credential_ref(self, db, connector_name, credential_id):  # type: ignore[no-untyped-def]
+        del db, connector_name, credential_id
+        return None
+
+
 class DefaultProcessingPort:
     """Community-edition default: delegates every call to app.modules.catalog.*
     via deferred imports (Phase 225 D-09 / D-11 / PROCESS-01).
@@ -581,6 +596,11 @@ class DefaultCatalogPort:
 
         return RasterAsset
 
+    def dataset_asset_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.processing.raster.models import DatasetAsset
+
+        return DatasetAsset
+
     def vrt_generation_orm_class(self):  # type: ignore[no-untyped-def]
         from app.processing.raster.models import VrtGeneration
 
@@ -746,6 +766,25 @@ class DefaultCatalogPort:
 
         return await get_column_info(session, table_name)
 
+    async def generate_attribute_metadata(
+        self,
+        session,
+        dataset_id,
+        column_info,
+        *,
+        geometry_type=None,
+        sample_values=None,
+    ):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.metadata import generate_attribute_metadata
+
+        return await generate_attribute_metadata(
+            session,
+            dataset_id,
+            column_info,
+            geometry_type=geometry_type,
+            sample_values=sample_values,
+        )
+
     async def has_embeddings(self, session):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.helpers import has_embeddings
 
@@ -760,6 +799,117 @@ class DefaultCatalogPort:
         from app.processing.embeddings.helpers import set_hnsw_recall
 
         return await set_hnsw_recall(session)
+
+    async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        RecordEmbedding = self.record_embedding_orm_class()
+        result = await session.execute(
+            select(RecordEmbedding.embedding)
+            .where(RecordEmbedding.record_id == record_id)
+            .limit(1)
+        )
+        row = result.first()
+        return row[0] if row is not None else None
+
+    async def get_nearest_record_ids(
+        self,
+        session,
+        record_id,
+        *,
+        limit=5,
+        max_distance=0.7,
+    ):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.helpers import get_nearest_record_ids
+
+        return await get_nearest_record_ids(
+            session,
+            record_id,
+            limit=limit,
+            max_distance=max_distance,
+        )
+
+    async def get_embedding_distances(self, session, embedding, record_ids):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        await self.set_hnsw_recall(session)
+        RecordEmbedding = self.record_embedding_orm_class()
+        result = await session.execute(
+            select(
+                RecordEmbedding.record_id,
+                RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
+            ).where(RecordEmbedding.record_id.in_(record_ids))
+        )
+        return {row.record_id: row.distance for row in result.all()}
+
+    async def defer_embed_record(self, record_id):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.tasks import embed_record
+
+        await embed_record.defer_async(record_id=str(record_id))
+
+    async def get_raster_asset(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        RasterAsset = self.raster_asset_orm_class()
+        result = await session.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_raster_assets(self, session, dataset_ids):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        if not dataset_ids:
+            return {}
+        RasterAsset = self.raster_asset_orm_class()
+        result = await session.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id.in_(dataset_ids))
+        )
+        return {asset.dataset_id: asset for asset in result.scalars().all()}
+
+    async def get_dataset_assets(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        DatasetAsset = self.dataset_asset_orm_class()
+        result = await session.execute(
+            select(DatasetAsset).where(DatasetAsset.dataset_id == dataset_id)
+        )
+        return list(result.scalars().all())
+
+    async def list_dataset_assets(self, session, dataset_ids):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        if not dataset_ids:
+            return []
+        DatasetAsset = self.dataset_asset_orm_class()
+        result = await session.execute(
+            select(DatasetAsset).where(DatasetAsset.dataset_id.in_(dataset_ids))
+        )
+        return list(result.scalars().all())
+
+    async def fetch_raster_meta_one(self, session, dataset_id):  # type: ignore[no-untyped-def]
+        from app.processing.raster.queries import fetch_raster_meta_one
+
+        return await fetch_raster_meta_one(session, dataset_id)
+
+    async def fetch_raster_meta_bulk(self, session, dataset_ids):  # type: ignore[no-untyped-def]
+        from app.processing.raster.queries import fetch_raster_meta_bulk
+
+        return await fetch_raster_meta_bulk(session, dataset_ids)
+
+    async def get_vrt_generation_source_count(self, session, generation_id):  # type: ignore[no-untyped-def]
+        from sqlalchemy import select
+
+        VrtGeneration = self.vrt_generation_orm_class()
+        result = await session.execute(
+            select(VrtGeneration.source_count).where(VrtGeneration.id == generation_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_ingest_job_or_404(self, session, job_id, user):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import get_job_or_404
+
+        return await get_job_or_404(session, job_id, user)
 
 
 class DefaultAnthropicProvider:
@@ -934,6 +1084,65 @@ class DefaultAnthropicProvider:
             "edition; use complete() (Phase 226 D-03 — true LLM-token "
             "streaming is deferred to a follow-up phase)."
         )
+
+    async def stream_chat_events(self, **kwargs):  # type: ignore[no-untyped-def]
+        kwargs.pop("base_url", None)
+        from app.processing.ai.llm_loop import get_anthropic_client
+        from app.processing.ai.streaming import _stream_anthropic_chat
+
+        kwargs["client"] = get_anthropic_client()
+        async for event in _stream_anthropic_chat(**kwargs):
+            yield event
+
+    async def structured_complete(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        model,
+        system_prompt,
+        user_message,
+        response_model,
+        base_url=None,
+        max_tokens=1024,
+        temperature=0.3,
+    ):
+        del base_url
+        import structlog
+
+        from app.processing.ai.llm_loop import get_anthropic_client
+
+        client = get_anthropic_client()
+        model_schema = response_model.model_json_schema()
+        model_schema.pop("title", None)
+        model_schema.pop("description", None)
+
+        tool = {
+            "name": "output",
+            "description": "Output the structured result",
+            "input_schema": model_schema,
+        }
+
+        structlog.stdlib.get_logger(__name__).info(
+            "AI metadata request",
+            provider="anthropic",
+            model=model,
+            response_model=response_model.__name__,
+        )
+
+        response = await client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": "output"},
+        )
+
+        for block in response.content:
+            if block.type == "tool_use":
+                return response_model.model_validate(block.input)
+
+        raise ValueError("No tool_use block in Anthropic response")
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
         from app.core.persistent_config import LLM_MODEL
@@ -1146,6 +1355,64 @@ class DefaultOpenAICompatibleProvider:
             "DefaultOpenAICompatibleProvider.stream() not implemented in "
             "community edition; use complete() (Phase 226 D-03)."
         )
+
+    async def stream_chat_events(self, **kwargs):  # type: ignore[no-untyped-def]
+        from app.core.config import settings
+        from app.processing.ai.llm_loop import get_openai_client
+        from app.processing.ai.streaming import _stream_openai_chat
+
+        base_url = (
+            kwargs.pop("base_url", None)
+            or settings.openai_base_url
+            or "https://api.openai.com/v1"
+        )
+        kwargs["client"] = get_openai_client(base_url)
+        async for event in _stream_openai_chat(**kwargs):
+            yield event
+
+    async def structured_complete(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        model,
+        system_prompt,
+        user_message,
+        response_model,
+        base_url=None,
+        max_tokens=1024,
+        temperature=0.3,
+    ):
+        import structlog
+
+        from app.core.config import settings
+        from app.processing.ai.llm_loop import get_openai_client
+
+        effective_base_url = (
+            base_url or settings.openai_base_url or "https://api.openai.com/v1"
+        )
+        client = get_openai_client(effective_base_url)
+
+        structlog.stdlib.get_logger(__name__).info(
+            "AI metadata request",
+            provider="openai",
+            model=model,
+            response_model=response_model.__name__,
+        )
+
+        response = await client.beta.chat.completions.parse(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            response_format=response_model,
+        )
+
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("OpenAI returned no parsed response")
+        return parsed
 
     async def resolve_runtime_config(self, db) -> dict[str, object]:  # type: ignore[no-untyped-def]
         from app.core.persistent_config import LLM_MODEL, OPENAI_BASE_URL
