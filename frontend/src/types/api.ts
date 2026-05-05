@@ -708,11 +708,23 @@ export interface PopupConfig {
 }
 
 // Data-driven styling
+export interface BuilderStyleConfig {
+  fillDisabled?: boolean;
+  strokeDisabled?: boolean;
+  fillOpacitySaved?: number;
+  outlineWidthSaved?: number;
+  outlineColor?: string;
+  outlineWidth?: number;
+  heatmapRamp?: string;
+  heatmapWeightColumn?: string;
+  heightColumn?: string;
+}
+
 export interface StyleConfig {
   [key: string]: unknown;
-  mode: 'categorical' | 'graduated';
-  column: string;
-  ramp: string;
+  mode?: 'categorical' | 'graduated';
+  column?: string;
+  ramp?: string;
   classCount?: number;
   method?: 'equal_interval' | 'quantile';
   categories?: { value: string | number | null; color: string }[];
@@ -730,6 +742,8 @@ export interface StyleConfig {
   heatmapPaint?: HeatmapLayerSpecification['paint'];
   /** Saved circle paint config from before switching to heatmap mode */
   savedCirclePaint?: CircleLayerSpecification['paint'];
+  /** Builder-only UI state that must not be persisted in MapLibre paint. */
+  builder?: BuilderStyleConfig;
 }
 
 export interface ColumnValuesResponse {

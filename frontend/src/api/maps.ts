@@ -21,7 +21,7 @@ import type {
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
 import { useAuthStore } from '@/stores/auth-store';
-import { normalizeStyleConfig } from '@/lib/normalize-style-config';
+import { normalizeLayerStyleState } from '@/lib/normalize-style-config';
 
 export async function listMaps(
   params: {
@@ -48,7 +48,9 @@ export async function getMap(id: string): Promise<MapResponse> {
   const resp = await apiFetch<MapResponse>(`/maps/${id}`);
   if (resp.layers) {
     for (const l of resp.layers) {
-      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.dataset_geometry_type);
+      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.dataset_geometry_type);
+      l.style_config = normalized.style_config;
+      l.paint = normalized.paint;
     }
   }
   return resp;
@@ -110,7 +112,9 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   const resp = await apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
   if (resp.layers) {
     for (const l of resp.layers) {
-      l.style_config = normalizeStyleConfig(l.style_config, l.paint, l.geometry_type);
+      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.geometry_type);
+      l.style_config = normalized.style_config;
+      l.paint = normalized.paint;
     }
   }
   return resp;

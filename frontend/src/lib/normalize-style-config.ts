@@ -44,6 +44,98 @@ export function parseStepOrInterpolate(expr: unknown): { values: unknown[]; brea
   return null;
 }
 
+export interface NormalizedLayerStyleState {
+  style_config: StyleConfig | null;
+  paint: Record<string, unknown>;
+}
+
+const LEGACY_BUILDER_PAINT_KEYS = new Set([
+  '_outline-width',
+  '_outline-color',
+  'outline-width',
+  'outline-color',
+  '_fill-disabled',
+  '_stroke-disabled',
+  '_fill-opacity-saved',
+  '_outline-width-saved',
+  '_heatmap-ramp',
+  '_heatmap-weight-column',
+  '_height_column',
+]);
+
+function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
+export function stripLegacyBuilderPaint(paint: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!paint) return {};
+  return Object.fromEntries(
+    Object.entries(paint).filter(([key]) => !LEGACY_BUILDER_PAINT_KEYS.has(key)),
+  );
+}
+
+function normalizeBuilderStyleConfig(
+  raw: Record<string, unknown> | null | undefined,
+  paint: Record<string, unknown> | null | undefined,
+): StyleConfig['builder'] | undefined {
+  const rawBuilder = raw?.builder && typeof raw.builder === 'object' && !Array.isArray(raw.builder)
+    ? raw.builder as NonNullable<StyleConfig['builder']>
+    : {};
+
+  const fillDisabled = typeof paint?.['_fill-disabled'] === 'boolean'
+    ? paint['_fill-disabled'] as boolean
+    : rawBuilder.fillDisabled;
+  const strokeDisabled = typeof paint?.['_stroke-disabled'] === 'boolean'
+    ? paint['_stroke-disabled'] as boolean
+    : rawBuilder.strokeDisabled;
+  const fillOpacitySaved = typeof paint?.['_fill-opacity-saved'] === 'number'
+    ? paint['_fill-opacity-saved'] as number
+    : rawBuilder.fillOpacitySaved;
+  const outlineWidthSaved = typeof paint?.['_outline-width-saved'] === 'number'
+    ? paint['_outline-width-saved'] as number
+    : rawBuilder.outlineWidthSaved;
+  const outlineColor = typeof paint?.['_outline-color'] === 'string'
+    ? paint['_outline-color'] as string
+    : typeof paint?.['outline-color'] === 'string'
+      ? paint['outline-color'] as string
+      : rawBuilder.outlineColor;
+  const outlineWidth = typeof paint?.['_outline-width'] === 'number'
+    ? paint['_outline-width'] as number
+    : typeof paint?.['outline-width'] === 'number'
+      ? paint['outline-width'] as number
+      : rawBuilder.outlineWidth;
+  const heatmapRamp = typeof paint?.['_heatmap-ramp'] === 'string'
+    ? paint['_heatmap-ramp'] as string
+    : typeof raw?.ramp === 'string' && raw.render_mode === 'heatmap'
+      ? raw.ramp as string
+      : rawBuilder.heatmapRamp;
+  const heatmapWeightColumn = typeof paint?.['_heatmap-weight-column'] === 'string'
+    ? paint['_heatmap-weight-column'] as string
+    : typeof raw?.weight_column === 'string'
+      ? raw.weight_column as string
+      : rawBuilder.heatmapWeightColumn;
+  const heightColumn = typeof paint?.['_height_column'] === 'string'
+    ? paint['_height_column'] as string
+    : rawBuilder.heightColumn;
+
+  const builder = compactRecord({
+    ...rawBuilder,
+    fillDisabled,
+    strokeDisabled,
+    fillOpacitySaved,
+    outlineWidthSaved,
+    outlineColor,
+    outlineWidth,
+    heatmapRamp,
+    heatmapWeightColumn,
+    heightColumn,
+  });
+
+  return Object.keys(builder).length > 0 ? builder : undefined;
+}
+
 /**
  * Normalize a style_config that may use legacy field names (from demo fixtures,
  * AI-generated maps, or older API versions) into the canonical frontend schema.
@@ -57,12 +149,19 @@ export function normalizeStyleConfig(
   paint: Record<string, unknown> | null | undefined,
   geometryType: string | null,
 ): StyleConfig | null {
-  if (!raw) return null;
+  const builder = normalizeBuilderStyleConfig(raw, paint);
+  if (!raw) return builder ? ({ builder } as StyleConfig) : null;
 
   // Heatmap configs use a different schema (render_mode/ramp/weight_column)
   // that doesn't fit the graduated/classified pattern — preserve as-is.
   if (raw.render_mode === 'heatmap') {
-    return { mode: 'graduated', column: '', ramp: (raw.ramp ?? 'YlOrRd') as string, render_mode: 'heatmap' } as StyleConfig;
+    return {
+      mode: 'graduated',
+      column: '',
+      ramp: (raw.ramp ?? builder?.heatmapRamp ?? 'YlOrRd') as string,
+      render_mode: 'heatmap',
+      ...(builder ? { builder } : {}),
+    } as StyleConfig;
   }
 
   // Detect legacy schema
@@ -85,8 +184,11 @@ export function normalizeStyleConfig(
       }
     : (typeof raw.mode === 'string' && typeof raw.column === 'string'
         ? { ...(raw as unknown as StyleConfig) }
-        : null);
+        : builder
+          ? ({ ...(raw as unknown as StyleConfig), builder } as StyleConfig)
+          : null);
   if (!normalized) return null;
+  if (builder) normalized.builder = { ...normalized.builder, ...builder };
 
   // Coerce JSON nulls to undefined for optional array fields
   if (normalized.breaks === null) normalized.breaks = undefined;
@@ -131,4 +233,15 @@ export function normalizeStyleConfig(
   }
 
   return normalized;
+}
+
+export function normalizeLayerStyleState(
+  raw: Record<string, unknown> | null | undefined,
+  paint: Record<string, unknown> | null | undefined,
+  geometryType: string | null,
+): NormalizedLayerStyleState {
+  return {
+    style_config: normalizeStyleConfig(raw, paint, geometryType),
+    paint: stripLegacyBuilderPaint(paint),
+  };
 }
