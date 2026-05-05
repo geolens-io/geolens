@@ -417,9 +417,10 @@ async def update_map_endpoint(
                 },
             )
 
-    # Build update kwargs from non-None fields
-    kwargs = body.model_dump(exclude_none=True)
-    if "layers" in kwargs:
+    # Build update kwargs from fields the client actually sent. This preserves
+    # explicit widgets=null, which restores client-default widget behavior.
+    kwargs = body.model_dump(exclude_unset=True)
+    if "layers" in kwargs and body.layers is not None:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 
     try:
@@ -439,7 +440,9 @@ async def update_map_endpoint(
             action="map.update",
             resource_type="map",
             resource_id=map_id,
-            details={"changed_fields": list(body.model_dump(exclude_none=True).keys())},
+            details={
+                "changed_fields": list(body.model_dump(exclude_unset=True).keys())
+            },
             ip_address=request.client.host if request.client else None,
         ),
     )

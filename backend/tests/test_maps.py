@@ -832,7 +832,7 @@ class TestDuplicateMap:
         map_id = created["id"]
 
         # Set widgets on source
-        widget_ids = ["scale-bar", "coordinates"]
+        widget_ids = ["legend", "measurement"]
         resp = await client.put(
             f"/maps/{map_id}",
             json={"widgets": widget_ids},
@@ -862,11 +862,11 @@ class TestDuplicateMap:
         # Set widgets
         resp = await client.put(
             f"/maps/{map_id}",
-            json={"widgets": ["scale-bar"]},
+            json={"widgets": ["measurement"]},
             headers=admin_auth_header,
         )
         assert resp.status_code == 200
-        assert resp.json()["widgets"] == ["scale-bar"]
+        assert resp.json()["widgets"] == ["measurement"]
 
         # Clear widgets
         resp = await client.put(
@@ -876,6 +876,15 @@ class TestDuplicateMap:
         )
         assert resp.status_code == 200
         assert resp.json()["widgets"] == []
+
+        # Restore client defaults
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"widgets": None},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["widgets"] is None
 
 
 # ---------------------------------------------------------------------------

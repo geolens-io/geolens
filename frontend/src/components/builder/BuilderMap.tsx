@@ -1,8 +1,9 @@
 import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { isWidgetIdAvailable } from '@/components/map-widgets';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
-import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
+import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { findBasemapById, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
@@ -79,6 +80,11 @@ export const BuilderMap = memo(function BuilderMap({
   const { data: basemaps } = useBasemaps();
   const { data: mapDefaults } = useMapDefaults();
   const { data: tileConfig } = useTileConfig();
+  const enabledWidgetsQuery = useEnabledWidgets();
+  const enabledWidgetIds = useMemo(
+    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
+    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  );
   const isBlank = basemapStyle === BLANK_BASEMAP_ID;
   const basemapEntry = isBlank ? undefined : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://tiles.openfreemap.org/styles/positron';
@@ -133,10 +139,15 @@ export const BuilderMap = memo(function BuilderMap({
   const measureActiveRef = useRef(false);
 
   useEffect(() => {
+    measureActiveRef.current =
+      useWidgetStore.getState().activeWidgets.has('measurement') &&
+      isWidgetIdAvailable('measurement', enabledWidgetIds);
     return useWidgetStore.subscribe((state) => {
-      measureActiveRef.current = state.activeWidgets.has('measurement');
+      measureActiveRef.current =
+        state.activeWidgets.has('measurement') &&
+        isWidgetIdAvailable('measurement', enabledWidgetIds);
     });
-  }, []);
+  }, [enabledWidgetIds]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {

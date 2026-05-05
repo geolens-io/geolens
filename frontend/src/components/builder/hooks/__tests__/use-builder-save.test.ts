@@ -1,13 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createElement, type ReactNode } from 'react';
 import { act } from '@testing-library/react';
+import { renderHook as baseRenderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import type { MapLayerResponse } from '@/types/api';
+import { queryKeys } from '@/lib/query-keys';
 
 /* ── Mocks ─────────────────────────────────────────── */
 
 const mockMutate = vi.fn();
 const mockMutateAsync = vi.fn();
+const mockEnabledWidgets = vi.hoisted(() => ({
+  value: null as string[] | null | undefined,
+}));
 
 vi.mock('@/hooks/use-maps', () => ({
   useUpdateMap: () => ({
@@ -18,6 +28,10 @@ vi.mock('@/hooks/use-maps', () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,
   }),
+}));
+
+vi.mock('@/hooks/use-settings', () => ({
+  useEnabledWidgets: () => ({ data: mockEnabledWidgets.value }),
 }));
 
 const mockUploadThumbnail = vi.fn((..._args: unknown[]) => Promise.resolve());
@@ -124,11 +138,29 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   };
 }
 
+function renderHookWithQueryClient(state: SaveState, queryClient: QueryClient) {
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(MemoryRouter, null, children),
+      ),
+    );
+  }
+
+  return baseRenderHook(() => useBuilderSave(state), { wrapper: Wrapper });
+}
+
 /* ── Tests ─────────────────────────────────────────── */
 
 describe('useBuilderSave', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnabledWidgets.value = null;
+    useWidgetStore.getState().replace([]);
   });
 
   it('handleSave calls updateMap.mutate with correct payload', () => {
@@ -148,6 +180,63 @@ describe('useBuilderSave', () => {
     expect(payload.data.center_lat).toBe(40.7);
     expect(payload.data.zoom).toBe(10);
     expect(payload.data.layers).toEqual([]);
+  });
+
+  it('omits widgets when active widgets match client defaults already saved as defaults', () => {
+    useWidgetStore.getState().open('legend');
+    const state = makeSaveState();
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => {
+      result.current.handleSave();
+    });
+
+    const [payload] = mockMutate.mock.calls[0];
+    expect(payload.data.widgets).toBeUndefined();
+  });
+
+  it('sends widgets null when active widgets return to client defaults from explicit state', () => {
+    useWidgetStore.getState().open('legend');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    queryClient.setQueryData(queryKeys.maps.detail('map-1'), { widgets: [] });
+    const state = makeSaveState();
+    const { result } = renderHookWithQueryClient(state, queryClient);
+
+    act(() => {
+      result.current.handleSave();
+    });
+
+    const [payload] = mockMutate.mock.calls[0];
+    expect(payload.data.widgets).toBeNull();
+  });
+
+  it('persists explicit widget state when it differs from client defaults', () => {
+    useWidgetStore.getState().open('legend');
+    useWidgetStore.getState().open('measurement');
+    const state = makeSaveState();
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => {
+      result.current.handleSave();
+    });
+
+    const [payload] = mockMutate.mock.calls[0];
+    expect(payload.data.widgets).toEqual(['legend', 'measurement']);
+  });
+
+  it('does not persist admin-disabled active widgets', () => {
+    mockEnabledWidgets.value = ['legend'];
+    useWidgetStore.getState().open('legend');
+    useWidgetStore.getState().open('measurement');
+    const state = makeSaveState();
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => {
+      result.current.handleSave();
+    });
+
+    const [payload] = mockMutate.mock.calls[0];
+    expect(payload.data.widgets).toBeUndefined();
   });
 
   it('handleSave is a no-op when mapId is undefined', () => {

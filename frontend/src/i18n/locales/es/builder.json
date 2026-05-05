@@ -408,7 +408,8 @@
       "noLayers": "Sin capas visibles",
       "low": "Bajo",
       "high": "Alto",
-      "weightedBy": "Ponderado por: {{column}}"
+      "weightedBy": "Ponderado por: {{column}}",
+      "unavailable": "(leyenda no disponible)"
     },
     "closeWidget": "Cerrar widget",
     "widgetError": "Este widget encontró un error"

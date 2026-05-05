@@ -23,12 +23,13 @@ import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary'
 import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { useEnabledWidgets } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
-import { WidgetHost, getWidgets, usePartitionedWidgets } from '@/components/map-widgets';
+import { WidgetHost, WidgetSidebar, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 
 
@@ -39,9 +40,11 @@ const SIDEBAR_MAX = 600;
 const SidebarContent = memo(function SidebarContent({
   layers,
   onAddDataClick,
+  widgetSidebar,
 }: {
   layers: ReturnType<typeof useBuilderLayers>;
   onAddDataClick: () => void;
+  widgetSidebar?: React.ReactNode;
 }) {
   const { t } = useTranslation('builder');
   return (
@@ -60,6 +63,7 @@ const SidebarContent = memo(function SidebarContent({
         onToggleLegend={layers.handleToggleLegend}
         onAddDataClick={onAddDataClick}
       />
+      {widgetSidebar}
       <div className="border-t pt-3 px-2">
         <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
         <BasemapPicker
@@ -77,6 +81,11 @@ export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
   const { data: mapData, isLoading, error } = useMap(id, { refetchOnWindowFocus: false });
+  const enabledWidgetsQuery = useEnabledWidgets();
+  const enabledWidgetIds = useMemo(
+    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
+    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  );
   const addLayer = useAddLayer();
   const removeLayer = useRemoveLayer();
 
@@ -173,11 +182,19 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
   );
-  // Open all defaultVisible widgets on mount
+  const savedWidgetKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.widgets ?? null)}` : '';
+  const enabledWidgetKey = enabledWidgetIds == null ? '__all__' : enabledWidgetIds.join('\0');
+
+  // Restore active widgets from the saved map payload. `null` means client defaults,
+  // `[]` means no widgets, and unknown or admin-disabled IDs are ignored.
   useEffect(() => {
-    const store = useWidgetStore.getState();
-    getWidgets().filter((w) => w.defaultVisible).forEach((w) => store.open(w.id));
-  }, []);
+    if (!mapData) return;
+    const nextWidgets = mapData.widgets == null
+      ? getDefaultWidgetIds(enabledWidgetIds)
+      : resolveAvailableWidgetIds(mapData.widgets, enabledWidgetIds);
+    useWidgetStore.getState().replace(nextWidgets);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- key strings avoid resetting local toggles on unrelated mapData identity changes
+  }, [savedWidgetKey, enabledWidgetKey]);
 
   const save = useBuilderSave({
     mapId: id,
@@ -205,7 +222,7 @@ export function MapBuilderPage() {
     [mapInstance, layers.localLayers, id],
   );
 
-  const { byAnchor } = usePartitionedWidgets();
+  const { byAnchor, sidebar } = usePartitionedWidgets();
   const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
 
   const editingLayer = useMemo(
@@ -332,7 +349,11 @@ export function MapBuilderPage() {
                 {t('actions.save')}
               </Button>
             </div>
-            <SidebarContent layers={layers} onAddDataClick={handleAddDataClick} />
+            <SidebarContent
+              layers={layers}
+              onAddDataClick={handleAddDataClick}
+              widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
+            />
           </SheetContent>
         </Sheet>
       )}
@@ -381,7 +402,11 @@ export function MapBuilderPage() {
         )}
 
         {/* Scrollable content */}
-        <SidebarContent layers={layers} onAddDataClick={handleAddDataClick} />
+        <SidebarContent
+          layers={layers}
+          onAddDataClick={handleAddDataClick}
+          widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
+        />
       </div>}
 
       {/* Map canvas (center) */}

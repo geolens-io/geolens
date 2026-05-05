@@ -52,7 +52,11 @@ vi.mock('@/components/builder/BasemapPicker', () => ({
 
 vi.mock('@/components/map-widgets', () => ({
   WidgetHost: () => null,
+  WidgetSidebar: () => null,
   getWidgets: () => [],
+  getEnabledWidgetDefinitions: () => [],
+  getDefaultWidgetIds: () => [],
+  resolveAvailableWidgetIds: () => [],
   usePartitionedWidgets: () => ({ byAnchor: {} }),
 }));
 
@@ -83,6 +87,10 @@ vi.mock('@/hooks/use-ai-availability', () => ({
 
 vi.mock('@/hooks/use-document-title', () => ({
   useDocumentTitle: vi.fn(),
+}));
+
+vi.mock('@/hooks/use-settings', () => ({
+  useEnabledWidgets: () => ({ data: null }),
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-layout', () => ({

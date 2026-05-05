@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n/i18n';
 import { Ruler, Pentagon, Trash2 } from 'lucide-react';
@@ -6,6 +6,7 @@ import turfDistance from '@turf/distance';
 import turfArea from '@turf/area';
 import { point, polygon } from '@turf/helpers';
 import { cn } from '@/lib/utils';
+import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import type { WidgetContext } from '../types';
 
 type MeasureMode = 'distance' | 'area';
@@ -111,6 +112,19 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
 
   const map = ctx.mapInstance;
 
+  const clearMeasurement = useCallback((targetMap = map) => {
+    setPoints([]);
+    pointsRef.current = [];
+    setResult(null);
+    if (!targetMap) return;
+    try {
+      const src = targetMap.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      src?.setData({ type: 'FeatureCollection', features: [] });
+    } catch {
+      // Map may be destroyed during teardown
+    }
+  }, [map]);
+
   // Setup / teardown map sources, layers, cursor and click handler
   useEffect(() => {
     if (!map) return;
@@ -152,6 +166,9 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
       });
     }
 
+    const restoreDoubleClickZoom = map.doubleClickZoom.isEnabled();
+    map.doubleClickZoom.disable();
+
     // Set crosshair cursor
     map.getCanvas().style.cursor = 'crosshair';
 
@@ -172,11 +189,30 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
       }
     };
 
+    const handleDoubleClick = (e: { preventDefault?: () => void }) => {
+      e.preventDefault?.();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (pointsRef.current.length > 0) {
+        clearMeasurement(map);
+      } else {
+        useWidgetStore.getState().close('measurement');
+      }
+    };
+
     map.on('click', handleClick);
+    map.on('dblclick', handleDoubleClick);
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       map.off('click', handleClick);
+      map.off('dblclick', handleDoubleClick);
+      window.removeEventListener('keydown', handleKeyDown);
       try {
+        if (restoreDoubleClickZoom) map.doubleClickZoom.enable();
         if (map.getCanvas()) map.getCanvas().style.cursor = '';
         if (map.getLayer(MEASURE_POINTS_LAYER)) map.removeLayer(MEASURE_POINTS_LAYER);
         if (map.getLayer(MEASURE_LINE_LAYER)) map.removeLayer(MEASURE_LINE_LAYER);
@@ -185,7 +221,7 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
         // Map style may already be destroyed during teardown
       }
     };
-  }, [map]);
+  }, [clearMeasurement, map]);
 
   // Update overlay when mode changes (recompute result from existing points)
   useEffect(() => {
@@ -204,16 +240,13 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps -- pointsRef is stable
 
   function handleClear() {
-    setPoints([]);
-    pointsRef.current = [];
-    setResult(null);
-    if (!map) return;
-    try {
-      const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
-      src?.setData({ type: 'FeatureCollection', features: [] });
-    } catch {
-      // Map may be destroyed during teardown
-    }
+    clearMeasurement();
+  }
+
+  function handleModeChange(nextMode: MeasureMode) {
+    if (nextMode === mode) return;
+    setMode(nextMode);
+    clearMeasurement();
   }
 
   return (
@@ -221,7 +254,7 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
       {/* Mode toggle */}
       <div className="flex gap-1">
         <button
-          onClick={() => setMode('distance')}
+          onClick={() => handleModeChange('distance')}
           className={cn(
             'flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors',
             mode === 'distance'
@@ -229,12 +262,13 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
               : 'border-border hover:bg-accent/50'
           )}
           title={t('widgets.measurement.distance')}
+          aria-pressed={mode === 'distance'}
         >
           <Ruler className="h-3 w-3" />
           {t('widgets.measurement.distance')}
         </button>
         <button
-          onClick={() => setMode('area')}
+          onClick={() => handleModeChange('area')}
           className={cn(
             'flex items-center gap-1 px-2 py-1 rounded text-xs border transition-colors',
             mode === 'area'
@@ -242,6 +276,7 @@ export function MeasurementWidget({ ctx }: { ctx: WidgetContext }) {
               : 'border-border hover:bg-accent/50'
           )}
           title={t('widgets.measurement.area')}
+          aria-pressed={mode === 'area'}
         >
           <Pentagon className="h-3 w-3" />
           {t('widgets.measurement.area')}

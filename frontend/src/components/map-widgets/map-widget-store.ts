@@ -5,6 +5,7 @@ interface WidgetState {
   toggle: (id: string) => void;
   open: (id: string) => void;
   close: (id: string) => void;
+  replace: (ids: Iterable<string>) => void;
 }
 
 export const useWidgetStore = create<WidgetState>()((set) => ({
@@ -27,4 +28,5 @@ export const useWidgetStore = create<WidgetState>()((set) => ({
       next.delete(id);
       return { activeWidgets: next };
     }),
+  replace: (ids) => set({ activeWidgets: new Set(ids) }),
 }));

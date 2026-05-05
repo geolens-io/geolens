@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getWidgets } from './registry';
+import { resolveAvailableWidgetIds } from './widget-availability';
 import { WidgetPanel } from './WidgetPanel';
 import { WidgetErrorBoundary } from './WidgetErrorBoundary';
 import type { WidgetContext, WidgetAnchor, WidgetDefinition } from './types';
@@ -23,26 +24,33 @@ const ANCHORS = Object.keys(ANCHOR_POSITIONS) as WidgetAnchor[];
 /** Partition active+enabled widgets by placement mode. Call once in the parent. */
 export function usePartitionedWidgets() {
   const activeWidgets = useWidgetStore((s) => s.activeWidgets);
-  const { data: enabledWidgetIds } = useEnabledWidgets();
+  const enabledWidgetsQuery = useEnabledWidgets();
+  const enabledWidgetIds = useMemo(
+    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
+    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  );
 
   return useMemo(() => {
     const allRegistered = getWidgets();
-    const enabledSet = enabledWidgetIds == null ? null : new Set(enabledWidgetIds);
+    const activeEnabledIds = new Set(resolveAvailableWidgetIds(activeWidgets, enabledWidgetIds));
 
     const definitions = allRegistered.filter(
-      (w) => activeWidgets.has(w.id) && (enabledSet === null || enabledSet.has(w.id)),
+      (w) => activeEnabledIds.has(w.id),
     );
 
     const byAnchor: Partial<Record<WidgetAnchor, WidgetDefinition[]>> = {};
+    const sidebar: WidgetDefinition[] = [];
 
     for (const w of definitions) {
       if (w.placement.mode === 'floating') {
         const anchor = w.placement.anchor;
         (byAnchor[anchor] ??= []).push(w);
+      } else if (w.placement.mode === 'sidebar') {
+        sidebar.push(w);
       }
     }
 
-    return { byAnchor };
+    return { byAnchor, sidebar };
   }, [activeWidgets, enabledWidgetIds]);
 }
 
@@ -76,5 +84,27 @@ export function WidgetHost({ byAnchor, ctx, topLeftSlot }: WidgetHostProps) {
         );
       })}
     </>
+  );
+}
+
+interface WidgetSidebarProps {
+  widgets: WidgetDefinition[];
+  ctx: WidgetContext;
+}
+
+/** Renders sidebar-placement widgets in the builder sidebar. */
+export function WidgetSidebar({ widgets, ctx }: WidgetSidebarProps) {
+  if (widgets.length === 0) return null;
+
+  return (
+    <div className="px-2 space-y-2">
+      {widgets.map((w) => (
+        <WidgetPanel key={w.id} def={w}>
+          <WidgetErrorBoundary widgetId={w.id}>
+            <w.component ctx={ctx} />
+          </WidgetErrorBoundary>
+        </WidgetPanel>
+      ))}
+    </div>
   );
 }

@@ -408,7 +408,8 @@
       "noLayers": "Aucune couche visible",
       "low": "Faible",
       "high": "Élevé",
-      "weightedBy": "Pondéré par : {{column}}"
+      "weightedBy": "Pondéré par : {{column}}",
+      "unavailable": "(légende indisponible)"
     },
     "closeWidget": "Fermer le widget",
     "widgetError": "Ce widget a rencontré une erreur"

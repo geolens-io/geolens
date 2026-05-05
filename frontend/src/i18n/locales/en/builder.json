@@ -408,7 +408,8 @@
       "noLayers": "No visible layers",
       "low": "Low",
       "high": "High",
-      "weightedBy": "Weighted by: {{column}}"
+      "weightedBy": "Weighted by: {{column}}",
+      "unavailable": "(legend unavailable)"
     },
     "closeWidget": "Close widget",
     "widgetError": "This widget encountered an error"

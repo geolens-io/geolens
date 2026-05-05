@@ -408,7 +408,8 @@
       "noLayers": "Keine sichtbaren Layer",
       "low": "Niedrig",
       "high": "Hoch",
-      "weightedBy": "Gewichtet nach: {{column}}"
+      "weightedBy": "Gewichtet nach: {{column}}",
+      "unavailable": "(Legende nicht verfügbar)"
     },
     "closeWidget": "Widget schließen",
     "widgetError": "Dieses Widget ist auf einen Fehler gestoßen"

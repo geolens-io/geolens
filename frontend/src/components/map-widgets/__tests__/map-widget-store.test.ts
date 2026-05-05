@@ -57,4 +57,12 @@ describe('useWidgetStore', () => {
     expect(activeWidgets.has('c')).toBe(true);
     expect(activeWidgets.size).toBe(2);
   });
+
+  it('replace sets the active widget list deterministically', () => {
+    useWidgetStore.getState().open('old-widget');
+    useWidgetStore.getState().replace(['legend', 'measurement']);
+
+    const { activeWidgets } = useWidgetStore.getState();
+    expect(Array.from(activeWidgets)).toEqual(['legend', 'measurement']);
+  });
 });

@@ -529,7 +529,7 @@ async def test_enabled_widgets_endpoint_returns_list(client: AsyncClient):
 @pytest.mark.anyio
 async def test_enabled_widgets_roundtrip(client: AsyncClient, admin_auth_header: dict):
     """PUT /settings/ with enabled_widgets persists and GET returns the list."""
-    widget_ids = ["scale-bar", "coordinates"]
+    widget_ids = ["legend", "measurement"]
     resp = await client.put(
         "/settings/",
         json={"settings": {"enabled_widgets": widget_ids}},
@@ -546,7 +546,7 @@ async def test_enabled_widgets_roundtrip(client: AsyncClient, admin_auth_header:
 async def test_enabled_widgets_null_means_all(
     client: AsyncClient, admin_auth_header: dict
 ):
-    """PUT /settings/ with enabled_widgets=null resets to 'all enabled' (empty list)."""
+    """PUT /settings/ with enabled_widgets=null resets to 'all enabled'."""
     resp = await client.put(
         "/settings/",
         json={"settings": {"enabled_widgets": None}},

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { LayoutGrid } from 'lucide-react';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { registerWidget, getWidgets } from '../registry';
-import { WidgetHost, usePartitionedWidgets } from '../WidgetHost';
+import { WidgetHost, WidgetSidebar, usePartitionedWidgets } from '../WidgetHost';
 import type { WidgetContext } from '../types';
 
 // Mock useEnabledWidgets — controls admin filtering
@@ -23,6 +23,7 @@ const initialState = useWidgetStore.getState();
 const WIDGET_A_ID = '_test-host-a';
 const WIDGET_B_ID = '_test-host-b';
 const WIDGET_CRASH_ID = '_test-host-crash';
+const WIDGET_SIDEBAR_ID = '_test-host-sidebar';
 
 function WidgetA({ ctx }: { ctx: WidgetContext }) {
   return <div data-testid="widget-a">A: {ctx.layers.length} layers</div>;
@@ -36,11 +37,16 @@ function CrashingWidget(): React.ReactElement {
   throw new Error('Widget crashed!');
 }
 
+function SidebarWidget() {
+  return <div data-testid="widget-sidebar">Sidebar widget</div>;
+}
+
 // Register once — registry is module-level
 if (!getWidgets().find((w) => w.id === WIDGET_A_ID)) {
   registerWidget({ id: WIDGET_A_ID, labelKey: 'widgets.a', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-left' }, component: WidgetA });
   registerWidget({ id: WIDGET_B_ID, labelKey: 'widgets.b', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'top-right' }, component: WidgetB });
   registerWidget({ id: WIDGET_CRASH_ID, labelKey: 'widgets.crash', icon: LayoutGrid, placement: { mode: 'floating', anchor: 'bottom-left' }, component: CrashingWidget });
+  registerWidget({ id: WIDGET_SIDEBAR_ID, labelKey: 'widgets.sidebar', icon: LayoutGrid, placement: { mode: 'sidebar' }, component: SidebarWidget });
 }
 
 const testCtx: WidgetContext = {
@@ -53,6 +59,11 @@ const testCtx: WidgetContext = {
 function TestWidgetHost({ ctx }: { ctx: WidgetContext }) {
   const { byAnchor } = usePartitionedWidgets();
   return <WidgetHost byAnchor={byAnchor} ctx={ctx} />;
+}
+
+function TestWidgetSidebar({ ctx }: { ctx: WidgetContext }) {
+  const { sidebar } = usePartitionedWidgets();
+  return <WidgetSidebar widgets={sidebar} ctx={ctx} />;
 }
 
 describe('WidgetHost', () => {
@@ -104,6 +115,12 @@ describe('WidgetHost', () => {
     useWidgetStore.getState().open(WIDGET_A_ID);
     render(<TestWidgetHost ctx={testCtx} />);
     expect(screen.queryByTestId('widget-a')).toBeNull();
+  });
+
+  it('partitions sidebar widgets for sidebar rendering', () => {
+    useWidgetStore.getState().open(WIDGET_SIDEBAR_ID);
+    render(<TestWidgetSidebar ctx={testCtx} />);
+    expect(screen.getByTestId('widget-sidebar')).toBeInTheDocument();
   });
 
   // --- Error boundary ---

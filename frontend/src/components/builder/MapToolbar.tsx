@@ -1,8 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Hand, Ruler, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useEnabledWidgets } from '@/hooks/use-settings';
+import { getEnabledWidgetDefinitions } from '@/components/map-widgets';
 import {
   Tooltip,
   TooltipContent,
@@ -16,28 +18,52 @@ import {
  */
 export function MapToolbar() {
   const { t } = useTranslation('builder');
-  const measureActive = useWidgetStore((s) => s.activeWidgets.has('measurement'));
-  const legendActive = useWidgetStore((s) => s.activeWidgets.has('legend'));
+  const activeWidgets = useWidgetStore((s) => s.activeWidgets);
   const toggle = useWidgetStore((s) => s.toggle);
+  const close = useWidgetStore((s) => s.close);
+  const enabledWidgetsQuery = useEnabledWidgets();
+  const enabledWidgetIds = useMemo(
+    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
+    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  );
+  const availableWidgets = useMemo(
+    () => getEnabledWidgetDefinitions(enabledWidgetIds),
+    [enabledWidgetIds],
+  );
+  const measurementWidget = availableWidgets.find((widget) => widget.id === 'measurement');
+  const legendWidget = availableWidgets.find((widget) => widget.id === 'legend');
+  const LegendIcon = legendWidget?.icon ?? Layers;
+  const measureActive = !!measurementWidget && activeWidgets.has('measurement');
+  const legendActive = !!legendWidget && activeWidgets.has('legend');
 
-  const navTools = useMemo(() => [
-    {
+  const navTools = useMemo(() => {
+    const tools: Array<{
+      id: string;
+      icon: ComponentType<{ className?: string }>;
+      label: string;
+      shortcut: string;
+      active: boolean;
+      onClick: () => void;
+    }> = [{
       id: 'pan',
       icon: Hand,
       label: t('toolbar.pan', { defaultValue: 'Pan' }),
       shortcut: 'V',
       active: !measureActive,
-      onClick: () => { if (measureActive) toggle('measurement'); },
-    },
-    {
-      id: 'measure',
-      icon: Ruler,
-      label: t('widgets.measurement.label', { defaultValue: 'Measure' }),
-      shortcut: 'M',
-      active: measureActive,
-      onClick: () => { toggle('measurement'); },
-    },
-  ], [measureActive, toggle, t]);
+      onClick: () => { if (activeWidgets.has('measurement')) close('measurement'); },
+    }];
+    if (measurementWidget) {
+      tools.push({
+        id: 'measure',
+        icon: measurementWidget.icon ?? Ruler,
+        label: t('widgets.measurement.label', { defaultValue: 'Measure' }),
+        shortcut: 'M',
+        active: measureActive,
+        onClick: () => { toggle('measurement'); },
+      });
+    }
+    return tools;
+  }, [activeWidgets, close, measureActive, measurementWidget, toggle, t]);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -68,31 +94,35 @@ export function MapToolbar() {
             </Tooltip>
           ))}
 
-          {/* Divider */}
-          <div className="w-px h-4 bg-border mx-0.5" />
+          {legendWidget && (
+            <>
+              {/* Divider */}
+              <div className="w-px h-4 bg-border mx-0.5" />
 
-          {/* Widget toggles (Legend) */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => toggle('legend')}
-                className={cn(
-                  'flex items-center justify-center h-7 w-7 rounded-md transition-colors',
-                  legendActive
-                    ? 'bg-foreground text-background'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-                aria-label={t('widgets.legend.label', { defaultValue: 'Legend' })}
-                aria-pressed={legendActive}
-              >
-                <Layers className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">
-              {t('widgets.legend.label', { defaultValue: 'Legend' })}
-              <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
-            </TooltipContent>
-          </Tooltip>
+              {/* Widget toggles (Legend) */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => toggle('legend')}
+                    className={cn(
+                      'flex items-center justify-center h-7 w-7 rounded-md transition-colors',
+                      legendActive
+                        ? 'bg-foreground text-background'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )}
+                    aria-label={t('widgets.legend.label', { defaultValue: 'Legend' })}
+                    aria-pressed={legendActive}
+                  >
+                    <LegendIcon className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('widgets.legend.label', { defaultValue: 'Legend' })}
+                  <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
     </TooltipProvider>

@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from typing import cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import Select, delete, func, or_, select
@@ -24,6 +25,7 @@ from app.modules.catalog.maps.service_shared import (
 )
 
 _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
+_UNSET = object()
 
 
 async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:
@@ -227,7 +229,7 @@ async def update_map(
     basemap_style: str | None = None,
     show_basemap_labels: bool | None = None,
     visibility: str | None = None,
-    widgets: list[str] | None = None,
+    widgets: list[str] | None | object = _UNSET,
     layers: list[dict] | None = None,
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
@@ -244,7 +246,8 @@ async def update_map(
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
 
-    # Update scalar fields (skip None values)
+    # Update scalar fields (skip None values, except explicit widgets=null which
+    # restores client-default widget behavior).
     scalar_fields = {
         "name": name,
         "description": description,
@@ -257,11 +260,12 @@ async def update_map(
         "basemap_style": basemap_style,
         "show_basemap_labels": show_basemap_labels,
         "visibility": visibility,
-        "widgets": widgets,
     }
     for key, value in scalar_fields.items():
         if value is not None:
             setattr(map_obj, key, value)
+    if widgets is not _UNSET:
+        map_obj.widgets = cast(list[str] | None, widgets)
 
     # Replace layers if provided
     if layers is not None:

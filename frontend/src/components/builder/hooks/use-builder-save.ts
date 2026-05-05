@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
@@ -8,10 +8,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceId } from '@/components/builder/map-sync';
 import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
+import { useEnabledWidgets } from '@/hooks/use-settings';
 import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
 /** Crop and resize the map canvas to a 400x250 JPEG, then upload it. */
 function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
@@ -110,10 +112,16 @@ function captureThumbnail(
 function resolveWidgetsPayload(
   mapId: string,
   queryClient: ReturnType<typeof useQueryClient>,
-): string[] | undefined {
-  const active = Array.from(useWidgetStore.getState().activeWidgets);
+  enabledWidgetIds: string[] | null | undefined,
+): string[] | null | undefined {
+  const active = resolveAvailableWidgetIds(
+    useWidgetStore.getState().activeWidgets,
+    enabledWidgetIds,
+  );
   const cached = queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId));
-  if (cached?.widgets == null && active.length === 0) return undefined;
+  if (sameWidgetIds(active, getDefaultWidgetIds(enabledWidgetIds))) {
+    return cached?.widgets == null ? undefined : null;
+  }
   return active;
 }
 
@@ -137,6 +145,11 @@ export function useBuilderSave(state: SaveState) {
   const queryClient = useQueryClient();
   const updateMap = useUpdateMap();
   const duplicateMutation = useDuplicateMap();
+  const enabledWidgetsQuery = useEnabledWidgets();
+  const enabledWidgetIds = useMemo(
+    () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
+    [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
+  );
 
   function handleSave() {
     const { mapId: id, mapInstanceRef, localName, localDescription, dockNotes, localBasemap, localLayers, showBasemapLabels } = state;
@@ -176,7 +189,7 @@ export function useBuilderSave(state: SaveState) {
           zoom: zoom ?? null,
           bearing: bearing ?? 0,
           pitch: pitch ?? 0,
-          widgets: resolveWidgetsPayload(id, queryClient),
+          widgets: resolveWidgetsPayload(id, queryClient, enabledWidgetIds),
           layers: localLayers.map((l) => ({
             dataset_id: l.dataset_id,
             sort_order: l.sort_order,
