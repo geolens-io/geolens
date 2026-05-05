@@ -4025,6 +4025,38 @@ export type MapGenerateResponse = {
 };
 
 /**
+ * MapLayerDiffRequest
+ */
+export type MapLayerDiffRequest = {
+    /**
+     * Added
+     *
+     * Layers to append (max 200)
+     */
+    added?: Array<MapLayerInput>;
+    /**
+     * Fallback Full Replace
+     *
+     * Client hint only; PATCH never performs full replacement
+     */
+    fallback_full_replace?: boolean;
+    /**
+     * Order
+     *
+     * Optional stable layer ID order for existing layers
+     */
+    order?: Array<string> | null;
+    /**
+     * Removed
+     */
+    removed?: Array<string>;
+    /**
+     * Updated
+     */
+    updated?: Array<MapLayerPatch>;
+};
+
+/**
  * MapLayerInput
  */
 export type MapLayerInput = {
@@ -4099,7 +4131,7 @@ export type MapLayerInput = {
     /**
      * Style Config
      *
-     * Data-driven style configuration
+     * Data-driven and builder UI style configuration. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column.
      */
     style_config?: {
         [key: string]: unknown;
@@ -4108,6 +4140,77 @@ export type MapLayerInput = {
      * Visible
      */
     visible?: boolean;
+};
+
+/**
+ * MapLayerPatch
+ */
+export type MapLayerPatch = {
+    /**
+     * Display Name
+     */
+    display_name?: string | null;
+    /**
+     * Filter
+     *
+     * MapLibre filter expression
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Label Config
+     *
+     * Text label configuration
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Layer Type
+     */
+    layer_type?: string | null;
+    /**
+     * Layout
+     *
+     * MapLibre layout properties override
+     */
+    layout?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Opacity
+     */
+    opacity?: number | null;
+    /**
+     * Paint
+     *
+     * MapLibre paint properties override
+     */
+    paint?: {
+        [key: string]: unknown;
+    } | null;
+    popup_config?: PopupConfig | null;
+    /**
+     * Show In Legend
+     */
+    show_in_legend?: boolean | null;
+    /**
+     * Sort Order
+     */
+    sort_order?: number | null;
+    /**
+     * Style Config
+     */
+    style_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Visible
+     */
+    visible?: boolean | null;
 };
 
 /**
@@ -16095,6 +16198,60 @@ export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses = 
 };
 
 export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponse = UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses[keyof UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses];
+
+export type PatchMapLayersEndpointMapsMapIdLayersPatchData = {
+    body: MapLayerDiffRequest;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/layers';
+};
+
+export type PatchMapLayersEndpointMapsMapIdLayersPatchErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type PatchMapLayersEndpointMapsMapIdLayersPatchError = PatchMapLayersEndpointMapsMapIdLayersPatchErrors[keyof PatchMapLayersEndpointMapsMapIdLayersPatchErrors];
+
+export type PatchMapLayersEndpointMapsMapIdLayersPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapResponse;
+};
+
+export type PatchMapLayersEndpointMapsMapIdLayersPatchResponse = PatchMapLayersEndpointMapsMapIdLayersPatchResponses[keyof PatchMapLayersEndpointMapsMapIdLayersPatchResponses];
 
 export type AddLayerEndpointMapsMapIdLayersPostData = {
     body: MapLayerInput;

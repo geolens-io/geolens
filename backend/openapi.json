@@ -6880,6 +6880,58 @@
         "title": "MapGenerateResponse",
         "type": "object"
       },
+      "MapLayerDiffRequest": {
+        "properties": {
+          "added": {
+            "description": "Layers to append (max 200)",
+            "items": {
+              "$ref": "#/components/schemas/MapLayerInput"
+            },
+            "maxItems": 200,
+            "title": "Added",
+            "type": "array"
+          },
+          "fallback_full_replace": {
+            "default": false,
+            "description": "Client hint only; PATCH never performs full replacement",
+            "title": "Fallback Full Replace",
+            "type": "boolean"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable layer ID order for existing layers",
+            "title": "Order"
+          },
+          "removed": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "updated": {
+            "items": {
+              "$ref": "#/components/schemas/MapLayerPatch"
+            },
+            "title": "Updated",
+            "type": "array"
+          }
+        },
+        "title": "MapLayerDiffRequest",
+        "type": "object"
+      },
       "MapLayerInput": {
         "properties": {
           "dataset_id": {
@@ -7008,7 +7060,7 @@
                 "type": "null"
               }
             ],
-            "description": "Data-driven style configuration",
+            "description": "Data-driven and builder UI style configuration. Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata, and height_column.",
             "title": "Style Config"
           },
           "visible": {
@@ -7021,6 +7073,166 @@
           "dataset_id"
         ],
         "title": "MapLayerInput",
+        "type": "object"
+      },
+      "MapLayerPatch": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre filter expression",
+            "title": "Filter"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text label configuration",
+            "title": "Label Config"
+          },
+          "layer_type": {
+            "anyOf": [
+              {
+                "pattern": "^(vector_geolens|raster_geolens|geojson)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Type"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre layout properties override",
+            "title": "Layout"
+          },
+          "opacity": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opacity"
+          },
+          "paint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre paint properties override",
+            "title": "Paint"
+          },
+          "popup_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PopupConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "show_in_legend": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show In Legend"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "maximum": 32767.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "style_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Style Config"
+          },
+          "visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visible"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "MapLayerPatch",
         "type": "object"
       },
       "MapLayerResponse": {
@@ -31508,6 +31720,132 @@
         "summary": "Update Embed Token Endpoint",
         "tags": [
           "Embed Tokens"
+        ]
+      }
+    },
+    "/maps/{map_id}/layers": {
+      "patch": {
+        "description": "Apply incremental layer additions, patches, removals, and ordering.",
+        "operationId": "patch_map_layers_endpoint_maps__map_id__layers_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapLayerDiffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Patch Map Layers Endpoint",
+        "tags": [
+          "Maps"
         ]
       }
     },

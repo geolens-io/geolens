@@ -12,68 +12,66 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from ..models.map_layer_input_label_config_type_0 import (
-        MapLayerInputLabelConfigType0,
+    from ..models.map_layer_patch_label_config_type_0 import (
+        MapLayerPatchLabelConfigType0,
     )
-    from ..models.map_layer_input_layout_type_0 import MapLayerInputLayoutType0
-    from ..models.map_layer_input_paint_type_0 import MapLayerInputPaintType0
-    from ..models.map_layer_input_style_config_type_0 import (
-        MapLayerInputStyleConfigType0,
+    from ..models.map_layer_patch_layout_type_0 import MapLayerPatchLayoutType0
+    from ..models.map_layer_patch_paint_type_0 import MapLayerPatchPaintType0
+    from ..models.map_layer_patch_style_config_type_0 import (
+        MapLayerPatchStyleConfigType0,
     )
     from ..models.popup_config import PopupConfig
 
 
-T = TypeVar("T", bound="MapLayerInput")
+T = TypeVar("T", bound="MapLayerPatch")
 
 
 @_attrs_define
-class MapLayerInput:
+class MapLayerPatch:
     """
     Attributes:
-        dataset_id (UUID):
-        display_name (None | str | Unset): Label shown in the layer list
+        id (UUID):
+        display_name (None | str | Unset):
         filter_ (list[Any] | None | Unset): MapLibre filter expression
-        label_config (MapLayerInputLabelConfigType0 | None | Unset): Text label configuration
-        layer_type (None | str | Unset): Auto-detected from record_type if omitted
-        layout (MapLayerInputLayoutType0 | None | Unset): MapLibre layout properties override
-        opacity (float | Unset): Layer opacity 0.0-1.0 Default: 1.0.
-        paint (MapLayerInputPaintType0 | None | Unset): MapLibre paint properties override
-        popup_config (None | PopupConfig | Unset): Popup configuration: {enabled, expression, visible_fields}
-        show_in_legend (bool | Unset): Whether to include in the map legend Default: True.
-        sort_order (int | Unset): Draw order (lower draws first) Default: 0.
-        style_config (MapLayerInputStyleConfigType0 | None | Unset): Data-driven and builder UI style configuration.
-            Builder-only state lives under builder, e.g. fill_disabled, stroke_disabled, outline settings, heatmap metadata,
-            and height_column.
-        visible (bool | Unset):  Default: True.
+        label_config (MapLayerPatchLabelConfigType0 | None | Unset): Text label configuration
+        layer_type (None | str | Unset):
+        layout (MapLayerPatchLayoutType0 | None | Unset): MapLibre layout properties override
+        opacity (float | None | Unset):
+        paint (MapLayerPatchPaintType0 | None | Unset): MapLibre paint properties override
+        popup_config (None | PopupConfig | Unset):
+        show_in_legend (bool | None | Unset):
+        sort_order (int | None | Unset):
+        style_config (MapLayerPatchStyleConfigType0 | None | Unset):
+        visible (bool | None | Unset):
     """
 
-    dataset_id: UUID
+    id: UUID
     display_name: None | str | Unset = UNSET
     filter_: list[Any] | None | Unset = UNSET
-    label_config: MapLayerInputLabelConfigType0 | None | Unset = UNSET
+    label_config: MapLayerPatchLabelConfigType0 | None | Unset = UNSET
     layer_type: None | str | Unset = UNSET
-    layout: MapLayerInputLayoutType0 | None | Unset = UNSET
-    opacity: float | Unset = 1.0
-    paint: MapLayerInputPaintType0 | None | Unset = UNSET
+    layout: MapLayerPatchLayoutType0 | None | Unset = UNSET
+    opacity: float | None | Unset = UNSET
+    paint: MapLayerPatchPaintType0 | None | Unset = UNSET
     popup_config: None | PopupConfig | Unset = UNSET
-    show_in_legend: bool | Unset = True
-    sort_order: int | Unset = 0
-    style_config: MapLayerInputStyleConfigType0 | None | Unset = UNSET
-    visible: bool | Unset = True
+    show_in_legend: bool | None | Unset = UNSET
+    sort_order: int | None | Unset = UNSET
+    style_config: MapLayerPatchStyleConfigType0 | None | Unset = UNSET
+    visible: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        from ..models.map_layer_input_label_config_type_0 import (
-            MapLayerInputLabelConfigType0,
+        from ..models.map_layer_patch_label_config_type_0 import (
+            MapLayerPatchLabelConfigType0,
         )
-        from ..models.map_layer_input_layout_type_0 import MapLayerInputLayoutType0
-        from ..models.map_layer_input_paint_type_0 import MapLayerInputPaintType0
-        from ..models.map_layer_input_style_config_type_0 import (
-            MapLayerInputStyleConfigType0,
+        from ..models.map_layer_patch_layout_type_0 import MapLayerPatchLayoutType0
+        from ..models.map_layer_patch_paint_type_0 import MapLayerPatchPaintType0
+        from ..models.map_layer_patch_style_config_type_0 import (
+            MapLayerPatchStyleConfigType0,
         )
         from ..models.popup_config import PopupConfig
 
-        dataset_id = str(self.dataset_id)
+        id = str(self.id)
 
         display_name: None | str | Unset
         if isinstance(self.display_name, Unset):
@@ -93,7 +91,7 @@ class MapLayerInput:
         label_config: dict[str, Any] | None | Unset
         if isinstance(self.label_config, Unset):
             label_config = UNSET
-        elif isinstance(self.label_config, MapLayerInputLabelConfigType0):
+        elif isinstance(self.label_config, MapLayerPatchLabelConfigType0):
             label_config = self.label_config.to_dict()
         else:
             label_config = self.label_config
@@ -107,17 +105,21 @@ class MapLayerInput:
         layout: dict[str, Any] | None | Unset
         if isinstance(self.layout, Unset):
             layout = UNSET
-        elif isinstance(self.layout, MapLayerInputLayoutType0):
+        elif isinstance(self.layout, MapLayerPatchLayoutType0):
             layout = self.layout.to_dict()
         else:
             layout = self.layout
 
-        opacity = self.opacity
+        opacity: float | None | Unset
+        if isinstance(self.opacity, Unset):
+            opacity = UNSET
+        else:
+            opacity = self.opacity
 
         paint: dict[str, Any] | None | Unset
         if isinstance(self.paint, Unset):
             paint = UNSET
-        elif isinstance(self.paint, MapLayerInputPaintType0):
+        elif isinstance(self.paint, MapLayerPatchPaintType0):
             paint = self.paint.to_dict()
         else:
             paint = self.paint
@@ -130,25 +132,37 @@ class MapLayerInput:
         else:
             popup_config = self.popup_config
 
-        show_in_legend = self.show_in_legend
+        show_in_legend: bool | None | Unset
+        if isinstance(self.show_in_legend, Unset):
+            show_in_legend = UNSET
+        else:
+            show_in_legend = self.show_in_legend
 
-        sort_order = self.sort_order
+        sort_order: int | None | Unset
+        if isinstance(self.sort_order, Unset):
+            sort_order = UNSET
+        else:
+            sort_order = self.sort_order
 
         style_config: dict[str, Any] | None | Unset
         if isinstance(self.style_config, Unset):
             style_config = UNSET
-        elif isinstance(self.style_config, MapLayerInputStyleConfigType0):
+        elif isinstance(self.style_config, MapLayerPatchStyleConfigType0):
             style_config = self.style_config.to_dict()
         else:
             style_config = self.style_config
 
-        visible = self.visible
+        visible: bool | None | Unset
+        if isinstance(self.visible, Unset):
+            visible = UNSET
+        else:
+            visible = self.visible
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "dataset_id": dataset_id,
+                "id": id,
             }
         )
         if display_name is not UNSET:
@@ -180,18 +194,18 @@ class MapLayerInput:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.map_layer_input_label_config_type_0 import (
-            MapLayerInputLabelConfigType0,
+        from ..models.map_layer_patch_label_config_type_0 import (
+            MapLayerPatchLabelConfigType0,
         )
-        from ..models.map_layer_input_layout_type_0 import MapLayerInputLayoutType0
-        from ..models.map_layer_input_paint_type_0 import MapLayerInputPaintType0
-        from ..models.map_layer_input_style_config_type_0 import (
-            MapLayerInputStyleConfigType0,
+        from ..models.map_layer_patch_layout_type_0 import MapLayerPatchLayoutType0
+        from ..models.map_layer_patch_paint_type_0 import MapLayerPatchPaintType0
+        from ..models.map_layer_patch_style_config_type_0 import (
+            MapLayerPatchStyleConfigType0,
         )
         from ..models.popup_config import PopupConfig
 
         d = dict(src_dict)
-        dataset_id = UUID(d.pop("dataset_id"))
+        id = UUID(d.pop("id"))
 
         def _parse_display_name(data: object) -> None | str | Unset:
             if data is None:
@@ -221,7 +235,7 @@ class MapLayerInput:
 
         def _parse_label_config(
             data: object,
-        ) -> MapLayerInputLabelConfigType0 | None | Unset:
+        ) -> MapLayerPatchLabelConfigType0 | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -229,12 +243,12 @@ class MapLayerInput:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                label_config_type_0 = MapLayerInputLabelConfigType0.from_dict(data)
+                label_config_type_0 = MapLayerPatchLabelConfigType0.from_dict(data)
 
                 return label_config_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(MapLayerInputLabelConfigType0 | None | Unset, data)
+            return cast(MapLayerPatchLabelConfigType0 | None | Unset, data)
 
         label_config = _parse_label_config(d.pop("label_config", UNSET))
 
@@ -247,7 +261,7 @@ class MapLayerInput:
 
         layer_type = _parse_layer_type(d.pop("layer_type", UNSET))
 
-        def _parse_layout(data: object) -> MapLayerInputLayoutType0 | None | Unset:
+        def _parse_layout(data: object) -> MapLayerPatchLayoutType0 | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -255,18 +269,25 @@ class MapLayerInput:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                layout_type_0 = MapLayerInputLayoutType0.from_dict(data)
+                layout_type_0 = MapLayerPatchLayoutType0.from_dict(data)
 
                 return layout_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(MapLayerInputLayoutType0 | None | Unset, data)
+            return cast(MapLayerPatchLayoutType0 | None | Unset, data)
 
         layout = _parse_layout(d.pop("layout", UNSET))
 
-        opacity = d.pop("opacity", UNSET)
+        def _parse_opacity(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
 
-        def _parse_paint(data: object) -> MapLayerInputPaintType0 | None | Unset:
+        opacity = _parse_opacity(d.pop("opacity", UNSET))
+
+        def _parse_paint(data: object) -> MapLayerPatchPaintType0 | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -274,12 +295,12 @@ class MapLayerInput:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                paint_type_0 = MapLayerInputPaintType0.from_dict(data)
+                paint_type_0 = MapLayerPatchPaintType0.from_dict(data)
 
                 return paint_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(MapLayerInputPaintType0 | None | Unset, data)
+            return cast(MapLayerPatchPaintType0 | None | Unset, data)
 
         paint = _parse_paint(d.pop("paint", UNSET))
 
@@ -300,13 +321,27 @@ class MapLayerInput:
 
         popup_config = _parse_popup_config(d.pop("popup_config", UNSET))
 
-        show_in_legend = d.pop("show_in_legend", UNSET)
+        def _parse_show_in_legend(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
 
-        sort_order = d.pop("sort_order", UNSET)
+        show_in_legend = _parse_show_in_legend(d.pop("show_in_legend", UNSET))
+
+        def _parse_sort_order(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        sort_order = _parse_sort_order(d.pop("sort_order", UNSET))
 
         def _parse_style_config(
             data: object,
-        ) -> MapLayerInputStyleConfigType0 | None | Unset:
+        ) -> MapLayerPatchStyleConfigType0 | None | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -314,19 +349,26 @@ class MapLayerInput:
             try:
                 if not isinstance(data, dict):
                     raise TypeError()
-                style_config_type_0 = MapLayerInputStyleConfigType0.from_dict(data)
+                style_config_type_0 = MapLayerPatchStyleConfigType0.from_dict(data)
 
                 return style_config_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(MapLayerInputStyleConfigType0 | None | Unset, data)
+            return cast(MapLayerPatchStyleConfigType0 | None | Unset, data)
 
         style_config = _parse_style_config(d.pop("style_config", UNSET))
 
-        visible = d.pop("visible", UNSET)
+        def _parse_visible(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
 
-        map_layer_input = cls(
-            dataset_id=dataset_id,
+        visible = _parse_visible(d.pop("visible", UNSET))
+
+        map_layer_patch = cls(
+            id=id,
             display_name=display_name,
             filter_=filter_,
             label_config=label_config,
@@ -341,8 +383,8 @@ class MapLayerInput:
             visible=visible,
         )
 
-        map_layer_input.additional_properties = d
-        return map_layer_input
+        map_layer_patch.additional_properties = d
+        return map_layer_patch
 
     @property
     def additional_keys(self) -> list[str]:

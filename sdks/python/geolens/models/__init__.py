@@ -249,11 +249,17 @@ from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
 from .map_generate_response import MapGenerateResponse
+from .map_layer_diff_request import MapLayerDiffRequest
 from .map_layer_input import MapLayerInput
 from .map_layer_input_label_config_type_0 import MapLayerInputLabelConfigType0
 from .map_layer_input_layout_type_0 import MapLayerInputLayoutType0
 from .map_layer_input_paint_type_0 import MapLayerInputPaintType0
 from .map_layer_input_style_config_type_0 import MapLayerInputStyleConfigType0
+from .map_layer_patch import MapLayerPatch
+from .map_layer_patch_label_config_type_0 import MapLayerPatchLabelConfigType0
+from .map_layer_patch_layout_type_0 import MapLayerPatchLayoutType0
+from .map_layer_patch_paint_type_0 import MapLayerPatchPaintType0
+from .map_layer_patch_style_config_type_0 import MapLayerPatchStyleConfigType0
 from .map_layer_response import MapLayerResponse
 from .map_layer_response_dataset_column_info_type_0_item import (
     MapLayerResponseDatasetColumnInfoType0Item,
@@ -706,11 +712,17 @@ __all__ = (
     "MapDefaultsResponse",
     "MapGenerateRequest",
     "MapGenerateResponse",
+    "MapLayerDiffRequest",
     "MapLayerInput",
     "MapLayerInputLabelConfigType0",
     "MapLayerInputLayoutType0",
     "MapLayerInputPaintType0",
     "MapLayerInputStyleConfigType0",
+    "MapLayerPatch",
+    "MapLayerPatchLabelConfigType0",
+    "MapLayerPatchLayoutType0",
+    "MapLayerPatchPaintType0",
+    "MapLayerPatchStyleConfigType0",
     "MapLayerResponse",
     "MapLayerResponseDatasetColumnInfoType0Item",
     "MapLayerResponseDatasetSampleValuesType0",
