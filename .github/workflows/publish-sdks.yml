@@ -116,16 +116,21 @@ jobs:
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
-      - name: Pre-flight name-availability gate (@geolens/sdk on npm)
+      - name: Pre-flight version gate (@geolens/sdk on npm)
         if: ${{ !inputs.dry_run }}
         run: |
           set -e
+          PACKAGE_VERSION=$(node -p "require('./sdks/typescript/package.json').version")
           if CURRENT=$(npm view @geolens/sdk version 2>/dev/null); then
-            if [ "${{ inputs.force_publish }}" = "true" ]; then
-              echo "::warning::npm @geolens/sdk already published at $CURRENT — force_publish=true override active; proceeding"
+            if [ "${CURRENT}" = "${PACKAGE_VERSION}" ]; then
+              if [ "${{ inputs.force_publish }}" = "true" ]; then
+                echo "::warning::npm @geolens/sdk already has $PACKAGE_VERSION — force_publish=true override active; proceeding"
+              else
+                echo "::error::npm @geolens/sdk already has $PACKAGE_VERSION. Refusing to re-publish without force_publish=true."
+                exit 1
+              fi
             else
-              echo "::error::npm @geolens/sdk already published at $CURRENT. Refusing to publish without explicit force_publish=true input. If this is an intentional re-publish, re-run the workflow with force_publish=true."
-              exit 1
+              echo "npm @geolens/sdk exists at $CURRENT; proceeding with first publish of $PACKAGE_VERSION"
             fi
           else
             echo "npm @geolens/sdk: unclaimed (safe to publish)"

@@ -10,7 +10,7 @@ Full user, admin, and API documentation lives at **[docs.getgeolens.com](https:/
 
 This repository does not maintain a root `docs/` directory. Keep README images
 under `.github/assets/`, release notes in `CHANGELOG.md`, support routing in
-`SUPPORT.md`, and private/internal material in ignored `docs-internal/`.
+`SUPPORT.md`, and private/internal material out of the public repository tree.
 
 ## Development Setup
 

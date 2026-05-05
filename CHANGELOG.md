@@ -34,7 +34,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 ### Added
 
 - Manifest-driven catalog automation: schema validation, CLI init/validate/apply commands, backend manifest apply endpoint, example manifests, and generated SDK surfaces.
-- Root multi-stage Dockerfile targets for API, worker, and frontend runtime images.
+- Root multi-stage Dockerfile targets for API, worker, and frontend containers.
 - Focused CI gates for manifest CLI contracts, backend apply contracts, OpenAPI drift, SDK drift, and published-package verification.
 
 ### Changed
@@ -56,7 +56,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 - **Python SDK published to PyPI as `geolens==1.0.0`.** Install with `pip install geolens`; the generated SDK exposes the hand-written `GeolensClient` auth wrapper plus the OpenAPI-generated endpoint clients.
 - **CLI published to PyPI as `geolens-cli==1.0.0`.** Install with `pip install geolens-cli`; the executable command remains `geolens`.
 - **TypeScript SDK published to npm as `@geolens/sdk==1.0.0`.** Install with `npm install @geolens/sdk`; the package exports `createGeolensClient`.
-- **Prebuilt API, worker, and frontend images published to GHCR.** Pull `ghcr.io/geolens-io/geolens-api:1.0.0`, `ghcr.io/geolens-io/geolens-worker:1.0.0`, and `ghcr.io/geolens-io/geolens-frontend:1.0.0`; the same images are also tagged `1.0`, `1`, and `latest`.
+- **Prebuilt API and frontend images published to GHCR.** Pull `ghcr.io/geolens-io/geolens-api:1.0.0` and `ghcr.io/geolens-io/geolens-frontend:1.0.0`; the same images are also tagged `1.0`, `1`, and `latest`.
 - **Clean-machine package verifier added.** `.github/workflows/verify-published.yml` installs `geolens`, `geolens-cli`, and `@geolens/sdk` inside fresh Docker containers and smoke-tests the runtime exports.
 
 ### Changed — Pre-public migration squash (2026-05-02)
@@ -146,7 +146,7 @@ The "**SAML support has been removed**" entry below remains accurate for the **c
 ### Changed
 - Landing page removed — root route (`/`) now serves the Search page directly. The previous `/search` route is no longer used; existing bookmarks redirect to `/`.
 - `SHOW_LANDING_PAGE` environment variable removed from backend config and branding API.
-- Internal documentation moved to a gitignored `docs-internal/` directory; user-facing docs live on docs.getgeolens.com.
+- Internal documentation moved out of the public repository tree; user-facing docs live on docs.getgeolens.com.
 - Connection pool pre-ping now defaults to `True` to detect broken connections in managed databases.
 - Top-level `CONTRIBUTING.md` consolidated into `.github/CONTRIBUTING.md`.
 - OAuth `client_id` and `client_secret` are now required fields when creating a provider (previously optional placeholders for the SAML branch).
