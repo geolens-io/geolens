@@ -65,6 +65,7 @@ Oeffentliche Runtime-Images in GitHub Container Registry:
 
 ```bash
 docker pull ghcr.io/geolens-io/geolens-api:latest
+docker pull ghcr.io/geolens-io/geolens-worker:latest
 docker pull ghcr.io/geolens-io/geolens-frontend:latest
 ```
 

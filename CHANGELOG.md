@@ -56,7 +56,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 - **Python SDK published to PyPI as `geolens==1.0.0`.** Install with `pip install geolens`; the generated SDK exposes the hand-written `GeolensClient` auth wrapper plus the OpenAPI-generated endpoint clients.
 - **CLI published to PyPI as `geolens-cli==1.0.0`.** Install with `pip install geolens-cli`; the executable command remains `geolens`.
 - **TypeScript SDK published to npm as `@geolens/sdk==1.0.0`.** Install with `npm install @geolens/sdk`; the package exports `createGeolensClient`.
-- **Prebuilt API and frontend images published to GHCR.** Pull `ghcr.io/geolens-io/geolens-api:1.0.0` and `ghcr.io/geolens-io/geolens-frontend:1.0.0`; the same images are also tagged `1.0`, `1`, and `latest`.
+- **Prebuilt API, worker, and frontend images published to GHCR.** Pull `ghcr.io/geolens-io/geolens-api:1.0.0`, `ghcr.io/geolens-io/geolens-worker:1.0.0`, and `ghcr.io/geolens-io/geolens-frontend:1.0.0`; the same images are also tagged `1.0`, `1`, and `latest`.
 - **Clean-machine package verifier added.** `.github/workflows/verify-published.yml` installs `geolens`, `geolens-cli`, and `@geolens/sdk` inside fresh Docker containers and smoke-tests the runtime exports.
 
 ### Changed — Pre-public migration squash (2026-05-02)
