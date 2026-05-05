@@ -1,36 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500" viewBox="0 0 500 500" role="img" aria-labelledby="title desc">
   <title id="title">GeoLens app logo</title>
-  <desc id="desc">The GeoLens app logo: a magnifying lens with map graticule and crosshair marks.</desc>
+  <desc id="desc">The GeoLens app logo with the reticle lens icon and GeoLens wordmark.</desc>
   <defs>
     <clipPath id="g">
       <circle cx="26" cy="26" r="18"/>
     </clipPath>
   </defs>
 
-  <rect width="64" height="64" fill="#f8fafc"/>
+  <rect width="500" height="500" fill="#f8fafc"/>
+  <rect x="40" y="40" width="420" height="420" rx="72" fill="#ffffff"/>
 
-  <!-- Lens ring -->
-  <circle cx="26" cy="26" r="18" fill="none" stroke="#334155" stroke-width="3.2"/>
+  <g transform="translate(56 184)">
+    <g transform="scale(2.5)">
+      <!-- Lens ring -->
+      <circle cx="26" cy="26" r="18" fill="none" stroke="#334155" stroke-width="3.2"/>
 
-  <!-- Graticule (clipped to lens) -->
-  <g clip-path="url(#g)" stroke="#334155" fill="none" stroke-width="1.6" opacity="0.5">
-    <line x1="8" y1="26" x2="44" y2="26"/>
-    <line x1="26" y1="8" x2="26" y2="44"/>
-    <ellipse cx="26" cy="26" rx="9" ry="18"/>
-    <ellipse cx="26" cy="26" rx="18" ry="9"/>
+      <!-- Graticule (clipped to lens) -->
+      <g clip-path="url(#g)" stroke="#334155" fill="none" stroke-width="1.6" opacity="0.5">
+        <line x1="8" y1="26" x2="44" y2="26"/>
+        <line x1="26" y1="8" x2="26" y2="44"/>
+        <ellipse cx="26" cy="26" rx="9" ry="18"/>
+        <ellipse cx="26" cy="26" rx="18" ry="9"/>
+      </g>
+
+      <!-- Crosshair ticks -->
+      <g stroke="#334155" stroke-width="2.8">
+        <line x1="26" y1="3" x2="26" y2="6"/>
+        <line x1="26" y1="46" x2="26" y2="49"/>
+        <line x1="3" y1="26" x2="6" y2="26"/>
+        <line x1="46" y1="26" x2="49" y2="26"/>
+      </g>
+
+      <!-- Center dot -->
+      <circle cx="26" cy="26" r="2" fill="#334155"/>
+
+      <!-- Magnifier handle -->
+      <line x1="39" y1="39" x2="56" y2="56" stroke="#334155" stroke-width="4.8" stroke-linecap="round"/>
+    </g>
+
+    <text x="157" y="82" fill="#0f172a" font-family="IBM Plex Sans, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Arial, sans-serif" font-size="68" font-weight="700">Geo</text>
+    <text x="278" y="82" fill="#64748b" font-family="IBM Plex Sans, Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Arial, sans-serif" font-size="68" font-weight="300">Lens</text>
   </g>
-
-  <!-- Crosshair ticks -->
-  <g stroke="#334155" stroke-width="2.8">
-    <line x1="26" y1="3" x2="26" y2="6"/>
-    <line x1="26" y1="46" x2="26" y2="49"/>
-    <line x1="3" y1="26" x2="6" y2="26"/>
-    <line x1="46" y1="26" x2="49" y2="26"/>
-  </g>
-
-  <!-- Center dot -->
-  <circle cx="26" cy="26" r="2" fill="#334155"/>
-
-  <!-- Magnifier handle -->
-  <line x1="39" y1="39" x2="56" y2="56" stroke="#334155" stroke-width="4.8" stroke-linecap="round"/>
 </svg>
