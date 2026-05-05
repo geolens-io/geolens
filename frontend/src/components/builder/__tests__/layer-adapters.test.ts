@@ -198,6 +198,29 @@ describe('circleAdapter', () => {
     );
   });
 
+  it('addLayers replays circle radius and opacity expressions without flattening opacity', () => {
+    const radiusExpression = ['interpolate', ['linear'], ['zoom'], 4, 3, 12, 10];
+    const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.8];
+    const input = makeInput({
+      id: 'c3b',
+      layerId: 'layer-c3b',
+      paint: {
+        'circle-color': '#ff0000',
+        'circle-radius': radiusExpression,
+        'circle-opacity': opacityExpression,
+      },
+      opacity: 0.4,
+    });
+
+    circleAdapter.addLayers(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c3b', 'circle-radius', radiusExpression);
+    const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'circle-opacity');
+    expect(opacityCalls.length).toBeGreaterThan(0);
+    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
+  });
+
   it('getLayerIds returns [layerId] (single layer)', () => {
     expect(circleAdapter.getLayerIds('layer-c1')).toEqual(['layer-c1']);
   });
@@ -212,6 +235,30 @@ describe('circleAdapter', () => {
     });
     circleAdapter.syncPaint(map, input);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c4', 'circle-radius', 8);
+  });
+
+  it('syncPaint preserves circle radius and opacity expressions', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-c5' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const radiusExpression = ['interpolate', ['linear'], ['zoom'], 4, 3, 12, 10];
+    const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.8];
+    const input = makeInput({
+      id: 'c5',
+      layerId: 'layer-c5',
+      paint: {
+        'circle-radius': radiusExpression,
+        'circle-opacity': opacityExpression,
+      },
+      opacity: 0.4,
+    });
+
+    circleAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c5', 'circle-radius', radiusExpression);
+    const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'circle-opacity');
+    expect(opacityCalls.length).toBeGreaterThan(0);
+    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
   });
 
   it('syncVisibility sets visibility layout property', () => {
@@ -303,6 +350,35 @@ describe('lineAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5', 'line-gradient', gradient);
   });
 
+  it('addLayers replays line width and opacity expressions without flattening saved gradients', () => {
+    const widthExpression = ['interpolate', ['linear'], ['zoom'], 5, 1, 12, 8];
+    const opacityExpression = ['step', ['zoom'], 0.2, 9, 0.7];
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const input = makeInput({
+      id: 'l5b',
+      layerId: 'layer-l5b',
+      sourceId: 'source-l5b',
+      sourceLayer: 'data.test_table',
+      dataset_geometry_type: 'LINESTRING',
+      paint: {
+        'line-color': '#ff0000',
+        'line-width': widthExpression,
+        'line-opacity': opacityExpression,
+        'line-gradient': gradient,
+      },
+      opacity: 0.4,
+    });
+
+    lineAdapter.addLayers(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5b', 'line-width', widthExpression);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5b', 'line-gradient', gradient);
+    const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-opacity');
+    expect(opacityCalls.length).toBeGreaterThan(0);
+    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
+  });
+
   it('syncPaint preserves line gap, blur, offset, and line-gradient paint', () => {
     (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-l6' });
     (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
@@ -325,6 +401,34 @@ describe('lineAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-blur', 2);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-offset', 3);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-gradient', gradient);
+  });
+
+  it('syncPaint preserves line width, line opacity, and saved gradient expressions', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-l7' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const widthExpression = ['interpolate', ['linear'], ['zoom'], 5, 1, 12, 8];
+    const opacityExpression = ['step', ['zoom'], 0.2, 9, 0.7];
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const input = makeInput({
+      id: 'l7',
+      layerId: 'layer-l7',
+      dataset_geometry_type: 'LINESTRING',
+      paint: {
+        'line-width': widthExpression,
+        'line-opacity': opacityExpression,
+        'line-gradient': gradient,
+      },
+      opacity: 0.4,
+    });
+
+    lineAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l7', 'line-width', widthExpression);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l7', 'line-gradient', gradient);
+    const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-opacity');
+    expect(opacityCalls.length).toBeGreaterThan(0);
+    expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
   });
 });
 

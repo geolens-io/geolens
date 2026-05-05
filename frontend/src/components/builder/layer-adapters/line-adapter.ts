@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const lineAdapter: LayerAdapter = {
@@ -43,7 +43,7 @@ export const lineAdapter: LayerAdapter = {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
     syncVectorPaint(map, layerId, rawPaint);
-    map.setPaintProperty(layerId, 'line-opacity', getCompoundOpacity(rawPaint, 'line', opacity ?? 1));
+    map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
     const dasharray = input.layout?.['line-dasharray'];
     if (map.getLayer(layerId)) {
       map.setPaintProperty(layerId, 'line-dasharray', dasharray ?? undefined);

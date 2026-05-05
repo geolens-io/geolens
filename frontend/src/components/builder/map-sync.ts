@@ -12,7 +12,15 @@ import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
 // Re-export for backward compatibility with existing consumers
-export { CUSTOM_PAINT_PROPS, getLayerType, resolveAdapterType, simplifyPaint, getCompoundOpacity, stripCustomProps } from './layer-adapters/shared';
+export {
+  CUSTOM_PAINT_PROPS,
+  getLayerType,
+  resolveAdapterType,
+  simplifyPaint,
+  getCompoundOpacity,
+  getExpressionSafeOpacity,
+  stripCustomProps,
+} from './layer-adapters/shared';
 
 // ---------------------------------------------------------------------------
 // Normalized layer input — allows both Builder and Viewer to call syncLayersToMap

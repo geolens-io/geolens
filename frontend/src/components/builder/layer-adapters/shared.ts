@@ -80,6 +80,22 @@ export function getCompoundOpacity(
   return propOpacity * masterOpacity;
 }
 
+export function getExpressionSafeOpacity(
+  paint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+  masterOpacity: number,
+): unknown {
+  const propKey = `${geomType}-opacity`;
+  const propOpacity = paint[propKey];
+  if (Array.isArray(propOpacity)) {
+    return propOpacity;
+  }
+  if (typeof propOpacity === 'number') {
+    return propOpacity * masterOpacity;
+  }
+  return OPACITY_DEFAULTS[geomType] * masterOpacity;
+}
+
 /** Strip custom paint properties that are not valid MapLibre paint props. */
 export function stripCustomProps(paint: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(paint).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k)));
@@ -106,7 +122,7 @@ export function finalizeLayer(
   hasExpressions: boolean,
 ) {
   if (hasExpressions) replayExpressions(map, layerId, rawPaint);
-  map.setPaintProperty(layerId, `${geomType}-opacity`, getCompoundOpacity(rawPaint, geomType, masterOpacity));
+  map.setPaintProperty(layerId, `${geomType}-opacity`, getExpressionSafeOpacity(rawPaint, geomType, masterOpacity));
   if (filter && Array.isArray(filter) && filter.length > 0) {
     map.setFilter(layerId, filter);
   }

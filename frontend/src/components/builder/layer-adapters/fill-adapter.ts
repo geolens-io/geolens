@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint, getBuilderStyleConfig } from './shared';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const fillAdapter: LayerAdapter = {
@@ -95,7 +95,7 @@ export const fillAdapter: LayerAdapter = {
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       syncVectorPaint(map, layerId, rawPaint);
-      map.setPaintProperty(layerId, 'fill-opacity', getCompoundOpacity(rawPaint, 'fill', opacity ?? 1));
+      map.setPaintProperty(layerId, 'fill-opacity', getExpressionSafeOpacity(rawPaint, 'fill', opacity ?? 1));
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(layerId, filter);
       } else {

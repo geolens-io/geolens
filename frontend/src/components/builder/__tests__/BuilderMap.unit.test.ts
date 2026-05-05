@@ -1,4 +1,4 @@
-import { simplifyPaint } from '../map-sync';
+import { getExpressionSafeOpacity, simplifyPaint } from '../map-sync';
 
 describe('simplifyPaint', () => {
   it('passes through scalar values unchanged', () => {
@@ -41,5 +41,21 @@ describe('simplifyPaint', () => {
     expect(simplifyPaint({ 'fill-color': expr })).toEqual({
       'fill-color': undefined,
     });
+  });
+});
+
+describe('getExpressionSafeOpacity', () => {
+  it('multiplies scalar paint opacity by master layer opacity', () => {
+    expect(getExpressionSafeOpacity({ 'line-opacity': 0.5 }, 'line', 0.4)).toBe(0.2);
+  });
+
+  it('returns expression-valued paint opacity without multiplying it', () => {
+    const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.75];
+
+    expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 0.4)).toEqual(opacityExpression);
+  });
+
+  it('uses geometry defaults when paint opacity is missing', () => {
+    expect(getExpressionSafeOpacity({}, 'fill', 0.5)).toBe(0.15);
   });
 });
