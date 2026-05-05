@@ -31,7 +31,7 @@ from sqlalchemy import text
 #   2. ``pytest.mark.requires_ogr2ogr`` opts into the autouse
 #      ``_point_ogr2ogr_at_test_db`` fixture in ``conftest.py`` (K2-PRE),
 #      which monkey-patches ``build_pg_conn_str`` so tables land in the
-#      ``geolens_test`` database instead of dev/prod.
+#      per-session test database instead of dev/prod.
 pytestmark = [
     pytest.mark.skipif(
         shutil.which("ogr2ogr") is None,
