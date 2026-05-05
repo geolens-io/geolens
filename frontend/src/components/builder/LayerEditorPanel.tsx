@@ -85,6 +85,8 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       {isRaster && (
         <div className="flex-1 overflow-y-auto p-3">
           <RasterLayerControls
+            paint={layer.paint ?? {}}
+            onPaintChange={(nextPaint) => handlers.onPaintChange(layer.id, nextPaint)}
             opacity={layer.opacity ?? 1}
             onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
           />

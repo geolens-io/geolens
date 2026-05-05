@@ -89,6 +89,21 @@
       "colorRamp": "Color ramp",
       "radius": "Radius",
       "intensity": "Intensity"
+    },
+    "raster": {
+      "title": "Raster",
+      "brightnessMin": "Brightness min",
+      "brightnessMax": "Brightness max",
+      "contrast": "Contrast",
+      "saturation": "Saturation",
+      "hueRotate": "Hue",
+      "fadeDuration": "Fade",
+      "opacity": "Opacity",
+      "resampling": "Resampling",
+      "resamplingLinear": "Linear",
+      "resamplingNearest": "Nearest",
+      "reset": "Reset",
+      "resetTitle": "Reset raster style"
     }
   },
   "filters": {
