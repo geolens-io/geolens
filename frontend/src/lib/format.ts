@@ -46,9 +46,9 @@ export function formatDateTimeSmart(dateString: string | null): string {
   }
 }
 
-export function formatNumber(n: number | null): string {
+export function formatNumber(n: number | null | undefined, options?: Intl.NumberFormatOptions): string {
   if (n === null || n === undefined) return i18n.t('common:notAvailable');
-  return n.toLocaleString(i18n.language);
+  return new Intl.NumberFormat(i18n.language, options).format(n);
 }
 
 export function formatBytes(bytes: number | null): string {
@@ -85,7 +85,7 @@ export function formatResolution(value: number | null | undefined): string {
 
 /** Format nodata values: truncate long floats to exponential notation. */
 export function formatNodata(value: number | string | null | undefined): string {
-  if (value == null) return 'None';
+  if (value == null) return i18n.t('common:none');
   const str = String(value);
   if (str.length > 12) {
     const num = Number(value);

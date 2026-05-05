@@ -42,6 +42,8 @@ import {
   useImportConfig,
   useValidateConnectivity,
 } from '@/hooks/use-config-ops';
+import { formatNumber } from '@/lib/format';
+import { truncateGraphemes } from '@/lib/text';
 import type {
   ImportMode,
   ConfigImportRequest,
@@ -52,7 +54,7 @@ import type {
 function truncateValue(val: unknown, maxLen = 60): string {
   const s = typeof val === 'string' ? val : JSON.stringify(val);
   if (s == null) return '(null)';
-  return s.length > maxLen ? s.slice(0, maxLen) + '...' : s;
+  return truncateGraphemes(s, maxLen);
 }
 
 function actionBadgeVariant(action: string): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -120,7 +122,9 @@ function ServiceRow({ name, probe }: { name: string; probe: ServiceProbeResult }
         </span>
       </TableCell>
       <TableCell className="text-muted-foreground text-sm">
-        {t('configOps.validate.latency', { ms: probe.latency_ms.toFixed(1) })}
+        {t('configOps.validate.latency', {
+          ms: formatNumber(probe.latency_ms, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        })}
       </TableCell>
       <TableCell className="text-sm text-destructive">
         {probe.error ?? ''}

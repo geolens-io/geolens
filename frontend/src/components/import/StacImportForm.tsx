@@ -11,6 +11,7 @@ import {
   Image,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatNumber } from '@/lib/format';
 import { ApiError } from '@/api/client';
 import {
   connectStac,
@@ -409,7 +410,9 @@ export function StacImportForm() {
                     )}
                     {item.epsg && <span>EPSG:{item.epsg}</span>}
                     {item.gsd != null && <span>{t('stac.gsd', { value: item.gsd })}</span>}
-                    {item.cloud_cover != null && <span>{t('stac.cloudCover', { value: item.cloud_cover.toFixed(0) })}</span>}
+                    {item.cloud_cover != null && (
+                      <span>{t('stac.cloudCover', { value: formatNumber(item.cloud_cover, { maximumFractionDigits: 0 }) })}</span>
+                    )}
                     <span>{t('stac.assetCount', { count: item.asset_count })}</span>
                   </div>
                 </div>

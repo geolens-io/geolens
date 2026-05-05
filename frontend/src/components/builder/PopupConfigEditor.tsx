@@ -38,10 +38,12 @@ function SortableField({
   name,
   onRemove,
   removeLabel,
+  reorderLabel,
 }: {
   name: string;
   onRemove: () => void;
   removeLabel: string;
+  reorderLabel: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: name,
@@ -64,7 +66,7 @@ function SortableField({
         className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
         {...attributes}
         {...listeners}
-        aria-label="Drag to reorder"
+        aria-label={reorderLabel}
       >
         <GripVertical className="h-3 w-3" />
       </button>
@@ -261,6 +263,7 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
                           name={name}
                           onRemove={() => handleRemoveField(name)}
                           removeLabel={t('popup.removeField')}
+                          reorderLabel={t('layerItem.dragToReorder')}
                         />
                       ))}
                     </div>

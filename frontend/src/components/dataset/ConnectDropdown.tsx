@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { truncateGraphemes } from '@/lib/text';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useAuthStore } from '@/stores/auth-store';
 import type { DatasetResponse } from '@/types/api';
@@ -29,7 +30,7 @@ async function copyToClipboard(value: string, t: (key: string, opts?: Record<str
     document.execCommand('copy');
     document.body.removeChild(textarea);
   }
-  const preview = value.length > 60 ? `${value.slice(0, 60)}...` : value;
+  const preview = truncateGraphemes(value, 60);
   toast.success(t('connect.copied', { preview }));
 }
 

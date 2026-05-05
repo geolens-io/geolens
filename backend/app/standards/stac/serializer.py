@@ -5,6 +5,8 @@ Pure dict restructuring -- no database queries.
 
 from __future__ import annotations
 
+from app.standards.ogc.utils import normalize_language_tag
+
 # ---------------------------------------------------------------------------
 # Conformance class URIs for the GeoLens STAC API
 # ---------------------------------------------------------------------------
@@ -16,8 +18,14 @@ STAC_CONFORMANCE: list[str] = [
     "https://api.stacspec.org/v1.0.0/ogcapi-features",
 ]
 
+STAC_LANGUAGE_EXTENSION_URI = (
+    "https://stac-extensions.github.io/language/v1.0.0/schema.json"
+)
+
 # STAC extension properties that should be copied from OGC record properties
 _STAC_EXTENSION_PROPS = ("proj:epsg", "proj:shape", "gsd", "bands")
+
+_RTL_LANGS = {"ar", "fa", "he", "ur"}
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +76,27 @@ def _build_stac_links(
     return links
 
 
+def _build_language_object(language: object) -> dict | None:
+    """Convert GeoLens' OGC language string into a STAC Language Object."""
+    if not isinstance(language, str):
+        return None
+
+    code = normalize_language_tag(language)
+    if code is None:
+        return None
+
+    result = {"code": code}
+    base = code.split("-", 1)[0].lower()
+    if base in _RTL_LANGS:
+        result["dir"] = "rtl"
+    return result
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    if value not in values:
+        values.append(value)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -108,9 +137,13 @@ def ogc_record_to_stac_item(
     if props.get("description"):
         stac_props["description"] = props["description"]
 
-    # Language (from OGC Record properties)
-    if props.get("language"):
-        stac_props["language"] = props["language"]
+    stac_extensions = list(record.get("stac_extensions") or [])
+
+    # Language (from OGC Record properties, serialized per the STAC language extension)
+    language = _build_language_object(props.get("language"))
+    if language:
+        stac_props["language"] = language
+        _append_unique(stac_extensions, STAC_LANGUAGE_EXTENSION_URI)
 
     # STAC extension properties
     for key in _STAC_EXTENSION_PROPS:
@@ -130,8 +163,8 @@ def ogc_record_to_stac_item(
     }
 
     # STAC extensions
-    if record.get("stac_extensions"):
-        item["stac_extensions"] = record["stac_extensions"]
+    if stac_extensions:
+        item["stac_extensions"] = stac_extensions
 
     # Collection membership
     if collection_id:

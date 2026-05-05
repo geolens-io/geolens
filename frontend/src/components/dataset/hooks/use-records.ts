@@ -12,6 +12,7 @@ import {
 import { fetchRelatedDatasets } from '@/api/datasets';
 import type { ContactCreate, KeywordCreate } from '@/types/api';
 import { toast } from 'sonner';
+import i18n from '@/i18n/i18n';
 
 export function useContacts(recordId: string | undefined) {
   return useQuery({
@@ -30,7 +31,7 @@ export function useCreateContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    onError: () => { toast.error('Failed to add contact'); },
+    onError: () => { toast.error(i18n.t('dataset:contacts.addFailed')); },
   });
 }
 
@@ -42,7 +43,7 @@ export function useDeleteContact(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.contacts(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    onError: () => { toast.error('Failed to delete contact'); },
+    onError: () => { toast.error(i18n.t('dataset:contacts.removeFailed')); },
   });
 }
 
@@ -63,7 +64,7 @@ export function useCreateKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    onError: () => { toast.error('Failed to add keyword'); },
+    onError: () => { toast.error(i18n.t('dataset:keywords.addFailed')); },
   });
 }
 
@@ -75,7 +76,7 @@ export function useDeleteKeyword(recordId: string | undefined) {
       qc.invalidateQueries({ queryKey: queryKeys.records.keywords(recordId) });
       qc.invalidateQueries({ queryKey: queryKeys.records.validation });
     },
-    onError: () => { toast.error('Failed to delete keyword'); },
+    onError: () => { toast.error(i18n.t('dataset:keywords.removeFailed')); },
   });
 }
 

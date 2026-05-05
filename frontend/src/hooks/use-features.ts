@@ -4,6 +4,7 @@ import { createFeature, updateFeature, deleteFeature } from '@/api/features';
 import { addColumn, dropColumn } from '@/api/datasets';
 import type { Geometry } from 'geojson';
 import { toast } from 'sonner';
+import i18n from '@/i18n/i18n';
 
 export function useCreateFeature() {
   const qc = useQueryClient();
@@ -86,7 +87,7 @@ export function useAddColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
     },
-    onError: () => { toast.error('Failed to add column'); },
+    onError: () => { toast.error(i18n.t('dataset:schema.addFailed')); },
   });
 }
 
@@ -105,6 +106,6 @@ export function useDropColumn() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.attributes(variables.datasetId) });
     },
-    onError: () => { toast.error('Failed to drop column'); },
+    onError: () => { toast.error(i18n.t('dataset:schema.removeFailed')); },
   });
 }

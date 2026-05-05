@@ -2,6 +2,9 @@
   "title": "Administration",
   "errors": {
     "retryJobFailed": "Failed to retry job",
+    "createUserFailed": "Failed to create user",
+    "updateUserFailed": "Failed to update user",
+    "deleteUserFailed": "Failed to delete user",
     "backfillFailed": "Embedding backfill failed",
     "semanticSearchFailed": "Failed to update semantic search setting"
   },

@@ -3,6 +3,7 @@ import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
+import i18n from '@/i18n/i18n';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
@@ -294,7 +295,7 @@ export function syncLayersToMap(
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
-      toast.error(`Layer sync failed for "${layer.dataset_table_name}"`, { id: `sync-error-${layer.id}` });
+      toast.error(i18n.t('builder:toasts.layerSyncFailed', { name: layer.dataset_table_name }), { id: `sync-error-${layer.id}` });
     }
   }
 

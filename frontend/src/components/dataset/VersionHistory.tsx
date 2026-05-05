@@ -61,7 +61,7 @@ export function VersionHistory({ datasetId, dataset }: VersionHistoryProps) {
         {isLoading ? (
           <LoadingState className="py-6" />
         ) : isError ? (
-          <p className="text-sm text-muted-foreground">Failed to load.</p>
+          <p className="text-sm text-muted-foreground">{t('versionHistory.loadFailed')}</p>
         ) : versions.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('versionHistory.noVersions')}</p>
         ) : (

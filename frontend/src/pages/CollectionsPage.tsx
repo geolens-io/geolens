@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, Plus, Search } from 'lucide-react';
 import { PageShell } from '@/components/layout/PageShell';
@@ -30,16 +30,21 @@ export function CollectionsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'updated_at' | 'created_at' | 'name'>('updated_at');
   const [createOpen, setCreateOpen] = useState(false);
-  const { t } = useTranslation('collections');
+  const { t, i18n } = useTranslation('collections');
   const { data, isLoading, error } = useCollections(0, 100);
   const isEditor = useAuthStore((s) => s.isEditor());
   const handlePageChange = useCallback((newOffset: number) => setSkip(newOffset), []);
   useDocumentTitle(t('common:pageTitle.collections'));
+  const currentLanguage = i18n?.language ?? 'en';
+  const nameCollator = useMemo(
+    () => new Intl.Collator(currentLanguage, { numeric: true, sensitivity: 'base' }),
+    [currentLanguage],
+  );
 
   const filtered = (data?.collections.filter((c) =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase())
   ) ?? []).sort((a, b) => {
-    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'name') return nameCollator.compare(a.name, b.name);
     const dateA = sortBy === 'created_at' ? a.created_at : a.updated_at;
     const dateB = sortBy === 'created_at' ? b.created_at : b.updated_at;
     return new Date(dateB).getTime() - new Date(dateA).getTime();

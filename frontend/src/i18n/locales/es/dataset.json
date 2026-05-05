@@ -178,6 +178,7 @@
   },
   "changeHistory": {
     "title": "Historial de cambios ({{count}})",
+    "loadFailed": "Failed to load.",
     "noChanges": "Aún no se han registrado cambios.",
     "system": "Sistema",
     "changed": "Cambiado:",
@@ -189,6 +190,7 @@
   },
   "versionHistory": {
     "title": "Historial de versiones",
+    "loadFailed": "Failed to load.",
     "noVersions": "Sin historial de versiones.",
     "version": "Versión {{number}}",
     "current": "Actual",

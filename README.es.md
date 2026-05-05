@@ -47,9 +47,25 @@ docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
   <img src=".github/assets/geolens-demo-tour.gif" alt="Recorrido de la demo de GeoLens mostrando constructor de mapas, busqueda de catalogo y detalle de dataset" width="900" />
 </p>
 
-Cuando termine la construccion de la imagen del seeder, abre http://localhost:8080 y entra en **Maps**. La descarga de GEBCO 2024 suele ser la parte lenta, alrededor de 10 a 15 minutos en una conexion rapida, y queda en cache para reconstrucciones.
+Cuando termine la construccion de la imagen del seeder, abre http://localhost:8080 y entra en **Maps**. La descarga de GEBCO 2024 suele ser la parte lenta, alrededor de 10 a 15 minutos en una conexion rapida, y queda en cache para reconstrucciones. Los relatos destacados incluyen:
 
-Todos los datos se empaquetan durante la construccion de la imagen: **no hay llamadas de red salientes en runtime**. La demo puede reiniciarse cada 24 horas con el servicio `reset`.
+- **Earth as Seen from Space**: batimetria + topografia + hielo en una vista mundial oscura
+- **Global Bathymetry**: fondo oceanico GEBCO 2024 con colormap viridis
+- **Population at a Glance**: lugares poblados con simbolos proporcionales al tamano de poblacion
+- **GDP per Capita PPP 2023**: coropleta de paises desde World Bank Open Data
+- **The World's Disputed Places**: todas las areas disputadas que registra Natural Earth
+- **One Territory, Multiple Official Maps**: Kashmir como lo ven China, India y Pakistan (active y desactive capas)
+- **Conflict Events 2024**: UCDP Georeferenced Event Dataset, eventos fatales de violencia organizada
+- **Refugees by Country of Origin 2023**: estadisticas de UNHCR unidas a poligonos de paises
+
+Todos los datos se empaquetan durante la construccion de la imagen: **no hay llamadas de red salientes en runtime**. La demo puede reiniciarse cada 24 horas con el servicio `reset`. Para forzar un reinicio completo:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml exec reset /scripts/reset-demo.sh
+docker compose -f docker-compose.yml -f docker-compose.demo.yml restart seeder
+```
+
+La atribucion de fuentes y las licencias de cada dataset de demo estan documentadas en su pagina de detalle. Todos los datos empaquetados son CC-BY 4.0, ODbL 1.0 o Public Domain.
 
 ## Artefactos publicados
 
@@ -78,7 +94,7 @@ Los datos espaciales terminan dispersos: shapefiles en unidades compartidas, tab
 GeoLens reemplaza ese flujo:
 
 - **Un catalogo**: sube Shapefiles, GeoPackages, GeoTIFFs o CSVs y quedan buscables, previsualizables y exportables en minutos.
-- **Funciona con tus herramientas**: OGC API Features/Records, STAC 1.1 y URLs directas de tiles para QGIS, ArcGIS y MapLibre.
+- **Funciona con tus herramientas**: OGC API Features/Records con filtrado CQL2, STAC 1.0 y URLs directas de tiles para QGIS, ArcGIS y MapLibre.
 - **Busqueda semantica + espacial**: encuentra datasets por significado, no solo por palabras clave, con pgvector y pg_trgm.
 - **Constructor de mapas integrado**: compone mapas multicapa, estilizalos y compartelos por enlace publico o iframe embebible.
 - **IA opcional**: conversa con tus mapas, genera descripciones y busca con lenguaje natural. Usa cualquier API compatible con OpenAI o no uses IA.
@@ -88,6 +104,7 @@ GeoLens reemplaza ese flujo:
 Busca datasets por significado, no solo por palabras clave:
 
 ```bash
+# Busqueda semantica: encuentra datasets de "hydrology" aunque busques "rivers"
 curl 'http://localhost:8080/api/search/datasets/?q=rivers+near+mountains&limit=3' \
   -H 'Authorization: Bearer <token>' | jq '.features[].properties.title'
 ```
@@ -95,6 +112,7 @@ curl 'http://localhost:8080/api/search/datasets/?q=rivers+near+mountains&limit=3
 Cada dataset tambien es un endpoint OGC API Features estandar:
 
 ```bash
+# Features GeoJSON con filtro bbox: funciona en QGIS, ArcGIS y cualquier cliente OGC
 curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
 ```
 
@@ -109,12 +127,20 @@ Conecta desde QGIS con **Layer > Add WFS / OGC API Features** y apunta a `http:/
 - Enlaces publicos e iframes embebibles.
 - Capas raster COG y vectoriales lado a lado.
 
+### IA asistida (opcional)
+
+- Conversa con tus mapas: haz preguntas en lenguaje natural y la IA agrega y estiliza capas.
+- Busqueda vectorial semantica en metadatos con pgvector e indices HNSW.
+- Descripciones y tags de datasets generados automaticamente durante la ingestion.
+- Funciona con cualquier API compatible con OpenAI (OpenAI, Anthropic, Ollama); GeoLens funciona por completo sin ella.
+
 ### Busqueda y descubrimiento
 
 - Busqueda de texto completo y trigramas en nombres, descripciones y metadatos.
 - Busqueda espacial con bounding boxes y filtros dibujados en el mapa.
 - Facetas por formato, tags, colecciones y tipo de registro.
 - Busqueda semantica opcional con pgvector.
+- Busquedas guardadas para flujos repetidos.
 
 ### Ingestion y exportacion
 
@@ -127,14 +153,40 @@ Conecta desde QGIS con **Layer > Add WFS / OGC API Features** y apunta a `http:/
 ### Estandares e interoperabilidad
 
 - Compatible con OGC API - Features y OGC API - Records.
-- Endpoint de catalogo STAC 1.1.
+- Endpoint de catalogo STAC 1.0.
 - URLs directas de tiles para QGIS, ArcGIS, MapLibre y clientes OGC.
 - Autenticacion por API key para herramientas externas.
 - JWT + OAuth 2.0/OIDC y RBAC con permisos por dataset.
 
+<details>
+<summary>Empresa y seguridad</summary>
+
+- Autenticacion JWT con refresh tokens.
+- Gestion de API keys por usuario.
+- Soporte OAuth 2.0 / OIDC (Google, Microsoft y proveedores genericos).
+- Control de acceso basado en roles (RBAC) con permisos por dataset.
+- Audit logging para todas las acciones administrativas.
+- Internacionalizacion: ingles, espanol, frances, aleman.
+
+</details>
+
+## Capturas de pantalla
+
+<p align="center">
+  <img src=".github/assets/geolens-catalog.png" alt="Vista de catalogo de GeoLens" width="900" />
+  <br />
+  <em>Vista de catalogo con busqueda, filtros espaciales y tarjetas de dataset</em>
+</p>
+
+<p align="center">
+  <img src=".github/assets/geolens-dataset.png" alt="Detalle de dataset de GeoLens" width="900" />
+  <br />
+  <em>Detalle de dataset con previsualizacion de mapa, metadatos y tabla de atributos</em>
+</p>
+
 ## Inicio rapido
 
-**Requisitos:** Docker Engine 24+ y Docker Compose v2. Minimo recomendado para el host: 4 GB de RAM y 10 GB libres para la pila base y un dataset pequeno; 8 GB+ de RAM para trabajos raster o catalogos de mas de 100 datasets.
+**Requisitos:** Docker Engine 24+ y Docker Compose v2. Minimo recomendado para el host: 4 GB de RAM y 10 GB libres para la pila base y un dataset pequeno; 8 GB+ de RAM para trabajos raster o catalogos de mas de 100 datasets. Consulta [Resource Sizing](https://docs.getgeolens.com/guides/quickstart/resource-sizing/) para dimensionamiento de produccion.
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git
@@ -145,17 +197,51 @@ docker compose up -d
 
 Espera unos 60 segundos, abre [http://localhost:8080](http://localhost:8080) e inicia sesion con `admin` / `admin`.
 
+Verifica que todos los servicios esten sanos:
+
+```bash
+docker compose ps
+```
+
+Para despliegue en produccion, consulta la [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). Para actualizar, consulta la [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
+
+### Demo Mode
+
+Ejecuta una instancia de demo pre-poblada con datos de ejemplo de Natural Earth:
+
+```bash
+cp .env.demo .env
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+```
+
+El overlay de demo autosiembra 20 datasets representativos, los marca como publicos y reinicia los datos cada 24 horas. Consulta `.env.demo` para la configuracion.
+
+### Seed Data
+
+Puebla el catalogo con 130 datasets 1:10m de [Natural Earth](https://www.naturalearthdata.com/):
+
+```bash
+pip install httpx  # dependencia unica en el host
+python scripts/seed-natural-earth.py --api-key admin
+```
+
+El script descarga desde el [NACIS CDN](https://naciscdn.org/naturalearth/), omite duplicados al volver a ejecutarse y crea dos colecciones (Cultural 10m, Physical 10m). Usa `--dry-run` para previsualizar o `--theme cultural` para filtrar por tema.
+
 ## Arquitectura
 
 | Componente | Tecnologia |
 |-----------|------------|
 | Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
-| Backend API | FastAPI (Python), GDAL/ogr2ogr, Procrastinate |
-| Tiles raster | Titiler |
-| Almacenamiento | MinIO o cualquier proveedor S3 |
-| Cache | Valkey |
+| Backend API | FastAPI (Python), GDAL/ogr2ogr, Procrastinate (cola de tareas) |
+| Tiles raster | Titiler (servidor de tiles COG) |
+| Almacenamiento | MinIO (compatible S3, dev local) o cualquier proveedor S3 |
+| Cache | Valkey (cache de tiles y consultas) |
 | Base de datos | PostgreSQL 17 + PostGIS 3.5 + pgvector + pg_trgm |
-| Proxy inverso | Nginx en produccion / proxy Vite en desarrollo |
+| Proxy inverso | Nginx (produccion) / proxy Vite dev (desarrollo) |
+
+## Configuracion
+
+Toda la configuracion se gestiona con variables de entorno en `.env`. Consulta la [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) para la lista completa de opciones con valores por defecto y descripciones.
 
 ## Referencia
 
@@ -165,6 +251,8 @@ Espera unos 60 segundos, abre [http://localhost:8080](http://localhost:8080) e i
 | [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) | Actualizaciones entre versiones con rollback |
 | [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | Variables de entorno y valores por defecto |
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | Usuarios, datasets y salud del sistema |
+| [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Guias de despliegue en AWS, GCP y DigitalOcean |
+| [Developer Docs](https://docs.getgeolens.com/) | Crear widgets personalizados para el map builder |
 | [API Reference](#en-accion) | Swagger UI interactivo en `/api/docs` |
 
 ## Comunidad
@@ -174,4 +262,4 @@ Espera unos 60 segundos, abre [http://localhost:8080](http://localhost:8080) e i
 
 ## Licencia
 
-Apache-2.0. Consulta [LICENSE](LICENSE).
+GeoLens esta licenciado bajo [Apache License 2.0](LICENSE).

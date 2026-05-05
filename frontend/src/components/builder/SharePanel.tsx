@@ -152,7 +152,7 @@ function ShareLinkSettings({
           }
         }}
       >
-        <ChevronRight className={cn('h-3 w-3 transition-transform', showSettings && 'rotate-90')} />
+        <ChevronRight className={cn('h-3 w-3 transition-transform', showSettings ? 'rotate-90' : 'rtl-mirror')} />
         {t('share.linkSettings')}
       </button>
 

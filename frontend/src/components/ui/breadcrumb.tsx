@@ -1,11 +1,17 @@
 import * as React from "react"
 import { ChevronRight, MoreHorizontal } from "lucide-react"
 import { Slot } from "radix-ui"
+import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 
-function Breadcrumb({ ...props }: React.ComponentProps<"nav">) {
-  return <nav aria-label="breadcrumb" data-slot="breadcrumb" {...props} />
+function Breadcrumb({
+  "aria-label": ariaLabel,
+  ...props
+}: React.ComponentProps<"nav">) {
+  const { t } = useTranslation("common")
+
+  return <nav aria-label={ariaLabel ?? t("breadcrumb.label")} data-slot="breadcrumb" {...props} />
 }
 
 function BreadcrumbList({ className, ...props }: React.ComponentProps<"ol">) {
@@ -84,16 +90,17 @@ function BreadcrumbEllipsis({
   className,
   ...props
 }: React.ComponentProps<"span">) {
+  const { t } = useTranslation("common")
+
   return (
     <span
       data-slot="breadcrumb-ellipsis"
       role="presentation"
-      aria-hidden="true"
       className={cn("flex size-9 items-center justify-center", className)}
       {...props}
     >
-      <MoreHorizontal className="size-4" />
-      <span className="sr-only">More</span>
+      <MoreHorizontal className="size-4" aria-hidden="true" />
+      <span className="sr-only">{t("breadcrumb.more")}</span>
     </span>
   )
 }
