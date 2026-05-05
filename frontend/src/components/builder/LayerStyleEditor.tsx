@@ -11,8 +11,9 @@ import { LazyLoadErrorBoundary } from '@/components/error';
 import { getLayerType } from '@/components/builder/map-sync';
 import { isNumericColumn } from '@/lib/column-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { cn } from '@/lib/utils';
-import type { MapLayerResponse, StyleConfig } from '@/types/api';
+import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
 
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
@@ -57,6 +58,21 @@ function getPaintValue<T>(paint: Record<string, unknown>, key: string, fallback:
   // Expression arrays (data-driven styles) aren't valid for scalar controls
   if (Array.isArray(val)) return fallback;
   return val !== undefined && val !== null ? (val as T) : fallback;
+}
+
+function compactBuilder(builder: BuilderStyleConfig): BuilderStyleConfig | undefined {
+  const compacted = Object.fromEntries(
+    Object.entries(builder).filter(([, value]) => value !== undefined),
+  ) as BuilderStyleConfig;
+  return Object.keys(compacted).length > 0 ? compacted : undefined;
+}
+
+function withBuilderConfig(styleConfig: StyleConfig | null | undefined, patch: BuilderStyleConfig): StyleConfig | null {
+  const nextBuilder = compactBuilder({ ...(styleConfig?.builder ?? {}), ...patch });
+  const nextConfig = { ...(styleConfig ?? {}) } as StyleConfig;
+  if (nextBuilder) nextConfig.builder = nextBuilder;
+  else delete nextConfig.builder;
+  return Object.keys(nextConfig).length > 0 ? nextConfig : null;
 }
 
 /* ---------- Shared stroke toggle + color + width controls ---------- */
@@ -131,51 +147,100 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
   const isDataDriven = !!layer.style_config?.column;
   const renderMode: 'points' | 'heatmap' = layer.style_config?.render_mode ?? 'points';
+  const builderConfig = layer.style_config?.builder ?? {};
 
-  const fillEnabled = !paint['_fill-disabled'];
-  const strokeEnabled = !paint['_stroke-disabled'];
+  const fillEnabled = !(builderConfig.fillDisabled ?? paint['_fill-disabled']);
+  const strokeEnabled = !(builderConfig.strokeDisabled ?? paint['_stroke-disabled']);
 
   const isPolygon = (layer.dataset_geometry_type ?? '').toUpperCase().includes('POLYGON');
   const numericColumns = useMemo(
     () => (layer.dataset_column_info ?? []).filter((col) => isNumericColumn(col.type)),
     [layer.dataset_column_info],
   );
-  const currentHeightCol = (layer.paint?.['_height_column'] as string) ?? '';
+  const currentHeightCol = builderConfig.heightColumn ?? (layer.paint?.['_height_column'] as string) ?? '';
+
+  const controlPaint = useMemo(() => ({
+    ...paint,
+    ...(builderConfig.outlineColor !== undefined ? { '_outline-color': builderConfig.outlineColor } : {}),
+    ...(builderConfig.outlineWidth !== undefined ? { '_outline-width': builderConfig.outlineWidth } : {}),
+    ...(builderConfig.fillDisabled !== undefined ? { '_fill-disabled': builderConfig.fillDisabled } : {}),
+    ...(builderConfig.strokeDisabled !== undefined ? { '_stroke-disabled': builderConfig.strokeDisabled } : {}),
+    ...(builderConfig.fillOpacitySaved !== undefined ? { '_fill-opacity-saved': builderConfig.fillOpacitySaved } : {}),
+    ...(builderConfig.outlineWidthSaved !== undefined ? { '_outline-width-saved': builderConfig.outlineWidthSaved } : {}),
+    ...(builderConfig.heightColumn !== undefined ? { '_height_column': builderConfig.heightColumn } : {}),
+    ...(builderConfig.heatmapRamp !== undefined ? { '_heatmap-ramp': builderConfig.heatmapRamp } : {}),
+    ...(builderConfig.heatmapWeightColumn !== undefined ? { '_heatmap-weight-column': builderConfig.heatmapWeightColumn } : {}),
+  }), [paint, builderConfig]);
+
+  const updateBuilderConfig = useCallback((patch: BuilderStyleConfig, nextPaint: Record<string, unknown> = paint) => {
+    onStyleConfigChange(layer.id, withBuilderConfig(layer.style_config, patch), stripLegacyBuilderPaint(nextPaint));
+  }, [layer.id, layer.style_config, paint, onStyleConfigChange]);
 
   const handlePaintProp = useCallback((key: string, value: unknown) => {
+    if (key === '_outline-color') {
+      updateBuilderConfig({ outlineColor: value as string });
+      return;
+    }
+    if (key === '_outline-width') {
+      updateBuilderConfig({ outlineWidth: value as number });
+      return;
+    }
     onPaintChange(layer.id, { ...paint, [key]: value });
-  }, [layer.id, paint, onPaintChange]);
+  }, [layer.id, paint, onPaintChange, updateBuilderConfig]);
 
   const handleToggleFill = useCallback(() => {
     const next = { ...paint };
     if (fillEnabled) {
-      next['_fill-opacity-saved'] = getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity']);
+      const saved = getPaintValue(paint, 'fill-opacity', FILL_DEFAULTS['fill-opacity']);
       next['fill-opacity'] = 0;
-      next['_fill-disabled'] = true;
+      updateBuilderConfig({ fillDisabled: true, fillOpacitySaved: saved }, next);
     } else {
-      const saved = getPaintValue(paint, '_fill-opacity-saved', FILL_DEFAULTS['fill-opacity']);
+      const saved = builderConfig.fillOpacitySaved ?? getPaintValue(paint, '_fill-opacity-saved', FILL_DEFAULTS['fill-opacity']);
       next['fill-opacity'] = saved;
-      delete next['_fill-disabled'];
-      delete next['_fill-opacity-saved'];
+      updateBuilderConfig({ fillDisabled: undefined, fillOpacitySaved: undefined }, next);
     }
-    onPaintChange(layer.id, next);
-  }, [layer.id, paint, fillEnabled, onPaintChange]);
+  }, [paint, fillEnabled, builderConfig.fillOpacitySaved, updateBuilderConfig]);
 
   const handleToggleStroke = useCallback(() => {
     const next = { ...paint };
     const widthKey = geomType === 'circle' ? 'circle-stroke-width' : '_outline-width';
     const defaultWidth = geomType === 'circle' ? CIRCLE_DEFAULTS['circle-stroke-width'] : FILL_DEFAULTS['_outline-width'];
     if (strokeEnabled) {
-      next['_outline-width-saved'] = getPaintValue(paint, widthKey, defaultWidth);
-      next[widthKey] = 0;
-      next['_stroke-disabled'] = true;
+      const saved = geomType === 'circle'
+        ? getPaintValue(paint, widthKey, defaultWidth)
+        : builderConfig.outlineWidth ?? getPaintValue(paint, widthKey, defaultWidth);
+      if (geomType === 'circle') next[widthKey] = 0;
+      updateBuilderConfig({
+        strokeDisabled: true,
+        outlineWidthSaved: saved,
+        ...(geomType !== 'circle' ? { outlineWidth: 0 } : {}),
+      }, next);
     } else {
-      next[widthKey] = getPaintValue(paint, '_outline-width-saved', defaultWidth);
-      delete next['_stroke-disabled'];
-      delete next['_outline-width-saved'];
+      const saved = builderConfig.outlineWidthSaved ?? getPaintValue(paint, '_outline-width-saved', defaultWidth);
+      if (geomType === 'circle') next[widthKey] = saved;
+      updateBuilderConfig({
+        strokeDisabled: undefined,
+        outlineWidthSaved: undefined,
+        ...(geomType !== 'circle' ? { outlineWidth: saved } : {}),
+      }, next);
     }
-    onPaintChange(layer.id, next);
-  }, [layer.id, paint, geomType, strokeEnabled, onPaintChange]);
+  }, [paint, geomType, strokeEnabled, builderConfig.outlineWidth, builderConfig.outlineWidthSaved, updateBuilderConfig]);
+
+  const handleHeatmapPaintChange = useCallback((layerId: string, nextPaint: Record<string, unknown>) => {
+    const heatmapRamp = typeof nextPaint['_heatmap-ramp'] === 'string'
+      ? nextPaint['_heatmap-ramp'] as string
+      : builderConfig.heatmapRamp;
+    const heatmapWeightColumn = typeof nextPaint['_heatmap-weight-column'] === 'string'
+      ? nextPaint['_heatmap-weight-column'] as string
+      : nextPaint['heatmap-weight'] === 1
+        ? undefined
+        : builderConfig.heatmapWeightColumn;
+    onStyleConfigChange(
+      layerId,
+      withBuilderConfig(layer.style_config, { heatmapRamp, heatmapWeightColumn }),
+      stripLegacyBuilderPaint(nextPaint),
+    );
+  }, [builderConfig.heatmapRamp, builderConfig.heatmapWeightColumn, layer.style_config, onStyleConfigChange]);
 
   return (
     <div className="space-y-2">
@@ -200,7 +265,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
       {/* Heatmap controls — shown when render mode is heatmap */}
       {geomType === 'circle' && renderMode === 'heatmap' && (
-        <HeatmapStyleControls layer={layer} onPaintChange={onPaintChange} />
+        <HeatmapStyleControls
+          layer={{ ...layer, paint: controlPaint }}
+          onPaintChange={handleHeatmapPaintChange}
+        />
       )}
 
       {/* Data-driven style editor — hidden when in heatmap mode */}
@@ -219,10 +287,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
       <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
         {geomType === 'fill' && (
           <FillControls
-            layer={layer} paint={paint} isDataDriven={isDataDriven}
+            layer={layer} paint={controlPaint} isDataDriven={isDataDriven}
             fillEnabled={fillEnabled} strokeEnabled={strokeEnabled}
             onToggleFill={handleToggleFill} onToggleStroke={handleToggleStroke}
-            onPaintProp={handlePaintProp} onPaintChange={onPaintChange}
+            onPaintProp={handlePaintProp} onBuilderChange={updateBuilderConfig}
             isPolygon={isPolygon} numericColumns={numericColumns} currentHeightCol={currentHeightCol}
             t={t}
           />
@@ -236,7 +304,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         )}
         {geomType === 'circle' && renderMode !== 'heatmap' && (
           <CircleControls
-            layer={layer} paint={paint} isDataDriven={isDataDriven}
+            layer={layer} paint={controlPaint} isDataDriven={isDataDriven}
             strokeEnabled={strokeEnabled} onToggleStroke={handleToggleStroke}
             onPaintProp={handlePaintProp}
             t={t}
@@ -303,7 +371,7 @@ interface FillControlsProps extends GeomControlProps {
   strokeEnabled: boolean;
   onToggleFill: () => void;
   onToggleStroke: () => void;
-  onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
+  onBuilderChange: (patch: BuilderStyleConfig, nextPaint?: Record<string, unknown>) => void;
   isPolygon: boolean;
   numericColumns: { name: string; type: string }[];
   currentHeightCol: string;
@@ -312,7 +380,7 @@ interface FillControlsProps extends GeomControlProps {
 function FillControls({
   layer, paint, isDataDriven,
   fillEnabled, strokeEnabled, onToggleFill, onToggleStroke,
-  onPaintProp, onPaintChange, isPolygon, numericColumns, currentHeightCol, t,
+  onPaintProp, onBuilderChange, isPolygon, numericColumns, currentHeightCol, t,
 }: FillControlsProps) {
   return (
     <>
@@ -358,10 +426,7 @@ function FillControls({
           <Select
             value={currentHeightCol}
             onValueChange={(val) => {
-              const newPaint = { ...layer.paint };
-              if (val === '' || val === '__none__') delete newPaint['_height_column'];
-              else newPaint['_height_column'] = val;
-              onPaintChange(layer.id, newPaint);
+              onBuilderChange({ heightColumn: val === '' || val === '__none__' ? undefined : val });
             }}
           >
             <SelectTrigger className="h-8 text-xs w-36">
@@ -502,7 +567,7 @@ interface AdvancedJsonEditorProps {
 
 // Valid MapLibre paint properties per layer type for client-side validation
 const VALID_PAINT_KEYS: Record<string, Set<string>> = {
-  fill: new Set(['fill-color', 'fill-opacity', 'fill-outline-color', 'fill-antialias', 'fill-translate', 'fill-translate-anchor', 'fill-pattern', '_outline-color', '_outline-width', '_fill-disabled', '_stroke-disabled']),
+  fill: new Set(['fill-color', 'fill-opacity', 'fill-outline-color', 'fill-antialias', 'fill-translate', 'fill-translate-anchor', 'fill-pattern']),
   line: new Set(['line-color', 'line-opacity', 'line-width', 'line-gap-width', 'line-blur', 'line-dasharray', 'line-translate', 'line-translate-anchor', 'line-offset', 'line-gradient', 'line-pattern']),
   circle: new Set(['circle-color', 'circle-opacity', 'circle-radius', 'circle-blur', 'circle-stroke-color', 'circle-stroke-opacity', 'circle-stroke-width', 'circle-translate', 'circle-translate-anchor', 'circle-pitch-scale', 'circle-pitch-alignment']),
   heatmap: new Set(['heatmap-radius', 'heatmap-weight', 'heatmap-intensity', 'heatmap-color', 'heatmap-opacity']),
@@ -624,4 +689,3 @@ function JsonBlock({ label, value, onApply, layerType }: { label: string; value:
     </div>
   );
 }
-

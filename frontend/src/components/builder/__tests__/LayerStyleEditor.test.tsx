@@ -10,6 +10,9 @@ import type { MapLayerResponse } from '@/types/api';
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
+Element.prototype.hasPointerCapture = vi.fn(() => false);
+Element.prototype.releasePointerCapture = vi.fn();
+Element.prototype.scrollIntoView = vi.fn();
 
 const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse => ({
   id: 'layer-1',
@@ -173,82 +176,90 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
     expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
   });
 
-  it('toggle fill OFF sets fill-opacity to 0 and saves current value', async () => {
-    const onPaintChange = vi.fn();
+  it('toggle fill OFF sets fill-opacity to 0 and saves current value in style_config', async () => {
+    const onStyleConfigChange = vi.fn();
     const user = userEvent.setup();
 
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
-          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.5, '_outline-color': '#000', '_outline-width': 1 },
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.5 },
+          style_config: { builder: { outlineColor: '#000', outlineWidth: 1 } } as import('@/types/api').StyleConfig,
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
 
     await user.click(screen.getByLabelText('Toggle fill visibility'));
-    expect(onPaintChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
-      '_fill-disabled': true,
-      '_fill-opacity-saved': 0.5,
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      builder: expect.objectContaining({
+        fillDisabled: true,
+        fillOpacitySaved: 0.5,
+      }),
+    }), expect.objectContaining({
       'fill-opacity': 0,
     }));
   });
 
-  it('toggle fill ON restores saved opacity and removes flags', async () => {
-    const onPaintChange = vi.fn();
+  it('toggle fill ON restores saved opacity and removes builder flags', async () => {
+    const onStyleConfigChange = vi.fn();
     const user = userEvent.setup();
 
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
-          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0, '_fill-disabled': true, '_fill-opacity-saved': 0.5, '_outline-color': '#000', '_outline-width': 1 },
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0 },
+          style_config: { builder: { fillDisabled: true, fillOpacitySaved: 0.5, outlineColor: '#000', outlineWidth: 1 } } as import('@/types/api').StyleConfig,
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
 
     await user.click(screen.getByLabelText('Toggle fill visibility'));
-    const call = onPaintChange.mock.calls[0][1];
-    expect(call['fill-opacity']).toBe(0.5);
-    expect(call['_fill-disabled']).toBeUndefined();
-    expect(call['_fill-opacity-saved']).toBeUndefined();
+    const [, config, paint] = onStyleConfigChange.mock.calls[0];
+    expect(paint['fill-opacity']).toBe(0.5);
+    expect(config.builder.fillDisabled).toBeUndefined();
+    expect(config.builder.fillOpacitySaved).toBeUndefined();
   });
 
-  it('toggle stroke OFF on polygon sets _outline-width to 0', async () => {
-    const onPaintChange = vi.fn();
+  it('toggle stroke OFF on polygon sets builder outline width to 0', async () => {
+    const onStyleConfigChange = vi.fn();
     const user = userEvent.setup();
 
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
-          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3, '_outline-color': '#000', '_outline-width': 2 },
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3 },
+          style_config: { builder: { outlineColor: '#000', outlineWidth: 2 } } as import('@/types/api').StyleConfig,
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
 
     await user.click(screen.getByLabelText('Toggle stroke visibility'));
-    expect(onPaintChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
-      '_stroke-disabled': true,
-      '_outline-width-saved': 2,
-      '_outline-width': 0,
-    }));
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      builder: expect.objectContaining({
+        strokeDisabled: true,
+        outlineWidthSaved: 2,
+        outlineWidth: 0,
+      }),
+    }), expect.not.objectContaining({ '_stroke-disabled': true }));
   });
 
   it('toggle stroke OFF on circle sets circle-stroke-width to 0', async () => {
-    const onPaintChange = vi.fn();
+    const onStyleConfigChange = vi.fn();
     const user = userEvent.setup();
 
     render(
@@ -257,43 +268,46 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
           dataset_geometry_type: 'Point',
           paint: { 'circle-color': '#ff0000', 'circle-stroke-color': '#000', 'circle-stroke-width': 3 },
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
 
     await user.click(screen.getByLabelText('Toggle stroke visibility'));
-    expect(onPaintChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
-      '_stroke-disabled': true,
-      '_outline-width-saved': 3,
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      builder: expect.objectContaining({
+        strokeDisabled: true,
+        outlineWidthSaved: 3,
+      }),
+    }), expect.objectContaining({
       'circle-stroke-width': 0,
     }));
   });
 
   it('toggle stroke ON on circle restores saved width', async () => {
-    const onPaintChange = vi.fn();
+    const onStyleConfigChange = vi.fn();
     const user = userEvent.setup();
 
     render(
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Point',
-          paint: { 'circle-color': '#ff0000', 'circle-stroke-color': '#000', 'circle-stroke-width': 0, '_stroke-disabled': true, '_outline-width-saved': 3 },
+          paint: { 'circle-color': '#ff0000', 'circle-stroke-color': '#000', 'circle-stroke-width': 0 },
+          style_config: { builder: { strokeDisabled: true, outlineWidthSaved: 3 } } as import('@/types/api').StyleConfig,
         })}
-        onPaintChange={onPaintChange}
+        onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
-        onStyleConfigChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
         onLayoutChange={vi.fn()}
       />,
     );
 
     await user.click(screen.getByLabelText('Toggle stroke visibility'));
-    const call = onPaintChange.mock.calls[0][1];
-    expect(call['circle-stroke-width']).toBe(3);
-    expect(call['_stroke-disabled']).toBeUndefined();
-    expect(call['_outline-width-saved']).toBeUndefined();
+    const [, config, paint] = onStyleConfigChange.mock.calls[0];
+    expect(paint['circle-stroke-width']).toBe(3);
+    expect(config).toBeNull();
   });
 
   it('collapses fill controls when fill is disabled', () => {
@@ -301,7 +315,8 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
-          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0, '_fill-disabled': true, '_outline-color': '#000', '_outline-width': 1 },
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0 },
+          style_config: { builder: { fillDisabled: true, outlineColor: '#000', outlineWidth: 1 } } as import('@/types/api').StyleConfig,
         })}
         onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
@@ -323,7 +338,8 @@ describe('LayerStyleEditor - fill/stroke toggles', () => {
       <LayerStyleEditor
         layer={makeLayer({
           dataset_geometry_type: 'Polygon',
-          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3, '_outline-color': '#000', '_outline-width': 0, '_stroke-disabled': true },
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3 },
+          style_config: { builder: { outlineColor: '#000', outlineWidth: 0, strokeDisabled: true } } as import('@/types/api').StyleConfig,
         })}
         onPaintChange={vi.fn()}
         onOpacityChange={vi.fn()}
@@ -409,5 +425,42 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
 
     // Circle controls should be absent
     expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
+  });
+
+  it('stores heatmap weight metadata in style_config and keeps paint clean', async () => {
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: { 'heatmap-radius': 30, 'heatmap-intensity': 1 },
+          style_config: { render_mode: 'heatmap', builder: { heatmapRamp: 'YlOrRd' } } as import('@/types/api').StyleConfig,
+          dataset_column_info: [{ name: 'count', type: 'integer' }],
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    const [, weightSelect] = screen.getAllByRole('combobox');
+    await user.click(weightSelect);
+    await user.click(screen.getByRole('option', { name: 'count' }));
+
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      builder: expect.objectContaining({
+        heatmapRamp: 'YlOrRd',
+        heatmapWeightColumn: 'count',
+      }),
+    }), expect.objectContaining({
+      'heatmap-weight': ['get', 'count'],
+    }));
+    const paint = onStyleConfigChange.mock.calls[0][2];
+    expect(paint['_heatmap-weight-column']).toBeUndefined();
+    expect(paint['_heatmap-ramp']).toBeUndefined();
   });
 });

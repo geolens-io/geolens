@@ -112,12 +112,26 @@ export function useLayerMapSync(
     (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => {
       applyLayerUpdate(
         layerId,
-        (l) => ({ ...l, style_config: config, paint }),
+        (l) => ({
+          ...l,
+          style_config: config
+            ? {
+                ...config,
+                ...(config.builder === undefined && l.style_config?.builder
+                  ? { builder: l.style_config.builder }
+                  : {}),
+              }
+            : l.style_config?.builder
+              ? ({ builder: l.style_config.builder } as StyleConfig)
+              : null,
+          paint,
+        }),
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
           if (!map.getLayer(mapLayerId)) return;
 
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, config, paint);
+          const nextConfig = layer.style_config;
+          const adapterType = resolveAdapterType(layer.dataset_geometry_type, nextConfig, paint);
           const adapter = getAdapter(adapterType);
           const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
             id: layer.id,
@@ -133,7 +147,7 @@ export function useLayerMapSync(
             sourceLayer: `data.${layer.dataset_table_name}`,
             tileUrl: '',
           };
-          input.style_config = config;
+          input.style_config = nextConfig;
 
           adapter.syncPaint(map, input);
         },
