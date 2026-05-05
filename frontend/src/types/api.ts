@@ -722,9 +722,9 @@ export interface BuilderStyleConfig {
 
 export interface StyleConfig {
   [key: string]: unknown;
-  mode?: 'categorical' | 'graduated';
-  column?: string;
-  ramp?: string;
+  mode: 'categorical' | 'graduated';
+  column: string;
+  ramp: string;
   classCount?: number;
   method?: 'equal_interval' | 'quantile';
   categories?: { value: string | number | null; color: string }[];

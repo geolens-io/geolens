@@ -172,6 +172,6 @@ export function syncVectorPaint(map: MaplibreMap, layerId: string, rawPaint: Rec
   }
 }
 
-export function getBuilderStyleConfig(input: { style_config?: StyleConfig | null }): StyleConfig['builder'] {
-  return input.style_config?.builder ?? {};
+export function getBuilderStyleConfig(input: unknown): NonNullable<StyleConfig['builder']> {
+  return ((input as { style_config?: StyleConfig | null }).style_config?.builder ?? {});
 }
