@@ -69,6 +69,7 @@ from pathlib import Path
 
 import pytest
 
+
 def _discover_repo_roots() -> tuple[Path, Path]:
     """Return (repo_root, backend_root) for host and backend-container layouts."""
     test_file = Path(__file__).resolve()
