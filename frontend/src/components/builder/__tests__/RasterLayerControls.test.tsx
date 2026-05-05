@@ -56,6 +56,22 @@ vi.mock('@/components/ui/select', () => ({
   SelectValue: () => null,
 }));
 
+vi.mock('../StyleColorPicker', () => ({
+  StyleColorPicker: ({
+    label,
+    color,
+    onChange,
+  }: {
+    label: string;
+    color: string;
+    onChange: (value: string) => void;
+  }) => (
+    <button type="button" aria-label={label} onClick={() => onChange('#123456')}>
+      {label}:{color}
+    </button>
+  ),
+}));
+
 describe('RasterLayerControls', () => {
   it('renders first-class raster paint controls', () => {
     render(
@@ -136,5 +152,54 @@ describe('RasterLayerControls', () => {
 
     expect(onPaintChange).toHaveBeenCalledWith({ 'custom-keep': true });
     expect(onOpacityChange).toHaveBeenCalledWith(1);
+  });
+
+  it('shows DEM render mode and hillshade controls', () => {
+    const onPaintChange = vi.fn();
+    const onStyleConfigChange = vi.fn();
+    render(
+      <RasterLayerControls
+        paint={{
+          'hillshade-illumination-direction': 280,
+          'hillshade-illumination-anchor': 'map',
+          'hillshade-exaggeration': 0.7,
+        }}
+        opacity={1}
+        isDem
+        styleConfig={{ render_mode: 'hillshade' }}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+      />,
+    );
+
+    expect(screen.getByRole('slider', { name: 'Direction' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Relief' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Shadow' })).toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Brightness min' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Direction' }), { target: { value: '315' } });
+    expect(onPaintChange).toHaveBeenCalledWith(expect.objectContaining({
+      'hillshade-illumination-direction': 315,
+    }));
+  });
+
+  it('writes DEM render mode changes to style config', () => {
+    const onStyleConfigChange = vi.fn();
+    render(
+      <RasterLayerControls
+        paint={{}}
+        opacity={1}
+        isDem
+        styleConfig={null}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+      />,
+    );
+
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'hillshade' } });
+
+    expect(onStyleConfigChange).toHaveBeenCalledWith({ render_mode: 'hillshade' }, {});
   });
 });

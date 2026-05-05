@@ -6,6 +6,7 @@ import {
   lineAdapter,
   fillAdapter,
   rasterAdapter,
+  hillshadeAdapter,
   heatmapAdapter,
 } from '@/components/builder/layer-adapters';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
@@ -79,6 +80,10 @@ describe('getAdapter', () => {
 
   it('returns rasterAdapter for "raster"', () => {
     expect(getAdapter('raster')).toBe(rasterAdapter);
+  });
+
+  it('returns hillshadeAdapter for "hillshade"', () => {
+    expect(getAdapter('hillshade')).toBe(hillshadeAdapter);
   });
 
   it('returns heatmapAdapter for "heatmap"', () => {
@@ -866,5 +871,75 @@ describe('rasterAdapter', () => {
     });
     rasterAdapter.addLayers(map, input);
     expect(map.setLayoutProperty).not.toHaveBeenCalled();
+  });
+});
+
+describe('hillshadeAdapter', () => {
+  let map: ReturnType<typeof createMockMap>;
+
+  beforeEach(() => {
+    map = createMockMap();
+  });
+
+  it('addLayers creates a raster-dem source and hillshade layer', () => {
+    const input = makeInput({
+      id: 'h1',
+      layerId: 'layer-h1',
+      sourceId: 'source-h1',
+      tileUrl: '/tiles/dem/{z}/{x}/{y}.png',
+      paint: {
+        'hillshade-illumination-direction': 280,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-exaggeration': 0.7,
+        'hillshade-shadow-color': '#111111',
+        'hillshade-highlight-color': '#eeeeee',
+        'hillshade-accent-color': '#333333',
+      },
+    });
+
+    hillshadeAdapter.addLayers(map, input);
+
+    expect(map.addSource).toHaveBeenCalledWith('source-h1', {
+      type: 'raster-dem',
+      tiles: ['http://localhost:8080/tiles/dem/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 18,
+      encoding: 'mapbox',
+    });
+    expect(map.addLayer).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'layer-h1',
+      type: 'hillshade',
+      source: 'source-h1',
+      paint: expect.objectContaining({
+        'hillshade-illumination-direction': 280,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-exaggeration': 0.7,
+        'hillshade-shadow-color': '#111111',
+        'hillshade-highlight-color': '#eeeeee',
+        'hillshade-accent-color': '#333333',
+      }),
+    }));
+  });
+
+  it('syncPaint applies supported hillshade properties', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-h2', type: 'hillshade' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
+    const input = makeInput({
+      id: 'h2',
+      layerId: 'layer-h2',
+      paint: {
+        'hillshade-illumination-direction': 200,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-exaggeration': 0.65,
+      },
+    });
+
+    hillshadeAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h2', 'hillshade-illumination-direction', 200);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h2', 'hillshade-illumination-anchor', 'map');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h2', 'hillshade-exaggeration', 0.65);
   });
 });

@@ -227,6 +227,36 @@ describe('syncLayersToMap', () => {
     });
   });
 
+  it('DEM hillshade layer uses raster-dem source and hillshade layer output', () => {
+    const layer = makeLayer({
+      id: 'dem1',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      is_dem: true,
+      style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'hillshade' },
+      paint: {
+        'hillshade-illumination-direction': 275,
+        'hillshade-illumination-anchor': 'map',
+        'hillshade-exaggeration': 0.7,
+      },
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.addSource).toHaveBeenCalledWith('source-dem1', expect.objectContaining({
+      type: 'raster-dem',
+      encoding: 'mapbox',
+    }));
+    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(addLayerCall.type).toBe('hillshade');
+    expect(addLayerCall.paint).toEqual(expect.objectContaining({
+      'hillshade-illumination-direction': 275,
+      'hillshade-illumination-anchor': 'map',
+      'hillshade-exaggeration': 0.7,
+    }));
+  });
+
   it('hidden raster layer sets visibility none', () => {
     const layer = makeLayer({
       id: 'r3',

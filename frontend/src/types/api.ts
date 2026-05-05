@@ -750,8 +750,8 @@ export interface StyleConfig {
   sizes?: number[];
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
-  /** Render mode override — when 'heatmap', the layer renders as a heatmap instead of styled points */
-  render_mode?: 'heatmap';
+  /** Render mode override for specialized adapters. */
+  render_mode?: 'heatmap' | 'hillshade';
   /** Heatmap paint config */
   heatmapPaint?: HeatmapLayerSpecification['paint'];
   /** Saved circle paint config from before switching to heatmap mode */

@@ -17,6 +17,7 @@ export interface AdapterLayerInput {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: AdapterStyleConfig | null;
+  is_dem?: boolean | null;
   // Computed IDs (caller provides these)
   sourceId: string;
   layerId: string;
@@ -31,7 +32,7 @@ export interface AdapterLayerInput {
 }
 
 export interface LayerAdapter {
-  type: 'fill' | 'line' | 'circle' | 'raster' | 'heatmap';
+  type: 'fill' | 'line' | 'circle' | 'raster' | 'heatmap' | 'hillshade';
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void;
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void;
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void;

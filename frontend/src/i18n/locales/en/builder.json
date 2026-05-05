@@ -118,8 +118,21 @@
       "resampling": "Resampling",
       "resamplingLinear": "Linear",
       "resamplingNearest": "Nearest",
+      "renderMode": "Render",
+      "renderRaster": "Raster",
+      "renderHillshade": "Hillshade",
       "reset": "Reset",
       "resetTitle": "Reset raster style"
+    },
+    "hillshade": {
+      "direction": "Direction",
+      "anchor": "Anchor",
+      "anchorViewport": "Viewport",
+      "anchorMap": "Map",
+      "exaggeration": "Relief",
+      "shadow": "Shadow",
+      "highlight": "Highlight",
+      "accent": "Accent"
     }
   },
   "filters": {

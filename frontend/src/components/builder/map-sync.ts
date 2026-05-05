@@ -40,6 +40,7 @@ export interface SyncLayerInput {
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
   style_config?: StyleConfig | null;
+  is_dem?: boolean | null;
   is_3d?: boolean | null;
   feature_count?: number | null;
 }
@@ -66,6 +67,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     filter: layer.filter,
     label_config: layer.label_config ?? null,
     style_config: layer.style_config ?? null,
+    is_dem: layer.is_dem,
     is_3d: layer.is_3d,
     feature_count: layer.dataset_feature_count,
   };
@@ -129,7 +131,22 @@ function syncRasterLayer(
   adapterInput.tileSize = token.tile_size ?? 256;
   adapterInput.minzoom = token.minzoom ?? 0;
   adapterInput.maxzoom = token.maxzoom ?? 18;
-  const adapter = getAdapter('raster');
+  const renderMode = adapterInput.style_config?.render_mode;
+  const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
+  const adapter = getAdapter(useHillshade ? 'hillshade' : 'raster');
+  const expectedLayerType = useHillshade ? 'hillshade' : 'raster';
+  const expectedSourceType = useHillshade ? 'raster-dem' : 'raster';
+  const currentLayer = map.getLayer(adapterInput.layerId) as { type?: string } | undefined;
+  const currentSource = map.getSource(adapterInput.sourceId) as { type?: string } | undefined;
+
+  if (
+    (currentLayer && currentLayer.type !== expectedLayerType) ||
+    (currentSource && currentSource.type !== expectedSourceType)
+  ) {
+    if (map.getLayer(adapterInput.layerId)) map.removeLayer(adapterInput.layerId);
+    if (map.getSource(adapterInput.sourceId)) map.removeSource(adapterInput.sourceId);
+  }
+
   if (!map.getSource(adapterInput.sourceId)) {
     adapter.addLayers(map, adapterInput);
   } else {
@@ -290,6 +307,7 @@ export function syncLayersToMap(
         layout: layer.layout ?? {},
         filter: layer.filter,
         label_config: layer.label_config,
+        is_dem: layer.is_dem,
         sourceId,
         layerId,
         sourceLayer,

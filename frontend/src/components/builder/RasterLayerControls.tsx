@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatNumber } from '@/lib/format';
 import { useTranslation } from 'react-i18next';
+import { StyleColorPicker } from './StyleColorPicker';
+import type { StyleConfig } from '@/types/api';
 
 const RASTER_PAINT_KEYS = [
   'raster-brightness-min',
@@ -17,11 +19,25 @@ const RASTER_PAINT_KEYS = [
 
 type RasterPaintKey = typeof RASTER_PAINT_KEYS[number];
 
+const HILLSHADE_PAINT_KEYS = [
+  'hillshade-illumination-direction',
+  'hillshade-illumination-anchor',
+  'hillshade-exaggeration',
+  'hillshade-shadow-color',
+  'hillshade-highlight-color',
+  'hillshade-accent-color',
+] as const;
+
+type HillshadePaintKey = typeof HILLSHADE_PAINT_KEYS[number];
+
 interface RasterLayerControlsProps {
   paint: Record<string, unknown>;
   onPaintChange: (paint: Record<string, unknown>) => void;
   opacity: number;
   onOpacityChange: (value: number) => void;
+  isDem?: boolean | null;
+  styleConfig?: Partial<StyleConfig> | null;
+  onStyleConfigChange?: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
 }
 
 export function RasterLayerControls({
@@ -29,20 +45,41 @@ export function RasterLayerControls({
   onPaintChange,
   opacity,
   onOpacityChange,
+  isDem = false,
+  styleConfig = null,
+  onStyleConfigChange,
 }: RasterLayerControlsProps) {
   const { t } = useTranslation('builder');
+  const renderMode = isDem && styleConfig?.render_mode === 'hillshade' ? 'hillshade' : 'raster';
 
-  function getNumber(key: RasterPaintKey, fallback: number): number {
+  function getNumber(key: RasterPaintKey | HillshadePaintKey, fallback: number): number {
     return typeof paint[key] === 'number' ? paint[key] : fallback;
   }
 
-  function setPaintValue(key: RasterPaintKey, value: number | 'linear' | 'nearest') {
+  function getString(key: HillshadePaintKey, fallback: string): string {
+    return typeof paint[key] === 'string' ? paint[key] : fallback;
+  }
+
+  function setPaintValue(key: RasterPaintKey | HillshadePaintKey, value: number | string) {
     onPaintChange({ ...paint, [key]: value });
+  }
+
+  function setRenderMode(mode: 'raster' | 'hillshade') {
+    const nextConfig = { ...(styleConfig ?? {}) } as Record<string, unknown>;
+    if (mode === 'hillshade') {
+      nextConfig.render_mode = 'hillshade';
+    } else {
+      delete nextConfig.render_mode;
+    }
+    onStyleConfigChange?.(Object.keys(nextConfig).length > 0 ? nextConfig as StyleConfig : null, paint);
   }
 
   function handleReset() {
     const nextPaint = { ...paint };
     for (const key of RASTER_PAINT_KEYS) {
+      delete nextPaint[key];
+    }
+    for (const key of HILLSHADE_PAINT_KEYS) {
       delete nextPaint[key];
     }
     onPaintChange(nextPaint);
@@ -67,6 +104,94 @@ export function RasterLayerControls({
         </Button>
       </div>
 
+      {isDem && (
+        <div className="flex items-center gap-2">
+          <span className="w-28 shrink-0 text-xs text-muted-foreground">
+            {t('style.raster.renderMode', { defaultValue: 'Render' })}
+          </span>
+          <Select
+            value={renderMode}
+            onValueChange={(v) => setRenderMode(v as 'raster' | 'hillshade')}
+          >
+            <SelectTrigger
+              aria-label={t('style.raster.renderMode', { defaultValue: 'Render' })}
+              className="h-8 flex-1 text-xs"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="raster" className="text-xs">
+                {t('style.raster.renderRaster', { defaultValue: 'Raster' })}
+              </SelectItem>
+              <SelectItem value="hillshade" className="text-xs">
+                {t('style.raster.renderHillshade', { defaultValue: 'Hillshade' })}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {renderMode === 'hillshade' ? (
+        <>
+          <RasterSliderRow
+            label={t('style.hillshade.direction', { defaultValue: 'Direction' })}
+            value={getNumber('hillshade-illumination-direction', 335)}
+            min={0}
+            max={359}
+            step={1}
+            suffix="deg"
+            onChange={(v) => setPaintValue('hillshade-illumination-direction', v)}
+          />
+          <div className="flex items-center gap-2">
+            <span className="w-28 shrink-0 text-xs text-muted-foreground">
+              {t('style.hillshade.anchor', { defaultValue: 'Anchor' })}
+            </span>
+            <Select
+              value={getString('hillshade-illumination-anchor', 'viewport')}
+              onValueChange={(v) => setPaintValue('hillshade-illumination-anchor', v)}
+            >
+              <SelectTrigger
+                aria-label={t('style.hillshade.anchor', { defaultValue: 'Anchor' })}
+                className="h-8 flex-1 text-xs"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewport" className="text-xs">
+                  {t('style.hillshade.anchorViewport', { defaultValue: 'Viewport' })}
+                </SelectItem>
+                <SelectItem value="map" className="text-xs">
+                  {t('style.hillshade.anchorMap', { defaultValue: 'Map' })}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <RasterSliderRow
+            label={t('style.hillshade.exaggeration', { defaultValue: 'Relief' })}
+            value={getNumber('hillshade-exaggeration', 0.5)}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => setPaintValue('hillshade-exaggeration', v)}
+          />
+          <StyleColorPicker
+            label={t('style.hillshade.shadow', { defaultValue: 'Shadow' })}
+            color={getString('hillshade-shadow-color', '#000000')}
+            onChange={(v) => setPaintValue('hillshade-shadow-color', v)}
+          />
+          <StyleColorPicker
+            label={t('style.hillshade.highlight', { defaultValue: 'Highlight' })}
+            color={getString('hillshade-highlight-color', '#ffffff')}
+            onChange={(v) => setPaintValue('hillshade-highlight-color', v)}
+          />
+          <StyleColorPicker
+            label={t('style.hillshade.accent', { defaultValue: 'Accent' })}
+            color={getString('hillshade-accent-color', '#000000')}
+            onChange={(v) => setPaintValue('hillshade-accent-color', v)}
+          />
+        </>
+      ) : (
+        <>
       <RasterSliderRow
         label={t('style.raster.brightnessMin', { defaultValue: 'Brightness min' })}
         value={getNumber('raster-brightness-min', 0)}
@@ -152,6 +277,8 @@ export function RasterLayerControls({
           </SelectContent>
         </Select>
       </div>
+        </>
+      )}
     </div>
   );
 }

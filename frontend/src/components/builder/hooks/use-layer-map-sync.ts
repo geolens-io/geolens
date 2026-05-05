@@ -9,6 +9,13 @@ import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
 
+function resolveLayerAdapterType(layer: MapLayerResponse, paint: Record<string, unknown>, styleConfig?: StyleConfig | null): string {
+  if (layer.layer_type === 'raster_geolens') {
+    return layer.is_dem === true && styleConfig?.render_mode === 'hillshade' ? 'hillshade' : 'raster';
+  }
+  return resolveAdapterType(layer.dataset_geometry_type, styleConfig ?? layer.style_config, paint);
+}
+
 export function useLayerMapSync(
   localLayers: MapLayerResponse[],
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
@@ -82,7 +89,7 @@ export function useLayerMapSync(
         (l) => ({ ...l, paint: newPaint }),
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, newPaint);
+          const adapterType = resolveLayerAdapterType(layer, newPaint);
           const adapter = getAdapter(adapterType);
 
           const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
@@ -98,6 +105,7 @@ export function useLayerMapSync(
             layerId: mapLayerId,
             sourceLayer: `data.${layer.dataset_table_name}`,
             tileUrl: '',
+            is_dem: layer.is_dem,
           };
           input.style_config = layer.style_config ?? null;
 
@@ -131,8 +139,14 @@ export function useLayerMapSync(
           if (!map.getLayer(mapLayerId)) return;
 
           const nextConfig = layer.style_config;
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, nextConfig, paint);
+          const adapterType = resolveLayerAdapterType(layer, paint, nextConfig);
           const adapter = getAdapter(adapterType);
+          const sourceId = `source-${layerId}`;
+          const existingSource = map.getSource(sourceId) as { tiles?: string[] } | undefined;
+          const rawTileUrl = existingSource?.tiles?.[0] ?? '';
+          const tileUrl = rawTileUrl.startsWith(window.location.origin)
+            ? rawTileUrl.slice(window.location.origin.length)
+            : rawTileUrl;
           const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
             id: layer.id,
             dataset_table_name: layer.dataset_table_name,
@@ -142,14 +156,21 @@ export function useLayerMapSync(
             paint,
             layout: layer.layout ?? {},
             filter: layer.filter ?? null,
-            sourceId: `source-${layerId}`,
+            sourceId,
             layerId: mapLayerId,
             sourceLayer: `data.${layer.dataset_table_name}`,
-            tileUrl: '',
+            tileUrl,
+            is_dem: layer.is_dem,
           };
           input.style_config = nextConfig;
 
-          adapter.syncPaint(map, input);
+          if (layer.layer_type === 'raster_geolens' && tileUrl) {
+            if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+            adapter.addLayers(map, input);
+          } else {
+            adapter.syncPaint(map, input);
+          }
         },
       );
     },

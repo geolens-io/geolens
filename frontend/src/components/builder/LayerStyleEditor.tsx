@@ -152,7 +152,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   const paint = layer.paint;
   const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
   const isDataDriven = !!layer.style_config?.column;
-  const renderMode: 'points' | 'heatmap' = layer.style_config?.render_mode ?? 'points';
+  const renderMode: 'points' | 'heatmap' = layer.style_config?.render_mode === 'heatmap' ? 'heatmap' : 'points';
   const builderConfig = layer.style_config?.builder ?? {};
 
   const fillEnabled = !(builderConfig.fillDisabled ?? paint['_fill-disabled']);
