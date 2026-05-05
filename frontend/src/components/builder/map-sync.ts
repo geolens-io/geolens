@@ -272,7 +272,7 @@ export function syncLayersToMap(
       const sourceLayer = `data.${layer.dataset_table_name}`;
       const token = tokenMap.get(layer.dataset_id) ?? null;
 
-      const adapterInput: AdapterLayerInput = {
+      const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
         id: layer.id,
         dataset_table_name: layer.dataset_table_name,
         dataset_geometry_type: layer.dataset_geometry_type,
@@ -286,6 +286,7 @@ export function syncLayersToMap(
         layerId,
         sourceLayer,
         tileUrl: '',
+        style_config: layer.style_config ?? null,
       };
 
       if (token?.kind === 'raster') {

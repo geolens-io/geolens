@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, resolveAdapterType, getCompoundOpacity, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import { getLayerType, resolveAdapterType, getCompoundOpacity } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
@@ -85,7 +85,7 @@ export function useLayerMapSync(
           const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, newPaint);
           const adapter = getAdapter(adapterType);
 
-          const input: AdapterLayerInput = {
+          const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
             id: layer.id,
             dataset_table_name: layer.dataset_table_name,
             dataset_geometry_type: layer.dataset_geometry_type,
@@ -99,6 +99,7 @@ export function useLayerMapSync(
             sourceLayer: `data.${layer.dataset_table_name}`,
             tileUrl: '',
           };
+          input.style_config = layer.style_config ?? null;
 
           adapter.syncPaint(map, input);
         },
@@ -112,36 +113,29 @@ export function useLayerMapSync(
       applyLayerUpdate(
         layerId,
         (l) => ({ ...l, style_config: config, paint }),
-        (map) => {
+        (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
           if (!map.getLayer(mapLayerId)) return;
 
-          for (const [prop, value] of Object.entries(paint)) {
-            if (value !== undefined && !CUSTOM_PAINT_PROPS.has(prop)) {
-              try {
-                map.setPaintProperty(
-                  mapLayerId,
-                  prop,
-                  value as Parameters<MaplibreMap['setPaintProperty']>[2],
-                );
-              } catch (e) {
-                if (import.meta.env.DEV) console.debug(`[builder] Failed to set ${prop}:`, e);
-              }
-            }
-          }
+          const adapterType = resolveAdapterType(layer.dataset_geometry_type, config, paint);
+          const adapter = getAdapter(adapterType);
+          const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+            id: layer.id,
+            dataset_table_name: layer.dataset_table_name,
+            dataset_geometry_type: layer.dataset_geometry_type,
+            opacity: layer.opacity ?? 1,
+            visible: layer.visible,
+            paint,
+            layout: layer.layout ?? {},
+            filter: layer.filter ?? null,
+            sourceId: `source-${layerId}`,
+            layerId: mapLayerId,
+            sourceLayer: `data.${layer.dataset_table_name}`,
+            tileUrl: '',
+          };
+          input.style_config = config;
 
-          // Also sync custom props to the outline layer
-          const outlineId = `layer-${layerId}-outline`;
-          if (map.getLayer(outlineId)) {
-            const oc = paint['_outline-color'] ?? paint['outline-color'];
-            if (oc !== undefined) {
-              try { map.setPaintProperty(outlineId, 'line-color', oc); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-color sync:', e); }
-            }
-            const ow = paint['_outline-width'] ?? paint['outline-width'];
-            if (ow !== undefined) {
-              try { map.setPaintProperty(outlineId, 'line-width', ow); } catch (e) { if (import.meta.env.DEV) console.debug('[builder] outline-width sync:', e); }
-            }
-          }
+          adapter.syncPaint(map, input);
         },
       );
     },

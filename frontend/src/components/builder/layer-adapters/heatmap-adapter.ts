@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { CUSTOM_PAINT_PROPS, paintValueChanged, syncSingleLayerVisibility } from './shared';
+import { CUSTOM_PAINT_PROPS, getBuilderStyleConfig, paintValueChanged, syncSingleLayerVisibility } from './shared';
 import { getRampColors } from '@/lib/color-ramps';
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
@@ -28,7 +28,6 @@ export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
   'heatmap-intensity': 1,
   'heatmap-color': buildHeatmapColorExpression(DEFAULT_RAMP),
   'heatmap-opacity': 0.8,
-  '_heatmap-ramp': DEFAULT_RAMP,
 };
 
 export const heatmapAdapter: LayerAdapter = {
@@ -36,6 +35,7 @@ export const heatmapAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, filter, opacity } = input;
+    const builder = getBuilderStyleConfig(input);
 
     // Extract heatmap-specific props from paint, falling back to defaults
     const heatmapRadius = rawPaint['heatmap-radius'] ?? 30;
@@ -44,7 +44,7 @@ export const heatmapAdapter: LayerAdapter = {
     const heatmapOpacity = (opacity ?? 1) * 0.8;
 
     // Use stored color expression or build the default
-    const heatmapColor: unknown = rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(DEFAULT_RAMP);
+    const heatmapColor: unknown = rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP);
 
     try {
       map.addLayer({

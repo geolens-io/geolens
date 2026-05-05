@@ -294,7 +294,7 @@ export function useBuilderLayers(
     const tileUrl = source?.tiles?.[0] ?? buildSignedTileUrl(layer.dataset_table_name, null, undefined);
     const sourceLayer = `data.${layer.dataset_table_name}`;
 
-    const adapterInput: AdapterLayerInput = {
+    const adapterInput: AdapterLayerInput & { style_config?: StyleConfig | null } = {
       id: layer.id,
       dataset_table_name: layer.dataset_table_name,
       dataset_geometry_type: layer.dataset_geometry_type,
@@ -308,6 +308,7 @@ export function useBuilderLayers(
       layerId: mapLayerId,
       sourceLayer,
       tileUrl,
+      style_config: layer.style_config ?? null,
     };
 
     try {
@@ -350,10 +351,15 @@ export function useBuilderLayers(
         ? { ...savedHeatmapPaint }
         : { ...DEFAULT_HEATMAP_PAINT };
 
+      const builder = {
+        ...currentStyleConfig.builder,
+        heatmapRamp: currentStyleConfig.builder?.heatmapRamp ?? 'YlOrRd',
+      };
+
       setLocalLayers((prev) =>
         prev.map((l) =>
           l.id === layerId
-            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...currentStyleConfig, render_mode: 'heatmap', savedCirclePaint } as StyleConfig }
+            ? { ...l, paint: updatedPaint, style_config: { ...l.style_config, ...currentStyleConfig, render_mode: 'heatmap', savedCirclePaint, builder } as StyleConfig }
             : l,
         ),
       );

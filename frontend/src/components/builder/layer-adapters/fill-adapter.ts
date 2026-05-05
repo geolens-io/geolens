@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint } from './shared';
+import { simplifyPaint, stripCustomProps, finalizeLayer, getCompoundOpacity, syncVectorPaint, getBuilderStyleConfig } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const fillAdapter: LayerAdapter = {
@@ -8,13 +8,14 @@ export const fillAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter } = input;
+    const builder = getBuilderStyleConfig(input);
     const outlineId = `${input.layerId}-outline`;
-    const heightColumn = rawPaint['_height_column'] as string | undefined;
+    const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
       const fillPaint = stripCustomProps(basePaint);
-      const strokeDisabled = !!(rawPaint['_stroke-disabled']);
+      const strokeDisabled = builder.strokeDisabled ?? !!(rawPaint['_stroke-disabled']);
       const effectiveFillPaint: Record<string, unknown> = Object.keys(fillPaint).length
         ? { ...fillPaint }
         : {
@@ -35,12 +36,13 @@ export const fillAdapter: LayerAdapter = {
       });
       finalizeLayer(map, layerId, rawPaint, 'fill', opacity ?? 1, filter, hasExpressions);
 
-      // Companion outline layer: reads _outline-color/_outline-width from raw paint
       const outlineColor =
-        (rawPaint['_outline-color'] as string | undefined)
+        builder.outlineColor
+        ?? (rawPaint['_outline-color'] as string | undefined)
         ?? (rawPaint['outline-color'] as string | undefined);
       const outlineWidth =
-        (rawPaint['_outline-width'] as number | undefined)
+        builder.outlineWidth
+        ?? (rawPaint['_outline-width'] as number | undefined)
         ?? (rawPaint['outline-width'] as number | undefined);
       map.addLayer({
         id: outlineId,
@@ -60,7 +62,7 @@ export const fillAdapter: LayerAdapter = {
         map.setFilter(outlineId, filter);
       }
 
-      // Companion fill-extrusion layer: only when _height_column is set
+      // Companion fill-extrusion layer: only when a builder height column is set
       if (heightColumn) {
         const extrusionId = `${layerId}-extrusion`;
         const fillColor = (rawPaint['fill-color'] as string | undefined) ?? MAP_COLORS.default.fill;
@@ -89,6 +91,7 @@ export const fillAdapter: LayerAdapter = {
 
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
+    const builder = getBuilderStyleConfig(input);
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
       syncVectorPaint(map, layerId, rawPaint);
@@ -98,18 +101,17 @@ export const fillAdapter: LayerAdapter = {
       } else {
         if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
       }
-      // Sync fill-outline-color based on _stroke-disabled
-      const strokeDisabled = !!rawPaint['_stroke-disabled'];
-      const outlineColor = (rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
+      const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
+      const outlineColor = (builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
       try {
         map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'rgba(0,0,0,0)' : (outlineColor ?? 'rgba(0,0,0,0)'));
       } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] fill-outline-color may not be supported on all styles:`, e); }
     }
     // Sync outline companion layer
     if (map.getLayer(outlineId)) {
-      const outlineStrokeDisabled = !!rawPaint['_stroke-disabled'];
-      const outlineColor = rawPaint['_outline-color'] ?? rawPaint['outline-color'];
-      const outlineWidth = rawPaint['_outline-width'] ?? rawPaint['outline-width'];
+      const outlineStrokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
+      const outlineColor = builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color'];
+      const outlineWidth = builder.outlineWidth ?? rawPaint['_outline-width'] ?? rawPaint['outline-width'];
       if (typeof outlineColor === 'string') {
         try {
           const cur = map.getPaintProperty(outlineId, 'line-color');
@@ -133,7 +135,7 @@ export const fillAdapter: LayerAdapter = {
     // Sync fill-extrusion companion layer
     const extrusionId = `${layerId}-extrusion`;
     if (map.getLayer(extrusionId)) {
-      const heightColumn = rawPaint['_height_column'] as string | undefined;
+      const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
       if (heightColumn) {
         // Update height expression when column changes
         try {

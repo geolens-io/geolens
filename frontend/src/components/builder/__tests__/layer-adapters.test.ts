@@ -292,7 +292,7 @@ describe('fillAdapter', () => {
     expect(calls[1][0].type).toBe('line');
   });
 
-  it('addLayers reads _outline-color and _outline-width from paint for outline', () => {
+  it('addLayers reads outline color and width from style_config.builder', () => {
     const input = makeInput({
       id: 'f2',
       layerId: 'layer-f2',
@@ -300,10 +300,9 @@ describe('fillAdapter', () => {
       sourceLayer: 'data.test_table',
       paint: {
         'fill-color': '#ff0000',
-        '_outline-color': '#00ff00',
-        '_outline-width': 3,
       },
-    });
+      style_config: { builder: { outlineColor: '#00ff00', outlineWidth: 3 } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { outlineColor: string; outlineWidth: number } } });
     fillAdapter.addLayers(map, input);
     const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     const outlinePaint = calls[1][0].paint;
@@ -311,14 +310,15 @@ describe('fillAdapter', () => {
     expect(outlinePaint['line-width']).toBe(3);
   });
 
-  it('addLayers sets fill-outline-color:transparent when _stroke-disabled is true', () => {
+  it('addLayers sets fill-outline-color:transparent when style_config.builder stroke is disabled', () => {
     const input = makeInput({
       id: 'f3',
       layerId: 'layer-f3',
       sourceId: 'source-f3',
       sourceLayer: 'data.test_table',
-      paint: { '_stroke-disabled': true },
-    });
+      paint: {},
+      style_config: { builder: { strokeDisabled: true } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { strokeDisabled: boolean } } });
     fillAdapter.addLayers(map, input);
     const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     const fillPaint = calls[0][0].paint;
@@ -353,26 +353,24 @@ describe('fillAdapter', () => {
     const input = makeInput({
       id: 'f5',
       layerId: 'layer-f5',
-      paint: {
-        'fill-color': '#aabbcc',
-        '_outline-color': '#112233',
-        '_outline-width': 4,
-      },
-    });
+      paint: { 'fill-color': '#aabbcc' },
+      style_config: { builder: { outlineColor: '#112233', outlineWidth: 4 } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { outlineColor: string; outlineWidth: number } } });
     fillAdapter.syncPaint(map, input);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f5-outline', 'line-color', '#112233');
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-f5-outline', 'line-width', 4);
   });
 
   // fill-extrusion companion layer tests
-  it('addLayers adds fill-extrusion companion layer when _height_column is present (3 addLayer calls)', () => {
+  it('addLayers adds fill-extrusion companion layer when style_config.builder heightColumn is present (3 addLayer calls)', () => {
     const input = makeInput({
       id: 'fe1',
       layerId: 'layer-fe1',
       sourceId: 'source-fe1',
       sourceLayer: 'data.test_table',
-      paint: { 'fill-color': '#3b82f6', '_height_column': 'bldg_ht' },
-    });
+      paint: { 'fill-color': '#3b82f6' },
+      style_config: { builder: { heightColumn: 'bldg_ht' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { heightColumn: string } } });
     fillAdapter.addLayers(map, input);
     expect(map.addLayer).toHaveBeenCalledTimes(3);
     const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
@@ -402,8 +400,9 @@ describe('fillAdapter', () => {
       layerId: 'layer-fe3',
       sourceId: 'source-fe3',
       sourceLayer: 'data.test_table',
-      paint: { '_height_column': 'bldg_ht' },
-    });
+      paint: {},
+      style_config: { builder: { heightColumn: 'bldg_ht' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { heightColumn: string } } });
     fillAdapter.addLayers(map, input);
     const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
@@ -420,8 +419,9 @@ describe('fillAdapter', () => {
       layerId: 'layer-fe4',
       sourceId: 'source-fe4',
       sourceLayer: 'data.test_table',
-      paint: { '_height_column': 'height' },
-    });
+      paint: {},
+      style_config: { builder: { heightColumn: 'height' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { heightColumn: string } } });
     fillAdapter.addLayers(map, input);
     const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
     const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
@@ -455,6 +455,48 @@ describe('fillAdapter', () => {
     expect(fillPaint).not.toHaveProperty('_height_column');
   });
 
+  it('addLayers does not pass private builder keys into MapLibre fill paint', () => {
+    const input = makeInput({
+      id: 'f-clean',
+      layerId: 'layer-f-clean',
+      sourceId: 'source-f-clean',
+      sourceLayer: 'data.test_table',
+      paint: {
+        'fill-color': '#ff0000',
+        '_stroke-disabled': true,
+        '_outline-color': '#00ff00',
+        '_outline-width': 2,
+        '_height_column': 'height',
+      },
+    });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const fillPaint = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill')![0].paint;
+    expect(Object.keys(fillPaint).some((key) => key.startsWith('_'))).toBe(false);
+  });
+
+  it('syncPaint does not pass private builder keys into MapLibre paint setters', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-f-clean' || id === 'layer-f-clean-outline') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const input = makeInput({
+      id: 'f-clean',
+      layerId: 'layer-f-clean',
+      paint: {
+        'fill-color': '#aabbcc',
+        '_stroke-disabled': true,
+        '_outline-color': '#112233',
+        '_outline-width': 4,
+      },
+    });
+    fillAdapter.syncPaint(map, input);
+
+    const setPaintCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls;
+    expect(setPaintCalls.every(([, prop]) => typeof prop !== 'string' || !prop.startsWith('_'))).toBe(true);
+  });
+
   it('getLayerIds returns [layerId, outlineId, extrusionId] (three layers)', () => {
     const ids = fillAdapter.getLayerIds('layer-fe1');
     expect(ids).toHaveLength(3);
@@ -463,6 +505,54 @@ describe('fillAdapter', () => {
     expect(ids[2]).toBe('layer-fe1-extrusion');
   });
 
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+describe('heatmapAdapter', () => {
+  let map: ReturnType<typeof createMockMap>;
+
+  beforeEach(() => {
+    map = createMockMap();
+  });
+
+  it('addLayers only passes heatmap paint keys to MapLibre', () => {
+    const input = makeInput({
+      id: 'h1',
+      layerId: 'layer-h1',
+      sourceId: 'source-h1',
+      sourceLayer: 'data.test_table',
+      paint: {
+        'heatmap-radius': 40,
+        '_heatmap-ramp': 'Viridis',
+        '_heatmap-weight-column': 'count',
+      },
+      style_config: { builder: { heatmapRamp: 'Viridis', heatmapWeightColumn: 'count' } },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { heatmapRamp: string; heatmapWeightColumn: string } } });
+
+    heatmapAdapter.addLayers(map, input);
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.paint).toHaveProperty('heatmap-radius', 40);
+    expect(Object.keys(call.paint).some((key) => key.startsWith('_'))).toBe(false);
+  });
+
+  it('syncPaint skips private heatmap metadata', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-h2' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const input = makeInput({
+      id: 'h2',
+      layerId: 'layer-h2',
+      paint: {
+        'heatmap-radius': 48,
+        '_heatmap-ramp': 'Blues',
+        '_heatmap-weight-column': 'density',
+      },
+    });
+
+    heatmapAdapter.syncPaint(map, input);
+    const setPaintCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls;
+    expect(setPaintCalls).toContainEqual(['layer-h2', 'heatmap-radius', 48]);
+    expect(setPaintCalls.every(([, prop]) => typeof prop !== 'string' || !prop.startsWith('_'))).toBe(true);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

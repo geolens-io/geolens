@@ -1,4 +1,5 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { StyleConfig } from '@/types/api';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
  *  These are read separately and applied to the outline line layer for polygons. */
@@ -169,4 +170,8 @@ export function syncVectorPaint(map: MaplibreMap, layerId: string, rawPaint: Rec
       if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);
     }
   }
+}
+
+export function getBuilderStyleConfig(input: { style_config?: StyleConfig | null }): StyleConfig['builder'] {
+  return input.style_config?.builder ?? {};
 }
