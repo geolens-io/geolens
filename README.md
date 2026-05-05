@@ -114,6 +114,27 @@ Every dataset is also a standard OGC API Features endpoint:
 curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
 ```
 
+Use PostGIS + pgvector together when you need semantic ranking inside a spatial window. The sample vector below is only a runnable placeholder; replace it with an embedding from the same model configured for GeoLens:
+
+```sql
+WITH query_embedding AS (
+  SELECT ('[' || array_to_string(array_fill(0.001::float8, ARRAY[1536]), ',') || ']')::vector AS value
+)
+SELECT
+  d.id,
+  r.title,
+  1 - (e.embedding <=> query_embedding.value) AS semantic_score
+FROM catalog.datasets d
+JOIN catalog.records r ON r.id = d.record_id
+JOIN catalog.record_embeddings e ON e.record_id = r.id
+CROSS JOIN query_embedding
+WHERE r.spatial_extent && ST_MakeEnvelope(-125, 24, -66, 50, 4326)
+ORDER BY e.embedding <=> query_embedding.value
+LIMIT 5;
+```
+
+The result is the five catalog records whose metadata embeddings are nearest to the query vector, limited to records intersecting the bounding box.
+
 Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
 
 ## Features
@@ -200,6 +221,13 @@ Verify all services are healthy:
 ```bash
 docker compose ps
 ```
+
+First-run troubleshooting:
+
+- If ports are already taken, change `DB_PORT`, `API_PORT`, or `FRONTEND_PORT` in `.env`; the default quickstart uses 5434 for Postgres, 8001 for the API, and 8080 for the frontend.
+- If startup looks stuck, run `docker compose ps` and wait until `db`, `api`, `worker`, and `frontend` are healthy or running.
+- Check logs with `docker compose logs api`, `docker compose logs frontend`, and `docker compose logs worker`.
+- Slow first builds and health delays are usually image build, migration, or raster dependency startup work; rerun `docker compose ps` after a minute before restarting services.
 
 For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
