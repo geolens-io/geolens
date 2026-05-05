@@ -591,6 +591,41 @@ describe('rasterAdapter', () => {
     expect(call.paint['raster-opacity']).toBe(0.7);
   });
 
+  it('addLayers applies supported raster paint and keeps master opacity authoritative', () => {
+    const input = makeInput({
+      id: 'r2b',
+      layerId: 'layer-r2b',
+      sourceId: 'source-r2b',
+      opacity: 0.7,
+      tileUrl: '/tiles/r/{z}/{x}/{y}.png',
+      paint: {
+        'raster-brightness-min': 0.15,
+        'raster-brightness-max': 0.9,
+        'raster-contrast': 0.25,
+        'raster-saturation': -0.2,
+        'raster-hue-rotate': 45,
+        'raster-resampling': 'nearest',
+        'raster-fade-duration': 100,
+        'raster-opacity': 0.2,
+        'fill-color': '#ff0000',
+      },
+    });
+
+    rasterAdapter.addLayers(map, input);
+
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.paint).toEqual({
+      'raster-brightness-min': 0.15,
+      'raster-brightness-max': 0.9,
+      'raster-contrast': 0.25,
+      'raster-saturation': -0.2,
+      'raster-hue-rotate': 45,
+      'raster-resampling': 'nearest',
+      'raster-fade-duration': 100,
+      'raster-opacity': 0.7,
+    });
+  });
+
   it('addLayers does NOT call finalizeLayer or replayExpressions (no filter or expression replay)', () => {
     const input = makeInput({
       id: 'r3',
@@ -604,14 +639,48 @@ describe('rasterAdapter', () => {
     expect(map.setFilter).not.toHaveBeenCalled();
   });
 
-  it('syncPaint syncs raster-opacity only (no filter)', () => {
+  it('syncPaint syncs raster paint and does not apply filters', () => {
     (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-r4' });
     (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(1);
     (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
-    const input = makeInput({ id: 'r4', layerId: 'layer-r4', opacity: 0.5 });
+    const input = makeInput({
+      id: 'r4',
+      layerId: 'layer-r4',
+      opacity: 0.5,
+      paint: {
+        'raster-contrast': 0.4,
+        'raster-resampling': 'nearest',
+      },
+    });
     rasterAdapter.syncPaint(map, input);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4', 'raster-contrast', 0.4);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4', 'raster-resampling', 'nearest');
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4', 'raster-opacity', 0.5);
     expect(map.setFilter).not.toHaveBeenCalled();
+  });
+
+  it('syncPaint resets removed raster paint to MapLibre defaults', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-r4b' });
+    (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockImplementation((_layerId: string, property: string) => {
+      if (property === 'raster-brightness-min') return 0.2;
+      if (property === 'raster-resampling') return 'nearest';
+      if (property === 'raster-fade-duration') return 100;
+      if (property === 'raster-opacity') return 1;
+      return undefined;
+    });
+
+    const input = makeInput({
+      id: 'r4b',
+      layerId: 'layer-r4b',
+      opacity: 1,
+      paint: {},
+    });
+    rasterAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-brightness-min', 0);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-resampling', 'linear');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-fade-duration', 300);
   });
 
   it('getLayerIds returns [layerId]', () => {

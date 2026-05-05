@@ -1,11 +1,57 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
+import { paintValueChanged } from './shared';
+
+export const RASTER_PAINT_DEFAULTS = {
+  'raster-brightness-min': 0,
+  'raster-brightness-max': 1,
+  'raster-contrast': 0,
+  'raster-saturation': 0,
+  'raster-hue-rotate': 0,
+  'raster-resampling': 'linear',
+  'raster-fade-duration': 300,
+} as const;
+
+type RasterPaintProperty = keyof typeof RASTER_PAINT_DEFAULTS;
+
+const RASTER_PAINT_PROPERTIES = Object.keys(RASTER_PAINT_DEFAULTS) as RasterPaintProperty[];
+
+function buildRasterPaint(input: AdapterLayerInput): Record<string, number | string> {
+  return {
+    ...getSupportedRasterPaint(input.paint),
+    'raster-opacity': input.opacity ?? 1,
+  };
+}
+
+function getSupportedRasterPaint(paint: Record<string, unknown>): Partial<Record<RasterPaintProperty, number | string>> {
+  const nextPaint: Partial<Record<RasterPaintProperty, number | string>> = {};
+  for (const property of RASTER_PAINT_PROPERTIES) {
+    const value = paint[property];
+    if (property === 'raster-resampling') {
+      if (value === 'linear' || value === 'nearest') {
+        nextPaint[property] = value;
+      }
+      continue;
+    }
+    if (typeof value === 'number') {
+      nextPaint[property] = value;
+    }
+  }
+  return nextPaint;
+}
+
+function hasRasterPaintValue(
+  paint: Partial<Record<RasterPaintProperty, number | string>>,
+  property: RasterPaintProperty,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(paint, property);
+}
 
 export const rasterAdapter: LayerAdapter = {
   type: 'raster',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, opacity, visible } = input;
+    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible } = input;
     if (map.getSource(sourceId)) return;
     map.addSource(sourceId, {
       type: 'raster',
@@ -18,7 +64,7 @@ export const rasterAdapter: LayerAdapter = {
       id: layerId,
       type: 'raster',
       source: sourceId,
-      paint: { 'raster-opacity': opacity ?? 1 },
+      paint: buildRasterPaint(input),
     });
     if (!visible) {
       map.setLayoutProperty(layerId, 'visibility', 'none');
@@ -28,7 +74,18 @@ export const rasterAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, opacity, visible } = input;
     if (!map.getLayer(layerId)) return;
-    // Raster: sync opacity and visibility only
+
+    const supportedPaint = getSupportedRasterPaint(input.paint);
+    for (const property of RASTER_PAINT_PROPERTIES) {
+      const current = map.getPaintProperty(layerId, property);
+      const desired = hasRasterPaintValue(supportedPaint, property)
+        ? supportedPaint[property]
+        : RASTER_PAINT_DEFAULTS[property];
+      if ((hasRasterPaintValue(supportedPaint, property) || current !== undefined) && paintValueChanged(current, desired)) {
+        map.setPaintProperty(layerId, property, desired);
+      }
+    }
+
     const currentOpacity = map.getPaintProperty(layerId, 'raster-opacity');
     if (currentOpacity !== (opacity ?? 1)) {
       map.setPaintProperty(layerId, 'raster-opacity', opacity ?? 1);

@@ -1,6 +1,10 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
-import type { LabelConfig } from '@/types/api';
+import type { LabelConfig, StyleConfig } from '@/types/api';
+
+type AdapterStyleConfig = Partial<StyleConfig> & {
+  builder?: StyleConfig['builder'];
+};
 
 export interface AdapterLayerInput {
   id: string;
@@ -12,6 +16,7 @@ export interface AdapterLayerInput {
   layout: Record<string, unknown>;
   filter: FilterSpecification | null;
   label_config?: LabelConfig | null;
+  style_config?: AdapterStyleConfig | null;
   // Computed IDs (caller provides these)
   sourceId: string;
   layerId: string;

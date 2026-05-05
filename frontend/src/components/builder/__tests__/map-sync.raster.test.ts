@@ -194,6 +194,39 @@ describe('syncLayersToMap', () => {
     expect(addLayerCall.paint['raster-opacity']).toBe(0.6);
   });
 
+  it('raster layer applies supported paint on add', () => {
+    const layer = makeLayer({
+      id: 'r2b',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      opacity: 0.75,
+      paint: {
+        'raster-brightness-min': 0.1,
+        'raster-brightness-max': 0.95,
+        'raster-contrast': 0.35,
+        'raster-saturation': -0.25,
+        'raster-hue-rotate': 90,
+        'raster-resampling': 'nearest',
+        'raster-fade-duration': 150,
+      },
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(addLayerCall.paint).toEqual({
+      'raster-brightness-min': 0.1,
+      'raster-brightness-max': 0.95,
+      'raster-contrast': 0.35,
+      'raster-saturation': -0.25,
+      'raster-hue-rotate': 90,
+      'raster-resampling': 'nearest',
+      'raster-fade-duration': 150,
+      'raster-opacity': 0.75,
+    });
+  });
+
   it('hidden raster layer sets visibility none', () => {
     const layer = makeLayer({
       id: 'r3',
@@ -300,6 +333,38 @@ describe('syncLayersToMap', () => {
 
     expect(map.addSource).not.toHaveBeenCalled();
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4', 'raster-opacity', 0.7);
+  });
+
+  it('existing raster source syncs raster paint without re-adding', () => {
+    const layer = makeLayer({
+      id: 'r4b',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      opacity: 0.8,
+      paint: {
+        'raster-contrast': 0.45,
+        'raster-resampling': 'nearest',
+      },
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'source-r4b') return { type: 'raster' };
+      return null;
+    });
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-r4b') return { id };
+      return null;
+    });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-contrast', 0.45);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-resampling', 'nearest');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-opacity', 0.8);
   });
 
   it('vector point layer with opacity 1.0 still sets circle-opacity paint property', () => {
