@@ -30,6 +30,7 @@ from app.modules.catalog.maps.schemas import (
     DatasetMetaKwargs,
     DuplicateMapResponse,
     MapCreate,
+    MapLayerDiffRequest,
     MapLayerInput,
     MapLayerResponse,
     MapListResponse,
@@ -63,6 +64,7 @@ from app.modules.catalog.maps.service import (
     update_share_token,
     validate_public_visibility,
 )
+from app.modules.catalog.maps.service_crud import apply_layer_diff
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
@@ -442,6 +444,81 @@ async def update_map_endpoint(
             resource_id=map_id,
             details={
                 "changed_fields": list(body.model_dump(exclude_unset=True).keys())
+            },
+            ip_address=request.client.host if request.client else None,
+        ),
+    )
+    await db.commit()
+
+    layers = _layers_from_tuples(layer_tuples)
+    return _build_map_response(
+        map_obj,
+        layers,
+        forked_from_name=forked_name,
+        created_by_username=owner_username,
+    )
+
+
+@router.patch("/{map_id}/layers", response_model=MapResponse)
+async def patch_map_layers_endpoint(
+    map_id: uuid.UUID,
+    body: MapLayerDiffRequest,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> MapResponse:
+    """Apply incremental layer additions, patches, removals, and ordering."""
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
+
+    user_roles = await get_user_roles(db, user)
+    try:
+        map_obj, layer_tuples, forked_name, owner_username = await apply_layer_diff(
+            db,
+            map_id,
+            added=[layer.model_dump() for layer in body.added],
+            updated=[layer.model_dump(exclude_unset=True) for layer in body.updated],
+            removed=body.removed,
+            order=body.order,
+            user=user,
+            user_roles=user_roles,
+        )
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": "Cannot access one or more layer datasets",
+            },
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if detail.startswith("Map ") and detail.endswith("not found")
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="map.patch_layers",
+            resource_type="map",
+            resource_id=map_id,
+            details={
+                "added": len(body.added),
+                "updated": [str(layer.id) for layer in body.updated],
+                "removed": [str(layer_id) for layer_id in body.removed],
+                "order": [str(layer_id) for layer_id in body.order]
+                if body.order is not None
+                else None,
+                "fallback_full_replace": body.fallback_full_replace,
             },
             ip_address=request.client.host if request.client else None,
         ),

@@ -14,12 +14,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import select
 
+from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import MapLayer
-from app.modules.catalog.maps.schemas import ADVANCED_SHARING_ERROR
+from app.modules.catalog.maps.schemas import (
+    ADVANCED_SHARING_ERROR,
+    MapLayerDiffRequest,
+)
 from app.modules.catalog.maps.service import create_share_token, update_share_token
 
 from tests.factories import create_dataset, get_user_id
@@ -64,6 +69,42 @@ def test_maps_service_facade_exports_public_api() -> None:
 
 def _future_expires_at() -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=7)
+
+
+def test_layer_diff_schema_rejects_duplicate_layer_ids() -> None:
+    """MapLayerDiffRequest validates duplicate updated/removed/order IDs."""
+    layer_id = uuid.uuid4()
+
+    with pytest.raises(ValidationError, match="updated layer ids must be unique"):
+        MapLayerDiffRequest.model_validate(
+            {
+                "updated": [
+                    {"id": str(layer_id), "visible": False},
+                    {"id": str(layer_id), "opacity": 0.5},
+                ]
+            }
+        )
+
+    with pytest.raises(ValidationError, match="removed layer ids must be unique"):
+        MapLayerDiffRequest.model_validate({"removed": [str(layer_id), str(layer_id)]})
+
+    with pytest.raises(ValidationError, match="order layer ids must be unique"):
+        MapLayerDiffRequest.model_validate({"order": [str(layer_id), str(layer_id)]})
+
+
+def test_layer_diff_schema_rejects_invalid_style_payload() -> None:
+    """Diff patches reuse the clean-paint validation from layer inputs."""
+    with pytest.raises(ValidationError, match="Unsupported private paint key"):
+        MapLayerDiffRequest.model_validate(
+            {
+                "updated": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "paint": {"_client-cache": "leak"},
+                    }
+                ]
+            }
+        )
 
 
 async def _create_map(
@@ -1542,6 +1583,163 @@ class TestMapLayers:
                 "fill_opacity_saved": 0.45,
             },
         }
+
+    async def test_patch_map_layers_applies_diff_and_preserves_stable_ids(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PATCH /maps/{id}/layers can add, update, remove, and reorder layers."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_a = await create_dataset(
+            test_db_session, created_by=admin_id, name="Layer Diff A"
+        )
+        ds_b = await create_dataset(
+            test_db_session, created_by=admin_id, name="Layer Diff B"
+        )
+        ds_c = await create_dataset(
+            test_db_session, created_by=admin_id, name="Layer Diff C"
+        )
+        created = await _create_map(client, admin_auth_header)
+
+        first_resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds_a.id), "sort_order": 5},
+            headers=admin_auth_header,
+        )
+        second_resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds_b.id), "sort_order": 6},
+            headers=admin_auth_header,
+        )
+        first_id = first_resp.json()["id"]
+        second_id = second_resp.json()["id"]
+
+        resp = await client.patch(
+            f"/maps/{created['id']}/layers",
+            json={
+                "added": [
+                    {
+                        "dataset_id": str(ds_c.id),
+                        "sort_order": 1,
+                        "display_name": "Added via diff",
+                    }
+                ],
+                "updated": [
+                    {
+                        "id": first_id,
+                        "visible": False,
+                        "paint": {
+                            "fill-color": "#22c55e",
+                            "_outline-color": "#0f172a",
+                        },
+                    }
+                ],
+                "removed": [second_id],
+                "order": [first_id],
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        layers = resp.json()["layers"]
+        assert [layer["sort_order"] for layer in layers] == [0, 1]
+        assert [layer["id"] for layer in layers][0] == first_id
+        assert second_id not in {layer["id"] for layer in layers}
+
+        updated = layers[0]
+        assert updated["visible"] is False
+        assert updated["paint"] == {"fill-color": "#22c55e"}
+        assert updated["style_config"] == {"builder": {"outline_color": "#0f172a"}}
+
+        added = layers[1]
+        assert added["dataset_id"] == str(ds_c.id)
+        assert added["display_name"] == "Added via diff"
+
+        stored_first = await test_db_session.get(MapLayer, uuid.UUID(first_id))
+        assert stored_first is not None
+        assert stored_first.id == uuid.UUID(first_id)
+        assert stored_first.sort_order == 0
+
+        audit_result = await test_db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "map.patch_layers")
+            .where(AuditLog.resource_id == uuid.UUID(created["id"]))
+            .order_by(AuditLog.created_at.desc())
+        )
+        audit_log = audit_result.scalars().first()
+        assert audit_log is not None
+        assert audit_log.details["added"] == 1
+        assert audit_log.details["updated"] == [first_id]
+        assert audit_log.details["removed"] == [second_id]
+
+    async def test_map_layers_patch_rejects_layer_outside_map(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PATCH /maps/{id}/layers rejects updates scoped to another map."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        source = await _create_map(client, admin_auth_header, "Source Diff Map")
+        target = await _create_map(client, admin_auth_header, "Target Diff Map")
+
+        add_resp = await client.post(
+            f"/maps/{source['id']}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+        resp = await client.patch(
+            f"/maps/{target['id']}/layers",
+            json={
+                "updated": [
+                    {"id": add_resp.json()["id"], "visible": False},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 400
+        assert "outside this map" in resp.json()["detail"]
+
+    async def test_full_replacement_still_recreates_layers(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PUT /maps/{id} with layers remains a full delete/recreate fallback."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_a = await create_dataset(
+            test_db_session, created_by=admin_id, name="Full Replace A"
+        )
+        ds_b = await create_dataset(
+            test_db_session, created_by=admin_id, name="Full Replace B"
+        )
+        created = await _create_map(client, admin_auth_header)
+
+        add_resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds_a.id)},
+            headers=admin_auth_header,
+        )
+        old_layer_id = add_resp.json()["id"]
+
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={"layers": [{"dataset_id": str(ds_b.id), "sort_order": 0}]},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        layers = resp.json()["layers"]
+        assert len(layers) == 1
+        assert layers[0]["dataset_id"] == str(ds_b.id)
+        assert layers[0]["id"] != old_layer_id
+        assert await test_db_session.get(MapLayer, uuid.UUID(old_layer_id)) is None
 
 
 # ---------------------------------------------------------------------------

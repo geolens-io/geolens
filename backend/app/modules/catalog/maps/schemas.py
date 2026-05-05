@@ -208,6 +208,75 @@ class MapLayerInput(BaseModel):
         return self
 
 
+class MapLayerPatch(BaseModel):
+    id: uuid.UUID
+    sort_order: int | None = Field(default=None, ge=0, le=32767)
+    visible: bool | None = None
+    opacity: float | None = Field(default=None, ge=0.0, le=1.0)
+    paint: dict | None = Field(
+        default=None, description="MapLibre paint properties override"
+    )
+    layout: dict | None = Field(
+        default=None, description="MapLibre layout properties override"
+    )
+    display_name: str | None = Field(default=None, max_length=255)
+    filter: list | None = Field(default=None, description="MapLibre filter expression")
+    label_config: dict | None = Field(
+        default=None, description="Text label configuration"
+    )
+    popup_config: PopupConfig | None = Field(default=None)
+    style_config: dict | None = Field(default=None)
+    layer_type: str | None = Field(
+        default=None,
+        pattern=r"^(vector_geolens|raster_geolens|geojson)$",
+    )
+    show_in_legend: bool | None = None
+
+    _validate_paint = field_validator("paint")(_validate_style_dict)
+    _validate_layout = field_validator("layout")(_validate_style_dict)
+    _validate_label_config = field_validator("label_config")(_validate_style_dict)
+    _validate_style_config = field_validator("style_config")(_validate_style_dict)
+
+    @model_validator(mode="after")
+    def _normalize_paint_boundary(self) -> "MapLayerPatch":
+        self.paint, self.style_config = split_legacy_builder_paint(
+            self.paint,
+            self.style_config,
+        )
+        _validate_style_dict(self.paint)
+        _validate_style_dict(self.style_config)
+        return self
+
+
+class MapLayerDiffRequest(BaseModel):
+    added: list[MapLayerInput] = Field(
+        default_factory=list,
+        max_length=_MAX_LAYERS_PER_MAP,
+        description=f"Layers to append (max {_MAX_LAYERS_PER_MAP})",
+    )
+    updated: list[MapLayerPatch] = Field(default_factory=list)
+    removed: list[uuid.UUID] = Field(default_factory=list)
+    order: list[uuid.UUID] | None = Field(
+        default=None,
+        description="Optional stable layer ID order for existing layers",
+    )
+    fallback_full_replace: bool = Field(
+        default=False,
+        description="Client hint only; PATCH never performs full replacement",
+    )
+
+    @model_validator(mode="after")
+    def _validate_unique_ids(self) -> "MapLayerDiffRequest":
+        updated_ids = [layer.id for layer in self.updated]
+        if len(set(updated_ids)) != len(updated_ids):
+            raise ValueError("updated layer ids must be unique")
+        if len(set(self.removed)) != len(self.removed):
+            raise ValueError("removed layer ids must be unique")
+        if self.order is not None and len(set(self.order)) != len(self.order):
+            raise ValueError("order layer ids must be unique")
+        return self
+
+
 class MapCreate(BaseModel):
     name: str = Field(
         min_length=1,
