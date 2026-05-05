@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StyleColorPicker } from './StyleColorPicker';
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
+import { ZoomExpressionEditor } from './ZoomExpressionEditor';
 import { LazyLoadErrorBoundary } from '@/components/error';
 import { getLayerType } from '@/components/builder/map-sync';
 import { isNumericColumn } from '@/lib/column-utils';
@@ -58,6 +59,11 @@ function getPaintValue<T>(paint: Record<string, unknown>, key: string, fallback:
   // Expression arrays (data-driven styles) aren't valid for scalar controls
   if (Array.isArray(val)) return fallback;
   return val !== undefined && val !== null ? (val as T) : fallback;
+}
+
+function getEditableNumericPaintValue(paint: Record<string, unknown>, key: string, fallback: number): number | unknown {
+  const val = paint[key];
+  return val !== undefined && val !== null ? val : fallback;
 }
 
 function compactBuilder(builder: BuilderStyleConfig): BuilderStyleConfig | undefined {
@@ -458,6 +464,8 @@ interface LineControlsProps extends GeomControlProps {
 }
 
 function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange, t }: LineControlsProps) {
+  const isWidthDataDriven = isDataDriven && layer.style_config?.target === 'width';
+
   return (
     <>
       <div className="text-xs font-medium">{t('style.line')}</div>
@@ -474,16 +482,22 @@ function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange,
           onChange={(hex) => onPaintProp('line-color', hex)}
         />
       )}
-      <SliderRow
-        label={t('style.opacity')} value={getPaintValue(paint, 'line-opacity', 1)}
+      <ZoomExpressionEditor
+        label={t('style.opacity')}
+        value={getEditableNumericPaintValue(paint, 'line-opacity', 1)}
+        defaultValue={1}
         min={0} max={1} step={0.01} format="percent"
         onChange={(val) => onPaintProp('line-opacity', val)}
       />
-      <SliderRow
-        label={t('style.width')} value={getPaintValue(paint, 'line-width', LINE_DEFAULTS['line-width'])}
-        min={0.5} max={20} step={0.25} format="px"
-        onChange={(val) => onPaintProp('line-width', val)}
-      />
+      {!isWidthDataDriven && (
+        <ZoomExpressionEditor
+          label={t('style.width')}
+          value={getEditableNumericPaintValue(paint, 'line-width', LINE_DEFAULTS['line-width'])}
+          defaultValue={LINE_DEFAULTS['line-width']}
+          min={0.5} max={20} step={0.25} format="px"
+          onChange={(val) => onPaintProp('line-width', val)}
+        />
+      )}
       <SliderRow
         label={t('style.gapWidth')} value={getPaintValue(paint, 'line-gap-width', 0)}
         min={0} max={20} step={0.25} format="px"
@@ -533,6 +547,8 @@ interface CircleControlsProps extends GeomControlProps {
 }
 
 function CircleControls({ layer, paint, isDataDriven, strokeEnabled, onToggleStroke, onPaintProp, t }: CircleControlsProps) {
+  const isRadiusDataDriven = isDataDriven && layer.style_config?.target === 'radius';
+
   return (
     <>
       <div className="text-xs font-medium">{t('style.point')}</div>
@@ -549,16 +565,22 @@ function CircleControls({ layer, paint, isDataDriven, strokeEnabled, onToggleStr
           onChange={(hex) => onPaintProp('circle-color', hex)}
         />
       )}
-      <SliderRow
-        label={t('style.opacity')} value={getPaintValue(paint, 'circle-opacity', 1)}
+      <ZoomExpressionEditor
+        label={t('style.opacity')}
+        value={getEditableNumericPaintValue(paint, 'circle-opacity', 1)}
+        defaultValue={1}
         min={0} max={1} step={0.01} format="percent"
         onChange={(val) => onPaintProp('circle-opacity', val)}
       />
-      <SliderRow
-        label={t('style.radius')} value={getPaintValue(paint, 'circle-radius', CIRCLE_DEFAULTS['circle-radius'])}
-        min={1} max={30} step={1} format="px"
-        onChange={(val) => onPaintProp('circle-radius', val)}
-      />
+      {!isRadiusDataDriven && (
+        <ZoomExpressionEditor
+          label={t('style.radius')}
+          value={getEditableNumericPaintValue(paint, 'circle-radius', CIRCLE_DEFAULTS['circle-radius'])}
+          defaultValue={CIRCLE_DEFAULTS['circle-radius']}
+          min={1} max={30} step={1} format="px"
+          onChange={(val) => onPaintProp('circle-radius', val)}
+        />
+      )}
       <StrokeControls
         paint={paint} strokeEnabled={strokeEnabled} onToggleStroke={onToggleStroke}
         colorKey="circle-stroke-color" colorDefault={CIRCLE_DEFAULTS['circle-stroke-color']}

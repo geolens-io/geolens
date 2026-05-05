@@ -52,9 +52,13 @@ describe('zoom expression helpers', () => {
   it('round-trips supported expressions through parse and build', () => {
     const step = ['step', ['zoom'], 1, 8, 2, 12, 4] as const;
     const interpolate = ['interpolate', ['linear'], ['zoom'], 4, 1, 10, 3, 16, 8] as const;
+    const parsedStep = parseZoomExpression(step);
+    const parsedInterpolate = parseZoomExpression(interpolate);
 
-    expect(buildZoomExpression(parseZoomExpression(step) ?? fail('step should parse'))).toEqual(step);
-    expect(buildZoomExpression(parseZoomExpression(interpolate) ?? fail('interpolate should parse'))).toEqual(interpolate);
+    expect(parsedStep).not.toBeNull();
+    expect(parsedInterpolate).not.toBeNull();
+    expect(buildZoomExpression(parsedStep!)).toEqual(step);
+    expect(buildZoomExpression(parsedInterpolate!)).toEqual(interpolate);
   });
 
   it('identifies supported zoom expressions', () => {

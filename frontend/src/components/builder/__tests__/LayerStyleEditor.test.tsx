@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { LayerStyleEditor } from '../LayerStyleEditor';
 import type { MapLayerResponse } from '@/types/api';
@@ -187,6 +187,71 @@ describe('LayerStyleEditor - line paint controls', () => {
     });
   });
 
+  it('emits line width zoom expressions from the first-class editor', async () => {
+    const onPaintChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    await user.click(within(screen.getByRole('group', { name: 'Width mode' })).getByRole('button', { name: 'Varies by zoom' }));
+
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'line-color': '#ff0000',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 2, 12, 2],
+    });
+  });
+
+  it('preserves data-driven width messaging instead of exposing zoom width editing', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          paint: { 'line-color': '#ff0000', 'line-width': ['step', ['get', 'traffic'], 1, 10, 4] },
+          style_config: { column: 'traffic', target: 'width', mode: 'graduated' } as import('@/types/api').StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Width by: traffic')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Width mode' })).not.toBeInTheDocument();
+  });
+
+  it('shows unsupported line zoom-plus-data expressions without flattening them', () => {
+    const onPaintChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          paint: {
+            'line-color': '#ff0000',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 4, ['get', 'width'], 12, 6],
+          },
+        })}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('This property uses an unsupported expression. Use Advanced JSON to edit it.')).toBeInTheDocument();
+    expect(onPaintChange).not.toHaveBeenCalled();
+  });
+
   it('does not expose normal line gradient authoring controls', () => {
     render(
       <LayerStyleEditor
@@ -228,6 +293,64 @@ describe('LayerStyleEditor - line paint controls', () => {
     await user.click(screen.getByRole('button', { name: 'Apply' }));
 
     expect(onPaintChange).toHaveBeenCalledWith('layer-1', gradientPaint);
+  });
+});
+
+describe('LayerStyleEditor - circle zoom expression controls', () => {
+  it('emits circle radius zoom expressions from the point style editor', async () => {
+    const onPaintChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
+        })}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    await user.click(within(screen.getByRole('group', { name: 'Radius mode' })).getByRole('button', { name: 'Varies by zoom' }));
+
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'circle-color': '#ff0000',
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 5, 12, 5],
+    });
+  });
+
+  it('edits supported circle opacity expressions without raw JSON', () => {
+    const onPaintChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: {
+            'circle-color': '#ff0000',
+            'circle-opacity': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 12, 1],
+            'circle-radius': 5,
+          },
+        })}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Opacity Stop 2 value'), { target: { value: '0.75' } });
+
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'circle-color': '#ff0000',
+      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 4, 0.4, 12, 0.75],
+      'circle-radius': 5,
+    });
   });
 });
 

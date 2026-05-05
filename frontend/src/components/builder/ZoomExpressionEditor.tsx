@@ -87,13 +87,16 @@ export function ZoomExpressionEditor({
   const parsed = useMemo(() => parseZoomExpression(value), [value]);
   const isUnsupportedExpression = Array.isArray(value) && !parsed;
   const scalarValue = isFiniteNumber(value) ? value : defaultValue;
+  const fixedValue = parsed
+    ? (parsed.kind === 'step' ? parsed.baseValue : parsed.stops[0]?.value) ?? scalarValue
+    : scalarValue;
   const [mode, setMode] = useState<'fixed' | 'zoom'>(parsed ? 'zoom' : 'fixed');
-  const [draft, setDraft] = useState<ZoomExpressionDraft>(() => parsed ?? createDraft('interpolate', scalarValue));
+  const [draft, setDraft] = useState<ZoomExpressionDraft>(() => parsed ?? createDraft('interpolate', fixedValue));
 
   useEffect(() => {
     setMode(parsed ? 'zoom' : 'fixed');
-    setDraft(parsed ?? createDraft('interpolate', scalarValue));
-  }, [parsed, scalarValue]);
+    setDraft(parsed ?? createDraft('interpolate', fixedValue));
+  }, [parsed, fixedValue]);
 
   const validation = validateZoomExpressionDraft(draft);
   const canRemoveStop = draft.stops.length > minStops(draft.kind);
@@ -109,18 +112,18 @@ export function ZoomExpressionEditor({
 
   function switchToFixed() {
     setMode('fixed');
-    onChange(scalarValue);
+    onChange(fixedValue);
   }
 
   function switchToZoom() {
-    const nextDraft = parsed ?? createDraft(draft.kind, scalarValue);
+    const nextDraft = parsed ?? createDraft(draft.kind, fixedValue);
     setMode('zoom');
     emitDraft(nextDraft);
   }
 
   function setKind(kind: ZoomExpressionKind) {
     const firstValue = draft.kind === 'step' ? draft.baseValue : draft.stops[0]?.value;
-    const nextDraft = createDraft(kind, isFiniteNumber(firstValue) ? firstValue : scalarValue);
+    const nextDraft = createDraft(kind, isFiniteNumber(firstValue) ? firstValue : fixedValue);
     emitDraft(nextDraft);
   }
 
@@ -133,7 +136,7 @@ export function ZoomExpressionEditor({
 
   function addStop() {
     if (!canAddStop) return;
-    const previous = draft.stops[draft.stops.length - 1] ?? { zoom: 4, value: scalarValue };
+    const previous = draft.stops[draft.stops.length - 1] ?? { zoom: 4, value: fixedValue };
     emitDraft({
       ...draft,
       stops: [
@@ -171,7 +174,7 @@ export function ZoomExpressionEditor({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{label}</span>
-        <div className="flex flex-1 rounded-md border bg-muted/30 p-0.5" aria-label={`${label} mode`}>
+        <div className="flex flex-1 rounded-md border bg-muted/30 p-0.5" role="group" aria-label={`${label} mode`}>
           <button
             type="button"
             aria-pressed={mode === 'fixed'}
@@ -200,7 +203,7 @@ export function ZoomExpressionEditor({
       {mode === 'fixed' ? (
         <SliderRow
           label={label}
-          value={scalarValue}
+          value={fixedValue}
           min={min}
           max={max}
           step={step}
@@ -209,7 +212,7 @@ export function ZoomExpressionEditor({
         />
       ) : (
         <div className="ms-20 space-y-2">
-          <div className="flex gap-1" aria-label={t('style.zoomExpression.kindLabel')}>
+          <div className="flex gap-1" role="group" aria-label={t('style.zoomExpression.kindLabel')}>
             {(['interpolate', 'step'] as const).map((kind) => (
               <button
                 key={kind}

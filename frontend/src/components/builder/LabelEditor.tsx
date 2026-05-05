@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { StyleColorPicker } from './StyleColorPicker';
+import { ZoomExpressionEditor } from './ZoomExpressionEditor';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { cn } from '@/lib/utils';
 import type { LabelConfig } from '@/types/api';
@@ -111,21 +112,16 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
             </Select>
           </div>
 
-          {/* Font size */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground w-20">{t('labels.fontSize')}</span>
-            <Slider
-              value={[labelConfig.fontSize ?? 12]}
-              min={8}
-              max={24}
-              step={1}
-              onValueChange={([v]) => update({ fontSize: v })}
-              className="flex-1"
-            />
-            <span className="text-xs text-muted-foreground w-10 text-end">
-              {labelConfig.fontSize}px
-            </span>
-          </div>
+          <ZoomExpressionEditor
+            label={t('labels.fontSize')}
+            value={labelConfig.fontSize ?? 12}
+            defaultValue={12}
+            min={8}
+            max={24}
+            step={1}
+            format="px"
+            onChange={(val) => update({ fontSize: val })}
+          />
 
           {/* Colors */}
           <StyleColorPicker
@@ -134,21 +130,16 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
             onChange={(hex) => update({ textColor: hex })}
           />
 
-          {/* Text opacity */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground w-20">{t('labels.textOpacity', { defaultValue: 'Text opacity' })}</span>
-            <Slider
-              value={[labelConfig.textOpacity ?? 1]}
-              min={0}
-              max={1}
-              step={0.05}
-              onValueChange={([v]) => update({ textOpacity: v })}
-              className="flex-1"
-            />
-            <span className="text-xs text-muted-foreground w-10 text-end">
-              {Math.round((labelConfig.textOpacity ?? 1) * 100)}%
-            </span>
-          </div>
+          <ZoomExpressionEditor
+            label={t('labels.textOpacity', { defaultValue: 'Text opacity' })}
+            value={labelConfig.textOpacity ?? 1}
+            defaultValue={1}
+            min={0}
+            max={1}
+            step={0.05}
+            format="percent"
+            onChange={(val) => update({ textOpacity: val })}
+          />
 
           <StyleColorPicker
             label={t('labels.haloColor')}
