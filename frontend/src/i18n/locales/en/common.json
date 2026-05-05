@@ -16,6 +16,7 @@
   "reload": "Reload page",
   "noResults": "No results found",
   "notAvailable": "N/A",
+  "none": "None",
   "yesterday": "Yesterday, {{time}}",
   "nav": {
     "search": "Search",
@@ -353,7 +354,13 @@
     "adminSaml": "SAML SSO Configuration"
   },
   "sidebar": {
+    "title": "Sidebar",
+    "mobileDescription": "Displays the mobile sidebar.",
     "toggle": "Toggle Sidebar"
+  },
+  "breadcrumb": {
+    "label": "breadcrumb",
+    "more": "More"
   },
   "inlineEdit": {
     "hint": "Ctrl+Enter to save, Escape to cancel"

@@ -86,10 +86,15 @@
   },
   "toasts": {
     "created": "Collection créée",
+    "createFailed": "Failed to create collection",
     "updated": "Collection mise à jour",
+    "updateFailed": "Failed to update collection",
     "deleted": "Collection supprimée",
+    "deleteFailed": "Failed to delete collection",
     "datasetRemoved": "Jeu de données retiré de la collection",
+    "removeDatasetFailed": "Failed to remove dataset from collection",
     "datasetAdded": "Jeu de données ajouté à la collection",
+    "addDatasetsFailed": "Failed to add datasets to collection",
     "removeError": "Échec du retrait du jeu de données",
     "addError": "Échec de l'ajout du jeu de données"
   }

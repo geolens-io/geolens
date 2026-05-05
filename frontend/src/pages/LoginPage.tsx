@@ -119,7 +119,7 @@ export function LoginPage() {
         </section>
 
         <div className="flex flex-col items-center gap-4 lg:items-stretch">
-          {configError && <div className="text-sm text-destructive">Unable to load authentication settings</div>}
+          {configError && <div className="text-sm text-destructive">{t('authConfig.loadFailed')}</div>}
           <LoginForm />
           <OAuthButtons />
           <p className="max-w-sm text-center text-sm text-muted-foreground">

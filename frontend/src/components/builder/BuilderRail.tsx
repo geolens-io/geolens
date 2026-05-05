@@ -111,7 +111,7 @@ export function BuilderRail({
               aria-label={t('rail.closePanel', { defaultValue: 'Close panel' })}
               className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
-              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronRight className="h-3.5 w-3.5 rtl-mirror" />
             </button>
           </div>
 

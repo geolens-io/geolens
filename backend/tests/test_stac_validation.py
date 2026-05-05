@@ -22,6 +22,7 @@ def _make_ogc_record(
     has_geometry: bool = True,
     has_stac_extensions: bool = False,
     has_assets: bool = True,
+    language: str | None = None,
 ) -> dict:
     """Return a dict matching the output of dataset_to_ogc_record()."""
     props: dict = {
@@ -51,6 +52,9 @@ def _make_ogc_record(
         props["proj:epsg"] = 4326
         props["proj:shape"] = [1024, 2048]
         props["gsd"] = 30.0
+
+    if language is not None:
+        props["language"] = language
 
     record: dict = {
         "type": "Feature",
@@ -141,6 +145,16 @@ class TestPystacRoundtrip:
         assert "stac_extensions" in roundtripped
         assert len(roundtripped["stac_extensions"]) == 1
         assert "projection" in roundtripped["stac_extensions"][0]
+
+    def test_item_roundtrip_with_language_extension(self):
+        """Language extension metadata survives PySTAC roundtrip."""
+        ogc = _make_ogc_record(language="pt_br")
+        stac_item = ogc_record_to_stac_item(ogc, stac_api_url=STAC_API_URL)
+
+        item = pystac.Item.from_dict(stac_item)
+        roundtripped = item.to_dict(include_self_link=False, transform_hrefs=False)
+        assert roundtripped["properties"]["language"] == {"code": "pt-BR"}
+        assert any("language" in uri for uri in roundtripped["stac_extensions"])
 
     def test_item_roundtrip_with_assets(self):
         """Assets survive PySTAC roundtrip with correct href and roles."""

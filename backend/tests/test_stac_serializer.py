@@ -5,6 +5,7 @@ Pure unit tests -- no database or fixtures required.
 
 from app.standards.stac.serializer import (
     STAC_CONFORMANCE,
+    STAC_LANGUAGE_EXTENSION_URI,
     ogc_collection_to_stac_collection,
     ogc_record_to_stac_item,
 )
@@ -21,6 +22,7 @@ def _make_ogc_record(
     has_geometry: bool = True,
     has_stac_extensions: bool = True,
     has_bands: bool = False,
+    language: str | None = None,
 ) -> dict:
     """Return a dict matching the output of dataset_to_ogc_record()."""
     props: dict = {
@@ -56,6 +58,9 @@ def _make_ogc_record(
             {"name": "B1", "data_type": "uint8"},
             {"name": "B2", "data_type": "uint8"},
         ]
+
+    if language is not None:
+        props["language"] = language
 
     record: dict = {
         "type": "Feature",
@@ -175,6 +180,24 @@ class TestOgcRecordToStacItem:
 
         assert len(item["properties"]["bands"]) == 2
         assert item["properties"]["bands"][0]["name"] == "B1"
+
+    def test_language_declares_stac_language_extension(self):
+        """OGC language strings become STAC Language Objects with extension URI."""
+        record = _make_ogc_record(has_stac_extensions=False, language="es")
+        item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
+
+        assert item["properties"]["language"] == {"code": "es"}
+        assert item["stac_extensions"] == [STAC_LANGUAGE_EXTENSION_URI]
+
+    def test_language_extension_is_deduplicated(self):
+        """Language extension URI is not repeated when already present."""
+        record = _make_ogc_record(has_stac_extensions=False, language="fr")
+        record["stac_extensions"] = [STAC_LANGUAGE_EXTENSION_URI]
+
+        item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
+
+        assert item["properties"]["language"]["code"] == "fr"
+        assert item["stac_extensions"] == [STAC_LANGUAGE_EXTENSION_URI]
 
     def test_stac_extensions_included(self):
         """stac_extensions array is present when source record has them."""

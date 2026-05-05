@@ -313,7 +313,7 @@ export function useBuilderLayers(
     try {
       getAdapter(adapterType).addLayers(map, adapterInput);
     } catch (e) {
-      toast.error('Failed to switch render mode');
+      toast.error(t('toasts.renderModeSwitchFailed'));
       if (import.meta.env.DEV) console.error('[builder] swapLayerOnMap failed:', e);
       return;
     }
@@ -333,7 +333,7 @@ export function useBuilderLayers(
         map.setLayoutProperty(labelId, 'visibility', vis);
       }
     }
-  }, [mapInstanceRef]);
+  }, [mapInstanceRef, t]);
 
   const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap') => {
     const layer = layersRef.current.find((l) => l.id === layerId);

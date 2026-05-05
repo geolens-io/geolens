@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ColorRampPicker } from './ColorRampPicker';
 import { buildHeatmapColorExpression } from './layer-adapters/heatmap-adapter';
 import { isNumericColumn } from '@/lib/column-utils';
+import { formatNumber } from '@/lib/format';
 import type { MapLayerResponse } from '@/types/api';
 
 /** Radix Select disallows empty string values; use sentinel for "no weight". */
@@ -95,7 +96,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
           min={1}
           max={100}
           step={1}
-          display={`${radius}px`}
+          display={`${formatNumber(radius)}px`}
           onChange={handleRadiusChange}
         />
       </div>
@@ -108,7 +109,7 @@ export const HeatmapStyleControls = memo(function HeatmapStyleControls({
           min={0.1}
           max={5.0}
           step={0.1}
-          display={intensity.toFixed(1)}
+          display={formatNumber(intensity, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
           onChange={handleIntensityChange}
         />
       </div>
@@ -143,9 +144,12 @@ interface SliderRowProps {
 }
 
 function formatValue(value: number, format?: 'percent' | 'px' | 'zoom'): string {
-  if (format === 'percent') return `${Math.round(value * 100)}%`;
-  if (format === 'px') return `${value}px`;
-  return `${value}`;
+  if (format === 'percent') {
+    return formatNumber(value, { style: 'percent', maximumFractionDigits: 0 });
+  }
+  if (format === 'px') return `${formatNumber(value, { maximumFractionDigits: 2 })}px`;
+  if (format === 'zoom') return formatNumber(value, { maximumFractionDigits: 0 });
+  return formatNumber(value);
 }
 
 /** Shared slider row component used by heatmap controls and style editor. */

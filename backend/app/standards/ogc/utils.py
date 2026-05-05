@@ -51,3 +51,47 @@ def parse_accept_language(request: Request) -> str:
         if base in _SUPPORTED_LANGS:
             return base
     return "en"
+
+
+def normalize_language_tag(
+    language: str | None, fallback: str | None = None
+) -> str | None:
+    """Normalize a stored language value for standards response headers."""
+    if language is None:
+        return fallback
+
+    tag = language.strip().replace("_", "-")
+    if not tag:
+        return fallback
+
+    parts = [part for part in tag.split("-") if part]
+    if not parts:
+        return fallback
+
+    normalized = [parts[0].lower()]
+    for part in parts[1:]:
+        normalized.append(part.upper() if len(part) == 2 else part)
+    return "-".join(normalized)
+
+
+def content_language_for_record_languages(
+    languages: list[str | None],
+    *,
+    fallback: str | None = "en",
+) -> str | None:
+    """Return a truthful Content-Language value for serialized OGC records.
+
+    OGC record content is currently single-language metadata. A collection page
+    gets a header only when the serialized records are homogeneous; mixed pages
+    omit the header instead of advertising the request's preferred language.
+    """
+    normalized = {
+        tag
+        for tag in (normalize_language_tag(language) for language in languages)
+        if tag is not None
+    }
+    if not normalized:
+        return fallback
+    if len(normalized) == 1:
+        return next(iter(normalized))
+    return None

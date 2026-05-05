@@ -28,44 +28,44 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
       {/* Geometry & projection */}
       <div>
         <h5 className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
-          {raster ? t('detect.rasterInfo', { defaultValue: 'Raster info' }) : t('detect.geometry', { defaultValue: 'Geometry & projection' })}
+          {raster ? t('detect.rasterInfo') : t('detect.geometry')}
         </h5>
         <dl className="grid grid-cols-[92px_1fr] gap-x-3 gap-y-1 text-xs">
           {raster ? (
             <>
-              <dt className="font-mono text-[11px] text-muted-foreground">bands</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.bands')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.band_count}</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">size</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.size')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.width} x {preview.height} px</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">dtype</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.dataType')}</dt>
               <dd className="font-mono text-[11.5px]">{preview.dtype}</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">crs</dt>
-              <dd className="font-mono text-[11.5px]">{preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : 'Unknown'}</dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">COG</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.crs')}</dt>
+              <dd className="font-mono text-[11.5px]">{preview.crs_epsg ? `EPSG:${preview.crs_epsg}` : t('preview.unknown')}</dd>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.cog')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {preview.is_cog_compliant
-                  ? <span className="text-success">{t('detect.validCog', { defaultValue: 'Valid' })}</span>
-                  : <span className="text-warning-foreground">{t('detect.willConvert', { defaultValue: 'Will convert' })}</span>}
+                  ? <span className="text-success">{t('detect.validCog')}</span>
+                  : <span className="text-warning-foreground">{t('detect.willConvert')}</span>}
               </dd>
             </>
           ) : file ? (
             <>
-              <dt className="font-mono text-[11px] text-muted-foreground">type</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.type')}</dt>
               <dd className="font-mono text-[11.5px]">
-                {file.geometry_type ? getGeometryTypeLabel(t, file.geometry_type) : t('detect.nonSpatial', { defaultValue: 'Non-spatial' })}
+                {file.geometry_type ? getGeometryTypeLabel(t, file.geometry_type) : t('detect.nonSpatial')}
               </dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">features</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.features')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {file.feature_count != null ? formatNumber(file.feature_count) : '—'}
               </dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">crs</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.crs')}</dt>
               <dd className="font-mono text-[11.5px]">
                 {file.crs ? `EPSG:${file.crs}` : '—'}
                 {file.crs && file.crs !== 4326 && file.crs !== 3857 && (
-                  <span className="ms-1 text-muted-foreground">→ will reproject on read</span>
+                  <span className="ms-1 text-muted-foreground">→ {t('detect.willReproject')}</span>
                 )}
               </dd>
-              <dt className="font-mono text-[11px] text-muted-foreground">layer</dt>
+              <dt className="font-mono text-[11px] text-muted-foreground">{t('detect.labels.layer')}</dt>
               <dd className="font-mono text-[11.5px]">{file.layer_name}</dd>
             </>
           ) : null}
@@ -76,14 +76,14 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
       {file && file.columns.length > 0 && (
         <div>
           <h5 className="mb-2 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
-            {t('detect.schema', { defaultValue: 'Schema' })} · {file.columns.length} columns
+            {t('detect.schema')} · {t('detect.columnCount', { count: file.columns.length, value: formatNumber(file.columns.length) })}
           </h5>
           <div className="max-h-44 overflow-y-auto rounded border border-border">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border bg-surface-0">
-                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Column</th>
-                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Type</th>
+                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{t('detect.table.column')}</th>
+                  <th className="px-2 py-1.5 text-start font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{t('detect.table.type')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -105,7 +105,7 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
                 {file.columns.length > 12 && (
                   <tr>
                     <td colSpan={2} className="px-2 py-1 text-center text-[11px] text-muted-foreground">
-                      +{file.columns.length - 12} more
+                      {t('preview.moreColumns', { count: file.columns.length - 12 })}
                     </td>
                   </tr>
                 )}
@@ -199,6 +199,63 @@ export function BulkReviewList({
     return { readyCount: ready, rasterReadyCount: rasterReady, vectorCount: vec, rasterCount: ras, tableCount: tab };
   }, [entries]);
 
+  function formatCrs(crs: number | null | undefined, fallback: string) {
+    return crs ? `EPSG:${crs}` : fallback;
+  }
+
+  function formatPreviewSummary(preview: FileEntry['previewData']): string {
+    if (!preview) return '';
+
+    if (isRasterPreview(preview)) {
+      const bands = t('review.bandCount', {
+        count: preview.band_count,
+        value: formatNumber(preview.band_count),
+      });
+      return t('review.rasterSummary', {
+        bands,
+        width: formatNumber(preview.width),
+        height: formatNumber(preview.height),
+        crs: formatCrs(preview.crs_epsg, t('preview.unknown')),
+      });
+    }
+
+    const geometryType = preview.geometry_type
+      ? getGeometryTypeLabel(t, preview.geometry_type)
+      : t('bulk.kindTable');
+    const features = preview.feature_count != null
+      ? t('review.featureCount', {
+          count: preview.feature_count,
+          value: formatNumber(preview.feature_count),
+        })
+      : '—';
+
+    return t('review.vectorSummary', {
+      geometryType,
+      features,
+      crs: formatCrs(preview.crs, t('review.noCrs')),
+    });
+  }
+
+  function formatLayerOption(layer: { name: string; feature_count: number; field_count: number }) {
+    const rows = t('bulk.rowCount', {
+      count: layer.feature_count,
+      value: formatNumber(layer.feature_count),
+    });
+    const columns = t('bulk.columnCount', {
+      count: layer.field_count,
+      value: formatNumber(layer.field_count),
+    });
+
+    return t('bulk.sheetOption', { name: layer.name, rows, columns });
+  }
+
+  function formatReviewCount(
+    key: 'fileCount' | 'vectorCount' | 'rasterCount' | 'tableCount',
+    count: number,
+  ) {
+    return t(`review.${key}`, { count, value: formatNumber(count) });
+  }
+
   return (
     <div className="space-y-4">
       {/* File list card */}
@@ -206,10 +263,10 @@ export function BulkReviewList({
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-border bg-surface-0 px-4 py-2.5 font-mono text-[10.5px] uppercase tracking-widest text-muted-foreground">
           <span>
-            {t('review.headerStatus', { defaultValue: 'Detection complete' })} · <span className="text-success">{t('review.readyCount', { count: readyCount, defaultValue: `${readyCount} ready` })}</span>
+            {t('review.headerStatus')} · <span className="text-success">{t('review.readyCount', { count: readyCount, value: formatNumber(readyCount) })}</span>
           </span>
           <span className="flex-1" />
-          <span>{t('review.headerHint', { defaultValue: 'Review each before committing' })}</span>
+          <span>{t('review.headerHint')}</span>
         </div>
 
         {/* File rows */}
@@ -263,9 +320,7 @@ export function BulkReviewList({
                   </div>
                   {entry.previewData && (
                     <p className="mt-0.5 font-mono text-[11.5px] text-muted-foreground">
-                      {isRasterPreview(entry.previewData)
-                        ? `${entry.previewData.band_count} band · ${entry.previewData.width}×${entry.previewData.height} · ${entry.previewData.crs_epsg ? `EPSG:${entry.previewData.crs_epsg}` : '?'}`
-                        : `${(entry.previewData as FilePreviewResponse).geometry_type ?? 'Table'} · ${(entry.previewData as FilePreviewResponse).feature_count != null ? formatNumber((entry.previewData as FilePreviewResponse).feature_count!) + ' features' : '—'} · ${(entry.previewData as FilePreviewResponse).crs ? `EPSG:${(entry.previewData as FilePreviewResponse).crs}` : 'no CRS'}`}
+                      {formatPreviewSummary(entry.previewData)}
                     </p>
                   )}
                 </div>
@@ -290,7 +345,7 @@ export function BulkReviewList({
                     entry.previewData.layers &&
                     entry.previewData.layers.length > 1 && (
                       <div className="mb-3 space-y-1">
-                        <Label htmlFor={`sheet-${entry.id}`}>{t('bulk.sheetLabel', 'Sheet')}</Label>
+                        <Label htmlFor={`sheet-${entry.id}`}>{t('bulk.sheetLabel')}</Label>
                         <select
                           id={`sheet-${entry.id}`}
                           value={entry.previewData.layer_name}
@@ -299,7 +354,7 @@ export function BulkReviewList({
                         >
                           {entry.previewData.layers.map((layer) => (
                             <option key={layer.name} value={layer.name}>
-                              {layer.name} ({layer.feature_count} rows, {layer.field_count} columns)
+                              {formatLayerOption(layer)}
                             </option>
                           ))}
                         </select>
@@ -335,10 +390,15 @@ export function BulkReviewList({
       <div className="flex items-center gap-3 border-t border-dashed border-border pt-4">
         <div className="flex-1">
           <p className="text-[13px] font-semibold">
-            {entries.length} files · {vectorCount} vector · {rasterCount} raster · {tableCount} tabular
+            {t('review.actionSummary', {
+              files: formatReviewCount('fileCount', entries.length),
+              vectors: formatReviewCount('vectorCount', vectorCount),
+              rasters: formatReviewCount('rasterCount', rasterCount),
+              tables: formatReviewCount('tableCount', tableCount),
+            })}
           </p>
           <p className="font-mono text-[11px] text-muted-foreground tracking-wide">
-            {t('review.actionHint', { defaultValue: 'Default import: each file → new dataset in the Catalog.' })}
+            {t('review.actionHint')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -349,14 +409,14 @@ export function BulkReviewList({
               disabled={readyCount === 0 || isCommitting}
             >
               <Layers className="me-1 size-3" />
-              {t('bulk.importAsVrt', { defaultValue: 'Import as VRT Mosaic' })}
+              {t('bulk.importAsVrt')}
             </Button>
           )}
           <Button
             onClick={onCommitAll}
             disabled={readyCount === 0 || isCommitting}
           >
-            {t('bulk.importAllDefaults', { defaultValue: `Import ${readyCount} files` })}
+            {t('bulk.importAllDefaults')}
           </Button>
         </div>
       </div>

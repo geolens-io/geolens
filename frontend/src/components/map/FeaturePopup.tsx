@@ -5,6 +5,7 @@ import { Popup } from '@vis.gl/react-maplibre';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight, Copy, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { truncateGraphemes } from '@/lib/text';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
@@ -260,18 +261,17 @@ function ValueDisplay({
         className="text-primary underline break-all"
         onClick={(e) => e.stopPropagation()}
       >
-        {value.length > MAX_VALUE_LENGTH && !expanded
-          ? Array.from(value).slice(0, MAX_VALUE_LENGTH).join('') + '...'
-          : value}
+        {!expanded ? truncateGraphemes(value, MAX_VALUE_LENGTH) : value}
       </a>
     );
   }
 
   const formatted = formatValue(value);
-  if (formatted.length > MAX_VALUE_LENGTH && !expanded) {
+  const truncated = truncateGraphemes(formatted, MAX_VALUE_LENGTH, '');
+  if (truncated !== formatted && !expanded) {
     return (
       <span className="break-words">
-        {Array.from(formatted).slice(0, MAX_VALUE_LENGTH).join('')}
+        {truncated}
         <button
           className="text-primary ms-0.5"
           onClick={(e) => {

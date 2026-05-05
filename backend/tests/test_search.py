@@ -67,20 +67,24 @@ async def _create_search_dataset(
     description: str | None = None,
     theme_category: list[str] | None = None,
     lineage_summary: str | None = None,
+    language: str | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair with optional spatial extent and keywords."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=description or f"Description for {name}",
-        visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-        temporal_start=data_vintage_start,
-        temporal_end=data_vintage_end,
-        theme_category=theme_category,
-        lineage_summary=lineage_summary,
-    )
+    record_kwargs = {
+        "title": name,
+        "summary": description or f"Description for {name}",
+        "visibility": visibility,
+        "record_status": "published",
+        "created_by": created_by,
+        "temporal_start": data_vintage_start,
+        "temporal_end": data_vintage_end,
+        "theme_category": theme_category,
+        "lineage_summary": lineage_summary,
+    }
+    if language is not None:
+        record_kwargs["language"] = language
+    record = Record(**record_kwargs)
     session.add(record)
     await session.flush()
 
@@ -870,6 +874,89 @@ async def test_ogc_single_record(
     assert data["properties"]["title"] == "Water Boundaries"
 
 
+@pytest.mark.anyio
+async def test_ogc_single_record_content_language_uses_record_language(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """Content-Language reflects the serialized record language, not Accept-Language."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Spanish Language Record {uuid.uuid4().hex}",
+        language="es",
+    )
+
+    resp = await client.get(
+        f"/collections/datasets/items/{ds.id}",
+        headers={"Accept-Language": "fr"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-language"] == "es"
+    assert resp.json()["properties"]["language"] == "es"
+
+
+@pytest.mark.anyio
+async def test_ogc_collection_content_language_uses_homogeneous_record_language(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """A single-language collection page advertises that actual record language."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    token = f"homogeneouslanguage{uuid.uuid4().hex}"
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"{token} Spanish page",
+        language="es",
+    )
+
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"q": token},
+        headers={"Accept-Language": "fr"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-language"] == "es"
+    assert {f["properties"]["language"] for f in resp.json()["features"]} == {"es"}
+
+
+@pytest.mark.anyio
+async def test_ogc_collection_content_language_omitted_for_mixed_record_languages(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """Mixed-language record pages do not echo the negotiated request language."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    token = f"mixedlanguage{uuid.uuid4().hex}"
+    for language in ("es", "fr"):
+        await _create_search_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name=f"{token} {language}",
+            language=language,
+        )
+
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"q": token, "limit": 10},
+        headers={"Accept-Language": "de"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("content-language") is None
+    assert {f["properties"]["language"] for f in resp.json()["features"]} == {
+        "es",
+        "fr",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Auth requirement test
 # ---------------------------------------------------------------------------
@@ -987,3 +1074,61 @@ async def test_search_unicode_query_does_not_crash(
     assert resp.status_code == 200
     titles = [f["properties"]["title"] for f in resp.json()["features"]]
     assert cjk_title in titles
+
+
+@pytest.mark.anyio
+async def test_search_keyword_match_is_accent_insensitive(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """Keyword fallback search matches Unicode accents via unaccented LIKE."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    title = f"Accent Keyword Dataset {uuid.uuid4().hex}"
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=title,
+        keywords=["café"],
+        description="ASCII-only summary without the keyword",
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": "cafe"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    titles = [f["properties"]["title"] for f in resp.json()["features"]]
+    assert title in titles
+
+
+@pytest.mark.anyio
+async def test_search_simple_tsvector_matches_unicode_lineage(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """The simple regconfig companion covers Unicode text outside title/summary."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    title = f"Unicode Lineage Dataset {uuid.uuid4().hex}"
+    await _create_search_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=title,
+        description="ASCII-only summary without the query",
+        lineage_summary="東京水文 観測記録",
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": "東京水文"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    titles = [f["properties"]["title"] for f in resp.json()["features"]]
+    assert title in titles

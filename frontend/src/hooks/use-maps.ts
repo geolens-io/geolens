@@ -22,6 +22,7 @@ import {
 } from '@/api/maps';
 import type { MapUpdateRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
 import { toast } from 'sonner';
+import i18n from '@/i18n/i18n';
 
 export type { MapBrowseParams };
 
@@ -51,7 +52,7 @@ export function useCreateMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to create map'); },
+    onError: () => { toast.error(i18n.t('builder:mapCreate.createFailed')); },
   });
 }
 
@@ -68,7 +69,9 @@ export function useUpdateMap() {
       // Surface backend validator messages (e.g. popup_config: "expression
       // must be 500 characters or fewer") so the user sees the specific cause.
       const detail = err instanceof Error ? err.message : null;
-      toast.error(detail ? `Failed to save map: ${detail}` : 'Failed to save map');
+      toast.error(detail
+        ? i18n.t('builder:toasts.saveFailedWithDetail', { detail })
+        : i18n.t('builder:toasts.saveFailed'));
     },
   });
 }
@@ -80,7 +83,7 @@ export function useDuplicateMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to duplicate map'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.mapDuplicateFailed')); },
   });
 }
 
@@ -91,7 +94,7 @@ export function useDeleteMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to delete map'); },
+    onError: () => { toast.error(i18n.t('common:maps.deleteFailed')); },
   });
 }
 
@@ -103,7 +106,7 @@ export function useAddLayer() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
     },
-    onError: () => { toast.error('Failed to add layer'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.layerAddFailed')); },
   });
 }
 
@@ -115,7 +118,7 @@ export function useRemoveLayer() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
     },
-    onError: () => { toast.error('Failed to remove layer'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.layerRemoveFailed')); },
   });
 }
 
@@ -147,7 +150,7 @@ export function usePublishMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to update map visibility'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.visibilityFailed')); },
   });
 }
 
@@ -159,7 +162,7 @@ export function useUpdateShareToken() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
-    onError: () => { toast.error('Failed to update share token'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.shareTokenUpdateFailed')); },
   });
 }
 
@@ -171,7 +174,7 @@ export function useCreateShareToken() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
     },
-    onError: () => { toast.error('Failed to create share token'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.shareLinkFailed')); },
   });
 }
 
@@ -185,7 +188,7 @@ export function useRevokeShareToken() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(mapId) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to revoke share token'); },
+    onError: () => { toast.error(i18n.t('builder:toasts.revokeFailed')); },
   });
 }
 
@@ -196,7 +199,7 @@ export function useGenerateMap() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: () => { toast.error('Failed to generate map'); },
+    onError: () => { toast.error(i18n.t('builder:mapCreate.generateFailed')); },
   });
 }
 

@@ -2,6 +2,9 @@
   "title": "Verwaltung",
   "errors": {
     "retryJobFailed": "Auftrag konnte nicht wiederholt werden",
+    "createUserFailed": "Failed to create user",
+    "updateUserFailed": "Failed to update user",
+    "deleteUserFailed": "Failed to delete user",
     "backfillFailed": "Einbettungs-Backfill fehlgeschlagen",
     "semanticSearchFailed": "Semantische Sucheinstellung konnte nicht aktualisiert werden"
   },

@@ -49,7 +49,7 @@ export function ChangeHistory({ datasetId }: ChangeHistoryProps) {
         {isLoading ? (
           <LoadingState className="py-6" />
         ) : isError ? (
-          <p className="text-sm text-muted-foreground">Failed to load.</p>
+          <p className="text-sm text-muted-foreground">{t('changeHistory.loadFailed')}</p>
         ) : entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('changeHistory.noChanges')}</p>
         ) : (

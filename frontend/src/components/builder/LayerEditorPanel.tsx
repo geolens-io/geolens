@@ -66,7 +66,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             title={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
             className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-4 w-4 rtl-mirror" />
           </button>
         )}
         <ColorizedGeometryIcon

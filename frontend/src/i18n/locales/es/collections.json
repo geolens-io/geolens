@@ -86,10 +86,15 @@
   },
   "toasts": {
     "created": "Colección creada",
+    "createFailed": "Failed to create collection",
     "updated": "Colección actualizada",
+    "updateFailed": "Failed to update collection",
     "deleted": "Colección eliminada",
+    "deleteFailed": "Failed to delete collection",
     "datasetRemoved": "Conjunto de datos eliminado de la colección",
+    "removeDatasetFailed": "Failed to remove dataset from collection",
     "datasetAdded": "Conjunto de datos agregado a la colección",
+    "addDatasetsFailed": "Failed to add datasets to collection",
     "removeError": "Error al eliminar el conjunto de datos",
     "addError": "Error al agregar el conjunto de datos"
   }

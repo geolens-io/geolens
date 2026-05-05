@@ -32,7 +32,10 @@ def _build_fts_rank_col(
     """
     text_clause, parts = _build_text_filter(filters.q)
     ts_query = parts["ts_query"]
-    vector_match = parts["vector_match"]
+    ts_query_simple = parts["ts_query_simple"]
+    vector_match = parts["english_vector_match"]
+    simple_vector_match = parts["simple_vector_match"]
+    record_simple_vector = parts["record_simple_vector"]
     title_match = parts["title_match"]
     summary_match = parts["summary_match"]
     keyword_exists = parts["keyword_exists"]
@@ -45,6 +48,17 @@ def _build_fts_rank_col(
         func.coalesce(
             case(
                 (vector_match, func.ts_rank_cd(Record.search_vector, ts_query)),
+                else_=literal(0.0),
+            ),
+            literal(0.0),
+        )
+        + func.coalesce(
+            case(
+                (
+                    simple_vector_match,
+                    func.ts_rank_cd(record_simple_vector, ts_query_simple)
+                    * literal(0.35),
+                ),
                 else_=literal(0.0),
             ),
             literal(0.0),

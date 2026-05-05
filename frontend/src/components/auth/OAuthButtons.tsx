@@ -74,7 +74,7 @@ export function OAuthButtons() {
   });
 
   if (isError) {
-    return <p className="text-xs text-muted-foreground">SSO options unavailable</p>;
+    return <p className="text-xs text-muted-foreground">{t('oauth.unavailable')}</p>;
   }
 
   if (isLoading || !providers || providers.length === 0) return null;

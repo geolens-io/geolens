@@ -2,6 +2,9 @@
   "title": "Administration",
   "errors": {
     "retryJobFailed": "Échec de la relance de la tâche",
+    "createUserFailed": "Failed to create user",
+    "updateUserFailed": "Failed to update user",
+    "deleteUserFailed": "Failed to delete user",
     "backfillFailed": "Échec du remplissage des embeddings",
     "semanticSearchFailed": "Échec de la mise à jour du paramètre de recherche sémantique"
   },

@@ -40,7 +40,11 @@ from app.standards.ogc.filtering import (
     build_queryables_response,
     build_record_schema_response,
 )
-from app.standards.ogc.utils import build_url, parse_accept_language
+from app.standards.ogc.utils import (
+    build_url,
+    content_language_for_record_languages,
+    normalize_language_tag,
+)
 from app.core.public_urls import get_public_api_url
 from geoalchemy2.shape import to_shape
 from app.modules.catalog.search.schemas import (
@@ -130,6 +134,36 @@ def _build_pagination_url(
             query_params,
             doseq=True,
         )
+    )
+
+
+def _serialized_feature_language(feature: object) -> str | None:
+    """Read the language value that will actually be serialized in an OGC record."""
+    properties: object | None
+    if isinstance(feature, dict):
+        properties = feature.get("properties")
+    else:
+        properties = getattr(feature, "properties", None)
+
+    language: str | None = None
+    if isinstance(properties, dict):
+        value = properties.get("language")
+        language = value if isinstance(value, str) else None
+    elif properties is not None:
+        language = getattr(properties, "language", None)
+
+    return normalize_language_tag(language, fallback="en")
+
+
+def _content_language_headers(language: str | None) -> dict[str, str]:
+    return {"Content-Language": language} if language else {}
+
+
+def _feature_collection_content_language(
+    response: OGCFeatureCollectionResponse,
+) -> str | None:
+    return content_language_for_record_languages(
+        [_serialized_feature_language(feature) for feature in response.features]
     )
 
 
@@ -1121,9 +1155,11 @@ async def _lookup_by_external_id(
             status_code=status.HTTP_404_NOT_FOUND, detail="Record not found"
         )
     public_api_url = await get_public_api_url(db, request=request)
+    content = dataset_to_ogc_record(dataset, public_api_url)
     return JSONResponse(
-        content=dataset_to_ogc_record(dataset, public_api_url),
+        content=content,
         media_type="application/geo+json",
+        headers=_content_language_headers(_serialized_feature_language(content)),
     )
 
 
@@ -1221,11 +1257,10 @@ async def collection_items(
     effective_params = params.model_copy(update=overrides) if overrides else params
 
     result = await _handle_search(db, user, request, effective_params)
-    lang = parse_accept_language(request)
     return JSONResponse(
         content=result.model_dump(mode="json"),
         media_type="application/geo+json",
-        headers={"Content-Language": lang},
+        headers=_content_language_headers(_feature_collection_content_language(result)),
     )
 
 
@@ -1290,16 +1325,16 @@ async def get_collection_item(
             item_raster_meta = None
 
     public_api_url = await get_public_api_url(db, request=request)
-    lang = parse_accept_language(request)
+    content = dataset_to_ogc_record(
+        dataset,
+        public_api_url,
+        stac_asset_rows=stac_asset_rows or None,
+        raster_meta=item_raster_meta,
+    )
     return JSONResponse(
-        content=dataset_to_ogc_record(
-            dataset,
-            public_api_url,
-            stac_asset_rows=stac_asset_rows or None,
-            raster_meta=item_raster_meta,
-        ),
+        content=content,
         media_type="application/geo+json",
-        headers={"Content-Language": lang},
+        headers=_content_language_headers(_serialized_feature_language(content)),
     )
 
 

@@ -70,16 +70,27 @@ def _build_text_filter(q: str):
       - FTS + ILIKE on RecordContact (name + organization)
     """
     query_text = q.strip()
-    query_like = f"%{query_text.lower()}%"
     # Use 'simple' regconfig for non-Latin scripts that 'english' can't tokenize;
     # combine both so accented/stemmed English still works alongside CJK/Arabic/etc.
     ts_query_en = func.websearch_to_tsquery("english", query_text)
     ts_query_simple = func.websearch_to_tsquery("simple", query_text)
     ts_query = ts_query_en.bool_op("||")(ts_query_simple)
+    record_simple_vector = func.to_tsvector(
+        "simple",
+        func.concat_ws(
+            " ",
+            func.coalesce(Record.title, ""),
+            func.coalesce(Record.summary, ""),
+            func.coalesce(Record.lineage_summary, ""),
+            func.coalesce(func.array_to_string(Record.theme_category, " "), ""),
+        ),
+    )
 
     # unaccent both sides of ILIKE for accent-insensitive matching (cafe = cafe)
     unaccented_like = func.concat("%", func.unaccent(query_text.lower()), "%")
-    vector_match = Record.search_vector.bool_op("@@")(ts_query)
+    english_vector_match = Record.search_vector.bool_op("@@")(ts_query)
+    simple_vector_match = record_simple_vector.bool_op("@@")(ts_query_simple)
+    vector_match = or_(english_vector_match, simple_vector_match)
     title_match = func.lower(func.unaccent(Record.title)).like(unaccented_like)
     summary_match = func.lower(func.unaccent(func.coalesce(Record.summary, ""))).like(
         unaccented_like
@@ -95,7 +106,7 @@ def _build_text_filter(q: str):
     )
     kw_like_sel = select(RecordKeyword.id).where(
         RecordKeyword.record_id == Record.id,
-        func.lower(RecordKeyword.keyword).like(query_like),
+        func.lower(func.unaccent(RecordKeyword.keyword)).like(unaccented_like),
     )
     ct_fts_sel = select(RecordContact.id).where(
         RecordContact.record_id == Record.id,
@@ -118,10 +129,12 @@ def _build_text_filter(q: str):
     ct_like_sel = select(RecordContact.id).where(
         RecordContact.record_id == Record.id,
         func.lower(
-            func.coalesce(RecordContact.name, "")
-            + " "
-            + func.coalesce(RecordContact.organization, ""),
-        ).like(query_like),
+            func.unaccent(
+                func.coalesce(RecordContact.name, "")
+                + " "
+                + func.coalesce(RecordContact.organization, "")
+            )
+        ).like(unaccented_like),
     )
 
     keyword_exists = exists(kw_fts_sel)
@@ -142,7 +155,11 @@ def _build_text_filter(q: str):
     # Return individual parts too -- search_datasets needs them for ranking.
     return clause, {
         "ts_query": ts_query,
+        "ts_query_simple": ts_query_simple,
         "vector_match": vector_match,
+        "english_vector_match": english_vector_match,
+        "simple_vector_match": simple_vector_match,
+        "record_simple_vector": record_simple_vector,
         "title_match": title_match,
         "summary_match": summary_match,
         "keyword_exists": keyword_exists,
