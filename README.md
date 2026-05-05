@@ -1,5 +1,7 @@
 # GeoLens
 
+[English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
+
 **Your team's spatial data, searchable in one place.**
 
 Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in PostGIS, indexes it with pgvector + pg_trgm for semantic and fuzzy search, and serves OGC APIs that QGIS, ArcGIS, and MapLibre clients connect to natively. Built on FastAPI and React. Deployed with one command.
@@ -30,26 +32,6 @@ Full user, admin, and API documentation lives at **[docs.getgeolens.com](https:/
 - **Admin guide:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
 - **API reference:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
 
-## Published Artifacts
-
-GeoLens 1.0.0 is published through the standard package registries:
-
-```bash
-pip install geolens          # Python SDK
-pip install geolens-cli      # CLI; installs the `geolens` command
-npm install @geolens/sdk     # TypeScript/JavaScript SDK
-```
-
-Prebuilt container images are published to GitHub Container Registry:
-
-```bash
-docker pull ghcr.io/geolens-io/geolens-api:1.0.0
-docker pull ghcr.io/geolens-io/geolens-worker:1.0.0
-docker pull ghcr.io/geolens-io/geolens-frontend:1.0.0
-```
-
-The image tags `1.0`, `1`, and `latest` track the current 1.x release line.
-
 ## Try the Themed Demo
 
 GeoLens ships with three themed demo collections — **Planet Earth** (raster + VRT mosaics), **Global Development & People** (indicator choropleths), and **Borders, Boundaries & Contested Space** (geopolitics done carefully) — and nine signature maps that load deterministically with one command:
@@ -58,6 +40,10 @@ GeoLens ships with three themed demo collections — **Planet Earth** (raster + 
 cp .env.demo .env
 docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 ```
+
+<p align="center">
+  <img src="docs/images/geolens-demo-tour.gif" alt="GeoLens demo tour showing map builder, catalog search, and dataset detail" width="900" />
+</p>
 
 After the seeder image build completes (most of the time is the GEBCO 2024 download — ~10–15 minutes on a fast connection, cached on rebuild), open http://localhost:8080 and navigate to **Maps**. The signature stories include:
 
@@ -78,6 +64,25 @@ docker compose -f docker-compose.yml -f docker-compose.demo.yml restart seeder
 ```
 
 Source attribution and licenses for every demo dataset are documented on each dataset's detail page. All bundled data is CC-BY 4.0, ODbL 1.0, or Public Domain.
+
+## Published Artifacts
+
+GeoLens is published through the standard package registries:
+
+```bash
+pip install geolens          # Python SDK
+pip install geolens-cli      # CLI; installs the `geolens` command
+npm install @geolens/sdk     # TypeScript/JavaScript SDK
+```
+
+Prebuilt public runtime images are published to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/geolens-io/geolens-api:latest
+docker pull ghcr.io/geolens-io/geolens-frontend:latest
+```
+
+The image tags `1.0`, `1`, and `latest` track the current 1.x release line.
 
 ## Why GeoLens?
 
@@ -109,8 +114,6 @@ curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=
 ```
 
 Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
-
-See [FEATURES.md](FEATURES.md) for a detailed feature overview.
 
 ## Features
 

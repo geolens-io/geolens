@@ -303,7 +303,7 @@ Publishing runbook (mirrors `docs/sdks.md`):
    - Select `dry_run: true` to build the wheel + sdist without uploading.
    - Select `dry_run: false` for the real publish.
 
-Publishing is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub. The first public CLI release has shipped as `geolens-cli==1.0.0`.
+Publishing is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub. The first public CLI release shipped as `geolens-cli==1.0.0`; patch releases follow the OpenAPI lockstep version.
 
 ## Known Rough Edges
 

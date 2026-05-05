@@ -44,10 +44,12 @@ blob-report/
 tests/load/results/*.csv
 tests/load/results/*.txt
 
-# Internal development (not for public release)
+# Internal development / assistant state (not for public release)
 .planning/
-.claude/*
-!.claude/commands/
+.gsd/
+.claude/
+.agents/
+.codex/
 plans/
 artifacts/
 data/
@@ -56,10 +58,6 @@ todo.md
 smoke-check.md
 cache/
 !backend/app/platform/cache/
-
-# AI assistant working directories
-.agents/
-.codex/
 
 # Internal docs (not for public release)
 docs-internal/

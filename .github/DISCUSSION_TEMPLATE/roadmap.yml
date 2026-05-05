@@ -1,0 +1,24 @@
+title: "[Roadmap] "
+labels: []
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Which workflow should GeoLens improve?
+      description: Describe the catalog, ingest, search, map sharing, OGC/STAC, SDK, or deployment problem.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Who is affected?
+      description: Tell us whether this matters for individual users, small teams, enterprise operators, or public viewers.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would good look like?
+      description: Sketch the behavior, API, or UI outcome you would expect.
+    validations:
+      required: false

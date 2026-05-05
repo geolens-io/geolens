@@ -5,11 +5,33 @@ All notable changes to GeoLens are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+GitHub release notes are generated from this file, so `CHANGELOG.md` is the release-note source of truth.
+
 > **Note on version history.** GeoLens 1.0.0 marks the first public release. Prior to 1.0.0, the project was internally versioned as 2.0 → 14.0 during pre-public development. The legacy entries below 1.0.0 are preserved for historical context only — they do not represent prior public releases. There is no migration path from any pre-1.0.0 version; 1.0.0 is the first version anyone outside the project has run.
 
 ## [Unreleased]
 
 No unreleased changes yet.
+
+## [1.0.1] - 2026-05-04
+
+### Added
+
+- Manifest-driven catalog automation: schema validation, CLI init/validate/apply commands, backend manifest apply endpoint, example manifests, and generated SDK surfaces.
+- Root multi-stage Dockerfile targets for API, worker, and frontend runtime images.
+- Focused CI gates for manifest CLI contracts, backend apply contracts, OpenAPI drift, SDK drift, and published-package verification.
+
+### Changed
+
+- Map and search services were decomposed behind stable facade modules with architecture guards to prevent direct imports of private split modules.
+- Advanced sharing, permission, workflow, AI provider, and embedding provider extension contracts were tightened for the open-core boundary.
+- Documentation now covers CLI manifest workflows, SDK manifest apply support, and CI verification commands.
+
+### Fixed
+
+- Public map raster tile URL resolution for VRT datasets.
+- DEM terrain tiles no longer apply an incorrect rescale path for terrainrgb output.
+- Builder styling test locators were hardened for the labels switch flow.
 
 ## [1.0.0] - 2026-05-03
 
@@ -435,7 +457,8 @@ UPDATE catalog.records
 - JWT authentication with role-based access control
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/geolens-io/geolens/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/geolens-io/geolens/releases/tag/v1.0.0
 [14.0]: https://github.com/geolens-io/geolens/compare/v13.0...v14.0
 [13.0]: https://github.com/geolens-io/geolens/compare/v12.3...v13.0

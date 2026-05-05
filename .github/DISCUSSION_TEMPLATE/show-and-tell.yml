@@ -1,0 +1,24 @@
+title: "[Show and tell] "
+labels: []
+body:
+  - type: textarea
+    id: project
+    attributes:
+      label: What are you building?
+      description: Share the GeoLens workflow, catalog, map, or integration you are working on.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: What data or standards are involved?
+      description: Mention formats, OGC/STAC clients, PostGIS, pgvector, or deployment details if relevant.
+    validations:
+      required: false
+  - type: textarea
+    id: feedback
+    attributes:
+      label: What feedback would help?
+      description: Screenshots, links, or specific questions are welcome.
+    validations:
+      required: false

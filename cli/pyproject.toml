@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geolens-cli"
-version = "1.0.0"
+version = "1.0.1"
 description = "Apache-2.0 command-line interface for the GeoLens API. Login, scan, publish, and export STAC against any GeoLens instance."
 readme = "README.md"
 license = { text = "Apache-2.0" }

@@ -180,7 +180,7 @@ This exercises both SDKs against the in-process FastAPI app (Python: `httpx.ASGI
 
 SDK versions are **lockstep with the backend OpenAPI snapshot**.
 
-The version in `backend/openapi.json` `info.version` (currently `1.0.0`) is the canonical source. `scripts/sync_sdk_versions.py`, run as part of `make sdks`, propagates this to:
+The version in `backend/openapi.json` `info.version` (currently `1.0.1`) is the canonical source. `scripts/sync_sdk_versions.py`, run as part of `make sdks`, propagates this to:
 
 - `sdks/python/pyproject.toml` `[project] version`
 - `sdks/python/.openapi-python-client.yaml` `package_version_override`
@@ -190,7 +190,7 @@ This means SDK 1.4.2 always corresponds to backend 1.4.2 — no version skew, no
 
 ## Publishing
 
-SDK publishing is manual-triggered through GitHub Actions. PyPI uses Trusted Publishing (OIDC), so there is no long-lived `PYPI_TOKEN` secret. npm uses the repository `NPM_TOKEN` secret until npm trusted publishing is GA for this package. The first public release has shipped as `geolens==1.0.0` and `@geolens/sdk==1.0.0`.
+SDK publishing is manual-triggered through GitHub Actions. PyPI uses Trusted Publishing (OIDC), so there is no long-lived `PYPI_TOKEN` secret. npm uses the repository `NPM_TOKEN` secret until npm trusted publishing is GA for this package. The first public release shipped as `geolens==1.0.0` and `@geolens/sdk==1.0.0`; patch releases follow the OpenAPI lockstep version.
 
 ### One-time setup (user actions)
 

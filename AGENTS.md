@@ -37,3 +37,7 @@ Pull requests should describe the change, call out schema/API/config impacts, li
 ## Security & Configuration Tips
 
 Use `.env.example` and `.env.test.example` as templates. Never commit secrets, coverage output, Playwright reports, virtual environments, or dependency directories.
+
+Keep assistant and internal planning state out of git. `.gitignore` must continue to cover `.claude/`, `.codex/`, `.agents/`, `.planning/`, `.gsd/`, and `docs-internal/`; if any of those paths become tracked again, untrack them before public release work continues.
+
+Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. Detailed product docs live on docs.getgeolens.com; do not reintroduce standalone narrative feature docs that duplicate the docs site.
