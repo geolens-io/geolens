@@ -57,6 +57,17 @@ def enterprise_edition(monkeypatch):
     init_edition([])
 
 
+def _quote_database_identifier(db_name: str) -> str:
+    return '"' + db_name.replace('"', '""') + '"'
+
+
+def _session_test_database_name(base_name: str) -> str:
+    suffix = uuid.uuid4().hex[:8]
+    max_base_len = 63 - len(suffix) - 1
+    safe_base = (base_name or "geolens_test")[:max_base_len].rstrip("_")
+    return f"{safe_base or 'geolens'}_{suffix}"
+
+
 def _drop_test_database_if_exists(db_name: str) -> None:
     teardown_engine = sqlalchemy.create_engine(
         settings.database_url_sync, isolation_level="AUTOCOMMIT"
@@ -65,11 +76,14 @@ def _drop_test_database_if_exists(db_name: str) -> None:
         with teardown_engine.connect() as conn:
             conn.execute(
                 text(
-                    f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
-                )
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :db_name AND pid <> pg_backend_pid()"
+                ),
+                {"db_name": db_name},
             )
-            conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
+            conn.execute(
+                text(f"DROP DATABASE IF EXISTS {_quote_database_identifier(db_name)}")
+            )
     except Exception:
         pass
     finally:
@@ -87,158 +101,177 @@ def _test_db_lifecycle():
     unit test runs outside Docker). Tests that require DB will fail with a
     clear connection error; DB-independent tests will run normally.
     """
-    db_name = settings.postgres_db_test
+    original_test_db_name = settings.postgres_db_test
+    db_name = _session_test_database_name(original_test_db_name)
+    settings.postgres_db_test = db_name
+    should_drop_db = False
 
-    # --- Setup: create test database ---
-    dev_engine = sqlalchemy.create_engine(
-        settings.database_url_sync, isolation_level="AUTOCOMMIT"
-    )
     try:
-        with dev_engine.connect() as conn:
-            # Drop if exists for a clean slate
-            conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
-            conn.execute(text(f"CREATE DATABASE {db_name}"))
-        dev_engine.dispose()
-    except Exception:
-        # DB host unreachable — skip full setup; unit tests unaffected
-        dev_engine.dispose()
-        yield
-        return
-
-    # --- Init: extensions, schemas, roles ---
-    test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
-    try:
-        with test_engine_sync.connect() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
-            conn.execute(text("CREATE SCHEMA IF NOT EXISTS catalog"))
-            conn.execute(text("CREATE SCHEMA IF NOT EXISTS data"))
-
-            # Idempotent role grants
-            conn.execute(
-                text(
-                    "DO $$ BEGIN "
-                    "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN "
-                    "CREATE ROLE geolens_reader NOLOGIN; "
-                    "END IF; END $$"
-                )
-            )
-            conn.execute(text("GRANT USAGE ON SCHEMA data TO geolens_reader"))
-            conn.execute(
-                text("GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader")
-            )
-            conn.execute(
-                text(
-                    "ALTER DEFAULT PRIVILEGES IN SCHEMA data "
-                    "GRANT SELECT ON TABLES TO geolens_reader"
-                )
-            )
-            conn.commit()
-    except SQLAlchemyError:
-        # DB is reachable but missing required extensions (for example pgvector).
-        # Let DB-light tests run; DB-backed tests will fail when they request DB fixtures.
-        test_engine_sync.dispose()
-        _drop_test_database_if_exists(db_name)
-        yield
-        return
-    test_engine_sync.dispose()
-
-    # --- Migrate: run alembic against the test database ---
-    from alembic import command
-    from alembic.config import Config as AlembicConfig
-
-    alembic_cfg = AlembicConfig("alembic.ini")
-    alembic_cfg.set_main_option("sqlalchemy.url", settings.test_database_url)
-    # Pre-set version_locations from the geolens.migrations entry-point group
-    # before invoking command.upgrade. The env.py also performs this discovery,
-    # but ScriptDirectory is constructed before env.py runs and caches the
-    # version_locations from the cfg at construction time -- so an env.py-time
-    # mutation does not propagate to the upgrade walk. Setting here ensures
-    # enterprise branch heads (e.g. e002_add_saml_columns) participate in
-    # `heads` (plural) discovery alongside the core head.
-    import pathlib as _pathlib
-    from importlib.metadata import entry_points as _entry_points
-
-    _enterprise_paths: list[str] = []
-    for _ep in _entry_points(group="geolens.migrations"):
+        # --- Setup: create test database ---
+        dev_engine = sqlalchemy.create_engine(
+            settings.database_url_sync, isolation_level="AUTOCOMMIT"
+        )
         try:
-            _fn = _ep.load()
-            if callable(_fn):
-                for _p in _fn():
-                    if _pathlib.Path(_p).is_dir():
-                        _enterprise_paths.append(_p)
+            with dev_engine.connect() as conn:
+                # Drop if exists for a clean slate
+                quoted_db_name = _quote_database_identifier(db_name)
+                conn.execute(text(f"DROP DATABASE IF EXISTS {quoted_db_name}"))
+                conn.execute(text(f"CREATE DATABASE {quoted_db_name}"))
+            should_drop_db = True
         except Exception:
-            pass  # Non-fatal; core migrations still run.
-    if _enterprise_paths:
-        _base_versions = (
-            alembic_cfg.get_main_option("version_locations") or "alembic/versions"
-        )
-        alembic_cfg.set_main_option(
-            "version_locations",
-            _base_versions + " " + " ".join(_enterprise_paths),
-        )
+            # DB host unreachable — skip full setup; unit tests unaffected
+            yield
+            return
+        finally:
+            dev_engine.dispose()
 
-    # Use "heads" (plural) so any enterprise migration branches discovered
-    # above are upgraded alongside core. With community-only installs, "heads"
-    # behaves identically to "head" because there is only one head; with
-    # enterprise installed, this picks up the enterprise branch.
-    command.upgrade(alembic_cfg, "heads")
+        # --- Init: extensions, schemas, roles ---
+        test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
+        try:
+            with test_engine_sync.connect() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+                conn.execute(text("CREATE SCHEMA IF NOT EXISTS catalog"))
+                conn.execute(text("CREATE SCHEMA IF NOT EXISTS data"))
 
-    # --- SAML column bridge (community-only test environments) ---
-    # The four SAML columns on catalog.oauth_providers are normally added by the
-    # enterprise migration e002_add_saml_columns. When geolens-enterprise is NOT
-    # installed, those columns are absent from the test DB. SQLAlchemy still
-    # includes them in INSERTs (deferred=True only suppresses SELECT loading,
-    # not INSERT column lists), causing UndefinedColumnError in any test that
-    # seeds an OAuthProvider row directly.
-    #
-    # This bridge detects the missing columns and adds them idempotently,
-    # mirroring what e002_add_saml_columns does. It only fires when the enterprise
-    # package is absent (i.e. _enterprise_paths is empty), so enterprise CI is
-    # unaffected.
-    if not _enterprise_paths:
-        _saml_bridge_engine = sqlalchemy.create_engine(settings.test_database_url_sync)
-        with _saml_bridge_engine.connect() as _conn:
-            # Check whether idp_entity_id already exists; if not, add all four.
-            _result = _conn.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema = 'catalog' "
-                    "AND table_name = 'oauth_providers' "
-                    "AND column_name = 'idp_entity_id'"
-                )
-            )
-            if _result.fetchone() is None:
-                _conn.execute(
+                # Idempotent role grants
+                conn.execute(
                     text(
-                        "ALTER TABLE catalog.oauth_providers "
-                        "ADD COLUMN IF NOT EXISTS idp_entity_id VARCHAR(512), "
-                        "ADD COLUMN IF NOT EXISTS idp_sso_url VARCHAR(512), "
-                        "ADD COLUMN IF NOT EXISTS idp_certificate TEXT, "
-                        "ADD COLUMN IF NOT EXISTS sp_entity_id VARCHAR(512)"
+                        "DO $$ BEGIN "
+                        "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN "
+                        "CREATE ROLE geolens_reader NOLOGIN; "
+                        "END IF; END $$"
                     )
                 )
-                _conn.commit()
-        _saml_bridge_engine.dispose()
+                conn.execute(text("GRANT USAGE ON SCHEMA data TO geolens_reader"))
+                conn.execute(
+                    text("GRANT SELECT ON ALL TABLES IN SCHEMA data TO geolens_reader")
+                )
+                conn.execute(
+                    text(
+                        "ALTER DEFAULT PRIVILEGES IN SCHEMA data "
+                        "GRANT SELECT ON TABLES TO geolens_reader"
+                    )
+                )
+                conn.commit()
+        except SQLAlchemyError:
+            # DB is reachable but missing required extensions (for example pgvector).
+            # Let DB-light tests run; DB-backed tests will fail when they request DB fixtures.
+            test_engine_sync.dispose()
+            _drop_test_database_if_exists(db_name)
+            should_drop_db = False
+            yield
+            return
+        test_engine_sync.dispose()
 
-    yield
+        # --- Migrate: run alembic against the test database ---
+        from alembic import command
+        from alembic.config import Config as AlembicConfig
 
-    # --- Teardown: drop the test database ---
-    teardown_engine = sqlalchemy.create_engine(
-        settings.database_url_sync, isolation_level="AUTOCOMMIT"
-    )
-    with teardown_engine.connect() as conn:
-        # Terminate active connections before dropping
-        conn.execute(
-            text(
-                f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
+        alembic_cfg = AlembicConfig("alembic.ini")
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.test_database_url)
+        # Pre-set version_locations from the geolens.migrations entry-point group
+        # before invoking command.upgrade. The env.py also performs this discovery,
+        # but ScriptDirectory is constructed before env.py runs and caches the
+        # version_locations from the cfg at construction time -- so an env.py-time
+        # mutation does not propagate to the upgrade walk. Setting here ensures
+        # enterprise branch heads (e.g. e002_add_saml_columns) participate in
+        # `heads` (plural) discovery alongside the core head.
+        import pathlib as _pathlib
+        from importlib.metadata import entry_points as _entry_points
+
+        _enterprise_paths: list[str] = []
+        for _ep in _entry_points(group="geolens.migrations"):
+            try:
+                _fn = _ep.load()
+                if callable(_fn):
+                    for _p in _fn():
+                        if _pathlib.Path(_p).is_dir():
+                            _enterprise_paths.append(_p)
+            except Exception:
+                pass  # Non-fatal; core migrations still run.
+        if _enterprise_paths:
+            _base_versions = (
+                alembic_cfg.get_main_option("version_locations") or "alembic/versions"
             )
-        )
-        conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
-    teardown_engine.dispose()
+            alembic_cfg.set_main_option(
+                "version_locations",
+                _base_versions + " " + " ".join(_enterprise_paths),
+            )
+
+        # Use "heads" (plural) so any enterprise migration branches discovered
+        # above are upgraded alongside core. With community-only installs, "heads"
+        # behaves identically to "head" because there is only one head; with
+        # enterprise installed, this picks up the enterprise branch.
+        command.upgrade(alembic_cfg, "heads")
+
+        # --- SAML column bridge (community-only test environments) ---
+        # The four SAML columns on catalog.oauth_providers are normally added by the
+        # enterprise migration e002_add_saml_columns. When geolens-enterprise is NOT
+        # installed, those columns are absent from the test DB. SQLAlchemy still
+        # includes them in INSERTs (deferred=True only suppresses SELECT loading,
+        # not INSERT column lists), causing UndefinedColumnError in any test that
+        # seeds an OAuthProvider row directly.
+        #
+        # This bridge detects the missing columns and adds them idempotently,
+        # mirroring what e002_add_saml_columns does. It only fires when the enterprise
+        # package is absent (i.e. _enterprise_paths is empty), so enterprise CI is
+        # unaffected.
+        if not _enterprise_paths:
+            _saml_bridge_engine = sqlalchemy.create_engine(
+                settings.test_database_url_sync
+            )
+            with _saml_bridge_engine.connect() as _conn:
+                # Check whether idp_entity_id already exists; if not, add all four.
+                _result = _conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'catalog' "
+                        "AND table_name = 'oauth_providers' "
+                        "AND column_name = 'idp_entity_id'"
+                    )
+                )
+                if _result.fetchone() is None:
+                    _conn.execute(
+                        text(
+                            "ALTER TABLE catalog.oauth_providers "
+                            "ADD COLUMN IF NOT EXISTS idp_entity_id VARCHAR(512), "
+                            "ADD COLUMN IF NOT EXISTS idp_sso_url VARCHAR(512), "
+                            "ADD COLUMN IF NOT EXISTS idp_certificate TEXT, "
+                            "ADD COLUMN IF NOT EXISTS sp_entity_id VARCHAR(512)"
+                        )
+                    )
+                    _conn.commit()
+            _saml_bridge_engine.dispose()
+
+        yield
+
+    finally:
+        if should_drop_db:
+            # --- Teardown: drop the test database ---
+            teardown_engine = sqlalchemy.create_engine(
+                settings.database_url_sync, isolation_level="AUTOCOMMIT"
+            )
+            try:
+                with teardown_engine.connect() as conn:
+                    # Terminate active connections before dropping
+                    conn.execute(
+                        text(
+                            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                            "WHERE datname = :db_name AND pid <> pg_backend_pid()"
+                        ),
+                        {"db_name": db_name},
+                    )
+                    conn.execute(
+                        text(
+                            f"DROP DATABASE IF EXISTS {_quote_database_identifier(db_name)}"
+                        )
+                    )
+            finally:
+                teardown_engine.dispose()
+        settings.postgres_db_test = original_test_db_name
 
 
 @pytest.fixture
@@ -463,11 +496,10 @@ async def test_db_session(client: AsyncClient):
 # Both are large changes deferred to a dedicated PR. The opt-in ``clean_tables``
 # fixture below is provided for tests that need extra determinism today.
 #
-# Concurrent session hazard: the test DB name (``geolens_test``) is fixed, and
-# the session-scoped lifecycle drops + recreates it at start. Running two
-# pytest sessions in parallel against the same target (e.g. an interactive run
-# plus a background regression check) causes cascading fixture errors in the
-# slower session as the DB is dropped out from under it. Serialize runs.
+# Concurrent pytest sessions are isolated by suffixing the configured
+# ``POSTGRES_DB_TEST`` base name once per session. Each run drops only its own
+# physical database during teardown, so background and interactive runs can
+# target the same Postgres server without cross-contamination.
 
 
 @pytest.fixture(autouse=True)
