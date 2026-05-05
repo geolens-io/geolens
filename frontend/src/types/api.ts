@@ -880,6 +880,29 @@ export interface MapLayerInput {
   show_in_legend?: boolean;
 }
 
+export interface MapLayerPatch {
+  id: string;
+  sort_order?: number;
+  visible?: boolean;
+  opacity?: number;
+  paint?: Record<string, unknown> | null;
+  layout?: Record<string, unknown> | null;
+  display_name?: string | null;
+  filter?: FilterSpecification | null;
+  label_config?: LabelConfig | null;
+  popup_config?: PopupConfig | null;
+  style_config?: StyleConfig | null;
+  layer_type?: MapLayerType | null;
+  show_in_legend?: boolean;
+}
+
+export interface MapLayerDiffRequest {
+  added?: MapLayerInput[];
+  updated?: MapLayerPatch[];
+  removed?: string[];
+  order?: string[] | null;
+}
+
 export interface VisibilityCheckResponse {
   non_public_datasets: string[];
   has_non_public: boolean;

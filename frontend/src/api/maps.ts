@@ -5,6 +5,7 @@ import type {
   MapListResponse,
   MapCreateRequest,
   MapUpdateRequest,
+  MapLayerDiffRequest,
   MapLayerResponse,
   MapLayerInput,
   SharedMapResponse,
@@ -71,6 +72,24 @@ export async function updateMap(
     method: 'PUT',
     body: JSON.stringify(data),
   });
+}
+
+export async function patchMapLayers(
+  id: string,
+  diff: MapLayerDiffRequest,
+): Promise<MapResponse> {
+  const resp = await apiFetch<MapResponse>(`/maps/${id}/layers`, {
+    method: 'PATCH',
+    body: JSON.stringify(diff),
+  });
+  if (resp.layers) {
+    for (const l of resp.layers) {
+      const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.dataset_geometry_type);
+      l.style_config = normalized.style_config;
+      l.paint = normalized.paint;
+    }
+  }
+  return resp;
 }
 
 export async function duplicateMap(mapId: string): Promise<DuplicateMapResponse> {

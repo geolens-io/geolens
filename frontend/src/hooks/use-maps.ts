@@ -5,6 +5,7 @@ import {
   getMap,
   createMap,
   updateMap,
+  patchMapLayers,
   deleteMap,
   addLayerToMapApi,
   removeLayerFromMapApi,
@@ -20,7 +21,7 @@ import {
   fetchColumnStats,
   fetchDatasetMaps,
 } from '@/api/maps';
-import type { MapUpdateRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
+import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 
@@ -68,6 +69,24 @@ export function useUpdateMap() {
     onError: (err: unknown) => {
       // Surface backend validator messages (e.g. popup_config: "expression
       // must be 500 characters or fewer") so the user sees the specific cause.
+      const detail = err instanceof Error ? err.message : null;
+      toast.error(detail
+        ? i18n.t('builder:toasts.saveFailedWithDetail', { detail })
+        : i18n.t('builder:toasts.saveFailed'));
+    },
+  });
+}
+
+export function usePatchMapLayers() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, diff }: { id: string; diff: MapLayerDiffRequest }) =>
+      patchMapLayers(id, diff),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+    },
+    onError: (err: unknown) => {
       const detail = err instanceof Error ? err.message : null;
       toast.error(detail
         ? i18n.t('builder:toasts.saveFailedWithDetail', { detail })
