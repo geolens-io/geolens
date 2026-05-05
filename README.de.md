@@ -77,11 +77,10 @@ pip install geolens-cli      # CLI; installiert den Befehl `geolens`
 npm install @geolens/sdk     # TypeScript/JavaScript SDK
 ```
 
-Oeffentliche Runtime-Images in GitHub Container Registry:
+Oeffentliche API- und Frontend-Images in GitHub Container Registry:
 
 ```bash
 docker pull ghcr.io/geolens-io/geolens-api:latest
-docker pull ghcr.io/geolens-io/geolens-worker:latest
 docker pull ghcr.io/geolens-io/geolens-frontend:latest
 ```
 

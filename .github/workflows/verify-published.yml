@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  VERIFY_VERSION: ${{ inputs.version || 'latest' }}
+  VERIFY_VERSION: ${{ inputs.version || (github.ref_type == 'tag' && github.ref_name) || 'latest' }}
 
 jobs:
   verify-python:
@@ -36,8 +36,9 @@ jobs:
             SDK_SPEC="geolens"
             CLI_SPEC="geolens-cli"
           else
-            SDK_SPEC="geolens==${VERSION}"
-            CLI_SPEC="geolens-cli==${VERSION}"
+            PACKAGE_VERSION="${VERSION#v}"
+            SDK_SPEC="geolens==${PACKAGE_VERSION}"
+            CLI_SPEC="geolens-cli==${PACKAGE_VERSION}"
           fi
 
           docker run --rm \
@@ -60,7 +61,8 @@ jobs:
           if [ "${VERSION}" = "latest" ]; then
             SDK_SPEC="@geolens/sdk"
           else
-            SDK_SPEC="@geolens/sdk@${VERSION}"
+            PACKAGE_VERSION="${VERSION#v}"
+            SDK_SPEC="@geolens/sdk@${PACKAGE_VERSION}"
           fi
 
           docker run --rm \
@@ -77,14 +79,14 @@ jobs:
     name: Verify GHCR images
     runs-on: ubuntu-latest
     steps:
-      - name: docker pull public runtime images
+      - name: docker pull public API and frontend images
         env:
           VERSION: ${{ env.VERIFY_VERSION }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          docker pull "ghcr.io/${OWNER}/geolens-api:${VERSION}"
-          docker pull "ghcr.io/${OWNER}/geolens-worker:${VERSION}"
-          docker pull "ghcr.io/${OWNER}/geolens-frontend:${VERSION}"
+          IMAGE_TAG="${VERSION#v}"
+          docker pull "ghcr.io/${OWNER}/geolens-api:${IMAGE_TAG}"
+          docker pull "ghcr.io/${OWNER}/geolens-frontend:${IMAGE_TAG}"
 
   verify-github-release:
     name: Verify GitHub Release
