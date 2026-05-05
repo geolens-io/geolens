@@ -414,7 +414,13 @@ async def _handle_search(
     links = [
         OGCRecordLink(
             rel="self",
-            href=build_url(base_path, base_url=public_api_url),
+            href=_build_pagination_url(
+                public_api_url,
+                base_path,
+                active_params,
+                offset=params.offset,
+                limit=params.limit,
+            ),
             type="application/geo+json",
         ),
         OGCRecordLink(

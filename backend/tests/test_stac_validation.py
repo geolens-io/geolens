@@ -115,7 +115,7 @@ class TestPystacRoundtrip:
 
         # Re-serialize and verify structure preserved (transform_hrefs=False avoids link resolution)
         roundtripped = item.to_dict(include_self_link=False, transform_hrefs=False)
-        # pystac may normalize stac_version to its own default (e.g. 1.1.0);
+        # pystac may normalize stac_version to its own library default;
         # verify the field exists and roundtrip preserves structure
         assert "stac_version" in roundtripped
         assert "assets" in roundtripped

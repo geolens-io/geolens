@@ -1,6 +1,7 @@
 """Integration tests for STAC API endpoints (landing, conformance, collections, search)."""
 
 import uuid
+from urllib.parse import parse_qs, urlparse
 
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,14 @@ from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
+
+
+def _find_link(links: list[dict], rel: str) -> dict | None:
+    """Find a link by rel value in a links list."""
+    for link in links:
+        if link["rel"] == rel:
+            return link
+    return None
 
 
 async def _create_raster_dataset(
@@ -184,12 +193,19 @@ class TestSTACSearch:
         assert data["type"] == "FeatureCollection"
 
     async def test_search_with_bbox(self, client: AsyncClient):
-        """GET /stac/search?bbox= filters by bounding box."""
+        """GET /stac/search?bbox= filters by bounding box and preserves params."""
         resp = await client.get(
             "/stac/search",
             params={"bbox": "-180,-90,180,90", "limit": 5},
         )
         assert resp.status_code == 200
+        data = resp.json()
+        self_link = _find_link(data["links"], "self")
+        assert self_link is not None
+        qs = parse_qs(urlparse(self_link["href"]).query)
+        assert qs["bbox"] == ["-180,-90,180,90"]
+        assert qs["limit"] == ["5"]
+        assert qs["offset"] == ["0"]
 
     async def test_search_with_limit(self, client: AsyncClient):
         """GET /stac/search?limit=1 returns at most 1 item."""

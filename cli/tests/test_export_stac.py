@@ -23,7 +23,7 @@ import pytest
 
 SAMPLE_STAC: dict = {
     "type": "Feature",
-    "stac_version": "1.1.0",
+    "stac_version": "1.0.0",
     "id": "ds-1",
     "geometry": {
         "type": "Polygon",
@@ -180,7 +180,7 @@ class TestExportStacCli:
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
         assert payload["id"] == "ds-1"
-        assert payload["stac_version"] == "1.1.0"
+        assert payload["stac_version"] == "1.0.0"
 
     def test_vector_rejected_with_exit_2(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

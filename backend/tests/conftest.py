@@ -515,7 +515,7 @@ def saml_overlay_registered():
     The ``geolens_enterprise`` import is deferred (inside the fixture body)
     so test collection does not require the enterprise package to be
     installed -- collection still succeeds in community-only environments;
-    only tests that actually request this fixture will fail with ImportError.
+    tests that request this fixture are skipped when the overlay is absent.
     """
     from app.platform.extensions import _extensions, _routers
 
@@ -523,13 +523,19 @@ def saml_overlay_registered():
     saved_routers = list(_routers)
     try:
         # Deferred import so collection does not require the enterprise package
-        from geolens_enterprise.auth.saml import EnterpriseSamlExtension
-        from geolens_enterprise.auth.saml.router import router as saml_router
+        saml_module = pytest.importorskip(
+            "geolens_enterprise.auth.saml",
+            reason="geolens_enterprise package is not installed",
+        )
+        saml_router_module = pytest.importorskip(
+            "geolens_enterprise.auth.saml.router",
+            reason="geolens_enterprise package is not installed",
+        )
 
-        ext = EnterpriseSamlExtension()
+        ext = saml_module.EnterpriseSamlExtension()
         _extensions["auth"] = ext
         _extensions["identity"] = ext
-        _routers.append(saml_router)
+        _routers.append(saml_router_module.router)
         yield ext
     finally:
         _extensions.clear()

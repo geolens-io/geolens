@@ -83,7 +83,7 @@ def build_assets(
             }
             assets["ogc_features"] = {
                 "href": build_url(
-                    f"/datasets/{dataset.id}/features/",
+                    f"/collections/{dataset.id}/items",
                     base_url=public_api_url,
                 ),
                 "type": "application/geo+json",

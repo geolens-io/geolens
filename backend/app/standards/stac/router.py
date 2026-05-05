@@ -628,7 +628,11 @@ async def get_collection_items(
         active_params["datetime"] = datetime_param
 
     links = [
-        StacLink(rel="self", href=base_href, type="application/geo+json"),
+        StacLink(
+            rel="self",
+            href=_stac_page_url(base_href, offset, limit, active_params),
+            type="application/geo+json",
+        ),
         StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
         StacLink(
             rel="collection",
@@ -882,7 +886,11 @@ def _build_search_links(
         )
 
     links = [
-        StacLink(rel="self", href=search_href, type="application/geo+json"),
+        StacLink(
+            rel="self",
+            href=_stac_page_url(search_href, offset, limit, active_params),
+            type="application/geo+json",
+        ),
         StacLink(rel="root", href=f"{stac_api_url}/", type="application/json"),
     ]
     if offset + limit < matched:

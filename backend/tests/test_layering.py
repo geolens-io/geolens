@@ -69,8 +69,39 @@ from pathlib import Path
 
 import pytest
 
-# backend/tests/test_layering.py -> backend/tests -> backend -> <repo root>
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def _discover_repo_roots() -> tuple[Path, Path]:
+    """Return (repo_root, backend_root) for host and backend-container layouts."""
+    test_file = Path(__file__).resolve()
+    for candidate in test_file.parents:
+        if (candidate / "backend/app").is_dir():
+            return candidate, candidate / "backend"
+        if (candidate / "app").is_dir() and (candidate / "tests").is_dir():
+            return candidate.parent, candidate
+    # Fallback for the historical backend/tests/test_layering.py layout.
+    return test_file.parents[2], test_file.parents[1]
+
+
+REPO_ROOT, BACKEND_ROOT = _discover_repo_roots()
+
+
+def _backend_path(rel: str) -> Path:
+    """Resolve a path relative to backend/ in both host and container runs."""
+    return BACKEND_ROOT / rel
+
+
+def _repo_style_rel(path: Path) -> str:
+    """Render paths with the repository's backend/... prefix for stable messages."""
+    try:
+        return f"backend/{path.relative_to(BACKEND_ROOT).as_posix()}"
+    except ValueError:
+        return path.relative_to(REPO_ROOT).as_posix()
+
+
+def _repo_style_path(rel: str) -> Path:
+    """Resolve repository-style relative paths in host and backend-container runs."""
+    if rel.startswith("backend/"):
+        return _backend_path(rel.removeprefix("backend/"))
+    return REPO_ROOT / rel
 
 
 def _has_git_metadata() -> bool:
@@ -114,7 +145,7 @@ def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
 
 
 def _iter_backend_app_python_files() -> list[Path]:
-    return sorted((REPO_ROOT / "backend/app").rglob("*.py"))
+    return sorted((BACKEND_ROOT / "app").rglob("*.py"))
 
 
 def _normalized_import_root(name: str | None) -> str:
@@ -126,7 +157,7 @@ def _normalized_import_root(name: str | None) -> str:
 
 
 def _is_allowed_private_service_importer(path: Path, package_path: str) -> bool:
-    rel = path.relative_to(REPO_ROOT).as_posix()
+    rel = _repo_style_rel(path)
     return rel == f"{package_path}/service.py" or (
         rel.startswith(f"{package_path}/service_") and rel.endswith(".py")
     )
@@ -145,7 +176,7 @@ def _private_service_import_offenders(
         if _is_allowed_private_service_importer(path, package_path):
             continue
 
-        rel = path.relative_to(REPO_ROOT).as_posix()
+        rel = _repo_style_rel(path)
         try:
             tree = ast.parse(path.read_text(), filename=rel)
         except SyntaxError as exc:
@@ -338,8 +369,8 @@ def test_permission_chokepoints_use_extension() -> None:
     - ``require_permission()`` delegates capability decisions.
     - catalog visibility helpers delegate list filtering and detail access.
     """
-    auth_path = REPO_ROOT / "backend/app/modules/auth/dependencies.py"
-    catalog_path = REPO_ROOT / "backend/app/modules/catalog/authorization.py"
+    auth_path = _backend_path("app/modules/auth/dependencies.py")
+    catalog_path = _backend_path("app/modules/catalog/authorization.py")
 
     auth_source = auth_path.read_text()
     catalog_source = catalog_path.read_text()
@@ -356,7 +387,7 @@ def test_permission_chokepoints_use_extension() -> None:
             "Phase 232 PERM-05 invariant violated: require_permission() must "
             "delegate capability decisions to PermissionExtension. Expected "
             "get_permission_extension().check_permission(...) in "
-            f"{auth_path.relative_to(REPO_ROOT)}."
+            f"{_repo_style_rel(auth_path)}."
         )
 
     apply_visibility_idx = catalog_source.find("def apply_visibility_filter")
@@ -374,7 +405,7 @@ def test_permission_chokepoints_use_extension() -> None:
             "Phase 232 PERM-05 invariant violated: apply_visibility_filter() "
             "must delegate query filtering to PermissionExtension. Expected "
             "get_permission_extension().filter_visible(...) in "
-            f"{catalog_path.relative_to(REPO_ROOT)}."
+            f"{_repo_style_rel(catalog_path)}."
         )
 
     access_idx = catalog_source.find("async def check_dataset_access_or_anonymous")
@@ -389,7 +420,7 @@ def test_permission_chokepoints_use_extension() -> None:
             "Phase 232 PERM-05 invariant violated: dataset detail access must "
             "delegate access decisions to PermissionExtension. Expected "
             "get_permission_extension().can_access_dataset(...) in "
-            f"{catalog_path.relative_to(REPO_ROOT)}."
+            f"{_repo_style_rel(catalog_path)}."
         )
 
 
@@ -401,9 +432,9 @@ def test_workflow_publication_chokepoints_use_extension() -> None:
     plus the metadata PATCH record_status helper, and it does not scan seed,
     ingest, or factory paths that assign initial record_status values.
     """
-    router_path = REPO_ROOT / "backend/app/modules/catalog/datasets/api/router_data.py"
-    metadata_path = (
-        REPO_ROOT / "backend/app/modules/catalog/datasets/domain/service_metadata.py"
+    router_path = _backend_path("app/modules/catalog/datasets/api/router_data.py")
+    metadata_path = _backend_path(
+        "app/modules/catalog/datasets/domain/service_metadata.py"
     )
 
     router_source = router_path.read_text()
@@ -433,7 +464,7 @@ def test_workflow_publication_chokepoints_use_extension() -> None:
                 "WorkflowExtension. Expected get_workflow_extension(), "
                 "WorkflowTransitionContext, allowed_transitions(...), "
                 f"on_transition(...), and {mode} in "
-                f"{router_path.relative_to(REPO_ROOT)}."
+                f"{_repo_style_rel(router_path)}."
             )
 
     metadata_idx = metadata_source.find("async def _apply_record_status_change")
@@ -454,7 +485,7 @@ def test_workflow_publication_chokepoints_use_extension() -> None:
             "get_workflow_extension(), WorkflowTransitionContext, "
             "allowed_transitions(...), on_transition(...), and "
             'mode="metadata_patch" in '
-            f"{metadata_path.relative_to(REPO_ROOT)}."
+            f"{_repo_style_rel(metadata_path)}."
         )
 
 
@@ -722,17 +753,17 @@ def test_maps_search_service_modules_stay_within_size_budgets() -> None:
 
     files_to_check = list(facade_line_budgets)
     files_to_check.extend(
-        path.relative_to(REPO_ROOT).as_posix()
+        _repo_style_rel(path)
         for root in (
-            REPO_ROOT / "backend/app/modules/catalog/maps",
-            REPO_ROOT / "backend/app/modules/catalog/search",
+            _backend_path("app/modules/catalog/maps"),
+            _backend_path("app/modules/catalog/search"),
         )
         for path in sorted(root.glob("service_*.py"))
     )
 
     violations: list[str] = []
     for rel in sorted(set(files_to_check)):
-        line_count = len((REPO_ROOT / rel).read_text().splitlines())
+        line_count = len(_repo_style_path(rel).read_text().splitlines())
         if rel in facade_line_budgets:
             cap = facade_line_budgets[rel]
         else:
@@ -1175,7 +1206,7 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
 
 
 def _manifest_backend_files() -> list[Path]:
-    manifest_dir = REPO_ROOT / "backend/app/processing/ingest"
+    manifest_dir = _backend_path("app/processing/ingest")
     return sorted(manifest_dir.glob("manifest_*.py"))
 
 
@@ -1219,7 +1250,7 @@ def test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports() -> None:
 
     offenders: list[str] = []
     for path in _manifest_backend_files():
-        rel = path.relative_to(REPO_ROOT).as_posix()
+        rel = _repo_style_rel(path)
         source = path.read_text()
         try:
             tree = ast.parse(source, filename=rel)
@@ -1244,9 +1275,9 @@ def test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports() -> None:
 def test_manifest_apply_router_uses_upload_permission() -> None:
     """Phase 243 INGEST-03: manifest apply reuses the existing upload permission."""
 
-    router_path = REPO_ROOT / "backend/app/processing/ingest/manifest_router.py"
+    router_path = _backend_path("app/processing/ingest/manifest_router.py")
     source = router_path.read_text()
-    tree = ast.parse(source, filename=router_path.relative_to(REPO_ROOT).as_posix())
+    tree = ast.parse(source, filename=_repo_style_rel(router_path))
 
     permissions: list[str] = []
     for node in ast.walk(tree):

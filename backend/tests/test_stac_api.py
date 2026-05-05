@@ -5,6 +5,7 @@ and parameter parsing without requiring a running database.
 """
 
 import uuid
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import AsyncClient
@@ -16,6 +17,14 @@ from app.standards.stac.schemas import (
     StacLink,
 )
 from app.standards.stac.serializer import STAC_CONFORMANCE
+
+
+def _find_link(links: list[dict], rel: str) -> dict | None:
+    """Find a link by rel value in a links list."""
+    for link in links:
+        if link["rel"] == rel:
+            return link
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +71,7 @@ class TestStacCatalog:
         assert len(catalog.conformsTo) == 4
 
     def test_catalog_default_values(self):
-        """StacCatalog defaults: type=Catalog, stac_version=1.1.0."""
+        """StacCatalog defaults: type=Catalog, stac_version=1.0.0."""
         catalog = StacCatalog(
             id="x",
             title="X",
@@ -220,3 +229,36 @@ async def test_get_collection_items_empty(client: AsyncClient, test_db_session):
     assert data["numberMatched"] == 0
     assert data["numberReturned"] == 0
     assert data["features"] == []
+
+
+@pytest.mark.anyio
+async def test_collection_items_self_link_preserves_active_params(
+    client: AsyncClient, test_db_session
+):
+    """STAC collection items self link preserves active filter params."""
+    from app.modules.catalog.collections.models import Collection
+
+    coll = Collection(name="Filtered STAC Collection", description="No items")
+    test_db_session.add(coll)
+    await test_db_session.commit()
+    await test_db_session.refresh(coll)
+
+    resp = await client.get(
+        f"/stac/collections/{coll.id}/items",
+        params={
+            "bbox": "-180,-90,180,90",
+            "datetime": "2024-01-01/2024-12-31",
+            "limit": 1,
+            "offset": 2,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    self_link = _find_link(data["links"], "self")
+    assert self_link is not None
+    qs = parse_qs(urlparse(self_link["href"]).query)
+    assert qs["bbox"] == ["-180,-90,180,90"]
+    assert qs["datetime"] == ["2024-01-01/2024-12-31"]
+    assert qs["limit"] == ["1"]
+    assert qs["offset"] == ["2"]
