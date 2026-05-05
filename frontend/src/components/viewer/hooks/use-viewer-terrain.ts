@@ -1,98 +1,83 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { SharedLayerResponse } from '@/types/api';
-
-/** Pre-seed the raster-dem terrain source if it doesn't already exist. */
-function seedTerrainSource(map: MaplibreMap, tileUrl: string) {
-  if (!map.getSource('terrain-dem')) {
-    map.addSource('terrain-dem', {
-      type: 'raster-dem',
-      tiles: [`${window.location.origin}${tileUrl}`],
-      tileSize: 256,
-      encoding: 'mapbox',
-    });
-  }
-}
+import {
+  ensureRasterDemTerrainSource,
+  isTerrainCapableDemLayer,
+  normalizeTerrainExaggeration,
+  TERRAIN_SOURCE_ID,
+} from '@/components/builder/map-sync';
+import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 
 /**
- * Manages terrain source seeding, terrain toggle pitch animation,
- * and basemap-swap terrain re-seeding for the viewer map.
+ * Applies persisted shared-map terrain configuration to the viewer map.
+ * The built-in TerrainControl remains a local viewer toggle only; persisted
+ * source/exaggeration state comes from the saved map payload.
  */
 export function useViewerTerrain({
   layers,
   mapRef,
   mapReady,
+  terrainConfig,
 }: {
   layers: SharedLayerResponse[];
   mapRef: React.RefObject<MaplibreMap | null>;
   mapReady: boolean;
+  terrainConfig?: MapTerrainConfig | null;
 }) {
   const [terrainReady, setTerrainReady] = useState(false);
-  const terrainActiveRef = useRef(false);
 
-  // Find the first DEM raster layer in the shared map composition
-  const demLayer = useMemo(
-    () => layers.find((l) => l.is_dem && (l.dataset_record_type === 'raster_dataset' || l.dataset_record_type === 'vrt_dataset')),
-    [layers],
+  const terrainLayer = useMemo(
+    () => terrainConfig?.source_dataset_id
+      ? layers.find(
+        (layer) => layer.dataset_id === terrainConfig.source_dataset_id && isTerrainCapableDemLayer(layer),
+      ) ?? null
+      : null,
+    [layers, terrainConfig?.source_dataset_id],
   );
 
-  // Tile URL for the DEM source — used to seed the raster-dem terrain source
-  const demTileUrl = useMemo(() => demLayer?.tile_url ?? null, [demLayer]);
+  const terrainStateRef = useRef({ terrainConfig, terrainLayer });
+  terrainStateRef.current = { terrainConfig, terrainLayer };
 
-  // Keep a stable ref to demTileUrl so style.load (registered once) sees latest value
-  const demTileUrlRef = useRef(demTileUrl);
-  demTileUrlRef.current = demTileUrl;
-
-  // Pre-seed the raster-dem terrain source when the map is ready and a DEM layer is present.
-  // The source exists but terrain is NOT enabled until the user clicks TerrainControl.
-  useEffect(() => {
+  const applyTerrain = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !demTileUrl) {
+    if (!map || !map.isStyleLoaded()) {
       setTerrainReady(false);
       return;
     }
-    seedTerrainSource(map, demTileUrl);
-    setTerrainReady(true);
-  }, [mapReady, demTileUrl, mapRef]);
 
-  // Listen for the 'terrain' event to drive pitch animation when TerrainControl toggles.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-
-    const onTerrain = () => {
-      const active = map.getTerrain() != null;
-      terrainActiveRef.current = active;
-      if (active) {
-        map.easeTo({ pitch: 45, duration: 300, easing: (t: number) => t * (2 - t) });
-      } else {
-        map.easeTo({ pitch: 0, bearing: 0, duration: 300, easing: (t: number) => t * (2 - t) });
-      }
-    };
-
-    map.on('terrain', onTerrain);
-    return () => { map.off('terrain', onTerrain); };
-  }, [mapReady, mapRef]);
-
-  /** Re-seed terrain after a basemap/style swap (call from style.load handler). */
-  const reseedTerrainOnStyleLoad = () => {
-    const currentDemTileUrl = demTileUrlRef.current;
-    if (currentDemTileUrl) {
-      const m = mapRef.current;
-      if (!m) return;
-      // SH-10: Wait for map idle instead of arbitrary setTimeout
-      m.once('idle', () => {
-        const map = mapRef.current;
-        if (!map) return;
-        seedTerrainSource(map, currentDemTileUrl);
-        setTerrainReady(true);
-        // Re-enable terrain if it was active before the basemap swap
-        if (terrainActiveRef.current) {
-          map.setTerrain({ source: 'terrain-dem' });
-        }
-      });
+    const { terrainConfig: currentTerrainConfig, terrainLayer: currentTerrainLayer } = terrainStateRef.current;
+    if (!currentTerrainConfig?.enabled || !currentTerrainLayer?.tile_url) {
+      map.setTerrain(null);
+      setTerrainReady(false);
+      return;
     }
-  };
+
+    ensureRasterDemTerrainSource(map, currentTerrainLayer.tile_url);
+    map.setTerrain({
+      source: TERRAIN_SOURCE_ID,
+      exaggeration: normalizeTerrainExaggeration(currentTerrainConfig.exaggeration),
+    });
+    setTerrainReady(true);
+  }, [mapRef]);
+
+  useEffect(() => {
+    if (!mapReady) {
+      setTerrainReady(false);
+      return;
+    }
+    applyTerrain();
+  }, [
+    applyTerrain,
+    mapReady,
+    terrainConfig?.enabled,
+    terrainConfig?.source_dataset_id,
+    terrainConfig?.exaggeration,
+    terrainLayer?.tile_url,
+  ]);
+
+  const reseedTerrainOnStyleLoad = useCallback(() => {
+    applyTerrain();
+  }, [applyTerrain]);
 
   return { terrainReady, reseedTerrainOnStyleLoad };
 }

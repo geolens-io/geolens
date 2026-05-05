@@ -141,6 +141,7 @@ export function PublicViewerPage() {
           basemapStyle={basemapId ?? data.basemap_style}
           basemapOverride={basemapId !== null}
           showBasemapLabels={data.show_basemap_labels ?? true}
+          terrainConfig={data.terrain_config ?? null}
           initialViewState={viewState}
           visibleLayers={visibleLayers}
           apiKey={apiKey}

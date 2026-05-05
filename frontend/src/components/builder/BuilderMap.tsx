@@ -15,10 +15,21 @@ import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import type { VectorTileSource } from 'maplibre-gl';
-import { syncLayersToMap, toSyncInput, reorderBasemapLabels, reorderDataLayers, getSourceId, getLayerId } from './map-sync';
+import {
+  syncLayersToMap,
+  toSyncInput,
+  reorderBasemapLabels,
+  reorderDataLayers,
+  getSourceId,
+  getLayerId,
+  ensureRasterDemTerrainSource,
+  isTerrainCapableDemLayer,
+  normalizeTerrainExaggeration,
+  TERRAIN_SOURCE_ID,
+} from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -44,6 +55,7 @@ interface BuilderMapProps {
     bearing?: number;
     pitch?: number;
   };
+  terrainConfig?: MapTerrainConfig | null;
   onMapRef?: (map: MaplibreMap | null) => void;
   showBasemapLabels?: boolean;
   /** Called when the user clicks a map feature. `null` when clicking empty space. */
@@ -54,6 +66,7 @@ export const BuilderMap = memo(function BuilderMap({
   layers,
   basemapStyle,
   initialViewState,
+  terrainConfig = null,
   onMapRef,
   showBasemapLabels = true,
   onFeatureSelect,
@@ -124,6 +137,43 @@ export const BuilderMap = memo(function BuilderMap({
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetIds.join(','), tokenSig]);
+
+  const terrainStateRef = useRef({ terrainConfig, layers, tokenMap });
+  terrainStateRef.current = { terrainConfig, layers, tokenMap };
+
+  const applyTerrainConfig = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    const { terrainConfig: currentTerrainConfig, layers: currentLayers, tokenMap: currentTokenMap } = terrainStateRef.current;
+    if (!currentTerrainConfig?.enabled || !currentTerrainConfig.source_dataset_id) {
+      map.setTerrain(null);
+      return;
+    }
+
+    const demLayer = currentLayers.find(
+      (layer) => layer.dataset_id === currentTerrainConfig.source_dataset_id && isTerrainCapableDemLayer(layer),
+    );
+    const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
+    if (!demLayer || token?.kind !== 'raster') {
+      map.setTerrain(null);
+      return;
+    }
+
+    ensureRasterDemTerrainSource(map, token.tile_url, {
+      tileSize: token.tile_size,
+      minzoom: token.minzoom,
+      maxzoom: token.maxzoom,
+    });
+    map.setTerrain({
+      source: TERRAIN_SOURCE_ID,
+      exaggeration: normalizeTerrainExaggeration(currentTerrainConfig.exaggeration),
+    });
+  }, []);
+
+  const terrainLayerKey = layers
+    .map((layer) => `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}`)
+    .join(',');
 
   // Keep a ref to the latest sync inputs so style.load handler can access them
   const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels });
@@ -221,6 +271,7 @@ export const BuilderMap = memo(function BuilderMap({
       lastOrderKeyRef.current = '';
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
       syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels: sbl });
+      applyTerrainConfig();
       refreshQueryLayerIds();
     };
 
@@ -229,7 +280,7 @@ export const BuilderMap = memo(function BuilderMap({
       map.off('style.load', onStyleLoad);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshQueryLayerIds is stable; [mapReady] is the only structural trigger
-  }, [mapReady]);
+  }, [mapReady, applyTerrainConfig]);
 
   // Helper: refresh the cached list of queryable layer IDs.
   // Called after every syncLayersToMap so the click/hover handlers
@@ -381,9 +432,22 @@ export const BuilderMap = memo(function BuilderMap({
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
     syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels });
+    applyTerrainConfig();
     refreshQueryLayerIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tokenMap handled by separate token-refresh effect (P-05)
   }, [structuralKey, mapReady, tileConfig?.cdn_base_url]);
+
+  useEffect(() => {
+    applyTerrainConfig();
+  }, [
+    applyTerrainConfig,
+    mapReady,
+    terrainConfig?.enabled,
+    terrainConfig?.source_dataset_id,
+    terrainConfig?.exaggeration,
+    terrainLayerKey,
+    tokenSig,
+  ]);
 
   // Reorder basemap labels — only when showBasemapLabels actually changes.
   // Data labels must be re-stacked above basemap labels after toggling.

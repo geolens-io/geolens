@@ -22,6 +22,70 @@ export {
   stripCustomProps,
 } from './layer-adapters/shared';
 
+export const TERRAIN_SOURCE_ID = 'terrain-dem';
+
+export function isTerrainCapableDemLayer(layer: {
+  is_dem?: boolean | null;
+  dataset_record_type?: string | null;
+}) {
+  return layer.is_dem === true
+    && (layer.dataset_record_type === 'raster_dataset' || layer.dataset_record_type === 'vrt_dataset');
+}
+
+export function normalizeTerrainExaggeration(value: number | null | undefined) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(value as number, 0), 10);
+}
+
+function absolutizeTileUrl(tileUrl: string) {
+  if (tileUrl.startsWith('http')) return tileUrl;
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  return `${origin}${tileUrl}`;
+}
+
+function sourceTiles(source: unknown): string[] {
+  const direct = (source as { tiles?: string[] } | null)?.tiles;
+  if (Array.isArray(direct)) return direct;
+  const serialized = (source as { serialize?: () => { tiles?: string[] } } | null)?.serialize?.();
+  return Array.isArray(serialized?.tiles) ? serialized.tiles : [];
+}
+
+export function ensureRasterDemTerrainSource(
+  map: MaplibreMap,
+  tileUrl: string,
+  options: {
+    sourceId?: string;
+    tileSize?: number | null;
+    minzoom?: number | null;
+    maxzoom?: number | null;
+  } = {},
+) {
+  const sourceId = options.sourceId ?? TERRAIN_SOURCE_ID;
+  const absoluteTileUrl = absolutizeTileUrl(tileUrl);
+  const existing = map.getSource(sourceId) as { type?: string } | undefined;
+  const existingTiles = existing ? sourceTiles(existing) : [];
+  const shouldReplace = existing
+    && (existing.type !== 'raster-dem' || existingTiles[0] !== absoluteTileUrl);
+
+  if (shouldReplace) {
+    map.setTerrain(null);
+    map.removeSource(sourceId);
+  }
+
+  if (!map.getSource(sourceId)) {
+    map.addSource(sourceId, {
+      type: 'raster-dem',
+      tiles: [absoluteTileUrl],
+      tileSize: options.tileSize ?? 256,
+      minzoom: options.minzoom ?? 0,
+      maxzoom: options.maxzoom ?? 18,
+      encoding: 'mapbox',
+    });
+  }
+
+  return sourceId;
+}
+
 // ---------------------------------------------------------------------------
 // Normalized layer input — allows both Builder and Viewer to call syncLayersToMap
 // ---------------------------------------------------------------------------

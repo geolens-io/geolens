@@ -330,6 +330,16 @@
     "showLabels": "Show place labels",
     "blank": "None"
   },
+  "terrain": {
+    "title": "Terrain",
+    "enabled": "Enable terrain",
+    "source": "DEM source",
+    "sourcePlaceholder": "Select DEM",
+    "exaggeration": "Exaggeration",
+    "noDem": "Add a DEM raster layer to enable terrain.",
+    "unitsUnknown": "Vertical units are unavailable; exaggeration is approximate.",
+    "unitsNonMeter": "Vertical units are {{unit}}, not meters; exaggeration is approximate."
+  },
   "featurePopup": {
     "noAttributes": "No attributes",
     "booleanTrue": "Yes",

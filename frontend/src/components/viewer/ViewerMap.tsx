@@ -22,7 +22,7 @@ import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { SharedLayerResponse } from '@/types/api';
+import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
@@ -57,6 +57,7 @@ interface ViewerMapProps {
   apiKey?: string;
   embedToken?: string;
   showBasemapLabels?: boolean;
+  terrainConfig?: MapTerrainConfig | null;
   /** When true, basemapStyle was explicitly chosen by the user — skip theme auto-switching */
   basemapOverride?: boolean;
 }
@@ -120,6 +121,7 @@ export const ViewerMap = memo(function ViewerMap({
   apiKey,
   embedToken,
   showBasemapLabels = true,
+  terrainConfig = null,
   basemapOverride = false,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
@@ -131,8 +133,8 @@ export const ViewerMap = memo(function ViewerMap({
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
 
-  // Terrain source seeding and pitch animation
-  const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({ layers, mapRef, mapReady });
+  // Persisted terrain source and exaggeration
+  const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({ layers, mapRef, mapReady, terrainConfig });
 
   // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
@@ -475,7 +477,9 @@ export const ViewerMap = memo(function ViewerMap({
       const isVisible = visibleLayers.has(layer.sort_order);
       if (wasVisible === isVisible) continue;
 
-      const type = resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
+      const type = layer.is_dem === true && layer.style_config?.render_mode === 'hillshade'
+        ? 'hillshade'
+        : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
       const adapter = getAdapter(type);
       const adapterInput = toAdapterInput(layer, visibleLayers);
       adapter.syncVisibility(map, adapterInput);

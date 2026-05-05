@@ -29,6 +29,7 @@ import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialog
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
+import { TerrainControls } from '@/components/builder/TerrainControls';
 import { WidgetHost, WidgetSidebar, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 
@@ -72,6 +73,16 @@ const SidebarContent = memo(function SidebarContent({
           showLabels={layers.showBasemapLabels}
           onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
         />
+        <div className="mt-4 border-t pt-3">
+          <TerrainControls
+            layers={layers.localLayers}
+            value={layers.localTerrainConfig}
+            onChange={(next) => {
+              layers.setLocalTerrainConfig(next);
+              layers.markDirty();
+            }}
+          />
+        </div>
       </div>
     </div>
   );
@@ -428,6 +439,7 @@ export function MapBuilderPage() {
             layers={layers.localLayers}
             basemapStyle={layers.localBasemap}
             initialViewState={layers.initialViewState}
+            terrainConfig={layers.localTerrainConfig}
             onMapRef={handleMapRef}
             showBasemapLabels={layers.showBasemapLabels}
           />
