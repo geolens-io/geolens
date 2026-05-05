@@ -484,6 +484,21 @@ function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange,
         min={0.5} max={20} step={0.25} format="px"
         onChange={(val) => onPaintProp('line-width', val)}
       />
+      <SliderRow
+        label={t('style.gapWidth')} value={getPaintValue(paint, 'line-gap-width', 0)}
+        min={0} max={20} step={0.25} format="px"
+        onChange={(val) => onPaintProp('line-gap-width', val)}
+      />
+      <SliderRow
+        label={t('style.blur')} value={getPaintValue(paint, 'line-blur', 0)}
+        min={0} max={10} step={0.25} format="px"
+        onChange={(val) => onPaintProp('line-blur', val)}
+      />
+      <SliderRow
+        label={t('style.offset')} value={getPaintValue(paint, 'line-offset', 0)}
+        min={-20} max={20} step={0.25} format="px"
+        onChange={(val) => onPaintProp('line-offset', val)}
+      />
       <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
       <div className="flex gap-1">
         {LINE_DASH_PRESETS.map((preset, idx) => {

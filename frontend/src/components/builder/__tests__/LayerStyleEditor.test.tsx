@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { LayerStyleEditor } from '../LayerStyleEditor';
 import type { MapLayerResponse } from '@/types/api';
@@ -127,6 +127,64 @@ describe('LayerStyleEditor - dash presets', () => {
 
     const solidBtn = screen.getByText('Solid');
     expect(solidBtn.className).not.toContain('bg-primary');
+  });
+});
+
+describe('LayerStyleEditor - line paint controls', () => {
+  it('renders gap width, blur, and offset controls with existing line controls', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Color')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Opacity' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Width' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Gap' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Blur' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Offset' })).toBeInTheDocument();
+    expect(screen.getByText('Solid')).toBeInTheDocument();
+  });
+
+  it('writes explicit line gap width, blur, and offset paint values', () => {
+    const onPaintChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Gap' }), { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Blur' }), { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Offset' }), { key: 'ArrowLeft' });
+
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+      'line-gap-width': 0.25,
+    });
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+      'line-blur': 0.25,
+    });
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+      'line-offset': -0.25,
+    });
   });
 });
 

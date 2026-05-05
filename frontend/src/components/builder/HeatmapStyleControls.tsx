@@ -158,6 +158,7 @@ export function SliderRow({ label, value, min, max, step, display, format, onCha
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground w-20">{label}</span>
       <Slider
+        aria-label={label}
         value={[value]}
         min={min}
         max={max}
