@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""STAC export — fetch a STAC 1.1 item for a raster dataset and render it.
+"""STAC export — fetch a STAC API 1.0 item for a raster dataset and render it.
 
 Hand-maintained — NOT regenerated. Pure SDK pass-through (D-25, D-28). The
 backend at ``backend/app/standards/stac/router.py`` already produces
-conformant STAC 1.1; the CLI is a pretty-printer. Vector datasets are
+conformant STAC API 1.0; the CLI is a pretty-printer. Vector datasets are
 rejected pre-flight (D-26) so users see a clear message rather than a
 confusing 404 or 422 from ``GET /stac/items/{id}``.
 

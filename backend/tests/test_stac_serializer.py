@@ -1,4 +1,4 @@
-"""Unit tests for STAC serializer: OGC Record -> STAC 1.1 Item transformation.
+"""Unit tests for STAC serializer: OGC Record -> STAC 1.0 Item transformation.
 
 Pure unit tests -- no database or fixtures required.
 """
@@ -111,7 +111,7 @@ def _make_ogc_record(
 
 class TestOgcRecordToStacItem:
     def test_basic_structure(self):
-        """Item has type=Feature, stac_version=1.1.0, and id."""
+        """Item has type=Feature, stac_version=1.0.0, and id."""
         record = _make_ogc_record()
         item = ogc_record_to_stac_item(record, stac_api_url=STAC_API_URL)
 

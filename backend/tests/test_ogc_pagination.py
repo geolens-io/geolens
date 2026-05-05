@@ -212,7 +212,7 @@ async def test_pagination_links_preserve_query_params(
 
 @pytest.mark.anyio
 async def test_pagination_links_preserve_bbox(client: AsyncClient, test_db_session):
-    """Next link preserves bbox query parameter."""
+    """Self and next links preserve bbox query parameters."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     prefix = uuid.uuid4().hex[:6]
@@ -227,6 +227,13 @@ async def test_pagination_links_preserve_bbox(client: AsyncClient, test_db_sessi
     )
     assert resp.status_code == 200
     data = resp.json()
+
+    self_link = _find_link(data["links"], "self")
+    assert self_link is not None
+    self_qs = parse_qs(urlparse(self_link["href"]).query)
+    assert self_qs["bbox"] == ["-180,-90,180,90"]
+    assert self_qs["limit"] == ["1"]
+    assert self_qs["offset"] == ["0"]
 
     next_link = _find_link(data["links"], "next")
     if next_link is not None:

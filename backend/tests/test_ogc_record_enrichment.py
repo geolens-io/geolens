@@ -179,10 +179,10 @@ async def test_tile_asset_href_contains_table_name(
 
 
 @pytest.mark.anyio
-async def test_feature_asset_href_contains_table_name(
+async def test_feature_asset_href_points_to_public_ogc_features_items(
     client: AsyncClient, test_db_session
 ):
-    """ogc_features asset href contains the dataset ID and /features path."""
+    """ogc_features asset href points to the public OGC Features items URL."""
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dataset(session, created_by=admin_id, name="Feature URL Test")
@@ -190,8 +190,8 @@ async def test_feature_asset_href_contains_table_name(
     resp = await client.get(f"/collections/datasets/items/{ds.id}")
     assets = resp.json()["assets"]
     href = assets["ogc_features"]["href"]
-    assert str(ds.id) in href
-    assert "/features" in href
+    assert f"/collections/{ds.id}/items" in href
+    assert f"/datasets/{ds.id}/features" not in href
 
 
 @pytest.mark.anyio
