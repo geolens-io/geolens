@@ -273,6 +273,59 @@ describe('lineAdapter', () => {
     const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.type).toBe('line');
   });
+
+  it('addLayers passes line gap, blur, offset, and replays line-gradient expressions', () => {
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const input = makeInput({
+      id: 'l5',
+      layerId: 'layer-l5',
+      sourceId: 'source-l5',
+      sourceLayer: 'data.test_table',
+      dataset_geometry_type: 'LINESTRING',
+      paint: {
+        'line-color': '#ff0000',
+        'line-width': 3,
+        'line-gap-width': 4,
+        'line-blur': 1.5,
+        'line-offset': -2,
+        'line-gradient': gradient,
+      },
+    });
+
+    lineAdapter.addLayers(map, input);
+
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.paint).toEqual(expect.objectContaining({
+      'line-gap-width': 4,
+      'line-blur': 1.5,
+      'line-offset': -2,
+    }));
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5', 'line-gradient', gradient);
+  });
+
+  it('syncPaint preserves line gap, blur, offset, and line-gradient paint', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-l6' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const input = makeInput({
+      id: 'l6',
+      layerId: 'layer-l6',
+      dataset_geometry_type: 'LINESTRING',
+      paint: {
+        'line-gap-width': 5,
+        'line-blur': 2,
+        'line-offset': 3,
+        'line-gradient': gradient,
+      },
+    });
+
+    lineAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-gap-width', 5);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-blur', 2);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-offset', 3);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-gradient', gradient);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

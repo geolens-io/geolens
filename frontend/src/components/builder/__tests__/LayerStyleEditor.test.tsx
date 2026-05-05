@@ -186,6 +186,49 @@ describe('LayerStyleEditor - line paint controls', () => {
       'line-offset': -0.25,
     });
   });
+
+  it('does not expose normal line gradient authoring controls', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/gradient/i)).not.toBeInTheDocument();
+  });
+
+  it('accepts line-gradient through advanced paint JSON', async () => {
+    const onPaintChange = vi.fn();
+    const user = userEvent.setup();
+    const gradientPaint = {
+      'line-color': '#ff0000',
+      'line-width': 2,
+      'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'],
+    };
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Advanced JSON' }));
+    await user.click(screen.getByRole('button', { name: 'Paint' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: JSON.stringify(gradientPaint) } });
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', gradientPaint);
+  });
 });
 
 describe('LayerStyleEditor - fill/stroke toggles', () => {

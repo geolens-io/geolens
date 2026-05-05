@@ -580,7 +580,9 @@ interface AdvancedJsonEditorProps {
   layerType?: string;
 }
 
-// Valid MapLibre paint properties per layer type for client-side validation
+// Valid MapLibre paint properties per layer type for client-side validation.
+// line-gradient remains JSON-only for now: safe first-class authoring needs
+// source lineMetrics=true and gradient expression editing designed together.
 const VALID_PAINT_KEYS: Record<string, Set<string>> = {
   fill: new Set(['fill-color', 'fill-opacity', 'fill-outline-color', 'fill-antialias', 'fill-translate', 'fill-translate-anchor', 'fill-pattern']),
   line: new Set(['line-color', 'line-opacity', 'line-width', 'line-gap-width', 'line-blur', 'line-dasharray', 'line-translate', 'line-translate-anchor', 'line-offset', 'line-gradient', 'line-pattern']),
