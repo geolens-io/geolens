@@ -4,7 +4,7 @@ Auto-generated Python SDK for the [GeoLens](https://github.com/geolens-io/geolen
 
 Apache-2.0 licensed. Typed `attrs`-based dataclasses + `httpx` async-ready client + Bearer-token + API-key auth helpers.
 
-See `docs/sdks.md` in the GeoLens repo for installation, regeneration, and version-pin policy.
+See [docs.getgeolens.com](https://docs.getgeolens.com/) for installation, regeneration, and version-pin policy.
 
 ## Quickstart
 
@@ -12,5 +12,5 @@ See `docs/sdks.md` in the GeoLens repo for installation, regeneration, and versi
 from geolens import GeolensClient
 
 client = GeolensClient(base_url="https://geolens.example.com", bearer_token="...")
-# See ../../docs/sdks.md for endpoint usage examples.
+# See docs.getgeolens.com for endpoint usage examples.
 ```

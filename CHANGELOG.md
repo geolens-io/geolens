@@ -106,7 +106,7 @@ Two further "drift" items are intentional open-core boundaries and are preserved
 - **Python + TypeScript SDKs** auto-generated from `backend/openapi.json` — `geolens` (Python via `openapi-python-client`) and `@geolens/sdk` (TypeScript via `@hey-api/openapi-ts`). Source at `sdks/python/` and `sdks/typescript/`; published to PyPI/npm via `.github/workflows/publish-sdks.yml`. Regenerate via `make sdks`; `make sdks-check` is a CI drift gate.
 - **Extension hook for enterprise overlays** — `backend/app/core/identity.py` defines `IdentityProtocol`, `RoleProtocol`, and `IdentityExtension`; `backend/app/platform/extensions/__init__.py` exposes `get_identity_extension()` typed accessor. Overlays register via `importlib.metadata` entry_points. The companion `geolens-enterprise` package uses this seam to provide SAML SP-initiated SSO with assertion validation, JIT provisioning via `find_or_create_oauth_user()`, and audited attribute→role mapping.
 - **`backend/openapi.json` snapshot committed** as the SDK source of truth — reproducible SDK regeneration from this artifact.
-- **`docs/sdks.md`** (305 lines) and **`docs/cli.md`** (248 lines) — user-facing documentation for SDK + CLI surfaces including install, auth modes, exit codes, and known rough edges.
+- **SDK and CLI documentation** — user-facing documentation for SDK + CLI surfaces including install, auth modes, exit codes, and known rough edges lives at docs.getgeolens.com.
 - **SAML operator documentation** — install + per-IdP configuration walkthroughs, hardening posture, multi-instance limitations, and NameID format guidance for the optional `geolens-enterprise` SAML overlay.
 
 ### Changed — Open-core separation (2026-04-29)
@@ -122,7 +122,7 @@ The "**SAML support has been removed**" entry below remains accurate for the **c
 
 ### Security
 
-- **BREAKING: `JWT_SECRET_KEY` must now be at least 32 characters.** The backend validates the length at startup; shorter values fail fast with an actionable error. HS256 requires ≥ 256 bits of entropy — shorter secrets were brute-forceable. See the [upgrade guide](docs/upgrade-guide.md#unreleased--jwt_secret_key-minimum-length) for rotation instructions. The `.env.example` default passes unchanged; only deployments with custom short secrets are affected.
+- **BREAKING: `JWT_SECRET_KEY` must now be at least 32 characters.** The backend validates the length at startup; shorter values fail fast with an actionable error. HS256 requires ≥ 256 bits of entropy — shorter secrets were brute-forceable. See the [upgrade guide](https://docs.getgeolens.com/guides/quickstart/upgrade/) for rotation instructions. The `.env.example` default passes unchanged; only deployments with custom short secrets are affected.
 - Secret fields (`POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `S3_SECRET_ACCESS_KEY`, `TILE_SIGNING_SECRET`) now use Pydantic `SecretStr` internally. Values are masked (`**********`) in `repr()`, structured-log dict coercion, and `ValidationError` output — they can no longer leak into exception traces or log lines by accident. Downstream behavior is unchanged; values are unwrapped via `.get_secret_value()` only at the library boundary (JWT encode/decode, HMAC tile signing, Fernet KDF, boto3, Anthropic/OpenAI clients).
 - New `reveal()` helper in `app/config.py` centralizes `SecretStr | None → str | None` unwrapping for optional credential fields.
 
@@ -146,7 +146,7 @@ The "**SAML support has been removed**" entry below remains accurate for the **c
 ### Changed
 - Landing page removed — root route (`/`) now serves the Search page directly. The previous `/search` route is no longer used; existing bookmarks redirect to `/`.
 - `SHOW_LANDING_PAGE` environment variable removed from backend config and branding API.
-- Internal documentation moved to a gitignored `docs-internal/` directory; only user-facing docs remain in `docs/`.
+- Internal documentation moved to a gitignored `docs-internal/` directory; user-facing docs live on docs.getgeolens.com.
 - Connection pool pre-ping now defaults to `True` to detect broken connections in managed databases.
 - Top-level `CONTRIBUTING.md` consolidated into `.github/CONTRIBUTING.md`.
 - OAuth `client_id` and `client_secret` are now required fields when creating a provider (previously optional placeholders for the SAML branch).

@@ -63,7 +63,10 @@ cache/
 # Internal docs (not for public release)
 docs-internal/
 
+# Product docs live in the getgeolens.com repo.
+docs/
+
 # Stray screenshots
 *.png
-!docs/images/*.png
+!.github/assets/*.png
 !frontend/public/*.png

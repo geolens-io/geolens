@@ -62,7 +62,7 @@ geolens = "geolens_cli.main:app"
 [project.urls]
 Homepage = "https://github.com/geolens-io/geolens"
 Repository = "https://github.com/geolens-io/geolens"
-Documentation = "https://github.com/geolens-io/geolens/blob/main/docs/cli.md"
+Documentation = "https://docs.getgeolens.com/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["geolens_cli"]

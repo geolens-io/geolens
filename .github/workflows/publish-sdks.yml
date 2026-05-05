@@ -3,7 +3,7 @@
 #   1. PyPI Trusted Publishing configured for `geolens` at https://pypi.org/manage/account/publishing/
 #   2. npm granular token (Bypass 2FA + Read/Write) in repo secret NPM_TOKEN
 #   3. The @geolens npm org claimed by the maintainer (one-time)
-# See docs/sdks.md (§Publishing) for the full first-publish runbook.
+# See docs.getgeolens.com for the full first-publish runbook.
 name: Publish SDKs
 
 on:

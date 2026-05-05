@@ -488,14 +488,14 @@ def publish(
         Optional[str],
         typer.Option(
             "--tags",
-            help="Comma-separated keyword tags (currently a no-op; see docs/cli.md)",
+            help="Comma-separated keyword tags (currently a no-op; see docs.getgeolens.com)",
         ),
     ] = None,
     collection: Annotated[
         Optional[str],
         typer.Option(
             "--collection",
-            help="Add to this collection after commit (currently a no-op; see docs/cli.md)",
+            help="Add to this collection after commit (currently a no-op; see docs.getgeolens.com)",
         ),
     ] = None,
     wait: Annotated[
@@ -527,8 +527,8 @@ def publish(
     title = name or file.stem
 
     # Deferred-flag warnings (Task 0 Q2 + Q5). These flags exist for forward
-    # compatibility but currently no-op; the docs/cli.md note in Plan 06
-    # captures the user-facing TODO.
+    # compatibility but currently no-op; the docs site captures the
+    # user-facing TODO.
     if tags:
         # TODO(OCCLI-deferred): tags requires a post-commit PATCH or a
         # `keywords` field on CommitRequest; see Phase 216 Open Question 4.

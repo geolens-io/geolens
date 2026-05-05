@@ -21,7 +21,7 @@ cp .env.example .env && docker compose up -d
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-map-builder.png" alt="Constructor de mapas de GeoLens componiendo mapas interactivos con varias capas" width="900" />
+  <img src=".github/assets/geolens-map-builder.png" alt="Constructor de mapas de GeoLens componiendo mapas interactivos con varias capas" width="900" />
   <br />
   <em>Sube un shapefile y obten un dataset buscable, previsualizable y exportable en minutos</em>
 </p>
@@ -44,7 +44,7 @@ docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-demo-tour.gif" alt="Recorrido de la demo de GeoLens mostrando constructor de mapas, busqueda de catalogo y detalle de dataset" width="900" />
+  <img src=".github/assets/geolens-demo-tour.gif" alt="Recorrido de la demo de GeoLens mostrando constructor de mapas, busqueda de catalogo y detalle de dataset" width="900" />
 </p>
 
 Cuando termine la construccion de la imagen del seeder, abre http://localhost:8080 y entra en **Maps**. La descarga de GEBCO 2024 suele ser la parte lenta, alrededor de 10 a 15 minutos en una conexion rapida, y queda en cache para reconstrucciones.

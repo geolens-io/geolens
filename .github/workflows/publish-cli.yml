@@ -2,7 +2,7 @@
 # Phase 228 ships the cold-start credentials:
 #   1. PyPI Trusted Publishing configured for `geolens-cli` at https://pypi.org/manage/account/publishing/
 #   2. The maintainer claims the `geolens-cli` PyPI name (one-time, automatic on first publish via pending-publisher OIDC)
-# See docs/cli.md (§Publishing) for the full first-publish runbook.
+# See docs.getgeolens.com for the full first-publish runbook.
 name: Publish CLI
 
 on:

@@ -31,7 +31,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/geolens-io/geolens"
 Repository = "https://github.com/geolens-io/geolens"
-Documentation = "https://github.com/geolens-io/geolens/blob/main/docs/sdks.md"
+Documentation = "https://docs.getgeolens.com/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["geolens"]

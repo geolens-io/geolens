@@ -4,7 +4,7 @@ Apache-2.0 command-line interface for the [GeoLens](https://github.com/geolens-i
 
 Login, scan local directories of spatial data, apply manifest-driven catalogs, publish vector or raster files, and export STAC metadata against any GeoLens instance — community or enterprise.
 
-See `docs/cli.md` in the GeoLens repo for the full command reference.
+See [docs.getgeolens.com](https://docs.getgeolens.com/) for the full command reference.
 
 ## Quickstart
 
@@ -20,6 +20,6 @@ geolens publish ./data/cities.geojson
 geolens export stac <dataset-id> -o cities.stac.json
 ```
 
-For the Docker Compose first-catalog walkthrough using `examples/manifests/first-catalog/geolens.yaml`, see `docs/cli.md` in the GeoLens repo.
+For the Docker Compose first-catalog walkthrough using `examples/manifests/first-catalog/geolens.yaml`, see [docs.getgeolens.com](https://docs.getgeolens.com/).
 
-The CLI consumes the [`geolens`](https://github.com/geolens-io/geolens/blob/main/docs/sdks.md) Python SDK package. Manifest apply posts to the generated `POST /ingest/manifest/apply` contract through the SDK-owned client transport; there is no hand-rolled HTTP client.
+The CLI consumes the [`geolens`](https://pypi.org/project/geolens/) Python SDK package. Manifest apply posts to the generated `POST /ingest/manifest/apply` contract through the SDK-owned client transport; there is no hand-rolled HTTP client.

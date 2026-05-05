@@ -4,7 +4,7 @@
 
 GeoLens mixes Python and TypeScript. Backend source is in `backend/app/`: `modules/` holds domain areas, `platform/` shared services, `processing/` ingest/export/tile work, and `standards/` OGC/STAC/DCAT integrations. Migrations are in `backend/alembic/`; tests are in `backend/tests/`.
 
-The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; generated SDKs are in `sdks/`; operations files are in `docs/`, `scripts/`, `docker/`, and `db/`.
+The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`, `stores/`, `api/`, `assets/`, `i18n/`, and colocated `__tests__/`. Playwright specs are in `e2e/`. The CLI is in `cli/geolens_cli/`; generated SDKs are in `sdks/`; operations files are in `scripts/`, `docker/`, `db/`, and `.github/`.
 
 ## Build, Test, and Development Commands
 
@@ -24,7 +24,7 @@ Frontend code uses TypeScript, React, ESLint, React Hooks rules, and JSX accessi
 
 ## Testing Guidelines
 
-Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has a 58.5% minimum. For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `docs/testing-and-ci.md` for CI-style variables.
+Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has a 58.5% minimum. For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
 
 Frontend tests use Vitest and Testing Library as `*.test.ts(x)` files or under `__tests__/`. E2E tests use Playwright and follow `*.spec.ts` in `e2e/`.
 
@@ -40,4 +40,4 @@ Use `.env.example` and `.env.test.example` as templates. Never commit secrets, c
 
 Keep assistant and internal planning state out of git. `.gitignore` must continue to cover `.claude/`, `.codex/`, `.agents/`, `.planning/`, `.gsd/`, and `docs-internal/`; if any of those paths become tracked again, untrack them before public release work continues.
 
-Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. Detailed product docs live on docs.getgeolens.com; do not reintroduce standalone narrative feature docs that duplicate the docs site.
+Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. README images live in `.github/assets/`, detailed product docs live on docs.getgeolens.com, and private/internal notes stay in ignored `docs-internal/`. Do not reintroduce a root `docs/` directory or standalone narrative feature docs that duplicate the docs site.

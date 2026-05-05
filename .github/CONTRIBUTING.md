@@ -6,7 +6,11 @@ No CLA required -- the Apache 2.0 license covers all contributions.
 
 ## Documentation
 
-Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. Source MDX files for the documentation site live in the [getgeolens-com repo](https://github.com/geolens-io/getgeolens.com/tree/main/docs/) under `docs/src/content/docs/guides/`. Submit doc fixes via PRs against that repo, not this one.
+Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. Source MDX files for the documentation site live in the [getgeolens-com repo](https://github.com/geolens-io/getgeolens.com/tree/main/docs/) under `docs/src/content/docs/guides/`. Submit product-doc fixes via PRs against that repo, not this one.
+
+This repository does not maintain a root `docs/` directory. Keep README images
+under `.github/assets/`, release notes in `CHANGELOG.md`, support routing in
+`SUPPORT.md`, and private/internal material in ignored `docs-internal/`.
 
 ## Development Setup
 
@@ -191,7 +195,7 @@ geolens/
 ├── docker-compose.yml          # Dev stack (db, api, worker, frontend, titiler)
 ├── scripts/                    # Project-level scripts (DB init, etc.)
 ├── e2e/                        # End-to-end tests
-└── docs/                       # Documentation
+└── .github/assets/             # README and repository profile assets
 ```
 
 Most backend modules follow a consistent pattern:

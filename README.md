@@ -19,7 +19,7 @@ cp .env.example .env && docker compose up -d
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-map-builder.png" alt="GeoLens map builder composing multi-layer interactive maps" width="900" />
+  <img src=".github/assets/geolens-map-builder.png" alt="GeoLens map builder composing multi-layer interactive maps" width="900" />
   <br />
   <em>Upload a shapefile, get a searchable, previewable, exportable dataset in minutes</em>
 </p>
@@ -42,7 +42,7 @@ docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-demo-tour.gif" alt="GeoLens demo tour showing map builder, catalog search, and dataset detail" width="900" />
+  <img src=".github/assets/geolens-demo-tour.gif" alt="GeoLens demo tour showing map builder, catalog search, and dataset detail" width="900" />
 </p>
 
 After the seeder image build completes (most of the time is the GEBCO 2024 download — ~10–15 minutes on a fast connection, cached on rebuild), open http://localhost:8080 and navigate to **Maps**. The signature stories include:
@@ -170,13 +170,13 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/images/geolens-catalog.png" alt="GeoLens Catalog View" width="900" />
+  <img src=".github/assets/geolens-catalog.png" alt="GeoLens Catalog View" width="900" />
   <br />
   <em>Catalog view with search, spatial filters, and dataset cards</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/geolens-dataset.png" alt="GeoLens Dataset Detail" width="900" />
+  <img src=".github/assets/geolens-dataset.png" alt="GeoLens Dataset Detail" width="900" />
   <br />
   <em>Dataset detail with map preview, metadata, and attribute table</em>
 </p>
@@ -249,7 +249,7 @@ All configuration is managed through environment variables in `.env`. See the [C
 | [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) | All environment variables and their defaults |
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
 | [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
-| [Widget Development](docs/widget-development.md) | Build custom map builder widgets |
+| [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder widgets |
 | [API Reference](#see-it-in-action) | Interactive Swagger UI at `/api/docs` when running |
 
 ## Community

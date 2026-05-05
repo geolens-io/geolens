@@ -21,7 +21,7 @@ cp .env.example .env && docker compose up -d
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-map-builder.png" alt="GeoLens Map Builder erstellt interaktive Karten mit mehreren Layern" width="900" />
+  <img src=".github/assets/geolens-map-builder.png" alt="GeoLens Map Builder erstellt interaktive Karten mit mehreren Layern" width="900" />
   <br />
   <em>Laden Sie ein Shapefile hoch und erhalten Sie in Minuten einen durchsuchbaren, voranschaubaren und exportierbaren Datensatz</em>
 </p>
@@ -44,7 +44,7 @@ docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 ```
 
 <p align="center">
-  <img src="docs/images/geolens-demo-tour.gif" alt="GeoLens Demo-Tour mit Map Builder, Katalogsuche und Datensatzdetails" width="900" />
+  <img src=".github/assets/geolens-demo-tour.gif" alt="GeoLens Demo-Tour mit Map Builder, Katalogsuche und Datensatzdetails" width="900" />
 </p>
 
 Wenn der Seeder-Image-Build abgeschlossen ist, oeffnen Sie http://localhost:8080 und wechseln Sie zu **Maps**. Der Download von GEBCO 2024 ist meist der langsamste Teil, etwa 10 bis 15 Minuten bei einer schnellen Verbindung, und wird danach im Cache wiederverwendet.

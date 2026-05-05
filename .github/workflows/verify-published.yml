@@ -2,7 +2,7 @@
 # Phase 228 ships this alongside the first hot publish.
 # Jobs run inside fresh Docker images (python:3.13-slim, node:22-slim) — no
 # repo context, no runner pollution; mimics what a downstream user gets.
-# See docs/sdks.md (§Publishing) for context.
+# See docs.getgeolens.com for context.
 name: Verify Published Packages
 
 on:
