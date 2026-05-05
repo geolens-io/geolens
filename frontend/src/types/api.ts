@@ -685,9 +685,17 @@ export interface DatasetVersionListResponse {
 }
 
 // Labels
+export type ZoomExpressionKind = 'step' | 'interpolate';
+
+export type ZoomStepExpression = ['step', ['zoom'], number, ...number[]];
+
+export type ZoomInterpolateExpression = ['interpolate', ['linear'], ['zoom'], ...number[]];
+
+export type ZoomExpression = ZoomStepExpression | ZoomInterpolateExpression;
+
 export interface LabelConfig {
   column: string;
-  fontSize?: number;
+  fontSize?: number | ZoomExpression;
   textColor?: string;
   haloColor?: string;
   haloWidth?: number;
@@ -695,7 +703,7 @@ export interface LabelConfig {
   maxZoom?: number;
   placement?: 'point' | 'line' | 'line-center';
   textAnchor?: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-  textOpacity?: number;
+  textOpacity?: number | ZoomExpression;
   textOffset?: [number, number];
   allowOverlap?: boolean;
 }
