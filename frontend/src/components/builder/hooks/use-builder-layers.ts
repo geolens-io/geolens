@@ -37,6 +37,7 @@ export function useBuilderLayers(
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
+  const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
   // without invalidating on every layer mutation. Without this, each layer
@@ -69,6 +70,7 @@ export function useBuilderLayers(
   useEffect(() => {
     if (mapData && !initializedRef.current) {
       setLocalLayers(mapData.layers ?? []);
+      savedLayerBaselineRef.current = mapData.layers ?? [];
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       setLocalName(mapData.name);
@@ -82,6 +84,7 @@ export function useBuilderLayers(
   useEffect(() => {
     if (apiLayers && initializedRef.current && !hasUnsavedChanges) {
       setLocalLayers(apiLayers);
+      savedLayerBaselineRef.current = apiLayers;
     }
   }, [apiLayers, hasUnsavedChanges]);
 
@@ -413,6 +416,7 @@ export function useBuilderLayers(
     localName, setLocalName,
     localDescription, setLocalDescription,
     localLayers,
+    savedLayerBaseline: savedLayerBaselineRef.current,
     localBasemap, setLocalBasemap,
     hasUnsavedChanges, setHasUnsavedChanges,
     expandedLayerId,

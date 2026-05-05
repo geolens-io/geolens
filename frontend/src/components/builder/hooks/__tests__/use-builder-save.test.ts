@@ -6,15 +6,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
-import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
+import { buildLayerDiff, useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import type { MapLayerResponse } from '@/types/api';
 import { queryKeys } from '@/lib/query-keys';
+import { ApiError } from '@/api/client';
 
 /* ── Mocks ─────────────────────────────────────────── */
 
 const mockMutate = vi.fn();
-const mockMutateAsync = vi.fn();
+const mockUpdateMapMutateAsync = vi.fn();
+const mockPatchMapLayersMutateAsync = vi.fn();
+const mockDuplicateMapMutateAsync = vi.fn();
 const mockEnabledWidgets = vi.hoisted(() => ({
   value: null as string[] | null | undefined,
 }));
@@ -22,10 +25,15 @@ const mockEnabledWidgets = vi.hoisted(() => ({
 vi.mock('@/hooks/use-maps', () => ({
   useUpdateMap: () => ({
     mutate: mockMutate,
+    mutateAsync: mockUpdateMapMutateAsync,
+    isPending: false,
+  }),
+  usePatchMapLayers: () => ({
+    mutateAsync: mockPatchMapLayersMutateAsync,
     isPending: false,
   }),
   useDuplicateMap: () => ({
-    mutateAsync: mockMutateAsync,
+    mutateAsync: mockDuplicateMapMutateAsync,
     isPending: false,
   }),
 }));
@@ -156,10 +164,79 @@ function renderHookWithQueryClient(state: SaveState, queryClient: QueryClient) {
 
 /* ── Tests ─────────────────────────────────────────── */
 
+describe('buildLayerDiff', () => {
+  it('classifies added layers without baseline IDs', () => {
+    const added = makeLayer({ id: 'new-layer', dataset_id: 'dataset-new', sort_order: 0 });
+
+    const result = buildLayerDiff([], [added]);
+
+    expect(result.unsupported).toBe(false);
+    expect(result.diff.added).toEqual([
+      expect.objectContaining({ dataset_id: 'dataset-new', sort_order: 0 }),
+    ]);
+    expect(result.diff.updated).toBeUndefined();
+    expect(result.diff.removed).toBeUndefined();
+  });
+
+  it('classifies meaningful field updates by stable layer ID', () => {
+    const baseline = makeLayer({ id: 'layer-1', paint: { 'fill-color': '#000000' } });
+    const current = makeLayer({ id: 'layer-1', paint: { 'fill-color': '#ff0000' } });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff.updated).toEqual([
+      { id: 'layer-1', paint: { 'fill-color': '#ff0000' } },
+    ]);
+  });
+
+  it('classifies removed layers by stable layer ID', () => {
+    const baseline = makeLayer({ id: 'layer-1' });
+
+    const result = buildLayerDiff([baseline], []);
+
+    expect(result.diff.removed).toEqual(['layer-1']);
+  });
+
+  it('classifies reordered layers by stable layer ID order', () => {
+    const layer1 = makeLayer({ id: 'layer-1', sort_order: 0 });
+    const layer2 = makeLayer({ id: 'layer-2', sort_order: 1 });
+    const current1 = makeLayer({ id: 'layer-1', sort_order: 1 });
+    const current2 = makeLayer({ id: 'layer-2', sort_order: 0 });
+
+    const result = buildLayerDiff([layer1, layer2], [current2, current1]);
+
+    expect(result.diff.order).toEqual(['layer-2', 'layer-1']);
+  });
+
+  it('returns an empty diff for no-op layers', () => {
+    const baseline = makeLayer({ id: 'layer-1' });
+    const current = makeLayer({ id: 'layer-1' });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff).toEqual({});
+  });
+
+  it('ignores dataset metadata changes that are not saved on map layers', () => {
+    const baseline = makeLayer({ id: 'layer-1', dataset_name: 'Old name', dataset_feature_count: 10 });
+    const current = makeLayer({ id: 'layer-1', dataset_name: 'New name', dataset_feature_count: 25 });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff).toEqual({});
+  });
+});
+
 describe('useBuilderSave', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEnabledWidgets.value = null;
+    mockUpdateMapMutateAsync.mockImplementation(async (payload) => {
+      mockMutate(payload);
+      return { id: payload.id, layers: [] };
+    });
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [] });
+    mockDuplicateMapMutateAsync.mockResolvedValue({ id: 'new-map-1', excluded_layer_count: 0 });
     useWidgetStore.getState().replace([]);
   });
 
@@ -179,7 +256,98 @@ describe('useBuilderSave', () => {
     expect(payload.data.center_lng).toBe(-73.9);
     expect(payload.data.center_lat).toBe(40.7);
     expect(payload.data.zoom).toBe(10);
-    expect(payload.data.layers).toEqual([]);
+    expect(payload.data.layers).toBeUndefined();
+  });
+
+  it('uses layer PATCH for meaningful layer changes and saves metadata separately', async () => {
+    const baseline = makeLayer({ paint: { 'fill-color': '#000000' } });
+    let state = makeSaveState({ localLayers: [baseline] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledWith({
+      id: 'map-1',
+      diff: { updated: [{ id: 'layer-1', paint: { 'fill-color': '#ff0000' } }] },
+    });
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'map-1',
+        data: expect.not.objectContaining({ layers: expect.any(Array) }),
+      }),
+    );
+    expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
+  });
+
+  it('skips layer PATCH when the layer diff is empty', async () => {
+    const layer = makeLayer();
+    let state = makeSaveState({ localLayers: [layer] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({ localLayers: [layer], hasUnsavedChanges: true });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
+  });
+
+  it('falls back to full layer replacement when PATCH returns a structural error', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError('Layer order references unknown or removed layers', 400, 'Layer order references unknown or removed layers'),
+    );
+    const baseline = makeLayer({ paint: { 'fill-color': '#000000' } });
+    let state = makeSaveState({ localLayers: [baseline] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'map-1',
+        data: expect.objectContaining({
+          layers: [expect.objectContaining({ dataset_id: 'dataset-1', paint: { 'fill-color': '#ff0000' } })],
+        }),
+      }),
+    );
+    expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
+  });
+
+  it('does not clear unsaved changes when save fails', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(new Error('network down'));
+    const baseline = makeLayer({ paint: { 'fill-color': '#000000' } });
+    let state = makeSaveState({ localLayers: [baseline] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(state.setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
   });
 
   it('omits widgets when active widgets match client defaults already saved as defaults', () => {
@@ -251,7 +419,7 @@ describe('useBuilderSave', () => {
   });
 
   it('handleFork calls duplicateMutation.mutateAsync and navigates on success', async () => {
-    mockMutateAsync.mockResolvedValue({ id: 'new-map-1', excluded_layer_count: 0 });
+    mockDuplicateMapMutateAsync.mockResolvedValue({ id: 'new-map-1', excluded_layer_count: 0 });
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));
 
@@ -259,14 +427,14 @@ describe('useBuilderSave', () => {
       await result.current.handleFork();
     });
 
-    expect(mockMutateAsync).toHaveBeenCalledWith('map-1');
+    expect(mockDuplicateMapMutateAsync).toHaveBeenCalledWith('map-1');
     // toast.success should be called for successful fork
     const { toast } = await import('sonner');
     expect(toast.success).toHaveBeenCalled();
   });
 
   it('handleFork shows warning toast when excluded_layer_count > 0', async () => {
-    mockMutateAsync.mockResolvedValue({ id: 'new-map-2', excluded_layer_count: 3 });
+    mockDuplicateMapMutateAsync.mockResolvedValue({ id: 'new-map-2', excluded_layer_count: 3 });
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));
 
@@ -368,28 +536,25 @@ describe('useBuilderSave', () => {
       createElementSpy.mockRestore();
     });
 
-    function triggerSaveSuccess(mockMap: ReturnType<typeof createMockMap>) {
+    async function triggerSaveSuccess(mockMap: ReturnType<typeof createMockMap>) {
       const state = makeSaveState({ mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'] });
       const { result } = renderHook(() => useBuilderSave(state));
-      act(() => { result.current.handleSave(); });
-      // Call the onSuccess callback
-      const [, opts] = mockMutate.mock.calls[0];
-      act(() => { opts.onSuccess(); });
+      await act(async () => { await result.current.handleSave(); });
       return result;
     }
 
-    it('captures immediately when map is already loaded', () => {
+    it('captures immediately when map is already loaded', async () => {
       const mockMap = createMockMap({ loaded: true });
-      triggerSaveSuccess(mockMap);
+      await triggerSaveSuccess(mockMap);
 
       expect(mockMap.getCanvas).toHaveBeenCalled();
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
       expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
     });
 
-    it('defers capture via idle event when map is not loaded', () => {
+    it('defers capture via idle event when map is not loaded', async () => {
       const mockMap = createMockMap({ loaded: false });
-      triggerSaveSuccess(mockMap);
+      await triggerSaveSuccess(mockMap);
 
       expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
       // Not captured yet
@@ -404,10 +569,10 @@ describe('useBuilderSave', () => {
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
 
-    it('timeout captures and removes idle listener when idle never fires', () => {
+    it('timeout captures and removes idle listener when idle never fires', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
-      triggerSaveSuccess(mockMap);
+      await triggerSaveSuccess(mockMap);
 
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
@@ -420,10 +585,10 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
-    it('idle event clears timeout to prevent double-capture', () => {
+    it('idle event clears timeout to prevent double-capture', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
-      triggerSaveSuccess(mockMap);
+      await triggerSaveSuccess(mockMap);
 
       // Simulate idle event fires quickly
       const idleCallback = mockMap.once.mock.calls.find(

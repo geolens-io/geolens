@@ -83,6 +83,23 @@ describe('useBuilderLayers', () => {
     const { result } = renderBuilderLayers(mapData);
     expect(result.current.localLayers).toHaveLength(1);
     expect(result.current.localLayers[0].id).toBe('layer-1');
+    expect(result.current.savedLayerBaseline).toEqual([layer]);
+  });
+
+  it('refreshes savedLayerBaseline from API layer refetches when clean', () => {
+    let mapData = makeMapData([makeMockLayer({ id: 'layer-1' })]);
+    const mapRef = { current: null } as React.RefObject<MaplibreMap | null>;
+    const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
+    const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+    const { result, rerender } = renderHook(() =>
+      useBuilderLayers(mapData, mapRef, 'map-1', addLayerMutation, removeLayerMutation),
+    );
+
+    mapData = makeMapData([makeMockLayer({ id: 'layer-2', dataset_id: 'ds-2' })]);
+    rerender();
+
+    expect(result.current.localLayers[0].id).toBe('layer-2');
+    expect(result.current.savedLayerBaseline[0].id).toBe('layer-2');
   });
 
   it('handleToggleVisibility flips visible and marks dirty', () => {

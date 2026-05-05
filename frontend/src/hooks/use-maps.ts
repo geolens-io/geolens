@@ -86,12 +86,6 @@ export function usePatchMapLayers() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
-    onError: (err: unknown) => {
-      const detail = err instanceof Error ? err.message : null;
-      toast.error(detail
-        ? i18n.t('builder:toasts.saveFailedWithDetail', { detail })
-        : i18n.t('builder:toasts.saveFailed'));
-    },
   });
 }
 

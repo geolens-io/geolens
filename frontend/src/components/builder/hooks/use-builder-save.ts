@@ -7,11 +7,12 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceId } from '@/components/builder/map-sync';
-import { useUpdateMap, useDuplicateMap } from '@/hooks/use-maps';
+import { ApiError } from '@/api/client';
+import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
-import type { MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapUpdateRequest } from '@/types/api';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
@@ -125,6 +126,146 @@ function resolveWidgetsPayload(
   return active;
 }
 
+const PATCHABLE_LAYER_FIELDS = [
+  'sort_order',
+  'visible',
+  'opacity',
+  'paint',
+  'layout',
+  'display_name',
+  'filter',
+  'label_config',
+  'popup_config',
+  'style_config',
+  'layer_type',
+  'show_in_legend',
+] as const;
+
+type PatchableLayerField = (typeof PATCHABLE_LAYER_FIELDS)[number];
+type LayerSnapshot = Pick<MapLayerResponse, PatchableLayerField | 'id' | 'dataset_id'>;
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    return Object.keys(item as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((acc, key) => {
+        acc[key] = (item as Record<string, unknown>)[key];
+        return acc;
+      }, {});
+  });
+}
+
+function toLayerInput(layer: MapLayerResponse): MapLayerInput {
+  return {
+    dataset_id: layer.dataset_id,
+    sort_order: layer.sort_order,
+    visible: layer.visible,
+    opacity: layer.opacity,
+    paint: layer.paint,
+    layout: layer.layout,
+    display_name: layer.display_name ?? null,
+    filter: layer.filter ?? null,
+    label_config: layer.label_config ?? null,
+    popup_config: layer.popup_config ?? null,
+    style_config: layer.style_config ?? null,
+    layer_type: layer.layer_type ?? null,
+    show_in_legend: layer.show_in_legend ?? true,
+  };
+}
+
+function toLayerSnapshot(layer: MapLayerResponse): LayerSnapshot {
+  return {
+    id: layer.id,
+    dataset_id: layer.dataset_id,
+    sort_order: layer.sort_order,
+    visible: layer.visible,
+    opacity: layer.opacity,
+    paint: layer.paint,
+    layout: layer.layout,
+    display_name: layer.display_name ?? null,
+    filter: layer.filter ?? null,
+    label_config: layer.label_config ?? null,
+    popup_config: layer.popup_config ?? null,
+    style_config: layer.style_config ?? null,
+    layer_type: layer.layer_type ?? null,
+    show_in_legend: layer.show_in_legend ?? true,
+  };
+}
+
+function hasDiff(diff: MapLayerDiffRequest): boolean {
+  return Boolean(
+    diff.added?.length ||
+    diff.updated?.length ||
+    diff.removed?.length ||
+    diff.order,
+  );
+}
+
+function isUnsupportedLayerPatchError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (![400, 404, 409, 422].includes(error.status)) return false;
+  const detail = typeof error.body === 'string' ? error.body : error.message;
+  return /layer|order|unknown|removed|unsupported|validation/i.test(detail);
+}
+
+export interface LayerDiffResult {
+  diff: MapLayerDiffRequest;
+  unsupported: boolean;
+}
+
+export function buildLayerDiff(
+  baselineLayers: MapLayerResponse[],
+  currentLayers: MapLayerResponse[],
+): LayerDiffResult {
+  const baselineById = new Map(baselineLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
+  const currentById = new Map(currentLayers.map((layer) => [layer.id, layer]));
+
+  const added = currentLayers
+    .filter((layer) => !baselineById.has(layer.id))
+    .map(toLayerInput);
+  const removed = baselineLayers
+    .filter((layer) => !currentById.has(layer.id))
+    .map((layer) => layer.id);
+  const updated: MapLayerPatch[] = [];
+
+  for (const layer of currentLayers) {
+    const baseline = baselineById.get(layer.id);
+    if (!baseline) continue;
+
+    const patch: MapLayerPatch = { id: layer.id };
+    for (const field of PATCHABLE_LAYER_FIELDS) {
+      const currentValue = toLayerSnapshot(layer)[field];
+      const baselineValue = baseline[field];
+      if (stableJson(currentValue) !== stableJson(baselineValue)) {
+        patch[field] = currentValue as never;
+      }
+    }
+    if (Object.keys(patch).length > 1) updated.push(patch);
+  }
+
+  const baselineExistingOrder = baselineLayers
+    .filter((layer) => currentById.has(layer.id))
+    .map((layer) => layer.id);
+  const currentExistingOrder = currentLayers
+    .filter((layer) => baselineById.has(layer.id))
+    .map((layer) => layer.id);
+  const sortOrderChanged = currentLayers.some((layer) => {
+    const baseline = baselineById.get(layer.id);
+    return baseline ? baseline.sort_order !== layer.sort_order : false;
+  });
+  const orderChanged =
+    stableJson(baselineExistingOrder) !== stableJson(currentExistingOrder) || sortOrderChanged;
+
+  const diff: MapLayerDiffRequest = {};
+  if (added.length > 0) diff.added = added;
+  if (updated.length > 0) diff.updated = updated;
+  if (removed.length > 0) diff.removed = removed;
+  if (orderChanged) diff.order = currentExistingOrder;
+
+  return { diff, unsupported: false };
+}
+
 interface SaveState {
   mapId: string | undefined;
   localLayers: MapLayerResponse[];
@@ -144,6 +285,7 @@ export function useBuilderSave(state: SaveState) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const updateMap = useUpdateMap();
+  const patchMapLayers = usePatchMapLayers();
   const duplicateMutation = useDuplicateMap();
   const enabledWidgetsQuery = useEnabledWidgets();
   const enabledWidgetIds = useMemo(
@@ -151,7 +293,14 @@ export function useBuilderSave(state: SaveState) {
     [enabledWidgetsQuery.data, enabledWidgetsQuery.isLoading],
   );
 
-  function handleSave() {
+  const baselineLayersRef = useRef<MapLayerResponse[]>([]);
+  useEffect(() => {
+    if (!state.hasUnsavedChanges) {
+      baselineLayersRef.current = state.localLayers.map((layer) => ({ ...layer }));
+    }
+  }, [state.hasUnsavedChanges, state.localLayers]);
+
+  async function handleSave() {
     const { mapId: id, mapInstanceRef, localName, localDescription, dockNotes, localBasemap, localLayers, showBasemapLabels } = state;
     if (!id) return;
 
@@ -175,55 +324,58 @@ export function useBuilderSave(state: SaveState) {
     const bearing = map?.getBearing();
     const pitch = map?.getPitch();
 
-    updateMap.mutate(
-      {
-        id,
-        data: {
-          name: localName || undefined,
-          description: localDescription.trim() || null,
-          notes: dockNotes.trim() || null,
-          basemap_style: localBasemap,
-          show_basemap_labels: showBasemapLabels,
-          center_lng: center?.lng ?? null,
-          center_lat: center?.lat ?? null,
-          zoom: zoom ?? null,
-          bearing: bearing ?? 0,
-          pitch: pitch ?? 0,
-          widgets: resolveWidgetsPayload(id, queryClient, enabledWidgetIds),
-          layers: localLayers.map((l) => ({
-            dataset_id: l.dataset_id,
-            sort_order: l.sort_order,
-            visible: l.visible,
-            opacity: l.opacity,
-            paint: l.paint,
-            layout: l.layout,
-            display_name: l.display_name ?? null,
-            filter: l.filter ?? null,
-            label_config: l.label_config ?? null,
-            popup_config: l.popup_config ?? null,
-            style_config: l.style_config ?? null,
-            layer_type: l.layer_type ?? null,
-            show_in_legend: l.show_in_legend ?? true,
-          })),
-        },
-      },
-      {
-        onSuccess: () => {
-          toast.success(t('toasts.mapSaved'));
-          state.setHasUnsavedChanges(false);
+    const metadataPayload: MapUpdateRequest = {
+      name: localName || undefined,
+      description: localDescription.trim() || null,
+      notes: dockNotes.trim() || null,
+      basemap_style: localBasemap,
+      show_basemap_labels: showBasemapLabels,
+      center_lng: center?.lng ?? null,
+      center_lat: center?.lat ?? null,
+      zoom: zoom ?? null,
+      bearing: bearing ?? 0,
+      pitch: pitch ?? 0,
+      widgets: resolveWidgetsPayload(id, queryClient, enabledWidgetIds),
+    };
+    const fullReplacementPayload: MapUpdateRequest = {
+      ...metadataPayload,
+      layers: localLayers.map(toLayerInput),
+    };
 
-          // Capture thumbnail and upload (fire-and-forget)
-          // Use `map` captured before mutate — mapInstanceRef.current may be
-          // transiently null during re-render (callback ref identity change).
-          if (map && id) {
-            captureThumbnail(map, id, queryClient, localLayers);
+    try {
+      const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers);
+      if (unsupported) {
+        await updateMap.mutateAsync({ id, data: fullReplacementPayload });
+      } else {
+        if (hasDiff(diff)) {
+          try {
+            await patchMapLayers.mutateAsync({ id, diff });
+          } catch (error) {
+            if (!isUnsupportedLayerPatchError(error)) throw error;
+            await updateMap.mutateAsync({ id, data: fullReplacementPayload });
+            baselineLayersRef.current = localLayers.map((layer) => ({ ...layer }));
+            toast.success(t('toasts.mapSaved'));
+            state.setHasUnsavedChanges(false);
+            if (map && id) captureThumbnail(map, id, queryClient, localLayers);
+            return;
           }
-        },
-        onError: () => {
-          toast.error(t('toasts.saveFailed'));
-        },
-      },
-    );
+        }
+        await updateMap.mutateAsync({ id, data: metadataPayload });
+      }
+
+      baselineLayersRef.current = localLayers.map((layer) => ({ ...layer }));
+      toast.success(t('toasts.mapSaved'));
+      state.setHasUnsavedChanges(false);
+
+      // Capture thumbnail and upload (fire-and-forget)
+      // Use `map` captured before mutate — mapInstanceRef.current may be
+      // transiently null during re-render (callback ref identity change).
+      if (map && id) {
+        captureThumbnail(map, id, queryClient, localLayers);
+      }
+    } catch {
+      toast.error(t('toasts.saveFailed'));
+    }
   }
 
   function handleExportPNG() {
@@ -304,19 +456,19 @@ export function useBuilderSave(state: SaveState) {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
-        if (!updateMap.isPending) handleSaveRef.current();
+        if (!updateMap.isPending && !patchMapLayers.isPending) handleSaveRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [updateMap.isPending]);
+  }, [patchMapLayers.isPending, updateMap.isPending]);
 
   return {
     handleSave,
     handleExportPNG,
     handleFork,
     maybeAutoCaptureThumbnail,
-    isSaving: updateMap.isPending,
+    isSaving: updateMap.isPending || patchMapLayers.isPending,
     isForkPending: duplicateMutation.isPending,
     blocker,
   };
