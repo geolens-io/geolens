@@ -11,12 +11,18 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-05-05
+
 ### Changed
 
+- Synchronized backend, frontend, CLI, and SDK package metadata for the
+  sanitized public-release tag.
 - Enterprise-only SAML and lifecycle operator runbooks now live with the private
   `geolens-enterprise` source; public docs keep short ownership stubs only.
 - AWS Marketplace environment examples moved out of the public `.env.example`
   and into the enterprise overlay documentation.
+- Public issue and discussion templates now use `v1.0.2` examples and generic
+  cloud image wording instead of pre-public version or AWS Marketplace labels.
 
 ## [1.0.1] - 2026-05-04
 
@@ -462,7 +468,8 @@ UPDATE catalog.records
 - JWT authentication with role-based access control
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/geolens-io/geolens/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/geolens-io/geolens/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/geolens-io/geolens/releases/tag/v1.0.0
 [14.0]: https://github.com/geolens-io/geolens/compare/v13.0...v14.0

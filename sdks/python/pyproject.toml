@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geolens"
-version = "1.0.1"
+version = "1.0.2"
 description = "Auto-generated Python SDK for the GeoLens API. Typed clients with Bearer + API-key auth helpers."
 readme = "README.md"
 license = { text = "Apache-2.0" }

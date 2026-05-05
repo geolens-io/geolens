@@ -180,7 +180,7 @@ This exercises both SDKs against the in-process FastAPI app (Python: `httpx.ASGI
 
 SDK versions are **lockstep with the backend OpenAPI snapshot**.
 
-The version in `backend/openapi.json` `info.version` (currently `1.0.1`) is the canonical source. `scripts/sync_sdk_versions.py`, run as part of `make sdks`, propagates this to:
+The version in `backend/openapi.json` `info.version` (currently `1.0.2`) is the canonical source. `scripts/sync_sdk_versions.py`, run as part of `make sdks`, propagates this to:
 
 - `sdks/python/pyproject.toml` `[project] version`
 - `sdks/python/.openapi-python-client.yaml` `package_version_override`
@@ -230,7 +230,7 @@ npm publish --access public  # --access public REQUIRED for first publish of @sc
 
 The `--access public` flag is required for scoped npm packages because scoped packages default to private (paid org tier required for private). The `package.json` already includes `"publishConfig": { "access": "public" }` as a belt-and-suspenders measure.
 
-## Known rough edges (v13.1)
+## Known rough edges (1.x)
 
 ### Verbose function names
 
@@ -262,7 +262,7 @@ import {
 } from '@geolens/sdk';
 ```
 
-A future minor task may set FastAPI's `generate_unique_id_function` to produce cleaner names. Tracked separately; not blocking v13.1.
+A future minor task may set FastAPI's `generate_unique_id_function` to produce cleaner names. Tracked separately; not blocking current 1.x releases.
 
 ### `attrs` not pydantic
 
@@ -294,7 +294,7 @@ The published SDK declares `"engines": { "node": ">=18" }`. The CI workflow uses
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `ImportError: cannot import name 'GeolensClient'` | Stale package version | `pip install --upgrade geolens` |
-| `ERR_REQUIRE_ESM` | CommonJS consumer trying to require ESM SDK | Use `import` (ESM) — the SDK does not ship a CJS wrapper for v13.1 |
+| `ERR_REQUIRE_ESM` | CommonJS consumer trying to require ESM SDK | Use `import` (ESM) — the SDK does not ship a CJS wrapper for 1.x |
 | `make sdks-check` fails locally with version-only diff | Stale local clone | `make openapi && make sdks` to refresh |
 | `make sdks` fails with "uvx: command not found" | uv not installed | `brew install uv` (macOS) or see <https://docs.astral.sh/uv/getting-started/> |
 | First `npm publish @geolens/sdk` fails with `402 Payment Required` | Missing `--access public` | Use `npm publish --access public` (the workflow already does) |

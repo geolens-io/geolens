@@ -19,7 +19,7 @@ body:
     id: version
     attributes:
       label: GeoLens version
-      description: e.g. v12.3, latest, or commit hash
+      description: e.g. v1.0.2, latest, or commit hash
     validations:
       required: false
   - type: dropdown
@@ -29,7 +29,7 @@ body:
       options:
         - Docker Compose
         - Kubernetes / Helm
-        - AWS AMI
+        - Cloud VM / custom image
         - Other
     validations:
       required: false

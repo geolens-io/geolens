@@ -7,7 +7,7 @@
 | Package | `geolens-cli` (PyPI) |
 | License | Apache-2.0 |
 | Source | `cli/` in [geolens-io/geolens](https://github.com/geolens-io/geolens) |
-| SDK | Built on [`geolens`](sdks.md) — no hand-rolled HTTP client (OCCLI-06) |
+| SDK | Built on [`geolens`](sdks.md) — no hand-rolled HTTP client |
 | Python | ≥ 3.11 |
 
 ## Installation
@@ -59,7 +59,7 @@ Authenticates against the instance and stores the resulting token.
 
 | Flag | Purpose |
 |---|---|
-| `--token <jwt>` | Skip prompt; store this JWT directly. Useful after a browser-based SAML/OAuth flow. **Security: avoid passing tokens on the command line where shell history may persist them.** A `--token-stdin` follow-up is captured as a deferred enhancement (T-216-05). |
+| `--token <jwt>` | Skip prompt; store this JWT directly. Useful after a browser-based SAML/OAuth flow. **Security: avoid passing tokens on the command line where shell history may persist them.** A stdin-token option is tracked as a deferred enhancement. |
 | `--api-key <key>` | Store an API key instead of a bearer token. Mutually exclusive with `--token`; passing both exits with code 2. |
 | `--no-keyring` | Write to `~/.config/geolens/credentials.toml` (mode 0600) instead of the OS keyring. Useful for CI or headless boxes without dbus. |
 
@@ -213,19 +213,19 @@ Uploads a vector or raster file via the 3-step ingest flow (upload → preview �
 |---|---|
 | `--name STR` | Override dataset name (default: filename stem) |
 | `--description STR` | Set description |
-| `--tags a,b,c` | Comma-separated keyword tags. **Currently a no-op pending a `tags`/`keywords` field on `CommitRequest`** — captured as Phase 216 Open Question 4. |
-| `--collection ID` | Add to a collection after commit. **Currently a no-op pending an add-to-collection endpoint in the SDK** — captured in Phase 216 Deferred Ideas. |
+| `--tags a,b,c` | Comma-separated keyword tags. **Currently a no-op pending a `tags`/`keywords` field on `CommitRequest`.** |
+| `--collection ID` | Add to a collection after commit. **Currently a no-op pending an add-to-collection endpoint in the SDK.** |
 | `--wait/--no-wait` | Wait for ingestion to resolve the dataset id (default: `--wait`). With `--no-wait`, the URL falls back to a job-search form. |
 
 Successful output prints `https://<instance>/datasets/<dataset_id>`. With `--no-wait` and a still-pending commit, the URL is `<instance>/datasets?job_id=<id>`.
 
-The CLI uses a **multipart-upload workaround** for the broken generated `BodyUploadFileIngestUploadPost.to_multipart()` (RESEARCH Pitfall 1): it calls the SDK's underlying httpx client directly via `client.get_httpx_client()`. OCCLI-06 still holds — the httpx instance comes from the SDK and `cli/pyproject.toml` declares no httpx direct dependency.
+The CLI uses a **multipart-upload workaround** for the generated `BodyUploadFileIngestUploadPost.to_multipart()` behavior: it calls the SDK's underlying httpx client directly via `client.get_httpx_client()`. The httpx instance comes from the SDK and `cli/pyproject.toml` declares no httpx direct dependency.
 
-Commit is **not idempotent** (RESEARCH Pitfall 6): re-running publish on a job that has already committed prints "already committed" and exits with code 1.
+Commit is **not idempotent**: re-running publish on a job that has already committed prints "already committed" and exits with code 1.
 
 ### `geolens export stac <dataset-id>`
 
-Exports STAC 1.1 JSON for a raster dataset. STAC export is **raster-only** in v13.x; vector datasets exit with code 2 and a clear error message.
+Exports STAC 1.1 JSON for a raster dataset. STAC export is **raster-only** in current 1.x releases; vector datasets exit with code 2 and a clear error message.
 
 | Flag | Purpose |
 |---|---|
@@ -274,7 +274,7 @@ Precedence: **CLI flag > env var > `credentials.toml` > keyring**.
 
 The CLI version is bound to the GeoLens backend's OpenAPI version. For example, `geolens-cli` v1.0.0 ships against the backend's v1.0.x OpenAPI snapshot; the CLI's `geolens` SDK dependency pins to `>=1.0.0,<2.0.0` (lockstep across patch + minor of the same OpenAPI version).
 
-On a backend major-version bump, the CLI gets a coordinated bump too. `make sdks-check` catches version skew in CI on every PR — the `scripts/sync_sdk_versions.py` extension landed in Phase 216 / Plan 06 writes `cli/pyproject.toml`'s version field along with the two SDK targets, so the existing drift gate now covers the CLI automatically (CONTEXT.md D-39).
+On a backend major-version bump, the CLI gets a coordinated bump too. `make sdks-check` catches version skew in CI on every PR: `scripts/sync_sdk_versions.py` writes `cli/pyproject.toml`'s version field along with the two SDK targets, so the drift gate covers the CLI automatically.
 
 See [`docs/sdks.md`](sdks.md#lockstep-version-policy) for the full SDK policy this inherits from.
 
@@ -289,7 +289,7 @@ The CLI is fully hand-maintained — there is no generator that touches `cli/geo
 
 The CI `cli-test` job adds two further structural gates:
 
-1. `grep -rE '^(import|from) (httpx|requests)' cli/geolens_cli/` returns no matches (OCCLI-06: zero direct HTTP imports).
+1. `grep -rE '^(import|from) (httpx|requests)' cli/geolens_cli/` returns no matches, keeping the CLI free of direct HTTP imports.
 2. A `tomllib` assertion that `cli/pyproject.toml` declares no `httpx`/`requests` direct dep (transitive via the `geolens` SDK is fine).
 
 Both gates fire on every PR that touches `cli/**` or `sdks/python/**`, so a regression cannot land silently.
@@ -303,13 +303,13 @@ Publishing runbook (mirrors `docs/sdks.md`):
    - Select `dry_run: true` to build the wheel + sdist without uploading.
    - Select `dry_run: false` for the real publish.
 
-Publishing is a manual user action — there is no auto-publish on push or tag (per CONTEXT.md D-40 and Phase 215 D-16). PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub. The first public CLI release shipped as `geolens-cli==1.0.0`; patch releases follow the OpenAPI lockstep version.
+Publishing is a manual user action — there is no auto-publish on push or tag. PyPI authentication is through Trusted Publishing; no `PYPI_TOKEN` is stored in GitHub. The first public CLI release shipped as `geolens-cli==1.0.0`; patch releases follow the OpenAPI lockstep version.
 
 ## Known Rough Edges
 
 ### Multipart upload generator quirk
 
-The generated `BodyUploadFileIngestUploadPost.to_multipart()` in the Python SDK is broken — it sends `(None, str(path).encode(), 'text/plain')` instead of the file bytes. The CLI bypasses this by calling the SDK's underlying httpx client directly (`client.get_httpx_client().post('/ingest/upload', files={...})`). OCCLI-06 still holds: the httpx instance comes from the SDK, and `cli/pyproject.toml` declares no httpx direct dep.
+The generated `BodyUploadFileIngestUploadPost.to_multipart()` in the Python SDK sends `(None, str(path).encode(), 'text/plain')` instead of the file bytes. The CLI bypasses this by calling the SDK's underlying httpx client directly (`client.get_httpx_client().post('/ingest/upload', files={...})`). The httpx instance comes from the SDK, and `cli/pyproject.toml` declares no httpx direct dep.
 
 ### Keyring on headless Linux
 
@@ -319,7 +319,7 @@ Linux's keyring backends (GNOME Keyring, KWallet) require a desktop session with
 
 The CLI rotates the refresh token whenever `/auth/refresh` returns a new one. If you copy `credentials.toml` to another machine after a refresh, the old machine's refresh token is invalid.
 
-### `--token` and shell history (T-216-05)
+### `--token` and shell history
 
 `geolens login <url> --token <jwt>` is convenient but the JWT lands in shell history. For production CI use, prefer the env-var path (`GEOLENS_TOKEN=<jwt> geolens whoami`) which leaves no flag in history. A `--token-stdin` enhancement is captured for a future phase as the structural fix.
 
@@ -329,7 +329,7 @@ Re-running `geolens publish` on a job that has already committed prints `Job <id
 
 ### STAC for vector datasets
 
-STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` exits with code 2 and the clear message `STAC export is supported for raster datasets only — got record_type=<...>`. Vector dataset metadata is exposed via `GET /datasets/{id}` and the OGC API Records endpoints.
+STAC export is raster-only in current 1.x releases. Trying `geolens export stac <vector-id>` exits with code 2 and the clear message `STAC export is supported for raster datasets only — got record_type=<...>`. Vector dataset metadata is exposed via `GET /datasets/{id}` and the OGC API Records endpoints.
 
 ## Troubleshooting
 
@@ -343,7 +343,7 @@ STAC export is raster-only in v13.x. Trying `geolens export stac <vector-id>` ex
 | `STAC export is supported for raster datasets only` (exit 2) | Trying STAC export on a vector dataset | Use `GET /datasets/{id}` for vector metadata |
 | `Manifest apply response had accepted=false` (exit 1) | Backend returned only error results or rejected the apply response | Re-run with `geolens --json apply ...` and inspect `results[*].errors` |
 | `Could not read manifest` or schema remediation lines (exit 2) | Manifest path is wrong or the YAML does not satisfy manifest v1 | Run `geolens validate <path>` locally before applying |
-| OCCLI-06 violation in CI | A PR added `import httpx` or `import requests` to `cli/geolens_cli/`, or added an httpx/requests dep to `cli/pyproject.toml` | Re-run `make cli-check` locally; the only legitimate path to httpx is via the SDK's `client.get_httpx_client()` |
+| Direct HTTP dependency violation in CI | A PR added `import httpx` or `import requests` to `cli/geolens_cli/`, or added an httpx/requests dep to `cli/pyproject.toml` | Re-run `make cli-check` locally; the only legitimate path to httpx is via the SDK's `client.get_httpx_client()` |
 
 ## Exit Codes
 

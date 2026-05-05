@@ -62,7 +62,7 @@ body:
     attributes:
       label: GeoLens version
       description: Version tag or commit hash (check Admin > Overview).
-      placeholder: e.g., v12.3 or abc1234
+      placeholder: e.g., v1.0.2 or abc1234
     validations:
       required: false
   - type: dropdown
@@ -72,7 +72,7 @@ body:
       options:
         - Docker Compose
         - Kubernetes / Helm
-        - AWS AMI
+        - Cloud VM / custom image
         - Other
     validations:
       required: false

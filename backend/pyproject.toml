@@ -1,6 +1,6 @@
 [project]
 name = "geolens-backend"
-version = "1.0.1"
+version = "1.0.2"
 description = "PostGIS-native GIS data catalog"
 requires-python = ">=3.13"
 license = "Apache-2.0"
