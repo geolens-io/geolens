@@ -1,0 +1,132 @@
+{
+  "info": {
+    "_postman_id": "20b92514-7b32-4c58-bbd0-d81813bca39c",
+    "name": "GeoLens OGC API Smoke",
+    "description": "Local Docker Compose smoke requests for GeoLens OGC API Features and Records endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api"
+    },
+    {
+      "key": "datasetId",
+      "value": "replace-with-dataset-uuid"
+    },
+    {
+      "key": "bbox",
+      "value": "-10,35,30,60"
+    },
+    {
+      "key": "recordQuery",
+      "value": "parks"
+    }
+  ],
+  "item": [
+    {
+      "name": "OGC landing page",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/?f=json",
+          "host": ["{{baseUrl}}"],
+          "path": [""],
+          "query": [
+            {
+              "key": "f",
+              "value": "json"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "List collections",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/collections?limit=10",
+          "host": ["{{baseUrl}}"],
+          "path": ["collections"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Feature items with bbox",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/geo+json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/collections/{{datasetId}}/items?bbox={{bbox}}&limit=10",
+          "host": ["{{baseUrl}}"],
+          "path": ["collections", "{{datasetId}}", "items"],
+          "query": [
+            {
+              "key": "bbox",
+              "value": "{{bbox}}"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Records search",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/geo+json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/collections/datasets/items?q={{recordQuery}}&bbox={{bbox}}&limit=5",
+          "host": ["{{baseUrl}}"],
+          "path": ["collections", "datasets", "items"],
+          "query": [
+            {
+              "key": "q",
+              "value": "{{recordQuery}}"
+            },
+            {
+              "key": "bbox",
+              "value": "{{bbox}}"
+            },
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
