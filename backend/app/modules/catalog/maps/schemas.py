@@ -19,6 +19,20 @@ from app.core.text import normalize_nfc as _nfc
 ADVANCED_SHARING_ERROR = (
     "Advanced sharing controls require the GeoLens Enterprise overlay"
 )
+LEGACY_BUILDER_PAINT_KEYS = {
+    "_outline-width": "outline_width",
+    "outline-width": "outline_width",
+    "_outline-color": "outline_color",
+    "outline-color": "outline_color",
+    "_fill-disabled": "fill_disabled",
+    "_stroke-disabled": "stroke_disabled",
+    "_fill-opacity-saved": "fill_opacity_saved",
+    "_outline-width-saved": "outline_width_saved",
+    "_heatmap-ramp": "heatmap_ramp",
+    "_heatmap-weight-column": "heatmap_weight_column",
+    "_height_column": "height_column",
+}
+_STYLE_CONFIG_BUILDER_KEY = "builder"
 
 # MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
 # because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
@@ -40,6 +54,55 @@ def _validate_style_dict(v: dict | None) -> dict | None:
             f"Style configuration too large (>{_MAX_STYLE_DICT_BYTES} bytes serialized)"
         )
     return v
+
+
+def _merge_builder_style_config(
+    style_config: dict | None,
+    builder_values: dict,
+) -> dict | None:
+    if not builder_values:
+        return style_config
+
+    merged = dict(style_config or {})
+    existing_builder = merged.get(_STYLE_CONFIG_BUILDER_KEY)
+    builder = dict(existing_builder) if isinstance(existing_builder, dict) else {}
+    for key, value in builder_values.items():
+        if value is not None and builder.get(key) is None:
+            builder[key] = value
+    if builder:
+        merged[_STYLE_CONFIG_BUILDER_KEY] = builder
+    return merged
+
+
+def split_legacy_builder_paint(
+    paint: dict | None,
+    style_config: dict | None,
+) -> tuple[dict | None, dict | None]:
+    """Move bounded legacy builder metadata from paint into style_config.
+
+    ``paint`` is the MapLibre storage/output boundary. During the rollout, old
+    clients may still submit the known legacy keys listed in
+    ``LEGACY_BUILDER_PAINT_KEYS``; those keys are stripped from paint and merged
+    into ``style_config.builder``. Unknown underscore-prefixed paint keys remain
+    invalid so private client state cannot keep leaking into stored paint JSON.
+    """
+    if paint is None:
+        return paint, style_config
+
+    clean_paint = dict(paint)
+    builder_values: dict = {}
+    for legacy_key, builder_key in LEGACY_BUILDER_PAINT_KEYS.items():
+        if legacy_key in clean_paint:
+            builder_values[builder_key] = clean_paint.pop(legacy_key)
+
+    unknown_private_keys = sorted(
+        key for key in clean_paint if isinstance(key, str) and key.startswith("_")
+    )
+    if unknown_private_keys:
+        keys = ", ".join(unknown_private_keys)
+        raise ValueError(f"Unsupported private paint key(s): {keys}")
+
+    return clean_paint, _merge_builder_style_config(style_config, builder_values)
 
 
 class PopupConfig(BaseModel):
@@ -113,7 +176,12 @@ class MapLayerInput(BaseModel):
         description="Popup configuration: {enabled, expression, visible_fields}",
     )
     style_config: dict | None = Field(
-        default=None, description="Data-driven style configuration"
+        default=None,
+        description=(
+            "Data-driven and builder UI style configuration. Builder-only state "
+            "lives under builder, e.g. fill_disabled, stroke_disabled, outline "
+            "settings, heatmap metadata, and height_column."
+        ),
     )
 
     _validate_paint = field_validator("paint")(_validate_style_dict)
@@ -128,6 +196,16 @@ class MapLayerInput(BaseModel):
     show_in_legend: bool = Field(
         default=True, description="Whether to include in the map legend"
     )
+
+    @model_validator(mode="after")
+    def _normalize_paint_boundary(self) -> "MapLayerInput":
+        self.paint, self.style_config = split_legacy_builder_paint(
+            self.paint,
+            self.style_config,
+        )
+        _validate_style_dict(self.paint)
+        _validate_style_dict(self.style_config)
+        return self
 
 
 class MapCreate(BaseModel):

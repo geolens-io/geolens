@@ -74,10 +74,11 @@ async def get_dataset_meta(
     return DatasetMeta(*row) if row else None
 
 
-def generate_default_style(geometry_type: str | None) -> dict[str, dict]:
+def generate_default_style(geometry_type: str | None) -> dict[str, dict | None]:
     """Generate MapLibre-native default paint/layout for a geometry type.
 
-    Returns {"paint": {...}, "layout": {...}} ready to store in map_layers.
+    Returns paint/layout plus optional builder style_config ready to store in
+    map_layers.
     """
     gt = (geometry_type or "").upper()
     if not gt:
@@ -114,12 +115,14 @@ def generate_default_style(geometry_type: str | None) -> dict[str, dict]:
             "paint": {
                 "fill-color": "#3b82f6",
                 "fill-opacity": 0.3,
-                # GeoLens-private keys consumed by the frontend layer-adapter;
-                # not valid MapLibre paint properties.
-                "_outline-color": "#1d4ed8",
-                "_outline-width": 1,
             },
             "layout": {},
+            "style_config": {
+                "builder": {
+                    "outline_color": "#1d4ed8",
+                    "outline_width": 1,
+                }
+            },
         }
 
 

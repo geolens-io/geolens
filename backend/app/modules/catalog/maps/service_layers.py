@@ -9,7 +9,7 @@ from app.core.identity import Identity
 from app.modules.auth.models import UserRole
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import MapLayer
-from app.modules.catalog.maps.schemas import MapLayerInput
+from app.modules.catalog.maps.schemas import MapLayerInput, split_legacy_builder_paint
 from app.modules.catalog.maps.service_shared import (
     _infer_layer_type,
     generate_default_style,
@@ -81,6 +81,7 @@ async def add_layer(
 
     paint = body.paint
     layout = body.layout
+    style_config = body.style_config
     # Raster layers use empty paint/layout (no vector style defaults)
     if resolved_layer_type == "raster_geolens":
         if paint is None:
@@ -93,6 +94,10 @@ async def add_layer(
             paint = defaults["paint"]
         if layout is None:
             layout = defaults["layout"]
+        if style_config is None:
+            style_config = defaults.get("style_config")
+
+    paint, style_config = split_legacy_builder_paint(paint, style_config)
 
     layer = MapLayer(
         map_id=map_id,
@@ -107,7 +112,7 @@ async def add_layer(
         filter=body.filter,
         label_config=body.label_config,
         popup_config=body.popup_config.model_dump() if body.popup_config else None,
-        style_config=body.style_config,
+        style_config=style_config,
         show_in_legend=body.show_in_legend,
     )
     session.add(layer)

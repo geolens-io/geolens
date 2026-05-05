@@ -18,6 +18,7 @@ from sqlalchemy import select
 
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.schemas import ADVANCED_SHARING_ERROR
 from app.modules.catalog.maps.service import create_share_token, update_share_token
 
@@ -1414,6 +1415,133 @@ class TestMapLayers:
         assert data["layout"] == custom_layout
         assert data["opacity"] == 0.5
         assert data["sort_order"] == 1
+
+    async def test_add_layer_moves_legacy_builder_paint_to_style_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/{id}/layers/ accepts known legacy paint keys but stores clean paint."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers/",
+            json={
+                "dataset_id": str(ds.id),
+                "paint": {
+                    "fill-color": "#ef4444",
+                    "fill-opacity": 0,
+                    "_fill-disabled": True,
+                    "_outline-color": "#111827",
+                    "_outline-width": 2,
+                },
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["paint"] == {"fill-color": "#ef4444", "fill-opacity": 0}
+        assert data["style_config"]["builder"] == {
+            "fill_disabled": True,
+            "outline_color": "#111827",
+            "outline_width": 2,
+        }
+
+        stored = await test_db_session.get(MapLayer, uuid.UUID(data["id"]))
+        assert stored is not None
+        assert stored.paint == data["paint"]
+        assert stored.style_config == data["style_config"]
+
+    async def test_add_layer_rejects_unknown_private_paint_key(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/{id}/layers/ rejects private paint keys outside the rollout allowlist."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds.id), "paint": {"_client-cache": "leak"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+
+    async def test_add_layer_default_polygon_style_uses_style_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Default polygon style stores MapLibre paint and builder outline state separately."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["paint"] == {"fill-color": "#3b82f6", "fill-opacity": 0.3}
+        assert data["style_config"] == {
+            "builder": {"outline_color": "#1d4ed8", "outline_width": 1}
+        }
+
+    async def test_update_map_layers_moves_legacy_builder_paint_to_style_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PUT /maps/{id} full replacement keeps legacy builder state out of paint."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                "layers": [
+                    {
+                        "dataset_id": str(ds.id),
+                        "paint": {
+                            "fill-color": "#22c55e",
+                            "fill-opacity": 0,
+                            "outline-color": "#0f172a",
+                            "outline-width": 3,
+                            "_fill-opacity-saved": 0.45,
+                        },
+                        "style_config": {
+                            "mode": "categorized",
+                            "builder": {"outline_width": 9},
+                        },
+                    }
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        layer = resp.json()["layers"][0]
+        assert layer["paint"] == {"fill-color": "#22c55e", "fill-opacity": 0}
+        assert layer["style_config"] == {
+            "mode": "categorized",
+            "builder": {
+                "outline_width": 9,
+                "outline_color": "#0f172a",
+                "fill_opacity_saved": 0.45,
+            },
+        }
 
 
 # ---------------------------------------------------------------------------

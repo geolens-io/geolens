@@ -14,6 +14,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.schemas import split_legacy_builder_paint
 from app.modules.catalog.maps.service_layers import bulk_check_dataset_access
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
@@ -319,6 +320,7 @@ async def _replace_layers(
 
         paint = layer_data.get("paint")
         layout = layer_data.get("layout")
+        style_config = layer_data.get("style_config")
 
         if resolved_layer_type == "raster_geolens":
             # Raster layers use empty paint/layout
@@ -332,6 +334,10 @@ async def _replace_layers(
                 paint = defaults["paint"]
             if layout is None:
                 layout = defaults["layout"]
+            if style_config is None:
+                style_config = defaults.get("style_config")
+
+        paint, style_config = split_legacy_builder_paint(paint, style_config)
 
         # Normalize empty display_name to None
         display_name = layer_data.get("display_name") or None
@@ -349,7 +355,7 @@ async def _replace_layers(
             filter=layer_data.get("filter"),
             label_config=layer_data.get("label_config"),
             popup_config=layer_data.get("popup_config"),
-            style_config=layer_data.get("style_config"),
+            style_config=style_config,
             show_in_legend=layer_data.get("show_in_legend", True),
         )
         session.add(new_layer)
