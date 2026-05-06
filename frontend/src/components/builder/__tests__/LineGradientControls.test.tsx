@@ -145,6 +145,71 @@ describe('LineGradientControls — UI', () => {
     expect(screen.getByText('style.lineGradient.customExpression')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'style.lineGradient.addStop' })).not.toBeInTheDocument();
   });
+
+  it('ui: pendingPositionEdits clears on commitStops so stale invalid positions do not leak across remove/add (WR-02)', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    const initialStops = [
+      { position: 0, color: '#000' },
+      { position: 0.5, color: '#888' },
+      { position: 1, color: '#fff' },
+    ];
+    const expr = stopsToLineGradientExpression(initialStops);
+    const { rerender } = render(
+      <LineGradientControls
+        paint={{ 'line-gradient': expr }}
+        styleConfig={{ builder: { lineGradient: { stops: initialStops } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    // Type an invalid pending position into idx=2.
+    const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+    fireEvent.change(positionInputs[2], { target: { value: '1.5' } });
+    expect(screen.getByText('style.lineGradient.invalidPosition')).toBeInTheDocument();
+    // Remove idx=0 — commitStops fires with 2 remaining stops; pendingPositionEdits[2] is now orphaned.
+    await user.click(screen.getAllByRole('button', { name: 'style.lineGradient.removeStop' })[0]);
+    // Simulate parent re-rendering with the committed shorter stops. Pending edits for the new
+    // re-rendered indices must be empty — the component must NOT show invalidPosition anymore.
+    const remainingStops = [
+      { position: 0.5, color: '#888' },
+      { position: 1, color: '#fff' },
+    ];
+    rerender(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(remainingStops) }}
+        styleConfig={{ builder: { lineGradient: { stops: remainingStops } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    expect(screen.queryByText('style.lineGradient.invalidPosition')).not.toBeInTheDocument();
+    // Add a stop — neither the new idx=2 nor any other index should re-surface a stale 1.5.
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.addStop' }));
+    const addStopsCommitted = onPaintProp.mock.calls
+      .filter((c: unknown[]) => c[0] === 'line-gradient')
+      .map((c: unknown[]) => c[1])
+      .pop() as unknown[];
+    // The committed paint must NOT include 1.5 anywhere — assert by rerendering with it.
+    rerender(
+      <LineGradientControls
+        paint={{ 'line-gradient': addStopsCommitted }}
+        styleConfig={{ builder: { lineGradient: { stops: lineGradientExpressionToStops(addStopsCommitted)! } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    expect(screen.queryByText('style.lineGradient.invalidPosition')).not.toBeInTheDocument();
+    // No position input shows 1.5 either.
+    const finalInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+    for (const input of finalInputs) {
+      expect((input as HTMLInputElement).value).not.toBe('1.5');
+    }
+  });
 });
 
 describe('LineGradientControls — advanced expression editor', () => {

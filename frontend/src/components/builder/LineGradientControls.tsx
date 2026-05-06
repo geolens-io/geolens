@@ -128,6 +128,12 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow
     // the gradient committed by `onPaintProp`. (UAT regression — Phase 256.)
+    //
+    // Clear pendingPositionEdits because the entry indices are about to be
+    // invalidated by the structural change (add/remove/sort/etc). Pending
+    // edits are keyed by array index and would otherwise leak across
+    // index shifts (Phase 256 review — WR-02).
+    setPendingPositionEdits({});
     const expr = stopsToLineGradientExpression(nextStops);
     const nextPaint = { ...paint, 'line-gradient': expr };
     onPaintProp('line-gradient', expr);
@@ -189,12 +195,8 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       // Don't commit invalid values upstream.
       return;
     }
-    // Clear pending entry once we commit a valid value.
-    setPendingPositionEdits((prev) => {
-      const { [index]: _drop, ...rest } = prev;
-      void _drop;
-      return rest;
-    });
+    // commitStops() resets pendingPositionEdits to {} so this index's
+    // entry is dropped along with any other stale entries (WR-02).
     const next = liveStops.map((s, i) => (i === index ? { ...s, position: raw } : s));
     commitStops(next);
   }
