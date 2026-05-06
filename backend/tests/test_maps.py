@@ -2998,3 +2998,132 @@ class TestShowInLegendRoundTrip:
         )
         assert resp.status_code == 200
         assert resp.json()["layers"][0]["show_in_legend"] is True
+
+
+# ---------------------------------------------------------------------------
+# Style JSON import round-trip — terrain persistence (NEW-INT-01 regression)
+# ---------------------------------------------------------------------------
+
+
+class TestImportStyleJsonTerrain:
+    """POST /maps/import must persist terrain_config from imported style JSON.
+
+    Closes NEW-INT-01: prior to this test, the parser correctly populated
+    ImportedStyleMap.terrain_config but the import endpoint never assigned
+    it onto the persisted Map, so STYLEX-02 / FLOW-03 silently broke at the
+    HTTP boundary while parser-level unit tests passed.
+    """
+
+    async def test_import_style_with_top_level_terrain_persists_terrain_config(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/import with top-level terrain block sets map.terrain_config."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        source_id = f"geolens-{dem.id}"
+
+        style = {
+            "version": 8,
+            "name": "Imported terrain map",
+            "metadata": {"geolens": {"description": "DEM hillshade with terrain"}},
+            "sources": {
+                source_id: {
+                    "type": "raster-dem",
+                    "tiles": [f"/raster-tiles/{dem.id}/tiles/{{z}}/{{x}}/{{y}}.png"],
+                    "tileSize": 256,
+                    "encoding": "mapbox",
+                    "metadata": {
+                        "geolens": {
+                            "dataset_id": str(dem.id),
+                            "table_name": dem.table_name,
+                            "geometry_type": None,
+                            "record_type": "raster_dataset",
+                        }
+                    },
+                }
+            },
+            "layers": [
+                {
+                    "id": "layer-dem",
+                    "type": "hillshade",
+                    "source": source_id,
+                    "metadata": {
+                        "geolens": {
+                            "dataset_id": str(dem.id),
+                            "layer_id": str(uuid.uuid4()),
+                            "layer_type": "raster_geolens",
+                            "sort_order": 0,
+                        }
+                    },
+                    "paint": {"hillshade-exaggeration": 0.5},
+                    "layout": {},
+                }
+            ],
+            "terrain": {"source": source_id, "exaggeration": 2.5},
+        }
+
+        resp = await client.post("/maps/import", json=style, headers=admin_auth_header)
+        assert resp.status_code == 201, f"Import failed: {resp.text}"
+        body = resp.json()
+        terrain = body["map"]["terrain_config"]
+        assert terrain is not None, "terrain_config dropped by import endpoint"
+        assert terrain["enabled"] is True
+        assert terrain["source_dataset_id"] == str(dem.id)
+        assert terrain["exaggeration"] == 2.5
+
+    async def test_import_style_without_terrain_leaves_terrain_config_null(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/import without terrain block leaves terrain_config as None."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dem = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        source_id = f"geolens-{dem.id}"
+
+        style = {
+            "version": 8,
+            "name": "Imported map without terrain",
+            "metadata": {"geolens": {}},
+            "sources": {
+                source_id: {
+                    "type": "raster",
+                    "tiles": [f"/raster-tiles/{dem.id}/tiles/{{z}}/{{x}}/{{y}}.png"],
+                    "tileSize": 256,
+                    "metadata": {
+                        "geolens": {
+                            "dataset_id": str(dem.id),
+                            "table_name": dem.table_name,
+                            "geometry_type": None,
+                            "record_type": "raster_dataset",
+                        }
+                    },
+                }
+            },
+            "layers": [
+                {
+                    "id": "layer-raster",
+                    "type": "raster",
+                    "source": source_id,
+                    "metadata": {
+                        "geolens": {
+                            "dataset_id": str(dem.id),
+                            "layer_id": str(uuid.uuid4()),
+                            "layer_type": "raster_geolens",
+                            "sort_order": 0,
+                        }
+                    },
+                    "paint": {},
+                    "layout": {},
+                }
+            ],
+        }
+
+        resp = await client.post("/maps/import", json=style, headers=admin_auth_header)
+        assert resp.status_code == 201, f"Import failed: {resp.text}"
+        body = resp.json()
+        assert body["map"]["terrain_config"] is None
