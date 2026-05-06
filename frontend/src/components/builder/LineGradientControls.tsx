@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { StyleColorPicker } from './StyleColorPicker';
 import type { BuilderStyleConfig, StyleConfig } from '@/types/api';
 import { cn } from '@/lib/utils';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: string }> = [
   { position: 0, color: '#0066cc' },
@@ -102,7 +103,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const [mode, setMode] = useState<'solid' | 'gradient'>(initialMode);
 
   const savedSolidColorRef = useRef<string>(
-    typeof paint['line-color'] === 'string' ? (paint['line-color'] as string) : '#0066cc',
+    typeof paint['line-color'] === 'string' ? (paint['line-color'] as string) : MAP_COLORS.default.fill,
   );
   useEffect(() => {
     if (mode === 'solid' && typeof paint['line-color'] === 'string') {
@@ -292,7 +293,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       {mode === 'solid' && (
         <StyleColorPicker
           label={t('style.lineGradient.color')}
-          color={typeof paint['line-color'] === 'string' ? (paint['line-color'] as string) : '#0066cc'}
+          color={typeof paint['line-color'] === 'string' ? (paint['line-color'] as string) : MAP_COLORS.default.fill}
           onChange={(hex) => onPaintProp('line-color', hex)}
         />
       )}
