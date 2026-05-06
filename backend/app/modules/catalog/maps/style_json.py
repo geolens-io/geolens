@@ -53,6 +53,15 @@ _STYLE_METADATA_KEYS = {
     "sizes",
     "render_mode",
     "symbol",
+    "builder",
+}
+_HILLSHADE_PAINT_KEYS = {
+    "hillshade-illumination-direction",
+    "hillshade-illumination-anchor",
+    "hillshade-exaggeration",
+    "hillshade-shadow-color",
+    "hillshade-highlight-color",
+    "hillshade-accent-color",
 }
 _SYMBOL_METADATA_KEYS = {
     "iconImage",
@@ -141,6 +150,16 @@ def _clean_symbol_metadata(symbol: Any) -> dict[str, Any] | None:
     return clean or None
 
 
+def _clean_builder_block(value: dict[str, Any]) -> dict[str, Any]:
+    """Allow-list builder sub-keys but strip underscore-prefixed private flags."""
+    cleaned: dict[str, Any] = {}
+    for sub_key, sub_value in value.items():
+        if isinstance(sub_key, str) and sub_key.startswith("_"):
+            continue
+        cleaned[sub_key] = sub_value
+    return cleaned
+
+
 def _clean_style_metadata(style_config: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(style_config, dict):
         return None
@@ -153,6 +172,12 @@ def _clean_style_metadata(style_config: dict[str, Any] | None) -> dict[str, Any]
             if symbol:
                 clean[key] = symbol
             continue
+        if key == "builder":
+            if isinstance(value, dict):
+                builder = _clean_builder_block(value)
+                if builder:
+                    clean[key] = builder
+            continue
         clean[key] = value
     return clean or None
 
@@ -162,12 +187,22 @@ def _builder_style_config(style_config: dict[str, Any] | None) -> dict[str, Any]
     return dict(builder) if isinstance(builder, dict) else {}
 
 
-def _geometry_layer_type(geometry_type: str | None, style_config: dict | None) -> str:
+def _geometry_layer_type(
+    geometry_type: str | None,
+    style_config: dict | None,
+    *,
+    is_dem: bool = False,
+    layer_type: str | None = None,
+) -> str:
     render_mode = (style_config or {}).get("render_mode")
+    if render_mode == "hillshade" and (is_dem or layer_type == "raster_geolens"):
+        return "hillshade"
     if render_mode == "heatmap":
         return "heatmap"
     if render_mode == "symbol":
         return "symbol"
+    if layer_type == "raster_geolens":
+        return "raster"
     gt = (geometry_type or "").upper()
     if "POINT" in gt:
         return "circle"
@@ -195,7 +230,16 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
 
 def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
     source: dict[str, Any]
-    if layer.layer_type == "raster_geolens" or layer.dataset_record_type in {
+    if (layer.is_dem is True) and (
+        (layer.style_config or {}).get("render_mode") == "hillshade"
+    ):
+        source = {
+            "type": "raster-dem",
+            "tiles": [_tile_url_for_layer(layer)],
+            "tileSize": 256,
+            "encoding": "mapbox",
+        }
+    elif layer.layer_type == "raster_geolens" or layer.dataset_record_type in {
         "raster_dataset",
         "vrt_dataset",
     }:
@@ -426,9 +470,18 @@ def _style_layer_for_map_layer(
     source_id: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     style_config = layer.style_config or {}
-    layer_type = _geometry_layer_type(layer.dataset_geometry_type, style_config)
+    layer_type = _geometry_layer_type(
+        layer.dataset_geometry_type,
+        style_config,
+        is_dem=bool(layer.is_dem),
+        layer_type=layer.layer_type,
+    )
     layout = _clean_layout(layer.layout)
     paint = _clean_paint(layer.paint)
+    if layer_type == "hillshade":
+        paint = {
+            key: value for key, value in paint.items() if key in _HILLSHADE_PAINT_KEYS
+        }
     layer_id = f"layer-{_safe_id(str(layer.id))}"
     base: dict[str, Any] = {
         "id": layer_id,
@@ -438,7 +491,10 @@ def _style_layer_for_map_layer(
         "layout": layout,
         "paint": paint,
     }
-    if layer.layer_type != "raster_geolens" and layer_type != "raster":
+    if layer.layer_type != "raster_geolens" and layer_type not in {
+        "raster",
+        "hillshade",
+    }:
         base["source-layer"] = layer.dataset_table_name
     if layer.filter:
         base["filter"] = layer.filter
@@ -461,7 +517,11 @@ def _style_layer_for_map_layer(
             **paint,
             **(_label_paint(label_config) if label_config else {}),
         }
-    elif label_config.get("column") and layer_type != "heatmap":
+    elif label_config.get("column") and layer_type not in {
+        "heatmap",
+        "raster",
+        "hillshade",
+    }:
         label_metadata = _clean_label_metadata(label_config)
         label_layer = {
             "id": f"{layer_id}-label",
@@ -499,6 +559,17 @@ def build_maplibre_style(
         style_layers.append(base_layer)
         style_layers.extend(companions)
 
+    terrain_block: dict[str, Any] | None = None
+    tc = map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else None
+    if tc and tc.get("enabled") and tc.get("source_dataset_id"):
+        terrain_source_id = f"geolens-{_safe_id(str(tc['source_dataset_id']))}"
+        if terrain_source_id in sources:
+            try:
+                exaggeration = float(tc.get("exaggeration", 1.0))
+            except (TypeError, ValueError):
+                exaggeration = 1.0
+            terrain_block = {"source": terrain_source_id, "exaggeration": exaggeration}
+
     style: dict[str, Any] = {
         "version": STYLE_VERSION,
         "name": map_obj.name,
@@ -522,6 +593,8 @@ def build_maplibre_style(
         style["zoom"] = map_obj.zoom
     style["bearing"] = map_obj.bearing or 0
     style["pitch"] = map_obj.pitch or 0
+    if terrain_block:
+        style["terrain"] = terrain_block
     return style
 
 

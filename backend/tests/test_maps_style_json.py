@@ -177,7 +177,13 @@ def test_build_maplibre_style_exports_fill_companion_layers():
         "fill-extrusion",
     ]
     fill, outline, extrusion = style["layers"]
-    assert fill["metadata"]["geolens"]["style_config"] is None
+    assert fill["metadata"]["geolens"]["style_config"] == {
+        "builder": {
+            "outlineColor": "#112233",
+            "outlineWidth": 4,
+            "heightColumn": "height_m",
+        }
+    }
     assert outline["id"] == f"{fill['id']}-outline"
     assert outline["metadata"]["geolens"]["companion"] == "outline"
     assert outline["paint"] == {
@@ -377,6 +383,7 @@ def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external(
     assert layer.style_config == {
         "render_mode": "symbol",
         "symbol": {"iconImage": "bus"},
+        "builder": {"fillDisabled": True},
     }
 
 
