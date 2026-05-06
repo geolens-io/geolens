@@ -479,6 +479,7 @@ from .status_update_response import StatusUpdateResponse
 from .summary_draft_response import SummaryDraftResponse
 from .table_register_response import TableRegisterResponse
 from .terrain_config import TerrainConfig
+from .thumbnail_upload_request import ThumbnailUploadRequest
 from .tile_config_response import TileConfigResponse
 from .tile_token_batch_request import TileTokenBatchRequest
 from .tile_token_batch_response import TileTokenBatchResponse
@@ -901,6 +902,7 @@ __all__ = (
     "SummaryDraftResponse",
     "TableRegisterResponse",
     "TerrainConfig",
+    "ThumbnailUploadRequest",
     "TileConfigResponse",
     "TileTokenBatchRequest",
     "TileTokenBatchResponse",

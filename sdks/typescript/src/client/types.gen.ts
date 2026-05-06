@@ -7816,6 +7816,21 @@ export type TerrainConfig = {
 };
 
 /**
+ * ThumbnailUploadRequest
+ *
+ * JSON body for PUT /maps/{map_id}/thumbnail/.
+ *
+ * Replaces a previous text/plain body shape that openapi-python-client
+ * could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+ */
+export type ThumbnailUploadRequest = {
+    /**
+     * Data Uri
+     */
+    data_uri: string;
+};
+
+/**
  * TileConfigResponse
  */
 export type TileConfigResponse = {
@@ -17289,10 +17304,7 @@ export type GetThumbnailMapsMapIdThumbnailGetResponses = {
 };
 
 export type UploadThumbnailMapsMapIdThumbnailPutData = {
-    /**
-     * Data Uri
-     */
-    body: string;
+    body: ThumbnailUploadRequest;
     path: {
         /**
          * Map Id

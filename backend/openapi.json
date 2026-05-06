@@ -13286,6 +13286,20 @@
         "title": "TerrainConfig",
         "type": "object"
       },
+      "ThumbnailUploadRequest": {
+        "description": "JSON body for PUT /maps/{map_id}/thumbnail/.\n\nReplaces a previous text/plain body shape that openapi-python-client\ncould not parse (would silently skip endpoint). See Phase 254 / SDK-01.",
+        "properties": {
+          "data_uri": {
+            "title": "Data Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_uri"
+        ],
+        "title": "ThumbnailUploadRequest",
+        "type": "object"
+      },
       "TileConfigResponse": {
         "properties": {
           "cdn_base_url": {
@@ -34020,10 +34034,9 @@
         ],
         "requestBody": {
           "content": {
-            "text/plain": {
+            "application/json": {
               "schema": {
-                "title": "Data Uri",
-                "type": "string"
+                "$ref": "#/components/schemas/ThumbnailUploadRequest"
               }
             }
           },

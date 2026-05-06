@@ -2235,12 +2235,11 @@ export const getThumbnailMapsMapIdThumbnailGet = <ThrowOnError extends boolean =
  * bytes to the configured storage provider, and stores the storage key.
  */
 export const uploadThumbnailMapsMapIdThumbnailPut = <ThrowOnError extends boolean = false>(options: Options<UploadThumbnailMapsMapIdThumbnailPutData, ThrowOnError>) => (options.client ?? client).put<UploadThumbnailMapsMapIdThumbnailPutResponses, UploadThumbnailMapsMapIdThumbnailPutErrors, ThrowOnError>({
-    bodySerializer: null,
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/maps/{map_id}/thumbnail/',
     ...options,
     headers: {
-        'Content-Type': 'text/plain',
+        'Content-Type': 'application/json',
         ...options.headers
     }
 });
