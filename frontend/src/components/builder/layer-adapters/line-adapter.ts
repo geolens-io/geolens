@@ -14,6 +14,14 @@ export const lineAdapter: LayerAdapter = {
       // line-dasharray is stored in layout JSON but is a MapLibre paint property
       const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
       const linePaint = stripCustomProps(basePaint);
+      // line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
+      // valid scalar fallback. simplifyPaint flattens arrays to scalar fallbacks (e.g.
+      // `interpolate`'s value[4] color stop), which produces a plain string that MapLibre
+      // rejects on addLayer. Drop it here and let finalizeLayer's replayExpressions install
+      // the real expression after addLayer succeeds. See REVIEW.md WR-02.
+      if (hasExpressions && Array.isArray(rawPaint['line-gradient'])) {
+        delete linePaint['line-gradient'];
+      }
       if (Object.keys(linePaint).length === 0) {
         linePaint['line-color'] = MAP_COLORS.default.fill;
         linePaint['line-width'] = 2;

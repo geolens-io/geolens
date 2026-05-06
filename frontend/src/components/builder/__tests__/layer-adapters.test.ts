@@ -555,6 +555,38 @@ describe('lineAdapter', () => {
     expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
   });
 
+  it('addLayers does not pass flattened line-gradient string to MapLibre addLayer when expressions present', () => {
+    // Regression for REVIEW.md WR-02: simplifyPaint flattens line-gradient arrays to a scalar
+    // fallback (e.g. value[4] color stop for interpolate). MapLibre's line-gradient REQUIRES
+    // a ['line-progress'] expression — a constant string fails addLayer validation and the
+    // try/catch silently swallows the error. The fix drops line-gradient from addLayer.paint
+    // when the input has an array-valued gradient; replayExpressions installs the real
+    // expression after addLayer succeeds.
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const widthExpression = ['interpolate', ['linear'], ['zoom'], 5, 1, 12, 8];
+    const input = makeInput({
+      id: 'l5c',
+      layerId: 'layer-l5c',
+      sourceId: 'source-l5c',
+      sourceLayer: 'data.test_table',
+      dataset_geometry_type: 'LINESTRING',
+      paint: {
+        // Force hasExpressions=true via line-width array so simplifyPaint runs.
+        'line-color': '#ff0000',
+        'line-width': widthExpression,
+        'line-gradient': gradient,
+      },
+    });
+
+    lineAdapter.addLayers(map, input);
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // line-gradient must be ABSENT from addLayer.paint — passing a flattened string would
+    // make MapLibre reject the entire layer.
+    expect(call.paint).not.toHaveProperty('line-gradient');
+    // The real expression must still be installed via setPaintProperty (via replayExpressions).
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5c', 'line-gradient', gradient);
+  });
+
   it('preserves expression-valued line-gradient as identity through addLayers + syncPaint', () => {
     const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
     const input = makeInput({
