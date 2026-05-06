@@ -221,8 +221,7 @@ export async function getMapShareToken(mapId: string): Promise<ShareTokenRespons
 export async function uploadThumbnail(mapId: string, dataUri: string): Promise<void> {
   await apiFetch(`/maps/${mapId}/thumbnail/`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'text/plain' },
-    body: dataUri,
+    body: JSON.stringify({ data_uri: dataUri }),
   });
 }
 
