@@ -1,4 +1,4 @@
-import type { Map as MaplibreMap, GeoJSONSource } from 'maplibre-gl';
+import type { Map as MaplibreMap, GeoJSONSource, VectorSourceSpecification } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
 import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
@@ -180,6 +180,29 @@ export function getLayerId(layerId: string) {
   return prefixed('layer', layerId);
 }
 
+/** Detect whether any layer using this sourceId needs `lineMetrics: true`.
+ *  A layer "needs" the flag when:
+ *    - paint['line-gradient'] is set (any value — string, array expression, or object), OR
+ *    - style_config.builder.lineGradient is a non-empty object (Phase 256 builder intent stub).
+ *  Locked detection rule per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01. */
+function lineGradientNeededFor(
+  sourceId: string,
+  layers: SyncLayerInput[],
+  idPrefix: string | undefined,
+): boolean {
+  for (const layer of layers) {
+    if (prefixed('source', layer.id, idPrefix) !== sourceId) continue;
+    const paint = layer.paint ?? {};
+    if (paint['line-gradient'] != null) return true;
+    const builder = (layer.style_config as { builder?: { lineGradient?: unknown } } | null | undefined)?.builder;
+    const intent = builder?.lineGradient;
+    if (intent != null && typeof intent === 'object' && Object.keys(intent as object).length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Sync sub-routines — extracted from syncLayersToMap for readability
 // ---------------------------------------------------------------------------
@@ -223,6 +246,7 @@ function syncRasterLayer(
 function syncVectorLayer(
   map: MaplibreMap,
   layer: SyncLayerInput,
+  allLayers: SyncLayerInput[],
   adapterInput: AdapterLayerInput,
   tileBaseUrl: string | undefined,
   token: VectorTileToken | null,
@@ -237,7 +261,10 @@ function syncVectorLayer(
   const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
   const adapter = getAdapter(type);
 
-  // GeoJSON-Z branch: 3D small datasets use GeoJSON source instead of MVT
+  // GeoJSON-Z branch: 3D small datasets use GeoJSON source instead of MVT.
+  // NOTE: GeoJSON sources also support a `lineMetrics` field, but Phase 255 only
+  // wires the flag on the vector tile path. GeoJSON-Z line-gradient authoring is
+  // Phase 256 scope (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md).
   const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
   if (isGeoJsonZ && geojsonDataMap?.has(layer.id)) {
     const geojsonData = geojsonDataMap.get(layer.id)!;
@@ -255,12 +282,18 @@ function syncVectorLayer(
   }
 
   if (!map.getSource(sourceId)) {
-    map.addSource(sourceId, {
+    const needsLineMetrics = lineGradientNeededFor(sourceId, allLayers, prefix);
+    // lineMetrics is sticky per D-02 (255-CONTEXT.md): we only set it at source CREATE time.
+    // Removing line-gradient mid-session does NOT tear down the source — the cost of leaving
+    // the per-vertex distance computation on is small compared to the visual jank of recreation.
+    const sourceSpec: VectorSourceSpecification = {
       type: 'vector',
       tiles: [adapterInput.tileUrl],
       minzoom: 1,
       maxzoom: 22,
-    });
+      ...(needsLineMetrics && { lineMetrics: true }),
+    };
+    map.addSource(sourceId, sourceSpec);
     adapter.addLayers(map, adapterInput);
   } else {
     adapter.syncPaint(map, adapterInput);
@@ -384,7 +417,7 @@ export function syncLayersToMap(
       if (token?.kind === 'raster') {
         syncRasterLayer(map, adapterInput, token, desiredSources);
       } else {
-        syncVectorLayer(map, layer, adapterInput, tileBaseUrl, token, desiredSources, geojsonDataMap, prefix);
+        syncVectorLayer(map, layer, layers, adapterInput, tileBaseUrl, token, desiredSources, geojsonDataMap, prefix);
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
