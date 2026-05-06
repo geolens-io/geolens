@@ -277,12 +277,16 @@ export async function* streamGenerateMap(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      const rawLines = buffer.split('\n');
+      buffer = rawLines.pop() ?? '';
 
-      for (const line of lines) {
+      for (const rawLine of rawLines) {
+        // SSE spec allows \r\n, \n, or \r as line terminators. sse-starlette
+        // uses \r\n, so after splitting on \n every line carries a trailing
+        // \r that must be stripped before the empty-line frame boundary check.
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
         if (line.startsWith('event: ')) {
-          eventType = line.slice(7).trim();
+          eventType = line.slice(7);
         } else if (line.startsWith('data: ')) {
           dataLines.push(line.slice(6));
         } else if (line === '' && dataLines.length > 0) {
@@ -424,12 +428,16 @@ export async function* streamChatMessage(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      const rawLines = buffer.split('\n');
+      buffer = rawLines.pop() ?? '';
 
-      for (const line of lines) {
+      for (const rawLine of rawLines) {
+        // SSE spec allows \r\n, \n, or \r as line terminators. sse-starlette
+        // uses \r\n, so after splitting on \n every line carries a trailing
+        // \r that must be stripped before the empty-line frame boundary check.
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
         if (line.startsWith('event: ')) {
-          eventType = line.slice(7).trim();
+          eventType = line.slice(7);
         } else if (line.startsWith('data: ')) {
           dataLines.push(line.slice(6));
         } else if (line === '' && dataLines.length > 0) {
