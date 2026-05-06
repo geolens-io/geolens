@@ -38,16 +38,16 @@ cd "$REPO_ROOT"
 API_CONTAINER_DEFAULT="${API_CONTAINER_DEFAULT:-geolens-api-1}"
 
 # -----------------------------------------------------------------------------
-# Pre-flight: detect API container service name and verify it's running
+# Pre-flight: verify the API service is up. `docker compose ps` takes a service
+# name (the key under `services:` in docker-compose.yml), NOT a container name —
+# the previous fallback to "$API_CONTAINER_DEFAULT" here was dead code because
+# it would always return "no such service" under both Compose v1 and v2.
 # -----------------------------------------------------------------------------
 API_SERVICE="api"
 if ! docker compose ps "$API_SERVICE" 2>/dev/null | grep -qE "Up|running"; then
-  API_SERVICE="$API_CONTAINER_DEFAULT"
-  if ! docker compose ps "$API_SERVICE" 2>/dev/null | grep -qE "Up|running"; then
-    echo "${C_RED}ERROR${C_RESET}: API container is not running."
-    echo "Hint: docker compose up -d api"
-    exit 2
-  fi
+  echo "${C_RED}ERROR${C_RESET}: API service '$API_SERVICE' is not running."
+  echo "Hint: docker compose up -d api"
+  exit 2
 fi
 
 # Resolve the actual container name for `docker exec` usage
