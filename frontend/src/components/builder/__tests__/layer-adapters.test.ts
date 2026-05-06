@@ -471,7 +471,15 @@ describe('lineAdapter', () => {
       'line-blur': 1.5,
       'line-offset': -2,
     }));
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5', 'line-gradient', gradient);
+    // Identity (===) — engine-foundation guarantee that saved gradient expressions are
+    // not deep-cloned mid-pipeline (see REVIEW.md WR-05 + the dedicated identity test below).
+    const gradientCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-gradient');
+    expect(gradientCalls.length).toBeGreaterThan(0);
+    for (const [layerArg, , value] of gradientCalls) {
+      expect(layerArg).toBe('layer-l5');
+      expect(value).toBe(gradient);
+    }
   });
 
   it('addLayers replays line width and opacity expressions without flattening saved gradients', () => {
@@ -496,7 +504,18 @@ describe('lineAdapter', () => {
     lineAdapter.addLayers(map, input);
 
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5b', 'line-width', widthExpression);
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5b', 'line-gradient', gradient);
+    // Identity (===) — see comment on the previous test. line-gradient specifically uses
+    // identity because Phase 256 builder UI relies on in-place stop mutation; the other
+    // expression paints (line-width, line-opacity) keep structural equality below.
+    const gradientCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-gradient');
+    expect(gradientCalls.length).toBeGreaterThan(0);
+    for (const [, , value] of gradientCalls) {
+      expect(value).toBe(gradient);
+    }
+    // Structural equality (JSON.stringify) for non-line-gradient expression paints. Future
+    // tightening to identity is OK but not required — the engine-foundation guarantee in
+    // CONTEXT.md targets line-gradient specifically. See REVIEW.md WR-05 for context.
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'line-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
@@ -524,7 +543,13 @@ describe('lineAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-gap-width', 5);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-blur', 2);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-offset', 3);
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l6', 'line-gradient', gradient);
+    // Identity (===) — engine-foundation guarantee for Phase 256. See REVIEW.md WR-05.
+    const gradientCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-gradient');
+    expect(gradientCalls.length).toBeGreaterThan(0);
+    for (const [, , value] of gradientCalls) {
+      expect(value).toBe(gradient);
+    }
   });
 
   it('syncPaint preserves line width, line opacity, and saved gradient expressions', () => {
@@ -548,7 +573,15 @@ describe('lineAdapter', () => {
     lineAdapter.syncPaint(map, input);
 
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l7', 'line-width', widthExpression);
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l7', 'line-gradient', gradient);
+    // Identity (===) — engine-foundation guarantee for Phase 256. See REVIEW.md WR-05.
+    const gradientCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-gradient');
+    expect(gradientCalls.length).toBeGreaterThan(0);
+    for (const [, , value] of gradientCalls) {
+      expect(value).toBe(gradient);
+    }
+    // Structural equality is acceptable for non-line-gradient expression paints. Tightening
+    // to identity is a future cleanup but not required by the engine-foundation guarantee.
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'line-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
