@@ -103,7 +103,15 @@ def _safe_id(value: str) -> str:
 
 
 def _clean_paint(paint: dict[str, Any] | None) -> dict[str, Any]:
-    """Return MapLibre paint without known/private GeoLens builder keys."""
+    """Return MapLibre paint without known/private GeoLens builder keys.
+
+    NOTE — `line-gradient` is intentionally NOT filtered here (Phase 255
+    GRAD engine contract): `line-gradient` paint is part of the public MapLibre
+    style surface and must round-trip through export/import without modification.
+    See `_layer_uses_line_gradient` and `_drop_unsupported_line_gradient` in this
+    module for the source-type-aware emission path. Do NOT add `line-gradient`
+    to LEGACY_BUILDER_PAINT_KEYS in schemas.py — doing so breaks GRAD-05/06.
+    """
 
     clean: dict[str, Any] = {}
     for key, value in dict(paint or {}).items():
