@@ -89,6 +89,81 @@
       "colorRamp": "Farbverlauf",
       "radius": "Radius",
       "intensity": "Intensität"
+    },
+    "gapWidth": "Gap",
+    "blur": "Blur",
+    "offset": "Offset",
+    "zoomExpression": {
+      "fixed": "Fixed",
+      "variesByZoom": "Varies by zoom",
+      "step": "Step",
+      "interpolate": "Interpolate",
+      "baseValue": "Base value",
+      "stopZoom": "Stop {{index}} zoom",
+      "stopValue": "Stop {{index}} value",
+      "addStop": "Add stop",
+      "removeStop": "Remove stop",
+      "unsupported": "This property uses an unsupported expression. Use Advanced JSON to edit it.",
+      "kindLabel": "Expression type"
+    },
+    "renderSymbol": "Symbol",
+    "none": "None",
+    "symbol": {
+      "title": "Symbol",
+      "iconImage": "Icon",
+      "size": "Size",
+      "rotation": "Rotation",
+      "anchor": "Anchor",
+      "offsetX": "Offset X",
+      "offsetY": "Offset Y",
+      "categoryMapping": "Icons by value",
+      "categoryIcon": "Icon for {{value}}"
+    },
+    "raster": {
+      "title": "Raster",
+      "brightnessMin": "Brightness min",
+      "brightnessMax": "Brightness max",
+      "contrast": "Contrast",
+      "saturation": "Saturation",
+      "hueRotate": "Hue",
+      "fadeDuration": "Fade",
+      "opacity": "Opacity",
+      "resampling": "Resampling",
+      "resamplingLinear": "Linear",
+      "resamplingNearest": "Nearest",
+      "renderMode": "Render",
+      "renderRaster": "Raster",
+      "renderHillshade": "Hillshade",
+      "reset": "Reset",
+      "resetTitle": "Reset raster style"
+    },
+    "hillshade": {
+      "direction": "Direction",
+      "anchor": "Anchor",
+      "anchorViewport": "Viewport",
+      "anchorMap": "Map",
+      "exaggeration": "Relief",
+      "shadow": "Shadow",
+      "highlight": "Highlight",
+      "accent": "Accent"
+    },
+    "lineGradient": {
+      "label": "Line color",
+      "solid": "Solid color",
+      "gradient": "Gradient",
+      "addStop": "Add stop",
+      "removeStop": "Remove stop",
+      "position": "Position",
+      "color": "Color",
+      "invalidPosition": "Position must be between 0 and 1",
+      "duplicatePosition": "Stop positions should increase",
+      "customExpression": "Custom expression — switch to Advanced editor",
+      "advanced": "Advanced expression",
+      "advancedHint": "Edit raw MapLibre expression. Paste a canonical interpolate-linear-line-progress expression to re-hydrate the stops panel.",
+      "applyExpression": "Apply",
+      "cancelExpression": "Cancel",
+      "parseError": "Invalid JSON",
+      "structureError": "Expression must be an array starting with a known operator"
     }
   },
   "filters": {
@@ -440,12 +515,37 @@
   "dock": {
     "askAi": "Ask AI",
     "notes": "Notes",
-    "notesPlaceholder": "Add notes about this map..."
+    "notesPlaceholder": "Add notes about this map...",
+    "history": "History"
   },
   "leaveWarning": {
     "title": "Nicht gespeicherte Änderungen",
     "description": "Sie haben nicht gespeicherte Änderungen, die beim Verlassen dieser Seite verloren gehen.",
     "stay": "Bleiben",
     "leave": "Verlassen"
+  },
+  "terrain": {
+    "title": "Terrain",
+    "enabled": "Enable terrain",
+    "source": "DEM source",
+    "sourcePlaceholder": "Select DEM",
+    "exaggeration": "Exaggeration",
+    "noDem": "Add a DEM raster layer to enable terrain.",
+    "unitsUnknown": "Vertical units are unavailable; exaggeration is approximate.",
+    "unitsNonMeter": "Vertical units are {{unit}}, not meters; exaggeration is approximate."
+  },
+  "history": {
+    "title": "History",
+    "timelineLabel": "Map edit history",
+    "loading": "Loading history...",
+    "emptyTitle": "No edit history yet",
+    "emptyDescription": "History starts after saved edits are recorded for this map.",
+    "errorTitle": "History could not be loaded",
+    "errorDescription": "Try closing and reopening this panel.",
+    "notAvailableTitle": "Save this map to see history",
+    "notAvailableDescription": "Edit history is available after the map exists.",
+    "unknownTime": "Unknown time",
+    "unknownActor": "Unknown user",
+    "actorTarget": "{{actor}} - {{target}}"
   }
 }
