@@ -176,10 +176,13 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       savedSolidColorRef.current
         ? { ...paintWithoutGradient, 'line-color': savedSolidColorRef.current }
         : paintWithoutGradient;
+    // Atomicity: route the entire transition through one onBuilderChange call
+    // with the fully-composed nextPaint. Drop the redundant onPaintProp('line-color', ...)
+    // so we don't fire a separate intermediate state update — same pattern as
+    // commitStops (Phase 256 review — WR-04, mirrors the UAT regression fix).
+    // The first onPaintProp('line-gradient', undefined) is kept so the MapLibre
+    // adapter sees the explicit removal signal.
     onPaintProp('line-gradient', undefined);
-    if (savedSolidColorRef.current) {
-      onPaintProp('line-color', savedSolidColorRef.current);
-    }
     onBuilderChange({ lineGradient: undefined }, nextPaint);
   }
 

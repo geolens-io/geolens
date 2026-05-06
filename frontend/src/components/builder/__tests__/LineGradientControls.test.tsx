@@ -146,6 +146,35 @@ describe('LineGradientControls — UI', () => {
     expect(screen.queryByRole('button', { name: 'style.lineGradient.addStop' })).not.toBeInTheDocument();
   });
 
+  it('ui: activateSolid is atomic — single onPaintProp(line-gradient, undefined) + composed onBuilderChange (WR-04)', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    const expr = stopsToLineGradientExpression(DEFAULT_GRADIENT_STOPS);
+    render(
+      <LineGradientControls
+        paint={{ 'line-color': '#abcdef', 'line-gradient': expr }}
+        styleConfig={{ builder: { lineGradient: { stops: [...DEFAULT_GRADIENT_STOPS] } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.solid' }));
+    // Only ONE onPaintProp call should fire — the line-gradient removal.
+    // The line-color restore must travel through onBuilderChange's nextPaint
+    // payload, NOT through a second onPaintProp call (atomicity).
+    expect(onPaintProp).toHaveBeenCalledTimes(1);
+    expect(onPaintProp).toHaveBeenCalledWith('line-gradient', undefined);
+    // onBuilderChange MUST receive a fully-composed nextPaint with line-color preserved
+    // and line-gradient absent.
+    expect(onBuilderChange).toHaveBeenCalledTimes(1);
+    const [patch, nextPaint] = onBuilderChange.mock.calls[0];
+    expect(patch).toEqual({ lineGradient: undefined });
+    expect(nextPaint).toEqual(expect.objectContaining({ 'line-color': '#abcdef' }));
+    expect(nextPaint).not.toHaveProperty('line-gradient');
+  });
+
   it('ui: Solid -> Gradient toggle restores a previously-preserved non-canonical expression (WR-03)', async () => {
     const onPaintProp = vi.fn();
     const onBuilderChange = vi.fn();
