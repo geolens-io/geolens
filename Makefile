@@ -1,3 +1,11 @@
+# Phase 254 BL-01: Use bash with pipefail so `make sdks`'s
+# `uvx openapi-python-client ... 2>&1 | tee /tmp/...log` propagates the
+# generator's non-zero exit instead of `tee`'s 0. Applies to all recipes;
+# existing recipes are pipefail-safe (no recipe relies on partial-pipeline
+# tolerance).
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+
 .PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline validate-v13-8
 
 dev:
