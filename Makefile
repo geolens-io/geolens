@@ -79,7 +79,8 @@ sdks:
 	  --path /tmp/openapi-flat.json \
 	  --output-path sdks/python/geolens \
 	  --overwrite --meta none \
-	  --config sdks/python/.openapi-python-client.yaml
+	  --config sdks/python/.openapi-python-client.yaml \
+	  2>&1 | tee /tmp/openapi-python-client.log
 	# PEP 561 marker — generator with --meta none doesn't emit it; touch so
 	# typecheckers consume the inline annotations on consumers' machines.
 	touch sdks/python/geolens/py.typed
@@ -89,6 +90,20 @@ sdks:
 	-cp /tmp/_geolens_auth.ts sdks/typescript/src/auth.ts 2>/dev/null
 	-cp /tmp/_geolens_index.ts sdks/typescript/src/index.ts 2>/dev/null
 	uv run --no-project python scripts/sync_sdk_versions.py
+	# Phase 254 SDK-02 gate: openapi-python-client emits `WARNING parsing <METHOD> <ROUTE>`
+	# when a route's body shape is unparseable (e.g., text/plain), and silently drops the
+	# endpoint from the generated Python SDK. The gate fails the build on any such line.
+	# Pattern is anchored to openapi-python-client's literal emission format to avoid
+	# false-positives on AuthlibDeprecationWarning / uv VIRTUAL_ENV / other env noise.
+	@_count=$$(grep -c '^WARNING parsing' /tmp/openapi-python-client.log || true); \
+	  if [ "$$_count" != "0" ]; then \
+	    echo "" >&2; \
+	    echo "ERROR: openapi-python-client emitted $$_count warning(s) — endpoint(s) silently dropped from Python SDK:" >&2; \
+	    grep '^WARNING parsing' /tmp/openapi-python-client.log >&2; \
+	    echo "" >&2; \
+	    echo "Fix the FastAPI route schema at the source (typically by replacing a non-JSON body shape with a Pydantic JSON body). See Phase 254 / SDK-02." >&2; \
+	    exit 1; \
+	  fi
 
 # `make sdks-check` regenerates and fails if anything changed.
 # Hand-written wrappers + READMEs + LICENSE are excluded via :! pathspecs.
