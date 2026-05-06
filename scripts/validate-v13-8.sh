@@ -33,12 +33,16 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$REPO_ROOT"
 
+# Default container name when COMPOSE_PROJECT_NAME is unset.
+# Override with: API_CONTAINER_DEFAULT=<name> bash scripts/validate-v13-8.sh
+API_CONTAINER_DEFAULT="${API_CONTAINER_DEFAULT:-geolens-api-1}"
+
 # -----------------------------------------------------------------------------
 # Pre-flight: detect API container service name and verify it's running
 # -----------------------------------------------------------------------------
 API_SERVICE="api"
 if ! docker compose ps "$API_SERVICE" 2>/dev/null | grep -qE "Up|running"; then
-  API_SERVICE="geolens-api-1"
+  API_SERVICE="$API_CONTAINER_DEFAULT"
   if ! docker compose ps "$API_SERVICE" 2>/dev/null | grep -qE "Up|running"; then
     echo "${C_RED}ERROR${C_RESET}: API container is not running."
     echo "Hint: docker compose up -d api"
@@ -50,7 +54,7 @@ fi
 API_CONTAINER="$( docker compose ps -q "$API_SERVICE" 2>/dev/null | head -1 )"
 if [ -z "$API_CONTAINER" ]; then
   # Fallback: container name on Docker Compose v2 default scheme
-  API_CONTAINER="geolens-api-1"
+  API_CONTAINER="$API_CONTAINER_DEFAULT"
 fi
 # Use container name (not ID) so docker exec produces stable output.
 # `docker compose ps -q` returns the container ID; convert to name via `docker inspect`.
