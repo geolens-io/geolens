@@ -547,7 +547,15 @@ jobs:
         #     installs adversarial archives, which it doesn't (pip is the
         #     installer, not a runtime dep). Re-evaluate when pip ships
         #     a patched version and remove this ignore.
-        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
+        #   CVE-2026-6357 — pip 26.0.1: self-update check imports newly-
+        #     installed wheel module names *after* installation. Same
+        #     argument as CVE-2026-3219: pip is the installer, not a
+        #     runtime dep, and we don't pip-install adversarial wheels in
+        #     CI. Fixed in pip 26.1, but pip ships in the python:3.13
+        #     base image; bumping it requires a base-image refresh that's
+        #     out of scope for this CI carve-out. Remove this ignore once
+        #     the base image ships pip >= 26.1.
+        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
 
   # ---------- E2E (disabled to save CI minutes — run locally via `npx playwright test`) ----------
   e2e-test:
