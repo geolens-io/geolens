@@ -632,16 +632,35 @@ def build_maplibre_style(
 
     # Set lineMetrics: true on vector sources whose layers need line-gradient rendering.
     # Per D-01 detection rule, "needs" means paint['line-gradient'] OR builder.lineGradient.
-    gradient_source_ids: set[str] = set()
+    # Track originating layer for each gradient-needing source so we can emit a precise
+    # warning when the backing source type is incompatible.
+    gradient_layer_by_source: dict[str, MapLayerResponse] = {}
     for layer in layers:
         if _layer_uses_line_gradient(layer):
-            gradient_source_ids.add(f"geolens-{_safe_id(str(layer.dataset_id))}")
-    for source_id in gradient_source_ids:
+            source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
+            # First-wins: the paint-drop path (`_drop_unsupported_line_gradient`) has already
+            # warned on layers with paint set. Pick any layer here; we only need ONE for the
+            # warning identity. Skip if a layer has already been recorded for this source.
+            gradient_layer_by_source.setdefault(source_id, layer)
+    for source_id, originating_layer in gradient_layer_by_source.items():
         src = sources.get(source_id)
         if src is None:
             continue
-        if src.get("type") in _LINE_GRADIENT_SOURCE_TYPES:
+        src_type = src.get("type")
+        if src_type in _LINE_GRADIENT_SOURCE_TYPES:
             src["lineMetrics"] = True
+        else:
+            # WR-03: builder-intent on incompatible source emits no warning otherwise. The
+            # paint-drop path warns when paint['line-gradient'] is present, but a builder-
+            # intent-only mismatch (e.g. raster layer with style_config.builder.lineGradient)
+            # would silently fail without this. Symmetric to _drop_unsupported_line_gradient.
+            logger.warning(
+                "Skipping lineMetrics on source %s: type %r cannot support line-gradient "
+                "(originating layer %s)",
+                source_id,
+                src_type,
+                originating_layer.id,
+            )
 
     terrain_block: dict[str, Any] | None = None
     tc = map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else None

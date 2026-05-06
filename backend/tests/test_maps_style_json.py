@@ -446,6 +446,54 @@ def test_build_maplibre_style_drops_line_gradient_paint_on_unsupported_source_ty
     )
 
 
+def test_build_maplibre_style_warns_on_builder_line_gradient_intent_with_unsupported_source(
+    caplog,
+):
+    """WR-03: builder-intent on incompatible source type must emit a warning.
+
+    The paint-drop warning fires only when paint['line-gradient'] is set. Without this
+    test, a layer with `style_config.builder.lineGradient` but no paint key (e.g. a
+    raster layer with a misconfigured intent) would silently produce no lineMetrics
+    and no operator-visible signal. This test asserts the parallel warning path.
+    """
+    import logging
+
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type=None,
+        dataset_table_name="raster_tiles",
+        layer_type="raster_geolens",
+        dataset_record_type="raster_dataset",
+        paint={},  # No paint['line-gradient'] — pure builder-intent path.
+        style_config={
+            "builder": {
+                "lineGradient": {
+                    "stops": [{"position": 0.0, "color": "#0000ff"}],
+                }
+            }
+        },
+        label_config=None,
+        filter=None,
+    )
+    target_logger = logging.getLogger("app.modules.catalog.maps.style_json")
+    was_disabled = target_logger.disabled
+    target_logger.disabled = False
+    try:
+        with caplog.at_level(
+            logging.WARNING, logger="app.modules.catalog.maps.style_json"
+        ):
+            style = build_maplibre_style(_map(), [layer])
+    finally:
+        target_logger.disabled = was_disabled
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "raster"
+    assert "lineMetrics" not in source
+    assert any(
+        "Skipping lineMetrics" in record.getMessage() for record in caplog.records
+    )
+
+
 def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external():
     dataset_id = uuid.uuid4()
     style = {
