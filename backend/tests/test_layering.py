@@ -692,6 +692,7 @@ def test_no_external_imports_of_maps_private_service_modules() -> None:
     private_modules = {
         "service_shared",
         "service_crud",
+        "service_diff",
         "service_layers",
         "service_public",
     }
