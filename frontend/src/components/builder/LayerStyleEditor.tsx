@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StyleColorPicker } from './StyleColorPicker';
+import { LineGradientControls } from './LineGradientControls';
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
 import { ZoomExpressionEditor } from './ZoomExpressionEditor';
@@ -342,7 +343,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         {geomType === 'line' && (
           <LineControls
             layer={layer} paint={paint} isDataDriven={isDataDriven}
+            styleConfig={layer.style_config ?? null}
             onPaintProp={handlePaintProp} onLayoutChange={onLayoutChange}
+            onBuilderChange={(patch) => updateBuilderConfig(patch)}
             t={t}
           />
         )}
@@ -499,9 +502,11 @@ function FillControls({
 
 interface LineControlsProps extends GeomControlProps {
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  onBuilderChange: (patch: BuilderStyleConfig) => void;
+  styleConfig: StyleConfig | null;
 }
 
-function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange, t }: LineControlsProps) {
+function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange, onBuilderChange, styleConfig, t }: LineControlsProps) {
   const isWidthDataDriven = isDataDriven && layer.style_config?.target === 'width';
 
   return (
@@ -514,10 +519,12 @@ function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange,
             : t('style.styledBy', { column: layer.style_config?.column })}
         </div>
       ) : (
-        <StyleColorPicker
-          label={t('style.color')}
-          color={getPaintValue(paint, 'line-color', LINE_DEFAULTS['line-color'])}
-          onChange={(hex) => onPaintProp('line-color', hex)}
+        <LineGradientControls
+          paint={paint}
+          styleConfig={styleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
         />
       )}
       <ZoomExpressionEditor
@@ -763,8 +770,9 @@ interface AdvancedJsonEditorProps {
 }
 
 // Valid MapLibre paint properties per layer type for client-side validation.
-// line-gradient remains JSON-only for now: safe first-class authoring needs
-// source lineMetrics=true and gradient expression editing designed together.
+// line-gradient gets first-class authoring through LineGradientControls (Phase 256)
+// on top of the lineMetrics + adapter expression-preservation engine (Phase 255).
+// AdvancedJsonEditor remains available for power-user / paste-in workflows.
 const VALID_PAINT_KEYS: Record<string, Set<string>> = {
   fill: new Set(['fill-color', 'fill-opacity', 'fill-outline-color', 'fill-antialias', 'fill-translate', 'fill-translate-anchor', 'fill-pattern']),
   line: new Set(['line-color', 'line-opacity', 'line-width', 'line-gap-width', 'line-blur', 'line-dasharray', 'line-translate', 'line-translate-anchor', 'line-offset', 'line-gradient', 'line-pattern']),
