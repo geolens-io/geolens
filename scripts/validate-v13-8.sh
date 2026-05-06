@@ -65,10 +65,18 @@ if API_NAME="$( docker inspect --format='{{.Name}}' "$API_CONTAINER" 2>/dev/null
 fi
 
 # -----------------------------------------------------------------------------
-# Counters and timing
+# Counters, timing, per-run log file
 # -----------------------------------------------------------------------------
 TOTAL=0
 START_TS=$( date +%s )
+
+# Per-run log file. mktemp avoids the race when two `make validate-v13-8`
+# invocations run in parallel (e.g., one in CI, one local) and would otherwise
+# both clobber a shared /tmp/validate-v13-8-last.log. The trap removes the
+# file on EXIT — including normal exit, exit 1 on a failed check, and exit 2
+# on infra prerequisites missing.
+LOG_FILE="$( mktemp -t validate-v13-8.XXXXXX )"
+trap 'rm -f "$LOG_FILE"' EXIT
 
 # -----------------------------------------------------------------------------
 # Helper: run_check — runs a labeled command, prints PASS/FAIL, exits on FAIL
@@ -80,7 +88,7 @@ run_check() {
   printf "  [%s] running: %s\n" "$label" "$cmd"
   # Run each check in a subshell so any `cd` inside the command does not leak
   # into the next check. The subshell starts from REPO_ROOT every time.
-  if ( cd "$REPO_ROOT" && eval "$cmd" ) >/tmp/validate-v13-8-last.log 2>&1; then
+  if ( cd "$REPO_ROOT" && eval "$cmd" ) >"$LOG_FILE" 2>&1; then
     printf "  ${C_GREEN}[%s] PASS${C_RESET}\n" "$label"
   else
     local rc=$?
@@ -88,9 +96,14 @@ run_check() {
     echo "  Failed check: $label"
     echo "  Command: $cmd"
     echo "  Re-run:  ( cd \"$REPO_ROOT\" && $cmd )"
-    echo "----- last 200 lines of output (full log: /tmp/validate-v13-8-last.log) -----"
-    tail -200 /tmp/validate-v13-8-last.log
+    echo "----- last 200 lines of output (full log: $LOG_FILE) -----"
+    tail -200 "$LOG_FILE"
     echo "----- end -----"
+    # Preserve the log past the EXIT trap so the operator can re-inspect it
+    # after the script returns. We copy to a stable path (still in /tmp, so
+    # it gets cleaned by the OS) but leave the mktemp scratch path on EXIT.
+    cp "$LOG_FILE" "/tmp/validate-v13-8-last.log" 2>/dev/null || true
+    echo "  Preserved at: /tmp/validate-v13-8-last.log"
     exit 1
   fi
 }
