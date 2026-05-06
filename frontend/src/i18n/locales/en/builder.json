@@ -146,6 +146,18 @@
       "shadow": "Shadow",
       "highlight": "Highlight",
       "accent": "Accent"
+    },
+    "lineGradient": {
+      "label": "Line color",
+      "solid": "Solid color",
+      "gradient": "Gradient",
+      "addStop": "Add stop",
+      "removeStop": "Remove stop",
+      "position": "Position",
+      "color": "Color",
+      "invalidPosition": "Position must be between 0 and 1",
+      "duplicatePosition": "Stop positions should increase",
+      "customExpression": "Custom expression — switch to Advanced editor"
     }
   },
   "filters": {

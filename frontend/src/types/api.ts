@@ -733,6 +733,13 @@ export interface BuilderStyleConfig {
   heatmapWeightColumn?: string;
   heightColumn?: string;
   symbol?: SymbolStyleConfig;
+  /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
+   *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].
+   *  Phase 255 engine consumes a non-empty plain object via lineGradientNeededFor() to
+   *  emit lineMetrics: true on the backing vector source. */
+  lineGradient?: {
+    stops: Array<{ position: number; color: string }>;
+  };
 }
 
 export interface SymbolStyleConfig {
