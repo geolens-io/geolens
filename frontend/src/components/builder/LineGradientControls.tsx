@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StyleColorPicker } from './StyleColorPicker';
@@ -10,6 +10,49 @@ export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: st
   { position: 0, color: '#0066cc' },
   { position: 1, color: '#cc3300' },
 ];
+
+// Permissive allowlist for the raw-expression structural validator. The goal
+// is to reject obvious garbage (random strings, plain objects, unknown ops)
+// before commit; full MapLibre semantic validation happens at runtime.
+const KNOWN_MAPLIBRE_OPERATORS = new Set<string>([
+  'interpolate', 'interpolate-hcl', 'interpolate-lab', 'step', 'match', 'case', 'let', 'var',
+  'coalesce', 'concat', 'literal', 'at', 'length', 'get', 'has', 'in', 'feature-state',
+  'geometry-type', 'id', 'properties', 'to-string', 'to-number', 'to-boolean', 'typeof',
+  'rgb', 'rgba', 'to-color', 'to-rgba',
+  // arithmetic
+  '+', '-', '*', '/', '%', '^', 'abs', 'min', 'max', 'round', 'floor', 'ceil', 'sqrt', 'log10', 'log2', 'ln', 'exp', 'pi', 'e',
+  // comparison
+  '==', '!=', '<', '<=', '>', '>=', '!', 'all', 'any',
+  // string
+  'upcase', 'downcase', 'resolved-locale',
+  // collator
+  'collator',
+  // formatted
+  'format',
+  // input
+  'zoom', 'heatmap-density', 'line-progress', 'accumulated', 'distance-from-center', 'pitch',
+]);
+
+type ExpressionValidationResult =
+  | { ok: true; value: unknown[] }
+  | { ok: false; error: 'parseError' | 'structureError' };
+
+export function validateLineGradientExpressionInput(text: string): ExpressionValidationResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'parseError' };
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return { ok: false, error: 'structureError' };
+  }
+  const op = parsed[0];
+  if (typeof op !== 'string' || !KNOWN_MAPLIBRE_OPERATORS.has(op)) {
+    return { ok: false, error: 'structureError' };
+  }
+  return { ok: true, value: parsed };
+}
 
 export function stopsToLineGradientExpression(
   stops: ReadonlyArray<{ position: number; color: string }>,
@@ -70,6 +113,11 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   // Local state for in-progress position edits so we can show validation
   // for transient invalid values (e.g. > 1) without committing them upstream.
   const [pendingPositionEdits, setPendingPositionEdits] = useState<Record<number, number>>({});
+
+  // Raw expression editor (advanced disclosure) — collapsed by default.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedText, setAdvancedText] = useState<string>('');
+  const [advancedError, setAdvancedError] = useState<'parseError' | 'structureError' | null>(null);
 
   const liveStops: Array<{ position: number; color: string }> | null =
     builderStops && builderStops.length > 0 ? builderStops : parsedFromPaint;
@@ -137,6 +185,38 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     });
     const next = liveStops.map((s, i) => (i === index ? { ...s, position: raw } : s));
     commitStops(next);
+  }
+
+  function openAdvanced() {
+    const expr = paint['line-gradient'] ?? null;
+    setAdvancedText(JSON.stringify(expr, null, 2));
+    setAdvancedError(null);
+    setAdvancedOpen(true);
+  }
+
+  function cancelAdvanced() {
+    setAdvancedOpen(false);
+    setAdvancedError(null);
+    setAdvancedText('');
+  }
+
+  function applyAdvanced() {
+    const result = validateLineGradientExpressionInput(advancedText);
+    if (!result.ok) {
+      setAdvancedError(result.error);
+      return;
+    }
+    onPaintProp('line-gradient', result.value);
+    // If canonical, hydrate builder.lineGradient.stops; else clear builder.lineGradient
+    // so the customExpression hint surfaces (no silent flatten).
+    const parsedStops = lineGradientExpressionToStops(result.value);
+    if (parsedStops != null) {
+      onBuilderChange({ lineGradient: { stops: parsedStops } });
+    } else {
+      onBuilderChange({ lineGradient: undefined });
+    }
+    setAdvancedOpen(false);
+    setAdvancedError(null);
   }
 
   return (
@@ -244,6 +324,45 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
           </Button>
         </div>
       )}
+
+      <div className="border-t pt-2">
+        <button
+          type="button"
+          aria-label={t('style.lineGradient.advanced')}
+          aria-expanded={advancedOpen}
+          className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+          onClick={() => (advancedOpen ? cancelAdvanced() : openAdvanced())}
+        >
+          {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}
+          <Code className="h-3 w-3" />
+          {t('style.lineGradient.advanced')}
+        </button>
+        {advancedOpen && (
+          <div className="mt-2 space-y-1.5">
+            <div className="text-xs italic text-muted-foreground">{t('style.lineGradient.advancedHint')}</div>
+            <textarea
+              aria-label={t('style.lineGradient.advanced')}
+              className="w-full rounded border border-input bg-background p-2 text-xs font-mono resize-y min-h-[80px] outline-none focus:ring-1 focus:ring-ring"
+              value={advancedText}
+              onChange={(e) => { setAdvancedText(e.target.value); setAdvancedError(null); }}
+              spellCheck={false}
+            />
+            {advancedError && (
+              <div className="text-xs text-destructive">
+                {advancedError === 'parseError' ? t('style.lineGradient.parseError') : t('style.lineGradient.structureError')}
+              </div>
+            )}
+            <div className="flex gap-1.5">
+              <Button size="sm" className="h-6 text-xs px-2" aria-label={t('style.lineGradient.applyExpression')} onClick={applyAdvanced}>
+                {t('style.lineGradient.applyExpression')}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2" aria-label={t('style.lineGradient.cancelExpression')} onClick={cancelAdvanced}>
+                {t('style.lineGradient.cancelExpression')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
