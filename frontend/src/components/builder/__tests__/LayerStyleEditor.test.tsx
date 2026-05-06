@@ -651,6 +651,61 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
     expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
   });
 
+  it('shows symbol controls when render_mode is symbol', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: {},
+          style_config: {
+            render_mode: 'symbol',
+            symbol: { iconImage: 'marker', iconSize: 1 },
+          } as import('@/types/api').StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText('Symbol').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('Icon')).toHaveValue('marker');
+    expect(screen.getByRole('slider', { name: 'Size' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Rotation' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
+  });
+
+  it('writes symbol icon settings into style_config and keeps paint clean', () => {
+    const onStyleConfigChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: { 'circle-color': '#ff0000' },
+          style_config: {
+            render_mode: 'symbol',
+            symbol: { iconImage: 'marker' },
+          } as import('@/types/api').StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Icon'), { target: { value: 'bus' } });
+
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      render_mode: 'symbol',
+      symbol: expect.objectContaining({ iconImage: 'bus' }),
+    }), { 'circle-color': '#ff0000' });
+  });
+
   it('stores heatmap weight metadata in style_config and keeps paint clean', async () => {
     const onStyleConfigChange = vi.fn();
     const user = userEvent.setup();

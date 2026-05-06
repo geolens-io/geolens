@@ -14,6 +14,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.map_layer_input import MapLayerInput
+    from ..models.terrain_config import TerrainConfig
 
 
 T = TypeVar("T", bound="MapUpdate")
@@ -33,6 +34,7 @@ class MapUpdate:
         notes (None | str | Unset):
         pitch (float | None | Unset): Map tilt in degrees (0-85)
         show_basemap_labels (bool | None | Unset):
+        terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
         visibility (MapVisibility | None | Unset): private, internal, or public
         widgets (list[str] | None | Unset): Enabled widget IDs, e.g. ['measurement']
         zoom (float | None | Unset): Map zoom level
@@ -48,12 +50,15 @@ class MapUpdate:
     notes: None | str | Unset = UNSET
     pitch: float | None | Unset = UNSET
     show_basemap_labels: bool | None | Unset = UNSET
+    terrain_config: None | TerrainConfig | Unset = UNSET
     visibility: MapVisibility | None | Unset = UNSET
     widgets: list[str] | None | Unset = UNSET
     zoom: float | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.terrain_config import TerrainConfig
+
         basemap_style: None | str | Unset
         if isinstance(self.basemap_style, Unset):
             basemap_style = UNSET
@@ -120,6 +125,14 @@ class MapUpdate:
         else:
             show_basemap_labels = self.show_basemap_labels
 
+        terrain_config: dict[str, Any] | None | Unset
+        if isinstance(self.terrain_config, Unset):
+            terrain_config = UNSET
+        elif isinstance(self.terrain_config, TerrainConfig):
+            terrain_config = self.terrain_config.to_dict()
+        else:
+            terrain_config = self.terrain_config
+
         visibility: None | str | Unset
         if isinstance(self.visibility, Unset):
             visibility = UNSET
@@ -166,6 +179,8 @@ class MapUpdate:
             field_dict["pitch"] = pitch
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
+        if terrain_config is not UNSET:
+            field_dict["terrain_config"] = terrain_config
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
         if widgets is not UNSET:
@@ -178,6 +193,7 @@ class MapUpdate:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.map_layer_input import MapLayerInput
+        from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
 
@@ -288,6 +304,23 @@ class MapUpdate:
             d.pop("show_basemap_labels", UNSET)
         )
 
+        def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                terrain_config_type_0 = TerrainConfig.from_dict(data)
+
+                return terrain_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TerrainConfig | Unset, data)
+
+        terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
+
         def _parse_visibility(data: object) -> MapVisibility | None | Unset:
             if data is None:
                 return data
@@ -342,6 +375,7 @@ class MapUpdate:
             notes=notes,
             pitch=pitch,
             show_basemap_labels=show_basemap_labels,
+            terrain_config=terrain_config,
             visibility=visibility,
             widgets=widgets,
             zoom=zoom,

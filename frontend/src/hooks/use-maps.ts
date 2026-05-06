@@ -1,8 +1,9 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   listMaps,
   getMap,
+  getMapHistory,
   createMap,
   updateMap,
   patchMapLayers,
@@ -20,12 +21,20 @@ import {
   fetchColumnValues,
   fetchColumnStats,
   fetchDatasetMaps,
+  exportMapStyleJson,
+  importMapStyleJson,
+  listMapIcons,
+  uploadMapIcon,
 } from '@/api/maps';
 import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 
 export type { MapBrowseParams };
+
+function invalidateMapHistory(qc: QueryClient, mapId: string | undefined) {
+  qc.invalidateQueries({ queryKey: queryKeys.maps.historyPrefix(mapId) });
+}
 
 export function useMaps(params: MapBrowseParams = {}) {
   return useQuery({
@@ -43,6 +52,16 @@ export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: b
     enabled: !!id,
     staleTime: 60_000,
     refetchOnWindowFocus: opts?.refetchOnWindowFocus,
+  });
+}
+
+export function useMapHistory(mapId: string | undefined, skip = 0, limit = 50) {
+  return useQuery({
+    queryKey: queryKeys.maps.history(mapId, skip, limit),
+    queryFn: () => getMapHistory(mapId!, { skip, limit }),
+    enabled: !!mapId,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
   });
 }
 
@@ -65,6 +84,7 @@ export function useUpdateMap() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateMapHistory(qc, variables.id);
     },
     onError: (err: unknown) => {
       // Surface backend validator messages (e.g. popup_config: "expression
@@ -85,6 +105,7 @@ export function usePatchMapLayers() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateMapHistory(qc, variables.id);
     },
   });
 }
@@ -118,8 +139,43 @@ export function useAddLayer() {
       addLayerToMapApi(mapId, data),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
+      invalidateMapHistory(qc, variables.mapId);
     },
     onError: () => { toast.error(i18n.t('builder:toasts.layerAddFailed')); },
+  });
+}
+
+export function useExportMapStyleJson() {
+  return useMutation({
+    mutationFn: (mapId: string) => exportMapStyleJson(mapId),
+  });
+}
+
+export function useImportMapStyleJson() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: importMapStyleJson,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+    },
+  });
+}
+
+export function useMapIcons() {
+  return useQuery({
+    queryKey: ['maps', 'icons'],
+    queryFn: listMapIcons,
+    staleTime: 60_000,
+  });
+}
+
+export function useUploadMapIcon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: uploadMapIcon,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['maps', 'icons'] });
+    },
   });
 }
 
@@ -130,6 +186,7 @@ export function useRemoveLayer() {
       removeLayerFromMapApi(mapId, layerId),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
+      invalidateMapHistory(qc, variables.mapId);
     },
     onError: () => { toast.error(i18n.t('builder:toasts.layerRemoveFailed')); },
   });
@@ -162,6 +219,7 @@ export function usePublishMap() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateMapHistory(qc, variables.id);
     },
     onError: () => { toast.error(i18n.t('builder:toasts.visibilityFailed')); },
   });

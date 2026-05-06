@@ -150,6 +150,9 @@ export function resolveAdapterType(
   if (styleConfig?.render_mode === 'heatmap') {
     return 'heatmap';
   }
+  if (styleConfig?.render_mode === 'symbol') {
+    return 'symbol';
+  }
   // Use geometry type when available
   if (geometryType) {
     return getLayerType(geometryType);

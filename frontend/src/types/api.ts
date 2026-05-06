@@ -732,6 +732,17 @@ export interface BuilderStyleConfig {
   heatmapRamp?: string;
   heatmapWeightColumn?: string;
   heightColumn?: string;
+  symbol?: SymbolStyleConfig;
+}
+
+export interface SymbolStyleConfig {
+  iconImage?: string;
+  iconSize?: number;
+  iconRotation?: number;
+  iconAnchor?: 'center' | 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  iconOffset?: [number, number];
+  categoryColumn?: string;
+  categories?: { value: string | number | null; icon: string }[];
 }
 
 export interface StyleConfig {
@@ -751,7 +762,9 @@ export interface StyleConfig {
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
   /** Render mode override for specialized adapters. */
-  render_mode?: 'heatmap' | 'hillshade';
+  render_mode?: 'heatmap' | 'hillshade' | 'symbol';
+  /** Symbol/icon layer config for point datasets. */
+  symbol?: SymbolStyleConfig;
   /** Heatmap paint config */
   heatmapPaint?: HeatmapLayerSpecification['paint'];
   /** Saved circle paint config from before switching to heatmap mode */
@@ -851,6 +864,27 @@ export interface MapListResponse {
   total: number;
 }
 
+export interface MapHistoryEntryResponse {
+  id: string;
+  map_id: string;
+  actor_id: string | null;
+  actor_username: string | null;
+  target_type: string;
+  target_id: string | null;
+  target_name: string | null;
+  action: string;
+  summary: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface MapHistoryListResponse {
+  events: MapHistoryEntryResponse[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 export interface MapBrowseParams {
   skip?: number;
   limit?: number;
@@ -920,6 +954,41 @@ export interface MapLayerDiffRequest {
   updated?: MapLayerPatch[];
   removed?: string[];
   order?: string[] | null;
+}
+
+export interface MapStyleImportWarning {
+  code: string;
+  message: string;
+  source_id?: string | null;
+  layer_id?: string | null;
+}
+
+export interface MapStyleImportSummary {
+  sources_matched: number;
+  sources_unsupported: number;
+  layers_imported: number;
+  layers_skipped: number;
+  warnings: MapStyleImportWarning[];
+}
+
+export interface MapStyleImportResponse {
+  map: MapResponse;
+  summary: MapStyleImportSummary;
+}
+
+export interface MapIconResponse {
+  id: string;
+  name: string;
+  slug: string;
+  media_type: string;
+  url: string;
+  sprite_id: string;
+  size_bytes?: number | null;
+  builtin: boolean;
+}
+
+export interface MapIconListResponse {
+  icons: MapIconResponse[];
 }
 
 export interface VisibilityCheckResponse {

@@ -17,6 +17,7 @@ import datetime
 
 if TYPE_CHECKING:
     from ..models.map_layer_response import MapLayerResponse
+    from ..models.terrain_config import TerrainConfig
 
 
 T = TypeVar("T", bound="MapResponse")
@@ -46,6 +47,7 @@ class MapResponse:
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
         forked_from_name (None | str | Unset):
         notes (None | str | Unset):
+        terrain_config (None | TerrainConfig | Unset):
         thumbnail_url (None | str | Unset):
         widgets (list[str] | None | Unset):
     """
@@ -70,11 +72,14 @@ class MapResponse:
     forked_from_id: None | Unset | UUID = UNSET
     forked_from_name: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
+    terrain_config: None | TerrainConfig | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
     widgets: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.terrain_config import TerrainConfig
+
         basemap_style = self.basemap_style
 
         bearing = self.bearing
@@ -144,6 +149,14 @@ class MapResponse:
         else:
             notes = self.notes
 
+        terrain_config: dict[str, Any] | None | Unset
+        if isinstance(self.terrain_config, Unset):
+            terrain_config = UNSET
+        elif isinstance(self.terrain_config, TerrainConfig):
+            terrain_config = self.terrain_config.to_dict()
+        else:
+            terrain_config = self.terrain_config
+
         thumbnail_url: None | str | Unset
         if isinstance(self.thumbnail_url, Unset):
             thumbnail_url = UNSET
@@ -189,6 +202,8 @@ class MapResponse:
             field_dict["forked_from_name"] = forked_from_name
         if notes is not UNSET:
             field_dict["notes"] = notes
+        if terrain_config is not UNSET:
+            field_dict["terrain_config"] = terrain_config
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
         if widgets is not UNSET:
@@ -199,6 +214,7 @@ class MapResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.map_layer_response import MapLayerResponse
+        from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
         basemap_style = d.pop("basemap_style")
@@ -317,6 +333,23 @@ class MapResponse:
 
         notes = _parse_notes(d.pop("notes", UNSET))
 
+        def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                terrain_config_type_0 = TerrainConfig.from_dict(data)
+
+                return terrain_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TerrainConfig | Unset, data)
+
+        terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
+
         def _parse_thumbnail_url(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -364,6 +397,7 @@ class MapResponse:
             forked_from_id=forked_from_id,
             forked_from_name=forked_from_name,
             notes=notes,
+            terrain_config=terrain_config,
             thumbnail_url=thumbnail_url,
             widgets=widgets,
         )

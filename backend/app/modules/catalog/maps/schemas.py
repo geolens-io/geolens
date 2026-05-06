@@ -1,7 +1,7 @@
 import json
 import uuid
-from enum import Enum
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Annotated, TypedDict
 
 from pydantic import (
@@ -434,6 +434,41 @@ class MapResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MapStyleImportWarning(BaseModel):
+    code: str
+    message: str
+    source_id: str | None = None
+    layer_id: str | None = None
+
+
+class MapStyleImportSummary(BaseModel):
+    sources_matched: int = 0
+    sources_unsupported: int = 0
+    layers_imported: int = 0
+    layers_skipped: int = 0
+    warnings: list[MapStyleImportWarning] = Field(default_factory=list)
+
+
+class MapStyleImportResponse(BaseModel):
+    map: MapResponse
+    summary: MapStyleImportSummary
+
+
+class MapIconResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    media_type: str
+    url: str
+    sprite_id: str
+    size_bytes: int | None = None
+    builtin: bool = False
+
+
+class MapIconListResponse(BaseModel):
+    icons: list[MapIconResponse]
+
+
 class DuplicateMapResponse(MapResponse):
     excluded_layer_count: int = Field(
         default=0, description="Layers skipped due to access restrictions"
@@ -457,6 +492,29 @@ class MapSummaryResponse(BaseModel):
 class MapListResponse(BaseModel):
     maps: list[MapSummaryResponse]
     total: int
+
+
+class MapHistoryEventResponse(BaseModel):
+    id: uuid.UUID
+    map_id: uuid.UUID
+    actor_id: uuid.UUID | None = None
+    actor_username: str | None = None
+    target_type: str
+    target_id: uuid.UUID | None = None
+    target_name: str | None = None
+    action: str
+    summary: str
+    details: dict = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MapHistoryListResponse(BaseModel):
+    events: list[MapHistoryEventResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class SharedLayerResponse(BaseModel):

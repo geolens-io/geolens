@@ -1,21 +1,23 @@
 import { useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, Sparkles, ChevronRight, Loader2 } from 'lucide-react';
+import { FileText, History, Sparkles, ChevronRight, Loader2 } from 'lucide-react';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { experimentalBadgeColor } from '@/lib/status-colors';
 import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
+import { HistoryPanel } from '@/components/builder/HistoryPanel';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
 
-export type RailPanel = 'notes' | 'ai' | null;
+export type RailPanel = 'notes' | 'history' | 'ai' | null;
 
 interface BuilderRailProps {
   activePanel: RailPanel;
   onPanelChange: (panel: RailPanel) => void;
   aiAvailable: boolean;
+  showRail?: boolean;
   // Notes
   notes: string;
   onNotesChange: (value: string) => void;
@@ -39,6 +41,7 @@ export function BuilderRail({
   layerActions,
   onQueryResult,
   onMarkDirty,
+  showRail = true,
 }: BuilderRailProps) {
   const { t } = useTranslation('builder');
 
@@ -54,6 +57,12 @@ export function BuilderRail({
       disabled: false,
     },
     {
+      id: 'history' as const,
+      icon: History,
+      label: t('dock.history', { defaultValue: 'History' }),
+      disabled: false,
+    },
+    {
       id: 'ai' as const,
       icon: Sparkles,
       label: aiAvailable
@@ -66,37 +75,45 @@ export function BuilderRail({
   return (
     <>
       {/* Icon rail */}
-      <aside className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0">
-        {railButtons.map(btn => (
-          <button
-            key={btn.id}
-            onClick={btn.disabled ? undefined : () => togglePanel(btn.id)}
-            disabled={btn.disabled}
-            title={btn.label}
-            aria-label={btn.label}
-            aria-pressed={!btn.disabled && activePanel === btn.id}
-            className={cn(
-              'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
-              btn.disabled
-                ? 'text-muted-foreground/40 cursor-not-allowed'
-                : activePanel === btn.id
-                  ? 'bg-accent text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-            )}
-          >
-            <btn.icon className="h-4 w-4" />
-          </button>
-        ))}
-      </aside>
+      {showRail && (
+        <aside className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0">
+          {railButtons.map(btn => (
+            <button
+              key={btn.id}
+              onClick={btn.disabled ? undefined : () => togglePanel(btn.id)}
+              disabled={btn.disabled}
+              title={btn.label}
+              aria-label={btn.label}
+              aria-pressed={!btn.disabled && activePanel === btn.id}
+              className={cn(
+                'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
+                btn.disabled
+                  ? 'text-muted-foreground/40 cursor-not-allowed'
+                  : activePanel === btn.id
+                    ? 'bg-accent text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+              )}
+            >
+              <btn.icon className="h-4 w-4" />
+            </button>
+          ))}
+        </aside>
+      )}
 
       {/* Expanded panel */}
       {activePanel && (
-        <aside className="w-80 bg-background border-s flex flex-col shrink-0 overflow-hidden">
+        <aside
+          className={cn(
+            'bg-background border-s flex flex-col shrink-0 overflow-hidden',
+            showRail ? 'w-80' : 'w-full border-s-0',
+          )}
+        >
           {/* Panel header */}
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b shrink-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
+                {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
                 {activePanel === 'ai' && t('dock.askAi', { defaultValue: 'Ask AI' })}
               </span>
               {activePanel === 'ai' && (
@@ -129,6 +146,10 @@ export function BuilderRail({
                   }}
                 />
               </div>
+            )}
+
+            {activePanel === 'history' && (
+              <HistoryPanel mapId={mapId} />
             )}
 
             {activePanel === 'ai' && mapId && layers && layerActions && (

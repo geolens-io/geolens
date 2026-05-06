@@ -12,6 +12,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.shared_layer_response import SharedLayerResponse
+    from ..models.terrain_config import TerrainConfig
 
 
 T = TypeVar("T", bound="SharedMapResponse")
@@ -32,6 +33,7 @@ class SharedMapResponse:
         zoom (float):
         has_non_public_layers (bool | Unset):  Default: False.
         show_basemap_labels (bool | Unset):  Default: True.
+        terrain_config (None | TerrainConfig | Unset):
     """
 
     basemap_style: str
@@ -45,9 +47,12 @@ class SharedMapResponse:
     zoom: float
     has_non_public_layers: bool | Unset = False
     show_basemap_labels: bool | Unset = True
+    terrain_config: None | TerrainConfig | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.terrain_config import TerrainConfig
+
         basemap_style = self.basemap_style
 
         bearing = self.bearing
@@ -74,6 +79,14 @@ class SharedMapResponse:
 
         show_basemap_labels = self.show_basemap_labels
 
+        terrain_config: dict[str, Any] | None | Unset
+        if isinstance(self.terrain_config, Unset):
+            terrain_config = UNSET
+        elif isinstance(self.terrain_config, TerrainConfig):
+            terrain_config = self.terrain_config.to_dict()
+        else:
+            terrain_config = self.terrain_config
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -93,12 +106,15 @@ class SharedMapResponse:
             field_dict["has_non_public_layers"] = has_non_public_layers
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
+        if terrain_config is not UNSET:
+            field_dict["terrain_config"] = terrain_config
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.shared_layer_response import SharedLayerResponse
+        from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
         basemap_style = d.pop("basemap_style")
@@ -133,6 +149,23 @@ class SharedMapResponse:
 
         show_basemap_labels = d.pop("show_basemap_labels", UNSET)
 
+        def _parse_terrain_config(data: object) -> None | TerrainConfig | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                terrain_config_type_0 = TerrainConfig.from_dict(data)
+
+                return terrain_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | TerrainConfig | Unset, data)
+
+        terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
+
         shared_map_response = cls(
             basemap_style=basemap_style,
             bearing=bearing,
@@ -145,6 +178,7 @@ class SharedMapResponse:
             zoom=zoom,
             has_non_public_layers=has_non_public_layers,
             show_basemap_labels=show_basemap_labels,
+            terrain_config=terrain_config,
         )
 
         shared_map_response.additional_properties = d

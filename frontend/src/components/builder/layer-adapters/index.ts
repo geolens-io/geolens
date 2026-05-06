@@ -4,6 +4,7 @@ export { getAdapter } from './registry';
 export { fillAdapter } from './fill-adapter';
 export { lineAdapter } from './line-adapter';
 export { circleAdapter } from './circle-adapter';
+export { symbolAdapter } from './symbol-adapter';
 export { rasterAdapter } from './raster-adapter';
 export { hillshadeAdapter } from './hillshade-adapter';
 export { heatmapAdapter } from './heatmap-adapter';

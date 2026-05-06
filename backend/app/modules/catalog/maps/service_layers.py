@@ -123,9 +123,14 @@ async def add_layer(
 async def remove_layer(
     session: AsyncSession,
     layer_id: uuid.UUID,
+    *,
+    map_id: uuid.UUID | None = None,
 ) -> bool:
     """Delete a map layer by ID. Returns True if deleted, False if not found."""
-    result = await session.execute(delete(MapLayer).where(MapLayer.id == layer_id))
+    stmt = delete(MapLayer).where(MapLayer.id == layer_id)
+    if map_id is not None:
+        stmt = stmt.where(MapLayer.map_id == map_id)
+    result = await session.execute(stmt)
     # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
     # type stub is less specific so mypy can't narrow it here.
     return result.rowcount > 0  # type: ignore[attr-defined]

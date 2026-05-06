@@ -3,18 +3,22 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code, AlertTriangle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StyleColorPicker } from './StyleColorPicker';
 const DataDrivenStyleEditor = lazy(() => import('./DataDrivenStyleEditor').then(m => ({ default: m.DataDrivenStyleEditor })));
 import { HeatmapStyleControls, SliderRow } from './HeatmapStyleControls';
 import { ZoomExpressionEditor } from './ZoomExpressionEditor';
+import { IconPicker } from './IconPicker';
 import { LazyLoadErrorBoundary } from '@/components/error';
 import { getLayerType } from '@/components/builder/map-sync';
 import { isNumericColumn } from '@/lib/column-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { cn } from '@/lib/utils';
-import type { BuilderStyleConfig, MapLayerResponse, StyleConfig } from '@/types/api';
+import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
+
+type PointRenderMode = 'points' | 'heatmap' | 'symbol';
 
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
@@ -22,7 +26,7 @@ interface LayerStyleEditorProps {
   onOpacityChange: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap') => void;
+  onRenderModeChange?: (layerId: string, mode: PointRenderMode) => void;
 }
 
 const LINE_DASH_PRESETS = [
@@ -152,8 +156,22 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   const paint = layer.paint;
   const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
   const isDataDriven = !!layer.style_config?.column;
-  const renderMode: 'points' | 'heatmap' = layer.style_config?.render_mode === 'heatmap' ? 'heatmap' : 'points';
-  const builderConfig = layer.style_config?.builder ?? {};
+  const renderMode: PointRenderMode = layer.style_config?.render_mode === 'heatmap'
+    ? 'heatmap'
+    : layer.style_config?.render_mode === 'symbol'
+      ? 'symbol'
+      : 'points';
+  const builderConfig = useMemo(
+    () => layer.style_config?.builder ?? {},
+    [layer.style_config?.builder],
+  );
+  const symbolConfig = useMemo(
+    () => ({
+      ...(builderConfig.symbol ?? {}),
+      ...(layer.style_config?.symbol ?? {}),
+    }) as SymbolStyleConfig,
+    [builderConfig.symbol, layer.style_config?.symbol],
+  );
 
   const fillEnabled = !(builderConfig.fillDisabled ?? paint['_fill-disabled']);
   const strokeEnabled = !(builderConfig.strokeDisabled ?? paint['_stroke-disabled']);
@@ -248,6 +266,16 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     );
   }, [builderConfig.heatmapRamp, builderConfig.heatmapWeightColumn, layer.style_config, onStyleConfigChange]);
 
+  const handleSymbolConfigChange = useCallback((patch: SymbolStyleConfig) => {
+    const nextSymbol = { ...symbolConfig, ...patch };
+    const nextConfig = {
+      ...(layer.style_config ?? {}),
+      render_mode: 'symbol',
+      symbol: nextSymbol,
+    } as StyleConfig;
+    onStyleConfigChange(layer.id, nextConfig, stripLegacyBuilderPaint(paint));
+  }, [layer.id, layer.style_config, onStyleConfigChange, paint, symbolConfig]);
+
   return (
     <div className="space-y-2">
       {/* Render as dropdown — point layers only */}
@@ -256,13 +284,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           <div className="text-xs font-medium">{t('style.renderAs')}</div>
           <Select
             value={renderMode}
-            onValueChange={(mode) => onRenderModeChange?.(layer.id, mode as 'points' | 'heatmap')}
+            onValueChange={(mode) => onRenderModeChange?.(layer.id, mode as PointRenderMode)}
           >
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="points">{t('style.renderPoints')}</SelectItem>
+              <SelectItem value="symbol">{t('style.renderSymbol')}</SelectItem>
               <SelectItem value="heatmap">{t('style.renderHeatmap')}</SelectItem>
             </SelectContent>
           </Select>
@@ -277,8 +306,17 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         />
       )}
 
+      {geomType === 'circle' && renderMode === 'symbol' && (
+        <SymbolControls
+          layer={layer}
+          config={symbolConfig}
+          onChange={handleSymbolConfigChange}
+          t={t}
+        />
+      )}
+
       {/* Data-driven style editor — hidden when in heatmap mode */}
-      {renderMode !== 'heatmap' && (
+      {renderMode !== 'heatmap' && renderMode !== 'symbol' && (
         <LazyLoadErrorBoundary>
           <Suspense fallback={null}>
             <DataDrivenStyleEditor
@@ -308,7 +346,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
             t={t}
           />
         )}
-        {geomType === 'circle' && renderMode !== 'heatmap' && (
+        {geomType === 'circle' && renderMode !== 'heatmap' && renderMode !== 'symbol' && (
           <CircleControls
             layer={layer} paint={controlPaint} isDataDriven={isDataDriven}
             strokeEnabled={strokeEnabled} onToggleStroke={handleToggleStroke}
@@ -544,6 +582,128 @@ function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange,
 interface CircleControlsProps extends GeomControlProps {
   strokeEnabled: boolean;
   onToggleStroke: () => void;
+}
+
+interface SymbolControlsProps {
+  layer: MapLayerResponse;
+  config: SymbolStyleConfig;
+  onChange: (patch: SymbolStyleConfig) => void;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}
+
+function SymbolControls({ layer, config, onChange, t }: SymbolControlsProps) {
+  const sampleColumns = layer.dataset_column_info ?? [];
+  const categoryColumn = config.categoryColumn ?? '';
+  const sampleValues = categoryColumn
+    ? (layer.dataset_sample_values?.[categoryColumn] ?? []).slice(0, 6)
+    : [];
+  const currentCategories = config.categories ?? [];
+
+  function updateCategory(value: string | number | null, icon: string) {
+    const existing = currentCategories.filter((entry) => entry.value !== value);
+    onChange({ categories: [...existing, { value, icon }], categoryColumn });
+  }
+
+  return (
+    <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
+      <div className="text-xs font-medium">{t('style.symbol.title')}</div>
+      <IconPicker
+        label={t('style.symbol.iconImage')}
+        value={config.iconImage ?? 'marker'}
+        onChange={(iconImage) => onChange({ iconImage })}
+      />
+      <SliderRow
+        label={t('style.symbol.size')}
+        value={config.iconSize ?? 1}
+        min={0.25}
+        max={3}
+        step={0.05}
+        display={String(config.iconSize ?? 1)}
+        onChange={(val) => onChange({ iconSize: val })}
+      />
+      <SliderRow
+        label={t('style.symbol.rotation')}
+        value={config.iconRotation ?? 0}
+        min={0}
+        max={360}
+        step={1}
+        display={`${config.iconRotation ?? 0}°`}
+        onChange={(val) => onChange({ iconRotation: val })}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{t('style.symbol.anchor')}</span>
+        <Select
+          value={config.iconAnchor ?? 'center'}
+          onValueChange={(value) => onChange({ iconAnchor: value as SymbolStyleConfig['iconAnchor'] })}
+        >
+          <SelectTrigger className="h-8 text-xs w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {['center', 'top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right'].map((anchor) => (
+              <SelectItem key={anchor} value={anchor}>{anchor}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <SliderRow
+          label={t('style.symbol.offsetX')}
+          value={config.iconOffset?.[0] ?? 0}
+          min={-4}
+          max={4}
+          step={0.25}
+          display={String(config.iconOffset?.[0] ?? 0)}
+          onChange={(val) => onChange({ iconOffset: [val, config.iconOffset?.[1] ?? 0] })}
+        />
+        <SliderRow
+          label={t('style.symbol.offsetY')}
+          value={config.iconOffset?.[1] ?? 0}
+          min={-4}
+          max={4}
+          step={0.25}
+          display={String(config.iconOffset?.[1] ?? 0)}
+          onChange={(val) => onChange({ iconOffset: [config.iconOffset?.[0] ?? 0, val] })}
+        />
+      </div>
+      {sampleColumns.length > 0 && (
+        <div className="space-y-2 border-t pt-2">
+          <div className="text-xs font-medium">{t('style.symbol.categoryMapping')}</div>
+          <Select
+            value={categoryColumn || '__none__'}
+            onValueChange={(value) => onChange({
+              categoryColumn: value === '__none__' ? undefined : value,
+              categories: value === '__none__' ? undefined : currentCategories,
+            })}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">{t('style.none', { defaultValue: 'None' })}</SelectItem>
+              {sampleColumns.map((column) => (
+                <SelectItem key={column.name} value={column.name}>{column.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {sampleValues.map((value) => {
+            const mapped = currentCategories.find((entry) => entry.value === value)?.icon ?? config.iconImage ?? 'marker';
+            return (
+              <div key={String(value)} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{String(value)}</span>
+                <Input
+                  className="h-7 text-xs"
+                  value={mapped}
+                  aria-label={t('style.symbol.categoryIcon', { value: String(value) })}
+                  onChange={(event) => updateCategory(value as string | number | null, event.target.value)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CircleControls({ layer, paint, isDataDriven, strokeEnabled, onToggleStroke, onPaintProp, t }: CircleControlsProps) {

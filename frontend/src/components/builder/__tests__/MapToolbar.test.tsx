@@ -48,4 +48,13 @@ describe('MapToolbar widget controls', () => {
 
     expect(useWidgetStore.getState().activeWidgets.has('measurement')).toBe(false);
   });
+
+  it('renders style JSON action when provided', () => {
+    const onStyleJsonClick = vi.fn();
+    render(<MapToolbar onStyleJsonClick={onStyleJsonClick} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Style JSON' }));
+
+    expect(onStyleJsonClick).toHaveBeenCalled();
+  });
 });

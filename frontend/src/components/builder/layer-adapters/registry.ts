@@ -4,12 +4,14 @@ import { circleAdapter } from './circle-adapter';
 import { rasterAdapter } from './raster-adapter';
 import { hillshadeAdapter } from './hillshade-adapter';
 import { heatmapAdapter } from './heatmap-adapter';
+import { symbolAdapter } from './symbol-adapter';
 import type { LayerAdapter } from './types';
 
 const adapters: Record<string, LayerAdapter> = {
   fill: fillAdapter,
   line: lineAdapter,
   circle: circleAdapter,
+  symbol: symbolAdapter,
   raster: rasterAdapter,
   hillshade: hillshadeAdapter,
   heatmap: heatmapAdapter,

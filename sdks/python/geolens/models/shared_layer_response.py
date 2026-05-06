@@ -44,6 +44,7 @@ class SharedLayerResponse:
         visible (bool):
         column_info (list[SharedLayerResponseColumnInfoType0Item] | None | Unset):
         dataset_record_type (None | str | Unset):
+        dem_vertical_units (None | str | Unset):
         display_name (None | str | Unset):
         feature_count (int | None | Unset):
         filter_ (list[Any] | None | Unset):
@@ -68,6 +69,7 @@ class SharedLayerResponse:
     visible: bool
     column_info: list[SharedLayerResponseColumnInfoType0Item] | None | Unset = UNSET
     dataset_record_type: None | str | Unset = UNSET
+    dem_vertical_units: None | str | Unset = UNSET
     display_name: None | str | Unset = UNSET
     feature_count: int | None | Unset = UNSET
     filter_: list[Any] | None | Unset = UNSET
@@ -127,6 +129,12 @@ class SharedLayerResponse:
             dataset_record_type = UNSET
         else:
             dataset_record_type = self.dataset_record_type
+
+        dem_vertical_units: None | str | Unset
+        if isinstance(self.dem_vertical_units, Unset):
+            dem_vertical_units = UNSET
+        else:
+            dem_vertical_units = self.dem_vertical_units
 
         display_name: None | str | Unset
         if isinstance(self.display_name, Unset):
@@ -209,6 +217,8 @@ class SharedLayerResponse:
             field_dict["column_info"] = column_info
         if dataset_record_type is not UNSET:
             field_dict["dataset_record_type"] = dataset_record_type
+        if dem_vertical_units is not UNSET:
+            field_dict["dem_vertical_units"] = dem_vertical_units
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
         if feature_count is not UNSET:
@@ -312,6 +322,17 @@ class SharedLayerResponse:
 
         dataset_record_type = _parse_dataset_record_type(
             d.pop("dataset_record_type", UNSET)
+        )
+
+        def _parse_dem_vertical_units(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dem_vertical_units = _parse_dem_vertical_units(
+            d.pop("dem_vertical_units", UNSET)
         )
 
         def _parse_display_name(data: object) -> None | str | Unset:
@@ -443,6 +464,7 @@ class SharedLayerResponse:
             visible=visible,
             column_info=column_info,
             dataset_record_type=dataset_record_type,
+            dem_vertical_units=dem_vertical_units,
             display_name=display_name,
             feature_count=feature_count,
             filter_=filter_,

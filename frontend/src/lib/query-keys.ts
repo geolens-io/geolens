@@ -54,6 +54,9 @@ export const queryKeys = {
     all: ['maps'] as const,
     list: (params: MapBrowseParams) => ['maps', params] as const,
     detail: (id: string | undefined) => ['map', id] as const,
+    history: (mapId: string | undefined, skip: number, limit: number) =>
+      ['map-history', mapId, skip, limit] as const,
+    historyPrefix: (mapId: string | undefined) => ['map-history', mapId] as const,
     shareToken: (mapId: string | undefined) => ['map-share-token', mapId] as const,
     embedTokens: (mapId: string | undefined) => ['map-embed-tokens', mapId] as const,
     sharedMap: (token: string | undefined, apiKey?: string) =>

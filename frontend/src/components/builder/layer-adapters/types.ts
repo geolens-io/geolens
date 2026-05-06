@@ -32,7 +32,7 @@ export interface AdapterLayerInput {
 }
 
 export interface LayerAdapter {
-  type: 'fill' | 'line' | 'circle' | 'raster' | 'heatmap' | 'hillshade';
+  type: 'fill' | 'line' | 'circle' | 'symbol' | 'raster' | 'heatmap' | 'hillshade';
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void;
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void;
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void;

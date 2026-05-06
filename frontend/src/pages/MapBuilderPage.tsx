@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Save, Loader2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { FileText, History, Loader2, PanelLeftClose, PanelLeftOpen, Save, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
 import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
 import { BuilderDialogs } from '@/components/builder/BuilderDialogs';
+import { StyleJsonDialog } from '@/components/builder/StyleJsonDialog';
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -110,6 +111,7 @@ export function MapBuilderPage() {
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
   const [dockNotes, setDockNotes] = useState('');
+  const [showStyleJson, setShowStyleJson] = useState(false);
 
   // Initialize notes from server data, falling back to localStorage for migration
   useEffect(() => {
@@ -271,6 +273,40 @@ export function MapBuilderPage() {
     onQueryResult: layers.handleQueryResult,
     onMarkDirty: handleMarkDirty,
   }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, handleMarkDirty]);
+
+  const mobileRailButtons = useMemo(() => [
+    {
+      id: 'notes' as const,
+      icon: FileText,
+      label: t('dock.notes', { defaultValue: 'Notes' }),
+      disabled: false,
+    },
+    {
+      id: 'history' as const,
+      icon: History,
+      label: t('dock.history', { defaultValue: 'History' }),
+      disabled: false,
+    },
+    {
+      id: 'ai' as const,
+      icon: Sparkles,
+      label: aiAvailable
+        ? t('dock.askAi', { defaultValue: 'Ask AI' })
+        : t('rail.aiDisabled', { defaultValue: 'AI disabled by admin' }),
+      disabled: !aiAvailable,
+    },
+  ], [aiAvailable, t]);
+
+  const railSheetTitle = railPanel === 'history'
+    ? t('dock.history', { defaultValue: 'History' })
+    : railPanel === 'ai'
+      ? t('dock.askAi', { defaultValue: 'Ask AI' })
+      : t('dock.notes', { defaultValue: 'Notes' });
+  const railSheetDescription = railPanel === 'history'
+    ? t('history.timelineLabel', { defaultValue: 'Map edit history' })
+    : railPanel === 'ai'
+      ? t('dock.askAi', { defaultValue: 'Ask AI' })
+      : t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map...' });
 
   const handleAddDataClick = useCallback(
     () => dialogs.setShowAddData(true),
@@ -466,7 +502,32 @@ export function MapBuilderPage() {
         )}
 
         {/* Centered toolbar */}
-        <MapToolbar />
+        <MapToolbar onStyleJsonClick={() => setShowStyleJson(true)} />
+        {isMobile && (
+          <div className="absolute right-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
+            {mobileRailButtons.map((btn) => (
+              <button
+                key={btn.id}
+                type="button"
+                onClick={btn.disabled ? undefined : () => setRailPanel(btn.id)}
+                disabled={btn.disabled}
+                title={btn.label}
+                aria-label={btn.label}
+                aria-pressed={!btn.disabled && railPanel === btn.id}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+                  btn.disabled
+                    ? 'cursor-not-allowed text-muted-foreground/40'
+                    : railPanel === btn.id
+                      ? 'bg-accent text-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                <btn.icon className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
 
         <WidgetHost
           byAnchor={byAnchor}
@@ -488,10 +549,10 @@ export function MapBuilderPage() {
         <Sheet open={!!railPanel} onOpenChange={(open) => { if (!open) setRailPanel(null); }}>
           <SheetContent side="right" className="w-80 p-0 flex flex-col">
             <SheetHeader className="sr-only">
-              <SheetTitle>{t('dock.notes')}</SheetTitle>
-              <SheetDescription>{t('dock.notesPlaceholder')}</SheetDescription>
+              <SheetTitle>{railSheetTitle}</SheetTitle>
+              <SheetDescription>{railSheetDescription}</SheetDescription>
             </SheetHeader>
-            <BuilderRail {...railProps} />
+            <BuilderRail {...railProps} showRail={false} />
           </SheetContent>
         </Sheet>
       )}
@@ -514,6 +575,14 @@ export function MapBuilderPage() {
         onBlockerReset={save.blocker.reset}
         onBlockerProceed={save.blocker.proceed}
       />
+      {id && (
+        <StyleJsonDialog
+          mapId={id}
+          mapName={layers.localName}
+          open={showStyleJson}
+          onOpenChange={setShowStyleJson}
+        />
+      )}
     </div>
   );
 }

@@ -278,11 +278,13 @@ function syncVectorLayer(
     map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
   }
 
-  // Sync label layer (add/update/remove). Heatmap layers don't support labels.
+  // Sync companion label layer (add/update/remove). Heatmap layers don't support
+  // labels, and symbol layers consolidate icon/text in the primary symbol layer.
   const labelId = prefixed('label', layer.id, prefix);
   const isHeatmap = type === 'heatmap';
+  const isSymbol = type === 'symbol';
   if (map.getSource(sourceId)) {
-    if (layer.label_config?.column && !isHeatmap) {
+    if (layer.label_config?.column && !isHeatmap && !isSymbol) {
       const lc = layer.label_config;
       const geomType = getLayerType(layer.dataset_geometry_type);
       const vis = layer.visible ? 'visible' : 'none';
@@ -304,7 +306,7 @@ function syncVectorLayer(
   }
 
   adapter.syncVisibility(map, adapterInput);
-  if (map.getLayer(labelId) && !isHeatmap) {
+  if (map.getLayer(labelId) && !isHeatmap && !isSymbol) {
     const vis = layer.visible ? 'visible' : 'none';
     map.setLayoutProperty(labelId, 'visibility', vis);
   }

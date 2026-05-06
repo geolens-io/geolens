@@ -15,6 +15,10 @@ from app.modules.catalog.maps.service_crud import (
     list_maps,
     update_map,
 )
+from app.modules.catalog.maps.service_history import (
+    list_map_history,
+    record_map_history_event,
+)
 from app.modules.catalog.maps.service_layers import (
     add_layer,
     bulk_check_dataset_access,
@@ -55,6 +59,8 @@ __all__ = [
     "list_maps",
     "update_map",
     "delete_map",
+    "record_map_history_event",
+    "list_map_history",
     "bulk_check_dataset_access",
     "duplicate_map",
     "add_layer",

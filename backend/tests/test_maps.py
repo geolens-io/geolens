@@ -441,6 +441,178 @@ class TestUpdateMap:
 
 
 # ---------------------------------------------------------------------------
+# Map edit history
+# ---------------------------------------------------------------------------
+
+
+class TestMapHistory:
+    async def test_history_records_map_updates_and_preserves_audit(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        created = await _create_map(client, admin_auth_header, "History Source")
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"name": "History Renamed", "center_lng": -73.99},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+        history_resp = await client.get(
+            f"/maps/{map_id}/history",
+            headers=admin_auth_header,
+        )
+        assert history_resp.status_code == 200
+        history = history_resp.json()
+        assert history["skip"] == 0
+        assert history["limit"] == 50
+
+        events = history["events"]
+        actions = {event["action"] for event in events}
+        assert {"map.create", "map.rename", "map.config_update"}.issubset(actions)
+
+        rename = next(event for event in events if event["action"] == "map.rename")
+        assert rename["map_id"] == map_id
+        assert rename["target_type"] == "map"
+        assert rename["target_id"] == map_id
+        assert rename["target_name"] == "History Renamed"
+        assert rename["actor_username"] == "admin"
+        assert rename["summary"] == "Renamed map to History Renamed"
+        assert rename["details"]["previous"] == "History Source"
+        assert rename["details"]["current"] == "History Renamed"
+
+        audit_result = await test_db_session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "map.update")
+            .where(AuditLog.resource_id == uuid.UUID(map_id))
+        )
+        audit_log = audit_result.scalars().first()
+        assert audit_log is not None
+        assert set(audit_log.details["changed_fields"]) == {"name", "center_lng"}
+
+    async def test_history_records_layer_diff_events(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_a = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="History Layer A",
+        )
+        ds_b = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="History Layer B",
+        )
+        ds_c = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="History Layer C",
+        )
+        created = await _create_map(client, admin_auth_header, "Layer History Map")
+
+        first_resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds_a.id)},
+            headers=admin_auth_header,
+        )
+        second_resp = await client.post(
+            f"/maps/{created['id']}/layers/",
+            json={"dataset_id": str(ds_b.id)},
+            headers=admin_auth_header,
+        )
+        first_id = first_resp.json()["id"]
+        second_id = second_resp.json()["id"]
+
+        resp = await client.patch(
+            f"/maps/{created['id']}/layers",
+            json={
+                "added": [
+                    {
+                        "dataset_id": str(ds_c.id),
+                        "display_name": "Added via history diff",
+                    }
+                ],
+                "updated": [
+                    {
+                        "id": first_id,
+                        "visible": False,
+                        "paint": {"fill-color": "#22c55e"},
+                    }
+                ],
+                "removed": [second_id],
+                "order": [first_id],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
+        history_resp = await client.get(
+            f"/maps/{created['id']}/history",
+            headers=admin_auth_header,
+        )
+        assert history_resp.status_code == 200
+        events = history_resp.json()["events"]
+        actions = {event["action"] for event in events}
+        assert {
+            "layer.add",
+            "layer.visibility_update",
+            "layer.style_update",
+            "layer.remove",
+            "layer.reorder",
+        }.issubset(actions)
+
+        style_event = next(
+            event
+            for event in events
+            if event["action"] == "layer.style_update"
+            and event["target_id"] == first_id
+        )
+        assert style_event["target_type"] == "layer"
+        assert style_event["target_name"] == "History Layer A"
+        assert "paint" in style_event["details"]["changed_fields"]
+
+        remove_event = next(
+            event
+            for event in events
+            if event["action"] == "layer.remove" and event["target_id"] == second_id
+        )
+        assert remove_event["target_name"] == "History Layer B"
+
+    async def test_history_requires_builder_access(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        viewer_auth_header: dict,
+    ):
+        created = await _create_map(client, admin_auth_header, "Private History Map")
+        map_id = created["id"]
+
+        anon_resp = await client.get(f"/maps/{map_id}/history")
+        assert anon_resp.status_code == 401
+
+        viewer_resp = await client.get(
+            f"/maps/{map_id}/history",
+            headers=viewer_auth_header,
+        )
+        assert viewer_resp.status_code == 403
+
+        editor_resp = await client.get(
+            f"/maps/{map_id}/history",
+            headers=editor_auth_header,
+        )
+        assert editor_resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # Delete map
 # ---------------------------------------------------------------------------
 
@@ -1397,6 +1569,35 @@ class TestMapLayers:
             headers=admin_auth_header,
         )
         assert resp.status_code == 404
+
+    async def test_remove_layer_rejects_layer_outside_map(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """DELETE /maps/{id}/layers/{layer_id} is scoped to the requested map."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        source = await _create_map(client, admin_auth_header, "Remove Source")
+        target = await _create_map(client, admin_auth_header, "Remove Target")
+
+        add_resp = await client.post(
+            f"/maps/{source['id']}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert add_resp.status_code == 201
+        layer_id = add_resp.json()["id"]
+
+        resp = await client.delete(
+            f"/maps/{target['id']}/layers/{layer_id}",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 404
+
+        map_resp = await client.get(f"/maps/{source['id']}", headers=admin_auth_header)
+        assert map_resp.json()["layer_count"] == 1
 
     async def test_add_layer_viewer_forbidden(
         self,

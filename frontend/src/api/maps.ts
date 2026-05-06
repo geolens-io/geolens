@@ -8,6 +8,7 @@ import type {
   MapLayerDiffRequest,
   MapLayerResponse,
   MapLayerInput,
+  MapHistoryListResponse,
   SharedMapResponse,
   ShareTokenResponse,
   MapGenerateRequest,
@@ -19,6 +20,9 @@ import type {
   ChatRequest,
   ChatResponse,
   VisibilityCheckResponse,
+  MapStyleImportResponse,
+  MapIconListResponse,
+  MapIconResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
 import { useAuthStore } from '@/stores/auth-store';
@@ -55,6 +59,17 @@ export async function getMap(id: string): Promise<MapResponse> {
     }
   }
   return resp;
+}
+
+export async function getMapHistory(
+  mapId: string,
+  params: { skip?: number; limit?: number } = {},
+): Promise<MapHistoryListResponse> {
+  const query = new URLSearchParams();
+  if (params.skip !== undefined) query.set('skip', String(params.skip));
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  return apiFetch<MapHistoryListResponse>(`/maps/${mapId}/history${qs ? `?${qs}` : ''}`);
 }
 
 export async function createMap(data: MapCreateRequest): Promise<MapResponse> {
@@ -141,6 +156,30 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
 
 export async function checkMapVisibility(mapId: string): Promise<VisibilityCheckResponse> {
   return apiFetch<VisibilityCheckResponse>(`/maps/${mapId}/visibility-check/`);
+}
+
+export async function exportMapStyleJson(mapId: string): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>(`/maps/${mapId}/style.json`);
+}
+
+export async function importMapStyleJson(style: Record<string, unknown>): Promise<MapStyleImportResponse> {
+  return apiFetch<MapStyleImportResponse>('/maps/import', {
+    method: 'POST',
+    body: JSON.stringify(style),
+  });
+}
+
+export async function listMapIcons(): Promise<MapIconListResponse> {
+  return apiFetch<MapIconListResponse>('/maps/icons/');
+}
+
+export async function uploadMapIcon(file: File): Promise<MapIconResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetch<MapIconResponse>('/maps/icons/', {
+    method: 'POST',
+    body: formData,
+  });
 }
 
 export async function publishMap(id: string, visibility: 'public' | 'private' | 'internal'): Promise<MapResponse> {

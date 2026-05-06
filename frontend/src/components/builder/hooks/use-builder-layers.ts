@@ -324,10 +324,15 @@ export function useBuilderLayers(
       return;
     }
 
-    // Manage label layer: hide for heatmap, restore for points
+    // Manage companion label layer: heatmap hides labels, symbol consolidates
+    // icon/text in the primary symbol layer, points restore companion labels.
     if (adapterType === 'heatmap') {
       if (map.getLayer(labelId)) {
         map.setLayoutProperty(labelId, 'visibility', 'none');
+      }
+    } else if (adapterType === 'symbol') {
+      if (map.getLayer(labelId)) {
+        map.removeLayer(labelId);
       }
     } else if (layer.label_config?.column) {
       const vis = layer.visible ? 'visible' : 'none';
@@ -341,7 +346,7 @@ export function useBuilderLayers(
     }
   }, [mapInstanceRef, t]);
 
-  const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap') => {
+  const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap' | 'symbol') => {
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
 
@@ -370,6 +375,25 @@ export function useBuilderLayers(
       );
 
       swapLayerOnMap(layer, 'heatmap', updatedPaint);
+    } else if (mode === 'symbol') {
+      const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? { ...updatedPaint };
+      const nextStyleConfig = {
+        ...layer.style_config,
+        ...currentStyleConfig,
+        render_mode: 'symbol',
+        savedCirclePaint,
+        symbol: currentStyleConfig.symbol ?? { iconImage: 'marker', iconSize: 1, iconRotation: 0, iconAnchor: 'center', iconOffset: [0, 0] },
+      } as StyleConfig;
+
+      setLocalLayers((prev) =>
+        prev.map((l) =>
+          l.id === layerId
+            ? { ...l, paint: updatedPaint, style_config: nextStyleConfig }
+            : l,
+        ),
+      );
+
+      swapLayerOnMap({ ...layer, style_config: nextStyleConfig }, 'symbol', updatedPaint);
     } else {
       const savedHeatmapPaint = { ...updatedPaint };
       const savedCirclePaint = currentStyleConfig.savedCirclePaint ?? {};
@@ -381,7 +405,7 @@ export function useBuilderLayers(
         'circle-stroke-width': 1,
       };
 
-      const { savedCirclePaint: _dropped, ...restConfig } = currentStyleConfig;
+      const { savedCirclePaint: _dropped, symbol: _symbol, ...restConfig } = currentStyleConfig;
 
       setLocalLayers((prev) =>
         prev.map((l) =>

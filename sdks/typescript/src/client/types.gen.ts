@@ -826,6 +826,16 @@ export type BodyUploadFileIngestUploadPost = {
 };
 
 /**
+ * Body_upload_map_icon_endpoint_maps_icons__post
+ */
+export type BodyUploadMapIconEndpointMapsIconsPost = {
+    /**
+     * File
+     */
+    file: Blob | File;
+};
+
+/**
  * BrandingResponse
  *
  * Response for GET /settings/branding/.
@@ -2891,6 +2901,7 @@ export type DuplicateMapResponse = {
      * Show Basemap Labels
      */
     show_basemap_labels: boolean;
+    terrain_config?: TerrainConfig | null;
     /**
      * Thumbnail Url
      */
@@ -3962,6 +3973,10 @@ export type MapCreate = {
      * Private notes (not shown publicly)
      */
     notes?: string | null;
+    /**
+     * Map-level terrain source and exaggeration preferences
+     */
+    terrain_config?: TerrainConfig | null;
 };
 
 /**
@@ -4022,6 +4037,128 @@ export type MapGenerateResponse = {
      * Map Name
      */
     map_name: string;
+};
+
+/**
+ * MapHistoryEventResponse
+ */
+export type MapHistoryEventResponse = {
+    /**
+     * Action
+     */
+    action: string;
+    /**
+     * Actor Id
+     */
+    actor_id?: string | null;
+    /**
+     * Actor Username
+     */
+    actor_username?: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Details
+     */
+    details?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Map Id
+     */
+    map_id: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Target Id
+     */
+    target_id?: string | null;
+    /**
+     * Target Name
+     */
+    target_name?: string | null;
+    /**
+     * Target Type
+     */
+    target_type: string;
+};
+
+/**
+ * MapHistoryListResponse
+ */
+export type MapHistoryListResponse = {
+    /**
+     * Events
+     */
+    events: Array<MapHistoryEventResponse>;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Skip
+     */
+    skip: number;
+    /**
+     * Total
+     */
+    total: number;
+};
+
+/**
+ * MapIconListResponse
+ */
+export type MapIconListResponse = {
+    /**
+     * Icons
+     */
+    icons: Array<MapIconResponse>;
+};
+
+/**
+ * MapIconResponse
+ */
+export type MapIconResponse = {
+    /**
+     * Builtin
+     */
+    builtin?: boolean;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Media Type
+     */
+    media_type: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes?: number | null;
+    /**
+     * Slug
+     */
+    slug: string;
+    /**
+     * Sprite Id
+     */
+    sprite_id: string;
+    /**
+     * Url
+     */
+    url: string;
 };
 
 /**
@@ -4258,6 +4395,10 @@ export type MapLayerResponse = {
      */
     dataset_table_name: string;
     /**
+     * Dem Vertical Units
+     */
+    dem_vertical_units?: string | null;
+    /**
      * Display Name
      */
     display_name?: string | null;
@@ -4273,6 +4414,10 @@ export type MapLayerResponse = {
      * Is 3D
      */
     is_3d?: boolean | null;
+    /**
+     * Is Dem
+     */
+    is_dem?: boolean | null;
     /**
      * Label Config
      */
@@ -4408,6 +4553,7 @@ export type MapResponse = {
      * Show Basemap Labels
      */
     show_basemap_labels: boolean;
+    terrain_config?: TerrainConfig | null;
     /**
      * Thumbnail Url
      */
@@ -4425,6 +4571,62 @@ export type MapResponse = {
      * Zoom
      */
     zoom: number | null;
+};
+
+/**
+ * MapStyleImportResponse
+ */
+export type MapStyleImportResponse = {
+    map: MapResponse;
+    summary: MapStyleImportSummary;
+};
+
+/**
+ * MapStyleImportSummary
+ */
+export type MapStyleImportSummary = {
+    /**
+     * Layers Imported
+     */
+    layers_imported?: number;
+    /**
+     * Layers Skipped
+     */
+    layers_skipped?: number;
+    /**
+     * Sources Matched
+     */
+    sources_matched?: number;
+    /**
+     * Sources Unsupported
+     */
+    sources_unsupported?: number;
+    /**
+     * Warnings
+     */
+    warnings?: Array<MapStyleImportWarning>;
+};
+
+/**
+ * MapStyleImportWarning
+ */
+export type MapStyleImportWarning = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Layer Id
+     */
+    layer_id?: string | null;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Source Id
+     */
+    source_id?: string | null;
 };
 
 /**
@@ -4522,6 +4724,10 @@ export type MapUpdate = {
      * Show Basemap Labels
      */
     show_basemap_labels?: boolean | null;
+    /**
+     * Map-level terrain source and exaggeration preferences
+     */
+    terrain_config?: TerrainConfig | null;
     /**
      * private, internal, or public
      */
@@ -6708,6 +6914,10 @@ export type SharedLayerResponse = {
      */
     dataset_record_type?: string | null;
     /**
+     * Dem Vertical Units
+     */
+    dem_vertical_units?: string | null;
+    /**
      * Display Name
      */
     display_name?: string | null;
@@ -6830,6 +7040,7 @@ export type SharedMapResponse = {
      * Show Basemap Labels
      */
     show_basemap_labels?: boolean;
+    terrain_config?: TerrainConfig | null;
     /**
      * Zoom
      */
@@ -7584,6 +7795,24 @@ export type TableRegisterResponse = {
      * Title of the registered dataset.
      */
     title: string;
+};
+
+/**
+ * TerrainConfig
+ */
+export type TerrainConfig = {
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Exaggeration
+     */
+    exaggeration?: number;
+    /**
+     * Source Dataset Id
+     */
+    source_dataset_id?: string | null;
 };
 
 /**
@@ -15705,6 +15934,210 @@ export type CreateMapEndpointMapsPostResponses = {
 
 export type CreateMapEndpointMapsPostResponse = CreateMapEndpointMapsPostResponses[keyof CreateMapEndpointMapsPostResponses];
 
+export type ListMapIconsEndpointMapsIconsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/icons/';
+};
+
+export type ListMapIconsEndpointMapsIconsGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ListMapIconsEndpointMapsIconsGetError = ListMapIconsEndpointMapsIconsGetErrors[keyof ListMapIconsEndpointMapsIconsGetErrors];
+
+export type ListMapIconsEndpointMapsIconsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapIconListResponse;
+};
+
+export type ListMapIconsEndpointMapsIconsGetResponse = ListMapIconsEndpointMapsIconsGetResponses[keyof ListMapIconsEndpointMapsIconsGetResponses];
+
+export type UploadMapIconEndpointMapsIconsPostData = {
+    body: BodyUploadMapIconEndpointMapsIconsPost;
+    path?: never;
+    query?: never;
+    url: '/maps/icons/';
+};
+
+export type UploadMapIconEndpointMapsIconsPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type UploadMapIconEndpointMapsIconsPostError = UploadMapIconEndpointMapsIconsPostErrors[keyof UploadMapIconEndpointMapsIconsPostErrors];
+
+export type UploadMapIconEndpointMapsIconsPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: MapIconResponse;
+};
+
+export type UploadMapIconEndpointMapsIconsPostResponse = UploadMapIconEndpointMapsIconsPostResponses[keyof UploadMapIconEndpointMapsIconsPostResponses];
+
+export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetData = {
+    body?: never;
+    path: {
+        /**
+         * Icon Id
+         */
+        icon_id: string;
+    };
+    query?: never;
+    url: '/maps/icons/{icon_id}/asset';
+};
+
+export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetError = GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors[keyof GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors];
+
+export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ImportMapStyleEndpointMapsImportPostData = {
+    /**
+     * Style
+     */
+    body: {
+        [key: string]: unknown;
+    };
+    path?: never;
+    query?: never;
+    url: '/maps/import';
+};
+
+export type ImportMapStyleEndpointMapsImportPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ImportMapStyleEndpointMapsImportPostError = ImportMapStyleEndpointMapsImportPostErrors[keyof ImportMapStyleEndpointMapsImportPostErrors];
+
+export type ImportMapStyleEndpointMapsImportPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: MapStyleImportResponse;
+};
+
+export type ImportMapStyleEndpointMapsImportPostResponse = ImportMapStyleEndpointMapsImportPostResponses[keyof ImportMapStyleEndpointMapsImportPostResponses];
+
 export type GetSharedMapEndpointMapsSharedTokenGetData = {
     body?: never;
     path: {
@@ -15758,6 +16191,108 @@ export type GetSharedMapEndpointMapsSharedTokenGetResponses = {
 };
 
 export type GetSharedMapEndpointMapsSharedTokenGetResponse = GetSharedMapEndpointMapsSharedTokenGetResponses[keyof GetSharedMapEndpointMapsSharedTokenGetResponses];
+
+export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/sprites/geolens.json';
+};
+
+export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetError = GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors[keyof GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors];
+
+export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponses = {
+    /**
+     * Response Get Geolens Sprite Index Endpoint Maps Sprites Geolens Json Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: {
+            [key: string]: number | number;
+        };
+    };
+};
+
+export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponse = GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponses[keyof GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponses];
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/sprites/geolens.png';
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetError = GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors];
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type DeleteMapEndpointMapsMapIdDeleteData = {
     body?: never;
@@ -16199,6 +16734,69 @@ export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses = 
 
 export type UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponse = UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses[keyof UpdateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatchResponses];
 
+export type GetMapHistoryEndpointMapsMapIdHistoryGetData = {
+    body?: never;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/maps/{map_id}/history';
+};
+
+export type GetMapHistoryEndpointMapsMapIdHistoryGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetMapHistoryEndpointMapsMapIdHistoryGetError = GetMapHistoryEndpointMapsMapIdHistoryGetErrors[keyof GetMapHistoryEndpointMapsMapIdHistoryGetErrors];
+
+export type GetMapHistoryEndpointMapsMapIdHistoryGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapHistoryListResponse;
+};
+
+export type GetMapHistoryEndpointMapsMapIdHistoryGetResponse = GetMapHistoryEndpointMapsMapIdHistoryGetResponses[keyof GetMapHistoryEndpointMapsMapIdHistoryGetResponses];
+
 export type PatchMapLayersEndpointMapsMapIdLayersPatchData = {
     body: MapLayerDiffRequest;
     path: {
@@ -16585,6 +17183,58 @@ export type ShareMapEndpointMapsMapIdSharePostResponses = {
 };
 
 export type ShareMapEndpointMapsMapIdSharePostResponse = ShareMapEndpointMapsMapIdSharePostResponses[keyof ShareMapEndpointMapsMapIdSharePostResponses];
+
+export type ExportMapStyleEndpointMapsMapIdStyleJsonGetData = {
+    body?: never;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/style.json';
+};
+
+export type ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ExportMapStyleEndpointMapsMapIdStyleJsonGetError = ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors[keyof ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors];
+
+export type ExportMapStyleEndpointMapsMapIdStyleJsonGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type GetThumbnailMapsMapIdThumbnailGetData = {
     body?: never;

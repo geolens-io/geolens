@@ -42,6 +42,9 @@ from .body_reupload_dataset_datasets_dataset_id_reupload_post import (
     BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
 )
 from .body_upload_file_ingest_upload_post import BodyUploadFileIngestUploadPost
+from .body_upload_map_icon_endpoint_maps_icons_post import (
+    BodyUploadMapIconEndpointMapsIconsPost,
+)
 from .branding_response import BrandingResponse
 from .bulk_delete_item import BulkDeleteItem
 from .bulk_delete_request import BulkDeleteRequest
@@ -192,6 +195,12 @@ from .get_collection_items_collections_dataset_id_items_get_ogc_feature_items_re
 from .get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response_features_item import (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem,
 )
+from .get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get_response_get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get import (
+    GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet,
+)
+from .get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get_response_get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get_additional_property import (
+    GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetAdditionalProperty,
+)
 from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature import (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature,
 )
@@ -203,6 +212,9 @@ from .health_response_providers import HealthResponseProviders
 from .http_validation_error import HTTPValidationError
 from .import_configuration_config_ops_import_post_mode import (
     ImportConfigurationConfigOpsImportPostMode,
+)
+from .import_map_style_endpoint_maps_import_post_style import (
+    ImportMapStyleEndpointMapsImportPostStyle,
 )
 from .import_result import ImportResult
 from .infrastructure_config import InfrastructureConfig
@@ -249,6 +261,11 @@ from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
 from .map_generate_response import MapGenerateResponse
+from .map_history_event_response import MapHistoryEventResponse
+from .map_history_event_response_details import MapHistoryEventResponseDetails
+from .map_history_list_response import MapHistoryListResponse
+from .map_icon_list_response import MapIconListResponse
+from .map_icon_response import MapIconResponse
 from .map_layer_diff_request import MapLayerDiffRequest
 from .map_layer_input import MapLayerInput
 from .map_layer_input_label_config_type_0 import MapLayerInputLabelConfigType0
@@ -273,6 +290,9 @@ from .map_layer_response_paint import MapLayerResponsePaint
 from .map_layer_response_style_config_type_0 import MapLayerResponseStyleConfigType0
 from .map_list_response import MapListResponse
 from .map_response import MapResponse
+from .map_style_import_response import MapStyleImportResponse
+from .map_style_import_summary import MapStyleImportSummary
+from .map_style_import_warning import MapStyleImportWarning
 from .map_summary_response import MapSummaryResponse
 from .map_update import MapUpdate
 from .map_visibility import MapVisibility
@@ -458,6 +478,7 @@ from .status_update import StatusUpdate
 from .status_update_response import StatusUpdateResponse
 from .summary_draft_response import SummaryDraftResponse
 from .table_register_response import TableRegisterResponse
+from .terrain_config import TerrainConfig
 from .tile_config_response import TileConfigResponse
 from .tile_token_batch_request import TileTokenBatchRequest
 from .tile_token_batch_response import TileTokenBatchResponse
@@ -539,6 +560,7 @@ __all__ = (
     "BodyLoginAuthLoginPost",
     "BodyReuploadDatasetDatasetsDatasetIdReuploadPost",
     "BodyUploadFileIngestUploadPost",
+    "BodyUploadMapIconEndpointMapsIconsPost",
     "BrandingResponse",
     "BulkDeleteItem",
     "BulkDeleteRequest",
@@ -667,12 +689,15 @@ __all__ = (
     "GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponsePropertiesType0",
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse",
     "GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponseFeaturesItem",
+    "GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet",
+    "GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetAdditionalProperty",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties",
     "HealthResponse",
     "HealthResponseProviders",
     "HTTPValidationError",
     "ImportConfigurationConfigOpsImportPostMode",
+    "ImportMapStyleEndpointMapsImportPostStyle",
     "ImportResult",
     "InfrastructureConfig",
     "InfrastructureResponse",
@@ -712,6 +737,11 @@ __all__ = (
     "MapDefaultsResponse",
     "MapGenerateRequest",
     "MapGenerateResponse",
+    "MapHistoryEventResponse",
+    "MapHistoryEventResponseDetails",
+    "MapHistoryListResponse",
+    "MapIconListResponse",
+    "MapIconResponse",
     "MapLayerDiffRequest",
     "MapLayerInput",
     "MapLayerInputLabelConfigType0",
@@ -732,6 +762,9 @@ __all__ = (
     "MapLayerResponseStyleConfigType0",
     "MapListResponse",
     "MapResponse",
+    "MapStyleImportResponse",
+    "MapStyleImportSummary",
+    "MapStyleImportWarning",
     "MapSummaryResponse",
     "MapUpdate",
     "MapVisibility",
@@ -867,6 +900,7 @@ __all__ = (
     "StatusUpdateResponse",
     "SummaryDraftResponse",
     "TableRegisterResponse",
+    "TerrainConfig",
     "TileConfigResponse",
     "TileTokenBatchRequest",
     "TileTokenBatchResponse",

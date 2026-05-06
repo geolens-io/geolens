@@ -7,11 +7,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -57,7 +59,9 @@ class Map(Base):
     widgets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)
 
     # Map-level terrain configuration (null = terrain disabled/unconfigured)
-    terrain_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    terrain_config: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
 
     # Visibility
     visibility: Mapped[str] = mapped_column(
@@ -126,6 +130,47 @@ class MapLayer(Base):
     )
 
 
+class MapEditHistoryEvent(Base):
+    __tablename__ = "map_edit_history_events"
+    __table_args__ = (
+        CheckConstraint(
+            "target_type IN ('map', 'layer')",
+            name="chk_map_edit_history_events_target_type",
+        ),
+        Index(
+            "ix_catalog_map_edit_history_events_map_created_at",
+            "map_id",
+            "created_at",
+        ),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.maps.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_username: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    target_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    action: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class MapShareToken(Base):
     __tablename__ = "map_share_tokens"
     __table_args__ = (
@@ -149,6 +194,33 @@ class MapShareToken(Base):
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MapIconAsset(Base):
+    __tablename__ = "map_icon_assets"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_map_icon_assets_slug"),
+        CheckConstraint(
+            "media_type IN ('image/svg+xml', 'image/png')",
+            name="chk_map_icon_assets_media_type",
+        ),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    media_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

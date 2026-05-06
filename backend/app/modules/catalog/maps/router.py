@@ -8,12 +8,16 @@ from fastapi import (
     APIRouter,
     Body,
     Depends,
+    File,
     HTTPException,
     Query,
     Request,
     Response,
+    UploadFile,
     status,
 )
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -33,8 +37,12 @@ from app.modules.catalog.maps.schemas import (
     MapLayerDiffRequest,
     MapLayerInput,
     MapLayerResponse,
+    MapHistoryListResponse,
     MapListResponse,
+    MapIconListResponse,
+    MapIconResponse,
     MapResponse,
+    MapStyleImportResponse,
     MapSummaryResponse,
     MapUpdate,
     MapVisibility,
@@ -42,6 +50,17 @@ from app.modules.catalog.maps.schemas import (
     SharedMapResponse,
     ShareTokenResponse,
     VisibilityCheckResponse,
+)
+from app.modules.catalog.maps.sprites import (
+    build_sprite_index,
+    build_sprite_png,
+    create_icon_asset,
+    get_icon_content,
+    list_icons,
+)
+from app.modules.catalog.maps.style_json import (
+    build_maplibre_style,
+    parse_maplibre_style_import,
 )
 from app.modules.catalog.maps.service import (
     LayerRow,
@@ -56,8 +75,10 @@ from app.modules.catalog.maps.service import (
     duplicate_map,
     get_map,
     get_map_with_layers,
+    list_map_history,
     get_shared_map,
     list_maps,
+    record_map_history_event,
     remove_layer,
     revoke_share_token_by_map,
     update_map,
@@ -171,6 +192,70 @@ def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
     ]
 
 
+def _layer_history_name(layer: MapLayer, dataset_name: str | None = None) -> str:
+    return layer.display_name or dataset_name or "Layer"
+
+
+def _layer_rows_by_id(layer_rows: list[LayerRow]) -> dict[uuid.UUID, LayerRow]:
+    return {row.layer.id: row for row in layer_rows}
+
+
+def _visibility_value(value: object) -> str:
+    return getattr(value, "value", value)
+
+
+def _style_config_mentions_symbol(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    stack: list[object] = [value]
+    symbol_keys = {"symbol", "icon", "icon_id", "iconColor", "sprite_id"}
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            for key, item in current.items():
+                key_text = str(key)
+                if key_text in symbol_keys or key_text.lower() in {
+                    "symbol",
+                    "icon",
+                    "icon_id",
+                    "sprite_id",
+                    "render_mode",
+                }:
+                    return True
+                if isinstance(item, str) and item.lower() == "symbol":
+                    return True
+                stack.append(item)
+        elif isinstance(current, list):
+            stack.extend(current)
+    return False
+
+
+def _layer_patch_history_actions(patch: dict) -> list[tuple[str, str]]:
+    actions: list[tuple[str, str]] = []
+    if "display_name" in patch:
+        actions.append(("layer.rename", "Renamed layer"))
+    if "visible" in patch:
+        state = "shown" if patch["visible"] else "hidden"
+        actions.append(("layer.visibility_update", f"Layer {state}"))
+    if "opacity" in patch:
+        actions.append(("layer.opacity_update", "Changed layer opacity"))
+    if "filter" in patch:
+        actions.append(("layer.filter_update", "Updated layer filter"))
+    if "label_config" in patch:
+        actions.append(("layer.label_update", "Updated layer labels"))
+    if "popup_config" in patch:
+        actions.append(("layer.popup_update", "Updated layer popup"))
+    if "style_config" in patch and _style_config_mentions_symbol(patch["style_config"]):
+        actions.append(("layer.symbol_update", "Updated symbol styling"))
+
+    style_fields = {"paint", "layout", "style_config", "layer_type", "show_in_legend"}
+    if style_fields & set(patch):
+        actions.append(("layer.style_update", "Updated layer style"))
+    if "sort_order" in patch:
+        actions.append(("layer.reorder", "Reordered layer"))
+    return actions
+
+
 async def _check_map_read_access(
     map_obj: Map,
     user: Identity | None,
@@ -270,6 +355,17 @@ async def create_map_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
+    await record_map_history_event(
+        db,
+        map_id=map_obj.id,
+        actor=user,
+        target_type="map",
+        target_id=map_obj.id,
+        target_name=map_obj.name,
+        action="map.create",
+        summary=f"Created map {map_obj.name}",
+        details={"name": map_obj.name},
+    )
     await db.commit()
     await db.refresh(map_obj)
     return _build_map_response(map_obj, [], created_by_username=user.username)
@@ -358,6 +454,192 @@ async def visibility_check_endpoint(
     )
 
 
+@router.get("/icons/", response_model=MapIconListResponse)
+async def list_map_icons_endpoint(
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> MapIconListResponse:
+    """List reusable default and uploaded map icons."""
+    _ = user
+    return MapIconListResponse(icons=await list_icons(db))
+
+
+@router.post(
+    "/icons/",
+    response_model=MapIconResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_map_icon_endpoint(
+    file: UploadFile = File(...),
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> MapIconResponse:
+    """Upload a reusable SVG or PNG icon for symbol layers."""
+    content = await file.read()
+    try:
+        asset = await create_icon_asset(
+            db,
+            filename=file.filename,
+            content_type=file.content_type,
+            content=content,
+            created_by=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    await db.commit()
+    await db.refresh(asset)
+    icons = [icon for icon in await list_icons(db) if icon.id == str(asset.id)]
+    return icons[0]
+
+
+@router.get("/icons/{icon_id}/asset")
+async def get_map_icon_asset_endpoint(
+    icon_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve an uploaded or bundled icon asset by stable icon ID."""
+    icon = await get_icon_content(db, icon_id)
+    if icon is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Icon not found",
+        )
+    content, media_type = icon
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get("/sprites/geolens.json")
+async def get_geolens_sprite_index_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, dict[str, int | float]]:
+    """Serve the stable GeoLens sprite JSON index."""
+    return await build_sprite_index(db)
+
+
+@router.get("/sprites/geolens.png")
+async def get_geolens_sprite_png_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve the generated GeoLens sprite sheet for stable icon IDs."""
+    return Response(
+        content=await build_sprite_png(db),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.post(
+    "/import",
+    response_model=MapStyleImportResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_map_style_endpoint(
+    style: dict = Body(...),
+    request: Request = None,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> MapStyleImportResponse:
+    """Import a MapLibre style JSON document into a new GeoLens map."""
+    try:
+        imported = parse_maplibre_style_import(style)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    if imported.layers:
+        user_roles = await get_user_roles(db, user)
+        requested_ids = [layer.dataset_id for layer in imported.layers]
+        accessible = await bulk_check_dataset_access(
+            db,
+            requested_ids,
+            user,
+            user_roles,
+        )
+        inaccessible = [str(did) for did in requested_ids if did not in accessible]
+        if inaccessible:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "message": "Cannot access one or more imported layer datasets",
+                    "datasets": inaccessible,
+                },
+            )
+
+    map_obj = await create_map(
+        db,
+        imported.name,
+        imported.description,
+        user.id,
+    )
+    map_obj.center_lng = imported.center_lng
+    map_obj.center_lat = imported.center_lat
+    if imported.zoom is not None:
+        map_obj.zoom = imported.zoom
+    if imported.bearing is not None:
+        map_obj.bearing = imported.bearing
+    if imported.pitch is not None:
+        map_obj.pitch = imported.pitch
+    if imported.basemap_style:
+        map_obj.basemap_style = imported.basemap_style
+
+    imported_layer_ids: list[uuid.UUID] = []
+    for layer in imported.layers:
+        layer_obj = await add_layer(db, map_obj.id, layer)
+        imported_layer_ids.append(layer_obj.id)
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="map.import_style",
+            resource_type="map",
+            resource_id=map_obj.id,
+            details={
+                "name": imported.name,
+                "layers_imported": imported.summary.layers_imported,
+                "layers_skipped": imported.summary.layers_skipped,
+            },
+            ip_address=request.client.host if request and request.client else None,
+        ),
+    )
+    await record_map_history_event(
+        db,
+        map_id=map_obj.id,
+        actor=user,
+        target_type="map",
+        target_id=map_obj.id,
+        target_name=map_obj.name,
+        action="map.import_style",
+        summary=f"Imported style JSON with {len(imported_layer_ids)} layer(s)",
+        details={
+            "name": imported.name,
+            "layers_imported": imported.summary.layers_imported,
+            "layers_skipped": imported.summary.layers_skipped,
+            "layer_ids": [str(layer_id) for layer_id in imported_layer_ids],
+        },
+    )
+    await db.commit()
+
+    map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
+        db,
+        map_obj.id,
+    )
+    layers = _layers_from_tuples(layer_tuples)
+    assert map_obj is not None
+    return MapStyleImportResponse(
+        map=_build_map_response(
+            map_obj,
+            layers,
+            forked_from_name=forked_name,
+            created_by_username=owner_username,
+        ),
+        summary=imported.summary,
+    )
+
+
 @router.get("/{map_id}", response_model=MapResponse)
 async def get_map_endpoint(
     map_id: uuid.UUID,
@@ -381,6 +663,53 @@ async def get_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+    )
+
+
+@router.get("/{map_id}/history", response_model=MapHistoryListResponse)
+async def get_map_history_endpoint(
+    map_id: uuid.UUID,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> MapHistoryListResponse:
+    """Return recent builder edit history for a map."""
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
+    events, total = await list_map_history(db, map_id, skip=skip, limit=limit)
+    return MapHistoryListResponse(
+        events=events,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get("/{map_id}/style.json")
+async def export_map_style_endpoint(
+    map_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Export a saved map as a complete MapLibre style JSON document."""
+    map_obj, layer_tuples, _, _ = await get_map_with_layers(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await _check_map_read_access(map_obj, user, db)
+    style = build_maplibre_style(map_obj, _layers_from_tuples(layer_tuples))
+    return JSONResponse(
+        content=style,
+        media_type="application/json",
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
@@ -438,6 +767,13 @@ async def update_map_endpoint(
                 },
             )
 
+    changed_fields = list(body.model_dump(exclude_unset=True).keys())
+    previous_values = {
+        "name": map_obj.name,
+        "visibility": map_obj.visibility,
+        "terrain_config": map_obj.terrain_config,
+    }
+
     # Build update kwargs from fields the client actually sent. This preserves
     # explicit widgets=null, which restores client-default widget behavior.
     kwargs = body.model_dump(exclude_unset=True)
@@ -456,6 +792,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
 
+    layers = _layers_from_tuples(layer_tuples)
     await audit_emit(
         db,
         AuditEvent(
@@ -463,15 +800,102 @@ async def update_map_endpoint(
             action="map.update",
             resource_type="map",
             resource_id=map_id,
-            details={
-                "changed_fields": list(body.model_dump(exclude_unset=True).keys())
-            },
+            details={"changed_fields": changed_fields},
             ip_address=request.client.host if request.client else None,
         ),
     )
+    if (
+        "name" in kwargs
+        and kwargs["name"]
+        and kwargs["name"] != previous_values["name"]
+    ):
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="map.rename",
+            summary=f"Renamed map to {map_obj.name}",
+            details={
+                "field": "name",
+                "previous": previous_values["name"],
+                "current": map_obj.name,
+            },
+        )
+    if (
+        "visibility" in kwargs
+        and kwargs["visibility"] is not None
+        and _visibility_value(kwargs["visibility"]) != previous_values["visibility"]
+    ):
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="map.visibility_update",
+            summary=f"Changed visibility to {map_obj.visibility}",
+            details={
+                "field": "visibility",
+                "previous": previous_values["visibility"],
+                "current": map_obj.visibility,
+            },
+        )
+    if (
+        "terrain_config" in kwargs
+        and kwargs["terrain_config"] != previous_values["terrain_config"]
+    ):
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="map.terrain_update",
+            summary="Updated terrain settings",
+            details={
+                "field": "terrain_config",
+                "previous": previous_values["terrain_config"],
+                "current": map_obj.terrain_config,
+            },
+        )
+    if "layers" in kwargs:
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="layer.replace",
+            summary=f"Replaced map layers with {len(layers)} layer(s)",
+            details={"layer_count": len(layers)},
+        )
+
+    config_fields = set(changed_fields) - {
+        "name",
+        "visibility",
+        "terrain_config",
+        "layers",
+    }
+    if config_fields:
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="map.config_update",
+            summary="Updated map settings",
+            details={"changed_fields": sorted(config_fields)},
+        )
     await db.commit()
 
-    layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
         layers,
@@ -496,6 +920,9 @@ async def patch_map_layers_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+
+    _, before_layer_tuples, _, _ = await get_map_with_layers(db, map_id)
+    before_rows_by_id = _layer_rows_by_id(before_layer_tuples)
 
     user_roles = await get_user_roles(db, user)
     try:
@@ -525,6 +952,8 @@ async def patch_map_layers_endpoint(
         )
         raise HTTPException(status_code=status_code, detail=detail)
 
+    layers = _layers_from_tuples(layer_tuples)
+    after_rows_by_id = _layer_rows_by_id(layer_tuples)
     await audit_emit(
         db,
         AuditEvent(
@@ -544,9 +973,82 @@ async def patch_map_layers_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
+    for row in layer_tuples:
+        if row.layer.id not in before_rows_by_id:
+            await record_map_history_event(
+                db,
+                map_id=map_id,
+                actor=user,
+                target_type="layer",
+                target_id=row.layer.id,
+                target_name=_layer_history_name(row.layer, row.title),
+                action="layer.add",
+                summary=f"Added {_layer_history_name(row.layer, row.title)} layer",
+                details={
+                    "dataset_id": str(row.layer.dataset_id),
+                    "sort_order": row.layer.sort_order,
+                },
+            )
+
+    for patch_model in body.updated:
+        patch = patch_model.model_dump(exclude_unset=True)
+        patch.pop("id", None)
+        if not patch:
+            continue
+        row = after_rows_by_id.get(patch_model.id) or before_rows_by_id.get(
+            patch_model.id
+        )
+        if row is None:
+            continue
+        target_name = _layer_history_name(row.layer, row.title)
+        for action, summary in _layer_patch_history_actions(patch):
+            await record_map_history_event(
+                db,
+                map_id=map_id,
+                actor=user,
+                target_type="layer",
+                target_id=patch_model.id,
+                target_name=target_name,
+                action=action,
+                summary=summary
+                if action != "layer.rename"
+                else f"Renamed layer to {target_name}",
+                details={"changed_fields": sorted(patch)},
+            )
+
+    for layer_id in body.removed:
+        row = before_rows_by_id.get(layer_id)
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="layer",
+            target_id=layer_id,
+            target_name=_layer_history_name(row.layer, row.title) if row else None,
+            action="layer.remove",
+            summary=f"Removed {_layer_history_name(row.layer, row.title)} layer"
+            if row
+            else "Removed layer",
+            details={
+                "dataset_id": str(row.layer.dataset_id) if row else None,
+                "sort_order": row.layer.sort_order if row else None,
+            },
+        )
+
+    if body.order is not None:
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="layer.reorder",
+            summary="Reordered layers",
+            details={"order": [str(layer_id) for layer_id in body.order]},
+        )
     await db.commit()
 
-    layers = _layers_from_tuples(layer_tuples)
     return _build_map_response(
         map_obj,
         layers,
@@ -953,6 +1455,8 @@ async def add_layer_endpoint(
         )
 
     layer = await add_layer(db, map_id, body)
+    meta = await get_dataset_meta(db, body.dataset_id)
+    target_name = _layer_history_name(layer, meta.title if meta else None)
 
     await audit_emit(
         db,
@@ -965,10 +1469,21 @@ async def add_layer_endpoint(
             ip_address=request.client.host if request.client else None,
         ),
     )
+    await record_map_history_event(
+        db,
+        map_id=map_id,
+        actor=user,
+        target_type="layer",
+        target_id=layer.id,
+        target_name=target_name,
+        action="layer.add",
+        summary=f"Added {target_name} layer",
+        details={
+            "dataset_id": str(body.dataset_id),
+            "sort_order": layer.sort_order,
+        },
+    )
     await db.commit()
-
-    # Get dataset fields for the response (single query via service helper)
-    meta = await get_dataset_meta(db, body.dataset_id)
 
     return _build_layer_response(layer, _meta_to_kwargs(meta))
 
@@ -990,7 +1505,19 @@ async def remove_layer_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    removed = await remove_layer(db, layer_id)
+    layer_result = await db.execute(
+        select(MapLayer).where(MapLayer.map_id == map_id, MapLayer.id == layer_id)
+    )
+    layer = layer_result.scalar_one_or_none()
+    if layer is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Layer not found",
+        )
+    meta = await get_dataset_meta(db, layer.dataset_id)
+    target_name = _layer_history_name(layer, meta.title if meta else None)
+
+    removed = await remove_layer(db, layer_id, map_id=map_id)
     if not removed:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1007,6 +1534,20 @@ async def remove_layer_endpoint(
             details={"layer_id": str(layer_id)},
             ip_address=request.client.host if request.client else None,
         ),
+    )
+    await record_map_history_event(
+        db,
+        map_id=map_id,
+        actor=user,
+        target_type="layer",
+        target_id=layer_id,
+        target_name=target_name,
+        action="layer.remove",
+        summary=f"Removed {target_name} layer",
+        details={
+            "dataset_id": str(layer.dataset_id),
+            "sort_order": layer.sort_order,
+        },
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

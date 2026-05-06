@@ -1,6 +1,6 @@
 import { useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Hand, Ruler, Layers } from 'lucide-react';
+import { Hand, Ruler, Layers, FileJson } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
@@ -16,7 +16,11 @@ import {
  * Floating toolbar centered at the top of the map canvas.
  * Grouped into semantic sections: navigation | widgets.
  */
-export function MapToolbar() {
+interface MapToolbarProps {
+  onStyleJsonClick?: () => void;
+}
+
+export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
   const { t } = useTranslation('builder');
   const activeWidgets = useWidgetStore((s) => s.activeWidgets);
   const toggle = useWidgetStore((s) => s.toggle);
@@ -119,6 +123,26 @@ export function MapToolbar() {
                 <TooltipContent side="bottom" className="text-xs">
                   {t('widgets.legend.label', { defaultValue: 'Legend' })}
                   <span className="ms-1.5 font-mono text-2xs text-muted-foreground">L</span>
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {onStyleJsonClick && (
+            <>
+              <div className="w-px h-4 bg-border mx-0.5" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onStyleJsonClick}
+                    className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label={t('toolbar.styleJson', { defaultValue: 'Style JSON' })}
+                  >
+                    <FileJson className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('toolbar.styleJson', { defaultValue: 'Style JSON' })}
                 </TooltipContent>
               </Tooltip>
             </>

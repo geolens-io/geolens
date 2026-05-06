@@ -51,9 +51,11 @@ class MapLayerResponse:
         dataset_feature_count (int | None | Unset):
         dataset_record_type (None | str | Unset):
         dataset_sample_values (MapLayerResponseDatasetSampleValuesType0 | None | Unset):
+        dem_vertical_units (None | str | Unset):
         display_name (None | str | Unset):
         filter_ (list[Any] | None | Unset):
         is_3d (bool | None | Unset):
+        is_dem (bool | None | Unset):
         label_config (MapLayerResponseLabelConfigType0 | None | Unset):
         layer_type (str | Unset):  Default: 'vector_geolens'.
         popup_config (None | PopupConfig | Unset):
@@ -80,9 +82,11 @@ class MapLayerResponse:
     dataset_sample_values: MapLayerResponseDatasetSampleValuesType0 | None | Unset = (
         UNSET
     )
+    dem_vertical_units: None | str | Unset = UNSET
     display_name: None | str | Unset = UNSET
     filter_: list[Any] | None | Unset = UNSET
     is_3d: bool | None | Unset = UNSET
+    is_dem: bool | None | Unset = UNSET
     label_config: MapLayerResponseLabelConfigType0 | None | Unset = UNSET
     layer_type: str | Unset = "vector_geolens"
     popup_config: None | PopupConfig | Unset = UNSET
@@ -166,6 +170,12 @@ class MapLayerResponse:
         else:
             dataset_sample_values = self.dataset_sample_values
 
+        dem_vertical_units: None | str | Unset
+        if isinstance(self.dem_vertical_units, Unset):
+            dem_vertical_units = UNSET
+        else:
+            dem_vertical_units = self.dem_vertical_units
+
         display_name: None | str | Unset
         if isinstance(self.display_name, Unset):
             display_name = UNSET
@@ -186,6 +196,12 @@ class MapLayerResponse:
             is_3d = UNSET
         else:
             is_3d = self.is_3d
+
+        is_dem: bool | None | Unset
+        if isinstance(self.is_dem, Unset):
+            is_dem = UNSET
+        else:
+            is_dem = self.is_dem
 
         label_config: dict[str, Any] | None | Unset
         if isinstance(self.label_config, Unset):
@@ -240,12 +256,16 @@ class MapLayerResponse:
             field_dict["dataset_record_type"] = dataset_record_type
         if dataset_sample_values is not UNSET:
             field_dict["dataset_sample_values"] = dataset_sample_values
+        if dem_vertical_units is not UNSET:
+            field_dict["dem_vertical_units"] = dem_vertical_units
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
         if filter_ is not UNSET:
             field_dict["filter"] = filter_
         if is_3d is not UNSET:
             field_dict["is_3d"] = is_3d
+        if is_dem is not UNSET:
+            field_dict["is_dem"] = is_dem
         if label_config is not UNSET:
             field_dict["label_config"] = label_config
         if layer_type is not UNSET:
@@ -398,6 +418,17 @@ class MapLayerResponse:
             d.pop("dataset_sample_values", UNSET)
         )
 
+        def _parse_dem_vertical_units(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dem_vertical_units = _parse_dem_vertical_units(
+            d.pop("dem_vertical_units", UNSET)
+        )
+
         def _parse_display_name(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -432,6 +463,15 @@ class MapLayerResponse:
             return cast(bool | None | Unset, data)
 
         is_3d = _parse_is_3d(d.pop("is_3d", UNSET))
+
+        def _parse_is_dem(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_dem = _parse_is_dem(d.pop("is_dem", UNSET))
 
         def _parse_label_config(
             data: object,
@@ -508,9 +548,11 @@ class MapLayerResponse:
             dataset_feature_count=dataset_feature_count,
             dataset_record_type=dataset_record_type,
             dataset_sample_values=dataset_sample_values,
+            dem_vertical_units=dem_vertical_units,
             display_name=display_name,
             filter_=filter_,
             is_3d=is_3d,
+            is_dem=is_dem,
             label_config=label_config,
             layer_type=layer_type,
             popup_config=popup_config,

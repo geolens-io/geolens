@@ -3,6 +3,7 @@ import {
   getAdapter,
   resolveAdapterType,
   circleAdapter,
+  symbolAdapter,
   lineAdapter,
   fillAdapter,
   rasterAdapter,
@@ -37,6 +38,8 @@ function createMockMap() {
     removeSource: vi.fn(),
     isStyleLoaded: vi.fn(() => true),
     getStyle: vi.fn(() => ({ layers: [] })),
+    getSprite: vi.fn(() => []),
+    addSprite: vi.fn(),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
   } as unknown as import('maplibre-gl').Map;
@@ -90,6 +93,10 @@ describe('getAdapter', () => {
     expect(getAdapter('heatmap')).toBe(heatmapAdapter);
   });
 
+  it('returns symbolAdapter for "symbol"', () => {
+    expect(getAdapter('symbol')).toBe(symbolAdapter);
+  });
+
   it('falls back to circleAdapter for unknown type', () => {
     expect(getAdapter('unknown')).toBe(circleAdapter);
   });
@@ -103,6 +110,10 @@ describe('resolveAdapterType', () => {
 
   it('returns heatmap when render_mode is heatmap and geometry is null', () => {
     expect(resolveAdapterType(null, { render_mode: 'heatmap' })).toBe('heatmap');
+  });
+
+  it('returns symbol when render_mode is symbol', () => {
+    expect(resolveAdapterType('POINT', { render_mode: 'symbol' })).toBe('symbol');
   });
 
   it('returns circle for POINT geometry without render_mode', () => {
@@ -143,6 +154,114 @@ describe('resolveAdapterType', () => {
 
   it('geometry type takes priority over paint inference', () => {
     expect(resolveAdapterType('MULTIPOLYGON', null, { 'circle-color': '#f00' })).toBe('fill');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+describe('symbolAdapter', () => {
+  let map: ReturnType<typeof createMockMap>;
+
+  beforeEach(() => {
+    map = createMockMap();
+  });
+
+  it('addLayers creates a symbol layer with icon and text layout', () => {
+    const input = makeInput({
+      id: 's1',
+      layerId: 'layer-s1',
+      sourceId: 'source-s1',
+      sourceLayer: 'data.test_table',
+      dataset_geometry_type: 'POINT',
+      style_config: {
+        render_mode: 'symbol',
+        symbol: {
+          iconImage: 'bus',
+          iconSize: 1.25,
+          iconRotation: 15,
+          iconAnchor: 'bottom',
+          iconOffset: [0, -1],
+        },
+      },
+      label_config: { column: 'name' },
+    });
+
+    symbolAdapter.addLayers(map, input);
+
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call).toEqual(expect.objectContaining({
+      id: 'layer-s1',
+      type: 'symbol',
+      source: 'source-s1',
+      'source-layer': 'data.test_table',
+    }));
+    expect(call.layout).toEqual(expect.objectContaining({
+      'icon-image': 'geolens:bus',
+      'icon-size': 1.25,
+      'icon-rotate': 15,
+      'icon-anchor': 'bottom',
+      'icon-offset': [0, -1],
+      'text-field': ['get', 'name'],
+    }));
+    expect(map.addSprite).toHaveBeenCalledWith('geolens', '/maps/sprites/geolens');
+  });
+
+  it('does not re-add the GeoLens sprite when already registered', () => {
+    (map.getSprite as ReturnType<typeof vi.fn>).mockReturnValue([{ id: 'geolens', url: '/maps/sprites/geolens' }]);
+    const input = makeInput({
+      id: 's1b',
+      layerId: 'layer-s1b',
+      style_config: { render_mode: 'symbol', symbol: { iconImage: 'bus' } },
+    });
+
+    symbolAdapter.addLayers(map, input);
+
+    expect(map.addSprite).not.toHaveBeenCalled();
+  });
+
+  it('uses a match expression for category-based icon mapping', () => {
+    const input = makeInput({
+      id: 's2',
+      layerId: 'layer-s2',
+      style_config: {
+        render_mode: 'symbol',
+        symbol: {
+          iconImage: 'marker',
+          categoryColumn: 'kind',
+          categories: [
+            { value: 'bus', icon: 'bus' },
+            { value: 'rail', icon: 'train' },
+          ],
+        },
+      },
+    });
+
+    symbolAdapter.addLayers(map, input);
+
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.layout['icon-image']).toEqual([
+      'match',
+      ['get', 'kind'],
+      'bus',
+      'geolens:bus',
+      'rail',
+      'geolens:train',
+      'geolens:marker',
+    ]);
+  });
+
+  it('syncPaint updates symbol layout and paint on an existing layer', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-s3' });
+    const input = makeInput({
+      id: 's3',
+      layerId: 'layer-s3',
+      opacity: 0.4,
+      style_config: { render_mode: 'symbol', symbol: { iconImage: 'park' } },
+    });
+
+    symbolAdapter.syncPaint(map, input);
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-s3', 'icon-image', 'geolens:park');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-s3', 'icon-opacity', 0.4);
   });
 });
 

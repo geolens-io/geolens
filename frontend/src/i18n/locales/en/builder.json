@@ -98,7 +98,20 @@
     "maxZoom": "Max zoom",
     "renderAs": "Render as",
     "renderPoints": "Points",
+    "renderSymbol": "Symbol",
     "renderHeatmap": "Heatmap",
+    "none": "None",
+    "symbol": {
+      "title": "Symbol",
+      "iconImage": "Icon",
+      "size": "Size",
+      "rotation": "Rotation",
+      "anchor": "Anchor",
+      "offsetX": "Offset X",
+      "offsetY": "Offset Y",
+      "categoryMapping": "Icons by value",
+      "categoryIcon": "Icon for {{value}}"
+    },
     "heatmap": {
       "weight": "Weight column",
       "weightNone": "None (equal weight)",
@@ -491,8 +504,23 @@
     "save": "Save",
     "export": "Export"
   },
+  "history": {
+    "title": "History",
+    "timelineLabel": "Map edit history",
+    "loading": "Loading history...",
+    "emptyTitle": "No edit history yet",
+    "emptyDescription": "History starts after saved edits are recorded for this map.",
+    "errorTitle": "History could not be loaded",
+    "errorDescription": "Try closing and reopening this panel.",
+    "notAvailableTitle": "Save this map to see history",
+    "notAvailableDescription": "Edit history is available after the map exists.",
+    "unknownTime": "Unknown time",
+    "unknownActor": "Unknown user",
+    "actorTarget": "{{actor}} - {{target}}"
+  },
   "dock": {
     "askAi": "Ask AI",
+    "history": "History",
     "notes": "Notes",
     "notesPlaceholder": "Add notes about this map..."
   },
