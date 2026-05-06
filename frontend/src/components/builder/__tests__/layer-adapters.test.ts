@@ -554,6 +554,33 @@ describe('lineAdapter', () => {
     expect(opacityCalls.length).toBeGreaterThan(0);
     expect(opacityCalls.every(([, , value]) => JSON.stringify(value) === JSON.stringify(opacityExpression))).toBe(true);
   });
+
+  it('preserves expression-valued line-gradient as identity through addLayers + syncPaint', () => {
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const input = makeInput({
+      id: 'l-id',
+      layerId: 'layer-l-id',
+      sourceId: 'source-l-id',
+      sourceLayer: 'data.test_table',
+      dataset_geometry_type: 'LINESTRING',
+      paint: { 'line-color': '#ff0000', 'line-width': 3, 'line-gradient': gradient },
+    });
+
+    lineAdapter.addLayers(map, input);
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-l-id' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    lineAdapter.syncPaint(map, input);
+
+    const setCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, prop]) => prop === 'line-gradient');
+    // addLayers -> finalizeLayer -> replayExpressions sets it once.
+    // syncPaint -> syncVectorPaint sets it again.
+    expect(setCalls.length).toBeGreaterThanOrEqual(2);
+    for (const [, , value] of setCalls) {
+      // Identity (===), not just equality. Engine-foundation guarantee for Phase 256.
+      expect(value).toBe(gradient);
+    }
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

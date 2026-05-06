@@ -6,6 +6,13 @@ type AdapterStyleConfig = Partial<StyleConfig> & {
   builder?: StyleConfig['builder'];
 };
 
+/**
+ * Detection rule for source-level `lineMetrics: true` (see map-sync.ts `lineGradientNeededFor`):
+ *   1. `paint['line-gradient']` is set (any non-null/non-undefined value).
+ *   2. `style_config.builder.lineGradient` is a non-empty object (Phase 256 authoring intent).
+ * The flag is sticky once set — the source is not torn down on gradient removal mid-session
+ * (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-02).
+ */
 export interface AdapterLayerInput {
   id: string;
   dataset_table_name: string;
