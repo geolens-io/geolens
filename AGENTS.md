@@ -34,6 +34,10 @@ History follows a Conventional Commit-like pattern, for example `feat(234-01): a
 
 Pull requests should describe the change, call out schema/API/config impacts, link issues or phases, include screenshots for UI work, and list verification commands. Commit `backend/openapi.json` or SDK output only when the source change requires it.
 
+## Cross-Repo Brand Assets
+
+Brand assets (logos, color tokens, font references, brand-usage rules, press materials) live in the sibling [`geolens-io/branding`](https://github.com/geolens-io/branding) repository — not here. When an app feature needs a logo, palette token, or identity element, copy from a tagged branding release rather than re-authoring locally. The propagation order for any change that touches brand identity is **branding → this repo → marketing → docs**. The internal design guide at `docs-internal/repository/DESIGN-GUIDE.md` covers app-internal patterns only (component conventions, surface ladder, density); cross-surface canon lives in branding's `BRAND-GUIDE.md`.
+
 ## Security & Configuration Tips
 
 Use `.env.example` and `.env.test.example` as templates. Never commit secrets, coverage output, Playwright reports, virtual environments, or dependency directories.
