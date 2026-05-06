@@ -290,6 +290,135 @@ def test_build_maplibre_style_preserves_builder_style_config_in_layer_metadata()
     assert "_private" not in builder
 
 
+def test_build_maplibre_style_emits_line_metrics_for_line_gradient_layer():
+    gradient = [
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#0000ff",
+        1,
+        "#00ff00",
+    ]
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint={
+            "line-color": "#000000",
+            "line-width": 2,
+            "line-gradient": gradient,
+        },
+        label_config=None,
+        filter=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "vector"
+    assert source["lineMetrics"] is True
+    primary = style["layers"][0]
+    assert primary["type"] == "line"
+    assert primary["paint"]["line-gradient"] == gradient
+
+
+def test_build_maplibre_style_emits_line_metrics_for_builder_intent_only():
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint={
+            "line-color": "#000000",
+            "line-width": 2,
+        },
+        style_config={
+            "builder": {
+                "lineGradient": {
+                    "stops": [{"position": 0.0, "color": "#0000ff"}],
+                }
+            }
+        },
+        label_config=None,
+        filter=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "vector"
+    assert source["lineMetrics"] is True
+    primary = style["layers"][0]
+    assert "line-gradient" not in primary["paint"]
+
+
+def test_build_maplibre_style_omits_line_metrics_when_source_has_no_gradient_consumer():
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint={"line-color": "#000000", "line-width": 2},
+        label_config=None,
+        filter=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "vector"
+    assert "lineMetrics" not in source
+
+
+def test_build_maplibre_style_drops_line_gradient_paint_on_unsupported_source_type(
+    caplog,
+):
+    """Drop line-gradient paint when the backing source type cannot support lineMetrics.
+
+    Mirrors the Phase 251 _HILLSHADE_PAINT_KEYS silent-filter convention. The
+    `style_json` module logger is re-enabled before the test because the conftest's
+    alembic `fileConfig(...)` call defaults to `disable_existing_loggers=True`,
+    which silences module loggers loaded before alembic ran (see alembic/env.py).
+    """
+    import logging
+
+    gradient = [
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#0000ff",
+        1,
+        "#00ff00",
+    ]
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type=None,
+        dataset_table_name="raster_tiles",
+        layer_type="raster_geolens",
+        dataset_record_type="raster_dataset",
+        paint={"line-gradient": gradient},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    target_logger = logging.getLogger("app.modules.catalog.maps.style_json")
+    was_disabled = target_logger.disabled
+    target_logger.disabled = False
+    try:
+        with caplog.at_level(
+            logging.WARNING, logger="app.modules.catalog.maps.style_json"
+        ):
+            style = build_maplibre_style(_map(), [layer])
+    finally:
+        target_logger.disabled = was_disabled
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "raster"
+    assert "lineMetrics" not in source
+    primary = style["layers"][0]
+    assert "line-gradient" not in primary["paint"]
+    assert any(
+        "Dropping line-gradient" in record.getMessage() for record in caplog.records
+    )
+
+
 def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external():
     dataset_id = uuid.uuid4()
     style = {
