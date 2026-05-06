@@ -581,6 +581,15 @@ class ShareTokenRequest(BaseModel):
         return self
 
 
+class ShareTokenResponse(BaseModel):
+    token: str = Field(description="Raw token on create, hint on retrieve")
+    share_url: str | None = Field(
+        default=None, description="Full shareable URL — only returned on create"
+    )
+    expires_at: datetime | None = None
+    is_active: bool = True
+
+
 class ThumbnailUploadRequest(BaseModel):
     """JSON body for PUT /maps/{map_id}/thumbnail/.
 
@@ -589,15 +598,6 @@ class ThumbnailUploadRequest(BaseModel):
     """
 
     data_uri: str
-
-
-class ShareTokenResponse(BaseModel):
-    token: str = Field(description="Raw token on create, hint on retrieve")
-    share_url: str | None = Field(
-        default=None, description="Full shareable URL — only returned on create"
-    )
-    expires_at: datetime | None = None
-    is_active: bool = True
 
 
 class AdminShareTokenResponse(BaseModel):
