@@ -114,6 +114,20 @@ def sync_detailed(
             Replaces a previous text/plain body shape that openapi-python-client
             could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
 
+            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            Pydantic surfaces a 422 with field-level detail (better SDK-consumer
+            UX than a generic 400) and the OpenAPI schema documents the limit.
+            The router still validates the ``data:image/`` prefix and base64
+            encoding; those are content-shape checks Pydantic length cannot
+            cover.
+
+            - ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``
+              (20 chars) plus at least one payload byte (e.g.,
+              ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that
+              rejects empty / clearly-malformed values without false-positives
+              on the smallest legitimate payloads.
+            - ``max_length=100_000``: matches the previous router-side 100KB cap.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -154,6 +168,20 @@ def sync(
             Replaces a previous text/plain body shape that openapi-python-client
             could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
 
+            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            Pydantic surfaces a 422 with field-level detail (better SDK-consumer
+            UX than a generic 400) and the OpenAPI schema documents the limit.
+            The router still validates the ``data:image/`` prefix and base64
+            encoding; those are content-shape checks Pydantic length cannot
+            cover.
+
+            - ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``
+              (20 chars) plus at least one payload byte (e.g.,
+              ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that
+              rejects empty / clearly-malformed values without false-positives
+              on the smallest legitimate payloads.
+            - ``max_length=100_000``: matches the previous router-side 100KB cap.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -188,6 +216,20 @@ async def asyncio_detailed(
 
             Replaces a previous text/plain body shape that openapi-python-client
             could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+
+            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            Pydantic surfaces a 422 with field-level detail (better SDK-consumer
+            UX than a generic 400) and the OpenAPI schema documents the limit.
+            The router still validates the ``data:image/`` prefix and base64
+            encoding; those are content-shape checks Pydantic length cannot
+            cover.
+
+            - ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``
+              (20 chars) plus at least one payload byte (e.g.,
+              ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that
+              rejects empty / clearly-malformed values without false-positives
+              on the smallest legitimate payloads.
+            - ``max_length=100_000``: matches the previous router-side 100KB cap.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -226,6 +268,20 @@ async def asyncio(
 
             Replaces a previous text/plain body shape that openapi-python-client
             could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+
+            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            Pydantic surfaces a 422 with field-level detail (better SDK-consumer
+            UX than a generic 400) and the OpenAPI schema documents the limit.
+            The router still validates the ``data:image/`` prefix and base64
+            encoding; those are content-shape checks Pydantic length cannot
+            cover.
+
+            - ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``
+              (20 chars) plus at least one payload byte (e.g.,
+              ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that
+              rejects empty / clearly-malformed values without false-positives
+              on the smallest legitimate payloads.
+            - ``max_length=100_000``: matches the previous router-side 100KB cap.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -13287,9 +13287,11 @@
         "type": "object"
       },
       "ThumbnailUploadRequest": {
-        "description": "JSON body for PUT /maps/{map_id}/thumbnail/.\n\nReplaces a previous text/plain body shape that openapi-python-client\ncould not parse (would silently skip endpoint). See Phase 254 / SDK-01.",
+        "description": "JSON body for PUT /maps/{map_id}/thumbnail/.\n\nReplaces a previous text/plain body shape that openapi-python-client\ncould not parse (would silently skip endpoint). See Phase 254 / SDK-01.\n\nPhase 254 IN-02: ``data_uri`` carries explicit length bounds so\nPydantic surfaces a 422 with field-level detail (better SDK-consumer\nUX than a generic 400) and the OpenAPI schema documents the limit.\nThe router still validates the ``data:image/`` prefix and base64\nencoding; those are content-shape checks Pydantic length cannot\ncover.\n\n- ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``\n  (20 chars) plus at least one payload byte (e.g.,\n  ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that\n  rejects empty / clearly-malformed values without false-positives\n  on the smallest legitimate payloads.\n- ``max_length=100_000``: matches the previous router-side 100KB cap.",
         "properties": {
           "data_uri": {
+            "maxLength": 100000,
+            "minLength": 22,
             "title": "Data Uri",
             "type": "string"
           }
