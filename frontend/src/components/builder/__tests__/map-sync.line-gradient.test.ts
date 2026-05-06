@@ -77,7 +77,7 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([id]: [string]) => id === 'source-l-grad',
+      (c: unknown[]) => c[0] === 'source-l-grad',
     );
     expect(calls.length).toBe(1);
     expect(calls[0][1]).toMatchObject({ type: 'vector', lineMetrics: true });
@@ -88,11 +88,11 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     const layer = makeLayer({
       id: 'l-intent',
       paint: { 'line-color': '#000', 'line-width': 2 },
-      style_config: { builder: { lineGradient: { stops: [{ position: 0, color: '#00f' }] } } } as SyncLayerInput['style_config'],
+      style_config: { builder: { lineGradient: { stops: [{ position: 0, color: '#00f' }] } } } as unknown as SyncLayerInput['style_config'],
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([id]: [string]) => id === 'source-l-intent',
+      (c: unknown[]) => c[0] === 'source-l-intent',
     );
     expect(calls.length).toBe(1);
     expect(calls[0][1]).toMatchObject({ type: 'vector', lineMetrics: true });
@@ -106,7 +106,7 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([id]: [string]) => id === 'source-l-plain',
+      (c: unknown[]) => c[0] === 'source-l-plain',
     );
     expect(calls.length).toBe(1);
     const spec = calls[0][1] as Record<string, unknown>;
@@ -129,10 +129,10 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
       [sharedDatasetId, VECTOR_TOKEN],
     ]), undefined, { current: new Set() }, { current: '' });
     const callA = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([id]: [string]) => id === 'source-a',
+      (c: unknown[]) => c[0] === 'source-a',
     );
     const callB = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([id]: [string]) => id === 'source-b',
+      (c: unknown[]) => c[0] === 'source-b',
     );
     expect(callA).toBeDefined();
     expect(callB).toBeDefined();
