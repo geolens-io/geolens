@@ -1028,8 +1028,8 @@ class TestDuplicateMap:
         # Set a thumbnail on source
         await client.put(
             f"/maps/{map_id}/thumbnail/",
-            content="data:image/png;base64,iVBORw0KGgo=",
-            headers={**admin_auth_header, "content-type": "text/plain"},
+            json={"data_uri": "data:image/png;base64,iVBORw0KGgo="},
+            headers=admin_auth_header,
         )
 
         resp = await client.post(
@@ -1958,8 +1958,8 @@ class TestMapThumbnail:
         data_uri = "data:image/png;base64,iVBORw0KGgo="
         resp = await client.put(
             f"/maps/{map_id}/thumbnail/",
-            content=data_uri,
-            headers={**admin_auth_header, "content-type": "text/plain"},
+            json={"data_uri": data_uri},
+            headers=admin_auth_header,
         )
         assert resp.status_code == 204
 
@@ -1973,8 +1973,8 @@ class TestMapThumbnail:
         data_uri = "data:image/png;base64,iVBORw0KGgo="
         upload_resp = await client.put(
             f"/maps/{map_id}/thumbnail/",
-            content=data_uri,
-            headers={**admin_auth_header, "content-type": "text/plain"},
+            json={"data_uri": data_uri},
+            headers=admin_auth_header,
         )
         assert upload_resp.status_code == 204
 
@@ -2005,8 +2005,8 @@ class TestMapThumbnail:
         """PUT /maps/{id}/thumbnail/ as viewer returns 403."""
         resp = await client.put(
             f"/maps/{uuid.uuid4()}/thumbnail/",
-            content="data:image/png;base64,iVBORw0KGgo=",
-            headers={**viewer_auth_header, "content-type": "text/plain"},
+            json={"data_uri": "data:image/png;base64,iVBORw0KGgo="},
+            headers=viewer_auth_header,
         )
         assert resp.status_code == 403
 
@@ -2014,8 +2014,7 @@ class TestMapThumbnail:
         """PUT /maps/{id}/thumbnail/ without auth returns 401."""
         resp = await client.put(
             f"/maps/{uuid.uuid4()}/thumbnail/",
-            content="data:image/png;base64,iVBORw0KGgo=",
-            headers={"content-type": "text/plain"},
+            json={"data_uri": "data:image/png;base64,iVBORw0KGgo="},
         )
         assert resp.status_code == 401
 

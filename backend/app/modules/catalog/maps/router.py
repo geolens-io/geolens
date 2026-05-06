@@ -49,6 +49,7 @@ from app.modules.catalog.maps.schemas import (
     ShareTokenRequest,
     SharedMapResponse,
     ShareTokenResponse,
+    ThumbnailUploadRequest,
     VisibilityCheckResponse,
 )
 from app.modules.catalog.maps.sprites import (
@@ -1318,7 +1319,7 @@ async def revoke_map_share_endpoint(
 @router.put("/{map_id}/thumbnail/", status_code=status.HTTP_204_NO_CONTENT)
 async def upload_thumbnail(
     map_id: uuid.UUID,
-    data_uri: str = Body(..., media_type="text/plain"),
+    request: ThumbnailUploadRequest,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -1330,6 +1331,8 @@ async def upload_thumbnail(
     import base64
 
     from app.platform.storage.provider import get_storage
+
+    data_uri = request.data_uri
 
     map_obj = await get_map(db, map_id)
     if map_obj is None:

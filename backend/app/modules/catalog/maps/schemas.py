@@ -581,6 +581,16 @@ class ShareTokenRequest(BaseModel):
         return self
 
 
+class ThumbnailUploadRequest(BaseModel):
+    """JSON body for PUT /maps/{map_id}/thumbnail/.
+
+    Replaces a previous text/plain body shape that openapi-python-client
+    could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+    """
+
+    data_uri: str
+
+
 class ShareTokenResponse(BaseModel):
     token: str = Field(description="Raw token on create, hint on retrieve")
     share_url: str | None = Field(
