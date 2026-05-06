@@ -4,6 +4,10 @@ phase: 226-ai-provider-extension-protocol
 source: [226-VERIFICATION.md]
 started: 2026-05-01
 updated: 2026-05-06
+related_fixes:
+  - e54d3ff2  # fix(ai): guard SSE consumers against same-tick double-fire
+  - e7fd5fdb  # fix(ai): handle CRLF line endings in SSE parser (root cause)
+  - 8dd83138  # test(ai): lock in SSE parser CRLF fix
 ---
 
 ## Current Test
@@ -62,11 +66,19 @@ blocked: 0
   - **9** Anthropic API calls — all `HTTP/1.1 200 OK`
   - `Generating SQL` + `SQL generated` confirmed for the empty-tools path
 
-**Frontend note (out of Phase 226 scope):** The "Generate Map" dialog showed a transient "Failed to generate map" message even though the backend successfully created the map and the LLM dispatch was clean. Root cause is a frontend SSE consumer race (likely React StrictMode double-firing the streaming POST in dev) — both POSTs returned 200 OK on the network tab, the map was persisted, and `/maps/{id}` rendered correctly. Same pattern in the chat panel (assistant message bubble didn't render even though the backend completed). Neither affects Phase 226's CR-01 fix or the Protocol dispatch — these are upstream UI issues unrelated to the provider extension protocol.
+**Frontend bugs found, root-caused, and fixed during the UAT:** the dialog showed a transient "Failed to generate map" toast and the Ask AI panel never rendered the assistant message bubble — even though the backend created the map and emitted a perfect `done` SSE event. Initial hypothesis was a React-StrictMode dev-mode dual-POST; the actual root cause was a CRLF-handling bug in the frontend SSE parser. Both fixes shipped on `main`:
 
-**Visual evidence:**
-- `.playwright-mcp/phase-226-uat-step1-generated-map.png` — generated map with reefs + country boundaries rendered correctly
-- `.playwright-mcp/phase-226-uat-step2-chat-edit.png` — chat-edit-map prompt visible in Ask AI panel after backend completion
-- `.playwright-mcp/phase-226-uat-step3-sql-result.png` — SQL question prompt visible in Ask AI panel (CR-01 path fired in backend)
+- `e54d3ff2 fix(ai): guard map+chat SSE consumers against same-tick double-fire` — `useRef` inflight lock at the top of `handleAiGenerate` / `handleSend`; `streamGenerateMap` now accepts an `AbortSignal`; MapCreateDialog wires an `AbortController` per submit and aborts on dialog close + unmount. Defense-in-depth against same-tick double-fire (StrictMode dev double-invoke, browser double-submit). Reduced the network signature from 2 POSTs/submit to 1, but did NOT eliminate the toast.
+- `e7fd5fdb fix(ai): handle CRLF line endings in SSE parser` — **the actual fix.** `sse-starlette` emits `\r\n` line terminators per spec, but both `streamGenerateMap` and `streamChatMessage` split the buffer on `\n` only, leaving every line with a trailing `\r`. The frame-boundary check `if (line === '')` therefore never matched (`line` was `'\r'`), the `done` event was never yielded, and the consumer fell through to the "stream ended without done event" branch. Surgical per-line `\r` strip in both parsers. Re-verified live against the Anthropic API: `/maps` "Generate Map" closes the dialog and navigates on success; the Ask AI panel renders the assistant bubble + "Applied N changes / Undo" chip and the map canvas live-updates.
+- `8dd83138 test(ai): lock in SSE parser CRLF fix with stream consumer regression tests` — 5 new tests in `frontend/src/api/__tests__/maps-stream.test.ts` exercising the parser against real `ReadableStream` bytes (CRLF, LF-only, mid-CRLF chunk split, AbortSignal threading, ChatPanel parity). The pre-existing `ChatPanel.test.tsx` mocks `streamChatMessage` at the function boundary, so the parser was never exercised against real SSE bytes — these tests would have caught the original bug.
 
-**Sign-off:** Live LLM dispatch round-trip works end-to-end with no provider-API regressions. The CR-01 conditional-`tools=` fix is verified against the real Anthropic API. Phase 226 is now closeable on the human-verification axis.
+**Visual evidence (initial UAT, before frontend fix — backend dispatch was already clean here):**
+- `.playwright-mcp/phase-226-uat-step1-generated-map.png` — generated map with reefs + country boundaries rendered correctly (after manual navigation to `/maps/{id}` despite the toast)
+- `.playwright-mcp/phase-226-uat-step2-chat-edit.png` — chat-edit-map prompt visible in Ask AI panel after backend completion (no assistant bubble due to parser bug)
+- `.playwright-mcp/phase-226-uat-step3-sql-result.png` — SQL question prompt visible in Ask AI panel; CR-01 path fired in backend (`Generating SQL` → `SQL generated`, `sql_length=64`)
+
+**Visual evidence (re-verification, after `e7fd5fdb`):**
+- `.playwright-mcp/phase-226-uat-rerun-step1-success.png` — dialog closes cleanly, navigates to `/maps/6222fe45-…` ("World Countries"), green country fill rendered as requested
+- `.playwright-mcp/phase-226-uat-rerun-step2-chat-success.png` — assistant bubble *"Done! The countries are now filled with red color while maintaining the same opacity level."* rendered, "Applied 1 change · Undo" chip present, map canvas live-updated to red fill
+
+**Sign-off:** Live LLM dispatch round-trip works end-to-end with no provider-API regressions. The CR-01 conditional-`tools=` fix is verified against the real Anthropic API. Frontend SSE consumers (Generate Map + Ask AI) now render the success path correctly. Phase 226 is closeable on the human-verification axis.
