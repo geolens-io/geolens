@@ -134,3 +134,127 @@ describe('LineGradientControls — UI', () => {
     expect(screen.queryByRole('button', { name: 'style.lineGradient.addStop' })).not.toBeInTheDocument();
   });
 });
+
+describe('LineGradientControls — advanced expression editor', () => {
+  it('advanced: line-gradient advanced disclosure is collapsed by default', () => {
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
+    // The disclosure toggle button is visible
+    expect(screen.getByRole('button', { name: 'style.lineGradient.advanced' })).toBeInTheDocument();
+    // The textarea is NOT yet rendered
+    expect(screen.queryByRole('textbox', { name: 'style.lineGradient.advanced' })).not.toBeInTheDocument();
+  });
+
+  it('advanced: opening the line-gradient advanced disclosure renders a textarea + Apply + Cancel', async () => {
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    expect(screen.getByRole('textbox', { name: 'style.lineGradient.advanced' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'style.lineGradient.cancelExpression' })).toBeInTheDocument();
+  });
+
+  it('advanced: typing invalid JSON into the line-gradient advanced editor surfaces parseError inline and does NOT commit', async () => {
+    const onPaintProp = vi.fn();
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={vi.fn()} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    fireEvent.change(textbox, { target: { value: 'not-json{' } });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' }));
+    expect(screen.getByText('style.lineGradient.parseError')).toBeInTheDocument();
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(0);
+  });
+
+  it('advanced: typing a non-array structure into the line-gradient advanced editor surfaces structureError', async () => {
+    const onPaintProp = vi.fn();
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={vi.fn()} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    fireEvent.change(textbox, { target: { value: '{"foo":"bar"}' } });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' }));
+    expect(screen.getByText('style.lineGradient.structureError')).toBeInTheDocument();
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(0);
+  });
+
+  it('advanced: typing an unknown operator into the line-gradient advanced editor surfaces structureError', async () => {
+    const onPaintProp = vi.fn();
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={vi.fn()} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    fireEvent.change(textbox, { target: { value: '["unknownop", 1, 2]' } });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' }));
+    expect(screen.getByText('style.lineGradient.structureError')).toBeInTheDocument();
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(0);
+  });
+
+  it('advanced: applying a canonical line-gradient expression commits to paint and re-hydrates the stops panel', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={onBuilderChange} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    const canonical = JSON.stringify(['interpolate', ['linear'], ['line-progress'], 0, '#0066cc', 0.5, '#888888', 1, '#cc3300']);
+    fireEvent.change(textbox, { target: { value: canonical } });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' }));
+    // paint commit
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(1);
+    expect(lineGradientCalls[0][1]).toEqual(['interpolate', ['linear'], ['line-progress'], 0, '#0066cc', 0.5, '#888888', 1, '#cc3300']);
+    // builder commit with parsed stops
+    const builderCalls = onBuilderChange.mock.calls.filter((c: unknown[]) => {
+      const patch = c[0] as { lineGradient?: { stops?: unknown[] } };
+      return Array.isArray(patch.lineGradient?.stops);
+    });
+    expect(builderCalls).toHaveLength(1);
+  });
+
+  it('advanced: applying a non-canonical line-gradient expression commits to paint and shows the customExpression hint (no silent flatten)', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    // Render in gradient mode by mounting with a canonical expression already set, then paste a step expression
+    const initial = stopsToLineGradientExpression([{ position: 0, color: '#000' }, { position: 1, color: '#fff' }]);
+    const { rerender } = render(<LineGradientControls paint={{ 'line-gradient': initial }} styleConfig={{ builder: { lineGradient: { stops: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }] } } } as unknown as StyleConfig} onPaintProp={onPaintProp} onBuilderChange={onBuilderChange} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    const stepExpr = JSON.stringify(['step', ['line-progress'], '#000', 0.5, '#fff']);
+    fireEvent.change(textbox, { target: { value: stepExpr } });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' }));
+    // paint should be the step expression
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(1);
+    expect(lineGradientCalls[0][1]).toEqual(['step', ['line-progress'], '#000', 0.5, '#fff']);
+    // builder should be cleared (non-canonical can't be represented as stops)
+    const builderCalls = onBuilderChange.mock.calls.filter((c: unknown[]) => {
+      const patch = c[0] as { lineGradient?: unknown };
+      return patch.lineGradient === undefined;
+    });
+    expect(builderCalls.length).toBeGreaterThanOrEqual(1);
+    // Re-render with the parent's updated paint to simulate the React lifecycle of the commit
+    rerender(<LineGradientControls paint={{ 'line-gradient': ['step', ['line-progress'], '#000', 0.5, '#fff'] }} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={onBuilderChange} t={t} />);
+    // customExpression hint visible; stops panel hidden (Add stop button NOT in DOM)
+    expect(screen.getByText('style.lineGradient.customExpression')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'style.lineGradient.addStop' })).not.toBeInTheDocument();
+  });
+
+  it('advanced: cancelling the line-gradient advanced editor does NOT commit', async () => {
+    const onPaintProp = vi.fn();
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={vi.fn()} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    const canonical = JSON.stringify(['interpolate', ['linear'], ['line-progress'], 0, '#000', 1, '#fff']);
+    fireEvent.change(textbox, { target: { value: canonical } });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.cancelExpression' }));
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(0);
+    // textarea closed
+    expect(screen.queryByRole('textbox', { name: 'style.lineGradient.advanced' })).not.toBeInTheDocument();
+  });
+});
