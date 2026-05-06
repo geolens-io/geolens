@@ -131,6 +131,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             {activeTab === 'style' && (
               <div role="tabpanel" id={`tabpanel-${layer.id}-style`} aria-labelledby={`tab-${layer.id}-style`}>
                 <LayerStyleEditor
+                  key={layer.id}
                   layer={layer}
                   onPaintChange={handlers.onPaintChange}
                   onOpacityChange={handlers.onOpacityChange}

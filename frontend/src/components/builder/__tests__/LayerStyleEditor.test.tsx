@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { LayerStyleEditor } from '../LayerStyleEditor';
+import { LayerEditorPanel } from '../LayerEditorPanel';
+import { stopsToLineGradientExpression } from '../LineGradientControls';
 import type { MapLayerResponse } from '@/types/api';
 
 // Radix Select uses ResizeObserver internally
@@ -800,5 +802,76 @@ describe('LayerStyleEditor — line-gradient integration', () => {
     const styleConfigCalls = onStyleConfigChange.mock.calls as Array<[string, { builder?: { lineGradient?: { stops?: unknown[] } } } | null, Record<string, unknown>]>;
     const builderUpdate = styleConfigCalls.find((c) => Array.isArray(c[1]?.builder?.lineGradient?.stops));
     expect(builderUpdate).toBeDefined();
+  });
+});
+
+describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
+  const handlers = {
+    onTabChange: vi.fn(),
+    onPaintChange: vi.fn(),
+    onOpacityChange: vi.fn(),
+    onFilterChange: vi.fn(),
+    onLabelChange: vi.fn(),
+    onPopupChange: vi.fn(),
+    onStyleConfigChange: vi.fn(),
+    onLayoutChange: vi.fn(),
+    onRenderModeChange: vi.fn(),
+  };
+
+  it('switching from layer with no gradient to layer with gradient resets local mode to Gradient (no stale solid)', () => {
+    const layerA: MapLayerResponse = {
+      ...makeLayer({ id: 'layer-A', paint: { 'line-color': '#ff0000' } }),
+    };
+    const gradientExpr = stopsToLineGradientExpression([
+      { position: 0, color: '#000' },
+      { position: 1, color: '#fff' },
+    ]);
+    const layerB: MapLayerResponse = {
+      ...makeLayer({
+        id: 'layer-B',
+        paint: { 'line-gradient': gradientExpr },
+        style_config: { builder: { lineGradient: { stops: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }] } } } as import('@/types/api').StyleConfig,
+      }),
+    };
+
+    const { rerender } = render(
+      <LayerEditorPanel layer={layerA} activeTab="style" handlers={handlers} />,
+    );
+    // Layer A starts in Solid mode (no gradient)
+    expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'false');
+
+    // Switch to layer B (which has a canonical gradient). With key={layer.id},
+    // the LayerStyleEditor remounts and LineGradientControls re-derives initialMode
+    // from layer B's paint, putting the toggle into Gradient mode.
+    rerender(<LayerEditorPanel layer={layerB} activeTab="style" handlers={handlers} />);
+    expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('switching from layer with gradient to layer without gradient resets local mode to Solid', () => {
+    const gradientExpr = stopsToLineGradientExpression([
+      { position: 0, color: '#000' },
+      { position: 1, color: '#fff' },
+    ]);
+    const layerA: MapLayerResponse = {
+      ...makeLayer({
+        id: 'layer-A',
+        paint: { 'line-gradient': gradientExpr },
+        style_config: { builder: { lineGradient: { stops: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }] } } } as import('@/types/api').StyleConfig,
+      }),
+    };
+    const layerB: MapLayerResponse = {
+      ...makeLayer({ id: 'layer-B', paint: { 'line-color': '#ff0000' } }),
+    };
+
+    const { rerender } = render(
+      <LayerEditorPanel layer={layerA} activeTab="style" handlers={handlers} />,
+    );
+    expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'true');
+
+    rerender(<LayerEditorPanel layer={layerB} activeTab="style" handlers={handlers} />);
+    expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'false');
   });
 });
