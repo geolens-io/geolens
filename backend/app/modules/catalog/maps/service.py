@@ -6,6 +6,7 @@ embed-token, ProcessingPort, and test callers.
 """
 
 from app.modules.catalog.maps.service_crud import (
+    apply_layer_diff,
     check_map_ownership,
     create_map,
     delete_map,
@@ -64,6 +65,7 @@ __all__ = [
     "bulk_check_dataset_access",
     "duplicate_map",
     "add_layer",
+    "apply_layer_diff",
     "remove_layer",
     "validate_public_visibility",
     "find_public_maps_using_dataset",
