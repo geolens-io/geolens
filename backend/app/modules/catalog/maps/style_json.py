@@ -88,6 +88,7 @@ class ImportedStyleMap:
     basemap_style: str | None = None
     layers: list[MapLayerInput] = field(default_factory=list)
     summary: MapStyleImportSummary = field(default_factory=MapStyleImportSummary)
+    terrain_config: dict | None = None
 
 
 def _safe_id(value: str) -> str:
@@ -663,6 +664,46 @@ def _label_config_from_import(style_layer: dict[str, Any]) -> dict[str, Any] | N
     return None
 
 
+def _builder_from_outline_companion(
+    companion: dict[str, Any], builder: dict[str, Any]
+) -> None:
+    paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
+    layout = (
+        companion.get("layout") if isinstance(companion.get("layout"), dict) else {}
+    )
+    line_color = paint.get("line-color")
+    if isinstance(line_color, str) and "outlineColor" not in builder:
+        builder["outlineColor"] = line_color
+    line_width = paint.get("line-width")
+    if isinstance(line_width, (int, float)) and "outlineWidth" not in builder:
+        builder["outlineWidth"] = line_width
+    if layout.get("visibility") == "none" and "strokeDisabled" not in builder:
+        builder["strokeDisabled"] = True
+
+
+def _builder_from_extrusion_companion(
+    companion: dict[str, Any], builder: dict[str, Any]
+) -> None:
+    paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
+    height_expr = paint.get("fill-extrusion-height")
+    # Canonical export shape: ["coalesce", ["to-number", ["get", <column>], 0], 0]
+    if (
+        isinstance(height_expr, list)
+        and len(height_expr) >= 2
+        and height_expr[0] == "coalesce"
+        and isinstance(height_expr[1], list)
+        and len(height_expr[1]) >= 2
+        and height_expr[1][0] == "to-number"
+        and isinstance(height_expr[1][1], list)
+        and len(height_expr[1][1]) == 2
+        and height_expr[1][1][0] == "get"
+        and isinstance(height_expr[1][1][1], str)
+    ):
+        column = height_expr[1][1][1]
+        if "heightColumn" not in builder:
+            builder["heightColumn"] = column
+
+
 def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
     """Normalize a MapLibre style document into GeoLens map/layer inputs."""
 
@@ -694,6 +735,8 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
 
     imported_layers: list[MapLayerInput] = []
     companion_labels: dict[str, dict[str, Any]] = {}
+    companion_outlines: dict[str, dict[str, Any]] = {}
+    companion_extrusions: dict[str, dict[str, Any]] = {}
     primary_layers: list[dict[str, Any]] = []
     for style_layer in raw_layers:
         if not isinstance(style_layer, dict):
@@ -702,8 +745,13 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         companion = geolens.get("companion")
         parent_layer_id = geolens.get("parent_layer_id")
         if companion and parent_layer_id:
+            key = str(parent_layer_id)
             if companion == "label":
-                companion_labels[str(parent_layer_id)] = style_layer
+                companion_labels[key] = style_layer
+            elif companion == "outline":
+                companion_outlines[key] = style_layer
+            elif companion == "extrusion":
+                companion_extrusions[key] = style_layer
             continue
         primary_layers.append(style_layer)
 
@@ -730,6 +778,28 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         companion = companion_labels.get(str(parent_id)) if parent_id else None
         if companion and label_config is None:
             label_config = _label_config_from_import(companion)
+        style_config = _style_config_from_import(style_layer)
+        outline_companion = (
+            companion_outlines.get(str(parent_id)) if parent_id else None
+        )
+        extrusion_companion = (
+            companion_extrusions.get(str(parent_id)) if parent_id else None
+        )
+        if outline_companion or extrusion_companion:
+            style_config = dict(style_config) if isinstance(style_config, dict) else {}
+            builder = (
+                dict(style_config.get("builder"))
+                if isinstance(style_config.get("builder"), dict)
+                else {}
+            )
+            if outline_companion:
+                _builder_from_outline_companion(outline_companion, builder)
+            if extrusion_companion:
+                _builder_from_extrusion_companion(extrusion_companion, builder)
+            if builder:
+                style_config["builder"] = builder
+            if not style_config:
+                style_config = None
         layer_input = MapLayerInput(
             dataset_id=dataset_id,
             sort_order=int(geolens.get("sort_order", index)),
@@ -752,7 +822,7 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
             if isinstance(style_layer.get("filter"), list)
             else None,
             label_config=label_config,
-            style_config=_style_config_from_import(style_layer),
+            style_config=style_config,
             layer_type=geolens.get("layer_type")
             if geolens.get("layer_type")
             in {"vector_geolens", "raster_geolens", "geojson"}
@@ -762,11 +832,45 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         imported_layers.append(layer_input)
         summary.layers_imported += 1
 
+    terrain_config: dict[str, Any] | None = None
+    raw_terrain = style.get("terrain")
+    if isinstance(raw_terrain, dict):
+        terrain_source = raw_terrain.get("source")
+        dataset_id = (
+            matched_sources.get(str(terrain_source)) if terrain_source else None
+        )
+        if dataset_id is not None:
+            try:
+                exaggeration = float(raw_terrain.get("exaggeration", 1.0))
+            except (TypeError, ValueError):
+                exaggeration = 1.0
+            terrain_config = {
+                "enabled": True,
+                "source_dataset_id": str(dataset_id),
+                "exaggeration": exaggeration,
+            }
+
     center = style.get("center")
     metadata = style.get("metadata") if isinstance(style.get("metadata"), dict) else {}
     geolens_meta = (
         metadata.get("geolens") if isinstance(metadata.get("geolens"), dict) else {}
     )
+    if terrain_config is None:
+        meta_terrain = geolens_meta.get("terrain_config")
+        if (
+            isinstance(meta_terrain, dict)
+            and meta_terrain.get("enabled")
+            and meta_terrain.get("source_dataset_id")
+        ):
+            try:
+                exaggeration = float(meta_terrain.get("exaggeration", 1.0))
+            except (TypeError, ValueError):
+                exaggeration = 1.0
+            terrain_config = {
+                "enabled": True,
+                "source_dataset_id": str(meta_terrain["source_dataset_id"]),
+                "exaggeration": exaggeration,
+            }
     return ImportedStyleMap(
         name=str(style.get("name") or "Imported style"),
         description=geolens_meta.get("description"),
@@ -782,4 +886,5 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         basemap_style=geolens_meta.get("basemap_style"),
         layers=imported_layers,
         summary=summary,
+        terrain_config=terrain_config,
     )
