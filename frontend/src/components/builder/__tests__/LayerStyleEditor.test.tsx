@@ -252,7 +252,7 @@ describe('LayerStyleEditor - line paint controls', () => {
     expect(onPaintChange).not.toHaveBeenCalled();
   });
 
-  it('does not expose normal line gradient authoring controls', () => {
+  it('exposes first-class line gradient authoring controls (Phase 256)', () => {
     render(
       <LayerStyleEditor
         layer={makeLayer()}
@@ -264,7 +264,10 @@ describe('LayerStyleEditor - line paint controls', () => {
       />,
     );
 
-    expect(screen.queryByText(/gradient/i)).not.toBeInTheDocument();
+    // Phase 256 introduces first-class gradient authoring on line layers
+    // (replaces the Phase 247 deferral where gradients were JSON-only).
+    expect(screen.getByRole('button', { name: 'Gradient' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Solid color' })).toBeInTheDocument();
   });
 
   it('accepts line-gradient through advanced paint JSON', async () => {
@@ -741,5 +744,61 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
     const paint = onStyleConfigChange.mock.calls[0][2];
     expect(paint['_heatmap-weight-column']).toBeUndefined();
     expect(paint['_heatmap-ramp']).toBeUndefined();
+  });
+});
+
+describe('LayerStyleEditor — line-gradient integration', () => {
+  it('integration: line-gradient renders Solid/Gradient toggle inside line controls', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Solid color' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Gradient' })).toBeInTheDocument();
+  });
+
+  it('integration: line-gradient toggle does not render for polygon layers', () => {
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#abcdef' } })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Gradient' })).not.toBeInTheDocument();
+  });
+
+  it('integration: clicking Gradient line-gradient mode commits builder.lineGradient.stops and a canonical paint expression', async () => {
+    const onPaintChange = vi.fn();
+    const onStyleConfigChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LayerStyleEditor
+        layer={makeLayer()}
+        onPaintChange={onPaintChange}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Gradient' }));
+    // paint MUST contain a canonical line-gradient array
+    const paintCalls = onPaintChange.mock.calls as Array<[string, Record<string, unknown>]>;
+    const paintWithGradient = paintCalls.find((c) => Array.isArray(c[1]['line-gradient']));
+    expect(paintWithGradient).toBeDefined();
+    // styleConfig MUST contain builder.lineGradient.stops
+    const styleConfigCalls = onStyleConfigChange.mock.calls as Array<[string, { builder?: { lineGradient?: { stops?: unknown[] } } } | null, Record<string, unknown>]>;
+    const builderUpdate = styleConfigCalls.find((c) => Array.isArray(c[1]?.builder?.lineGradient?.stops));
+    expect(builderUpdate).toBeDefined();
   });
 });
