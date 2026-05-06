@@ -911,6 +911,17 @@ class DefaultCatalogPort:
 
         return await get_job_or_404(session, job_id, user)
 
+    # Tile signing (Phase 252 LAYERING-01)
+    def generate_tile_signature(self, scope, exp):  # type: ignore[no-untyped-def]
+        from app.processing.tiles.signing import generate_tile_signature
+
+        return generate_tile_signature(scope, exp)
+
+    def round_tile_expiry(self, ttl_seconds=900):  # type: ignore[no-untyped-def]
+        from app.processing.tiles.signing import round_expiry
+
+        return round_expiry(ttl_seconds)
+
 
 class DefaultAnthropicProvider:
     """Community-edition default: Anthropic native tool-calling loop (Phase 226 D-17).
