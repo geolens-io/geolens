@@ -6,7 +6,6 @@ embed-token, ProcessingPort, and test callers.
 """
 
 from app.modules.catalog.maps.service_crud import (
-    apply_layer_diff,
     check_map_ownership,
     create_map,
     delete_map,
@@ -16,6 +15,7 @@ from app.modules.catalog.maps.service_crud import (
     list_maps,
     update_map,
 )
+from app.modules.catalog.maps.service_diff import apply_layer_diff
 from app.modules.catalog.maps.service_history import (
     list_map_history,
     record_map_history_event,
