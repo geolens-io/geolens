@@ -115,6 +115,11 @@ run_phase_246() {
   echo "${C_YELLOW}==> Phase 246 (style-config-and-layer-diffs)${C_RESET}"
   run_check "STYLE-01-backend"  "docker exec $API_CONTAINER sh -c \"cd /app && /app/.venv/bin/pytest tests/test_maps.py -k 'paint or style_config' -q\""
   run_check "STYLE-01-frontend" "cd frontend && npm run test -- --run src/components/builder/__tests__/LayerStyleEditor.test.tsx src/components/builder/__tests__/layer-adapters.test.ts"
+  # STYLE-02 frontend vitest row (246-VALIDATION.md:41) is covered by
+  # STYLE-01-frontend above — the same vitest selector runs both
+  # LayerStyleEditor + layer-adapters specs, so a separate run_check would
+  # be a no-op duplicate. Listed explicitly here so a row-by-row diff
+  # reconciles the script against VALIDATION.md.
   run_check "STYLE-02-grep"     "grep -nE 'Builder-only state lives under builder' backend/openapi.json"
   run_check "STYLE-03-pytest"   "cd backend && uv run pytest tests/test_map_style_config_migration.py -q"
   run_check "STYLE-03-file"     "test -f backend/alembic/versions/0004_style_config_paint_cleanup.py"
@@ -187,6 +192,10 @@ run_phase_250() {
   echo "${C_YELLOW}==> Phase 250 (map-edit-history)${C_RESET}"
   run_check "HIST-01-backend"  "docker exec $API_CONTAINER sh -c \"cd /app && /app/.venv/bin/pytest tests/test_maps.py -k 'MapHistory' -q\""
   run_check "HIST-01-file"     "test -f backend/app/modules/catalog/maps/service_history.py"
+  # HIST-02 backend pytest (DB) row (250-VALIDATION.md:41) is covered by
+  # HIST-01-backend above — the \`-k 'MapHistory'\` selector exercises both
+  # event-recording (HIST-01) AND retrieval contract (HIST-02) tests in
+  # the same pytest run. Only the OpenAPI grep gate is unique to HIST-02.
   run_check "HIST-02-openapi"  "grep -nE '/maps/\\{map_id\\}/history' backend/openapi.json"
   run_check "HIST-03-frontend" "cd frontend && npm run test -- --run src/components/builder/__tests__/HistoryPanel.test.tsx src/components/builder/__tests__/BuilderRail.test.tsx"
   run_check "HIST-03-file"     "test -f frontend/src/components/builder/HistoryPanel.tsx"
