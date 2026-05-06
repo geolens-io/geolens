@@ -1292,3 +1292,90 @@ def test_manifest_apply_router_uses_upload_permission() -> None:
         permissions.append(str(node.args[0].value))
 
     assert permissions == ["upload"]
+
+
+@pytest.mark.architecture
+def test_upload_thumbnail_route_uses_json_body() -> None:
+    """Phase 254 SDK-02: PUT /maps/{map_id}/thumbnail/ must use a JSON body
+    (Pydantic model), not a text/plain body.
+
+    openapi-python-client rejects ``text/plain`` request bodies and silently
+    drops the endpoint from the generated Python SDK (emitting
+    ``WARNING parsing PUT /maps/{map_id}/thumbnail/``). Phase 254 Plan 01
+    switched the route to a JSON body backed by ``ThumbnailUploadRequest``.
+    This guard prevents silent regression: any future change that switches
+    the route back to a non-JSON body shape fails this test BEFORE
+    ``make sdks`` runs.
+
+    Companion gate: the ``Makefile`` ``sdks:`` target also fails on any
+    ``^WARNING parsing`` line from openapi-python-client (Phase 254 Plan 02
+    Task 1). This source-shape guard fires earlier in the loop, on every
+    ``pytest tests/test_layering.py`` invocation.
+    """
+    router_path = _backend_path("app/modules/catalog/maps/router.py")
+    if not router_path.exists():
+        # Test runs from monorepo root; if path is relative-broken, skip
+        # rather than false-fail on environment misconfiguration.
+        pytest.skip(f"router file not found at {router_path}")
+
+    source = router_path.read_text(encoding="utf-8")
+
+    # Locate the upload_thumbnail function definition. Use AST so we
+    # don't false-positive on docstrings or other strings that mention
+    # the function name.
+    tree = ast.parse(source)
+    upload_fn: ast.AsyncFunctionDef | ast.FunctionDef | None = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and node.name == "upload_thumbnail"
+        ):
+            upload_fn = node
+            break
+
+    if upload_fn is None:
+        pytest.fail(
+            "Phase 254 SDK-02 invariant violated: function "
+            "'upload_thumbnail' not found in "
+            "backend/app/modules/catalog/maps/router.py. The route was "
+            "renamed or removed; update this guard or restore the route."
+        )
+
+    # Inspect the parameter list. The route must NOT have any parameter
+    # whose default is a Body(...) call with a `media_type` keyword arg
+    # set to a non-JSON content type (typically "text/plain").
+    args = upload_fn.args.args
+    defaults = upload_fn.args.defaults
+    default_idx = len(args) - len(defaults)
+    for arg_pos, arg in enumerate(args):
+        if arg_pos < default_idx:
+            continue  # no default
+        default = defaults[arg_pos - default_idx]
+        if not isinstance(default, ast.Call):
+            continue
+        func = default.func
+        func_name = (
+            func.attr
+            if isinstance(func, ast.Attribute)
+            else func.id
+            if isinstance(func, ast.Name)
+            else None
+        )
+        if func_name != "Body":
+            continue
+        for kw in default.keywords:
+            if (
+                kw.arg == "media_type"
+                and isinstance(kw.value, ast.Constant)
+                and isinstance(kw.value.value, str)
+                and kw.value.value != "application/json"
+            ):
+                pytest.fail(
+                    "Phase 254 SDK-02 invariant violated: parameter "
+                    f"'{arg.arg}' on upload_thumbnail uses "
+                    f"Body(..., media_type='{kw.value.value}'). "
+                    "openapi-python-client cannot parse non-JSON request "
+                    "bodies and will silently drop the endpoint from the "
+                    "Python SDK. Switch to a Pydantic JSON body model "
+                    "(e.g., ThumbnailUploadRequest) per Phase 254 Plan 01."
+                )
