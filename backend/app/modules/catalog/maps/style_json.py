@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -63,6 +64,9 @@ _HILLSHADE_PAINT_KEYS = {
     "hillshade-highlight-color",
     "hillshade-accent-color",
 }
+# Source types that can render `line-gradient` paint. MapLibre requires the source
+# to also be constructed with `lineMetrics: true` (set by `build_maplibre_style`).
+_LINE_GRADIENT_SOURCE_TYPES = {"vector", "geojson"}
 _SYMBOL_METADATA_KEYS = {
     "iconImage",
     "iconSize",
@@ -72,6 +76,8 @@ _SYMBOL_METADATA_KEYS = {
     "categoryColumn",
     "categories",
 }
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -186,6 +192,48 @@ def _clean_style_metadata(style_config: dict[str, Any] | None) -> dict[str, Any]
 def _builder_style_config(style_config: dict[str, Any] | None) -> dict[str, Any]:
     builder = (style_config or {}).get("builder")
     return dict(builder) if isinstance(builder, dict) else {}
+
+
+def _layer_uses_line_gradient(layer: MapLayerResponse) -> bool:
+    """Return True if this layer needs `lineMetrics: true` on its backing source.
+
+    Detection rule (locked per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01):
+      1. `paint['line-gradient']` is set (any non-None value).
+      2. `style_config.builder.lineGradient` is a non-empty dict (Phase 256 builder intent).
+    Sticky lifecycle (D-02): once a source emits the flag, downstream paths do not
+    recompute it on subsequent saves; the source itself is torn down only when no
+    consumers remain.
+    """
+    paint = layer.paint or {}
+    if paint.get("line-gradient") is not None:
+        return True
+    builder = (layer.style_config or {}).get("builder") or {}
+    intent = builder.get("lineGradient") if isinstance(builder, dict) else None
+    if isinstance(intent, dict) and len(intent) > 0:
+        return True
+    return False
+
+
+def _drop_unsupported_line_gradient(
+    layer: MapLayerResponse, paint: dict[str, Any], source_type: str
+) -> dict[str, Any]:
+    """Drop `line-gradient` paint when the backing source type cannot support it.
+
+    Mirrors the Phase 251 `_HILLSHADE_PAINT_KEYS` silent-filter convention and logs
+    a warning to API logs. A structured export-summary surface (analogous to
+    MapStyleImportSummary) can be added later if a UI consumer surfaces it.
+    """
+    if "line-gradient" not in paint:
+        return paint
+    if source_type in _LINE_GRADIENT_SOURCE_TYPES:
+        return paint
+    filtered = {k: v for k, v in paint.items() if k != "line-gradient"}
+    logger.warning(
+        "Dropping line-gradient paint on layer %s: source type %r cannot support lineMetrics",
+        layer.id,
+        source_type,
+    )
+    return filtered
 
 
 def _geometry_layer_type(
@@ -480,6 +528,19 @@ def _style_layer_for_map_layer(
     )
     layout = _clean_layout(layer.layout)
     paint = _clean_paint(layer.paint)
+    # Determine source type to gate line-gradient paint (mirrors _source_for_layer branches).
+    if (layer.is_dem is True) and (
+        (layer.style_config or {}).get("render_mode") == "hillshade"
+    ):
+        source_type = "raster-dem"
+    elif layer.layer_type == "raster_geolens" or layer.dataset_record_type in {
+        "raster_dataset",
+        "vrt_dataset",
+    }:
+        source_type = "raster"
+    else:
+        source_type = "vector"
+    paint = _drop_unsupported_line_gradient(layer, paint, source_type)
     if layer_type == "hillshade":
         paint = {
             key: value for key, value in paint.items() if key in _HILLSHADE_PAINT_KEYS
@@ -560,6 +621,19 @@ def build_maplibre_style(
         base_layer, companions = _style_layer_for_map_layer(layer, source_id)
         style_layers.append(base_layer)
         style_layers.extend(companions)
+
+    # Set lineMetrics: true on vector sources whose layers need line-gradient rendering.
+    # Per D-01 detection rule, "needs" means paint['line-gradient'] OR builder.lineGradient.
+    gradient_source_ids: set[str] = set()
+    for layer in layers:
+        if _layer_uses_line_gradient(layer):
+            gradient_source_ids.add(f"geolens-{_safe_id(str(layer.dataset_id))}")
+    for source_id in gradient_source_ids:
+        src = sources.get(source_id)
+        if src is None:
+            continue
+        if src.get("type") in _LINE_GRADIENT_SOURCE_TYPES:
+            src["lineMetrics"] = True
 
     terrain_block: dict[str, Any] | None = None
     tc = map_obj.terrain_config if isinstance(map_obj.terrain_config, dict) else None
