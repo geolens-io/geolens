@@ -345,7 +345,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
             layer={layer} paint={paint} isDataDriven={isDataDriven}
             styleConfig={layer.style_config ?? null}
             onPaintProp={handlePaintProp} onLayoutChange={onLayoutChange}
-            onBuilderChange={(patch) => updateBuilderConfig(patch)}
+            onBuilderChange={(patch, nextPaint) => updateBuilderConfig(patch, nextPaint)}
             t={t}
           />
         )}
@@ -502,7 +502,7 @@ function FillControls({
 
 interface LineControlsProps extends GeomControlProps {
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onBuilderChange: (patch: BuilderStyleConfig) => void;
+  onBuilderChange: (patch: BuilderStyleConfig, nextPaint?: Record<string, unknown>) => void;
   styleConfig: StyleConfig | null;
 }
 

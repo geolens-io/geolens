@@ -77,17 +77,24 @@ describe('LineGradientControls — UI', () => {
     expect(screen.getByRole('button', { name: 'style.lineGradient.gradient' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('ui: clicking Gradient commits a default 2-stop line-gradient to BOTH paint and builder', async () => {
+  it('ui: clicking Gradient commits a default 2-stop line-gradient to BOTH paint and builder (with next paint)', async () => {
     const onPaintProp = vi.fn();
     const onBuilderChange = vi.fn();
     const user = userEvent.setup();
     render(<LineGradientControls paint={{ 'line-color': '#abcdef' }} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={onBuilderChange} t={t} />);
     await user.click(screen.getByRole('button', { name: 'style.lineGradient.gradient' }));
-    expect(onPaintProp).toHaveBeenCalledWith('line-gradient', stopsToLineGradientExpression([...DEFAULT_GRADIENT_STOPS]));
-    expect(onBuilderChange).toHaveBeenCalledWith({ lineGradient: { stops: [...DEFAULT_GRADIENT_STOPS] } });
+    const expr = stopsToLineGradientExpression([...DEFAULT_GRADIENT_STOPS]);
+    expect(onPaintProp).toHaveBeenCalledWith('line-gradient', expr);
+    // UAT regression-lock: onBuilderChange MUST receive nextPaint that includes
+    // the new line-gradient expression, otherwise upstream save reads stale paint
+    // (closure capture) and shadows the gradient.
+    expect(onBuilderChange).toHaveBeenCalledWith(
+      { lineGradient: { stops: [...DEFAULT_GRADIENT_STOPS] } },
+      expect.objectContaining({ 'line-gradient': expr, 'line-color': '#abcdef' }),
+    );
   });
 
-  it('ui: clicking Solid clears paint line-gradient and builder.lineGradient', async () => {
+  it('ui: clicking Solid clears paint line-gradient and builder.lineGradient (with next paint)', async () => {
     const onPaintProp = vi.fn();
     const onBuilderChange = vi.fn();
     const user = userEvent.setup();
@@ -95,7 +102,12 @@ describe('LineGradientControls — UI', () => {
     render(<LineGradientControls paint={{ 'line-color': '#abcdef', 'line-gradient': expr }} styleConfig={{ builder: { lineGradient: { stops: [...DEFAULT_GRADIENT_STOPS] } } } as unknown as StyleConfig} onPaintProp={onPaintProp} onBuilderChange={onBuilderChange} t={t} />);
     await user.click(screen.getByRole('button', { name: 'style.lineGradient.solid' }));
     expect(onPaintProp).toHaveBeenCalledWith('line-gradient', undefined);
-    expect(onBuilderChange).toHaveBeenCalledWith({ lineGradient: undefined });
+    // UAT regression-lock: nextPaint MUST omit line-gradient (so the upstream save
+    // produces a paint without the now-stale gradient).
+    const lastCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual({ lineGradient: undefined });
+    expect(lastCall[1]).not.toHaveProperty('line-gradient');
+    expect(lastCall[1]).toEqual(expect.objectContaining({ 'line-color': '#abcdef' }));
   });
 
   it('ui: Add stop appends a new line-gradient stop at the midpoint of the last two positions', async () => {

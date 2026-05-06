@@ -88,7 +88,7 @@ interface LineGradientControlsProps {
   paint: Record<string, unknown>;
   styleConfig: StyleConfig | null;
   onPaintProp: (key: string, value: unknown) => void;
-  onBuilderChange: (patch: BuilderStyleConfig) => void;
+  onBuilderChange: (patch: BuilderStyleConfig, nextPaint?: Record<string, unknown>) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
 }
 
@@ -124,8 +124,14 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const isCustomExpression = paintExpr != null && parsedFromPaint == null;
 
   function commitStops(nextStops: Array<{ position: number; color: string }>) {
-    onPaintProp('line-gradient', stopsToLineGradientExpression(nextStops));
-    onBuilderChange({ lineGradient: { stops: nextStops } });
+    // Compose the next paint snapshot once and pass it to both callbacks so the
+    // upstream save sees a single consistent state. Without `nextPaint`,
+    // `onBuilderChange` would resolve `paint` from a stale closure and shadow
+    // the gradient committed by `onPaintProp`. (UAT regression — Phase 256.)
+    const expr = stopsToLineGradientExpression(nextStops);
+    const nextPaint = { ...paint, 'line-gradient': expr };
+    onPaintProp('line-gradient', expr);
+    onBuilderChange({ lineGradient: { stops: nextStops } }, nextPaint);
   }
 
   function activateGradient() {
@@ -136,11 +142,17 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   function activateSolid() {
     setMode('solid');
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { 'line-gradient': _drop, ...paintWithoutGradient } = paint;
+    const nextPaint =
+      savedSolidColorRef.current
+        ? { ...paintWithoutGradient, 'line-color': savedSolidColorRef.current }
+        : paintWithoutGradient;
     onPaintProp('line-gradient', undefined);
-    onBuilderChange({ lineGradient: undefined });
     if (savedSolidColorRef.current) {
       onPaintProp('line-color', savedSolidColorRef.current);
     }
+    onBuilderChange({ lineGradient: undefined }, nextPaint);
   }
 
   function addStop() {
