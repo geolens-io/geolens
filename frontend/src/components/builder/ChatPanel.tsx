@@ -99,6 +99,9 @@ export function ChatPanel({
   const [toolProgress, setToolProgress] = useState<string | null>(null);
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Synchronous inflight lock — setIsLoading is async-batched, so two same-
+  // tick handleSend calls would both see isLoading=false and both fetch.
+  const inflightRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Keep a ref to the latest layers so snapshots capture fresh state
@@ -262,7 +265,8 @@ export function ChatPanel({
   }, []);
 
   async function handleSend() {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || inflightRef.current) return;
+    inflightRef.current = true;
     const userMsg = input.trim();
     setInput('');
     const history = buildHistory();
@@ -407,6 +411,7 @@ export function ChatPanel({
       }
     } finally {
       abortRef.current = null;
+      inflightRef.current = false;
       setStreamingText('');
       setToolProgress(null);
       setIsLoading(false);

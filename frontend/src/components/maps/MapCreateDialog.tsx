@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -39,6 +39,8 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
   const { isAIAvailable: aiAvailable } = useAIAvailability();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const inflightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -49,9 +51,21 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
       setProgressLabel('');
       setGenerateError(null);
       createMap.reset();
+    } else {
+      // Closing the dialog cancels any in-flight stream so the SSE consumer
+      // doesn't keep firing setState on an unmounted form.
+      abortRef.current?.abort();
+      abortRef.current = null;
+      inflightRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   async function handleManualSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,6 +84,14 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
 
   const handleAiGenerate = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    // Synchronous guard against same-tick double-fire (StrictMode dev double-
+    // invoke, browser double-submit, etc.) — setIsGenerating is async so the
+    // disabled button alone can't block a second submit dispatched in the
+    // same render cycle.
+    if (inflightRef.current) return;
+    inflightRef.current = true;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setIsGenerating(true);
     setProgressLabel('');
     setGenerateError(null);
@@ -78,7 +100,7 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
       for await (const { event, data } of streamGenerateMap({
         prompt: aiPrompt.trim(),
         language: i18n.language,
-      })) {
+      }, controller.signal)) {
         if (event === 'tool_start') {
           setProgressLabel((data as { label?: string }).label ?? '');
         } else if (event === 'done') {
@@ -104,10 +126,15 @@ export function MapCreateDialog({ open, onOpenChange }: MapCreateDialogProps) {
       // Stream ended without done event
       setGenerateError(t('mapCreate.generateFailed'));
     } catch (err) {
+      // Aborted (dialog closed or unmounted mid-stream) — swallow silently.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (controller.signal.aborted) return;
       setGenerateError(err instanceof Error ? err.message : t('mapCreate.generateFailed'));
     } finally {
       setIsGenerating(false);
       setProgressLabel('');
+      inflightRef.current = false;
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [aiPrompt, i18n.language, navigate, onOpenChange, qc, t]);
 

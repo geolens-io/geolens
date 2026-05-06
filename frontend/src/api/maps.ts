@@ -238,6 +238,7 @@ export async function generateMap(data: MapGenerateRequest): Promise<MapGenerate
 
 export async function* streamGenerateMap(
   data: MapGenerateRequest,
+  signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const token = useAuthStore.getState().token;
   const headers: Record<string, string> = {
@@ -251,6 +252,7 @@ export async function* streamGenerateMap(
     method: 'POST',
     headers,
     body: JSON.stringify(data),
+    signal,
   });
 
   if (!response.ok) {
