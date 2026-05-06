@@ -88,6 +88,8 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     const layer = makeLayer({
       id: 'l-intent',
       paint: { 'line-color': '#000', 'line-width': 2 },
+      // TODO(Phase 256): drop `as unknown` cast once StyleConfig['builder'] declares
+      // `lineGradient`. See REVIEW.md IN-03.
       style_config: { builder: { lineGradient: { stops: [{ position: 0, color: '#00f' }] } } } as unknown as SyncLayerInput['style_config'],
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
@@ -123,6 +125,8 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     const layer = makeLayer({
       id: 'l-array-intent',
       paint: { 'line-color': '#000', 'line-width': 2 },
+      // TODO(Phase 256): drop `as unknown` cast once StyleConfig['builder'] declares
+      // `lineGradient`. See REVIEW.md IN-03.
       style_config: {
         builder: { lineGradient: [{ position: 0, color: '#00f' }] },
       } as unknown as SyncLayerInput['style_config'],
