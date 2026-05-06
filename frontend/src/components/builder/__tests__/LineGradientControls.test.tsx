@@ -146,6 +146,45 @@ describe('LineGradientControls — UI', () => {
     expect(screen.queryByRole('button', { name: 'style.lineGradient.addStop' })).not.toBeInTheDocument();
   });
 
+  it('ui: Solid -> Gradient toggle restores a previously-preserved non-canonical expression (WR-03)', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    const customExpr = ['step', ['line-progress'], '#000', 0.5, '#fff'];
+    // Mount with a non-canonical expression: customExpression hint visible, mode=gradient.
+    const { rerender } = render(
+      <LineGradientControls
+        paint={{ 'line-gradient': customExpr }}
+        styleConfig={null}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    expect(screen.getByText('style.lineGradient.customExpression')).toBeInTheDocument();
+    // Toggle to Solid — the non-canonical expression should be saved internally.
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.solid' }));
+    // Simulate parent re-render with paint after gradient was dropped (Solid mode active).
+    rerender(
+      <LineGradientControls
+        paint={{ 'line-color': '#0066cc' }}
+        styleConfig={null}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    onPaintProp.mockClear();
+    onBuilderChange.mockClear();
+    // Toggle back to Gradient — the custom expression must be restored, NOT a default 2-stop.
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.gradient' }));
+    const lineGradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(lineGradientCalls).toHaveLength(1);
+    expect(lineGradientCalls[0][1]).toEqual(customExpr);
+    // builder.lineGradient should be cleared because the expression is non-canonical.
+    expect(onBuilderChange).toHaveBeenCalledWith({ lineGradient: undefined }, expect.objectContaining({ 'line-gradient': customExpr }));
+  });
+
   it('ui: pendingPositionEdits clears on commitStops so stale invalid positions do not leak across remove/add (WR-02)', async () => {
     const onPaintProp = vi.fn();
     const onBuilderChange = vi.fn();

@@ -110,6 +110,11 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     }
   }, [mode, paint]);
 
+  // Preserve any non-canonical (custom) line-gradient expression so that a
+  // Solid -> Gradient round-trip restores it instead of silently overwriting
+  // with the canonical 2-stop default. Phase 256 review — WR-03.
+  const savedGradientExprRef = useRef<unknown>(null);
+
   // Local state for in-progress position edits so we can show validation
   // for transient invalid values (e.g. > 1) without committing them upstream.
   const [pendingPositionEdits, setPendingPositionEdits] = useState<Record<number, number>>({});
@@ -141,13 +146,30 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   }
 
   function activateGradient() {
-    const stops = (liveStops && liveStops.length >= 2) ? liveStops : [...DEFAULT_GRADIENT_STOPS];
     setMode('gradient');
+    // Restore a previously-preserved non-canonical (custom) expression if the
+    // user toggled away from it via Solid. Phase 256 review — WR-03.
+    const savedExpr = savedGradientExprRef.current;
+    if (savedExpr != null && lineGradientExpressionToStops(savedExpr) == null) {
+      savedGradientExprRef.current = null;
+      const nextPaint = { ...paint, 'line-gradient': savedExpr };
+      onPaintProp('line-gradient', savedExpr);
+      // Custom expression cannot be represented as builder stops, so clear
+      // builder.lineGradient — the customExpression hint will surface again.
+      onBuilderChange({ lineGradient: undefined }, nextPaint);
+      return;
+    }
+    const stops = (liveStops && liveStops.length >= 2) ? liveStops : [...DEFAULT_GRADIENT_STOPS];
     commitStops(stops);
   }
 
   function activateSolid() {
     setMode('solid');
+    // Preserve any non-canonical expression so a re-toggle to Gradient can
+    // restore it. Phase 256 review — WR-03.
+    if (paintExpr != null && parsedFromPaint == null) {
+      savedGradientExprRef.current = paintExpr;
+    }
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { 'line-gradient': _drop, ...paintWithoutGradient } = paint;
     const nextPaint =
