@@ -390,3 +390,164 @@ def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external(
 def test_parse_maplibre_style_import_rejects_unsupported_version():
     with pytest.raises(ValueError, match="version 8"):
         parse_maplibre_style_import({"version": 7, "sources": {}, "layers": []})
+
+
+def test_parse_maplibre_style_import_restores_terrain_from_top_level_block():
+    dem_id = uuid.uuid4()
+    style = {
+        "version": 8,
+        "name": "Terrain",
+        "sources": {
+            f"geolens-{dem_id}": {
+                "type": "raster-dem",
+                "tiles": [f"/raster-tiles/{dem_id}/tiles/{{z}}/{{x}}/{{y}}.png"],
+                "tileSize": 256,
+                "encoding": "mapbox",
+                "metadata": {"geolens": {"dataset_id": str(dem_id)}},
+            }
+        },
+        "layers": [],
+        "terrain": {"source": f"geolens-{dem_id}", "exaggeration": 2.5},
+    }
+    imported = parse_maplibre_style_import(style)
+    assert imported.terrain_config == {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 2.5,
+    }
+
+
+def test_parse_maplibre_style_import_restores_terrain_from_metadata_fallback():
+    dem_id = uuid.uuid4()
+    style = {
+        "version": 8,
+        "name": "Terrain meta",
+        "sources": {},
+        "layers": [],
+        "metadata": {
+            "geolens": {
+                "terrain_config": {
+                    "enabled": True,
+                    "source_dataset_id": str(dem_id),
+                    "exaggeration": 1.5,
+                }
+            }
+        },
+    }
+    imported = parse_maplibre_style_import(style)
+    assert imported.terrain_config["enabled"] is True
+    assert imported.terrain_config["source_dataset_id"] == str(dem_id)
+    assert imported.terrain_config["exaggeration"] == 1.5
+
+
+def test_parse_maplibre_style_import_restores_outline_and_extrusion_companions():
+    dataset_id = uuid.uuid4()
+    style = {
+        "version": 8,
+        "name": "Companions",
+        "sources": {
+            "src": {
+                "type": "vector",
+                "tiles": ["/tiles/data.tbl/{z}/{x}/{y}.pbf"],
+                "metadata": {"geolens": {"dataset_id": str(dataset_id)}},
+            }
+        },
+        "layers": [
+            {
+                "id": "primary",
+                "type": "fill",
+                "source": "src",
+                "source-layer": "tbl",
+                "paint": {"fill-color": "#94a3b8"},
+                "metadata": {"geolens": {"layer_id": "layer-1"}},
+            },
+            {
+                "id": "primary-outline",
+                "type": "line",
+                "source": "src",
+                "source-layer": "tbl",
+                "paint": {"line-color": "#112233", "line-width": 4},
+                "metadata": {
+                    "geolens": {"companion": "outline", "parent_layer_id": "layer-1"}
+                },
+            },
+            {
+                "id": "primary-extrusion",
+                "type": "fill-extrusion",
+                "source": "src",
+                "source-layer": "tbl",
+                "paint": {
+                    "fill-extrusion-height": [
+                        "coalesce",
+                        ["to-number", ["get", "height_m"], 0],
+                        0,
+                    ]
+                },
+                "metadata": {
+                    "geolens": {"companion": "extrusion", "parent_layer_id": "layer-1"}
+                },
+            },
+        ],
+    }
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+    layer = imported.layers[0]
+    assert layer.style_config is not None
+    assert layer.style_config["builder"] == {
+        "outlineColor": "#112233",
+        "outlineWidth": 4,
+        "heightColumn": "height_m",
+    }
+
+
+def test_build_maplibre_style_round_trip_preserves_terrain_and_builder_state():
+    dem_id = uuid.uuid4()
+    polygon_dataset_id = uuid.uuid4()
+    polygon_layer = _layer(
+        dataset_id=polygon_dataset_id,
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        filter=None,
+        label_config=None,
+        paint={"fill-color": "#94a3b8"},
+        style_config={
+            "builder": {
+                "outlineColor": "#abcdef",
+                "outlineWidth": 3,
+                "heightColumn": "h",
+            }
+        },
+    )
+    dem_layer = _dem_layer(dem_id=dem_id)
+    map_obj = _map()
+    map_obj.terrain_config = {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 2.0,
+    }
+
+    style = build_maplibre_style(map_obj, [polygon_layer, dem_layer])
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.terrain_config is not None
+    assert imported.terrain_config["enabled"] is True
+    assert imported.terrain_config["source_dataset_id"] == str(dem_id)
+    assert imported.terrain_config["exaggeration"] == 2.0
+
+    assert imported.summary.layers_imported == 2
+
+    imported_polygon = next(
+        layer for layer in imported.layers if layer.dataset_id == polygon_dataset_id
+    )
+    assert imported_polygon.style_config is not None
+    builder = imported_polygon.style_config["builder"]
+    assert builder["outlineColor"] == "#abcdef"
+    assert builder["outlineWidth"] == 3
+    assert builder["heightColumn"] == "h"
+
+    imported_dem = next(
+        layer for layer in imported.layers if layer.dataset_id == dem_id
+    )
+    assert imported_dem.layer_type == "raster_geolens"
+    assert imported_dem.style_config is not None
+    assert imported_dem.style_config.get("render_mode") == "hillshade"
