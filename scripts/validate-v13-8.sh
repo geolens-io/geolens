@@ -6,7 +6,8 @@
 # Or via:  make validate-v13-8
 #
 # Exit codes:
-#   0 — all 33+ checks across Phases 246..251 pass
+#   0 — all 63 checks (33 distinct VALIDATION.md requirement IDs × 1-3 checks
+#       each, e.g. backend + frontend + grep gate) across Phases 246..251 pass
 #   1 — a check failed (fail-fast: prints which Phase + Requirement ID)
 #   2 — infrastructure prerequisite missing (e.g., API container down)
 set -euo pipefail
@@ -228,7 +229,7 @@ run_phase_251() {
 # -----------------------------------------------------------------------------
 # Main entrypoint
 # -----------------------------------------------------------------------------
-echo "Running v13.8 VALIDATION.md backfill checks (6 phases, ~33+ requirements)"
+echo "Running v13.8 VALIDATION.md backfill checks (6 phases, 63 checks across 33 requirements)"
 echo "API container: $API_CONTAINER"
 echo
 
