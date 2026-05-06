@@ -63,10 +63,34 @@ def _layer(**overrides):
         popup_config=None,
         style_config=overrides.get("style_config", None),
         show_in_legend=True,
-        is_3d=False,
-        is_dem=False,
-        dem_vertical_units=None,
+        is_3d=overrides.get("is_3d", False),
+        is_dem=overrides.get("is_dem", False),
+        dem_vertical_units=overrides.get("dem_vertical_units", None),
     )
+
+
+def _dem_layer(dem_id=None, **overrides):
+    defaults = {
+        "id": uuid.uuid4(),
+        "dataset_id": dem_id or uuid.uuid4(),
+        "dataset_name": "Elevation",
+        "dataset_geometry_type": None,
+        "dataset_table_name": "dem_tiles",
+        "layer_type": "raster_geolens",
+        "dataset_record_type": "raster_dataset",
+        "is_dem": True,
+        "filter": None,
+        "label_config": None,
+        "style_config": {"render_mode": "hillshade"},
+        "paint": {
+            "hillshade-illumination-direction": 315,
+            "hillshade-exaggeration": 0.7,
+            "hillshade-shadow-color": "#222222",
+        },
+        "layout": {},
+    }
+    defaults.update(overrides)
+    return _layer(**defaults)
 
 
 def test_build_maplibre_style_exports_clean_sources_layers_and_viewport():
@@ -170,6 +194,94 @@ def test_build_maplibre_style_exports_fill_companion_layers():
         0,
     ]
     assert extrusion["paint"]["fill-extrusion-color"] == "#94a3b8"
+
+
+def test_build_maplibre_style_emits_raster_dem_source_for_hillshade():
+    dem_id = uuid.uuid4()
+    layer = _dem_layer(dem_id=dem_id)
+    style = build_maplibre_style(_map(), [layer])
+    source = style["sources"][f"geolens-{dem_id}"]
+    assert source["type"] == "raster-dem"
+    assert source["encoding"] == "mapbox"
+    assert source["tileSize"] == 256
+    assert source["tiles"][0].startswith(f"/raster-tiles/{dem_id}/tiles/")
+
+
+def test_build_maplibre_style_emits_hillshade_layer_type_and_no_fill_companions():
+    layer = _dem_layer()
+    style = build_maplibre_style(_map(), [layer])
+    layer_types = [entry["type"] for entry in style["layers"]]
+    assert layer_types == ["hillshade"]
+    primary = style["layers"][0]
+    assert primary["type"] == "hillshade"
+    assert "source-layer" not in primary
+    assert set(primary["paint"]).issubset(
+        {
+            "hillshade-illumination-direction",
+            "hillshade-illumination-anchor",
+            "hillshade-exaggeration",
+            "hillshade-shadow-color",
+            "hillshade-highlight-color",
+            "hillshade-accent-color",
+        }
+    )
+    assert primary["paint"]["hillshade-exaggeration"] == 0.7
+
+
+def test_build_maplibre_style_exports_terrain_block():
+    dem_id = uuid.uuid4()
+    map_obj = _map()
+    map_obj.terrain_config = {
+        "enabled": True,
+        "source_dataset_id": str(dem_id),
+        "exaggeration": 2.5,
+    }
+    style = build_maplibre_style(map_obj, [_dem_layer(dem_id=dem_id)])
+    assert style["terrain"] == {
+        "source": f"geolens-{dem_id}",
+        "exaggeration": 2.5,
+    }
+    # metadata fallback is still emitted
+    assert style["metadata"]["geolens"]["terrain_config"]["enabled"] is True
+    assert style["metadata"]["geolens"]["terrain_config"]["source_dataset_id"] == str(
+        dem_id
+    )
+
+
+def test_build_maplibre_style_omits_terrain_block_when_dem_source_missing():
+    map_obj = _map()
+    map_obj.terrain_config = {
+        "enabled": True,
+        "source_dataset_id": str(uuid.uuid4()),  # no matching layer below
+        "exaggeration": 1.5,
+    }
+    style = build_maplibre_style(map_obj, [_layer()])  # vector layer only
+    assert "terrain" not in style
+    assert style["metadata"]["geolens"]["terrain_config"]["enabled"] is True
+
+
+def test_build_maplibre_style_preserves_builder_style_config_in_layer_metadata():
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#94a3b8"},
+        label_config=None,
+        style_config={
+            "builder": {
+                "outlineColor": "#aabbcc",
+                "outlineWidth": 2,
+                "heightColumn": "h",
+                "_private": "should-be-dropped",
+            },
+            "render_mode": None,  # not a real render mode; ignored by allowlist
+        },
+    )
+    style = build_maplibre_style(_map(), [layer])
+    primary = style["layers"][0]
+    builder = primary["metadata"]["geolens"]["style_config"]["builder"]
+    assert builder["outlineColor"] == "#aabbcc"
+    assert builder["outlineWidth"] == 2
+    assert builder["heightColumn"] == "h"
+    assert "_private" not in builder
 
 
 def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external():
