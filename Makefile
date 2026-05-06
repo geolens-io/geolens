@@ -103,7 +103,16 @@ sdks:
 	# endpoint from the generated Python SDK. The gate fails the build on any such line.
 	# Pattern is anchored to openapi-python-client's literal emission format to avoid
 	# false-positives on AuthlibDeprecationWarning / uv VIRTUAL_ENV / other env noise.
-	@_count=$$(grep -c '^WARNING parsing' /tmp/openapi-python-client.log || true); \
+	#
+	# Phase 254 WR-02: explicitly assert the log file exists before grep, so
+	# a missing log (e.g., generator crashed before tee opened the file, or
+	# the build env wiped /tmp between recipe lines) prints a clear error
+	# rather than the misleading "emitted  warning(s)" with empty count.
+	@if [ ! -f /tmp/openapi-python-client.log ]; then \
+	    echo "ERROR: /tmp/openapi-python-client.log missing — openapi-python-client did not run or its output was discarded." >&2; \
+	    exit 1; \
+	  fi; \
+	  _count=$$(grep -c '^WARNING parsing' /tmp/openapi-python-client.log || true); \
 	  if [ "$$_count" != "0" ]; then \
 	    echo "" >&2; \
 	    echo "ERROR: openapi-python-client emitted $$_count warning(s) — endpoint(s) silently dropped from Python SDK:" >&2; \
