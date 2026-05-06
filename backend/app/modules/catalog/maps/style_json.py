@@ -16,7 +16,7 @@ from app.modules.catalog.maps.schemas import (
     MapStyleImportSummary,
     MapStyleImportWarning,
 )
-from app.processing.tiles.signing import generate_tile_signature, round_expiry
+from app.platform.extensions import get_catalog_port
 
 STYLE_VERSION = 8
 GEOLENS_SPRITE_ID = "geolens"
@@ -218,10 +218,11 @@ def _tile_url_for_layer(layer: MapLayerResponse) -> str:
         "vrt_dataset",
     }:
         return f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    exp = round_expiry()
+    port = get_catalog_port()
+    exp = port.round_tile_expiry()
     params = urlencode(
         {
-            "sig": generate_tile_signature(layer.dataset_table_name, exp),
+            "sig": port.generate_tile_signature(layer.dataset_table_name, exp),
             "exp": exp,
             "scope": layer.dataset_table_name,
         }
