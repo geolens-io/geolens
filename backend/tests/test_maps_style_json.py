@@ -350,6 +350,33 @@ def test_build_maplibre_style_emits_line_metrics_for_builder_intent_only():
     assert "line-gradient" not in primary["paint"]
 
 
+def test_build_maplibre_style_rejects_array_shaped_builder_line_gradient_intent():
+    """Locked contract per CONTEXT D-01: builder.lineGradient must be a non-empty plain dict.
+
+    Arrays must be rejected for parity with the frontend `lineGradientNeededFor` helper, which
+    uses `!Array.isArray(intent)`. If a future Phase 256 change emits an array-shaped intent,
+    both sides must be aligned in lockstep. This test locks the backend half.
+    """
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint={"line-color": "#000000", "line-width": 2},
+        style_config={
+            "builder": {
+                "lineGradient": [{"position": 0.0, "color": "#0000ff"}],
+            }
+        },
+        label_config=None,
+        filter=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "vector"
+    assert "lineMetrics" not in source
+
+
 def test_build_maplibre_style_omits_line_metrics_when_source_has_no_gradient_consumer():
     dataset_id = uuid.uuid4()
     layer = _layer(

@@ -183,8 +183,17 @@ export function getLayerId(layerId: string) {
 /** Detect whether any layer using this sourceId needs `lineMetrics: true`.
  *  A layer "needs" the flag when:
  *    - paint['line-gradient'] is set (any value — string, array expression, or object), OR
- *    - style_config.builder.lineGradient is a non-empty object (Phase 256 builder intent stub).
- *  Locked detection rule per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01. */
+ *    - style_config.builder.lineGradient is a non-empty plain object (Phase 256 builder intent stub).
+ *  Contract (locked): builder.lineGradient must be a plain object (NOT an array). Both this
+ *  helper and the backend `_layer_uses_line_gradient` reject array-shaped intent. Phase 256
+ *  builder UI must serialize stops as `{stops: [...]}` (or similar object wrapper), never as a
+ *  bare array. Detection rule per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01.
+ *
+ *  Implementation note: `lineGradientNeededFor` iterates the full layer list for structural
+ *  symmetry with the backend `_layer_uses_line_gradient`. In the current frontend each layer
+ *  has its own per-layer source-id (derived from layer.id), so this loop matches at most one
+ *  layer in practice. The full-list iteration is intentional forward-compatibility for any
+ *  future move to dataset-keyed sources. */
 function lineGradientNeededFor(
   sourceId: string,
   layers: SyncLayerInput[],
@@ -196,7 +205,14 @@ function lineGradientNeededFor(
     if (paint['line-gradient'] != null) return true;
     const builder = (layer.style_config as { builder?: { lineGradient?: unknown } } | null | undefined)?.builder;
     const intent = builder?.lineGradient;
-    if (intent != null && typeof intent === 'object' && Object.keys(intent as object).length > 0) {
+    // Must be a non-null, non-array plain object with at least one key. Arrays are rejected
+    // for parity with the backend (`isinstance(intent, dict)`); see CONTEXT D-01.
+    if (
+      intent != null
+      && typeof intent === 'object'
+      && !Array.isArray(intent)
+      && Object.keys(intent as object).length > 0
+    ) {
       return true;
     }
   }

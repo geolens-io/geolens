@@ -9,7 +9,9 @@ type AdapterStyleConfig = Partial<StyleConfig> & {
 /**
  * Detection rule for source-level `lineMetrics: true` (see map-sync.ts `lineGradientNeededFor`):
  *   1. `paint['line-gradient']` is set (any non-null/non-undefined value).
- *   2. `style_config.builder.lineGradient` is a non-empty object (Phase 256 authoring intent).
+ *   2. `style_config.builder.lineGradient` is a non-empty plain object (Phase 256 authoring intent).
+ *      Arrays are explicitly rejected — both frontend and backend require dict-shape for parity
+ *      across the export/import boundary.
  * The flag is sticky once set — the source is not torn down on gradient removal mid-session
  * (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-02).
  */

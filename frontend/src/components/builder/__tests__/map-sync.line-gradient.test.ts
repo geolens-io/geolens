@@ -113,6 +113,29 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     expect(spec).not.toHaveProperty('lineMetrics');
   });
 
+  it('rejects array-shaped builder.lineGradient intent (parity with backend dict-only contract)', () => {
+    // Locked contract per CONTEXT D-01: builder.lineGradient must be a non-empty plain object.
+    // Arrays must be rejected on both sides. Backend `_layer_uses_line_gradient` does this via
+    // `isinstance(intent, dict)`; frontend `lineGradientNeededFor` does it via
+    // `!Array.isArray(intent)`. This test locks the frontend half so future Phase 256 changes
+    // cannot silently introduce array-shaped intent without aligning the backend too.
+    const map = makeMockMap();
+    const layer = makeLayer({
+      id: 'l-array-intent',
+      paint: { 'line-color': '#000', 'line-width': 2 },
+      style_config: {
+        builder: { lineGradient: [{ position: 0, color: '#00f' }] },
+      } as unknown as SyncLayerInput['style_config'],
+    });
+    syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
+    const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => c[0] === 'source-l-array-intent',
+    );
+    expect(calls.length).toBe(1);
+    const spec = calls[0][1] as Record<string, unknown>;
+    expect(spec).not.toHaveProperty('lineMetrics');
+  });
+
   it('emits lineMetrics: true once when two layers share a source and one needs it', () => {
     const map = makeMockMap();
     const sharedDatasetId = 'ds-shared';
