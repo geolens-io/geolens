@@ -1007,9 +1007,7 @@ def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent(
         entry for entry in imported.layers if entry.dataset_id == line_dataset_id
     )
     assert imported_line.style_config is not None
-    assert (
-        imported_line.style_config["builder"]["lineGradient"] == builder_intent
-    )
+    assert imported_line.style_config["builder"]["lineGradient"] == builder_intent
 
     # Re-export: thread the imported style_config back through the layer factory.
     re_line = _layer(

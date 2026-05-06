@@ -16,7 +16,9 @@ depends_on: Union[str, tuple[str, ...], None] = None
 def upgrade() -> None:
     op.add_column(
         "maps",
-        sa.Column("terrain_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column(
+            "terrain_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True
+        ),
         schema="catalog",
     )
 

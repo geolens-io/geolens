@@ -37,7 +37,9 @@ def upgrade() -> None:
             "media_type IN ('image/svg+xml', 'image/png')",
             name="chk_map_icon_assets_media_type",
         ),
-        sa.ForeignKeyConstraint(["created_by"], ["catalog.users.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["created_by"], ["catalog.users.id"], ondelete="SET NULL"
+        ),
         sa.UniqueConstraint("slug", name="uq_map_icon_assets_slug"),
         schema="catalog",
     )
