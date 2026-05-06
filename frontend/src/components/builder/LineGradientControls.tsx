@@ -312,7 +312,16 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
             const displayedPos = pendingPos !== undefined ? pendingPos : stop.position;
             const positionValid =
               displayedPos >= 0 && displayedPos <= 1 && Number.isFinite(displayedPos);
-            const monotonic = idx === 0 || stop.position > liveStops[idx - 1].position;
+            // Use displayedPos (factors in pending edits) instead of committed position so the
+            // monotonic warning surfaces immediately while typing instead of lagging by one
+            // commit cycle. Phase 256 review — IN-03.
+            const prevDisplayedPos =
+              idx === 0
+                ? -Infinity
+                : pendingPositionEdits[idx - 1] !== undefined
+                  ? pendingPositionEdits[idx - 1]
+                  : liveStops[idx - 1].position;
+            const monotonic = idx === 0 || displayedPos > prevDisplayedPos;
             return (
               <div key={idx} className="space-y-1">
                 <div className="flex items-center gap-2">
