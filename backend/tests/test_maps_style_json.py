@@ -680,3 +680,194 @@ def test_build_maplibre_style_round_trip_preserves_terrain_and_builder_state():
     assert imported_dem.layer_type == "raster_geolens"
     assert imported_dem.style_config is not None
     assert imported_dem.style_config.get("render_mode") == "hillshade"
+
+
+def test_parse_maplibre_style_import_restores_line_gradient_paint():
+    gradient = [
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#0000ff",
+        1,
+        "#00ff00",
+    ]
+    dataset_id = uuid.uuid4()
+    style = {
+        "version": 8,
+        "name": "Gradient roads",
+        "sources": {
+            f"geolens-{dataset_id}": {
+                "type": "vector",
+                "tiles": ["/tiles/data.roads/{z}/{x}/{y}.pbf"],
+                "minzoom": 1,
+                "maxzoom": 22,
+                "lineMetrics": True,
+                "metadata": {"geolens": {"dataset_id": str(dataset_id)}},
+            }
+        },
+        "layers": [
+            {
+                "id": "primary",
+                "type": "line",
+                "source": f"geolens-{dataset_id}",
+                "source-layer": "roads",
+                "paint": {
+                    "line-color": "#000000",
+                    "line-width": 2,
+                    "line-gradient": gradient,
+                },
+                "metadata": {"geolens": {"layer_id": "layer-1"}},
+            }
+        ],
+    }
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+    layer = imported.layers[0]
+    assert layer.paint["line-gradient"] == gradient
+    assert layer.paint["line-color"] == "#000000"
+    assert layer.paint["line-width"] == 2
+
+
+def test_parse_maplibre_style_import_restores_builder_line_gradient_intent():
+    dataset_id = uuid.uuid4()
+    style = {
+        "version": 8,
+        "name": "Gradient intent",
+        "sources": {
+            f"geolens-{dataset_id}": {
+                "type": "vector",
+                "tiles": ["/tiles/data.roads/{z}/{x}/{y}.pbf"],
+                "minzoom": 1,
+                "maxzoom": 22,
+                "lineMetrics": True,
+                "metadata": {"geolens": {"dataset_id": str(dataset_id)}},
+            }
+        },
+        "layers": [
+            {
+                "id": "primary",
+                "type": "line",
+                "source": f"geolens-{dataset_id}",
+                "source-layer": "roads",
+                "paint": {
+                    "line-color": "#000000",
+                    "line-width": 2,
+                },
+                "metadata": {
+                    "geolens": {
+                        "layer_id": "layer-1",
+                        "style_config": {
+                            "builder": {
+                                "lineGradient": {
+                                    "stops": [
+                                        {"position": 0.0, "color": "#0000ff"},
+                                        {"position": 1.0, "color": "#00ff00"},
+                                    ]
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        ],
+    }
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+    layer = imported.layers[0]
+    assert layer.style_config is not None
+    assert layer.style_config["builder"]["lineGradient"]["stops"] == [
+        {"position": 0.0, "color": "#0000ff"},
+        {"position": 1.0, "color": "#00ff00"},
+    ]
+
+
+def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_source_flag():
+    gradient = [
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#0000ff",
+        1,
+        "#00ff00",
+    ]
+    line_dataset_id = uuid.uuid4()
+    polygon_dataset_id = uuid.uuid4()
+    polygon_layer = _layer(
+        dataset_id=polygon_dataset_id,
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        paint={"fill-color": "#94a3b8"},
+        label_config=None,
+        filter=None,
+        sort_order=0,
+    )
+    line_layer = _layer(
+        id=uuid.uuid4(),
+        dataset_id=line_dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint={
+            "line-color": "#000000",
+            "line-width": 2,
+            "line-gradient": gradient,
+        },
+        label_config=None,
+        filter=None,
+        sort_order=1,
+    )
+
+    # First export: build_maplibre_style emits paint['line-gradient'] AND source.lineMetrics=true.
+    style = build_maplibre_style(_map(), [polygon_layer, line_layer])
+    line_source_id = f"geolens-{line_dataset_id}"
+    assert style["sources"][line_source_id]["lineMetrics"] is True
+    line_export = next(
+        entry
+        for entry in style["layers"]
+        if entry["type"] == "line" and entry["source"] == line_source_id
+    )
+    assert line_export["paint"]["line-gradient"] == gradient
+
+    # Import: parse_maplibre_style_import restores paint['line-gradient'].
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 2
+    imported_line = next(
+        entry for entry in imported.layers if entry.dataset_id == line_dataset_id
+    )
+    assert imported_line.paint["line-gradient"] == gradient
+
+    # Re-export: construct a MapLayerResponse from the imported MapLayerInput and re-build the style.
+    # This mechanic mirrors Phase 251 Plan 02 round-trip pattern: imported.layers (MapLayerInput) ->
+    # _layer(...) factory -> MapLayerResponse -> build_maplibre_style.
+    imported_polygon = next(
+        entry for entry in imported.layers if entry.dataset_id == polygon_dataset_id
+    )
+    re_polygon = _layer(
+        dataset_id=imported_polygon.dataset_id,
+        dataset_geometry_type="POLYGON",
+        dataset_table_name="parcels",
+        paint=imported_polygon.paint,
+        label_config=None,
+        filter=None,
+        sort_order=0,
+    )
+    re_line = _layer(
+        dataset_id=imported_line.dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint=imported_line.paint,
+        label_config=None,
+        filter=None,
+        sort_order=1,
+    )
+    re_style = build_maplibre_style(_map(), [re_polygon, re_line])
+
+    # Byte-or-semantic identity: line-gradient and lineMetrics survive a full round-trip.
+    assert re_style["sources"][f"geolens-{line_dataset_id}"]["lineMetrics"] is True
+    re_line_export = next(
+        entry
+        for entry in re_style["layers"]
+        if entry["type"] == "line" and entry["source"] == f"geolens-{line_dataset_id}"
+    )
+    assert re_line_export["paint"]["line-gradient"] == gradient
