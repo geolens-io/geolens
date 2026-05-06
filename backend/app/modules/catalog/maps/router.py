@@ -1347,11 +1347,11 @@ async def upload_thumbnail(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Body must be a data:image/ URI",
         )
-    if len(data_uri) > 100_000:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Thumbnail too large (max 100KB)",
-        )
+    # Phase 254 IN-02: the 100KB length bound now lives on
+    # ThumbnailUploadRequest.data_uri (Field(max_length=100_000)). Pydantic
+    # rejects oversize payloads with a 422 at request validation time,
+    # before this handler ever runs — so the previous manual
+    # `if len(data_uri) > 100_000` check has been removed as redundant.
 
     # Decode base64 data URI → raw image bytes
     # Format: data:image/jpeg;base64,<payload>
