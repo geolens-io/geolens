@@ -289,6 +289,14 @@ describe('LineGradientControls — advanced expression editor', () => {
     expect(screen.queryByRole('textbox', { name: 'style.lineGradient.advanced' })).not.toBeInTheDocument();
   });
 
+  it('advanced: openAdvanced with empty paint renders empty textarea, not literal "null" (IN-02)', async () => {
+    const user = userEvent.setup();
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textarea = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' }) as HTMLTextAreaElement;
+    expect(textarea.value).toBe('');
+  });
+
   it('advanced: opening the line-gradient advanced disclosure renders a textarea + Apply + Cancel', async () => {
     const user = userEvent.setup();
     render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);

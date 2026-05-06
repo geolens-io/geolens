@@ -229,7 +229,8 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   function openAdvanced() {
     const expr = paint['line-gradient'] ?? null;
-    setAdvancedText(JSON.stringify(expr, null, 2));
+    // Empty paint -> empty textarea (don't show literal "null"). Phase 256 review — IN-02.
+    setAdvancedText(expr == null ? '' : JSON.stringify(expr, null, 2));
     setAdvancedError(null);
     setAdvancedOpen(true);
   }
