@@ -66,6 +66,7 @@ from app.modules.catalog.maps.service import (
     LayerRow,
     bulk_check_dataset_access,
     add_layer,
+    apply_layer_diff,
     check_map_ownership,
     create_map,
     create_share_token,
@@ -85,7 +86,6 @@ from app.modules.catalog.maps.service import (
     update_share_token,
     validate_public_visibility,
 )
-from app.modules.catalog.maps.service_crud import apply_layer_diff
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
