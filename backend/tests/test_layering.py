@@ -1344,13 +1344,33 @@ def test_upload_thumbnail_route_uses_json_body() -> None:
     # Inspect the parameter list. The route must NOT have any parameter
     # whose default is a Body(...) call with a `media_type` keyword arg
     # set to a non-JSON content type (typically "text/plain").
+    #
+    # Phase 254 WR-01: walk both positional defaults AND kwonly defaults,
+    # so a regression that switches `upload_thumbnail` to FastAPI's
+    # keyword-only style (e.g., `*, data_uri: str = Body(..., media_type=...)`)
+    # is also caught. Without this, kwonly args land in
+    # `fn.args.kwonlyargs` / `fn.args.kw_defaults` and slip past the guard.
     args = upload_fn.args.args
     defaults = upload_fn.args.defaults
     default_idx = len(args) - len(defaults)
-    for arg_pos, arg in enumerate(args):
-        if arg_pos < default_idx:
-            continue  # no default
-        default = defaults[arg_pos - default_idx]
+    positional_pairs: list[tuple[ast.arg, ast.expr]] = [
+        (arg, defaults[arg_pos - default_idx])
+        for arg_pos, arg in enumerate(args)
+        if arg_pos >= default_idx
+    ]
+    # `kw_defaults` is parallel to `kwonlyargs`; entries are `None` when
+    # a kwonly arg has no default. Filter those out so `(arg, default)`
+    # below is always (ast.arg, ast.expr).
+    kwonly_pairs: list[tuple[ast.arg, ast.expr]] = [
+        (arg, default)
+        for arg, default in zip(
+            upload_fn.args.kwonlyargs,
+            upload_fn.args.kw_defaults,
+            strict=True,
+        )
+        if default is not None
+    ]
+    for arg, default in (*positional_pairs, *kwonly_pairs):
         if not isinstance(default, ast.Call):
             continue
         func = default.func
