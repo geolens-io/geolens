@@ -890,7 +890,10 @@ def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_sourc
     )
     re_style = build_maplibre_style(_map(), [re_polygon, re_line])
 
-    # Byte-or-semantic identity: line-gradient and lineMetrics survive a full round-trip.
+    # Semantic identity (Python `==` is element-wise structural equality on lists/dicts):
+    # line-gradient and lineMetrics survive a full round-trip. Byte-identity is not asserted
+    # — undefined paint values may be normalized away across import — but semantic equality
+    # is the agreed bar per CONTEXT.md line 59.
     assert re_style["sources"][f"geolens-{line_dataset_id}"]["lineMetrics"] is True
     re_line_export = next(
         entry
@@ -898,3 +901,90 @@ def test_build_maplibre_style_round_trip_preserves_line_gradient_paint_and_sourc
         if entry["type"] == "line" and entry["source"] == f"geolens-{line_dataset_id}"
     )
     assert re_line_export["paint"]["line-gradient"] == gradient
+
+
+def test_build_maplibre_style_round_trip_preserves_builder_line_gradient_intent():
+    """Full round-trip for the BUILDER-INTENT detection path (WR-01 from REVIEW.md).
+
+    The companion test above covers paint-driven gradient. This one covers the second
+    detection input — `style_config.builder.lineGradient` — through the full
+    export -> import -> re-export cycle. Phase 256 builder UI is the primary consumer
+    of this intent field; if a future allowlist change in `_clean_style_metadata`
+    silently strips it, this test catches it. Both lineMetrics and the builder.lineGradient
+    payload must survive the full round-trip.
+    """
+    builder_intent = {
+        "stops": [
+            {"position": 0.0, "color": "#0000ff"},
+            {"position": 1.0, "color": "#00ff00"},
+        ]
+    }
+    line_dataset_id = uuid.uuid4()
+    line_layer = _layer(
+        id=uuid.uuid4(),
+        dataset_id=line_dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint={
+            "line-color": "#000000",
+            "line-width": 2,
+            # Note: NO paint['line-gradient'] — builder-intent only.
+        },
+        style_config={"builder": {"lineGradient": builder_intent}},
+        label_config=None,
+        filter=None,
+        sort_order=0,
+    )
+
+    # First export: builder intent triggers source.lineMetrics=true; paint omits line-gradient.
+    style = build_maplibre_style(_map(), [line_layer])
+    line_source_id = f"geolens-{line_dataset_id}"
+    assert style["sources"][line_source_id]["lineMetrics"] is True
+    line_export = next(
+        entry
+        for entry in style["layers"]
+        if entry["type"] == "line" and entry["source"] == line_source_id
+    )
+    assert "line-gradient" not in line_export["paint"]
+    # Builder intent must round-trip via metadata.geolens.style_config.
+    assert (
+        line_export["metadata"]["geolens"]["style_config"]["builder"]["lineGradient"]
+        == builder_intent
+    )
+
+    # Import: parse_maplibre_style_import restores style_config.builder.lineGradient.
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+    imported_line = next(
+        entry for entry in imported.layers if entry.dataset_id == line_dataset_id
+    )
+    assert imported_line.style_config is not None
+    assert (
+        imported_line.style_config["builder"]["lineGradient"] == builder_intent
+    )
+
+    # Re-export: thread the imported style_config back through the layer factory.
+    re_line = _layer(
+        dataset_id=imported_line.dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="roads",
+        paint=imported_line.paint,
+        style_config=imported_line.style_config,
+        label_config=None,
+        filter=None,
+        sort_order=0,
+    )
+    re_style = build_maplibre_style(_map(), [re_line])
+
+    # Semantic identity: lineMetrics + builder intent both survive the full round-trip.
+    assert re_style["sources"][line_source_id]["lineMetrics"] is True
+    re_line_export = next(
+        entry
+        for entry in re_style["layers"]
+        if entry["type"] == "line" and entry["source"] == line_source_id
+    )
+    assert "line-gradient" not in re_line_export["paint"]
+    assert (
+        re_line_export["metadata"]["geolens"]["style_config"]["builder"]["lineGradient"]
+        == builder_intent
+    )
