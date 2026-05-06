@@ -85,8 +85,11 @@ run_check() {
   else
     local rc=$?
     printf "  ${C_RED}[%s] FAIL${C_RESET} (exit %d)\n" "$label" "$rc"
-    echo "----- last 40 lines of output -----"
-    tail -40 /tmp/validate-v13-8-last.log
+    echo "  Failed check: $label"
+    echo "  Command: $cmd"
+    echo "  Re-run:  ( cd \"$REPO_ROOT\" && $cmd )"
+    echo "----- last 200 lines of output (full log: /tmp/validate-v13-8-last.log) -----"
+    tail -200 /tmp/validate-v13-8-last.log
     echo "----- end -----"
     exit 1
   fi
