@@ -58,7 +58,10 @@ ingress:
 secrets:
   existingSecret: ""
   databaseUrlOverride: ""
-  secretKey: ""
+  # JWT signing secret. MUST be at least 32 characters.
+  # Generate with: openssl rand -hex 32
+  # Maps to JWT_SECRET_KEY env var (matches Pydantic Settings field).
+  jwtSecretKey: ""
   tileSigningSecret: ""
   openaiApiKey: ""
   anthropicApiKey: ""
