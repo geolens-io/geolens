@@ -2,7 +2,7 @@
 
 These tests require a real ogr2ogr binary. On dev hosts without GDAL
 installed, every test in this file is skipped. CI and the backend
-Docker image install gdal-bin via apt (see backend/Dockerfile), so the
+Docker image install gdal-bin via apt (see root Dockerfile), so the
 tests run in full there.
 
 Covers:
