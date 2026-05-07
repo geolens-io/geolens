@@ -21,6 +21,16 @@ _DEFAULT_PUBLIC_APP_URL = "http://localhost:8080"
 _DEFAULT_PUBLIC_API_URL = "http://localhost:8000"
 
 
+class PublicUrlNotConfiguredError(RuntimeError):
+    """Phase 268 H-27: raised when a caller asks for an external-use URL
+    (e.g. OAuth redirect_uri) but neither PUBLIC_APP_URL nor PUBLIC_API_URL
+    is configured. The request-origin fallback is unsafe for redirect_uri
+    because the IdP receives whatever the attacker sets in
+    ``X-Forwarded-Host`` / ``Origin`` / ``Referer``, enabling an
+    auth-code-stealing attack against IdPs with permissive redirect-URI
+    policies. Forcing explicit configuration closes that path."""
+
+
 def normalize_public_url(url: str | None) -> str | None:
     if url is None:
         return None
@@ -87,7 +97,17 @@ def resolve_public_api_url(
     legacy_api_url: str | None,
     *,
     request: Request | None = None,
+    for_external_use: bool = False,
 ) -> str:
+    """Resolve the public API URL.
+
+    Phase 268 H-27: when ``for_external_use=True``, the request-origin
+    fallback is disabled. Such a URL is handed to a third party (e.g. an
+    IdP as the OAuth redirect_uri) where an attacker-controlled origin
+    enables auth-code theft. Caller MUST configure ``PUBLIC_APP_URL`` /
+    ``PUBLIC_API_URL`` for OAuth flows; otherwise this raises
+    ``PublicUrlNotConfiguredError``.
+    """
     normalized_api = normalize_public_url(api_url) or normalize_public_url(
         legacy_api_url
     )
@@ -97,6 +117,14 @@ def resolve_public_api_url(
     normalized_app = normalize_public_url(app_url)
     if normalized_app:
         return append_api_suffix(normalized_app)
+
+    if for_external_use:
+        raise PublicUrlNotConfiguredError(
+            "OAuth and other external-use flows require an explicit "
+            "PUBLIC_APP_URL or PUBLIC_API_URL setting. Falling back to "
+            "request-derived origin is unsafe — an attacker who controls "
+            "X-Forwarded-Host can hijack the OAuth redirect_uri."
+        )
 
     request_origin = _request_origin(request)
     if request_origin:
@@ -123,7 +151,10 @@ def resolve_public_app_url(
     legacy_api_url: str | None,
     *,
     request: Request | None = None,
+    for_external_use: bool = False,
 ) -> str:
+    """Resolve the public app URL. See :func:`resolve_public_api_url` for
+    the H-27 ``for_external_use`` semantics — same rules apply."""
     normalized_app = normalize_public_url(app_url)
     if normalized_app:
         return normalized_app
@@ -135,6 +166,14 @@ def resolve_public_app_url(
         stripped = strip_api_suffix(normalized_api)
         if stripped != normalized_api:
             return stripped
+
+    if for_external_use:
+        raise PublicUrlNotConfiguredError(
+            "OAuth and other external-use flows require an explicit "
+            "PUBLIC_APP_URL or PUBLIC_API_URL setting. Falling back to "
+            "request-derived origin is unsafe — an attacker who controls "
+            "X-Forwarded-Host can hijack the OAuth redirect_uri."
+        )
 
     request_origin = _request_origin(request)
     if request_origin:
@@ -200,7 +239,10 @@ async def get_public_urls(
     db: AsyncSession,
     *,
     request: Request | None = None,
+    for_external_use: bool = False,
 ) -> tuple[str, str]:
+    """Resolve (app_url, api_url) tuple. See :func:`resolve_public_api_url`
+    for H-27 ``for_external_use`` semantics."""
     overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
 
     app_url = resolve_public_app_url(
@@ -208,12 +250,14 @@ async def get_public_urls(
         overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
         overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
         request=request,
+        for_external_use=for_external_use,
     )
     api_url = resolve_public_api_url(
         overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url),
         overrides.get(PUBLIC_API_URL_KEY, settings.public_api_url),
         overrides.get(LEGACY_PUBLIC_API_URL_KEY, settings.public_base_url),
         request=request,
+        for_external_use=for_external_use,
     )
     return app_url, api_url
 
@@ -222,8 +266,11 @@ async def get_public_app_url(
     db: AsyncSession,
     *,
     request: Request | None = None,
+    for_external_use: bool = False,
 ) -> str:
-    app_url, _ = await get_public_urls(db, request=request)
+    app_url, _ = await get_public_urls(
+        db, request=request, for_external_use=for_external_use
+    )
     return app_url
 
 
@@ -240,6 +287,9 @@ async def get_public_api_url(
     db: AsyncSession,
     *,
     request: Request | None = None,
+    for_external_use: bool = False,
 ) -> str:
-    _, api_url = await get_public_urls(db, request=request)
+    _, api_url = await get_public_urls(
+        db, request=request, for_external_use=for_external_use
+    )
     return api_url

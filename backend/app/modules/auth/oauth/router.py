@@ -73,10 +73,31 @@ async def oauth_login(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
-    """Redirect user to the IdP authorization URL with PKCE parameters."""
+    """Redirect user to the IdP authorization URL with PKCE parameters.
+
+    Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+    attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
+    enable auth-code theft. We force explicit-config resolution by
+    passing ``for_external_use=True``; falling back to the request-origin
+    is refused.
+    """
     client, _provider = await build_oauth_client(provider_slug, db)
 
-    public_api_url = await get_public_api_url(db, request=request)
+    from app.core.public_urls import PublicUrlNotConfiguredError
+
+    try:
+        public_api_url = await get_public_api_url(
+            db, request=request, for_external_use=True
+        )
+    except PublicUrlNotConfiguredError as exc:
+        logger.error(
+            "OAuth login refused: PUBLIC_APP_URL / PUBLIC_API_URL not configured",
+            provider=provider_slug,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
     redirect_uri = f"{public_api_url}/auth/oauth/{provider_slug}/callback"
 
     return await client.authorize_redirect(request, redirect_uri)
@@ -88,11 +109,31 @@ async def oauth_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend."""
+    """Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+
+    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    fragment. Without explicit-config resolution, an attacker controlling
+    ``X-Forwarded-Host`` could steer the post-callback redirect to
+    attacker.com and capture the tokens. Force explicit-config resolution
+    by passing ``for_external_use=True``.
+    """
     from app.modules.auth.oauth.service import find_or_create_oauth_user
+    from app.core.public_urls import PublicUrlNotConfiguredError
 
     # Compute frontend URL before try block (needed in except for error redirect)
-    frontend_url = await get_public_app_url(db, request=request)
+    try:
+        frontend_url = await get_public_app_url(
+            db, request=request, for_external_use=True
+        )
+    except PublicUrlNotConfiguredError as exc:
+        logger.error(
+            "OAuth callback refused: PUBLIC_APP_URL / PUBLIC_API_URL not configured",
+            provider=provider_slug,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
 
     try:
         client, provider = await build_oauth_client(provider_slug, db)
