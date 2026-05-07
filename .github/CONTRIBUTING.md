@@ -51,10 +51,12 @@ All services (db, migrate, api, worker, frontend, titiler) should show as health
 **Backend:**
 
 ```bash
-docker compose exec api pytest
-docker compose exec api pytest tests/unit -v     # Unit tests only
-docker compose exec api pytest tests/api -v      # API integration tests
+docker compose exec api pytest                              # Full test suite
+docker compose exec api pytest -v -k "<pattern>"            # Filter by test name pattern
+docker compose exec api pytest backend/tests/test_auth.py   # Run a single test file
 ```
+
+Backend tests live under `backend/tests/` as a flat directory of `test_*.py` files (no `unit/` or `api/` subdirectories). Coverage thresholds are configured in `backend/pyproject.toml`.
 
 **Frontend:**
 
