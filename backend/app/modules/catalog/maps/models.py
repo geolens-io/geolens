@@ -46,6 +46,15 @@ class Map(Base):
                 "lower(coalesce(description, ''))": "gin_trgm_ops"
             },
         ),
+        # DBM-06 (Phase 271): Map.visibility composite index intentionally
+        # NOT created. The RBAC list-public-maps query uses
+        # `WHERE visibility = 'public' AND created_by = ?` and similar combos.
+        # db-audit M-18 recommended adding `Index('ix_maps_visibility_creator',
+        # 'visibility', 'created_by')` once a real-world metric warranted it.
+        # Revisit trigger: EXPLAIN (ANALYZE) on the public-maps list query
+        # shows a sequential scan against catalog.maps when row count exceeds
+        # ~10k. Until then, the cost of an extra index (write maintenance +
+        # disk) outweighs the latency benefit. See docs/db-index-deferrals.md.
         {"schema": "catalog"},
     )
 
