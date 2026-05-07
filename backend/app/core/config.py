@@ -20,6 +20,21 @@ _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 DEMO_JWT_SECRET = "demo-only-do-not-use-in-production-change-me"
 DEMO_ADMIN_PASSWORD = "demodemo"
 
+# Phase 268 H-28: known-public example values that the JWT length validator
+# would otherwise accept. Any of these strings on a real deployment lets an
+# attacker forge tokens trivially. The validator rejects them in all modes
+# (no demo opt-in — these are documentation defaults, not demo credentials).
+KNOWN_BAD_JWT_SECRETS = frozenset(
+    {
+        "dev-only-change-me-in-production",  # .env.example default (32 chars)
+        "change-me",
+        "secret",
+        "changeme",
+        "please-change-me",
+        "your-secret-key",
+    }
+)
+
 
 class Settings(BaseSettings):
     postgres_user: str = "geolens"
@@ -127,10 +142,20 @@ class Settings(BaseSettings):
     @field_validator("jwt_secret_key", mode="after")
     @classmethod
     def validate_jwt_secret_length(cls, v: SecretStr) -> SecretStr:
-        if len(v.get_secret_value()) < 32:
+        raw = v.get_secret_value()
+        if len(raw) < 32:
             raise ValueError(
                 "JWT_SECRET_KEY must be at least 32 characters. "
                 "Generate one with: openssl rand -hex 32"
+            )
+        # Phase 268 H-28: reject known-public example values that pass the
+        # length check but are committed in .env.example / docs.
+        if raw in KNOWN_BAD_JWT_SECRETS:
+            raise ValueError(
+                "JWT_SECRET_KEY is set to a publicly-known example value. "
+                "Anyone who reads the public repo can forge JWTs against "
+                "this deployment. Generate a real secret with: "
+                "openssl rand -hex 32"
             )
         return v
 

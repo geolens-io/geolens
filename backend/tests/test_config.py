@@ -282,22 +282,40 @@ class TestExternalPooler:
 
 
 class TestJwtSecretLengthValidator:
-    """JWT_SECRET_KEY must be at least 32 characters."""
+    """JWT_SECRET_KEY must be at least 32 characters and not a known-bad value."""
 
     def test_short_jwt_secret_rejected(self):
         with pytest.raises(Exception) as exc_info:
             _make_settings(jwt_secret_key="too-short")
         assert "32 characters" in str(exc_info.value)
 
-    def test_exactly_32_chars_accepted(self):
-        # The .env.example default ("dev-only-change-me-in-production") is 32 chars
-        s = _make_settings(jwt_secret_key="dev-only-change-me-in-production")
-        assert s.jwt_secret_key.get_secret_value() == "dev-only-change-me-in-production"
+    def test_exactly_32_chars_unique_value_accepted(self):
+        # 32-char string that is NOT in KNOWN_BAD_JWT_SECRETS
+        unique_32 = "exactly32-character-test-secret!"
+        assert len(unique_32) == 32
+        s = _make_settings(jwt_secret_key=unique_32)
+        assert s.jwt_secret_key.get_secret_value() == unique_32
 
     def test_long_jwt_secret_accepted(self):
         long_key = "x" * 64
         s = _make_settings(jwt_secret_key=long_key)
         assert s.jwt_secret_key.get_secret_value() == long_key
+
+    def test_known_bad_jwt_secret_rejected(self):
+        """Phase 268 H-28: .env.example default is exactly 32 chars but is a
+        public, version-controlled value. The validator must reject it."""
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(jwt_secret_key="dev-only-change-me-in-production")
+        assert "publicly-known example value" in str(exc_info.value)
+
+    def test_short_known_bad_jwt_secrets_hit_length_check_first(self):
+        """Short known-bad values like 'change-me' fail the length check
+        (which fires before the known-bad check), so operators see the
+        actionable 'must be 32 chars' guidance instead."""
+        for short_value in ("change-me", "secret", "changeme"):
+            with pytest.raises(Exception) as exc_info:
+                _make_settings(jwt_secret_key=short_value)
+            assert "32 characters" in str(exc_info.value)
 
 
 class TestDemoCredentialsGuard:
