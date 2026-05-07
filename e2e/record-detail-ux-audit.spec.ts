@@ -312,7 +312,32 @@ async function runAudit(
     const secondFocus = await captureFocusState(page);
     recordNote(`focus step 2: ${secondFocus.tag} "${secondFocus.text}" focusVisible=${secondFocus.focusVisible}`);
 
-    await page.waitForTimeout(recordType === 'vrt_dataset' ? 12_000 : 4_000);
+    // Poll for the page to settle before running the axe accessibility scan.
+    // VRT raster paths involve more network round-trips than vector — wait
+    // for network-idle first (tolerates non-settling streams), then poll
+    // until at least one MapLibre canvas has a non-zero render area, OR
+    // there is no canvas on the page (in which case proceed immediately).
+    // Replaces a fixed 12s/4s sleep with a deterministic two-stage poll.
+    const settleTimeout = recordType === 'vrt_dataset' ? 15_000 : 6_000;
+    await page.waitForLoadState('networkidle', { timeout: settleTimeout }).catch(() => {
+      /* networkidle may not settle if there's a websocket / SSE — fall through */
+    });
+    await expect
+      .poll(
+        async () => {
+          const canvases = await page.locator('canvas.maplibregl-canvas').all();
+          if (canvases.length === 0) return 1; // no canvases on this page = ok to proceed
+          const sizes = await Promise.all(
+            canvases.map((c) => c.evaluate((el: HTMLCanvasElement) => el.width * el.height)),
+          );
+          return Math.min(...sizes);
+        },
+        {
+          timeout: settleTimeout,
+          message: `canvas should render before axe scan (${recordType})`,
+        },
+      )
+      .toBeGreaterThan(0);
 
     try {
       const axeResults = await new AxeBuilder({ page })

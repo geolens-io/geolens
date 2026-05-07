@@ -125,14 +125,10 @@ beforeEach(() => {
 });
 
 describe('SourcesTab', () => {
-  it.todo('renders source table with rows in position order');
-  it.todo('source title is a clickable link to /datasets/{dataset_id}');
-  it.todo('shows regenerating banner when status === "regenerating"');
-  it.todo('shows failed banner when status === "failed"');
-  it.todo('disables add/remove when regenerating');
-  it.todo('remove button triggers confirm dialog');
-  it.todo('disables remove when only 2 sources');
-  it.todo('add source picker filters out already-linked sources');
+  // 8 deferred test cases migrated 2026-05-07 (Phase 278, TEST-07) to:
+  //   .planning/backlog/SourcesTab-test-todos.md
+  // Pick up there before adding new placeholder entries here — keep this file
+  // honest about what's tested.
 
   it('uses centralized semantic colors for VRT generation badges (A11Y-04)', () => {
     vi.mocked(useVrtGenerations).mockReturnValue({

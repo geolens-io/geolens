@@ -114,11 +114,16 @@ test.describe.serial('Post-impl validation', () => {
     }, authToken);
     await page.reload();
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
 
-    // Check for aria-expanded attribute in the DOM (may be absolutely positioned)
-    const ariaExpandedCount = await page.locator('button[aria-expanded]').count();
-    expect(ariaExpandedCount).toBeGreaterThan(0);
+    // Poll for hydration: builder buttons with aria-expanded should mount.
+    // Replaces a fixed 2s sleep with a deterministic wait on the actual
+    // condition the test asserts (count > 0).
+    await expect
+      .poll(async () => await page.locator('button[aria-expanded]').count(), {
+        timeout: 8_000,
+        message: 'builder buttons with aria-expanded should hydrate',
+      })
+      .toBeGreaterThan(0);
 
     await page.request.delete(`${BASE}/api/maps/${mapId}`, {
       headers: { Authorization: `Bearer ${authToken}` },
