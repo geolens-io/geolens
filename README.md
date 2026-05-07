@@ -87,30 +87,37 @@ The image tags `1.0`, `1`, and `latest` track the current 1.x release line.
 
 ## Why GeoLens?
 
-Spatial data ends up scattered -- shapefiles on shared drives, tables in database schemas, rasters in cloud buckets, metadata in spreadsheets. Finding the right dataset means asking Slack or grepping file servers. Sharing it means exporting, emailing, and hoping the CRS matches.
+Spatial data ends up scattered — shapefiles on shared drives, tables in database schemas, rasters in cloud buckets, metadata in spreadsheets. Finding the right dataset means asking Slack or grepping file servers. Sharing it means exporting, emailing, and hoping the CRS matches.
 
 GeoLens replaces that workflow:
 
-- **One catalog** -- upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
-- **Works with your tools** -- OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
-- **Semantic + spatial search** -- find datasets by meaning, not just keywords, powered by pgvector and pg_trgm full-text search
-- **Built-in map builder** -- compose multi-layer maps, style them, and share via public link or embeddable iframe
-- **AI-assisted (optional)** -- chat with your maps, auto-generate descriptions, search by natural language. Bring any OpenAI-compatible API key or skip it entirely
+- **One catalog** — upload Shapefiles, GeoPackages, GeoTIFFs, or CSVs and they become searchable, previewable, and exportable in minutes
+- **Works with your tools** — OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
+- **Semantic + spatial search** — find datasets by meaning, not just keywords, powered by pgvector and pg_trgm full-text search
+- **Built-in map builder** — compose multi-layer maps, style them, and share via public link or embeddable iframe
+- **AI-assisted (optional)** — chat with your maps, auto-generate descriptions, search by natural language. Bring any OpenAI-compatible API key or skip it entirely
 
 ## See It in Action
+
+The examples below use a JWT bearer token. Mint one against the local stack (the login endpoint accepts an OAuth2 password form, so use `-d` with form fields, not JSON):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
+  -d 'username=admin&password=admin' | jq -r '.access_token')
+```
 
 Search datasets by meaning, not just keywords:
 
 ```bash
-# Semantic search -- finds "hydrology" datasets even when you search "rivers"
-curl 'http://localhost:8080/api/search/datasets/?q=rivers+near+mountains&limit=3' \
-  -H 'Authorization: Bearer <token>' | jq '.features[].properties.title'
+# Semantic search — finds "hydrology" datasets even when you search "rivers"
+curl "http://localhost:8080/api/search/datasets/?q=rivers+near+mountains&limit=3" \
+  -H "Authorization: Bearer $TOKEN" | jq '.features[].properties.title'
 ```
 
 Every dataset is also a standard OGC API Features endpoint:
 
 ```bash
-# GeoJSON features with bbox filter -- works in QGIS, ArcGIS, any OGC client
+# GeoJSON features with bbox filter — works in QGIS, ArcGIS, any OGC client
 curl 'http://localhost:8080/api/collections/ne_10m_admin_0_countries/items?bbox=-10,35,30,60&limit=5'
 ```
 
@@ -148,7 +155,7 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 
 ### AI-Powered (Optional)
 
-- Chat with your maps -- ask natural-language questions, AI adds and styles layers
+- Chat with your maps — ask natural-language questions, AI adds and styles layers
 - Semantic vector search across metadata using pgvector with HNSW indexing
 - Auto-generated dataset descriptions and tags on ingest
 - Works with any OpenAI-compatible API (OpenAI, Anthropic, Ollama); fully functional without it
@@ -372,8 +379,8 @@ is deferred until a real-world adopter request makes it concrete.
 
 ## Community
 
-- [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) -- questions, ideas, show and tell
-- [Contributing Guide](.github/CONTRIBUTING.md) -- development setup, code style, and PR guidelines
+- [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) — questions, ideas, show and tell
+- [Contributing Guide](.github/CONTRIBUTING.md) — development setup, code style, and PR guidelines
 
 ## License
 
