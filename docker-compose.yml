@@ -51,6 +51,21 @@ x-ai-env: &ai-env
 # ==============================================================================
 # Services
 # ==============================================================================
+# Resource budget for 2GB VPS deployment target (Phase 272 / INF-01).
+#
+# Default-profile steady-state memory sum (db + api + worker + titiler + frontend):
+#   db(768M) + api(384M) + worker(384M) + titiler(256M) + frontend(128M) = 1920M
+# This leaves ~128 MB host headroom on a 2 GB VPS (kernel + Docker engine ~150-200 MB).
+#
+# Transient peaks:
+#   - migrate(384M) runs once at startup; exits before api starts (depends_on:
+#     service_completed_successfully), so does not compound with steady-state.
+#   - --profile backup adds 192M when active (cron-driven; mostly idle).
+#   - --profile cloud-dev (minio + valkey) is local-dev only, NOT counted toward
+#     the 2 GB VPS budget.
+#
+# Limits are honored when deploying via `docker compose up` (Compose-native
+# limits don't require Swarm mode).
 services:
   db:
     build:
@@ -75,15 +90,14 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    # Resource budget for 2GB VPS deployment target.
-    # postgresql.conf assumes shared_buffers=512MB + work_mem*max_connections
-    # headroom; this cap matches that envelope. Honored when deploying via
-    # `docker compose --compatibility up` (Compose-native limits don't require Swarm).
+    # postgresql.conf shared_buffers=512MB sets the floor; 768M cap leaves headroom
+    # for work_mem * max_connections + autovacuum + temp tables. Reservation matches
+    # shared_buffers floor so postgres can always claim that much.
     deploy:
       resources:
         limits:
           cpus: "2.0"
-          memory: 1G
+          memory: 768M
         reservations:
           cpus: "0.5"
           memory: 512M
@@ -103,12 +117,17 @@ services:
       db:
         condition: service_healthy
     # One-shot service; same envelope as api so the migration fits the
-    # 2GB VPS budget when run alongside running containers.
+    # 2GB VPS budget when run alongside the running stack. Exits before api
+    # starts (depends_on: service_completed_successfully), so the transient
+    # 384M peak doesn't compound with api's 384M cap.
     deploy:
       resources:
         limits:
           cpus: "1.0"
           memory: 384M
+        reservations:
+          cpus: "0.25"
+          memory: 96M
 
   api:
     build:
@@ -162,16 +181,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    # 2GB VPS budget: api + worker share the application footprint;
-    # 512M cap matches uvicorn single-worker baseline + GDAL ingest spikes.
+    # 2GB VPS budget: api fits uvicorn single-worker baseline (~150M) + GDAL ingest
+    # offloaded to worker. 384M cap matches worker reservation symmetry. Streaming
+    # upload (UPLOAD_MAX_SIZE_MB=500) uses 100M peak in-process via SpooledTemp.
     deploy:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          memory: 384M
         reservations:
           cpus: "0.25"
-          memory: 128M
+          memory: 96M
 
   worker:
     build:
@@ -248,15 +268,18 @@ services:
       db:
         condition: service_healthy
     # No ports: section — internal only, reachable at http://titiler:8000
-    # GDAL_CACHEMAX=200 plus titiler runtime fits in 384M.
+    # GDAL_CACHEMAX=200 sets a 200M floor for raster block cache; 256M cap leaves
+    # ~56M for the titiler runtime + uvicorn worker. Tile concurrency at this cap
+    # is limited; bump to 384M if Prometheus shows tile_cache_misses spiking under
+    # concurrent load.
     deploy:
       resources:
         limits:
           cpus: "0.5"
-          memory: 384M
+          memory: 256M
         reservations:
           cpus: "0.1"
-          memory: 96M
+          memory: 64M
 
   frontend:
     build:
@@ -313,6 +336,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Backup runs cron-driven; only active during the backup window. Conservative
+    # cap covers pg_dump streaming + curl multipart upload to S3.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 192M
 
   # --- cloud-dev profile: local S3 + cache for testing ---
   minio:
@@ -333,6 +363,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    # Cloud-dev profile only — local S3 emulation. Not part of 2GB VPS budget.
+    # 256M caps minio's internal disk-buffer cache for typical dev usage.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   minio-setup:
     image: quay.io/minio/mc:RELEASE.2025-04-22T03-17-43Z
@@ -360,6 +397,12 @@ services:
       mc anonymous set-json /tmp/cors.json local/geolens || true;
       exit 0;
       "
+    # One-shot: creates bucket + sets CORS, exits.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 64M
 
   valkey:
     image: valkey/valkey:8.1.6-alpine
@@ -374,6 +417,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    # Cloud-dev profile only — local cache emulation.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
 
 volumes:
   pgdata:
