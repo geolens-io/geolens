@@ -119,8 +119,15 @@ async def get_features_geojson_z_endpoint(
 async def list_features(
     dataset_id: uuid.UUID,
     request: Request,
-    limit: int = Query(10, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=200),
+    offset: int = Query(
+        0,
+        ge=0,
+        description=(
+            "Legacy offset-based pagination. Phase 269 H-24 lowered the "
+            "max limit to 200 from 1000."
+        ),
+    ),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
     include_geometry: bool = Query(True, description="Include geometry in response"),
     user: Identity = Depends(get_current_active_user),

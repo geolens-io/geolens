@@ -258,8 +258,24 @@ async def get_dataset_collection(
 async def get_collection_items(
     request: Request,
     dataset_id: uuid.UUID,
-    limit: int = Query(10, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=200),
+    offset: int = Query(
+        0,
+        ge=0,
+        description=(
+            "Legacy offset-based pagination. Prefer `after_gid` keyset cursor "
+            "(via the `next` link) — offset is retained for backward "
+            "compatibility but is O(N) at high values."
+        ),
+    ),
+    after_gid: int | None = Query(
+        None,
+        ge=0,
+        description=(
+            "Keyset cursor: returns features with gid > after_gid. Phase 269 H-24 "
+            "primary pagination path; use the rel=next link for follow-up pages."
+        ),
+    ),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
     datetime_param: str | None = Query(
         None,
@@ -302,6 +318,7 @@ async def get_collection_items(
     ogc_reserved = {
         "limit",
         "offset",
+        "after_gid",
         "bbox",
         "f",
         "datetime",
@@ -322,11 +339,14 @@ async def get_collection_items(
     # pagination COUNT(*) collapses into a constant-time lookup, and honor
     # include_geometry so clients that don't need geometry avoid the
     # ST_AsGeoJSON cost (PERF-N1).
+    # H-24: when after_gid is provided, the service uses keyset pagination and
+    # ignores offset.
     rows, total = await get_features(
         db,
         dataset.table_name,
         limit=limit,
         offset=offset,
+        after_gid=after_gid,
         bbox=bbox_parsed,
         has_geometry=has_geometry,
         property_filters=property_filters,
@@ -357,13 +377,25 @@ async def get_collection_items(
     if property_filters:
         active_params.update(property_filters)
 
-    def _page_url(off: int) -> str:
+    def _page_url_offset(off: int) -> str:
         params = {"limit": str(limit), "offset": str(off), **active_params}
         return build_url(base_path, base_url=public_api_url) + "?" + urlencode(params)
 
-    self_params = (
-        f"?{urlencode({'limit': str(limit), 'offset': str(offset), **active_params})}"
-    )
+    def _page_url_keyset(after: int) -> str:
+        params = {"limit": str(limit), "after_gid": str(after), **active_params}
+        return build_url(base_path, base_url=public_api_url) + "?" + urlencode(params)
+
+    # Self link mirrors whichever pagination mode the client requested.
+    if after_gid is not None:
+        self_qs = urlencode(
+            {"limit": str(limit), "after_gid": str(after_gid), **active_params}
+        )
+    else:
+        self_qs = urlencode(
+            {"limit": str(limit), "offset": str(offset), **active_params}
+        )
+    self_params = f"?{self_qs}"
+
     links = [
         OGCLink(
             rel="self",
@@ -379,19 +411,31 @@ async def get_collection_items(
             type="application/json",
         ),
     ]
-    if offset + limit < total:
+    # H-24: emit a keyset `next` link when the page is full — primary path.
+    # Fall back to offset-based `next`/`prev` for legacy clients only when
+    # the request itself used offset.
+    if rows and len(rows) == limit:
+        next_after_gid = rows[-1]["gid"]
         links.append(
             OGCLink(
                 rel="next",
-                href=_page_url(offset + limit),
+                href=_page_url_keyset(next_after_gid),
                 type="application/geo+json",
             )
         )
-    if offset > 0:
+    elif after_gid is None and offset + limit < total:
+        links.append(
+            OGCLink(
+                rel="next",
+                href=_page_url_offset(offset + limit),
+                type="application/geo+json",
+            )
+        )
+    if after_gid is None and offset > 0:
         links.append(
             OGCLink(
                 rel="prev",
-                href=_page_url(max(0, offset - limit)),
+                href=_page_url_offset(max(0, offset - limit)),
                 type="application/geo+json",
             )
         )

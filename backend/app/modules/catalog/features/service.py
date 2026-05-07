@@ -80,10 +80,17 @@ async def get_features(
     allowed_columns: set[str] | None = None,
     include_geometry: bool = True,
     cached_feature_count: int | None = None,
+    after_gid: int | None = None,
 ) -> tuple[list[dict], int]:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
     Returns (rows, total_count) where each row has gid, geometry, and properties.
+
+    Phase 269 H-24: when ``after_gid`` is provided, uses keyset pagination
+    (``WHERE gid > :after_gid``) instead of OFFSET. This avoids the
+    ``OFFSET 999000`` deep-paging cost. The ``offset`` parameter remains
+    supported as a legacy fallback for clients that have not migrated to
+    cursor pagination.
     """
     # Build SELECT columns
     if has_geometry and include_geometry:
@@ -129,32 +136,56 @@ async def get_features(
                 where_clauses.append(f'"{col}" = :{param_name}')
                 bind_values[param_name] = val
 
+    # H-24: keyset cursor pagination — `gid > :after_gid` short-circuits the
+    # OFFSET cost path entirely. Both pagination styles use the same `gid`
+    # column, so the existing PRIMARY KEY index on `gid` handles the cursor
+    # without any new index.
+    use_keyset = after_gid is not None
+    if use_keyset:
+        where_clauses.append("gid > :after_gid")
+        bind_values["after_gid"] = after_gid
+
     where_sql = ""
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
-    # Data query
-    data_sql = (
-        f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} t "
-        f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
-    )
+    # Data query — keyset uses LIMIT only (no OFFSET); legacy uses LIMIT + OFFSET.
+    if use_keyset:
+        data_sql = (
+            f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} t "
+            f"{where_sql} ORDER BY gid LIMIT :limit"
+        )
+    else:
+        data_sql = (
+            f"SELECT {select_cols} FROM {get_catalog_port().quote_table(table_name)} t "
+            f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
+        )
+        bind_values["offset"] = offset
     bind_values["limit"] = limit
-    bind_values["offset"] = offset
 
     result = await db.execute(text(data_sql).bindparams(**bind_values))
     rows = [dict(row._mapping) for row in result.all()]
 
-    # Count query (same WHERE, no LIMIT/OFFSET)
+    # Count query (same WHERE *minus* the after_gid cursor, no LIMIT/OFFSET).
+    # The keyset cursor must be excluded from the count so total reflects the
+    # full result set, not "rows remaining after cursor".
+    count_where_clauses = [c for c in where_clauses if c != "gid > :after_gid"]
+    count_where_sql = ""
+    if count_where_clauses:
+        count_where_sql = "WHERE " + " AND ".join(count_where_clauses)
+
     # Use cached feature_count when no filters are active
-    if not where_clauses and cached_feature_count is not None:
+    if not count_where_clauses and cached_feature_count is not None:
         total = cached_feature_count
     else:
         count_bind = {
-            k: v for k, v in bind_values.items() if k not in ("limit", "offset")
+            k: v
+            for k, v in bind_values.items()
+            if k not in ("limit", "offset", "after_gid")
         }
         count_sql = (
             f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)} "
-            f"t {where_sql}"
+            f"t {count_where_sql}"
         )
         count_result = await db.execute(text(count_sql).bindparams(**count_bind))
         total = count_result.scalar_one()

@@ -519,8 +519,16 @@ async def get_collection_items(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    limit: int = Query(10, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=200),
+    offset: int = Query(
+        0,
+        ge=0,
+        description=(
+            "Legacy offset-based pagination. Phase 269 H-24 lowered the "
+            "max limit to 200 and recommends keyset cursors via the rel=next "
+            "link for deep paging."
+        ),
+    ),
 ) -> JSONResponse:
     """List STAC Items within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
@@ -1063,8 +1071,15 @@ async def search_get(
     intersects: str | None = Query(
         None, description="GeoJSON geometry for spatial intersection"
     ),
-    limit: int = Query(10, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=200),
+    offset: int = Query(
+        0,
+        ge=0,
+        description=(
+            "Legacy offset-based pagination. Phase 269 H-24 lowered the "
+            "max limit to 200 from 1000 to bound deep-paging cost."
+        ),
+    ),
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
@@ -1119,7 +1134,8 @@ async def search_post(
         collections=body.collections,
         ids=body.ids,
         intersects=body.intersects,
-        limit=max(1, min(body.limit, 1000)),
+        # H-24: clamp body limit to 200 (was 1000) for parity with GET search.
+        limit=max(1, min(body.limit, 200)),
         offset=max(0, body.offset),
     )
 
