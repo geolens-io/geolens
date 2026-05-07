@@ -1,7 +1,24 @@
+# syntax=docker/dockerfile:1
+# Vite dev server image — runs as non-root `node` user (uid 1000) per INF-16.
+# Uses BuildKit npm cache mount per INF-09.
+
 FROM node:25.9.0-alpine
+
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY . .
+
+# Install deps as root because npm ci writes to global locations + WORKDIR.
+# The cache mount is shared across builds to speed up dependency resolution.
+# `--chown=node:node` on COPY ensures /app contents are node-owned before
+# USER node takes effect.
+COPY --chown=node:node package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
+
+# Copy source as node user.
+COPY --chown=node:node . .
+
+# Drop to non-root for runtime — vite + esbuild + node can hot-reload without privileges.
+USER node
+
 EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

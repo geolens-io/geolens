@@ -121,7 +121,8 @@ FROM node:25.9.0-alpine AS frontend-build
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
 COPY frontend/ ./
 RUN npm run build:app
 

@@ -359,19 +359,25 @@ services:
           memory: 64M
 
   frontend:
+    # Note: image runs as USER node (uid 1000). On Linux dev hosts where the host
+    # user is NOT uid 1000, the bind-mounted ./frontend may not be writable from
+    # inside the container, breaking Vite hot-reload. Workaround: override `user:`
+    # here. macOS Docker Desktop handles this transparently via the file-sharing layer.
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # USER node (uid 1000) set in frontend/Dockerfile.dev — cap_drop ALL is safe.
+    # vite + esbuild + node hot-reload need no Linux capabilities.
+    cap_drop:
+      - ALL
     # NOTE: read_only NOT applied to frontend (dev). Vite writes HMR cache to
     # /tmp/.vite/ and /app/node_modules/.vite/; the bind-mount of source under
     # /app means the root filesystem is effectively writable already. Production
     # frontend (docker-compose.demo.yml frontend target) uses nginx-unprivileged
-    # which IS compatible with read_only — see Plan 272-06.
-    # cap_drop: [ALL] is applied in Plan 272-06 once USER node lands in
-    # frontend/Dockerfile.dev (vite needs no privileges as a non-root user).
+    # which IS compatible with read_only.
     ports:
       - "${FRONTEND_PORT:-8080}:5173"
     volumes:
