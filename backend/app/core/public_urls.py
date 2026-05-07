@@ -71,24 +71,53 @@ def _is_env_only() -> bool:
 
 
 def _request_origin(request: Request | None) -> str | None:
+    """Derive the public origin from request headers.
+
+    SEC-05 / M-67: when ``CORS_ALLOWED_ORIGINS`` is configured (non-empty),
+    the resulting origin MUST be in that allowlist. This prevents an
+    attacker who controls ``X-Forwarded-Host`` (e.g., behind a permissive
+    reverse proxy) from steering URL generation to attacker.com.
+
+    When ``CORS_ALLOWED_ORIGINS`` is empty (local dev, no proxy), the
+    function returns the request-derived origin unchanged — dev workflows
+    (Vite proxy, localhost-only) keep working without configuration.
+    """
     if request is None:
         return None
 
+    candidate: str | None = None
+
     origin = normalize_public_url(request.headers.get("origin"))
     if origin:
-        return origin
+        candidate = origin
+    else:
+        referer = normalize_public_url(request.headers.get("referer"))
+        if referer:
+            parsed = urlsplit(referer)
+            if parsed.scheme and parsed.netloc:
+                candidate = f"{parsed.scheme}://{parsed.netloc}"
 
-    referer = normalize_public_url(request.headers.get("referer"))
-    if referer:
-        parsed = urlsplit(referer)
-        if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}"
+    if candidate is None:
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get(
+            "x-forwarded-host", request.headers.get("host", "")
+        )
+        if not host:
+            return None
+        candidate = f"{scheme}://{host}"
 
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
-    if not host:
-        return None
-    return f"{scheme}://{host}"
+    # SEC-05: enforce CORS allowlist when configured.
+    allowlist = settings.cors_origins_list
+    if allowlist:
+        # normalize_public_url strips trailing slash; do the same on the
+        # allowlist entries for case-insensitive byte-equality.
+        normalized_allowlist = {
+            (normalize_public_url(entry) or "").lower() for entry in allowlist
+        }
+        if (candidate or "").lower() not in normalized_allowlist:
+            return None
+
+    return candidate
 
 
 def resolve_public_api_url(
