@@ -101,6 +101,9 @@ describe('LineGradientControls — UI', () => {
       },
       expect.objectContaining({ 'line-gradient': expr, 'line-color': '#abcdef' }),
     );
+    // Stop count must be exactly 2 — guard against accidental stop duplication.
+    const builderCall = onBuilderChange.mock.calls[0]?.[0] as { lineGradient: { stops: unknown[] } };
+    expect(builderCall.lineGradient.stops).toHaveLength(2);
   });
 
   it('ui: clicking Solid clears paint line-gradient and builder.lineGradient (with next paint)', async () => {

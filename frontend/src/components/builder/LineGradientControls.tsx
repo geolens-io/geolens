@@ -296,17 +296,23 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       setAdvancedError(result.error);
       return;
     }
+    // Compose nextPaint once and pass it to onBuilderChange so the upstream save
+    // sees a single consistent state. Without nextPaint, onBuilderChange would
+    // resolve `paint` from a stale closure and shadow the gradient committed by
+    // onPaintProp — same WR-04 race that commitStops/activateSolid avoid.
+    const nextPaint = { ...paint, 'line-gradient': result.value };
     onPaintProp('line-gradient', result.value);
     // If canonical, hydrate builder.lineGradient.stops; else clear builder.lineGradient
     // so the customExpression hint surfaces (no silent flatten).
     const parsedStops = lineGradientExpressionToStops(result.value);
     if (parsedStops != null) {
-      onBuilderChange({ lineGradient: { stops: parsedStops } });
+      onBuilderChange({ lineGradient: { stops: parsedStops } }, nextPaint);
     } else {
-      onBuilderChange({ lineGradient: undefined });
+      onBuilderChange({ lineGradient: undefined }, nextPaint);
     }
     setAdvancedOpen(false);
     setAdvancedError(null);
+    setAdvancedText('');
   }
 
   return (
