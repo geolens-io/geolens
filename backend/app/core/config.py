@@ -106,7 +106,7 @@ class Settings(BaseSettings):
 
     db_use_external_pooler: bool = False
     db_pool_size: int = 10
-    db_max_overflow: int = 5
+    db_max_overflow: int = 3  # DBM-04 (Phase 271): connection-budget headroom
     db_pool_timeout: int = 30
     db_pool_recycle: int = 1800
 

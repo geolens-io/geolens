@@ -88,6 +88,13 @@ run_backup() {
 
 # ---------------------------------------------------------------------------
 # S3 upload (uses pg_dump image's curl — no aws cli dependency)
+#
+# DBM-11 (Phase 271): Uses AWS Signature V2 (HMAC-SHA1). Compatible with
+# MinIO, Cloudflare R2, older AWS buckets, and S3 implementations that
+# accept Sig-V2. New AWS buckets (post-2018) require Sig-V4 — for those,
+# mount a sidecar with aws-cli and replace this function with
+# `aws s3 cp <file> s3://<bucket>/<key>`. See README §"Backup S3
+# Compatibility" for the rationale.
 # ---------------------------------------------------------------------------
 upload_to_s3() {
     local filepath="$1"

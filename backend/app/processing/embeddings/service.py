@@ -127,6 +127,19 @@ async def rebuild_embedding_column(db: AsyncSession, new_dims: int) -> bool:
     Deletes all existing embeddings, drops the HNSW index, alters the column
     type, then recreates the index. Commits on success; rolls back on failure.
 
+    DBM-07 (Phase 271): The HNSW DDL is also issued by migration 0011 for
+    fresh-install / migrated-up environments. This function handles the
+    config-time dimension-change path that the migration cannot reproduce
+    (column dimension is set at runtime when an embedding model is first
+    configured). Both paths use ``CREATE INDEX IF NOT EXISTS`` semantics
+    (the migration uses an explicit ``IF NOT EXISTS``; this function
+    recreates the index after a DROP) so they are idempotent and never
+    conflict. A near-duplicate DROP+ALTER+CREATE block lives in
+    ``backend/app/modules/settings/router.py`` because the settings UI
+    surfaces a separate dimension-change handler with different
+    transactional semantics; that copy is intentionally kept until a
+    dedicated refactor consolidates the two flows.
+
     Returns True if the column was rebuilt, False if dimensions were unchanged.
     """
     from sqlalchemy import text as sa_text

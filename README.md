@@ -303,6 +303,53 @@ If you already have a long-lived API key (Admin > API Keys > Create New, or via 
 
 All configuration is managed through environment variables in `.env`. See the [Configuration Reference](https://docs.getgeolens.com/guides/quickstart/configuration/) for the full list of options with defaults and descriptions.
 
+### Connection Pool Budget
+
+GeoLens runs against a single PostgreSQL instance. The connection budget below
+keeps total in-flight connections under `max_connections` (default 50, set in
+`db/postgresql.conf`) with healthy headroom for unexpected admin/CLI sessions.
+
+Per-process budget (current defaults — DBM-04 / Phase 271):
+
+| Process | `db_pool_size` | `db_max_overflow` | Procrastinate | Worst-case |
+|---------|---------------:|------------------:|--------------:|-----------:|
+| API     | 10             | 3                 | 3 (periodic)  | **16**     |
+| Worker  | 10             | 0 *(no overflow)* | 3             | **13**     |
+| Admin / psql / CLI | — | — | — | ~1 |
+
+**Total worst-case in-flight:** `16 + 13 + 1 = 30` of `50 max_connections`
+→ **20-connection headroom** for migrations, ad-hoc admin sessions, and
+incident-response psql shells.
+
+`db_max_overflow` was lowered from 5 to 3 in v13.13 (DBM-04). The previous
+budget left only 5-6 connections of headroom under Procrastinate spikes;
+the new budget reclaims 14 connections. PERF-05 (planned for v13.13 / Phase
+274) will then lower `max_connections` from 50 to 30 to reclaim ~10MiB of
+memory per dropped slot.
+
+Override per environment:
+
+```env
+DB_POOL_SIZE=10
+DB_MAX_OVERFLOW=3
+```
+
+See `backend/app/core/config.py` for runtime defaults.
+
+### Backup S3 Compatibility
+
+`scripts/backup-entrypoint.sh` uploads to S3-compatible storage using AWS
+Signature Version 2 (HMAC-SHA1). This works with **MinIO, Cloudflare R2,
+older AWS buckets, and any S3 implementation that still accepts Sig-V2**.
+
+New AWS S3 buckets (created post-2018) accept only Signature Version 4.
+For new AWS buckets, mount a sidecar container with `aws-cli` and replace
+the `upload_to_s3` function with `aws s3 cp <file> s3://<bucket>/<key>`
+(the AWS CLI uses Sig-V4 by default).
+
+DBM-11 (Phase 271) tracks this as a documented limitation; a Sig-V4 rewrite
+is deferred until a real-world adopter request makes it concrete.
+
 ## Reference
 
 | Guide | Description |

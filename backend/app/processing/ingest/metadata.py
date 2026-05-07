@@ -925,7 +925,14 @@ async def add_4326_column(
 
 
 async def grant_reader_access(session: AsyncSession, table_name: str) -> None:
-    """Grant SELECT on the table to geolens_reader role."""
+    """Grant SELECT on the table to geolens_reader role.
+
+    DBM-12 (Phase 271): Kept as a defense-in-depth measure alongside
+    ``ALTER DEFAULT PRIVILEGES`` in ``scripts/init-db.sh``. If the runtime
+    ingest role matches the init-db role, this call is redundant; if they
+    differ (some custom deployment topologies), this is the only path that
+    grants SELECT on freshly-created ``data.*`` tables.
+    """
     await session.execute(
         text(f"GRANT SELECT ON {_qtable(table_name)} TO geolens_reader")
     )
