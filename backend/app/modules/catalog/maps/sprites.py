@@ -6,6 +6,7 @@ import asyncio
 import re
 import struct
 import uuid
+import xml.etree.ElementTree as _stdlib_ET
 import zlib
 from dataclasses import dataclass
 from io import BytesIO
@@ -13,7 +14,16 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
+from defusedxml.ElementTree import fromstring, tostring
 from PIL import Image, ImageColor, ImageDraw, UnidentifiedImageError
+
+# SEC-09: register the SVG namespace as the empty prefix so re-serialized SVGs
+# emit `<svg xmlns="...">` rather than `<ns0:svg xmlns:ns0="...">`. This keeps
+# the active-content denylist (`<script`, `<foreignobject`) effective on the
+# canonical bytes — without this, `<script>` would re-serialize to `<ns0:script>`
+# and slip past byte-match checks. Registering once at import time is safe;
+# stdlib ElementTree namespace registration is process-global.
+_stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,7 +126,17 @@ def validate_icon_upload(
     filename: str | None,
     content_type: str | None,
     content: bytes,
-) -> tuple[str, str]:
+) -> tuple[str, str, bytes]:
+    """Validate an icon upload. Returns (slug, media_type, sanitized_content).
+
+    For SVG uploads, ``sanitized_content`` is the defusedxml-re-serialized form
+    of the input — this normalizes entity encodings (``&lt;script&gt;`` → text,
+    ``&#106;avascript:`` → ``javascript:``) BEFORE the active-content denylist
+    runs, defeating attribute-encoding bypasses (SEC-09 / M-71). Callers MUST
+    persist ``sanitized_content``, not the original upload bytes.
+
+    For PNG uploads, ``sanitized_content`` is the original bytes unchanged.
+    """
     if not content:
         raise ValueError("Icon file is empty")
     if len(content) > MAX_ICON_BYTES:
@@ -131,7 +151,23 @@ def validate_icon_upload(
         prefix = content[:512].lower()
         if b"<svg" not in prefix:
             raise ValueError("SVG icon content is invalid")
-        lower = content.lower()
+
+        # SEC-09 / M-71: re-serialize via defusedxml so entity-encoded payloads
+        # like &#106;avascript: in attributes are normalized into canonical
+        # bytes BEFORE the denylist matches. The SVG namespace is registered
+        # as the empty prefix at module import time so the round-trip emits
+        # `<svg xmlns="...">` (and child tags un-prefixed) — required for the
+        # denylist below to keep matching `<script`, `<foreignobject`, etc.
+        # Note: text content like &lt;script&gt; remains entity-encoded after
+        # round-trip — the CSP `default-src 'none'; sandbox` header on the icon
+        # GET response (SEC-01) is the second defense layer for that case.
+        try:
+            root = fromstring(content)
+        except Exception as exc:
+            raise ValueError("SVG icon content is invalid") from exc
+        sanitized = tostring(root, encoding="utf-8")
+
+        lower = sanitized.lower()
         if (
             b"<script" in lower
             or b"<foreignobject" in lower
@@ -139,7 +175,9 @@ def validate_icon_upload(
             or re.search(rb"\son[a-z]+\s*=", lower)
         ):
             raise ValueError("SVG icons cannot contain active content")
-    return slugify_icon_name(filename or "icon"), media_type
+        # downstream callers persist the canonical form, not the raw upload
+        content = sanitized
+    return slugify_icon_name(filename or "icon"), media_type, content
 
 
 def icon_url(icon_id: str) -> str:
@@ -186,19 +224,23 @@ async def create_icon_asset(
     content: bytes,
     created_by: uuid.UUID | None,
 ) -> MapIconAsset:
-    base_slug, media_type = validate_icon_upload(filename, content_type, content)
+    base_slug, media_type, sanitized_content = validate_icon_upload(
+        filename, content_type, content
+    )
     icon_id = uuid.uuid4()
     extension = SUPPORTED_MEDIA_TYPES[media_type]
     slug = f"{base_slug}-{str(icon_id)[:8]}"
     storage_key = f"maps/icons/{icon_id}{extension}"
-    await get_storage().put(storage_key, content)
+    # Persist the sanitized form so the bytes on disk match what validation
+    # accepted (SEC-09). For PNG this is the original bytes unchanged.
+    await get_storage().put(storage_key, sanitized_content)
     asset = MapIconAsset(
         id=icon_id,
         name=Path(filename or "Icon").stem or "Icon",
         slug=slug,
         media_type=media_type,
         storage_key=storage_key,
-        size_bytes=len(content),
+        size_bytes=len(sanitized_content),
         created_by=created_by,
     )
     session.add(asset)

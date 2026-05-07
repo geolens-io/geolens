@@ -96,7 +96,7 @@ def _clear_sprite_cache():
 
 
 def test_validate_icon_upload_accepts_svg_and_rejects_scripts():
-    slug, media_type = validate_icon_upload(
+    slug, media_type, sanitized = validate_icon_upload(
         "Bus Stop.svg",
         "image/svg+xml",
         b'<svg xmlns="http://www.w3.org/2000/svg"></svg>',
@@ -104,12 +104,14 @@ def test_validate_icon_upload_accepts_svg_and_rejects_scripts():
 
     assert slug == "bus-stop"
     assert media_type == "image/svg+xml"
+    # SEC-09: returned content is the defusedxml-canonicalized form
+    assert b"<svg" in sanitized
     with pytest.raises(ValueError, match="active content"):
         validate_icon_upload("x.svg", "image/svg+xml", b"<svg><script /></svg>")
 
 
 def test_validate_icon_upload_accepts_real_png_content():
-    slug, media_type = validate_icon_upload(
+    slug, media_type, sanitized = validate_icon_upload(
         "marker.png",
         "image/png",
         _png_bytes(),
@@ -117,6 +119,8 @@ def test_validate_icon_upload_accepts_real_png_content():
 
     assert slug == "marker"
     assert media_type == "image/png"
+    # SEC-09: PNG bytes are returned unchanged
+    assert sanitized == _png_bytes()
 
 
 @pytest.mark.anyio
@@ -147,7 +151,12 @@ async def test_create_icon_asset_stores_content(monkeypatch):
 
     assert asset.slug.startswith("bus-")
     assert asset.storage_key in storage.objects
-    assert storage.objects[asset.storage_key] == b"<svg></svg>"
+    # SEC-09: storage holds the defusedxml-canonicalized form (self-closing
+    # empty element), not the original upload bytes. size_bytes tracks the
+    # canonical length to stay consistent with what's stored.
+    stored = storage.objects[asset.storage_key]
+    assert b"<svg" in stored
+    assert asset.size_bytes == len(stored)
     assert session.added == [asset]
 
 
