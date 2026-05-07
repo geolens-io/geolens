@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 
 // CLEAN-N6: the search workspace lives at the root path after the landing
 // page was removed. Previously this was "/search" with a redirect shim.

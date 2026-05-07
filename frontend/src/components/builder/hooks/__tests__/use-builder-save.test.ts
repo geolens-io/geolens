@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
 import { buildLayerDiff, useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import type { MapLayerResponse } from '@/types/api';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';

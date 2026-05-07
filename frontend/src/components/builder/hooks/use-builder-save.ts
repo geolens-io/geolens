@@ -13,7 +13,7 @@ import { useEnabledWidgets } from '@/hooks/use-settings';
 import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
 /** Crop and resize the map canvas to a 400x250 JPEG, then upload it.

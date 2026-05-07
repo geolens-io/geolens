@@ -8,7 +8,7 @@ vi.mock('@/api/search', async (importOriginal) => {
 
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
 import { useSearchResults, useFacets, useCatalogSummary } from '@/components/search/hooks/use-search';
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 
 const mockSearchDatasets = vi.mocked(searchDatasets);
 const mockFetchFacets = vi.mocked(fetchFacets);

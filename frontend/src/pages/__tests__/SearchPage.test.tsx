@@ -2,7 +2,7 @@ import { act } from 'react';
 import { render, screen } from '@/test/test-utils';
 import { SearchPage } from '@/pages/SearchPage';
 import { useSearchResults } from '@/components/search/hooks/use-search';
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { OGCRecordResponse } from '@/types/api';
 

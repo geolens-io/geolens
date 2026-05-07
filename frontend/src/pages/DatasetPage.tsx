@@ -15,7 +15,7 @@ import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useFeatureFlags } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
-import { useDrawingStore } from '@/components/drawing/drawing-store';
+import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
 import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
 // PERF-06 (Phase 274): lazy-load DatasetMap so map-vendor chunk is fetched

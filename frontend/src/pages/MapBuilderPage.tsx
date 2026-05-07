@@ -36,7 +36,7 @@ import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
 import { TerrainControls } from '@/components/builder/TerrainControls';
 import { WidgetHost, WidgetSidebar, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 
 
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';

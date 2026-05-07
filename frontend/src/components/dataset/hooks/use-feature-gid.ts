@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useDrawingStore } from '@/components/drawing/drawing-store';
+import { useDrawingStore } from '@/stores/drawing-store';
 
 /**
  * Manages the effective feature GID for the dataset page.

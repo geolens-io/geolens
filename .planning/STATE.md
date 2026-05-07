@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
 status: completed
-stopped_at: 258-02 complete — POLISH-06 stable per-stop UUID keys shipped (commit cc5a7138)
-last_updated: "2026-05-07T19:42:14Z"
-last_activity: "2026-05-07 — 276-03 complete (v13.13 side-track): OSS-side overlay-dispatch tests for Branding/Auth/Audit Extensions; CODE-03 closed; commit d9a20890"
+stopped_at: 276-01 complete — router LOC-cap guard + service_diff docstring + Identity quoting comment shipped (commits 57d02014, d968f567, 0029a98d; CODE-09 docstring orphan-attributed to 2483cc31)
+last_updated: "2026-05-07T19:46:00.000Z"
+last_activity: "2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests"
 progress:
   total_phases: 12
   completed_phases: 1
   total_plans: 15
-  completed_plans: 11
-  percent: 73
+  completed_plans: 12
+  percent: 80
 ---
 
 # State

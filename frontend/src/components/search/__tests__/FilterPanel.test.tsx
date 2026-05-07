@@ -1,6 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import { FilterPanel } from '../FilterPanel';
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 
 // Mock useFacets to return known counts
 const mockFacets = {

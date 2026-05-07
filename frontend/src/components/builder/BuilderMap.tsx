@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import { isWidgetIdAvailable } from '@/components/map-widgets';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';

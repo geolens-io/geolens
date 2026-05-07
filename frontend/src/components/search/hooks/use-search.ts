@@ -1,7 +1,7 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { useShallow } from 'zustand/react/shallow';
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 import { searchDatasets, fetchCatalogSummary, fetchFacets } from '@/api/search';
 
 export function useSearchResults() {

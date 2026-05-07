@@ -2,7 +2,7 @@ import { useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Hand, Ruler, Layers, FileJson } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { getEnabledWidgetDefinitions } from '@/components/map-widgets';
 import {

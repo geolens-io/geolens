@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MapToolbar } from '../MapToolbar';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 
 const mockEnabledWidgets = vi.hoisted(() => ({
   value: null as string[] | null | undefined,

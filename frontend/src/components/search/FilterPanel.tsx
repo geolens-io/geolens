@@ -20,7 +20,7 @@ import { FilterChip } from './FilterChip';
 import { FilterSheet } from './FilterSheet';
 import { KeywordFacetPicker } from './KeywordFacetPicker';
 import { SaveSearchButton } from './SavedSearches';
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useCatalogSummary, useFacets } from '@/components/search/hooks/use-search';
 import { getGeometryTypeLabel, getSearchSortLabel } from '@/i18n/labels';

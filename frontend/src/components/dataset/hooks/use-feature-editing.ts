@@ -7,7 +7,7 @@
 import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useDrawingStore } from '@/components/drawing/drawing-store';
+import { useDrawingStore } from '@/stores/drawing-store';
 import { useCreateFeature, useUpdateFeature, useDeleteFeature } from '@/hooks/use-features';
 import { getFeature } from '@/api/features';
 import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/components/drawing/hooks/use-terra-draw';

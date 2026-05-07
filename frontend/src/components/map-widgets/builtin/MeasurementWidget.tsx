@@ -6,7 +6,7 @@ import turfDistance from '@turf/distance';
 import turfArea from '@turf/area';
 import { point, polygon } from '@turf/helpers';
 import { cn } from '@/lib/utils';
-import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
+import { useWidgetStore } from '@/stores/map-widget-store';
 import type { WidgetContext } from '../types';
 
 type MeasureMode = 'distance' | 'area';
