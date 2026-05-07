@@ -17,7 +17,7 @@ x-db-ssl-env: &db-ssl-env
   DATABASE_URL_OVERRIDE: "${DATABASE_URL_OVERRIDE:-}"
   DATABASE_SSL_MODE: "${DATABASE_SSL_MODE:-}"
   DATABASE_SSL_CA_CERT: "${DATABASE_SSL_CA_CERT:-}"
-  DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-false}"
+  DATABASE_POOL_PRE_PING: "${DATABASE_POOL_PRE_PING:-true}"  # CONF-02 (Phase 277): aligned with Settings.database_pool_pre_ping=True default and .env.example commented default
   DB_USE_EXTERNAL_POOLER: "${DB_USE_EXTERNAL_POOLER:-false}"
   DB_POOL_SIZE: "${DB_POOL_SIZE:-10}"
   DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"  # DBM-04: see README §"Connection Pool Budget"
@@ -472,8 +472,11 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      # CONF-12 (Phase 277 / L-37): VAR-default fallback so `docker compose --profile cloud-dev up`
+      # works without copying .env. The defaults match the literal `minioadmin` strings the
+      # minio-setup mc client uses (around lines 500) — keep them in sync if changed.
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
     volumes:
       - minio_data:/data
     healthcheck:
