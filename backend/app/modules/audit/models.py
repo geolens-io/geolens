@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, desc, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,7 +14,23 @@ if TYPE_CHECKING:
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        # Indexes added in migration 0009 (H-06) — declared on the model so
+        # alembic check sees them; the migration is the source of truth for
+        # the actual DDL.
+        Index(
+            "ix_catalog_audit_logs_created_action_resource",
+            desc("created_at"),
+            "action",
+            "resource_type",
+        ),
+        Index(
+            "ix_catalog_audit_logs_resource_id",
+            "resource_id",
+            postgresql_where="resource_id IS NOT NULL",
+        ),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()

@@ -75,6 +75,27 @@ class Record(Base):
             "record_status",
             "created_by",
         ),
+        # Trigram GIN indexes added in migration 0010 (H-07) — declared on the
+        # model so alembic check sees them; the migration is the source of truth
+        # for the actual DDL (including the catalog.immutable_unaccent wrapper).
+        # `postgresql_ops` puts the operator class outside the expression so
+        # alembic's index compare can match the indexed expression.
+        Index(
+            "ix_records_title_trgm",
+            text("lower(catalog.immutable_unaccent(title))"),
+            postgresql_using="gin",
+            postgresql_ops={"lower(catalog.immutable_unaccent(title))": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_records_summary_trgm",
+            text(
+                "lower(catalog.immutable_unaccent(coalesce(summary, '')))"
+            ),
+            postgresql_using="gin",
+            postgresql_ops={
+                "lower(catalog.immutable_unaccent(coalesce(summary, '')))": "gin_trgm_ops"
+            },
+        ),
         {"schema": "catalog"},
     )
 
@@ -323,6 +344,16 @@ class RecordKeyword(Base):
             "ix_record_keywords_fts",
             text("to_tsvector('english'::regconfig, keyword)"),
             postgresql_using="gin",
+        ),
+        # Trigram GIN added in migration 0010 (H-07) — declared on the model
+        # so alembic check sees it; the migration is the source of truth.
+        Index(
+            "ix_record_keywords_keyword_trgm",
+            text("lower(catalog.immutable_unaccent(keyword))"),
+            postgresql_using="gin",
+            postgresql_ops={
+                "lower(catalog.immutable_unaccent(keyword))": "gin_trgm_ops"
+            },
         ),
         # Functional UNIQUE: treat NULL vocabulary_uri as empty string so duplicates
         # with NULL still collide. Mirrors the CREATE UNIQUE INDEX in the baseline

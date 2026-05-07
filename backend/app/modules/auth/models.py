@@ -121,7 +121,13 @@ class ApiKey(Base):
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
-    __table_args__ = {"schema": "catalog"}
+    __table_args__ = (
+        # Index added in migration 0008 (H-09) — declared on the model so
+        # alembic check sees it; the migration is the source of truth for
+        # the actual DDL.
+        Index("ix_catalog_refresh_tokens_expires_at", "expires_at"),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         primary_key=True, server_default=func.gen_random_uuid()

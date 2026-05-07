@@ -28,6 +28,24 @@ class Map(Base):
             "visibility IN ('private', 'public', 'internal')",
             name="chk_maps_visibility",
         ),
+        # Trigram GIN indexes added in migration 0010 (H-07) — declared on the
+        # model so alembic check sees them; the migration is the source of truth.
+        # `postgresql_ops` puts the operator class outside the expression so
+        # alembic's index compare can match the indexed expression.
+        Index(
+            "ix_maps_name_trgm",
+            text("lower(name)"),
+            postgresql_using="gin",
+            postgresql_ops={"lower(name)": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_maps_description_trgm",
+            text("lower(coalesce(description, ''))"),
+            postgresql_using="gin",
+            postgresql_ops={
+                "lower(coalesce(description, ''))": "gin_trgm_ops"
+            },
+        ),
         {"schema": "catalog"},
     )
 
