@@ -73,6 +73,17 @@ router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES
 _ENTERPRISE_ONLY_TABS = frozenset({"branding", "appearance"})
 
 
+# Phase 279 ADMIN-09 (L-01): The PUT/RESET handlers below intentionally end with
+# `return await get_all_settings(...)` to capture side-effects from
+# rebuild_embedding_column rollback, _auto_detect_embedding_dims write, and
+# request-derived URL computation (public_app_url / public_api_url, computed
+# from `request` in get_all_settings — NOT stored in AppSetting). An inline
+# response construction would have to duplicate get_all_settings's body
+# (registry iteration + value-source resolution + env-only handling). The
+# second SELECT is cheaper to maintain than two parallel response builders.
+# See the inline comment blocks at each return site for the full rationale.
+
+
 def _validate_setting(key: str, value: object) -> object:
     """Run permission and custom validators for a setting key. Returns validated value."""
     if key == "role_permissions":
@@ -316,6 +327,19 @@ async def update_settings(
                 detail="Embedding column rebuild failed. The embedding_dims setting has been reverted.",
             ) from exc
 
+    # Phase 279 ADMIN-09 (L-01): The second get_all_settings() call is INTENTIONAL.
+    # update_settings runs three side-effect pathways that mutate AppSetting AFTER
+    # the main registry loop:
+    #   1. _auto_detect_embedding_dims (above) -- writes EMBEDDING_DIMS via .set()
+    #      when embedding_model changes without an explicit dims value.
+    #   2. rebuild_embedding_column failure (above) -- rolls back the
+    #      requested embedding_dims to old_dims_value if the DDL fails.
+    #   3. .set() with commit=False above batches the writes; the final commit
+    #      may differ from the request body if a validator coerced the value.
+    # Additionally, get_all_settings computes public_app_url / public_api_url from
+    # the request object, which the request-body iteration does not. An inline
+    # construction would have to duplicate ALL of that logic; the second SELECT
+    # is cheaper to maintain than two parallel response builders.
     return await get_all_settings(request=request, _user=user, db=db)
 
 
@@ -340,6 +364,11 @@ async def reset_settings(
         ip = get_client_ip(request)
         await cfg.reset(db, user_id=user.id, ip_address=ip)
 
+    # Phase 279 ADMIN-09 (L-01): Intentional second SELECT. cfg.reset() writes
+    # the env_default value back to AppSetting; we re-read to capture the
+    # post-reset state (which may differ from the env_default if a derivation
+    # function -- see public_app_url / public_api_url computation in
+    # get_all_settings -- runs at response-build time).
     return await get_all_settings(request=request, _user=user, db=db)
 
 
