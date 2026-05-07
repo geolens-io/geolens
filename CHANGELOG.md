@@ -11,10 +11,60 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-> Pre-public-release security & audit hardening sweep. 17 audit dimensions
-> reviewed; all Critical and High findings remediated inline. Recommend a
-> 1.1.0 minor bump on the next public release to signal the breaking changes
-> below.
+## [1.1.0] - 2026-05-07
+
+> Pre-public-release security & audit hardening sweep (v13.12) plus a
+> 9-phase backlog sweep (v13.13) that closed 130 Medium+Low follow-up
+> requirements across security, performance, API contracts, code quality,
+> i18n, tests, and admin polish. The breaking changes below come from the
+> v13.12 hardening pass; v13.13 is purely additive/internal.
+
+### v13.13 highlights (additive, no breaking changes)
+
+- **Frontend perf wins:** the 1052 KB MapLibre `map-vendor` chunk is now
+  lazy-loaded only on map-rendering routes, removing it from initial
+  payloads on Login/Dashboard/Settings. The `DatasetPage` route bundle
+  shrank 217 KB → 34 KB raw (-84%) via lazy `ReuploadDialog`,
+  `VrtCreateDialog`, and `DetailPanel`. The attribute table now
+  virtualizes via `@tanstack/react-virtual` for datasets with 10k+ rows.
+- **Backend perf wins:** in-memory LRU tile cache fallback when `REDIS_URL`
+  is unset; `_bulk_fetch_dataset_metadata` parallelizes its independent
+  blocks via `asyncio.gather`; ingest's 4 sequential post-COPY scans
+  consolidated into a single CTE; AI chat schema cache partitioned on
+  `(map_id, content_hash)`; `has_embeddings` cache partitioned on the
+  active embedding model name; `tile_cache_hits/misses` Prometheus
+  counters gain a `table_name` label.
+- **Admin polish:** audit-log full-text search now uses the existing
+  pg_trgm GIN trigram indexes via `lower(unaccent(...))` for fast typing;
+  enterprise-only admin tabs are now driven by a server-side registry
+  (`GET /admin/settings/enterprise-tabs/`) rather than a frontend
+  hardcoded frozenset; `register_user` emits an audit event;
+  `delete_user` FK SET NULL behavior is locked by a migration regression
+  test; `ApiKey.name` declares `max_length=255`.
+- **i18n completeness:** the entire builder `style.*` namespace
+  (zoomExpression, symbol, raster, hillshade, uploadIcon — 138 strings)
+  now has full es/fr/de translations.
+- **Code quality:** `chat_service.py` (1013 LOC) decomposed into 5
+  cohesive sub-modules behind a Phase-226-style facade with zero public
+  API change. Architecture-guard test enforces a 1500-LOC cap on routers
+  with an explicit allowlist for over-cap legacy routers. 113 broad
+  `except Exception:` sites annotated with rationale comments + a
+  regression-guard test forbids new unjustified ones. Cross-feature
+  zustand stores (`drawing-store`, `map-widget-store`, `search-store`)
+  relocated to `src/stores/` for consistent layout. Auth zustand persist
+  declares `version: 1` + `migrate` for forward compatibility.
+- **Test health:** backend `--cov-fail-under` raised 58.5 → 60 (actual
+  77%); frontend coverage thresholds ratcheted across all four
+  dimensions; 6 raw `page.waitForTimeout(...)` calls in E2E specs
+  replaced with deterministic locator polling; 35 inline `pytest.skip`
+  calls migrated to `@pytest.mark.skipif` decorator form for cleaner
+  gather-time skipping.
+- **CI hygiene:** non-blocking `license-check` job uploads a
+  `license-report` artifact (30-day retention); MinIO image bumped from
+  `RELEASE.2025-04-22` to `RELEASE.2025-09-07` and pinned by sha256
+  digest.
+
+### v13.12 hardening pass (Critical+High remediation)
 
 ### Changed (BREAKING)
 
