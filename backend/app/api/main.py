@@ -64,6 +64,26 @@ async def seed_roles() -> None:
         await session.commit()
 
 
+def _warn_if_cors_unset(settings_obj, log) -> None:
+    """SEC-08 / M-72: warn loudly when CORS_ALLOWED_ORIGINS is unset in
+    production. DynamicCORSMiddleware will still respond (no breakage),
+    but the operator likely INTENDED to lock down origins and forgot.
+
+    Gated on log_json so dev/test runs don't get the warning. log_json is
+    the same production indicator used at line 407 for `_is_production`.
+    """
+    if settings_obj.log_json and not settings_obj.cors_allowed_origins:
+        log.warning(
+            "cors_allowed_origins_unset",
+            message=(
+                "CORS_ALLOWED_ORIGINS is empty in production (LOG_JSON=true). "
+                "All origins will pass the request-origin check; this is "
+                "likely a misconfiguration. Set "
+                "CORS_ALLOWED_ORIGINS=<comma-separated origins> to restrict."
+            ),
+        )
+
+
 async def seed_initial_admin() -> None:
     """Create an initial admin user if no users exist.
 
@@ -121,6 +141,9 @@ async def lifespan(app: FastAPI):
 
     await seed_roles()
     await seed_initial_admin()
+
+    # SEC-08 / M-72: surface unset CORS_ALLOWED_ORIGINS in production once.
+    _warn_if_cors_unset(settings, logger)
 
     load_extensions()
     init_edition(list_extensions())
