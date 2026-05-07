@@ -616,6 +616,7 @@ function SymbolControls({ layer, config, onChange, t }: SymbolControlsProps) {
       <div className="text-xs font-medium">{t('style.symbol.title')}</div>
       <IconPicker
         label={t('style.symbol.iconImage')}
+        uploadAriaLabel={t('style.symbol.uploadIcon')}
         value={config.iconImage ?? 'marker'}
         onChange={(iconImage) => onChange({ iconImage })}
       />

@@ -9,9 +9,13 @@ interface IconPickerProps {
   value: string;
   onChange: (spriteId: string) => void;
   label: string;
+  // CONF-06 (Phase 277): localized aria-label for the upload button + hidden
+  // file input. Required (no default fallback) to ensure non-EN locales never
+  // surface the hardcoded English string. Use t('style.symbol.uploadIcon').
+  uploadAriaLabel: string;
 }
 
-export function IconPicker({ value, onChange, label }: IconPickerProps) {
+export function IconPicker({ value, onChange, label, uploadAriaLabel }: IconPickerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const iconsQuery = useMapIcons();
   const uploadIcon = useUploadMapIcon();
@@ -45,7 +49,7 @@ export function IconPicker({ value, onChange, label }: IconPickerProps) {
           accept=".svg,.png,image/svg+xml,image/png"
           className="sr-only"
           onChange={handleFileChange}
-          aria-label="Upload icon"
+          aria-label={uploadAriaLabel}
         />
         <Button
           type="button"
@@ -54,7 +58,7 @@ export function IconPicker({ value, onChange, label }: IconPickerProps) {
           className="h-8 w-8"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadIcon.isPending}
-          aria-label="Upload icon"
+          aria-label={uploadAriaLabel}
         >
           <Upload className="h-3.5 w-3.5" />
         </Button>

@@ -104,6 +104,7 @@
     "symbol": {
       "title": "Symbol",
       "iconImage": "Icon",
+      "uploadIcon": "Upload icon",
       "size": "Size",
       "rotation": "Rotation",
       "anchor": "Anchor",
