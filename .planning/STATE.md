@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
-status: executing
-last_updated: "2026-05-07"
-last_activity: 2026-05-07
+status: completed
+stopped_at: 258-02 complete — POLISH-06 stable per-stop UUID keys shipped (commit cc5a7138)
+last_updated: "2026-05-07T19:42:14Z"
+last_activity: "2026-05-07 — 276-03 complete (v13.13 side-track): OSS-side overlay-dispatch tests for Branding/Auth/Audit Extensions; CODE-03 closed; commit d9a20890"
 progress:
-  total_phases: 5
-  completed_phases: 0
-  total_plans: 2
-  completed_plans: 2
-  percent: 10
+  total_phases: 12
+  completed_phases: 1
+  total_plans: 15
+  completed_plans: 11
+  percent: 73
 ---
 
 # State
@@ -22,7 +23,7 @@ Plan: 258-02 complete (Phase 258 all plans shipped)
 Status: Phase 258 complete — Plans 01+02 shipped
 Last activity: 2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests
 
-Progress: [██░░░░░░░░] 10%
+Progress: [███████░░░] 73%
 
 ## Project Reference
 
@@ -64,8 +65,12 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 - `2026-05-05-recreate-public-repo-before-launch.md` — pre-launch repo strategy (still pending)
 - `2026-05-07-phase-256-ui-audit-blocker-backlog-gradient-preview-swatch.md` — BUILDER-POLISH-01 (will be closed by Phase 262)
 
+## v13.13 Side-Track Activity
+
+Plan 276-03 (OSS-side overlay-dispatch tests for Branding/Auth/Audit Extensions, CODE-03) executed 2026-05-07 alongside v13.11 winddown. Single commit `d9a20890`. Phase 276 progress: 1/7 plans complete. Closes M-11 / M-54 audit findings inline. STATE remains pinned to v13.11 milestone; a future v13.13 milestone-start will repoint STATE and re-anchor the progress bar.
+
 ## Session Continuity
 
-Last session: 2026-05-07
-Stopped at: 258-02 complete — POLISH-06 stable per-stop UUID keys shipped (commit cc5a7138)
+Last session: 2026-05-07T19:42:14Z
+Stopped at: 276-03 complete — Branding/Auth/Audit overlay-dispatch tests shipped (commit d9a20890)
 Resume file: None

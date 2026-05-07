@@ -149,6 +149,64 @@ Plans:
 Plans:
 - [ ] 262-01: Update MEMORY.md and close BUILDER-POLISH-01 todo file
 
+### Phase 275: API Contract & Docs Refresh (v13.13)
+**Goal**: OpenAPI schema is accurate and typed, CHANGELOG is populated for the v1.1.0 release, README reflects current capabilities and build times, and demo/compose configuration is consistent
+**Depends on**: Nothing (independent docs/contract refresh)
+**Requirements**: API-01, API-02, API-03, API-04, API-05, API-06, API-07, API-08, API-09, API-10, API-11, API-12, API-13, API-14
+**Success Criteria** (what must be TRUE):
+  1. POST /maps/import accepts a typed Pydantic body — OpenAPI no longer emits `additionalProperties: true` (API-01)
+  2. CHANGELOG.md `[Unreleased]` lists all 10 routes added since v1.0.0 + the PUT thumbnail breaking change is preserved (API-02)
+  3. /maps namespace + /ingest/manifest/apply slash convention is documented in `docs/api-style.md` (API-03)
+  4. README.md cites correct dataset count, working API Reference link, public-cog discoverability, cold-build time, and widened Python badge (API-04, API-09, API-13)
+  5. docker-compose.yml port fallbacks documented; titiler/valkey/uv image pins bumped (API-05, API-08)
+  6. frontend/README.md replaces Vite boilerplate with GeoLens orientation (API-06)
+  7. GET /health is tagged `Health` in OpenAPI; status code conventions documented (API-07)
+  8. docker-compose.enterprise.yml status reconciled in oc-audit methodology (API-10)
+  9. docs/edition-deactivation.md documents pg_dump pre-step before alembic downgrade (API-11)
+  10. docs/oc-audit-methodology.md documents dual-path audit output convention (API-12)
+  11. .env.demo references getgeolens.com (not .io); README has JWT mint one-liner; em-dash punctuation consistent (API-14)
+**Plans**: 8 plans
+
+Plans:
+- [ ] 275-01-PLAN.md — POST /maps/import typed body (API-01)
+- [ ] 275-02-PLAN.md — API style guide + GET /health tag (API-03, API-07)
+- [ ] 275-03-PLAN.md — CHANGELOG [Unreleased] populated with 10 new routes (API-02)
+- [ ] 275-04-PLAN.md — README accuracy + CODE_OF_CONDUCT pledge + UTF-8 READMEs (API-04, API-09, API-13)
+- [ ] 275-05-PLAN.md — frontend/README.md GeoLens orientation (API-06)
+- [ ] 275-06-PLAN.md — Compose port comments + image pins + oc-audit methodology reference (API-05, API-08, API-10)
+- [ ] 275-07-PLAN.md — Demo cluster Celery→Procrastinate, domain rename, JWT one-liner, em-dash (API-14)
+- [ ] 275-08-PLAN.md — Edition deactivation pg_dump pre-step + oc-audit-methodology.md (API-11, API-12)
+
+### Phase 276: Backend & Frontend Code Quality (v13.13)
+**Goal**: Architecture guard covers large modules, `chat_service.py` is decomposed, frontend stores are co-located in `src/stores/`, and the DatasetPage bundle is below 200 KB. Playwright MCP UAT confirms no visual regressions after store moves.
+**Depends on**: Nothing (independent code-quality sweep)
+**Requirements**: CODE-01, CODE-02, CODE-03, CODE-04, CODE-05, CODE-06, CODE-07, CODE-08, CODE-09, CODE-10, CODE-11, CODE-12, CODE-13, CODE-14
+**Success Criteria** (what must be TRUE):
+  1. An architecture-guard test fails when any backend router exceeds 1500 LOC outside an explicit allowlist; passes today (CODE-01)
+  2. `processing/ai/chat_service.py` is a < 400-LOC facade re-exporting from 4-5 cohesive sub-modules each < 400 LOC; all AI chat tests pass without modification (CODE-02)
+  3. `BrandingExtension`, `AuthExtension`, `AuditExtension` Protocol seams gain OSS-side overlay-dispatch tests (CODE-03)
+  4. Auth zustand persist store declares `version: 1` + a `migrate` scaffold (CODE-04)
+  5. `drawing-store`, `map-widget-store`, `search-store` live in `frontend/src/stores/`; all consumer imports updated; Playwright MCP UAT confirms map builder + dataset map drawing + search behavior (CODE-05)
+  6. `DatasetPage` route bundle < 200 KB raw via lazy-imports for `ReuploadDialog`, `VrtCreateDialog`, and (if needed) `DetailPanel` (CODE-06)
+  7. No `.DS_Store` files in working tree (CODE-07)
+  8. Every backend `except Exception:` site has `# broad: <reason>` justification or is tightened; an architecture-guard test enforces this going forward (CODE-08)
+  9. `maps/service_diff.py` BOUND-01 carve-out has a 1-line internal-helper-only docstring comment (CODE-09)
+  10. `LineGradientControls.tsx:220` redundant `eslint-disable-next-line` removed (or documented as required by eslint config) (CODE-10)
+  11. `frontend/src/lib/logger.ts` exists; error-boundary + mutation-hook `console.error` calls route through it (CODE-11)
+  12. `MapBuilderPage`'s hand-rolled-string-key `useEffect` has a Phase 276 rationale block comment (or has been refactored to useMemo with UAT verification) (CODE-12)
+  13. Stale `TODO(Phase 256)` comments in line-gradient tests are resolved (cast removed) or rewritten with non-stale rationale (CODE-13)
+  14. `Identity` forward-reference quoting convention in `protocols.py` is documented in a comment (CODE-14)
+**Plans**: 7 plans
+
+Plans:
+- [ ] 276-01-PLAN.md — Backend architecture LOC cap + service_diff comment + Identity quoting (CODE-01, CODE-09, CODE-14)
+- [ ] 276-02-PLAN.md — chat_service.py Phase-226 facade decomposition (CODE-02)
+- [x] 276-03-PLAN.md — Branding/Auth/Audit Extension overlay-dispatch tests (CODE-03) ✅ 2026-05-07
+- [ ] 276-04-PLAN.md — Backend broad-except annotation sweep + architecture-guard (CODE-08)
+- [ ] 276-05-PLAN.md — Auth-store version+migrate + 3 cross-feature store moves + Playwright UAT (CODE-04, CODE-05)
+- [ ] 276-06-PLAN.md — DatasetPage bundle < 200 KB via lazy imports (CODE-06)
+- [ ] 276-07-PLAN.md — Frontend cleanups: DS_Store, eslint-disable, logger.ts, useEffect, line-gradient TODOs (CODE-07, CODE-10, CODE-11, CODE-12, CODE-13)
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -158,6 +216,7 @@ Plans:
 | 260. Builder Quality Sweep | 0/TBD | Not started | - |
 | 261. Layer Visibility Debug & Audit | 0/TBD | Not started | - |
 | 262. Milestone Closeout | 0/1 | Not started | - |
+| 276. Backend & Frontend Code Quality (v13.13) | 1/7 | In progress | - |
 
 ## Backlog
 
