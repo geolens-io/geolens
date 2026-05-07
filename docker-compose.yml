@@ -108,6 +108,9 @@ services:
       dockerfile: Dockerfile
       target: api
     command: sh -c "uv run alembic upgrade head"
+    # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
+    # should stop the dependency chain, not retry blindly.
+    restart: "no"
     security_opt:
       - no-new-privileges:true
     # cap_drop ALL + minimal cap_add for entrypoint setpriv + chown.
@@ -367,6 +370,14 @@ services:
       # API_PROXY_TARGET is consumed only by vite.config.ts (Node side); nothing
       # in the browser bundle reads it.
       API_PROXY_TARGET: http://api:8000
+    healthcheck:
+      # Vite dev server inside the container; HTTP GET / returns 200 once ready.
+      # Cold start can take 10-15s while Vite resolves the import graph.
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:5173/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       api:
         condition: service_healthy
@@ -403,6 +414,14 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ALLOW_HTTP: ${S3_ALLOW_HTTP:-false}
     entrypoint: ["/scripts/backup-entrypoint.sh"]
+    healthcheck:
+      # Backup runs cron-driven via the entrypoint script's sleep loop.
+      # Healthcheck verifies the entrypoint process is alive (sleep + cron tick).
+      test: ["CMD-SHELL", "pgrep -f backup-entrypoint || pgrep -f sleep || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
@@ -415,13 +434,15 @@ services:
           memory: 192M
 
   # --- cloud-dev profile: local S3 + cache for testing ---
+  # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
+  # not for sharing on a LAN or exposing through Docker port forwarding.
   minio:
     image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     profiles: ["cloud-dev"]
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -478,7 +499,7 @@ services:
     image: valkey/valkey:8.1.6-alpine
     profiles: ["cloud-dev"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - valkey_data:/data
     healthcheck:
