@@ -2,7 +2,16 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,6 +24,13 @@ class IngestJob(Base):
         CheckConstraint(
             "status IN ('pending', 'running', 'complete', 'failed', 'cancelled')",
             name="chk_ingest_jobs_status",
+        ),
+        # DBM-03: partial index for stale-job recovery scans.
+        # Migration 0013 is the source of truth for the actual DDL.
+        Index(
+            "ix_ingest_jobs_status_active",
+            "status",
+            postgresql_where=text("status IN ('running', 'pending')"),
         ),
         {"schema": "catalog"},
     )
