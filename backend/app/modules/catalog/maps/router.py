@@ -1383,6 +1383,34 @@ async def upload_thumbnail(
             detail="Invalid data URI or base64 encoding",
         )
 
+    # SEC-12 / L-65: validate that the decoded bytes are a real image, not
+    # arbitrary attacker-controlled content labeled as data:image/png. PIL's
+    # Image.verify() walks the file header + structure without fully decoding
+    # the pixel data — fast (<10ms for typical thumbnails) and rejects all
+    # the obvious tampering vectors (random bytes, truncated images,
+    # mismatched MIME). Without this gate, a user with edit_metadata could
+    # store arbitrary bytes that GET /maps/{id}/thumbnail/ later serves back
+    # with a media_type=image/* Content-Type — a stored-content tampering
+    # primitive.
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            img.verify()
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        logger.warning(
+            "thumbnail_upload_invalid_image",
+            map_id=str(map_id),
+            byte_length=len(image_bytes),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Thumbnail payload is not a valid image",
+        )
+
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
     storage_key = f"maps/thumbnails/{map_id}.{ext}"

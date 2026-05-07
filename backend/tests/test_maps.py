@@ -121,6 +121,27 @@ async def _create_map(
     return resp.json()
 
 
+def _valid_png_data_uri() -> str:
+    """Return a small but VALID PNG data URI for thumbnail tests.
+
+    Phase 273 SEC-12: PUT /maps/{id}/thumbnail/ now runs PIL.Image.verify()
+    on the decoded base64 payload. The previous shorthand
+    ``iVBORw0KGgo=`` was only the 8-byte PNG magic header — not a complete
+    PNG — and is correctly rejected by the verify gate. Tests that just
+    need *any* accepted thumbnail use this helper.
+    """
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("RGB", (4, 4), color=(0, 0, 0))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
 # ---------------------------------------------------------------------------
 # Create map
 # ---------------------------------------------------------------------------
@@ -1025,10 +1046,11 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Thumb Source")
         map_id = created["id"]
 
-        # Set a thumbnail on source
+        # Set a thumbnail on source (SEC-12: must be a real PNG that
+        # PIL.Image.verify() accepts — see _valid_png_data_uri docstring)
         await client.put(
             f"/maps/{map_id}/thumbnail/",
-            json={"data_uri": "data:image/png;base64,iVBORw0KGgo="},
+            json={"data_uri": _valid_png_data_uri()},
             headers=admin_auth_header,
         )
 
@@ -1954,11 +1976,11 @@ class TestMapThumbnail:
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
-        # Minimal valid PNG base64 data URI
-        data_uri = "data:image/png;base64,iVBORw0KGgo="
+        # SEC-12: payload must pass PIL.Image.verify() — see
+        # _valid_png_data_uri helper for the rationale.
         resp = await client.put(
             f"/maps/{map_id}/thumbnail/",
-            json={"data_uri": data_uri},
+            json={"data_uri": _valid_png_data_uri()},
             headers=admin_auth_header,
         )
         assert resp.status_code == 204
@@ -1970,10 +1992,9 @@ class TestMapThumbnail:
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
-        data_uri = "data:image/png;base64,iVBORw0KGgo="
         upload_resp = await client.put(
             f"/maps/{map_id}/thumbnail/",
-            json={"data_uri": data_uri},
+            json={"data_uri": _valid_png_data_uri()},
             headers=admin_auth_header,
         )
         assert upload_resp.status_code == 204
