@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Download, Upload, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,15 +39,16 @@ function downloadJson(filename: string, data: Record<string, unknown>) {
 }
 
 function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
+  const { t } = useTranslation('builder');
   return (
     <div className="space-y-2 rounded border bg-muted/30 p-3 text-xs">
       <div className="flex items-center gap-2 font-medium">
         <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-        Imported {summary.layers_imported} layer{summary.layers_imported === 1 ? '' : 's'}
+        {t('styleJson.summary.imported', { count: summary.layers_imported })}
       </div>
       <div className="text-muted-foreground">
-        {summary.sources_matched} matched source{summary.sources_matched === 1 ? '' : 's'};
-        {' '}{summary.layers_skipped} skipped layer{summary.layers_skipped === 1 ? '' : 's'}.
+        {t('styleJson.summary.matched', { count: summary.sources_matched })};
+        {' '}{t('styleJson.summary.skipped', { count: summary.layers_skipped })}
       </div>
       {summary.warnings.length > 0 && (
         <div className="space-y-1">
@@ -63,6 +65,7 @@ function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
 }
 
 export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJsonDialogProps) {
+  const { t } = useTranslation('builder');
   const exportStyle = useExportMapStyleJson();
   const importStyle = useImportMapStyleJson();
   const [jsonText, setJsonText] = useState('');
@@ -82,18 +85,18 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
     try {
       parsed = JSON.parse(jsonText) as Record<string, unknown>;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        setError('Style JSON must be an object.');
+        setError(t('styleJson.errors.notObject'));
         return;
       }
     } catch {
-      setError('Invalid JSON.');
+      setError(t('styleJson.errors.invalidJson'));
       return;
     }
     try {
       const result = await importStyle.mutateAsync(parsed);
       setSummary(result.summary);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed.');
+      setError(err instanceof Error ? err.message : t('styleJson.errors.importFailed'));
     }
   }
 
@@ -101,23 +104,23 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Style JSON</DialogTitle>
+          <DialogTitle>{t('styleJson.title')}</DialogTitle>
           <DialogDescription>
-            Export or import a portable MapLibre style document.
+            {t('styleJson.description')}
           </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue="export">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="export">Export</TabsTrigger>
-            <TabsTrigger value="import">Import</TabsTrigger>
+            <TabsTrigger value="export">{t('styleJson.tabs.export')}</TabsTrigger>
+            <TabsTrigger value="import">{t('styleJson.tabs.import')}</TabsTrigger>
           </TabsList>
           <TabsContent value="export" className="space-y-3 pt-3">
             <div className="rounded border bg-muted/30 p-3 text-sm text-muted-foreground">
-              Download `{filename}` with sources, layers, filters, labels, sprites, glyphs, and viewport metadata.
+              {t('styleJson.exportHint', { filename })}
             </div>
             <Button onClick={handleExport} disabled={exportStyle.isPending} className="gap-2">
               <Download className="h-4 w-4" />
-              Export JSON
+              {t('styleJson.exportButton')}
             </Button>
           </TabsContent>
           <TabsContent value="import" className="space-y-3 pt-3">
@@ -130,7 +133,7 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
                 setSummary(null);
               }}
               placeholder='{"version":8,"sources":{},"layers":[]}'
-              aria-label="Style JSON"
+              aria-label={t('styleJson.ariaLabel')}
               data-testid="style-json-input"
               spellCheck={false}
             />
@@ -143,7 +146,7 @@ export function StyleJsonDialog({ mapId, mapName, open, onOpenChange }: StyleJso
             {summary && <ImportSummary summary={summary} />}
             <Button onClick={handleImport} disabled={importStyle.isPending || !jsonText.trim()} className="gap-2">
               <Upload className="h-4 w-4" />
-              Import JSON
+              {t('styleJson.importButton')}
             </Button>
           </TabsContent>
         </Tabs>

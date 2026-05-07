@@ -547,5 +547,30 @@
     "unknownTime": "Unknown time",
     "unknownActor": "Unknown user",
     "actorTarget": "{{actor}} - {{target}}"
+  },
+  "styleJson": {
+    "title": "Style JSON",
+    "ariaLabel": "Style JSON",
+    "description": "Export or import a portable MapLibre style document.",
+    "tabs": {
+      "export": "Export",
+      "import": "Import"
+    },
+    "exportHint": "Download `{{filename}}` with sources, layers, filters, labels, sprites, glyphs, and viewport metadata.",
+    "exportButton": "Export JSON",
+    "importButton": "Import JSON",
+    "errors": {
+      "notObject": "Style JSON must be an object.",
+      "invalidJson": "Invalid JSON.",
+      "importFailed": "Import failed."
+    },
+    "summary": {
+      "imported_one": "Imported {{count}} layer",
+      "imported_other": "Imported {{count}} layers",
+      "matched_one": "{{count}} matched source",
+      "matched_other": "{{count}} matched sources",
+      "skipped_one": "{{count}} skipped layer.",
+      "skipped_other": "{{count}} skipped layers."
+    }
   }
 }
