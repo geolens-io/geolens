@@ -9,8 +9,8 @@ progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
-  percent: 5
+  completed_plans: 2
+  percent: 10
 ---
 
 # State
@@ -18,11 +18,11 @@ progress:
 ## Current Position
 
 Phase: 258 — Line-Gradient UI Closeout
-Plan: 258-01 complete (258-02 is next)
-Status: Phase 258 in progress — Plan 01 shipped
-Last activity: 2026-05-07 — 258-01 complete: POLISH-01..05, POLISH-07, COPY-01 shipped; gradient preview swatch + UI polish + EN copy rewrite
+Plan: 258-02 complete (Phase 258 all plans shipped)
+Status: Phase 258 complete — Plans 01+02 shipped
+Last activity: 2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests
 
-Progress: [█░░░░░░░░░] 5%
+Progress: [██░░░░░░░░] 10%
 
 ## Project Reference
 
@@ -43,7 +43,7 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 258 | Line-Gradient UI Closeout | POLISH-01..07, COPY-01 | Not started |
+| 258 | Line-Gradient UI Closeout | POLISH-01..07, COPY-01 | Complete (2 plans) |
 | 259 | i18n Translations | COPY-02 | Not started |
 | 260 | Builder Quality Sweep | QUALITY-01..04 | Not started |
 | 261 | Layer Visibility Debug & Audit | LAYER-01..02 | Not started |
@@ -67,5 +67,5 @@ See: .planning/PROJECT.md (updated 2026-05-07)
 ## Session Continuity
 
 Last session: 2026-05-07
-Stopped at: 258-01 complete — gradient preview swatch + UI polish + EN copy rewrite shipped (commit a3098856)
+Stopped at: 258-02 complete — POLISH-06 stable per-stop UUID keys shipped (commit cc5a7138)
 Resume file: None

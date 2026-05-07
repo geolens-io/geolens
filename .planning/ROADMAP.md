@@ -81,7 +81,7 @@
 
 **Milestone Goal:** Close BUILDER-POLISH-01 (Phase 256 UI audit findings), translate the line-gradient i18n block to es/fr/de, sweep cheap builder-polish backlog items, investigate + fix the Label-Layer toggle regression, and ship close hygiene that retires BUILDER-POLISH-01 from the deferred list.
 
-- [~] **Phase 258: Line-Gradient UI Closeout** — Fix all 7 Phase 256 audit findings in `LineGradientControls.tsx` and rewrite the `advancedHint` copy (Plan 01 complete; Plan 02 remaining)
+- [x] **Phase 258: Line-Gradient UI Closeout** — Fix all 7 Phase 256 audit findings in `LineGradientControls.tsx` and rewrite the `advancedHint` copy (2/2 plans complete)
 - [ ] **Phase 259: i18n Translations** — Translate the 16-key `lineGradient` block into es/fr/de with real (non-fallback) strings
 - [ ] **Phase 260: Builder Quality Sweep** — Unsaved-changes indicator, cursor-pointer audit, console warning cleanup, zoom-control alignment
 - [ ] **Phase 261: Layer Visibility Debug & Audit** — Root-cause and fix the Label-Layer toggle regression; audit layer order/visibility behavior end-to-end
@@ -105,7 +105,7 @@
 
 Plans:
 - [x] 258-01-PLAN.md — Visual fixes + EN copy rewrite (POLISH-01..05, POLISH-07, COPY-01) — completed 2026-05-07 (commit a3098856)
-- [ ] 258-02-PLAN.md — Stable per-stop React keys with UUID hydration (POLISH-06)
+- [x] 258-02-PLAN.md — Stable per-stop React keys with UUID hydration (POLISH-06) — completed 2026-05-07 (commit cc5a7138)
 
 ### Phase 259: i18n Translations
 **Goal**: The `lineGradient` i18n block in es, fr, and de locale files contains real translations reviewed for consistency with sibling cartographic terms — no English fallbacks remain in the 16-key block
@@ -153,7 +153,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 258. Line-Gradient UI Closeout | 1/2 | In progress | - |
+| 258. Line-Gradient UI Closeout | 2/2 | Complete | 2026-05-07 |
 | 259. i18n Translations | 0/TBD | Not started | - |
 | 260. Builder Quality Sweep | 0/TBD | Not started | - |
 | 261. Layer Visibility Debug & Audit | 0/TBD | Not started | - |
