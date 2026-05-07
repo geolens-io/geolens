@@ -100,8 +100,22 @@ async function selectSource(
   title: string,
 ) {
   await user.clear(searchInput);
-  // Wait past the onBlur 150ms debounce timeout before re-typing
-  await new Promise((r) => setTimeout(r, 200));
+  // The production VrtCreatorForm queues a 150ms onBlur timer that closes the
+  // results dropdown (`setIsDropdownOpen(false)`) and a 300ms search debounce.
+  // After clearing, poll for both observable side-effects so the next
+  // user.click → onFocus opens a clean dropdown rather than racing a stale
+  // close-timer.
+  await waitFor(
+    () => {
+      // Input value must reflect the clear synchronously
+      expect(searchInput).toHaveValue('');
+      // Prior result item must be gone from the dropdown card. The selected
+      // chip uses the same title, so check the dropdown's button (which is
+      // distinguishable from the chip by its enclosing list).
+      expect(screen.queryByRole('button', { name: new RegExp(title) })).not.toBeInTheDocument();
+    },
+    { timeout: 1_000 },
+  );
   await user.click(searchInput);
   await user.type(searchInput, 'cog');
   await waitFor(

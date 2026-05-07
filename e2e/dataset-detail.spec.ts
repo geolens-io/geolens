@@ -129,56 +129,49 @@ test.describe('Dataset Detail', () => {
     expect(download.suggestedFilename()).toBeTruthy();
   });
 
-  // Skipped 2026-04-20 (commit 2dff66e1) — "data-dependent timing issue":
-  // the pending-edits state machine races on initial render when the seeded
-  // summary column happens to be empty vs pre-filled, producing intermittent
-  // failures. Underlying testIds (`pending-edits-bar`, `pending-edits-save`,
-  // `pending-edits-cancel`, `editable-field-shell-summary`) are all live in
-  // current `PendingEditsBar.tsx` + `EditableField.tsx`; the test logic is
-  // sound but needs a deterministic seed-baseline fixture before it can run
-  // green on CI.
-  // TODO(test-audit v13.12): tracked as M-finding follow-up — replace
-  // conditional `summary != "" ? branch : baseline-fill branch` with a
-  // dedicated test fixture + datasetID so the timing-sensitive prelude is
-  // removed. Until then: keep skipped so dataset-detail smoke stays green.
-  test.skip('editable markers, viewer hint-on-attempt, and pending lifecycle remain stable', async ({
+  // Re-enabled 2026-05-07 (Phase 278, TEST-10) — replaces the racy
+  // UI-driven fill-prelude with a deterministic API-seeded fixture so the
+  // pending-edits state machine starts from a known-good baseline. The
+  // prior skipped test (commit 2dff66e1) cited "data-dependent timing
+  // issue": the conditional `if summary == "" : fill : noop` prelude
+  // raced against initial render on CI. Seeding via PATCH
+  // `/api/datasets/{id}` removes the race entirely.
+  test('editable markers, viewer hint-on-attempt, and pending lifecycle remain stable', async ({
     page,
   }) => {
+    // Deterministic seed: PATCH the summary to a known value BEFORE the UI
+    // test runs. Bypasses the editable-field state-machine race fixed in
+    // Phase 278 (TEST-10, H-33). The seeded summary is unique per run so
+    // re-runs against the same dataset don't rely on prior state.
+    const token = getAuthToken();
+    const seedSummary = `E2E baseline summary (run ${Date.now()})`;
+    const seedResp = await page.request.patch(
+      `${BASE_URL}/api/datasets/${datasetId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        data: { summary: seedSummary },
+      },
+    );
+    expect(seedResp.ok()).toBe(true);
+
     await openAdminCountriesDataset(page);
 
     // Ensure Overview tab is active and loaded
     await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
 
-    // Expand the summary field if it hasn't been filled yet (shows "Add summary" button)
-    const addSummaryBtn = page.getByRole('button', { name: 'Add summary' });
-    if (await addSummaryBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await addSummaryBtn.click();
-    }
-
     const summaryShell = page.getByTestId('editable-field-shell-summary');
     await expect(summaryShell).toHaveAttribute('data-editable', 'true');
 
-    // Ensure the summary has content so the pending edits flow works.
-    // If the field is empty, fill and save a baseline first.
+    // Open the InlineEdit textarea by clicking the role=button trigger; the
+    // shell renders the editor inline once summaryValue is non-empty (which
+    // the API seed guarantees).
     const summaryTextarea = summaryShell.locator('textarea');
-    if (!await summaryTextarea.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await summaryShell.locator('[role="button"]').click();
-    }
+    await summaryShell.locator('[role="button"]').click();
     await expect(summaryTextarea).toBeVisible();
-    const currentValue = await summaryTextarea.inputValue();
-    if (!currentValue.trim()) {
-      await summaryTextarea.fill('E2E baseline summary');
-      await page.getByRole('tab', { name: 'Overview' }).click();
-      // Save if pending bar appears, otherwise it auto-saved
-      const pendingBar = page.getByTestId('pending-edits-bar');
-      if (await pendingBar.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        await page.getByTestId('pending-edits-save').click();
-        await expect(pendingBar).toHaveCount(0);
-      }
-      // Re-open for the actual test
-      await summaryShell.locator('[role="button"]').click();
-      await expect(summaryTextarea).toBeVisible();
-    }
+    await expect(summaryTextarea).toHaveValue(seedSummary);
 
     // Pending bar appears after draft changes and disappears after cancel.
     const cancelBaseline = await summaryTextarea.inputValue();
