@@ -38,6 +38,7 @@ from app.modules.settings.schemas import (
     BrandingResponse,
     ConfigModeResponse,
     DetectEmbeddingDimsResponse,
+    EnterpriseTabsResponse,
     FeatureFlagsResponse,
     EditionInfoResponse,
     MapDefaultsResponse,
@@ -59,7 +60,17 @@ router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES
 # ---------------------------------------------------------------------------
 
 
-_ENTERPRISE_ONLY_TABS = frozenset({"branding"})
+# Phase 279 ADMIN-03 (M-03): Single source of truth for enterprise-only Settings
+# tabs. Both the backend (_require_enterprise_for_key gate) and the frontend
+# (AdminSidebar conditional render) consult this set. The frontend reaches it
+# via GET /admin/settings/enterprise-tabs/ which returns its keys as a JSON
+# list. Adding a new enterprise-only tab: edit this set.
+#
+# Note: "appearance" was previously hardcoded as enterpriseOnly only on the
+# frontend (AdminSidebar.tsx). The backend gate did not enforce it, allowing a
+# community caller to write appearance keys silently. Adding it here closes
+# that drift before the frontend collapses to read this list.
+_ENTERPRISE_ONLY_TABS = frozenset({"branding", "appearance"})
 
 
 def _validate_setting(key: str, value: object) -> object:
@@ -216,6 +227,27 @@ async def get_all_settings(
         tabs.setdefault(cfg.tab, []).append(item)
 
     return SettingsAllResponse(env_only=env_only, tabs=tabs)
+
+
+@router.get("/enterprise-tabs/", response_model=EnterpriseTabsResponse)
+async def get_enterprise_only_tabs(
+    _user: Identity = Depends(require_permission("manage_settings")),
+) -> EnterpriseTabsResponse:
+    """Return the canonical list of Settings tab keys that are enterprise-only.
+
+    Phase 279 ADMIN-03 (M-03): single source of truth for enterprise-only
+    Settings tabs. The frontend AdminSidebar uses this to conditionally render
+    the tabs in community vs enterprise editions. The backend
+    ``_require_enterprise_for_key`` gate uses the same set to 404 community
+    attempts at writing enterprise-tab settings — keeping these aligned
+    prevents silent UX drift.
+
+    Note: not gated by ``require_enterprise``. Community callers must be able
+    to read the list to render their own sidebar correctly (the response tells
+    them which tabs to HIDE).
+    """
+    # Sort for stable JSON output (downstream tests rely on deterministic order)
+    return EnterpriseTabsResponse(tabs=sorted(_ENTERPRISE_ONLY_TABS))
 
 
 @router.put("/", response_model=SettingsAllResponse)

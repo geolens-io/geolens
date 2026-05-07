@@ -39,6 +39,23 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 
 
+# Phase 279 ADMIN-04 (M-04): Unified format dispatch. The set of advertised
+# formats is owned by the active AuditExtension. This dict registers the core
+# implementations that ship in the OSS audit module. Enterprise extensions
+# advertising additional formats are responsible for serving them via their
+# own router; if such a format reaches THIS route, the gate below 502s.
+#
+# Adding a new core format: register {format: media_type} here AND extend the
+# dispatch in export_audit_logs() below to actually serve it. Adding via the
+# extension's get_export_formats() alone is not enough — that just advertises;
+# implementation lives here for OSS or in the extension's own router for
+# enterprise-specific formats.
+FORMAT_HANDLERS: dict[str, str] = {
+    "csv": "text/csv",
+    "json": "application/json",
+}
+
+
 @router.get("/audit-logs/", response_model=AuditLogListResponse)
 async def list_audit_logs(
     user_id: uuid.UUID | None = Query(None),
@@ -107,11 +124,25 @@ async def export_audit_logs(
     allowed = set(get_audit_extension().get_export_formats())
     if format not in allowed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    if format not in ("csv", "json"):
-        # Format advertised by extension but not implemented in core core. The
-        # enterprise extension is responsible for serving non-default formats
-        # via its own router.
-        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED)
+    if format not in FORMAT_HANDLERS:
+        # Phase 279 ADMIN-04 (M-04): The active AuditExtension advertised this
+        # format but the OSS audit router does not implement it. Enterprise
+        # extensions advertising additional formats are responsible for
+        # registering their own route to serve them. Reaching this branch
+        # means the operator has an extension overlay that is mis-wired
+        # (route not registered, prefix collision, etc.). 502 surfaces "I
+        # can't fulfil this; upstream is mis-configured" more accurately
+        # than 501 ("never gonna build this") which the prior implementation
+        # used.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"Format '{format}' is advertised by the active audit "
+                "extension but not implemented by the core audit router. "
+                "The enterprise overlay must register its own route to "
+                "serve this format."
+            ),
+        )
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     filename = f"audit-export-{timestamp}.{format}"

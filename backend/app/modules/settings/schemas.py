@@ -195,6 +195,24 @@ class EditionInfoResponse(BaseModel):
     )
 
 
+class EnterpriseTabsResponse(BaseModel):
+    """Response for GET /settings/enterprise-tabs/.
+
+    Canonical enterprise-only Settings tab keys (Phase 279 / ADMIN-03 / M-03).
+    Read by the frontend AdminSidebar to decide which tabs to hide in
+    community editions. The backend ``_require_enterprise_for_key`` gate
+    consults the same source set, eliminating drift between the two
+    sources of truth.
+    """
+
+    tabs: list[str] = Field(
+        description=(
+            "Tab keys (e.g. 'branding', 'appearance') restricted to enterprise "
+            "editions. Sorted alphabetically for stable client-side comparison."
+        )
+    )
+
+
 class BrandingResponse(BaseModel):
     """Response for GET /settings/branding/."""
 
