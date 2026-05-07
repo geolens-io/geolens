@@ -740,17 +740,31 @@ def test_no_external_imports_of_search_private_service_modules() -> None:
 
 
 @pytest.mark.architecture
-def test_maps_search_service_modules_stay_within_size_budgets() -> None:
-    """Phase 238 BOUND-02: maps/search service splits stay bounded."""
+def test_decomposed_service_modules_stay_within_size_budgets() -> None:
+    """Phase 238 BOUND-02 + Phase 269 H-05: decomposed service splits stay bounded.
+
+    Originally introduced as the maps/search size-budget guard in Phase 238
+    BOUND-02. Phase 269 (v13.12 H-05) extended coverage to the Phase 224
+    dataset-domain split (`datasets/domain/service_*.py`), which previously
+    had a private-import guard but no companion size cap.
+    """
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 100,
         "backend/app/modules/catalog/search/service.py": 80,
+        "backend/app/modules/catalog/datasets/domain/service.py": 110,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
         "backend/app/modules/catalog/maps/service_crud.py": 550,
         "backend/app/modules/catalog/maps/service_public.py": 575,
         "backend/app/modules/catalog/search/service_records.py": 500,
+        # Phase 269 H-05: dataset-domain modules over the 350 default at audit
+        # time. Caps set ~20-30 LOC above current size to allow modest growth
+        # while still tripping CI on substantial regrowth back toward the
+        # original 1407-LOC god module.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 480,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -759,6 +773,7 @@ def test_maps_search_service_modules_stay_within_size_budgets() -> None:
         for root in (
             _backend_path("app/modules/catalog/maps"),
             _backend_path("app/modules/catalog/search"),
+            _backend_path("app/modules/catalog/datasets/domain"),
         )
         for path in sorted(root.glob("service_*.py"))
     )
@@ -777,9 +792,10 @@ def test_maps_search_service_modules_stay_within_size_budgets() -> None:
 
     if violations:
         pytest.fail(
-            "Phase 238 BOUND-02 invariant violated: maps/search service "
-            "modules exceeded their line-count budgets. Split the module or "
-            "add a reviewed explicit cap only when growth is intentional.\n"
+            "Phase 238 BOUND-02 / Phase 269 H-05 invariant violated: "
+            "decomposed service modules (maps / search / datasets-domain) "
+            "exceeded their line-count budgets. Split the module or add a "
+            "reviewed explicit cap only when growth is intentional.\n"
             + "\n".join(violations)
         )
 
