@@ -26,6 +26,12 @@ _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # Datasets with an explicit `tile_columns` allowlist override this.
 _DEFAULT_NO_ATTR_BELOW_ZOOM = 10
 
+# Phase 269 C-02: hard cap on features per tile to bound query cost.
+# Single-feature datasets see no impact; 332K-row polygon datasets had
+# 5,583 ms+ z=2 tiles before this. With 50K limit, tail latency is bounded
+# even when ST_AsMVTGeom would otherwise walk the full table.
+_TILE_FEATURE_LIMIT = 50000
+
 
 def _validate_tile_table_name(table_name: str) -> None:
     """Validate table name to prevent SQL injection."""
@@ -85,10 +91,12 @@ def _build_attr_columns(columns: list[dict]) -> str:
 def _build_tile_query(table_name: str, columns: list[dict]) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
-    Applies zoom-dependent simplification to keep vertex counts within
-    WebGL's 65535-per-segment limit. The tolerance is in EPSG:4326 degrees
-    and shrinks exponentially with zoom so low-zoom tiles stay lightweight
-    while high-zoom tiles preserve full detail.
+    Phase 269 C-02: simplification now applies at all zooms below z=10
+    (was z<6) with a piecewise tolerance schedule, and the inner CTE has
+    a 50K-feature LIMIT to bound query cost on wide low-zoom tiles. The
+    tolerance is in EPSG:4326 degrees and shrinks exponentially with zoom
+    so low-zoom tiles stay lightweight while high-zoom tiles preserve
+    full detail (z>=10 still uses the original geometry untouched).
 
     Phase 269 H-23: callers should pre-filter the ``columns`` list via
     ``_select_tile_columns`` so this function emits the SELECT projection
@@ -108,10 +116,14 @@ bounds AS (
 mvtgeom AS (
     SELECT ST_AsMVTGeom(
         ST_Transform(
-            CASE WHEN $1::integer < 6
-                THEN ST_SimplifyPreserveTopology(
+            CASE
+                WHEN $1::integer < 6 THEN ST_SimplifyPreserveTopology(
                     t.geom_4326,
                     360.0 / (4096 * power(2, $1::integer))
+                )
+                WHEN $1::integer < 10 THEN ST_SimplifyPreserveTopology(
+                    t.geom_4326,
+                    1.0 / (4096 * power(2, $1::integer))
                 )
                 ELSE t.geom_4326
             END,
@@ -125,6 +137,7 @@ mvtgeom AS (
     t.gid{attr_columns}
     FROM data.{table_name} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
+    LIMIT {_TILE_FEATURE_LIMIT}
 )
 SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
 FROM mvtgeom
