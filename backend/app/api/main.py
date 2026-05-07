@@ -449,8 +449,15 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
+# SEC-02 / M-64: gate https_only on the production indicator. Local-dev and
+# test runs use log_json=False (no TLS terminator), so https_only=True would
+# cause SessionMiddleware to silently strip the cookie. Production sets
+# LOG_JSON=true (json-logging deploy config) so https_only=True flows through
+# unchanged. _is_production at line 407 uses the same signal.
 app.add_middleware(
-    SessionMiddleware, secret_key=settings.jwt_secret_key.get_secret_value()
+    SessionMiddleware,
+    secret_key=settings.jwt_secret_key.get_secret_value(),
+    https_only=settings.log_json,
 )
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
