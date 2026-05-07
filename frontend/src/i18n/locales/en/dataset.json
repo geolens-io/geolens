@@ -551,7 +551,10 @@
     "allChecksPassed": "All checks passed",
     "bandStack": "Band Stack",
     "mosaic": "Mosaic",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "provenanceTitle": "Provenance",
+    "provenanceUpload": "Data upload",
+    "provenanceFeatures": "features"
   },
   "sources": {
     "system": "System",

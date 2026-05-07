@@ -589,7 +589,10 @@
     "allChecksPassed": "Alle Prüfungen bestanden",
     "bandStack": "Bandstapel",
     "mosaic": "Mosaik",
-    "unknown": "Unbekannt"
+    "unknown": "Unbekannt",
+    "provenanceTitle": "Herkunft",
+    "provenanceUpload": "Datei-Upload",
+    "provenanceFeatures": "Features"
   },
   "sources": {
     "system": "System",

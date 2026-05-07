@@ -589,7 +589,10 @@
     "allChecksPassed": "Toutes les vérifications réussies",
     "bandStack": "Empilement de bandes",
     "mosaic": "Mosaïque",
-    "unknown": "Inconnu"
+    "unknown": "Inconnu",
+    "provenanceTitle": "Provenance",
+    "provenanceUpload": "Téléversement de données",
+    "provenanceFeatures": "entités"
   },
   "sources": {
     "system": "Système",

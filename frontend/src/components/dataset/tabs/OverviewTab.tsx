@@ -100,7 +100,7 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-[10.5px] font-mono font-medium uppercase tracking-[0.12em] text-muted-foreground">
-          {t('overview.provenanceTitle', { defaultValue: 'Provenance' })}
+          {t('overview.provenanceTitle')}
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
@@ -119,11 +119,11 @@ function ProvenanceTimeline({ datasetId }: { datasetId: string }) {
                 {' · '}v{v.version_number}
               </div>
               <div className="text-[13px] font-medium">
-                {v.source_filename ?? t('overview.provenanceUpload', { defaultValue: 'Data upload' })}
+                {v.source_filename ?? t('overview.provenanceUpload')}
               </div>
               {v.feature_count != null && (
                 <div className="text-[12px] text-muted-foreground mt-0.5">
-                  {v.feature_count.toLocaleString(i18n.language)} {t('overview.provenanceFeatures', { defaultValue: 'features' })}
+                  {v.feature_count.toLocaleString(i18n.language)} {t('overview.provenanceFeatures')}
                 </div>
               )}
             </div>

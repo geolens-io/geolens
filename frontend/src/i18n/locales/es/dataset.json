@@ -589,7 +589,10 @@
     "allChecksPassed": "Todas las comprobaciones superadas",
     "bandStack": "Pila de bandas",
     "mosaic": "Mosaico",
-    "unknown": "Desconocido"
+    "unknown": "Desconocido",
+    "provenanceTitle": "Procedencia",
+    "provenanceUpload": "Carga de datos",
+    "provenanceFeatures": "entidades"
   },
   "sources": {
     "system": "Sistema",
