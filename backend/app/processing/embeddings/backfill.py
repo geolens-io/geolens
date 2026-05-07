@@ -8,7 +8,6 @@ Can be run as a module: python -m app.embeddings.backfill
 """
 
 import structlog
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.extensions import get_processing_port
@@ -32,10 +31,9 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     if force:
         from sqlalchemy import delete
 
-        # Drop HNSW index before clearing (it's dimension-specific)
-        await session.execute(
-            text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
-        )
+        # The HNSW index lives in Alembic migration 0011 (and is recreated
+        # by service.rebuild_embedding_column on dimension change). On
+        # force=True we just clear the rows; no need to drop the index.
         await session.execute(delete(RecordEmbedding))
         await session.commit()
         logger.info("Backfill: cleared all existing embeddings (force=True)")
@@ -103,9 +101,9 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 errors=errors,
             )
 
-    # Rebuild HNSW index if any embeddings were created
-    if created > 0:
-        await _rebuild_hnsw_index(session)
+    # The HNSW index is created by Alembic migration 0011 (and by
+    # service.rebuild_embedding_column when the dimension is first set or
+    # changes). The backfill no longer needs to recreate it.
 
     processed = created + errors
     result_dict = {
@@ -117,26 +115,6 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
     logger.info("Backfill complete", **result_dict)
     return result_dict
-
-
-async def _rebuild_hnsw_index(session: AsyncSession) -> None:
-    """Drop and recreate the HNSW index based on current embedding dimensions."""
-    try:
-        await session.execute(
-            text("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")
-        )
-        await session.execute(
-            text(
-                "CREATE INDEX ix_record_embeddings_hnsw "
-                "ON catalog.record_embeddings USING hnsw (embedding vector_cosine_ops) "
-                "WITH (m = 16, ef_construction = 64)"
-            )
-        )
-        await session.commit()
-        logger.info("HNSW index rebuilt successfully")
-    except Exception:
-        await session.rollback()
-        logger.warning("Failed to rebuild HNSW index", exc_info=True)
 
 
 if __name__ == "__main__":
