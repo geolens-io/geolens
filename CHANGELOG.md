@@ -31,6 +31,49 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   through large result sets — see `### Added` below. Offset-based paging
   remains supported as a legacy path.
 
+### Added — Map Builder API surface
+
+The Map Builder feature shipped 10 new public routes between v1.0.0 and the
+upcoming v1.1.0 tag. All routes are documented in `/api/docs` and exposed
+through the auto-generated `geolens` (Python) and `@geolens/sdk`
+(TypeScript) SDKs.
+
+- `POST /maps/import` — Import a MapLibre style JSON document into a new
+  GeoLens map. Accepts a typed `MapStyleImportRequest` body (Pydantic v2,
+  `extra="allow"` for forward-compat MapLibre fields). Per-layer dataset
+  access is enforced via the existing RBAC layer; inaccessible datasets
+  return 403 with the offending dataset IDs in the detail.
+- `GET /maps/{map_id}/style.json` — Export a saved GeoLens map as a
+  complete MapLibre style JSON document, ready to round-trip through
+  `POST /maps/import` or feed into any MapLibre client.
+- `PATCH /maps/{map_id}/layers` — Apply incremental layer changes (added,
+  updated, removed, reorder) without a full PUT replacement. Body is a
+  `MapLayerDiffRequest` with `added`/`updated`/`removed`/`order` arrays
+  plus a `fallback_full_replace` client hint. Avoids the lost-write
+  problem of full PUT for concurrent builder edits.
+- `GET /maps/{map_id}/history` — Return recent builder edit history for a
+  map (paginated, owner/admin only). Each event records actor, target,
+  action, summary, and a structured details bag for the History panel.
+- `GET /maps/icons` — List reusable map icons (bundled defaults plus
+  user-uploaded). Powers the symbol-layer icon picker.
+- `POST /maps/icons` — Upload a reusable SVG or PNG icon for symbol
+  layers. SVG uploads are validated through `defusedxml` and re-serialized
+  to defeat attribute-encoding bypasses (SEC-09 / Phase 273).
+- `GET /maps/icons/{icon_id}/asset` — Serve an uploaded or bundled icon
+  asset by stable icon ID. SVG responses carry
+  `Content-Security-Policy: default-src 'none'; sandbox` (SEC-01 /
+  Phase 273) so an uploaded SVG cannot fetch other origins, run scripts,
+  or read auth cookies even if validation is bypassed in the future.
+- `GET /maps/sprites/geolens.json` — Serve the stable GeoLens sprite
+  JSON index. Used by MapLibre to map sprite IDs to atlas coordinates.
+- `GET /maps/sprites/geolens.png` — Serve the generated GeoLens sprite
+  sheet. Cache-Control: `public, max-age=3600`.
+
+(Continuation) `POST /ingest/manifest/apply` was first announced in
+[1.0.1]; the route is now part of the auto-generated SDKs and accepts a
+typed `ManifestApplyRequest` body. See [1.0.1] § "Manifest-driven catalog
+automation" for the full feature description.
+
 ### Added
 
 - New CLI auth flags: `scripts/seed-natural-earth.py` accepts
