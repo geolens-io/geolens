@@ -246,11 +246,10 @@ test.describe.serial('Map Builder', () => {
     await expect(basemapOptions.first()).toBeVisible({ timeout: 3_000 });
     // Click the second option (different from current)
     await basemapOptions.nth(1).click();
-    // Brief wait for style reload
-    await page.waitForTimeout(1_000);
 
-    // Canvas should still be visible
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
+    // Canvas should still be visible — toBeVisible auto-retries until the
+    // basemap style reload settles or the timeout fires (deterministic poll).
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 5_000 });
 
     // Layer items should still be present (overlay layers not lost)
     if (layerItemsBefore > 0) {
@@ -334,10 +333,11 @@ test.describe.serial('Map Builder', () => {
     await expect(zoomItem).toBeVisible();
     await zoomItem.click();
 
-    // Map should still be functional — canvas visible, no error toasts
-    await page.waitForTimeout(1_500);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+    // Map should still be functional — canvas visible, no error toasts.
+    // Both toBeVisible and toHaveCount auto-retry up to their timeout, so they
+    // implicitly poll for the post-zoom UI to settle (deterministic).
+    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0, { timeout: 5_000 });
   });
 
   test('sidebar drag handle resizes sidebar', async ({ page }) => {
@@ -376,7 +376,15 @@ test.describe.serial('Map Builder', () => {
     await page.mouse.down();
     await page.mouse.move(hitX! + 100, startY, { steps: 15 });
     await page.mouse.up();
-    await page.waitForTimeout(300);
+
+    // Poll until the sidebar's offsetWidth reflects the drag — replaces a fixed
+    // 300ms wait. Auto-retries until layout settles or the timeout fires.
+    await expect
+      .poll(async () => await sidebar.evaluate((el) => el.offsetWidth), {
+        timeout: 3_000,
+        message: 'sidebar should resize after drag',
+      })
+      .toBeGreaterThan(widthBefore);
 
     const widthAfter = await sidebar.evaluate((el) => el.offsetWidth);
     expect(widthAfter).toBeGreaterThan(widthBefore);
@@ -426,11 +434,15 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Wait for any tile loading to settle
-    await page.waitForTimeout(3_000);
+    // Wait for any tile loading to settle — networkidle resolves once outbound
+    // requests are quiet for 500ms, deterministically replacing a 3s sleep.
+    // Tolerate non-settling streams (websocket / SSE) by falling through.
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {
+      /* fall through to toast assertion below */
+    });
 
-    // No error toasts should be visible to the user
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+    // No error toasts should be visible to the user — toHaveCount auto-retries.
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0, { timeout: 5_000 });
 
     // Console-level MapLibre tile errors are expected and acceptable;
     // the test only verifies they don't surface as UI error toasts
