@@ -1481,3 +1481,91 @@ def test_upload_thumbnail_route_uses_json_body() -> None:
                     "Python SDK. Switch to a Pydantic JSON body model "
                     "(e.g., ThumbnailUploadRequest) per Phase 254 Plan 01."
                 )
+
+
+@pytest.mark.architecture
+def test_no_unjustified_broad_except_sites() -> None:
+    """Phase 276 CODE-08: every ``except Exception:`` site under backend/app/
+    must justify itself with ``# broad: <reason>`` or
+    ``# noqa: BLE001 <reason>`` on the SAME line.
+
+    Catches new unjustified broad-except sites at PR time. The intent is
+    not to forbid broad catches — they are sometimes the correct safety
+    net (audit sinks, cache decoders, optional-dependency probes,
+    third-party SDK boundaries) — but to require a one-line justification
+    at the catch site so reviewers can confirm the broad catch is
+    intentional and not accidental swallowing of a real bug.
+
+    Two acceptable styles (both already used in the codebase):
+        except Exception:  # broad: <reason>
+        except Exception:  # noqa: BLE001 <reason>
+
+    Pattern A (``# broad:``) is preferred for new annotations and matches
+    the dominant style across ~138 of 139 sites. Pattern B
+    (``# noqa: BLE001``) is reserved for sites where ruff would otherwise
+    complain about BLE001 (e.g., audit sinks).
+
+    The comment must appear on the SAME line as the ``except`` so this
+    grep-based check can find it via line-by-line scanning. Multi-line
+    comments above the except do NOT satisfy the guard.
+
+    Out of scope: ``backend/tests/`` (test code may swallow exceptions
+    for structural reasons unrelated to production safety) and
+    ``backend/app/processing/ai/router.py`` is NOT exempted — it has
+    its own justified sites.
+
+    Negative-control: temporarily reintroduce ``except Exception:`` (no
+    comment) into a sandbox file under ``backend/app/``, run this test,
+    confirm it fails with the offending line surfaced. Revert.
+
+    Maps to CODE-08 (REQUIREMENTS.md §Phase 276).
+    """
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 276 CODE-08 invariant via grep-based guard"
+        )
+
+    # Match `except Exception:` and `except Exception as foo:` lines
+    # under backend/app/ only (tests/ is out of scope).
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-E",
+            r"except Exception(\s+as\s+\w+)?:",
+            "--",
+            "backend/app/",
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    # rc=1 means "no matches" (and our codebase is expected to have
+    # matches). rc=0 means matches found — we then filter them.
+    if result.returncode not in (0, 1):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    violations: list[str] = []
+    for line in result.stdout.splitlines():
+        # Each match is "<path>:<lineno>:<source>".
+        if "# broad:" in line or "# noqa: BLE001" in line:
+            continue
+        violations.append(line)
+
+    if violations:
+        pytest.fail(
+            "Phase 276 CODE-08 invariant violated: unjustified broad-except "
+            "sites found. Add `# broad: <reason>` (or `# noqa: BLE001 "
+            "<reason>`) on the SAME line as the `except`, OR tighten the "
+            "catch to a specific exception class.\n"
+            "Offending lines:\n" + "\n".join(violations)
+        )
