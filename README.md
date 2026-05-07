@@ -49,8 +49,9 @@ After the seeder image build completes (most of the time is the GEBCO 2024 downl
 
 - **Earth as Seen from Space** — bathymetry + topography + ice on a dark world view
 - **Global Bathymetry** — GEBCO 2024 ocean floor with viridis colormap
-- **Population at a Glance** — proportional-symbol populated places, sized by population
 - **GDP per Capita PPP 2023** — country choropleth from World Bank Open Data
+- **Manhattan Skyline** — OpenStreetMap building footprints extruded by height for 3D fill-extrusion rendering
+- **Population at a Glance** — proportional-symbol populated places, sized by population
 - **The World's Disputed Places** — every disputed area Natural Earth tracks
 - **One Territory, Multiple Official Maps** — Kashmir as China, India, and Pakistan see it (toggle the layers!)
 - **Conflict Events 2024** — UCDP Georeferenced Event Dataset, fatal events of organized violence

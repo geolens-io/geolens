@@ -51,8 +51,9 @@ Quand la construction de l'image du seeder est terminee, ouvrez http://localhost
 
 - **Earth as Seen from Space**: bathymetrie + topographie + glace dans une vue sombre du monde
 - **Global Bathymetry**: fond oceanique GEBCO 2024 avec colormap viridis
-- **Population at a Glance**: lieux peuples en symboles proportionnels, dimensionnes par population
 - **GDP per Capita PPP 2023**: choroplethe de pays depuis World Bank Open Data
+- **Manhattan Skyline**: empreintes de batiments OpenStreetMap extrudees par hauteur pour le rendu fill-extrusion 3D
+- **Population at a Glance**: lieux peuples en symboles proportionnels, dimensionnes par population
 - **The World's Disputed Places**: toutes les zones contestees suivies par Natural Earth
 - **One Territory, Multiple Official Maps**: Kashmir vu par la Chine, l'Inde et le Pakistan (activez/desactivez les couches)
 - **Conflict Events 2024**: UCDP Georeferenced Event Dataset, evenements mortels de violence organisee
