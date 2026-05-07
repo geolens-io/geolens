@@ -168,11 +168,18 @@ async def test_invalidate_table_silent_on_redis_failure():
 # --- get_tile_cache singleton tests ---
 
 
-def test_get_tile_cache_returns_none_when_redis_not_set():
-    """get_tile_cache() returns None when redis_url is not configured."""
+def test_get_tile_cache_returns_in_memory_provider_when_redis_not_set():
+    """get_tile_cache() returns InMemoryTileCacheProvider fallback (PERF-01).
+
+    Before Phase 274, an unset REDIS_URL meant ``get_tile_cache()``
+    returned ``None`` and the tile router silently bypassed caching.
+    PERF-01 wires a bounded LRU fallback so smaller deployments still
+    benefit from caching without Redis.
+    """
     from unittest.mock import patch
 
     from app.platform.cache import provider as cache_provider
+    from app.platform.cache.tile_cache import InMemoryTileCacheProvider
 
     old = cache_provider._tile_cache
     try:
@@ -180,7 +187,8 @@ def test_get_tile_cache_returns_none_when_redis_not_set():
         with patch("app.core.config.settings") as mock_settings:
             mock_settings.redis_url = None
             cache_provider.init_tile_cache()
-            assert cache_provider.get_tile_cache() is None
+            result = cache_provider.get_tile_cache()
+            assert isinstance(result, InMemoryTileCacheProvider)
     finally:
         cache_provider._tile_cache = old
 

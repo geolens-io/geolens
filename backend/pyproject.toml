@@ -31,6 +31,8 @@ dependencies = [
     "python-slugify>=8.0.4",
     "slowapi>=0.1.9",
     "boto3>=1.35.0",
+    # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
+    "cachetools>=5.5.0",
     "redis>=5.0.0",
     "puremagic>=2.0.0",
     "rasterio>=1.4.0",

@@ -1,11 +1,17 @@
-"""Binary Redis tile cache with Prometheus hit/miss counters.
+"""Binary tile cache: Redis-backed primary + in-memory LRU fallback.
 
-Stores gzip-compressed MVT tile bytes in Redis with configurable TTL.
-Uses decode_responses=False for binary-safe storage (unlike the main
-RedisCacheProvider which uses JSON serialization).
+Stores gzip-compressed MVT tile bytes with configurable TTL.
 
+The primary path uses ``decode_responses=False`` for binary-safe storage
+(unlike the main RedisCacheProvider which uses JSON serialization).
 Graceful degradation: all Redis errors are caught and logged, never
 propagated to callers.
+
+PERF-01 (Phase 274): when ``REDIS_URL`` is unset (zero-config or
+single-VPS deployment shape) ``InMemoryTileCacheProvider`` provides a
+bounded LRU fallback so tile responses still get cached. Capacity is
+sized at ~50k entries (~200MB at ~4KB / MVT tile) and TTL semantics
+match Redis (default 300s, per-call override accepted).
 
 PERF-11 (Phase 274): the hit/miss counters carry a ``table_name`` label
 so per-dataset cache hit ratios are observable in Prometheus.
@@ -17,9 +23,11 @@ metric label set.
 """
 
 import re
+import time
 
 import redis.asyncio as redis_async
 import structlog
+from cachetools import LRUCache  # PERF-01 (Phase 274)
 from prometheus_client import Counter
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -111,3 +119,67 @@ class TileCacheProvider:
             logger.info("tile_cache_invalidated", table=table)
         except Exception:
             logger.warning("tile_cache_invalidate_failed", table=table, exc_info=True)
+
+
+class InMemoryTileCacheProvider:
+    """In-memory LRU fallback for tile cache when REDIS_URL is unset.
+
+    PERF-01 (Phase 274): bounded LRU + per-entry TTL so smaller
+    single-VPS deployments get tile-cache benefits without running
+    Redis. Capacity sized at ~50k entries (~200MB at ~4KB / tile).
+
+    Interface is identical to ``TileCacheProvider`` so callers in
+    ``processing/tiles/router.py`` and ``modules/catalog/features/router.py``
+    need zero changes — both providers expose the same async
+    ``get/set/invalidate_table`` signatures.
+
+    TTL semantics: ``cachetools`` does not natively support per-key TTL
+    in ``LRUCache`` (and ``TTLCache`` only supports a single global TTL),
+    so we store ``(value, expires_at_monotonic)`` tuples and check
+    expiry on read. The cache itself bounds memory via ``maxsize``
+    eviction; expired entries are dropped lazily on next access.
+    """
+
+    def __init__(self, max_entries: int = 50_000) -> None:
+        # Stores (data: bytes, expires_at_monotonic: float) tuples.
+        self._cache: LRUCache[str, tuple[bytes, float]] = LRUCache(
+            maxsize=max_entries
+        )
+
+    async def get(self, table: str, z: int, x: int, y: int) -> bytes | None:
+        """Return cached tile bytes or None on miss / TTL expiry."""
+        key = f"tile:{table}:{z}:{x}:{y}"
+        label = _safe_label(table)
+        entry = self._cache.get(key)
+        if entry is None:
+            tile_cache_misses.labels(table_name=label).inc()
+            return None
+        data, expires_at = entry
+        if time.monotonic() > expires_at:
+            # Expired — drop and report miss
+            self._cache.pop(key, None)
+            tile_cache_misses.labels(table_name=label).inc()
+            return None
+        tile_cache_hits.labels(table_name=label).inc()
+        return data
+
+    async def set(
+        self,
+        table: str,
+        z: int,
+        x: int,
+        y: int,
+        data: bytes,
+        ttl: int = 300,
+    ) -> None:
+        """Store tile bytes with TTL. LRU evicts oldest when at capacity."""
+        key = f"tile:{table}:{z}:{x}:{y}"
+        self._cache[key] = (data, time.monotonic() + ttl)
+
+    async def invalidate_table(self, table: str) -> None:
+        """Delete all cached tiles for a table."""
+        prefix = f"tile:{table}:"
+        keys = [k for k in self._cache if k.startswith(prefix)]
+        for k in keys:
+            self._cache.pop(k, None)
+        logger.info("tile_cache_invalidated", table=table)

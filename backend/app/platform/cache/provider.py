@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from app.platform.cache.tile_cache import TileCacheProvider
+    from app.platform.cache.tile_cache import (
+        InMemoryTileCacheProvider,
+        TileCacheProvider,
+    )
 
 
 class CacheProvider(Protocol):
@@ -57,11 +60,17 @@ def get_cache() -> CacheProvider:
 
 # --- Tile cache (binary, separate from JSON cache) ---
 
-_tile_cache: TileCacheProvider | None = None
+_tile_cache: "TileCacheProvider | InMemoryTileCacheProvider | None" = None
 
 
 def init_tile_cache() -> None:
-    """Initialize the tile cache singleton. Only creates provider when Redis is configured."""
+    """Initialize the tile cache singleton.
+
+    Uses the Redis-backed binary provider when ``REDIS_URL`` is set;
+    otherwise falls back to an in-memory LRU provider (PERF-01,
+    Phase 274) so smaller single-VPS deployments still get tile-cache
+    benefits without running Redis.
+    """
     global _tile_cache
     from app.core.config import settings
 
@@ -71,8 +80,21 @@ def init_tile_cache() -> None:
         )
 
         _tile_cache = _TileCacheProvider(url=settings.redis_url)
+    else:
+        # PERF-01 (Phase 274): bounded in-memory LRU fallback.
+        from app.platform.cache.tile_cache import (
+            InMemoryTileCacheProvider as _InMemoryTileCacheProvider,
+        )
+
+        _tile_cache = _InMemoryTileCacheProvider()
 
 
-def get_tile_cache() -> TileCacheProvider | None:
-    """Return the tile cache provider, or None if Redis is not configured."""
+def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
+    """Return the tile cache provider.
+
+    PERF-01 (Phase 274): after ``init_tile_cache()`` has run this is
+    always non-None — the in-memory fallback is used when ``REDIS_URL``
+    is unset. ``None`` is only possible if ``init_tile_cache()`` was
+    never called (e.g. inside a unit test before app startup).
+    """
     return _tile_cache
