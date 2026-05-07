@@ -294,7 +294,31 @@ async def download_cog(
     storage = get_storage()
 
     if raster_asset.storage_backend == "remote":
-        # STAC import: asset_uri is the original remote COG URL — redirect
+        # STAC import: asset_uri is the original remote COG URL — redirect.
+        # SEC-06 / M-68: DNS records can change between import time (when
+        # validate_url_for_ssrf was last run) and now. Re-run the SSRF check
+        # immediately before redirecting to defeat DNS-rebinding TOCTOU.
+        # If the hostname now resolves to a private IP (cloud metadata,
+        # internal network), refuse the redirect with 403.
+        from app.modules.catalog.sources.security import (
+            SSRFError,
+            validate_url_for_ssrf,
+        )
+
+        try:
+            await validate_url_for_ssrf(raster_asset.asset_uri)
+        except SSRFError as exc:
+            logger.warning(
+                "cog_remote_redirect_blocked_by_ssrf",
+                dataset_id=str(dataset_id),
+                asset_uri=raster_asset.asset_uri,
+                reason=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Remote COG URL failed SSRF re-validation",
+            )
+
         return RedirectResponse(url=raster_asset.asset_uri, status_code=302)
 
     if raster_asset.storage_backend == "s3":
