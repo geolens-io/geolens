@@ -20,7 +20,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # SEC-13: only set Referrer-Policy if the route did NOT already set it.
+        # OAuth callback uses no-referrer to keep the IdP authorization code
+        # and URL-fragment tokens out of subsequent Referer headers; non-OAuth
+        # routes still get the global strict-origin-when-cross-origin default.
+        if "referrer-policy" not in (h.lower() for h in response.headers.keys()):
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Permissions-Policy"] = (

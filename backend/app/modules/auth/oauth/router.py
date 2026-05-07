@@ -174,7 +174,19 @@ async def oauth_callback(
             f"&refresh_token={refresh_token}"
             f"&expires_in={expire_minutes * 60}"
         )
-        return RedirectResponse(url=redirect_url, status_code=302)
+        # SEC-13 / L-67: the redirect URL carries access_token + refresh_token
+        # in the fragment (#token=...&refresh_token=...). Without
+        # `Referrer-Policy: no-referrer`, the browser may include the FULL
+        # callback URL (which contains the IdP's `code=` query param) in
+        # subsequent Referer headers to third-party assets loaded by the
+        # post-redirect page — leaking the auth code. Per-redirect override of
+        # the global `strict-origin-when-cross-origin` from
+        # SecurityHeadersMiddleware.
+        return RedirectResponse(
+            url=redirect_url,
+            status_code=302,
+            headers={"Referrer-Policy": "no-referrer"},
+        )
 
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through
@@ -193,7 +205,12 @@ async def oauth_callback(
                 f"{frontend_url}/oauth/callback"
                 f"#error=email_not_verified&correlation_id={correlation_id}"
             )
-            return RedirectResponse(url=error_url, status_code=302)
+            # SEC-13: same Referrer-Policy override as success path
+            return RedirectResponse(
+                url=error_url,
+                status_code=302,
+                headers={"Referrer-Policy": "no-referrer"},
+            )
         correlation_id = uuid.uuid4().hex[:12]
         logger.exception(
             "OAuth callback failed",
@@ -201,7 +218,12 @@ async def oauth_callback(
             correlation_id=correlation_id,
         )
         error_url = f"{frontend_url}/oauth/callback#error=oauth_failed&correlation_id={correlation_id}"
-        return RedirectResponse(url=error_url, status_code=302)
+        # SEC-13: same Referrer-Policy override as success path
+        return RedirectResponse(
+            url=error_url,
+            status_code=302,
+            headers={"Referrer-Policy": "no-referrer"},
+        )
 
 
 @router.get("/providers/", response_model=list[OAuthProviderPublic])
