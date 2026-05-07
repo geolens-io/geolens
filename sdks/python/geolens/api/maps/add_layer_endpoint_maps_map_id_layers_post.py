@@ -23,7 +23,7 @@ def _get_kwargs(
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/maps/{map_id}/layers/".format(
+        "url": "/maps/{map_id}/layers".format(
             map_id=quote(str(map_id), safe=""),
         ),
     }

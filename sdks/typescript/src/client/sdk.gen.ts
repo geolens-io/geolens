@@ -606,6 +606,12 @@ export const listPublicProvidersAuthOauthProvidersGet = <ThrowOnError extends bo
  * Oauth Callback
  *
  * Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+ *
+ * Phase 268 H-27: the frontend redirect carries access tokens in the URL
+ * fragment. Without explicit-config resolution, an attacker controlling
+ * ``X-Forwarded-Host`` could steer the post-callback redirect to
+ * attacker.com and capture the tokens. Force explicit-config resolution
+ * by passing ``for_external_use=True``.
  */
 export const oauthCallbackAuthOauthProviderSlugCallbackGet = <ThrowOnError extends boolean = false>(options: Options<OauthCallbackAuthOauthProviderSlugCallbackGetData, ThrowOnError>) => (options.client ?? client).get<OauthCallbackAuthOauthProviderSlugCallbackGetResponses, OauthCallbackAuthOauthProviderSlugCallbackGetErrors, ThrowOnError>({ url: '/auth/oauth/{provider_slug}/callback', ...options });
 
@@ -613,6 +619,12 @@ export const oauthCallbackAuthOauthProviderSlugCallbackGet = <ThrowOnError exten
  * Oauth Login
  *
  * Redirect user to the IdP authorization URL with PKCE parameters.
+ *
+ * Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+ * attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
+ * enable auth-code theft. We force explicit-config resolution by
+ * passing ``for_external_use=True``; falling back to the request-origin
+ * is refused.
  */
 export const oauthLoginAuthOauthProviderSlugLoginGet = <ThrowOnError extends boolean = false>(options: Options<OauthLoginAuthOauthProviderSlugLoginGetData, ThrowOnError>) => (options.client ?? client).get<unknown, OauthLoginAuthOauthProviderSlugLoginGetErrors, ThrowOnError>({ url: '/auth/oauth/{provider_slug}/login', ...options });
 
@@ -1923,7 +1935,7 @@ export const createMapEndpointMapsPost = <ThrowOnError extends boolean = false>(
  */
 export const listMapIconsEndpointMapsIconsGet = <ThrowOnError extends boolean = false>(options?: Options<ListMapIconsEndpointMapsIconsGetData, ThrowOnError>) => (options?.client ?? client).get<ListMapIconsEndpointMapsIconsGetResponses, ListMapIconsEndpointMapsIconsGetErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/maps/icons/',
+    url: '/maps/icons',
     ...options
 });
 
@@ -1935,7 +1947,7 @@ export const listMapIconsEndpointMapsIconsGet = <ThrowOnError extends boolean = 
 export const uploadMapIconEndpointMapsIconsPost = <ThrowOnError extends boolean = false>(options: Options<UploadMapIconEndpointMapsIconsPostData, ThrowOnError>) => (options.client ?? client).post<UploadMapIconEndpointMapsIconsPostResponses, UploadMapIconEndpointMapsIconsPostErrors, ThrowOnError>({
     ...formDataBodySerializer,
     security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/maps/icons/',
+    url: '/maps/icons',
     ...options,
     headers: {
         'Content-Type': null,
@@ -2128,7 +2140,7 @@ export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends 
  */
 export const addLayerEndpointMapsMapIdLayersPost = <ThrowOnError extends boolean = false>(options: Options<AddLayerEndpointMapsMapIdLayersPostData, ThrowOnError>) => (options.client ?? client).post<AddLayerEndpointMapsMapIdLayersPostResponses, AddLayerEndpointMapsMapIdLayersPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/maps/{map_id}/layers/',
+    url: '/maps/{map_id}/layers',
     ...options,
     headers: {
         'Content-Type': 'application/json',

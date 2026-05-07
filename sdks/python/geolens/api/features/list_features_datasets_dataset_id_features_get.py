@@ -136,7 +136,8 @@ def sync_detailed(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000. Default: 0.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         include_geometry (bool | Unset): Include geometry in response Default: True.
 
@@ -183,7 +184,8 @@ def sync(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000. Default: 0.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         include_geometry (bool | Unset): Include geometry in response Default: True.
 
@@ -223,7 +225,8 @@ async def asyncio_detailed(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000. Default: 0.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         include_geometry (bool | Unset): Include geometry in response Default: True.
 
@@ -268,7 +271,8 @@ async def asyncio(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000. Default: 0.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         include_geometry (bool | Unset): Include geometry in response Default: True.
 

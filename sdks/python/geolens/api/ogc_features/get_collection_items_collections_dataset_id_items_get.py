@@ -21,6 +21,7 @@ def _get_kwargs(
     *,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
@@ -32,6 +33,13 @@ def _get_kwargs(
     params["limit"] = limit
 
     params["offset"] = offset
+
+    json_after_gid: int | None | Unset
+    if isinstance(after_gid, Unset):
+        json_after_gid = UNSET
+    else:
+        json_after_gid = after_gid
+    params["after_gid"] = json_after_gid
 
     json_bbox: None | str | Unset
     if isinstance(bbox, Unset):
@@ -129,6 +137,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
@@ -150,7 +159,11 @@ def sync_detailed(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
+            (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
+            values. Default: 0.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
+            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -170,6 +183,7 @@ def sync_detailed(
         dataset_id=dataset_id,
         limit=limit,
         offset=offset,
+        after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
         f=f,
@@ -189,6 +203,7 @@ def sync(
     client: AuthenticatedClient,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
@@ -211,7 +226,11 @@ def sync(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
+            (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
+            values. Default: 0.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
+            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -232,6 +251,7 @@ def sync(
         client=client,
         limit=limit,
         offset=offset,
+        after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
         f=f,
@@ -245,6 +265,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
@@ -266,7 +287,11 @@ async def asyncio_detailed(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
+            (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
+            values. Default: 0.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
+            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -286,6 +311,7 @@ async def asyncio_detailed(
         dataset_id=dataset_id,
         limit=limit,
         offset=offset,
+        after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
         f=f,
@@ -303,6 +329,7 @@ async def asyncio(
     client: AuthenticatedClient,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
@@ -325,7 +352,11 @@ async def asyncio(
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
+            (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
+            values. Default: 0.
+        after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid.
+            Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
         datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
             start/..
@@ -347,6 +378,7 @@ async def asyncio(
             client=client,
             limit=limit,
             offset=offset,
+            after_gid=after_gid,
             bbox=bbox,
             datetime_=datetime_,
             f=f,

@@ -140,7 +140,8 @@ def sync_detailed(
         ids (None | str | Unset): Comma-separated item IDs
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000 to bound deep-paging cost. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -189,7 +190,8 @@ def sync(
         ids (None | str | Unset): Comma-separated item IDs
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000 to bound deep-paging cost. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -233,7 +235,8 @@ async def asyncio_detailed(
         ids (None | str | Unset): Comma-separated item IDs
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000 to bound deep-paging cost. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -280,7 +283,8 @@ async def asyncio(
         ids (None | str | Unset): Comma-separated item IDs
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 from 1000 to bound deep-paging cost. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

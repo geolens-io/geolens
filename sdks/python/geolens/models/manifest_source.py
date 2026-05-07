@@ -20,7 +20,7 @@ class ManifestSource:
     """
     Attributes:
         type_ (ManifestSourceType):
-        uri (str): Relative path, HTTP(S) URL, or storage URI.
+        uri (str): Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
         description (None | str | Unset):
         format_ (None | str | Unset):
         layer (None | str | Unset):

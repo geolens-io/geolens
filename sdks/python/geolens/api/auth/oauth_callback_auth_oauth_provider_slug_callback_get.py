@@ -88,6 +88,12 @@ def sync_detailed(
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
+    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    fragment. Without explicit-config resolution, an attacker controlling
+    ``X-Forwarded-Host`` could steer the post-callback redirect to
+    attacker.com and capture the tokens. Force explicit-config resolution
+    by passing ``for_external_use=True``.
+
     Args:
         provider_slug (str):
 
@@ -119,6 +125,12 @@ def sync(
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
 
+    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    fragment. Without explicit-config resolution, an attacker controlling
+    ``X-Forwarded-Host`` could steer the post-callback redirect to
+    attacker.com and capture the tokens. Force explicit-config resolution
+    by passing ``for_external_use=True``.
+
     Args:
         provider_slug (str):
 
@@ -144,6 +156,12 @@ async def asyncio_detailed(
     """Oauth Callback
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+
+    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    fragment. Without explicit-config resolution, an attacker controlling
+    ``X-Forwarded-Host`` could steer the post-callback redirect to
+    attacker.com and capture the tokens. Force explicit-config resolution
+    by passing ``for_external_use=True``.
 
     Args:
         provider_slug (str):
@@ -173,6 +191,12 @@ async def asyncio(
     """Oauth Callback
 
      Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.
+
+    Phase 268 H-27: the frontend redirect carries access tokens in the URL
+    fragment. Without explicit-config resolution, an attacker controlling
+    ``X-Forwarded-Host`` could steer the post-callback redirect to
+    attacker.com and capture the tokens. Force explicit-config resolution
+    by passing ``for_external_use=True``.
 
     Args:
         provider_slug (str):

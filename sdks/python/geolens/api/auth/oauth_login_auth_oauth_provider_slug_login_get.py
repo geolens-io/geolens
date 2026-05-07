@@ -88,6 +88,12 @@ def sync_detailed(
 
      Redirect user to the IdP authorization URL with PKCE parameters.
 
+    Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+    attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
+    enable auth-code theft. We force explicit-config resolution by
+    passing ``for_external_use=True``; falling back to the request-origin
+    is refused.
+
     Args:
         provider_slug (str):
 
@@ -119,6 +125,12 @@ def sync(
 
      Redirect user to the IdP authorization URL with PKCE parameters.
 
+    Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+    attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
+    enable auth-code theft. We force explicit-config resolution by
+    passing ``for_external_use=True``; falling back to the request-origin
+    is refused.
+
     Args:
         provider_slug (str):
 
@@ -144,6 +156,12 @@ async def asyncio_detailed(
     """Oauth Login
 
      Redirect user to the IdP authorization URL with PKCE parameters.
+
+    Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+    attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
+    enable auth-code theft. We force explicit-config resolution by
+    passing ``for_external_use=True``; falling back to the request-origin
+    is refused.
 
     Args:
         provider_slug (str):
@@ -173,6 +191,12 @@ async def asyncio(
     """Oauth Login
 
      Redirect user to the IdP authorization URL with PKCE parameters.
+
+    Phase 268 H-27: the redirect_uri is handed to the IdP, where an
+    attacker-controlled origin (via ``X-Forwarded-Host``) would otherwise
+    enable auth-code theft. We force explicit-config resolution by
+    passing ``for_external_use=True``; falling back to the request-origin
+    is refused.
 
     Args:
         provider_slug (str):

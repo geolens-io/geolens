@@ -117,7 +117,8 @@ def sync_detailed(
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -160,7 +161,8 @@ def sync(
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -198,7 +200,8 @@ async def asyncio_detailed(
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -239,7 +242,8 @@ async def asyncio(
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
         limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
+            to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

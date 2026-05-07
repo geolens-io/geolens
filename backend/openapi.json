@@ -1335,7 +1335,7 @@
         "title": "Body_upload_file_ingest_upload_post",
         "type": "object"
       },
-      "Body_upload_map_icon_endpoint_maps_icons__post": {
+      "Body_upload_map_icon_endpoint_maps_icons_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -1346,7 +1346,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_map_icon_endpoint_maps_icons__post",
+        "title": "Body_upload_map_icon_endpoint_maps_icons_post",
         "type": "object"
       },
       "BrandingResponse": {
@@ -6762,10 +6762,10 @@
             "type": "string"
           },
           "uri": {
-            "description": "Relative path, HTTP(S) URL, or storage URI.",
+            "description": "Relative path (no `..` traversal), HTTP(S) URL, or storage URI.",
             "maxLength": 2000,
             "minLength": 1,
-            "pattern": "^(?:(?:\\.{1,2}/)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+|gs://[^\\s]+|az://[^\\s]+|abfs://[^\\s]+)$",
+            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+|gs://[^\\s]+|az://[^\\s]+|abfs://[^\\s]+)$",
             "title": "Uri",
             "type": "string"
           }
@@ -19394,7 +19394,7 @@
     },
     "/auth/oauth/{provider_slug}/callback": {
       "get": {
-        "description": "Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.",
+        "description": "Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.\n\nPhase 268 H-27: the frontend redirect carries access tokens in the URL\nfragment. Without explicit-config resolution, an attacker controlling\n``X-Forwarded-Host`` could steer the post-callback redirect to\nattacker.com and capture the tokens. Force explicit-config resolution\nby passing ``for_external_use=True``.",
         "operationId": "oauth_callback_auth_oauth__provider_slug__callback_get",
         "parameters": [
           {
@@ -19486,7 +19486,7 @@
     },
     "/auth/oauth/{provider_slug}/login": {
       "get": {
-        "description": "Redirect user to the IdP authorization URL with PKCE parameters.",
+        "description": "Redirect user to the IdP authorization URL with PKCE parameters.\n\nPhase 268 H-27: the redirect_uri is handed to the IdP, where an\nattacker-controlled origin (via ``X-Forwarded-Host``) would otherwise\nenable auth-code theft. We force explicit-config resolution by\npassing ``for_external_use=True``; falling back to the request-origin\nis refused.",
         "operationId": "oauth_login_auth_oauth__provider_slug__login_get",
         "parameters": [
           {
@@ -21488,21 +21488,42 @@
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 1000,
+              "maximum": 200,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
           },
           {
+            "description": "Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) \u2014 offset is retained for backward compatibility but is O(N) at high values.",
             "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
               "default": 0,
+              "description": "Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) \u2014 offset is retained for backward compatibility but is O(N) at high values.",
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Keyset cursor: returns features with gid > after_gid. Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.",
+            "in": "query",
+            "name": "after_gid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Keyset cursor: returns features with gid > after_gid. Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.",
+              "title": "After Gid"
             }
           },
           {
@@ -24515,18 +24536,20 @@
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 1000,
+              "maximum": 200,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
           },
           {
+            "description": "Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000.",
             "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
               "default": 0,
+              "description": "Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000.",
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -31073,10 +31096,10 @@
         ]
       }
     },
-    "/maps/icons/": {
+    "/maps/icons": {
       "get": {
         "description": "List reusable default and uploaded map icons.",
-        "operationId": "list_map_icons_endpoint_maps_icons__get",
+        "operationId": "list_map_icons_endpoint_maps_icons_get",
         "responses": {
           "200": {
             "content": {
@@ -31178,12 +31201,12 @@
       },
       "post": {
         "description": "Upload a reusable SVG or PNG icon for symbol layers.",
-        "operationId": "upload_map_icon_endpoint_maps_icons__post",
+        "operationId": "upload_map_icon_endpoint_maps_icons_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_map_icon_endpoint_maps_icons__post"
+                "$ref": "#/components/schemas/Body_upload_map_icon_endpoint_maps_icons_post"
               }
             }
           },
@@ -33064,12 +33087,10 @@
         "tags": [
           "Maps"
         ]
-      }
-    },
-    "/maps/{map_id}/layers/": {
+      },
       "post": {
         "description": "Add a layer to a map.",
-        "operationId": "add_layer_endpoint_maps__map_id__layers__post",
+        "operationId": "add_layer_endpoint_maps__map_id__layers_post",
         "parameters": [
           {
             "in": "path",
@@ -38912,18 +38933,20 @@
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 1000,
+              "maximum": 200,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
           },
           {
+            "description": "Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 and recommends keyset cursors via the rel=next link for deep paging.",
             "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
               "default": 0,
+              "description": "Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 and recommends keyset cursors via the rel=next link for deep paging.",
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -39208,18 +39231,20 @@
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 1000,
+              "maximum": 200,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
           },
           {
+            "description": "Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000 to bound deep-paging cost.",
             "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
               "default": 0,
+              "description": "Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000 to bound deep-paging cost.",
               "minimum": 0,
               "title": "Offset",
               "type": "integer"

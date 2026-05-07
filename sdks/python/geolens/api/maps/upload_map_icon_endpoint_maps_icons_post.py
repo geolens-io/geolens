@@ -22,7 +22,7 @@ def _get_kwargs(
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/maps/icons/",
+        "url": "/maps/icons",
     }
 
     _kwargs["files"] = body.to_multipart()

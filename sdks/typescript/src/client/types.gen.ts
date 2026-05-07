@@ -826,7 +826,7 @@ export type BodyUploadFileIngestUploadPost = {
 };
 
 /**
- * Body_upload_map_icon_endpoint_maps_icons__post
+ * Body_upload_map_icon_endpoint_maps_icons_post
  */
 export type BodyUploadMapIconEndpointMapsIconsPost = {
     /**
@@ -3946,7 +3946,7 @@ export type ManifestSource = {
     /**
      * Uri
      *
-     * Relative path, HTTP(S) URL, or storage URI.
+     * Relative path (no `..` traversal), HTTP(S) URL, or storage URI.
      */
     uri: string;
 };
@@ -11700,8 +11700,16 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
         limit?: number;
         /**
          * Offset
+         *
+         * Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values.
          */
         offset?: number;
+        /**
+         * After Gid
+         *
+         * Keyset cursor: returns features with gid > after_gid. Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages.
+         */
+        after_gid?: number | null;
         /**
          * Bbox
          *
@@ -13068,6 +13076,8 @@ export type ListFeaturesDatasetsDatasetIdFeaturesGetData = {
         limit?: number;
         /**
          * Offset
+         *
+         * Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000.
          */
         offset?: number;
         /**
@@ -15967,7 +15977,7 @@ export type ListMapIconsEndpointMapsIconsGetData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/maps/icons/';
+    url: '/maps/icons';
 };
 
 export type ListMapIconsEndpointMapsIconsGetErrors = {
@@ -16016,7 +16026,7 @@ export type UploadMapIconEndpointMapsIconsPostData = {
     body: BodyUploadMapIconEndpointMapsIconsPost;
     path?: never;
     query?: never;
-    url: '/maps/icons/';
+    url: '/maps/icons';
 };
 
 export type UploadMapIconEndpointMapsIconsPostErrors = {
@@ -16889,7 +16899,7 @@ export type AddLayerEndpointMapsMapIdLayersPostData = {
         map_id: string;
     };
     query?: never;
-    url: '/maps/{map_id}/layers/';
+    url: '/maps/{map_id}/layers';
 };
 
 export type AddLayerEndpointMapsMapIdLayersPostErrors = {
@@ -19554,6 +19564,8 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetData = {
         limit?: number;
         /**
          * Offset
+         *
+         * Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 and recommends keyset cursors via the rel=next link for deep paging.
          */
         offset?: number;
     };
@@ -19704,6 +19716,8 @@ export type SearchGetStacSearchGetData = {
         limit?: number;
         /**
          * Offset
+         *
+         * Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000 to bound deep-paging cost.
          */
         offset?: number;
     };
