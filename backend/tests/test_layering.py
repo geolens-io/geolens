@@ -801,6 +801,49 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 
 
 @pytest.mark.architecture
+def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
+    """Phase 276 CODE-01: router and orchestrator modules stay <= 1500 LOC.
+
+    Catches regrowth of large API-edge modules toward the size cliff that
+    triggered the Phase 226 / Phase 238 / Phase 252 decompositions.
+    Allowlist exists for currently-over-cap modules; values are HARD CAPS
+    (current LOC + small headroom), not waivers — the test still fails if
+    an allowlisted file grows past its listed cap.
+
+    Scope: ``backend/app/**/router.py`` (all module + standards routers).
+    Decomposed service modules (``service_*.py``) are covered separately by
+    ``test_decomposed_service_modules_stay_within_size_budgets``.
+    """
+    DEFAULT_CAP = 1500
+    # Allowlist values track each file's current LOC + ~5-7% headroom for
+    # routine line drift (rounded up to the nearest 50). Tighten back toward
+    # DEFAULT_CAP when natural decomposition opportunities arise; do NOT
+    # raise these caps to mask regrowth without a documented carve-out.
+    allowlist: dict[str, int] = {
+        # Empty for the RED phase — proves the guard names every router
+        # currently > 1500 LOC.
+    }
+
+    violations: list[str] = []
+    for path in sorted((BACKEND_ROOT / "app").rglob("router.py")):
+        rel = _repo_style_rel(path)
+        line_count = len(path.read_text().splitlines())
+        cap = allowlist.get(rel, DEFAULT_CAP)
+        if line_count > cap:
+            violations.append(f"{rel}: {line_count} lines > cap {cap}")
+
+    if violations:
+        pytest.fail(
+            "Phase 276 CODE-01 invariant violated: router modules exceeded "
+            "their LOC cap. Either decompose the module (preferred — split "
+            "into a facade + cohesive sub-modules per Phase 226 / Phase 238 "
+            "patterns) or, if growth is intentional, raise the explicit "
+            "allowlist entry with a code review.\n"
+            + "\n".join(violations)
+        )
+
+
+@pytest.mark.architecture
 def test_no_log_action_calls_outside_audit_service() -> None:
     """Phase 222 AUDIT-02: ``log_action()`` is called only by ``DefaultAuditSink.emit()``.
 
