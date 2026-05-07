@@ -19,20 +19,31 @@ from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Simple TTL cache for schema context (avoids rebuilding identical DDL across
-# consecutive chat turns when layers haven't changed).
 # Maximum columns to include in DDL before truncating
 _MAX_COLUMNS = 50
 
 # Simple TTL cache for schema context (avoids rebuilding identical DDL across
 # consecutive chat turns when layers haven't changed).
-_schema_cache: dict[str, tuple[float, str]] = {}
+#
+# PERF-04 (Phase 274): the cache key is partitioned by (map_id, content_hash)
+# so two different maps that share an identical layer signature (e.g. both
+# referencing the same Natural Earth dataset) get independent cache entries.
+# Without the map_id partition, one map's prompt-context edits could be
+# served back to a different map on the next chat turn.
+_schema_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _SCHEMA_CACHE_TTL = 60.0  # seconds
-_SCHEMA_CACHE_MAX = 50  # max entries to prevent unbounded growth
+_SCHEMA_CACHE_MAX = 64  # bounded so unbounded map_ids don't grow memory
 
 
-def _schema_cache_key(layers: list["ChatMapLayer"]) -> str:
-    """Build a deterministic cache key from layer IDs and column signatures."""
+def _schema_cache_key(
+    layers: list["ChatMapLayer"], map_id: str | None
+) -> tuple[str, str]:
+    """Build a deterministic cache key partitioned by (map_id, content_hash).
+
+    PERF-04 (Phase 274): adding map_id prevents cross-map cache pollution
+    when two different maps reference the same dataset. Cache entries
+    evict on either the 60s TTL or when len(_schema_cache) >= _SCHEMA_CACHE_MAX.
+    """
     parts = []
     for layer in layers:
         col_sig = ""
@@ -43,25 +54,31 @@ def _schema_cache_key(layers: list["ChatMapLayer"]) -> str:
             )
         parts.append(f"{layer.dataset_table_name}|{layer.geometry_type}|{col_sig}")
     raw = "\n".join(sorted(parts))
-    return hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
+    content_hash = hashlib.md5(raw.encode(), usedforsecurity=False).hexdigest()
+    map_key = str(map_id) if map_id is not None else "__no_map__"
+    return (map_key, content_hash)
 
 
-def build_sql_schema_context(layers: list[ChatMapLayer]) -> str:
+def build_sql_schema_context(
+    layers: list[ChatMapLayer], map_id: str | None = None
+) -> str:
     """Build DDL schema context from map layers for the SQL generation LLM.
 
     For each layer, generates a CREATE TABLE statement with column definitions
     and metadata comments about geometry type and the geometry column.
-    Results are cached for 60s to avoid rebuilding identical DDL across
-    consecutive chat turns.
+    Results are cached for 60s per (map_id, schema_content_hash) to avoid
+    rebuilding identical DDL across consecutive chat turns.
 
     Args:
         layers: List of ChatMapLayer objects from the frontend.
+        map_id: Active map identifier (PERF-04 partition key). When omitted
+            (e.g. unit tests / scripts), a sentinel partition is used.
 
     Returns:
         DDL string with all table definitions separated by blank lines.
     """
     # Check cache
-    cache_key = _schema_cache_key(layers)
+    cache_key = _schema_cache_key(layers, map_id)
     now = time.monotonic()
     cached = _schema_cache.get(cache_key)
     if cached and (now - cached[0]) < _SCHEMA_CACHE_TTL:

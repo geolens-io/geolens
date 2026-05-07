@@ -293,6 +293,7 @@ async def chat_endpoint(
             history=body.history or None,
             basemap_style=basemap_style,
             port=port,
+            map_id=body.map_id,
         ),
         error_prefix="Chat map editing",
         tool_loop_message="Request required too many steps. Try a simpler instruction.",
@@ -358,6 +359,7 @@ async def chat_stream_endpoint(
                 history=body.history or None,
                 basemap_style=basemap_style,
                 port=port,
+                map_id=body.map_id,
             ):
                 if await request.is_disconnected():
                     break

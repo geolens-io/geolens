@@ -560,10 +560,16 @@ async def _handle_query_data(
     user: Identity,
     layers: list[ChatMapLayer],
     stage_callback: Callable[[str], None] | None = None,
+    *,
+    map_id: str | None = None,
 ) -> dict:
-    """Handle query_data tool: generate SQL, validate, execute via sandbox."""
+    """Handle query_data tool: generate SQL, validate, execute via sandbox.
+
+    map_id is threaded through so the schema-context cache key partitions
+    per-map (PERF-04 / Phase 274), preventing cross-map prompt pollution.
+    """
     question = tool_input["question"]
-    schema_context = build_sql_schema_context(layers)
+    schema_context = build_sql_schema_context(layers, map_id=map_id)
 
     # Build brief layer descriptions for SQL context
     layer_desc_parts = []
@@ -624,8 +630,13 @@ async def _execute_chat_tool(
     stage_callback: Callable[[str], None] | None = None,
     *,
     port: "ProcessingPort",
+    map_id: str | None = None,
 ) -> dict:
-    """Execute a chat tool and return the result."""
+    """Execute a chat tool and return the result.
+
+    map_id is forwarded to query_data so the schema-context cache partitions
+    per-map (PERF-04 / Phase 274).
+    """
     if tool_name == "search_datasets":
         send_samples = await _should_send_sample_values(session)
         results = await _execute_search_tool(
@@ -641,7 +652,12 @@ async def _execute_chat_tool(
     if tool_name == "query_data":
         try:
             return await _handle_query_data(
-                tool_input, session, user, layers, stage_callback=stage_callback
+                tool_input,
+                session,
+                user,
+                layers,
+                stage_callback=stage_callback,
+                map_id=map_id,
             )
         except SandboxError as e:
             return {
@@ -923,11 +939,15 @@ async def chat_edit_map(
     basemap_style: str | None = None,
     *,
     port: "ProcessingPort",
+    map_id: str | None = None,
 ) -> ChatResponse:
     """Main orchestrator: run LLM tool-calling loop for chat map editing.
 
     Provider selection: Anthropic if key is set, else OpenAI-compatible.
     Returns ChatResponse with explanation and validated actions.
+
+    map_id is forwarded to query_data so the schema-context cache partitions
+    per-map (PERF-04 / Phase 274).
     """
     system_prompt = build_chat_system_prompt(
         layers, language=language, basemap_style=basemap_style
@@ -940,7 +960,14 @@ async def chat_edit_map(
     # Build tool executor bound to this session/user/layers
     async def tool_executor(tool_name: str, tool_input: dict) -> dict:
         return await _execute_chat_tool(
-            tool_name, tool_input, session, user, user_roles, layers, port=port
+            tool_name,
+            tool_input,
+            session,
+            user,
+            user_roles,
+            layers,
+            port=port,
+            map_id=map_id,
         )
 
     result = await provider_ext.complete(

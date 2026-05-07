@@ -213,6 +213,7 @@ class AIProviderExtension(Protocol):
         base_url: str | None = None,
         history: list[dict] | None = None,
         port: Any,
+        map_id: str | None = None,
     ) -> AsyncIterator[dict[str, object]]: ...
 
     async def structured_complete(

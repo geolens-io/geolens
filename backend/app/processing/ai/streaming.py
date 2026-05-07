@@ -57,11 +57,15 @@ async def _execute_and_yield_tools(
     results_out: list[dict] | None = None,
     *,
     port: "ProcessingPort",
+    map_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Execute a list of (name, args) tool calls and yield SSE events for each.
 
     If *results_out* is provided, each raw tool result dict is appended to it
     so callers can build conversation-history messages without re-executing.
+
+    map_id is forwarded to query_data so the schema-context cache partitions
+    per-map (PERF-04 / Phase 274).
     """
     for fn_name, fn_args in tool_calls:
         stage_events: list[dict] = []
@@ -76,6 +80,7 @@ async def _execute_and_yield_tools(
             layers,
             stage_callback=stage_cb,
             port=port,
+            map_id=map_id,
         )
 
         if results_out is not None:
@@ -107,6 +112,7 @@ async def _stream_anthropic_chat(
     history: list[dict] | None = None,
     client,
     port: "ProcessingPort",
+    map_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream Anthropic chat with tool-calling loop."""
     messages = build_history_messages(history)
@@ -202,6 +208,7 @@ async def _stream_anthropic_chat(
                         collected_actions,
                         results_out=raw_results,
                         port=port,
+                        map_id=map_id,
                     ):
                         yield evt
 
@@ -271,6 +278,7 @@ async def _stream_openai_chat(
     history: list[dict] | None = None,
     client,
     port: "ProcessingPort",
+    map_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream OpenAI-compatible chat with tool-calling loop."""
     messages = [{"role": "system", "content": system_prompt}]
@@ -425,6 +433,7 @@ async def _stream_openai_chat(
                 collected_actions,
                 results_out=native_results,
                 port=port,
+                map_id=map_id,
             ):
                 yield evt
 
@@ -461,6 +470,7 @@ async def _stream_openai_chat(
                 layers,
                 collected_actions,
                 port=port,
+                map_id=map_id,
             ):
                 yield evt
 
@@ -510,8 +520,13 @@ async def stream_chat_edit(
     basemap_style: str | None = None,
     *,
     port: "ProcessingPort",
+    map_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Main streaming orchestrator. Yields typed event dicts."""
+    """Main streaming orchestrator. Yields typed event dicts.
+
+    map_id is forwarded so the schema-context cache partitions per-map
+    (PERF-04 / Phase 274).
+    """
     try:
         provider, model, runtime_config = await resolve_provider(db)
         system_prompt = build_chat_system_prompt(
@@ -531,6 +546,7 @@ async def stream_chat_edit(
             base_url=runtime_config.get("base_url"),
             history=history_dicts,
             port=port,
+            map_id=map_id,
         ):
             yield event
     except Exception as e:
