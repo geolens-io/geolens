@@ -11,6 +11,11 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+> Pre-public-release security & audit hardening sweep. 17 audit dimensions
+> reviewed; all Critical and High findings remediated inline. Recommend a
+> 1.1.0 minor bump on the next public release to signal the breaking changes
+> below.
+
 ### Changed (BREAKING)
 
 - `PUT /maps/{id}/thumbnail/` request body changed from `text/plain` raw
@@ -19,20 +24,131 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   silently dropped by `openapi-python-client`). Custom callers must send
   `Content-Type: application/json` with `{"data_uri": "data:image/png;base64,..."}`.
   Internal SDKs (`pip install geolens`, `@geolens/sdk`) at 1.0.2+ already use
-  the new shape. Recommend a 1.1.0 minor bump on the next public release to
-  signal this contract change.
+  the new shape.
+- Lowered max `limit` query parameter from 1000 to 200 on OGC Features
+  `/items`, STAC `/collections/{id}/items`, STAC `/search` (GET+POST), and
+  `/datasets/{id}/features`. Use the new `after_gid` keyset cursor for paging
+  through large result sets — see `### Added` below. Offset-based paging
+  remains supported as a legacy path.
+
+### Added
+
+- New CLI auth flags: `scripts/seed-natural-earth.py` accepts
+  `--username`/`--password` and mints a temporary API key for the run
+  (cleaned up on exit). Replaces the pre-existing `--api-key` flow that
+  required operators to mint a key out-of-band.
+- `after_gid` keyset cursor on `/datasets/{id}/features` and OGC Features
+  `/items` endpoints. The `rel=next` link emits a keyset URL when a page is
+  full, providing constant-time pagination over large catalogs.
+- Per-dataset `tile_columns` attribute allowlist (new
+  `catalog.datasets.tile_columns` array column, Alembic revision `0012`).
+  Defaults to no attribute columns at z<10 to bound MVT tile size for wide
+  schemas.
+- Public operator runbook stubs at `docs/saml.md`,
+  `docs/edition-deactivation.md`, `docs/edition-reactivation.md` (full
+  enterprise runbooks live in the private overlay; stubs link out).
+- New Alembic revisions: `0008_refresh_tokens_expires_idx`,
+  `0009_audit_logs_indexes`, `0010_trgm_search_indexes`,
+  `0011_record_embeddings_hnsw_idx`, `0012_dataset_tile_columns`.
+- Extended `@pytest.mark.perf` coverage to OGC Records, OGC Features, STAC
+  landing/collections, and ingest-upload latency budgets (perf-marker count
+  5 → 14).
+
+### Changed
+
+- Composite indexes on `audit_logs(created_at DESC, action, resource_type)`
+  and `audit_logs(resource_id)` to keep admin filter+sort hot paths fast.
+- pg_trgm GIN trigram indexes on `lower(unaccent(records.title))`,
+  `records.summary`, `records.keywords`, and `maps.name` so ILIKE+unaccent
+  search no longer seq-scans.
+- HNSW vector index for `record_embeddings.embedding` is now created in
+  Alembic migration `0011`. Previously it was lazy-created at first
+  embedding-backfill run, which left fresh installs with no index.
+- Index added on `refresh_tokens.expires_at` for cleanup DELETE.
+- Tile pool now drops to the `geolens_reader` role on every connection
+  checkout via a `SET ROLE` setup callback. Previously it ran as the
+  privileged app user.
+- TTL LRU cache (300s) for query embeddings keyed on
+  `(query_text.lower(), model_name)` reduces redundant embedding API calls.
+- Helm chart `secret.yaml` env name renamed `SECRET_KEY` → `JWT_SECRET_KEY`
+  to match Pydantic Settings (previously broke deploys silently).
+- Per-service memory caps in `docker-compose.yml` matching the documented
+  2GB VPS budget.
+- README adds §"Add Your First Dataset" with the manifest-driven
+  `geolens init/validate/apply` flow + cross-link from Demo Mode to the
+  `examples/manifests/first-catalog/` example. README §Demo lists Manhattan
+  Skyline (was missing).
+- CONTRIBUTING.md project tree synced to current `modules/` / `platform/` /
+  `processing/` / `standards/` layout. Test commands updated to flat
+  backend test directory (replaced stale `tests/unit` / `tests/api` paths).
+- `StyleJsonDialog` and `ImportSummary` user-facing strings wrapped via
+  `useTranslation('builder')`; new `builder.styleJson.*` block with i18next
+  plural keys ships in en/es/fr/de.
+- `alembic check` filter for known SAML overlay drift; new H-06/H-07/H-09
+  indexes declared in SQLAlchemy models so drift-as-CI-gate is usable.
+- CI `e2e-test` job rationale documented inline in
+  `.github/workflows/ci.yml` and `.github/CONTRIBUTING.md` (cron-revival
+  path noted). New `npm run e2e:smoke:audit` script wires up 5 previously
+  unreferenced E2E specs.
+- Co-located smoke tests added for `AdminUsersPage`, `AdminAuditPage`, and
+  `AdminSettingsPage`.
+
+### Removed
+
+- Duplicate `backend/Dockerfile` deleted. The canonical multi-stage root
+  `Dockerfile` is the single source.
 
 ### Fixed
 
+- README quickstart's `seed-natural-earth.py --api-key admin` example
+  could not work as written — `admin` is a username, not an API key, and
+  no API key was created at bootstrap. The seed script now supports
+  `--username`/`--password` (mints + cleans up a temp API key) so the
+  documented one-line invocation succeeds against a fresh `docker compose
+  up` deployment.
+- Tile MVT SQL gained `LIMIT 50000` per-tile feature cap and per-zoom
+  geometry simplification extended through z<10. The existing perf marker
+  only exercised z=0 single-row paths, masking regressions on real-world
+  wide datasets.
+- `/maps/{id}/layers/` (with trailing slash) and `/maps/icons/` (with
+  trailing slash) previously returned a misleading 405/422 because they
+  shadowed `/maps/{map_id}` parameter routes. The trailing-slash variants
+  are removed; use `/maps/{id}/layers` and `/maps/icons` (no slash).
 - Replaced unowned `geolens.io` domain references with `getgeolens.com` in
   `sdks/python/pyproject.toml` author email, `cli/pyproject.toml` author
   email, and `.env.demo` demo-sandbox host comments. PyPI metadata for
   already-shipped 1.0.x wheels is immutable; the next published version
-  will carry the corrected author email. No runtime behavior change.
-- Corrected widget developer guide path: `frontend/docs/widgets.md` referenced
-  `src/components/widgets/` but the directory is named `src/components/map-widgets/`.
-  Two path references in the body were corrected so the registration recipe
-  matches the actual source layout.
+  will carry the corrected author email.
+- Corrected widget developer guide path: `frontend/docs/widgets.md`
+  referenced `src/components/widgets/` but the directory is named
+  `src/components/map-widgets/`.
+- Manifest `local://` source URI parsing now rejects `..` traversal
+  segments and validates the resolved path is under `upload_staging_dir`,
+  closing a server-side file-read primitive that any user with `upload`
+  permission could exploit.
+- `e2e/dataset-detail.spec.ts` had two undocumented `test.skip()` calls
+  masking editable-field/validation regressions on a top-3 user flow. One
+  obsolete skip was deleted; one was re-skipped with a documented
+  rationale and a follow-up todo for the next test-cleanup milestone.
+
+### Security
+
+- `.env.demo` boot guard now refuses production use unless
+  `GEOLENS_DEMO_MODE=true` is set explicitly. Prevents accidental deploys
+  with hardcoded demo credentials and the well-known JWT signing key.
+- OAuth `redirect_uri` resolution now requires an explicit `PUBLIC_APP_URL`
+  for OAuth flows. The previous fallback to the request `Origin`/`Host`
+  header was vulnerable to host-header injection from non-browser clients.
+- JWT secret length validator now rejects known-public example values (the
+  `.env.example` default and similar). Operators booting with such a value
+  must regenerate via `openssl rand -hex 32` — `.env.example` ships with an
+  empty `JWT_SECRET_KEY=` to force the choice.
+- OAuth email-match auto-link now requires `email_verified=True` from the
+  IdP. Previously, accounts could be silently linked on any matching email,
+  enabling account takeover via IdPs that allow unverified emails.
+- Embed-token `Origin: http://localhost` bypass scoped to loopback TCP
+  peer source. Previously honored from any caller, allowing trivial
+  domain-locking bypass from non-browser callers.
 
 ## [1.0.2] - 2026-05-05
 
