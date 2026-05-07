@@ -315,6 +315,23 @@ PUBLIC_BASE_URL = PersistentConfig[str](
     label="Public Base URL",
 )
 
+# CONF-01 (Phase 277 / M-36): PUBLIC_BASE_URL is the legacy alias for
+# PUBLIC_API_URL. The Settings field + this PersistentConfig stay
+# functional for backwards compatibility, but operators should migrate
+# to PUBLIC_API_URL. Surface a one-shot WARN at module-import time
+# when the env var is non-empty so the deprecation lands in startup
+# logs without per-request spam.
+if settings.public_base_url:
+    logger.warning(
+        "config.public_base_url.deprecated",
+        message=(
+            "PUBLIC_BASE_URL is deprecated. Use PUBLIC_API_URL instead. "
+            "PUBLIC_BASE_URL still resolves to PUBLIC_API_URL for backwards "
+            "compatibility but will be removed in a future release."
+        ),
+        current_value_set=True,
+    )
+
 PUBLIC_APP_URL = PersistentConfig[str](
     key="public_app_url",
     type_=str,
