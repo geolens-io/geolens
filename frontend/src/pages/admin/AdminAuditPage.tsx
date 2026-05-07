@@ -1,11 +1,38 @@
+/**
+ * Admin audit-log viewer page.
+ *
+ * Page-level page guard (Phase 279 ADMIN-08 / L-05): redirects to /admin
+ * when the active user lacks the view_audit capability. Defense-in-depth
+ * on top of the backend's require_permission("manage_settings") 403 on
+ * /admin/audit-logs/* and the sidebar nav-item filter -- three layers
+ * keep the audit log (which exposes resource IDs RBAC would otherwise
+ * hide) gated.
+ */
+
 import { useTranslation } from 'react-i18next';
+import { Navigate } from 'react-router';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { LoadingState } from '@/components/layout/LoadingState';
 import { AuditLogViewer } from '@/components/admin/AuditLogViewer';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function AdminAuditPage() {
   const { t } = useTranslation('admin');
+  const { can, isLoading } = usePermissions();
   useDocumentTitle(t('common:pageTitle.adminAuditLog'));
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (!can('view_audit')) {
+    // Belt-and-suspenders: backend also returns 403 from /admin/audit-logs/
+    // via require_permission("manage_settings"). The page-level guard gives
+    // non-admin users who paste the URL directly a redirect first (UX) and
+    // the API gates the data anyway (security). Phase 279 / L-05.
+    return <Navigate to="/admin" replace />;
+  }
 
   return (
     <>
