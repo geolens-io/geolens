@@ -511,6 +511,48 @@ jobs:
           path: frontend/coverage/
           retention-days: 14
 
+  # ---------- license-check ----------
+  # Phase 279 ADMIN-13 (L-22): non-blocking license-checker against the
+  # frontend dependency tree. Failure does not block PR merge — reviewers
+  # consult the uploaded artifact when a license-relevant change is suspected
+  # (new package added, license clause changed in lockfile, etc.). Promote to
+  # blocking once a curated allowlist is in place.
+  license-check:
+    name: License Check (frontend)
+    runs-on: ubuntu-latest
+    if: always()  # run even if other jobs fail
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies (locked)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run license-checker (non-blocking)
+        working-directory: frontend
+        # Non-blocking: license-list changes shouldn't fail CI until we have a
+        # curated allowlist. Output is a JSON file uploaded as an artifact.
+        continue-on-error: true
+        run: |
+          mkdir -p ../artifacts
+          npx --yes license-checker --json --out ../artifacts/license-report.json
+          echo "Top-level license summary:"
+          npx --yes license-checker --summary || true
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v7
+        with:
+          name: license-report
+          path: artifacts/license-report.json
+          retention-days: 30
+
   # ---------- security ----------
   security-scan:
     name: Security Scan
