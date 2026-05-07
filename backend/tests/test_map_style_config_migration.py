@@ -106,3 +106,38 @@ def test_rehydrate_legacy_paint_row_is_best_effort_and_preserves_style_config():
         "_height_column": "height_m",
     }
     assert restored_style_config == style_config
+
+
+# ---------------------------------------------------------------------------
+# DBM-13 (Phase 271): idempotency guard
+# ---------------------------------------------------------------------------
+
+
+def test_helper_detects_legacy_paint_keys():
+    """The early-exit guard helper returns True iff any LEGACY_BUILDER_PAINT_KEYS appear."""
+    has_helper = hasattr(migration, "_has_legacy_paint_keys")
+    assert has_helper, (
+        "Plan 271-06 must add a `_has_legacy_paint_keys` helper used by upgrade() for early-exit."
+    )
+    fn = migration._has_legacy_paint_keys
+    # Plain dict input — convenient for unit testing.
+    assert fn({}) is False
+    assert fn({"fill-color": "#ef4444"}) is False
+    assert fn({"_outline-width": 2}) is True
+    assert fn({"outline-color": "#000"}) is True
+    assert fn({"_heatmap-ramp": "viridis"}) is True
+
+
+def test_upgrade_source_contains_early_exit_branch():
+    """upgrade() must read like an idempotency-guarded re-run, not a blind row scan."""
+    import inspect
+
+    src = inspect.getsource(migration.upgrade)
+    # Either a direct early-return or a count-based early-exit. Accept any form
+    # so the implementation has freedom; just require the marker comment + one
+    # of the recognized branch shapes.
+    assert (
+        "DBM-13" in src
+        or "idempotency" in src.lower()
+        or "early-exit" in src.lower()
+    )

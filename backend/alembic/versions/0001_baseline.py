@@ -1336,6 +1336,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Baseline migration: no meaningful downgrade target. Use
-    # `docker compose down -v` to reset the database from scratch.
-    pass
+    """0001_baseline is the post-1.0 squash; downgrade is intentionally not supported.
+
+    Closes v13.13 DBM-08 (migration-audit M-01). The previous body was a
+    silent ``pass`` which let ``alembic downgrade base`` 'succeed' while
+    leaving the schema intact -- worse than failing. Operators who need a
+    clean reset must drop the database volume directly.
+    """
+    raise NotImplementedError(
+        "0001_baseline is a post-1.0 squash migration with no meaningful "
+        "downgrade target. To reset the database from scratch, use "
+        "`docker compose down -v` (drops the pgdata volume). To roll back "
+        "to a specific later migration, target it directly: "
+        "`alembic downgrade <target_revision>`."
+    )

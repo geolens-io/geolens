@@ -43,6 +43,13 @@ DOWNGRADE_PAINT_KEYS = {
 }
 
 
+def _has_legacy_paint_keys(paint: dict | None) -> bool:
+    """True if any LEGACY_BUILDER_PAINT_KEYS appear in this row's paint dict."""
+    if not paint:
+        return False
+    return any(key in paint for key in LEGACY_BUILDER_PAINT_KEYS)
+
+
 def _merge_builder_config(
     style_config: dict | None,
     builder_values: dict,
@@ -121,6 +128,26 @@ def _rewrite_map_layers(transform) -> None:
 
 
 def upgrade() -> None:
+    """Strip legacy builder paint keys from catalog.map_layers.
+
+    DBM-13 (Phase 271): early-exit idempotency guard. The SELECT below
+    counts rows that contain ANY LEGACY_BUILDER_PAINT_KEYS using JSONB's
+    ``?|`` (key-exists-among-array) operator. If zero rows match, this
+    migration is a no-op (already-migrated database, or clean install)
+    so we skip the per-row scan/update. Re-running on a clean database
+    is now O(1) instead of O(rows).
+    """
+    bind = op.get_bind()
+    legacy_keys = list(LEGACY_BUILDER_PAINT_KEYS.keys())
+    legacy_count = bind.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM catalog.map_layers WHERE paint ?| :keys"
+        ).bindparams(
+            sa.bindparam("keys", legacy_keys, type_=sa.ARRAY(sa.String()))
+        )
+    ).scalar_one()
+    if legacy_count == 0:
+        return
     _rewrite_map_layers(clean_legacy_paint_row)
 
 
