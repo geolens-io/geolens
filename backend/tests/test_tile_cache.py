@@ -229,3 +229,60 @@ def test_settings_tile_pool_max_size_env_override(monkeypatch):
         geolens_admin_password="admin",
     )
     assert s.tile_pool_max_size == 20
+
+
+# --- H-10: tile pool drops privileges to geolens_reader ---
+
+
+@pytest.mark.asyncio
+async def test_setup_tile_connection_issues_set_role():
+    """_setup_tile_connection runs ``SET ROLE geolens_reader`` on every fresh
+    pool checkout so tile-path queries cannot mutate or drop tables (H-10)."""
+    from app.processing.tiles.pool import _setup_tile_connection
+
+    conn = AsyncMock()
+    await _setup_tile_connection(conn)
+
+    conn.execute.assert_awaited_once_with("SET ROLE geolens_reader")
+
+
+@pytest.mark.asyncio
+async def test_setup_tile_connection_logs_and_continues_on_postgres_error(monkeypatch):
+    """If geolens_reader doesn't exist (e.g. legacy upgrade pre-v6.0), the
+    setup callback logs a warning and lets the connection serve requests
+    rather than crashing the pool (H-10)."""
+    import asyncpg
+
+    from app.processing.tiles.pool import _setup_tile_connection
+
+    conn = AsyncMock()
+    conn.execute.side_effect = asyncpg.PostgresError("role does not exist")
+
+    # Should not raise — the warning path is the contract.
+    await _setup_tile_connection(conn)
+    conn.execute.assert_awaited_once_with("SET ROLE geolens_reader")
+
+
+@pytest.mark.asyncio
+async def test_init_tile_pool_passes_setup_callback(monkeypatch):
+    """init_tile_pool wires ``setup=_setup_tile_connection`` into
+    asyncpg.create_pool so every fresh connection drops privileges."""
+    from app.processing.tiles import pool as pool_module
+
+    captured_kwargs: dict = {}
+
+    async def _fake_create_pool(**kwargs):
+        captured_kwargs.update(kwargs)
+        # Return a sentinel; caller stores it in _tile_pool but we'll
+        # tear it down at the end of the test.
+        return AsyncMock()
+
+    monkeypatch.setattr(pool_module.asyncpg, "create_pool", _fake_create_pool)
+
+    try:
+        await pool_module.init_tile_pool()
+    finally:
+        # Ensure module-level state is reset so other tests don't see a fake.
+        pool_module._tile_pool = None
+
+    assert captured_kwargs.get("setup") is pool_module._setup_tile_connection

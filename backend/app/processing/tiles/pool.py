@@ -31,6 +31,32 @@ def _get_ssl_arg():
     return ssl_val
 
 
+async def _setup_tile_connection(conn: asyncpg.Connection) -> None:
+    """Drop tile connections to the read-only ``geolens_reader`` role.
+
+    ``scripts/init-db.sh`` creates ``geolens_reader`` (NOLOGIN) with
+    ``SELECT`` on every table in the ``data`` schema (and via
+    ``ALTER DEFAULT PRIVILEGES`` on every future ingest table). The
+    application user retains broader privileges by default; running the
+    tile path as ``geolens_reader`` ensures any SQL-injection in the tile
+    composition layer is scoped to read-only against the ``data`` schema
+    rather than able to mutate or drop tables.
+
+    ``RESET ROLE`` is implicit when the connection is returned to the
+    pool because asyncpg short-circuits session state per checkout.
+    Failures here log + skip the privilege drop so the tile path keeps
+    working on deployments where the role doesn't exist (e.g. legacy
+    upgrades that predate the role's creation in v6.0).
+    """
+    try:
+        await conn.execute("SET ROLE geolens_reader")
+    except asyncpg.PostgresError as exc:
+        logger.warning(
+            "Tile pool could not SET ROLE geolens_reader; running as app user",
+            error=str(exc),
+        )
+
+
 async def init_tile_pool() -> asyncpg.Pool:
     """Create the dedicated tile connection pool."""
     global _tile_pool
@@ -43,6 +69,9 @@ async def init_tile_pool() -> asyncpg.Pool:
         "min_size": settings.tile_pool_min_size,
         "max_size": settings.tile_pool_max_size,
         "command_timeout": 10,
+        # H-10: drop privileges to geolens_reader on every fresh connection
+        # so tile-path SQL runs read-only against the data schema.
+        "setup": _setup_tile_connection,
     }
 
     if ssl is not None:
