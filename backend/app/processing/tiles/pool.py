@@ -6,6 +6,7 @@ from starving API CRUD operations.
 
 import asyncpg
 import structlog
+from sqlalchemy.engine.url import make_url
 
 from app.core.config import settings
 
@@ -15,11 +16,29 @@ _tile_pool: asyncpg.Pool | None = None
 
 
 def _parse_dsn() -> str:
-    """Convert SQLAlchemy-style URL to asyncpg-compatible DSN."""
-    url = settings.database_url
-    # Strip SQLAlchemy driver prefix
-    url = url.replace("postgresql+asyncpg://", "postgresql://")
-    return url
+    """Convert SQLAlchemy-style URL to asyncpg-compatible DSN.
+
+    PERF-09 (Phase 274): use ``sqlalchemy.engine.url.make_url`` so query
+    parameters (e.g. ``?sslmode=require``) and special characters in
+    passwords are correctly preserved. The previous ``str.replace``
+    implementation broke on URLs whose components happened to contain
+    the substring ``postgresql+asyncpg://`` and offered no defense
+    against unexpected URL shapes.
+
+    Raises ``ValueError`` if ``settings.database_url`` is unset so the
+    failure surfaces with a clear message instead of an obscure
+    AttributeError downstream.
+    """
+    raw = settings.database_url
+    if not raw:
+        raise ValueError(
+            "settings.database_url is not configured; cannot init tile pool"
+        )
+    url = make_url(raw)
+    # Drop the SQLAlchemy +asyncpg dialect suffix; asyncpg expects the
+    # bare 'postgresql' scheme.
+    url = url.set(drivername="postgresql")
+    return url.render_as_string(hide_password=False)
 
 
 def _get_ssl_arg():

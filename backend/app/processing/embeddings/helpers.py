@@ -11,9 +11,14 @@ from app.processing.embeddings.models import RecordEmbedding
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# Short-lived cache for has_embeddings check (avoids DB round-trip per search)
-_has_embeddings_cache: tuple[bool, float] | None = None
+# PERF-10 (Phase 274): cache key partitions on active embedding model name
+# so an admin model swap invalidates stale yes/no answers within one cache
+# miss. Without the partition, switching e.g. text-embedding-3-small ->
+# all-MiniLM-L6-v2 in admin Settings would return the previous model's
+# answer for up to 30 seconds.
+_has_embeddings_cache: dict[str, tuple[bool, float]] = {}
 _HAS_EMBEDDINGS_TTL = 30.0  # seconds
+_HAS_EMBEDDINGS_MAX = 8  # bounded; operators rarely run more than 2-3 models
 
 
 async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
@@ -26,21 +31,53 @@ async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
     await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
 
 
+async def _resolve_embedding_model_name(session: AsyncSession) -> str:
+    """Return the active embedding model name, or a sentinel on failure.
+
+    PERF-10 (Phase 274): the resolved name partitions the has_embeddings
+    cache so a model swap forces a fresh DB lookup. Errors during
+    persistent_config resolution (e.g. uninitialized cache, transient
+    DB issue) fall back to ``"__model_unknown__"`` so the caller still
+    gets a correct EXISTS result instead of a NoneType crash.
+    """
+    try:
+        from app.core.persistent_config import EMBEDDING_MODEL
+
+        value = await EMBEDDING_MODEL.get(session)
+        return value or "__model_unknown__"
+    except Exception:
+        logger.warning("has_embeddings_model_resolution_failed", exc_info=True)
+        return "__model_unknown__"
+
+
 async def has_embeddings(session: AsyncSession) -> bool:
     """Check whether any rows exist in catalog.record_embeddings.
 
-    Result is cached in-memory for 30 seconds to avoid a DB round-trip
-    on every semantic search call.
+    Result is cached in-memory for 30 seconds, partitioned by the
+    active embedding model name (PERF-10 / Phase 274) so a model
+    swap in admin Settings invalidates stale answers.
     """
     global _has_embeddings_cache
     now = time.monotonic()
-    if _has_embeddings_cache and (now - _has_embeddings_cache[1]) < _HAS_EMBEDDINGS_TTL:
-        return _has_embeddings_cache[0]
+
+    model_key = await _resolve_embedding_model_name(session)
+    entry = _has_embeddings_cache.get(model_key)
+    if entry and (now - entry[1]) < _HAS_EMBEDDINGS_TTL:
+        return entry[0]
+
     result = await session.execute(
         text("SELECT EXISTS(SELECT 1 FROM catalog.record_embeddings)")
     )
     value = result.scalar_one()
-    _has_embeddings_cache = (value, now)
+
+    # Bounded eviction: drop oldest entry by stored monotonic timestamp
+    # before insert when we're at capacity.
+    if len(_has_embeddings_cache) >= _HAS_EMBEDDINGS_MAX:
+        oldest = min(
+            _has_embeddings_cache, key=lambda k: _has_embeddings_cache[k][1]
+        )
+        del _has_embeddings_cache[oldest]
+    _has_embeddings_cache[model_key] = (value, now)
     return value
 
 
