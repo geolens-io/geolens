@@ -87,7 +87,12 @@ omit = []
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 58.5
+# Coverage threshold ratchets upward as the suite grows (TEST-01, Phase 278).
+# Current: 60.0 (raised from 58.5 — v13.2 close baseline was 62.29% actual).
+# To ratchet further: run `make test`, take the lowest stable run's pct,
+# subtract a 1-2 pt buffer, and bump this number. Never lower it without
+# a documented rationale in CHANGELOG.
+fail_under = 60
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
