@@ -248,3 +248,127 @@ class TestGetIdentityExtension:
         result = await ext.resolve_identity_from_token("any-token", None, None)
 
         assert result is None
+
+
+class TestProtocolOverlayDispatch:
+    """Tests for the get_*_extension() typed accessors' overlay-dispatch behavior.
+
+    Phase 276 CODE-03 — closes M-11 / M-54: BrandingExtension, AuthExtension,
+    and AuditExtension Protocol seams previously had only OSS-side
+    default-shape tests (TestProtocolDefaults above). These tests lock the
+    overlay-dispatch boundary so a regression where the accessor accidentally
+    returns the default while a fake overlay is registered fails loudly.
+
+    Pattern mirrors test_get_identity_extension_returns_registered_when_present
+    (line 226+) — same try/finally teardown discipline, same sentinel
+    assertion shape, same single-class-per-Protocol grouping.
+    """
+
+    def test_branding_extension_overlay_dispatch(self):
+        """Phase 276 CODE-03: A registered overlay under 'branding' is returned by the accessor.
+
+        Mirrors the IdentityExtension dispatch test (line 226+). Closes M-11 / M-54.
+        """
+        from app.platform.extensions import _extensions, get_branding_extension
+        from app.platform.extensions.defaults import DefaultBrandingExtension
+
+        class FakeBrandingOverlay:
+            def get_branding_defaults(self) -> dict:
+                return {"show_badge": False, "_test_sentinel": "branding-overlay"}
+
+        # Sanity: pre-condition is the OSS default
+        assert isinstance(get_branding_extension(), DefaultBrandingExtension)
+
+        # Register the fake overlay
+        previous = _extensions.get("branding")
+        _extensions["branding"] = FakeBrandingOverlay()
+        try:
+            ext = get_branding_extension()
+            assert isinstance(ext, FakeBrandingOverlay), (
+                "get_branding_extension() did not return the registered overlay"
+            )
+            # Sentinel proves the fake's method runs (not the default's)
+            assert (
+                ext.get_branding_defaults().get("_test_sentinel")
+                == "branding-overlay"
+            )
+        finally:
+            if previous is None:
+                _extensions.pop("branding", None)
+            else:
+                _extensions["branding"] = previous
+
+        # Post-condition: registry is restored
+        assert isinstance(get_branding_extension(), DefaultBrandingExtension)
+
+    def test_audit_extension_overlay_dispatch(self):
+        """Phase 276 CODE-03: A registered overlay under 'audit' is returned by the accessor.
+
+        Mirrors the IdentityExtension dispatch test (line 226+). Closes M-11 / M-54.
+        """
+        from app.platform.extensions import _extensions, get_audit_extension
+        from app.platform.extensions.defaults import DefaultAuditExtension
+
+        class FakeAuditOverlay:
+            def get_export_formats(self) -> list[str]:
+                return ["test-overlay-format", "_test_sentinel"]
+
+        # Sanity: pre-condition is the OSS default
+        assert isinstance(get_audit_extension(), DefaultAuditExtension)
+
+        # Register the fake overlay
+        previous = _extensions.get("audit")
+        _extensions["audit"] = FakeAuditOverlay()
+        try:
+            ext = get_audit_extension()
+            assert isinstance(ext, FakeAuditOverlay), (
+                "get_audit_extension() did not return the registered overlay"
+            )
+            # Sentinel proves the fake's method runs (not the default's [])
+            formats = ext.get_export_formats()
+            assert "test-overlay-format" in formats
+            assert "_test_sentinel" in formats
+        finally:
+            if previous is None:
+                _extensions.pop("audit", None)
+            else:
+                _extensions["audit"] = previous
+
+        # Post-condition: registry is restored
+        assert isinstance(get_audit_extension(), DefaultAuditExtension)
+
+    def test_auth_extension_overlay_dispatch(self):
+        """Phase 276 CODE-03: A registered overlay under 'auth' is returned by the accessor.
+
+        Mirrors the IdentityExtension dispatch test (line 226+). Closes M-11 / M-54.
+        """
+        from app.platform.extensions import _extensions, get_auth_extension
+        from app.platform.extensions.defaults import DefaultAuthExtension
+
+        class FakeAuthOverlay:
+            def get_auth_methods(self) -> list[str]:
+                return ["test-overlay-method", "_test_sentinel"]
+
+        # Sanity: pre-condition is the OSS default
+        assert isinstance(get_auth_extension(), DefaultAuthExtension)
+
+        # Register the fake overlay
+        previous = _extensions.get("auth")
+        _extensions["auth"] = FakeAuthOverlay()
+        try:
+            ext = get_auth_extension()
+            assert isinstance(ext, FakeAuthOverlay), (
+                "get_auth_extension() did not return the registered overlay"
+            )
+            # Sentinel proves the fake's method runs (not the default's [])
+            methods = ext.get_auth_methods()
+            assert "test-overlay-method" in methods
+            assert "_test_sentinel" in methods
+        finally:
+            if previous is None:
+                _extensions.pop("auth", None)
+            else:
+                _extensions["auth"] = previous
+
+        # Post-condition: registry is restored
+        assert isinstance(get_auth_extension(), DefaultAuthExtension)
