@@ -627,31 +627,97 @@ async def _table_has_geometry(session: AsyncSession, table_name: str) -> bool:
 async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
     """Extract all metadata from a PostGIS table.
 
+    PERF-03 (Phase 274): for spatial tables, the four data-table SELECTs
+    (feature_count, srid, geometry_type, extent_wkt) are consolidated
+    into a single CTE so the database does one shared scan and one
+    round-trip. For non-spatial tables only feature_count is queried.
+
     Returns dict with keys: srid, geometry_type, feature_count, extent_wkt,
     column_info. For non-spatial tables, spatial fields are None.
     """
     _validate_table_name(table_name)
     column_info = await get_column_info(session, table_name)
-    feature_count = await get_feature_count(session, table_name)
-
     has_geometry = await _table_has_geometry(session, table_name)
 
-    if has_geometry:
+    if not has_geometry:
+        feature_count = await get_feature_count(session, table_name)
+        return {
+            "srid": None,
+            "geometry_type": None,
+            "feature_count": feature_count,
+            "extent_wkt": None,
+            "column_info": column_info,
+        }
+
+    # Spatial-table fast path: single CTE pulls feature_count, srid,
+    # geometry_type, and extent_wkt in one query. Mirrors the original
+    # helpers' semantics:
+    #   - feature_count: SELECT COUNT(*) FROM data.<t>
+    #   - srid: Find_SRID('data', :t, 'geom')
+    #   - geometry_type: GeometryType(geom) FROM data.<t> LIMIT 1
+    #     (NOTE: original returns None when zero rows; we mirror that.)
+    #   - extent_wkt: ST_AsText(ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326))
+    #     (uppercased for None when no rows.)
+    tref = _qtable(table_name)
+    try:
+        result = await session.execute(
+            text(
+                f"""
+                WITH meta AS (
+                    SELECT
+                        COUNT(*) AS feature_count,
+                        (
+                            SELECT GeometryType(geom)
+                            FROM {tref}
+                            WHERE geom IS NOT NULL
+                            LIMIT 1
+                        ) AS geometry_type,
+                        CASE
+                            WHEN ST_Extent(geom_4326) IS NULL THEN NULL
+                            ELSE ST_AsText(
+                                ST_SetSRID(ST_Extent(geom_4326)::geometry, 4326)
+                            )
+                        END AS extent_wkt
+                    FROM {tref}
+                )
+                SELECT
+                    feature_count,
+                    geometry_type,
+                    extent_wkt,
+                    Find_SRID('data', :t, 'geom') AS srid
+                FROM meta
+                """
+            ).bindparams(t=table_name)
+        )
+        row = result.one()
+        geometry_type = row.geometry_type.upper() if row.geometry_type else None
+        return {
+            "srid": int(row.srid) if row.srid is not None else None,
+            "geometry_type": geometry_type,
+            "feature_count": row.feature_count,
+            "extent_wkt": row.extent_wkt,
+            "column_info": column_info,
+        }
+    except Exception:  # broad: degrade to the per-helper path on any DB-level error
+        # PERF-03 fallback: some PostGIS deployments lack Find_SRID, or
+        # ST_Extent may fail with a malformed geometry. Mirror the
+        # original ordering of the four helpers so behavior is identical.
+        logger.warning(
+            "extract_metadata_cte_failed_falling_back",
+            table=table_name,
+            exc_info=True,
+        )
         srid = await get_table_srid(session, table_name)
         geometry_type = await get_geometry_type(session, table_name)
         extent_wkt = await get_extent(session, table_name)
-    else:
-        srid = None
-        geometry_type = None
-        extent_wkt = None
-
-    return {
-        "srid": srid,
-        "geometry_type": geometry_type,
-        "feature_count": feature_count,
-        "extent_wkt": extent_wkt,
-        "column_info": column_info,
-    }
+        feature_count = await get_feature_count(session, table_name)
+        return {
+            "srid": srid,
+            "geometry_type": geometry_type,
+            "feature_count": feature_count,
+            "extent_wkt": extent_wkt,
+            "column_info": column_info,
+        }
 
 
 async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
