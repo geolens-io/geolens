@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
 status: completed
-stopped_at: "279-02 complete: ADMIN-03 (server-driven enterprise-tabs registry — backend frozenset extended to {branding,appearance} + new GET /admin/settings/enterprise-tabs/ + frontend useEnterpriseOnlyTabs hook + AdminSidebar fallback) in 49a43c78 + 299aef9e; ADMIN-04 (FORMAT_HANDLERS dispatcher replaces 501 → 502 audit-export gate) in 49a43c78; 6-test backend static-analysis regression suite in 9a6c256f; 4-test frontend regression suite in 299aef9e. Sibling plans: 279-01 in flight, 279-03 pending, 279-04 complete."
-last_updated: "2026-05-07T22:54:00.000Z"
-last_activity: "2026-05-07 — 279-02 complete: ADMIN-03 server-driven enterprise-tabs + ADMIN-04 unified audit-export FORMAT_HANDLERS dispatcher; 8 new tests (6 backend + 4 frontend, 2 incl. existing); zero regressions"
+stopped_at: "279-04 complete: ADMIN-10 + ADMIN-12 (MinIO RELEASE.2025-09-07T16-13-09Z + mc RELEASE.2025-08-13T08-35-41Z, both digest-pinned) in 50b28b0b; ADMIN-11 (CVE-2026-4539 ignore removed, pip patched) in a146fc83; ADMIN-13 (non-blocking license-check job + 30-day artifact) in 9001c485; 5-test regression suite in 3cc9ec68. Phase 279 progress: 1+/4 plans tracked."
+last_updated: "2026-05-07T23:01:20.328Z"
+last_activity: "2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests"
 progress:
   total_phases: 14
   completed_phases: 4
@@ -87,6 +87,6 @@ Plan 279-04 (CI + Docker hygiene, ADMIN-10/11/12/13) executed 2026-05-07 alongsi
 
 ## Session Continuity
 
-Last session: 2026-05-07T22:51:53.601Z
+Last session: 2026-05-07T23:01:02.415Z
 Stopped at: 279-04 complete: ADMIN-10 + ADMIN-12 (MinIO RELEASE.2025-09-07T16-13-09Z + mc RELEASE.2025-08-13T08-35-41Z, both digest-pinned) in 50b28b0b; ADMIN-11 (CVE-2026-4539 ignore removed, pip patched) in a146fc83; ADMIN-13 (non-blocking license-check job + 30-day artifact) in 9001c485; 5-test regression suite in 3cc9ec68. Phase 279 progress: 1+/4 plans tracked.
 Resume file: None

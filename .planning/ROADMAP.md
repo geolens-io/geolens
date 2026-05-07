@@ -271,7 +271,7 @@ Plans:
 | 276. Backend & Frontend Code Quality (v13.13) | 4/7 | In Progress|  |
 | 277. i18n & Env Standardization (v13.13) | 4/8 | In Progress|  |
 | 278. Test Health & Coverage (v13.13) | 6/6 | Complete | 2026-05-07 |
-| 279. Admin Polish & Closeout (v13.13) | 2/4 | In Progress|  |
+| 279. Admin Polish & Closeout (v13.13) | 4/4 | Complete   | 2026-05-07 |
 
 ## Backlog
 
