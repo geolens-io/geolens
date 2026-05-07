@@ -9,7 +9,6 @@ Usage:
 """
 
 import asyncio
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -208,7 +207,7 @@ async def main() -> None:
 
     try:
         # 6. Run Procrastinate worker
-        shutdown_timeout = int(os.environ.get("WORKER_SHUTDOWN_TIMEOUT", "30"))
+        shutdown_timeout = settings.worker_shutdown_timeout
         async with task_app.open_async():
             await task_app.run_worker_async(
                 queues=["priority", "ingest", "raster"],

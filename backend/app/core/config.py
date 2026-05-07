@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     database_ssl_ca_cert: str | None = None
     database_pool_pre_ping: bool = True
 
+    # CONF-03 (Phase 277 / M-38): replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
+    worker_shutdown_timeout: int = 30
+
     db_use_external_pooler: bool = False
     db_pool_size: int = 10
     db_max_overflow: int = 3  # DBM-04 (Phase 271): connection-budget headroom

@@ -6,6 +6,8 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import settings
+
 
 # ---------------------------------------------------------------------------
 # Worker health app tests
@@ -205,7 +207,12 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
 
 @pytest.mark.asyncio
 async def test_main_uses_shutdown_graceful_timeout():
-    """main() should pass shutdown_graceful_timeout from WORKER_SHUTDOWN_TIMEOUT env."""
+    """main() should pass shutdown_graceful_timeout from settings.worker_shutdown_timeout.
+
+    CONF-03 (Phase 277): worker.py reads the timeout via the Settings model
+    (`settings.worker_shutdown_timeout`) instead of `os.environ.get(...)`,
+    so the test patches the Settings attribute directly.
+    """
     from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
@@ -225,7 +232,7 @@ async def test_main_uses_shutdown_graceful_timeout():
         ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
-        patch.dict("os.environ", {"WORKER_SHUTDOWN_TIMEOUT": "45"}),
+        patch.object(settings, "worker_shutdown_timeout", 45),
     ):
         await main()
 
@@ -235,7 +242,13 @@ async def test_main_uses_shutdown_graceful_timeout():
 
 @pytest.mark.asyncio
 async def test_main_uses_default_shutdown_timeout():
-    """Without WORKER_SHUTDOWN_TIMEOUT, default to 30 seconds."""
+    """Without an override, settings.worker_shutdown_timeout defaults to 30.
+
+    CONF-03 (Phase 277): the default is built into the Settings field,
+    not pulled from os.environ. Patching the attribute to 30 makes the
+    expectation explicit even when the host process inherits a different
+    value.
+    """
     from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
@@ -255,12 +268,8 @@ async def test_main_uses_default_shutdown_timeout():
         ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
-        patch.dict("os.environ", {}, clear=False),
+        patch.object(settings, "worker_shutdown_timeout", 30),
     ):
-        # Ensure WORKER_SHUTDOWN_TIMEOUT is not set
-        import os
-
-        os.environ.pop("WORKER_SHUTDOWN_TIMEOUT", None)
         await main()
 
     call_kwargs = mock_task_app.run_worker_async.call_args
