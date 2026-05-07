@@ -17,7 +17,12 @@ import { useFeatureFlags } from '@/hooks/use-settings';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
-import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
+// Phase 276 CODE-06: lazy-load ReuploadDialog — only fetched when the
+// user opens the reupload flow (activeDialog === 'reupload'). Splits the
+// dialog and its dropzone/upload deps off the page-mount critical path.
+const ReuploadDialog = lazy(() =>
+  import('@/components/dataset/ReuploadDialog').then((m) => ({ default: m.ReuploadDialog }))
+);
 // PERF-06 (Phase 274): lazy-load DatasetMap so map-vendor chunk is fetched
 // only when this page actually renders (after data fetch resolves).
 const DatasetMap = lazy(() =>
@@ -29,12 +34,22 @@ import {
   type DatasetDetailHeaderAction,
 } from '@/components/dataset/DatasetDetailHeader';
 import { RelatedRecordsPanel } from '@/components/dataset/RelatedRecordsPanel';
-import { DetailPanel } from '@/components/dataset/panels/DetailPanel';
+// Phase 276 CODE-06: lazy-load DetailPanel — DetailPanel transitively
+// imports all six dataset-detail tabs (Overview/Metadata/Data/Structure/Sources/Access).
+// Lazifying it splits the per-tab code paths off the page-mount critical path;
+// the active-tab content streams in via Suspense after first paint.
+const DetailPanel = lazy(() =>
+  import('@/components/dataset/panels/DetailPanel').then((m) => ({ default: m.DetailPanel }))
+);
 import { PendingEditsBar } from '@/components/dataset/PendingEditsBar';
 import { ConnectDropdown } from '@/components/dataset/ConnectDropdown';
 import { AddToMapButton } from '@/components/dataset/AddToMapButton';
 import { AuthPrompt } from '@/components/auth/AuthPrompt';
-import { VrtCreateDialog } from '@/components/import/VrtCreateDialog';
+// Phase 276 CODE-06: lazy-load VrtCreateDialog — only fetched when the
+// user opens the VRT creation flow (activeDialog === 'vrt').
+const VrtCreateDialog = lazy(() =>
+  import('@/components/import/VrtCreateDialog').then((m) => ({ default: m.VrtCreateDialog }))
+);
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { DatasetStatsBar } from '@/components/dataset/DatasetStatsBar';
 import { MapErrorBoundary } from '@/components/error';
@@ -505,20 +520,22 @@ export function DatasetPage() {
       )}
 
       {/* Tabbed content — tabs shown are driven by record_type */}
-      <DetailPanel
-        dataset={dataset}
-        canEdit={isEditor}
-        canEditData={canEditData}
-        capabilities={capabilities}
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
-        resolveDraftValue={resolveDraftValue}
-        stagePendingDraft={stagePendingDraft}
-        handleDraftDirtyChange={handleDraftDirtyChange}
-        onNavigateToValidationField={handleNavigateToValidationField}
-        isTableExpanded={isDataTabExpanded}
-        onToggleTableExpand={toggleDataTabExpand}
-      />
+      <Suspense fallback={<DatasetDetailSkeleton isTable={isTable} />}>
+        <DetailPanel
+          dataset={dataset}
+          canEdit={isEditor}
+          canEditData={canEditData}
+          capabilities={capabilities}
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          resolveDraftValue={resolveDraftValue}
+          stagePendingDraft={stagePendingDraft}
+          handleDraftDirtyChange={handleDraftDirtyChange}
+          onNavigateToValidationField={handleNavigateToValidationField}
+          isTableExpanded={isDataTabExpanded}
+          onToggleTableExpand={toggleDataTabExpand}
+        />
+      </Suspense>
 
       {/* Related records panel -- shown when a feature is selected (editing or read-only) */}
       {effectiveGid != null && (dataset.record_type === 'vector_dataset' || dataset.record_type === 'table' || !dataset.record_type) && (
@@ -542,19 +559,23 @@ export function DatasetPage() {
       )}
 
       {isEditor && !isVrt && (
-        <ReuploadDialog
-          dataset={dataset}
-          open={activeDialog === 'reupload'}
-          onOpenChange={(open) => setActiveDialog(open ? 'reupload' : null)}
-        />
+        <Suspense fallback={null}>
+          <ReuploadDialog
+            dataset={dataset}
+            open={activeDialog === 'reupload'}
+            onOpenChange={(open) => setActiveDialog(open ? 'reupload' : null)}
+          />
+        </Suspense>
       )}
 
       {isRaster && isEditor && (
-        <VrtCreateDialog
-          open={activeDialog === 'vrt'}
-          onOpenChange={(open) => setActiveDialog(open ? 'vrt' : null)}
-          initialSourceId={dataset.id}
-        />
+        <Suspense fallback={null}>
+          <VrtCreateDialog
+            open={activeDialog === 'vrt'}
+            onOpenChange={(open) => setActiveDialog(open ? 'vrt' : null)}
+            initialSourceId={dataset.id}
+          />
+        </Suspense>
       )}
 
       <AlertDialog open={activeDialog === 'unpublish'} onOpenChange={(open) => setActiveDialog(open ? 'unpublish' : null)}>

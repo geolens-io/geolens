@@ -272,7 +272,9 @@ describe('DatasetPage editable affordance integration', () => {
 
     expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
 
-    await user.click(screen.getByText('Original summary'));
+    // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
+    // to resolve before querying its child fields synchronously.
+    await user.click(await screen.findByText('Original summary'));
 
     const summaryInput = screen.getByDisplayValue('Original summary');
     await user.clear(summaryInput);
@@ -319,7 +321,9 @@ describe('DatasetPage editable affordance integration', () => {
 
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
 
-    const summaryShell = screen.getByTestId('editable-field-shell-summary');
+    // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
+    // to resolve before querying its child fields synchronously.
+    const summaryShell = await screen.findByTestId('editable-field-shell-summary');
     expect(summaryShell).toHaveAttribute('data-editable', 'false');
     const hintCountBeforeAttempt = screen.getAllByTestId('role-capability-hint').length;
 
@@ -340,7 +344,9 @@ describe('DatasetPage editable affordance integration', () => {
       expect(window.location.hash).toBe('#metadata');
     });
 
-    expect(screen.getByRole('tab', { name: 'Metadata' })).toHaveAttribute('aria-selected', 'true');
+    // DetailPanel is React.lazy (Phase 276 CODE-06) — wait for the chunk
+    // to resolve before querying tab roles synchronously.
+    expect(await screen.findByRole('tab', { name: 'Metadata' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('does not show metadata pending controls when only geometry edits are dirty', () => {
