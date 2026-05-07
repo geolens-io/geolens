@@ -306,10 +306,11 @@ All configuration is managed through environment variables in `.env`. See the [C
 ### Connection Pool Budget
 
 GeoLens runs against a single PostgreSQL instance. The connection budget below
-keeps total in-flight connections under `max_connections` (default 50, set in
-`db/postgresql.conf`) with healthy headroom for unexpected admin/CLI sessions.
+is sized to fit `max_connections` (default 30, set in `db/postgresql.conf`)
+with the per-process pool defaults shown — total in-flight stays at the
+worst-case envelope without unused memory in the slot table.
 
-Per-process budget (current defaults — DBM-04 / Phase 271):
+Per-process budget (current defaults — PERF-05 / Phase 274, paired with DBM-04 / Phase 271):
 
 | Process | `db_pool_size` | `db_max_overflow` | Procrastinate | Worst-case |
 |---------|---------------:|------------------:|--------------:|-----------:|
@@ -317,15 +318,20 @@ Per-process budget (current defaults — DBM-04 / Phase 271):
 | Worker  | 10             | 0 *(no overflow)* | 3             | **13**     |
 | Admin / psql / CLI | — | — | — | ~1 |
 
-**Total worst-case in-flight:** `16 + 13 + 1 = 30` of `50 max_connections`
-→ **20-connection headroom** for migrations, ad-hoc admin sessions, and
-incident-response psql shells.
+**Total worst-case in-flight:** `16 + 13 + 1 = 30` of `30 max_connections`
+— headroom achieved by lowering the ceiling rather than the workload.
 
-`db_max_overflow` was lowered from 5 to 3 in v13.13 (DBM-04). The previous
-budget left only 5-6 connections of headroom under Procrastinate spikes;
-the new budget reclaims 14 connections. PERF-05 (planned for v13.13 / Phase
-274) will then lower `max_connections` from 50 to 30 to reclaim ~10MiB of
-memory per dropped slot.
+The two changes that produced this envelope:
+
+1. **DBM-04 (Phase 271):** `db_max_overflow` 5 → 3, reclaiming 14 connections
+   of headroom under Procrastinate spikes.
+2. **PERF-05 (Phase 274):** `max_connections` 50 → 30, reclaiming ~10MiB of
+   shared memory per dropped slot (~200MiB total — material on a 2GB VPS).
+
+Operators expecting frequent ad-hoc admin sessions on top of full worker + API
+saturation should bump `max_connections` back to 35-40 in their own
+`postgresql.conf` overlay; the `db_pool_size` / `db_max_overflow` defaults stay
+healthy at the original 50 too.
 
 Override per environment:
 
