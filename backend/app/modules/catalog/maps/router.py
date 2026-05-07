@@ -42,6 +42,7 @@ from app.modules.catalog.maps.schemas import (
     MapIconListResponse,
     MapIconResponse,
     MapResponse,
+    MapStyleImportRequest,
     MapStyleImportResponse,
     MapSummaryResponse,
     MapUpdate,
@@ -553,12 +554,21 @@ async def get_geolens_sprite_png_endpoint(
     status_code=status.HTTP_201_CREATED,
 )
 async def import_map_style_endpoint(
-    style: dict = Body(...),
+    body: MapStyleImportRequest,
     request: Request = None,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> MapStyleImportResponse:
-    """Import a MapLibre style JSON document into a new GeoLens map."""
+    """Import a MapLibre style JSON document into a new GeoLens map.
+
+    API-01 (M-05): the request body is now a typed Pydantic model instead of
+    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    spec top-level keys with ``extra="allow"``, so existing payloads keep
+    working byte-identically while the OpenAPI schema gains a named class
+    and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
+    request type.
+    """
+    style = body.model_dump(exclude_none=True, by_alias=True)
     try:
         imported = parse_maplibre_style_import(style)
     except ValueError as exc:

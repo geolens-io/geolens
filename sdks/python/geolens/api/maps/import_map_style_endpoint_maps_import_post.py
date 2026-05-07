@@ -7,16 +7,14 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.import_map_style_endpoint_maps_import_post_style import (
-    ImportMapStyleEndpointMapsImportPostStyle,
-)
+from ...models.map_style_import_request import MapStyleImportRequest
 from ...models.map_style_import_response import MapStyleImportResponse
 from ...models.problem_detail import ProblemDetail
 
 
 def _get_kwargs(
     *,
-    body: ImportMapStyleEndpointMapsImportPostStyle,
+    body: MapStyleImportRequest,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -96,14 +94,31 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: ImportMapStyleEndpointMapsImportPostStyle,
+    body: MapStyleImportRequest,
 ) -> Response[MapStyleImportResponse | ProblemDetail]:
-    """Import Map Style Endpoint
+    r"""Import Map Style Endpoint
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
+    API-01 (M-05): the request body is now a typed Pydantic model instead of
+    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
+    working byte-identically while the OpenAPI schema gains a named class
+    and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
+    request type.
+
     Args:
-        body (ImportMapStyleEndpointMapsImportPostStyle):
+        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+
+            Mirrors the top-level keys of the MapLibre Style Specification that
+            ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
+            forward-compatibility with future MapLibre fields (e.g. ``projection``,
+            ``light``, ``transition``) so adding a new key on the client side
+            doesn't require a server release.
+
+            Replacing the previous bare-``dict`` body parameter removes
+            ``additionalProperties: true`` from the OpenAPI schema and lets
+            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -127,14 +142,31 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: ImportMapStyleEndpointMapsImportPostStyle,
+    body: MapStyleImportRequest,
 ) -> MapStyleImportResponse | ProblemDetail | None:
-    """Import Map Style Endpoint
+    r"""Import Map Style Endpoint
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
+    API-01 (M-05): the request body is now a typed Pydantic model instead of
+    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
+    working byte-identically while the OpenAPI schema gains a named class
+    and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
+    request type.
+
     Args:
-        body (ImportMapStyleEndpointMapsImportPostStyle):
+        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+
+            Mirrors the top-level keys of the MapLibre Style Specification that
+            ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
+            forward-compatibility with future MapLibre fields (e.g. ``projection``,
+            ``light``, ``transition``) so adding a new key on the client side
+            doesn't require a server release.
+
+            Replacing the previous bare-``dict`` body parameter removes
+            ``additionalProperties: true`` from the OpenAPI schema and lets
+            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -153,14 +185,31 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: ImportMapStyleEndpointMapsImportPostStyle,
+    body: MapStyleImportRequest,
 ) -> Response[MapStyleImportResponse | ProblemDetail]:
-    """Import Map Style Endpoint
+    r"""Import Map Style Endpoint
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
+    API-01 (M-05): the request body is now a typed Pydantic model instead of
+    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
+    working byte-identically while the OpenAPI schema gains a named class
+    and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
+    request type.
+
     Args:
-        body (ImportMapStyleEndpointMapsImportPostStyle):
+        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+
+            Mirrors the top-level keys of the MapLibre Style Specification that
+            ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
+            forward-compatibility with future MapLibre fields (e.g. ``projection``,
+            ``light``, ``transition``) so adding a new key on the client side
+            doesn't require a server release.
+
+            Replacing the previous bare-``dict`` body parameter removes
+            ``additionalProperties: true`` from the OpenAPI schema and lets
+            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -182,14 +231,31 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: ImportMapStyleEndpointMapsImportPostStyle,
+    body: MapStyleImportRequest,
 ) -> MapStyleImportResponse | ProblemDetail | None:
-    """Import Map Style Endpoint
+    r"""Import Map Style Endpoint
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
+    API-01 (M-05): the request body is now a typed Pydantic model instead of
+    a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+    spec top-level keys with ``extra=\"allow\"``, so existing payloads keep
+    working byte-identically while the OpenAPI schema gains a named class
+    and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
+    request type.
+
     Args:
-        body (ImportMapStyleEndpointMapsImportPostStyle):
+        body (MapStyleImportRequest): Typed request body for POST /maps/import — API-01 / M-05.
+
+            Mirrors the top-level keys of the MapLibre Style Specification that
+            ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
+            forward-compatibility with future MapLibre fields (e.g. ``projection``,
+            ``light``, ``transition``) so adding a new key on the client side
+            doesn't require a server release.
+
+            Replacing the previous bare-``dict`` body parameter removes
+            ``additionalProperties: true`` from the OpenAPI schema and lets
+            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -7,11 +7,11 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
-T = TypeVar("T", bound="ImportMapStyleEndpointMapsImportPostStyle")
+T = TypeVar("T", bound="MapStyleImportRequestTerrainType0")
 
 
 @_attrs_define
-class ImportMapStyleEndpointMapsImportPostStyle:
+class MapStyleImportRequestTerrainType0:
     """ """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -26,10 +26,10 @@ class ImportMapStyleEndpointMapsImportPostStyle:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        import_map_style_endpoint_maps_import_post_style = cls()
+        map_style_import_request_terrain_type_0 = cls()
 
-        import_map_style_endpoint_maps_import_post_style.additional_properties = d
-        return import_map_style_endpoint_maps_import_post_style
+        map_style_import_request_terrain_type_0.additional_properties = d
+        return map_style_import_request_terrain_type_0
 
     @property
     def additional_keys(self) -> list[str]:

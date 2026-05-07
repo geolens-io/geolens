@@ -1959,6 +1959,13 @@ export const uploadMapIconEndpointMapsIconsPost = <ThrowOnError extends boolean 
  * Get Map Icon Asset Endpoint
  *
  * Serve an uploaded or bundled icon asset by stable icon ID.
+ *
+ * SEC-01 / M-63: SVG responses carry Content-Security-Policy
+ * ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
+ * origins, run scripts, or read auth cookies even if validation is bypassed
+ * in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
+ * image/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware
+ * default ``frame-ancestors 'self'``.
  */
 export const getMapIconAssetEndpointMapsIconsIconIdAssetGet = <ThrowOnError extends boolean = false>(options: Options<GetMapIconAssetEndpointMapsIconsIconIdAssetGetData, ThrowOnError>) => (options.client ?? client).get<GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses, GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors, ThrowOnError>({ url: '/maps/icons/{icon_id}/asset', ...options });
 
@@ -1966,6 +1973,13 @@ export const getMapIconAssetEndpointMapsIconsIconIdAssetGet = <ThrowOnError exte
  * Import Map Style Endpoint
  *
  * Import a MapLibre style JSON document into a new GeoLens map.
+ *
+ * API-01 (M-05): the request body is now a typed Pydantic model instead of
+ * a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
+ * spec top-level keys with ``extra="allow"``, so existing payloads keep
+ * working byte-identically while the OpenAPI schema gains a named class
+ * and the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``
+ * request type.
  */
 export const importMapStyleEndpointMapsImportPost = <ThrowOnError extends boolean = false>(options: Options<ImportMapStyleEndpointMapsImportPostData, ThrowOnError>) => (options.client ?? client).post<ImportMapStyleEndpointMapsImportPostResponses, ImportMapStyleEndpointMapsImportPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

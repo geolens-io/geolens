@@ -7927,6 +7927,172 @@
         "title": "MapResponse",
         "type": "object"
       },
+      "MapStyleImportRequest": {
+        "additionalProperties": true,
+        "description": "Typed request body for POST /maps/import \u2014 API-01 / M-05.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.\n\nReplacing the previous bare-``dict`` body parameter removes\n``additionalProperties: true`` from the OpenAPI schema and lets\nopenapi-python-client generate a navigable named model class.",
+        "properties": {
+          "bearing": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bearing"
+          },
+          "center": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[longitude, latitude] map center",
+            "title": "Center"
+          },
+          "glyphs": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glyphs"
+          },
+          "layers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre layer specifications",
+            "title": "Layers"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-form metadata bag (used by GeoLens for center/zoom/basemap hints)",
+            "title": "Metadata"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display name for the imported map",
+            "title": "Name"
+          },
+          "pitch": {
+            "anyOf": [
+              {
+                "maximum": 85.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pitch"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre sources object keyed by source id",
+            "title": "Sources"
+          },
+          "sprite": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprite"
+          },
+          "terrain": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre terrain config (source + exaggeration)",
+            "title": "Terrain"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MapLibre style version (always 8 in current spec)",
+            "title": "Version"
+          },
+          "zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zoom"
+          }
+        },
+        "title": "MapStyleImportRequest",
+        "type": "object"
+      },
       "MapStyleImportResponse": {
         "properties": {
           "map": {
@@ -28529,7 +28695,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Health"
+        "summary": "Health",
+        "tags": [
+          "Health"
+        ]
       }
     },
     "/ingest/commit/{job_id}": {
@@ -31314,7 +31483,7 @@
     },
     "/maps/icons/{icon_id}/asset": {
       "get": {
-        "description": "Serve an uploaded or bundled icon asset by stable icon ID.",
+        "description": "Serve an uploaded or bundled icon asset by stable icon ID.\n\nSEC-01 / M-63: SVG responses carry Content-Security-Policy\n``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other\norigins, run scripts, or read auth cookies even if validation is bypassed\nin the future. Browsers (Chromium, Firefox) honor the sandbox directive on\nimage/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware\ndefault ``frame-ancestors 'self'``.",
         "operationId": "get_map_icon_asset_endpoint_maps_icons__icon_id__asset_get",
         "parameters": [
           {
@@ -31422,15 +31591,13 @@
     },
     "/maps/import": {
       "post": {
-        "description": "Import a MapLibre style JSON document into a new GeoLens map.",
+        "description": "Import a MapLibre style JSON document into a new GeoLens map.\n\nAPI-01 (M-05): the request body is now a typed Pydantic model instead of\na bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style\nspec top-level keys with ``extra=\"allow\"``, so existing payloads keep\nworking byte-identically while the OpenAPI schema gains a named class\nand the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``\nrequest type.",
         "operationId": "import_map_style_endpoint_maps_import_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Style",
-                "type": "object"
+                "$ref": "#/components/schemas/MapStyleImportRequest"
               }
             }
           },

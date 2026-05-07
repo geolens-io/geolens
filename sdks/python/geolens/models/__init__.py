@@ -213,9 +213,6 @@ from .http_validation_error import HTTPValidationError
 from .import_configuration_config_ops_import_post_mode import (
     ImportConfigurationConfigOpsImportPostMode,
 )
-from .import_map_style_endpoint_maps_import_post_style import (
-    ImportMapStyleEndpointMapsImportPostStyle,
-)
 from .import_result import ImportResult
 from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
@@ -290,6 +287,13 @@ from .map_layer_response_paint import MapLayerResponsePaint
 from .map_layer_response_style_config_type_0 import MapLayerResponseStyleConfigType0
 from .map_list_response import MapListResponse
 from .map_response import MapResponse
+from .map_style_import_request import MapStyleImportRequest
+from .map_style_import_request_layers_type_0_item import (
+    MapStyleImportRequestLayersType0Item,
+)
+from .map_style_import_request_metadata_type_0 import MapStyleImportRequestMetadataType0
+from .map_style_import_request_sources_type_0 import MapStyleImportRequestSourcesType0
+from .map_style_import_request_terrain_type_0 import MapStyleImportRequestTerrainType0
 from .map_style_import_response import MapStyleImportResponse
 from .map_style_import_summary import MapStyleImportSummary
 from .map_style_import_warning import MapStyleImportWarning
@@ -698,7 +702,6 @@ __all__ = (
     "HealthResponseProviders",
     "HTTPValidationError",
     "ImportConfigurationConfigOpsImportPostMode",
-    "ImportMapStyleEndpointMapsImportPostStyle",
     "ImportResult",
     "InfrastructureConfig",
     "InfrastructureResponse",
@@ -763,6 +766,11 @@ __all__ = (
     "MapLayerResponseStyleConfigType0",
     "MapListResponse",
     "MapResponse",
+    "MapStyleImportRequest",
+    "MapStyleImportRequestLayersType0Item",
+    "MapStyleImportRequestMetadataType0",
+    "MapStyleImportRequestSourcesType0",
+    "MapStyleImportRequestTerrainType0",
     "MapStyleImportResponse",
     "MapStyleImportSummary",
     "MapStyleImportWarning",

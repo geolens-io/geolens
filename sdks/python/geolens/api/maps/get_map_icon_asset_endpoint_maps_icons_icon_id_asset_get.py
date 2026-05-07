@@ -93,6 +93,13 @@ def sync_detailed(
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
+    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
+    origins, run scripts, or read auth cookies even if validation is bypassed
+    in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
+    image/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware
+    default ``frame-ancestors 'self'``.
+
     Args:
         icon_id (str):
 
@@ -124,6 +131,13 @@ def sync(
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
+    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
+    origins, run scripts, or read auth cookies even if validation is bypassed
+    in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
+    image/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware
+    default ``frame-ancestors 'self'``.
+
     Args:
         icon_id (str):
 
@@ -149,6 +163,13 @@ async def asyncio_detailed(
     """Get Map Icon Asset Endpoint
 
      Serve an uploaded or bundled icon asset by stable icon ID.
+
+    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
+    origins, run scripts, or read auth cookies even if validation is bypassed
+    in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
+    image/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware
+    default ``frame-ancestors 'self'``.
 
     Args:
         icon_id (str):
@@ -178,6 +199,13 @@ async def asyncio(
     """Get Map Icon Asset Endpoint
 
      Serve an uploaded or bundled icon asset by stable icon ID.
+
+    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
+    origins, run scripts, or read auth cookies even if validation is bypassed
+    in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
+    image/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware
+    default ``frame-ancestors 'self'``.
 
     Args:
         icon_id (str):

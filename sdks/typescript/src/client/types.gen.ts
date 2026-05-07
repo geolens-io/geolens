@@ -4574,6 +4574,95 @@ export type MapResponse = {
 };
 
 /**
+ * MapStyleImportRequest
+ *
+ * Typed request body for POST /maps/import — API-01 / M-05.
+ *
+ * Mirrors the top-level keys of the MapLibre Style Specification that
+ * ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
+ * forward-compatibility with future MapLibre fields (e.g. ``projection``,
+ * ``light``, ``transition``) so adding a new key on the client side
+ * doesn't require a server release.
+ *
+ * Replacing the previous bare-``dict`` body parameter removes
+ * ``additionalProperties: true`` from the OpenAPI schema and lets
+ * openapi-python-client generate a navigable named model class.
+ */
+export type MapStyleImportRequest = {
+    /**
+     * Bearing
+     */
+    bearing?: number | null;
+    /**
+     * Center
+     *
+     * [longitude, latitude] map center
+     */
+    center?: Array<number> | null;
+    /**
+     * Glyphs
+     */
+    glyphs?: string | null;
+    /**
+     * Layers
+     *
+     * MapLibre layer specifications
+     */
+    layers?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Metadata
+     *
+     * Free-form metadata bag (used by GeoLens for center/zoom/basemap hints)
+     */
+    metadata?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Name
+     *
+     * Display name for the imported map
+     */
+    name?: string | null;
+    /**
+     * Pitch
+     */
+    pitch?: number | null;
+    /**
+     * Sources
+     *
+     * MapLibre sources object keyed by source id
+     */
+    sources?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Sprite
+     */
+    sprite?: string | null;
+    /**
+     * Terrain
+     *
+     * MapLibre terrain config (source + exaggeration)
+     */
+    terrain?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Version
+     *
+     * MapLibre style version (always 8 in current spec)
+     */
+    version?: number | null;
+    /**
+     * Zoom
+     */
+    zoom?: number | null;
+    [key: string]: unknown;
+};
+
+/**
  * MapStyleImportResponse
  */
 export type MapStyleImportResponse = {
@@ -16124,12 +16213,7 @@ export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses = {
 };
 
 export type ImportMapStyleEndpointMapsImportPostData = {
-    /**
-     * Style
-     */
-    body: {
-        [key: string]: unknown;
-    };
+    body: MapStyleImportRequest;
     path?: never;
     query?: never;
     url: '/maps/import';
