@@ -191,11 +191,22 @@ services:
       - ./backend/alembic:/app/alembic
       - ./backend/tests:/app/tests
       - upload_staging:/app/staging
+    # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids
+    # --workers > 1 with --reload). Production demo overlay (docker-compose.demo.yml)
+    # overrides without --reload, allowing UVICORN_WORKERS > 1 for true parallelism.
     command: >
-      sh -c "uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app"
+      sh -c "uv run uvicorn app.api.main:app
+        --host 0.0.0.0 --port 8000
+        --workers $${UVICORN_WORKERS:-1}
+        --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
+        --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
+        --reload --reload-dir /app/app"
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
       PYTHONPATH: /app
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
+      UVICORN_TIMEOUT_KEEP_ALIVE: "${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}

@@ -2,6 +2,10 @@
 name = "geolens-backend"
 version = "1.0.2"
 description = "PostGIS-native GIS data catalog"
+# Docker image (Dockerfile) ships python:3.14.3-slim as the project's tested
+# runtime. requires-python>=3.13 is the backward-compat floor for adopters
+# running their own Python (CI matrix could expand to test 3.13.x — deferred
+# to a future test-coverage milestone). Per INF-15.
 requires-python = ">=3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

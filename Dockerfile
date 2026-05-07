@@ -1,16 +1,22 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.14.3-slim AS backend-base
+# ==============================================================================
+# Stage 1: backend-builder — uv sync, all build-time prep
+# ==============================================================================
+# Build-time deps (apt cache, intermediate uv-sync state) are confined to this
+# stage. The runtime layer rebuilds from a clean python:3.14.3-slim base and
+# only copies the resolved /app venv from this builder.
+FROM python:3.14.3-slim AS backend-builder
 
-# Install uv from official image.
+# uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
 COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
 
 WORKDIR /app
 
-# Refresh base image packages before installing runtime dependencies so
-# release scans pick up patched OpenSSL/libssl packages from Debian.
-# Install GDAL/ogr2ogr for geospatial file processing.
-# libexpat1 is required for rasterio manylinux wheel on slim base.
+# Refresh base image packages and install runtime deps the resolved venv needs
+# at install time (gdal-bin, libexpat1 for rasterio, libxmlsec1 for SAML).
+# These are reinstalled cleanly in the runtime stage; they're here so `uv sync`
+# can run native-extension build steps.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     gdal-bin \
@@ -18,11 +24,6 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     xmlsec1 libxmlsec1-openssl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user shared by the API and worker runtime targets.
-RUN groupadd --system --gid 1001 appgroup && \
-    useradd --system --gid 1001 --uid 1001 --create-home appuser
-
-# Environment for uv.
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 ENV UV_SYSTEM_PYTHON=1
@@ -40,7 +41,51 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 
-# Create writable directories for volumes and transfer ownership.
+# ==============================================================================
+# Stage 2: backend-base — clean python:3.14.3-slim runtime; venv from builder
+# ==============================================================================
+# True multi-stage split per INF-06: runtime starts from a fresh
+# python:3.14.3-slim base (no apt-cache layer from builder, no intermediate
+# uv-sync state). Only the resolved /app/.venv + code arrive via COPY --from.
+#
+# Note: uv is INTENTIONALLY KEPT in the runtime layer because
+# api-entrypoint.sh runs `uv add --editable ${ENTERPRISE_PATH}` to install the
+# enterprise overlay at startup. Removing uv from runtime breaks the enterprise
+# install path (M-32 audit subset deferred per 272-RESEARCH-NOTES.md §INF-06).
+# gcc/dev libs are still excluded from the runtime layer.
+#
+# Pin: python:3.14.3-slim. backend/pyproject.toml requires-python>=3.13 for
+# adopter flexibility; this image ships 3.14.3 as the project's tested runtime.
+# See backend/pyproject.toml comment at requires-python for the matching note.
+# Per .planning/REQUIREMENTS.md INF-15.
+FROM python:3.14.3-slim AS backend-base
+
+# uv kept for enterprise overlay install (api-entrypoint.sh runs `uv add --editable`).
+COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
+
+# Runtime apt deps — clean install on a fresh layer (no apt cache from builder).
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
+    gdal-bin \
+    libexpat1 \
+    xmlsec1 libxmlsec1-openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user (shared by api and worker runtime targets).
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --gid 1001 --uid 1001 --create-home appuser
+
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_SYSTEM_PYTHON=1
+ENV PYTHONPATH=/app
+
+WORKDIR /app
+
+# Copy the resolved venv + code from the builder. No uv sync runs in runtime.
+COPY --from=backend-builder --chown=appuser:appgroup /app /app
+
+# Create writable directories used by the entrypoint.
 RUN mkdir -p /app/staging /home/appuser/.cache/uv && \
     chown -R appuser:appgroup /app /app/staging /home/appuser
 
@@ -56,7 +101,7 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
 USER appuser
 
 ENTRYPOINT ["/app/scripts/api-entrypoint.sh"]
-CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5} --timeout-graceful-shutdown ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"]
 
 FROM backend-base AS worker
 

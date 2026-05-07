@@ -17,9 +17,13 @@ services:
     # Clear dev bind mounts — use code baked into the image
     volumes:
       - upload_staging:/app/staging
-    # Production command — no --reload
+    # Production command — no --reload — UVICORN_WORKERS may be >1
     command: >
-      sh -c "uv run uvicorn app.api.main:app --host 0.0.0.0 --port 8000"
+      sh -c "uv run uvicorn app.api.main:app
+        --host 0.0.0.0 --port 8000
+        --workers $${UVICORN_WORKERS:-2}
+        --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
+        --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
     environment:
       # 300 MB so the seeder can upload the downsampled NE shaded relief
       # (~100 MB) and the UCDP GED CSV subset (~130 MB). Interactive uploads
