@@ -90,3 +90,68 @@ describe('useAuthStore', () => {
     expect(useAuthStore.getState().isAdmin()).toBe(false);
   });
 });
+
+describe('useAuthStore — persist version + migrate (CODE-04)', () => {
+  it('declares persist version 1', () => {
+    expect(useAuthStore.persist.getOptions().version).toBe(1);
+  });
+
+  it('migrate is defined and returns persistedState unchanged for fromVersion === 0', () => {
+    const migrate = useAuthStore.persist.getOptions().migrate;
+    expect(migrate).toBeDefined();
+    const legacyBlob = {
+      token: 'legacy-token',
+      refreshToken: 'legacy-refresh',
+      expiresAt: 1234567890,
+      user: mockUser({ roles: ['admin'] }),
+    };
+    // Existing un-versioned (legacy) sessions arrive with fromVersion = 0.
+    const result = migrate!(legacyBlob, 0);
+    // Conservative default: legacy sessions pass through unchanged.
+    expect(result).toEqual(legacyBlob);
+  });
+
+  it('migrate returns persistedState unchanged for fromVersion === 1 (current baseline)', () => {
+    const migrate = useAuthStore.persist.getOptions().migrate;
+    expect(migrate).toBeDefined();
+    const v1Blob = {
+      token: 'v1-token',
+      refreshToken: 'v1-refresh',
+      expiresAt: 9999999999,
+      user: mockUser(),
+    };
+    const result = migrate!(v1Blob, 1);
+    expect(result).toEqual(v1Blob);
+  });
+
+  it('localStorage rehydration of legacy un-versioned blob preserves token and user', async () => {
+    // Simulate a pre-CODE-04 user session sitting in localStorage with no `version` field.
+    const legacyUser = mockUser({ id: 'legacy-1', username: 'legacyuser' });
+    const legacyState = {
+      state: {
+        token: 'legacy-token-xyz',
+        refreshToken: 'legacy-refresh-abc',
+        expiresAt: 1234567890,
+        user: legacyUser,
+      },
+      // no `version` key — zustand treats this as version 0
+    };
+
+    // Order matters: write localStorage AFTER resetting in-memory state, because
+    // `useAuthStore.setState({...})` triggers the persist middleware to save the
+    // null state back to storage, which would overwrite our seeded blob.
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    window.localStorage.setItem('geolens-auth', JSON.stringify(legacyState));
+
+    await useAuthStore.persist.rehydrate();
+
+    expect(useAuthStore.getState().token).toBe('legacy-token-xyz');
+    expect(useAuthStore.getState().refreshToken).toBe('legacy-refresh-abc');
+    expect(useAuthStore.getState().expiresAt).toBe(1234567890);
+    expect(useAuthStore.getState().user).toEqual(legacyUser);
+
+    // Cleanup so other tests aren't affected.
+    window.localStorage.removeItem('geolens-auth');
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  });
+});

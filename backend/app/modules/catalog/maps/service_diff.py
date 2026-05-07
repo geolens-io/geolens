@@ -1,4 +1,10 @@
-"""Map layer-diff and full-replace helpers extracted from service_crud (Phase 252 LAYERING-03)."""
+"""Map layer-diff and full-replace helpers extracted from service_crud (Phase 252 LAYERING-03).
+
+Internal-helper-only: not re-exported by the maps service facade
+(``service.py``). External callers must use the facade's public API; direct
+imports of this module are blocked by the BOUND-01 architecture guard
+(see ``test_layering.py::test_no_external_imports_of_maps_private_service_modules``).
+"""
 
 from __future__ import annotations
 
