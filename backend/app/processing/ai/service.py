@@ -177,7 +177,7 @@ async def _should_send_sample_values(session: AsyncSession) -> bool:
         from app.core.persistent_config import AI_SEND_SAMPLE_VALUES
 
         return await AI_SEND_SAMPLE_VALUES.get(session)
-    except Exception:
+    except Exception:  # broad: persistent_config lookup is non-fatal; default to True on any DB/cache error
         logger.warning(
             "Failed to read AI_SEND_SAMPLE_VALUES, defaulting to True", exc_info=True
         )
@@ -194,7 +194,7 @@ async def _get_available_basemaps(session: AsyncSession) -> list[str] | None:
             return [
                 b.get("id") or b.get("key", "") for b in basemaps if isinstance(b, dict)
             ]
-    except Exception:
+    except Exception:  # broad: persistent_config lookup is non-fatal; degrade to None on any DB/cache error
         logger.warning("Failed to fetch basemap config, using defaults", exc_info=True)
     return None
 
@@ -491,7 +491,7 @@ async def _validate_and_persist_map(
                 )
                 spec.center_lng = centroid_lng
                 spec.center_lat = centroid_lat
-    except Exception:
+    except Exception:  # broad: viewport validation is non-fatal context-builder; skip on any geometry/DB error
         logger.debug("Viewport validation skipped", exc_info=True)
 
     # Replace LLM-invented choropleth breaks with DB-computed quantiles
@@ -537,7 +537,7 @@ async def _validate_and_persist_map(
                             column=column,
                             breaks=quantiles[:n_breaks],
                         )
-                except Exception:
+                except Exception:  # broad: per-layer quantile lookup is non-fatal; LLM-generated breaks remain on failure
                     logger.warning(
                         "Choropleth break replacement skipped", exc_info=True
                     )
@@ -813,6 +813,6 @@ async def stream_generate_map(
             "type": "error",
             "message": "Map generation timed out. Try a simpler prompt.",
         }
-    except Exception as e:
+    except Exception as e:  # broad: SSE generator must yield error event for any unhandled SDK/runtime exception
         logger.exception("Streaming map generation failed")
         yield {"type": "error", "message": str(e)}

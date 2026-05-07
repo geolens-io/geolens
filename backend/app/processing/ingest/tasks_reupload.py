@@ -224,7 +224,7 @@ async def reupload_file(
 
             await defer_embedding(dataset)
 
-        except Exception as exc:
+        except Exception as exc:  # broad: reupload pipeline spans GDAL/PostGIS/S3/FS — any step can fail
             await _cleanup_staging_on_failure(
                 session,
                 staging_table=staging_tn,
@@ -416,7 +416,7 @@ async def reupload_service(
 
             await defer_embedding(dataset)
 
-        except Exception as exc:
+        except Exception as exc:  # broad: reupload service-path spans GDAL/PostGIS — any step can fail
             await _cleanup_staging_on_failure(
                 session,
                 staging_table=staging_tn,

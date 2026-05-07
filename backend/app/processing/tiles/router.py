@@ -439,7 +439,7 @@ def _build_tile_token_for_dataset(
             try:
                 shape = to_shape(dataset.record.spatial_extent)
                 bounds = list(shape.bounds)  # [xmin, ymin, xmax, ymax]
-            except Exception:
+            except Exception:  # broad: extent parse is non-fatal; geoalchemy/shapely errors fall back to no-bounds
                 logger.warning(
                     "Failed to parse spatial extent bounds",
                     dataset_id=str(dataset.id),
@@ -757,7 +757,7 @@ async def tile_endpoint(
             detail="Tile service busy, please retry",
             headers={"Retry-After": "2"},
         )
-    except Exception as exc:
+    except Exception as exc:  # broad: tile query spans MVT SQL/PostGIS — varied DB errors map to 500 with logged context
         logger.exception(
             "Vector tile query failed",
             table_name=table_name,

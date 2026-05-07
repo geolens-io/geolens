@@ -469,7 +469,7 @@ async def request_presigned_reupload(
 
     try:
         allowed_list = await get_allowed_extensions_list(db)
-    except Exception:
+    except Exception:  # broad: persistent_config lookup must not crash reupload UI; fall back to safe default list
         allowed_list = [
             ".zip",
             ".gpkg",

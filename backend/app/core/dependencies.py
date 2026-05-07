@@ -10,7 +10,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
         try:
             yield session
-        except Exception:
+        except Exception:  # broad: session boundary — any handler exception triggers rollback then re-raise
             await session.rollback()
             raise
 

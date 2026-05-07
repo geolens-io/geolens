@@ -103,7 +103,7 @@ async def _build_dataset_context(
                 f"Bounding box (W, S, E, N): {bounds[0]:.4f}, {bounds[1]:.4f}, "
                 f"{bounds[2]:.4f}, {bounds[3]:.4f}"
             )
-        except Exception:
+        except Exception:  # broad: bounds string is informational; any geometry parse failure should be skipped
             logger.debug("Failed to parse spatial bounds for AI context", exc_info=True)
 
     if record.access_constraints:
@@ -215,7 +215,7 @@ async def _get_related_keywords_from_embeddings(
             return []
 
         return await port.get_keywords_for_records(session, neighbor_ids)
-    except Exception:
+    except Exception:  # broad: embedding neighbor lookup is non-fatal context-builder; degrade to empty list
         logger.debug("Embedding neighbor keyword lookup failed", exc_info=True)
         return []
 

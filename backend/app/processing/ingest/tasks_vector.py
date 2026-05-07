@@ -240,7 +240,7 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 file_path=file_path,
             )
 
-        except Exception as exc:
+        except Exception as exc:  # broad: ingest pipeline spans GDAL/PostGIS/S3/FS — any step can fail; record failure status
             await session.rollback()
             structlog.get_logger().exception(
                 "Ingest task failed",
@@ -402,7 +402,7 @@ async def ingest_service(
                 )
             )
 
-        except Exception as exc:
+        except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise
             # On any failure, mark job as failed (no staging file to clean up)
             await session.rollback()
             job.status = "failed"

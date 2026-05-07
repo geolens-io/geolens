@@ -194,7 +194,7 @@ async def main() -> None:
                 credential_source=cred_method,
                 addressing_style=settings.s3_addressing_style,
             )
-        except Exception as exc:
+        except Exception as exc:  # broad: S3/MinIO SDK can throw varied connection/auth errors; fail-fast on worker boot
             log.error("S3 health check failed -- cannot start", error=str(exc))
             raise RuntimeError(f"S3 health check failed: {exc}") from exc
 

@@ -151,7 +151,7 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
                 await loop.run_in_executor(None, f.write, chunk)
         finally:
             await loop.run_in_executor(None, f.close)
-    except Exception:
+    except Exception:  # broad: streaming upload may fail at any I/O step; ensure dest cleanup then re-raise
         try:
             os.unlink(dest)
         except OSError:
@@ -350,7 +350,7 @@ async def register_existing_table(
             try:
                 async with session.begin_nested():
                     await add_4326_column(session, table_name, srid or 4326)
-            except Exception as exc:
+            except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
                 raise ValueError(
                     f"Failed to add geom_4326 column to '{table_name}': {exc}"
                 ) from exc

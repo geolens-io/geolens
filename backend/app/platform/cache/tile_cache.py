@@ -82,7 +82,7 @@ class TileCacheProvider:
                 return data
             tile_cache_misses.labels(table_name=label).inc()
             return None
-        except Exception:
+        except Exception:  # broad: redis client surfaces pool/timeout/io errors as varied types; cache miss is non-fatal
             logger.warning("tile_cache_get_failed", key=key, exc_info=True)
             tile_cache_misses.labels(table_name=label).inc()
             return None
@@ -100,7 +100,7 @@ class TileCacheProvider:
         key = f"tile:{table}:{z}:{x}:{y}"
         try:
             await self._client.set(key, data, ex=ttl)
-        except Exception:
+        except Exception:  # broad: redis client surfaces pool/timeout/io errors as varied types; cache write is non-fatal
             logger.warning("tile_cache_set_failed", key=key, exc_info=True)
 
     async def invalidate_table(self, table: str) -> None:
@@ -117,7 +117,7 @@ class TileCacheProvider:
                 if cursor == 0:
                     break
             logger.info("tile_cache_invalidated", table=table)
-        except Exception:
+        except Exception:  # broad: redis SCAN/DELETE can throw varied pool/timeout errors; invalidation is non-fatal
             logger.warning("tile_cache_invalidate_failed", table=table, exc_info=True)
 
 

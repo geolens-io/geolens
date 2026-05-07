@@ -190,7 +190,7 @@ async def oauth_callback(
 
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through
-    except Exception as exc:
+    except Exception as exc:  # broad: OAuth provider can return arbitrary errors; map to redirect with correlation_id
         # Phase 268 H-30: surface email-not-verified collisions explicitly.
         from app.modules.auth.oauth.service import OAuthEmailUnverifiedError
 

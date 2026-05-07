@@ -334,7 +334,7 @@ async def download_cog(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="COG file not found"
         )
-    except Exception:
+    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
         logger.exception("cog_storage_error", dataset_id=str(dataset_id))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

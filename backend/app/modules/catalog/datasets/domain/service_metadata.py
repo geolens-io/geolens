@@ -216,7 +216,7 @@ async def _maybe_defer_embedding(record_id: uuid.UUID, dataset_id: uuid.UUID) ->
     """Best-effort defer of embedding regeneration. Failures are logged, not raised."""
     try:
         await get_catalog_port().defer_embed_record(record_id)
-    except Exception:
+    except Exception:  # broad: defer is non-fatal — embedding will catch up on next edit or backfill
         # Non-fatal -- embedding will catch up on next edit or backfill.
         # Log with traceback so operators can notice if this fails consistently
         # (e.g., broker down) instead of silently dropping edits from the index.
@@ -422,7 +422,7 @@ async def reset_attribute(
         )
         values = [row[0] for row in result.all() if row[0] is not None]
         attr.example_values = values if values else None
-    except Exception:
+    except Exception:  # broad: example-value sampling is best-effort; any DB error degrades to no examples
         # Sampling is best-effort; don't fail the reset because we
         # couldn't gather example values, but do log so operators can
         # notice if this breaks consistently (RES-N9).

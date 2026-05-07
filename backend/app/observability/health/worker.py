@@ -36,7 +36,7 @@ async def readiness(request: Request) -> JSONResponse:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return JSONResponse({"status": "ready"})
-    except Exception as exc:
+    except Exception as exc:  # broad: readiness probe must report any DB/connection failure as 503 rather than 500
         return JSONResponse(
             {"status": "not_ready", "error": str(exc)},
             status_code=503,

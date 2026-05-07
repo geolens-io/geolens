@@ -153,7 +153,7 @@ def register_error_handlers(app: FastAPI) -> None:
             user = getattr(request.state, "user", None)
             if user is not None:
                 user_id = str(getattr(user, "id", None))
-        except Exception:
+        except Exception:  # broad: diagnostic context only — user_id stays None on any attribute access failure
             pass
 
         # Prefer the middleware-generated UUID stashed on request.state — this
@@ -169,7 +169,7 @@ def register_error_handlers(app: FastAPI) -> None:
         try:
             if request.client is not None:
                 client_ip = request.client.host
-        except Exception:
+        except Exception:  # broad: diagnostic context only — client_ip stays None on any attribute access failure
             pass
 
         logger.exception(

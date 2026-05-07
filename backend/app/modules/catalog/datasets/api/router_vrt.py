@@ -78,7 +78,7 @@ async def list_vrt_sources(
                 from shapely import wkt as shapely_wkt
 
                 extent_bbox = list(shapely_wkt.loads(row.extent_wkt).bounds)
-            except Exception:
+            except Exception:  # broad: WKT parse — shapely can throw varied errors on malformed extent; degrade to no-bbox
                 pass
         sources.append(
             VrtSourceItem(

@@ -79,7 +79,7 @@ async def _fetch_cog_info(url: str) -> dict | None:
                                 "mean": stats[key].get("mean"),
                             }
                         )
-            except Exception:
+            except Exception:  # broad: per-band stats optional — Titiler payload shape varies; defaults are fine
                 pass  # stats are optional — rendering will fall back to defaults
 
             return {
@@ -90,7 +90,7 @@ async def _fetch_cog_info(url: str) -> dict | None:
                 "nodata": info.get("nodata"),
                 "band_info": band_info or None,
             }
-    except Exception as exc:
+    except Exception as exc:  # broad: Titiler info call — httpx/JSON parse can throw varied errors; degrade to None
         logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))
         return None
 
@@ -346,7 +346,7 @@ async def stac_collections(
 
     try:
         collections = await list_stac_collections(request.url)
-    except Exception as exc:
+    except Exception as exc:  # broad: STAC client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC collections fetch failed", url=request.url, error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -378,7 +378,7 @@ async def stac_search(
             datetime_range=request.datetime_range,
             limit=request.limit,
         )
-    except Exception as exc:
+    except Exception as exc:  # broad: STAC /search client/HTTP/parse can throw varied errors; map to 502 for the user
         logger.warning("STAC search failed", url=request.url, error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -543,7 +543,7 @@ async def stac_import(
             )
             created += 1
 
-        except Exception as exc:
+        except Exception as exc:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
             logger.warning("STAC item import failed", item_id=item.id, error=str(exc))
             results.append(
                 StacImportResult(item_id=item.id, status="error", error=str(exc))

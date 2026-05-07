@@ -218,7 +218,7 @@ def dataset_to_ogc_record(
     if spatial_extent_geojson is not None:
         try:
             geometry = json.loads(spatial_extent_geojson)
-        except Exception:
+        except Exception:  # broad: GeoJSON string from DB may be malformed; degrade to None geometry
             logger.warning(
                 "ogc_geometry_geojson_parse_failed",
                 extra={"record_id": str(record.id)},
@@ -238,7 +238,7 @@ def dataset_to_ogc_record(
                 if hasattr(shape, "exterior")
                 else [],
             }
-        except Exception:
+        except Exception:  # broad: WKB deserialize — geoalchemy/shapely errors fall back to None geometry
             logger.warning(
                 "ogc_geometry_wkb_deserialize_failed",
                 extra={"record_id": str(record.id)},

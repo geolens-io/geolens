@@ -23,7 +23,7 @@ async def _probe(name: str, coro: Coroutine[Any, Any, None]) -> dict[str, Any]:
         await asyncio.wait_for(coro, timeout=HEALTH_TIMEOUT)
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         return {"status": "ok", "latency_ms": latency_ms}
-    except Exception as exc:
+    except Exception as exc:  # broad: health probes intentionally aggregate any provider-side failure as a degraded status
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         logger.warning("health_probe_failed", provider=name, error=str(exc))
         return {"status": "error", "latency_ms": latency_ms, "error": str(exc)}
@@ -88,7 +88,7 @@ async def check_oidc_health(db: AsyncSession) -> dict[str, dict[str, Any]]:
         from app.modules.auth.oauth import service as oauth_service
 
         providers = await oauth_service.list_providers(db, enabled_only=True)
-    except Exception as exc:
+    except Exception as exc:  # broad: OAuth provider enumeration is non-fatal; health endpoint should not 500 if list fails
         logger.warning(
             "Failed to enumerate OAuth providers for health probe",
             error=str(exc),

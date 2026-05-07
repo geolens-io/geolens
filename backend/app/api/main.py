@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI):
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             break
-        except Exception as exc:
+        except Exception as exc:  # broad: boot DB connectivity probe — any asyncpg/sqlalchemy/network error retries up to 3x
             if attempt < 3:
                 logger.warning(
                     "Database not ready, retrying",
@@ -194,7 +194,7 @@ async def lifespan(app: FastAPI):
                 credential_source=cred_method,
                 addressing_style=settings.s3_addressing_style,
             )
-        except Exception as exc:
+        except Exception as exc:  # broad: S3/MinIO SDK can throw varied connection/auth/region errors; fail-fast on boot
             logger.exception(
                 "S3 health check failed -- cannot start",
                 error=str(exc),
@@ -224,7 +224,7 @@ async def lifespan(app: FastAPI):
                 extension=type(ext).__name__,
                 timeout_seconds=10.0,
             )
-        except Exception as exc:
+        except Exception as exc:  # broad: extension startup hooks can throw provider-specific errors; isolate per-extension
             logger.warning(
                 "BillingExtension.on_startup failed -- continuing without billing",
                 extension=type(ext).__name__,
@@ -264,7 +264,7 @@ async def lifespan(app: FastAPI):
                     )
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
+            except Exception as exc:  # broad: sweeper-loop must survive any DB/transient error to keep running
                 sweeper_log.warning(
                     "Stale jobs sweeper iteration failed",
                     error=str(exc),

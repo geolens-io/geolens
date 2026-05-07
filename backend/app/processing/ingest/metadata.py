@@ -507,7 +507,7 @@ async def _score_geometry_validity(
             val = result.scalar_one_or_none()
             if val is not None:
                 return round(float(val), 1)
-    except Exception:
+    except Exception:  # broad: ST_IsValid quality score is non-fatal; degrade to 100.0 on any DB error
         pass
     return 100.0
 
@@ -540,7 +540,7 @@ async def _score_attribute_completeness(
                 col_scores: list[float] = [float(v) for v in row if v is not None]
                 if col_scores:
                     return round(sum(col_scores) / len(col_scores), 1)
-    except Exception:
+    except Exception:  # broad: attribute completeness score is non-fatal; degrade to 100.0 on any DB error
         pass
     return 100.0
 

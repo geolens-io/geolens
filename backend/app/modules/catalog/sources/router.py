@@ -266,7 +266,7 @@ async def preview_service_layer(
         # normalize_arcgis_url extracts the layer_id from the URL if already embedded.
         try:
             base_url, url_layer_id = normalize_arcgis_url(request.url)
-        except Exception:
+        except Exception:  # broad: ArcGIS URL parser can throw varied errors on malformed input; degrade to raw URL
             base_url, url_layer_id = request.url, None
         effective_layer_id = (
             request.layer_id if request.layer_id is not None else url_layer_id
@@ -384,7 +384,7 @@ async def preview_service_layer(
                 layer=request.layer_name,
             )
             await _fail_preview(db, user.id, request.url, request.layer_name)
-    except Exception:
+    except Exception:  # broad: preview pipeline involves GDAL/OGR/HTTP probes; record failure without aborting the request
         logger.exception(
             "Unexpected error during service preview",
             url=request.url,

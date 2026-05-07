@@ -13,5 +13,5 @@ async def invalidate_catalog_cache() -> None:
         cache = get_cache()
         await cache.delete_pattern("catalog:*")
         logger.info("catalog_cache_invalidated")
-    except Exception:
+    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.warning("catalog_cache_invalidation_failed", exc_info=True)

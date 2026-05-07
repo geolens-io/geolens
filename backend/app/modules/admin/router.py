@@ -314,7 +314,7 @@ async def convert_saml_to_local(
     )
     try:
         await db.commit()
-    except Exception:
+    except Exception:  # broad: commit can fail with diverse asyncpg/transaction errors; log and bubble for handler
         # Service mutations + audit_log row written but commit failed --
         # leaves no persisted record. Log with request_id correlation so
         # operators can reconcile against client-side state.
@@ -651,7 +651,7 @@ async def trigger_backfill(
 
     try:
         result = await backfill_embeddings(db, force=force)
-    except Exception:
+    except Exception:  # broad: backfill spans embedding SDK + DB writes — diverse errors map to 502 without leaking traceback
         # RES-2: don't leak raw exception text (can contain asyncpg internals,
         # file paths, DB server info) to admin clients. Log full traceback,
         # return a generic 502.

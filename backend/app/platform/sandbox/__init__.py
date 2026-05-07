@@ -72,7 +72,7 @@ async def validate_and_execute(
         # Already a sandbox error -- re-raise as-is
         raise
 
-    except Exception as exc:
+    except Exception as exc:  # broad: sandbox boundary — sqlparser/validator/executor can throw varied types; map to SandboxError
         # Unexpected error -- log full details and raise generic
         logger.warning(
             "sandbox.unexpected_error",

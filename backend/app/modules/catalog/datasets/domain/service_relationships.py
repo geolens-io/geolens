@@ -132,7 +132,7 @@ async def get_related_datasets(
         items.sort(key=lambda x: float(x["similarity"]), reverse=True)
         return items[:limit]
 
-    except Exception:
+    except Exception:  # broad: related-datasets is informational; any DB/scoring error degrades to empty list
         logger.exception("Error fetching related datasets for %s", dataset_id)
         return []
 

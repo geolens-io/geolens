@@ -50,7 +50,7 @@ async def connect_stac_api(url: str) -> dict | None:
 
         try:
             data = resp.json()
-        except Exception:
+        except Exception:  # broad: httpx response.json() can throw varied parser/decoder errors; treat as non-STAC
             logger.debug("STAC connect: non-JSON response", url=url)
             return None
 

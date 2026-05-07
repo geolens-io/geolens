@@ -82,7 +82,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             else:
                 await session.rollback()
                 skipped += 1
-        except Exception:
+        except Exception:  # broad: per-record backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
             errors += 1
             logger.warning(

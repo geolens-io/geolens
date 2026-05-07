@@ -12,7 +12,7 @@ def extent_to_bbox(extent: object | None) -> list[float] | None:
     try:
         shape = to_shape(extent)
         return list(shape.bounds)
-    except Exception:
+    except Exception:  # broad: input is user-supplied; any geoalchemy/shapely parse failure should fall back to None
         return None
 
 

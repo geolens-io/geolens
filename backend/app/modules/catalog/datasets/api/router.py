@@ -246,7 +246,7 @@ async def get_quicklook(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Quicklook not found",
         )
-    except Exception:
+    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
         logger.exception("quicklook_storage_error", dataset_id=str(dataset_id))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -348,7 +348,7 @@ async def bulk_delete_datasets_endpoint(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
-        except Exception as exc:
+        except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await db.rollback()
             if not isinstance(exc, (DependentVrtError, ValueError)):
                 logger.exception(

@@ -82,7 +82,7 @@ def _extract_geojson(
             else:
                 shape = shapely.from_wkb(bytes.fromhex(raw))
                 geometry = json.loads(shapely.to_geojson(shape))
-        except Exception:
+        except Exception:  # broad: per-row geometry parse — JSON/WKB/Shapely can throw varied errors; skip bad rows
             continue
 
         # Build properties

@@ -132,7 +132,7 @@ async def _get_vector_ranks(
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
         return {}
-    except Exception:
+    except Exception:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
         logger.warning(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
@@ -164,7 +164,7 @@ async def _get_vector_ranks(
 
         result = await session.execute(vector_stmt)
         rows = result.all()
-    except Exception:
+    except Exception:  # broad: pgvector/HNSW failures are diverse — degrade to FTS rather than 500 the search
         # pgvector extension missing, HNSW SET error, or DB execute failure --
         # honor the docstring contract and degrade to FTS-only
         logger.warning(

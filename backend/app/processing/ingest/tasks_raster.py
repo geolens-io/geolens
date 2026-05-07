@@ -365,7 +365,7 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
             await defer_embedding(dataset)
 
-        except Exception as exc:
+        except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
             await session.rollback()
             structlog.get_logger().exception(
                 "Ingest task failed",

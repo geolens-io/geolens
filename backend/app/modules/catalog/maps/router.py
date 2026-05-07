@@ -1428,7 +1428,7 @@ async def upload_thumbnail(
     storage = get_storage()
     try:
         await storage.put(storage_key, image_bytes)
-    except Exception:
+    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
         logger.exception("thumbnail_upload_failed", map_id=str(map_id))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

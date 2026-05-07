@@ -113,7 +113,7 @@ async def _auto_detect_embedding_dims(
 
         dims = await probe_embedding_dimensions(db)
         await EMBEDDING_DIMS.set(db, dims, user_id=user_id, ip_address=ip)
-    except Exception:
+    except Exception:  # broad: embedding probe spans third-party SDK calls; non-fatal so admin can set manually
         # Non-fatal — admin can still set manually. Log with traceback so
         # operators can diagnose embedding probe failures (bad API key,
         # provider outage, network timeout) instead of seeing a silent skip.
@@ -158,7 +158,7 @@ async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
             )
         )
         await db.commit()
-    except Exception:
+    except Exception:  # broad: DDL (DROP/ALTER/CREATE INDEX) can fail for schema/lock reasons; rollback and log
         logger.error("Failed to rebuild embedding column", exc_info=True)
         await db.rollback()
 
@@ -269,7 +269,7 @@ async def update_settings(
         new_dims = int(body.settings["embedding_dims"])
         try:
             await rebuild_embedding_column(db, new_dims)
-        except Exception as exc:
+        except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
             # Roll back the persisted embedding_dims setting to the previous value
             ip = get_client_ip(request)
             await EMBEDDING_DIMS.set(db, old_dims_value, user_id=user.id, ip_address=ip)
@@ -339,7 +339,7 @@ async def detect_embedding_dims(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
-    except Exception as e:
+    except Exception as e:  # broad: third-party embedding SDK can throw provider-specific errors; map to 502
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Embedding probe failed: {e}",

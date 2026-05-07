@@ -69,5 +69,5 @@ async def record_token_usage(
                 output_tokens=output_tokens,
             )
             db.add(usage)
-    except Exception:
+    except Exception:  # broad: token-usage record is best-effort accounting; must not break LLM caller flow
         logger.debug("Failed to record token usage", exc_info=True)

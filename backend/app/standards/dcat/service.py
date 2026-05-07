@@ -333,7 +333,7 @@ def record_to_dcat(
                     f"{bounds[0]} {bounds[1]}))"
                 ),
             }
-        except Exception:
+        except Exception:  # broad: DCAT bbox serialize — geoalchemy/shapely errors degrade to no-spatial in catalog entry
             logger.debug(
                 "DCAT spatial extent serialization failed", record_id=str(record.id)
             )

@@ -549,7 +549,7 @@ async def stream_chat_edit(
             map_id=map_id,
         ):
             yield event
-    except Exception as e:
+    except Exception as e:  # broad: SSE stream generator — any unhandled SDK/runtime error must yield a graceful error event
         error_msg = "An unexpected error occurred. Please try again."
         if isinstance(e, (ValueError, KeyError)):
             error_msg = str(e)
@@ -562,5 +562,5 @@ async def stream_chat_edit(
         # across requests when the same task is reused.
         try:
             structlog.contextvars.unbind_contextvars("chat_stream_id")
-        except Exception:
+        except Exception:  # broad: structlog contextvar cleanup is best-effort; never block stream finalization
             pass

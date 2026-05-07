@@ -180,7 +180,7 @@ async def _execute_chat_tool(
                 ),
                 "category": e.category,
             }
-        except Exception as e:
+        except Exception as e:  # broad: query/sandbox layer can throw varied SDK/SQL errors; map to user-facing fallback
             logger.warning(
                 "query_data.failed", error=str(e), error_type=type(e).__name__
             )

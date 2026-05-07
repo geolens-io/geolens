@@ -106,7 +106,7 @@ async def _download_http_source(
     except ManifestSourceError:
         destination.unlink(missing_ok=True)
         raise
-    except Exception as exc:
+    except Exception as exc:  # broad: HTTP client / I/O / decompress can throw varied types; map to ManifestSourceError
         destination.unlink(missing_ok=True)
         raise ManifestSourceError(f"Failed to download manifest source: {exc}") from exc
 
@@ -353,7 +353,7 @@ async def apply_manifest(
         except (ManifestSourceError, ValueError, HTTPException) as exc:
             await db.rollback()
             results.append(_error_result(dataset, exc))
-        except Exception as exc:
+        except Exception as exc:  # broad: per-entry isolation — any unexpected failure is recorded as that entry's error
             await db.rollback()
             results.append(_error_result(dataset, exc))
 

@@ -45,7 +45,7 @@ async def _resolve_embedding_model_name(session: AsyncSession) -> str:
 
         value = await EMBEDDING_MODEL.get(session)
         return value or "__model_unknown__"
-    except Exception:
+    except Exception:  # broad: persistent_config resolution can fail for any DB/cache reason; fall back to sentinel
         logger.warning("has_embeddings_model_resolution_failed", exc_info=True)
         return "__model_unknown__"
 
@@ -123,5 +123,5 @@ async def defer_embedding(dataset) -> None:
         from app.processing.embeddings.tasks import embed_record
 
         await embed_record.defer_async(record_id=str(dataset.record.id))
-    except Exception:
+    except Exception:  # broad: defer is non-fatal; any job-runner/DB error should not block the parent flow
         logger.warning("Failed to defer embedding task", dataset_id=str(dataset.id))

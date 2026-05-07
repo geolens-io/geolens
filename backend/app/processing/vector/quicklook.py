@@ -200,7 +200,7 @@ async def generate_vector_quicklook(
                 geometries.append(geom)
                 if geom.geom_type in ("Point", "MultiPoint"):
                     num_points += 1 if geom.geom_type == "Point" else len(geom.geoms)
-        except Exception:
+        except Exception:  # broad: per-row geometry — Shapely make_valid can throw varied errors; skip bad rows
             continue
 
     if not geometries:

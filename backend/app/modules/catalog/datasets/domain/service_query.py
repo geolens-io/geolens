@@ -356,7 +356,7 @@ async def get_dataset_rows(
 
         # Compute next_cursor from last row's gid (None when no more pages)
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
-    except Exception:
+    except Exception:  # broad: data.* table may be missing/locked/dropped — log and degrade to empty result
         # Table may not exist (dropped, migration issue, etc.). Log the
         # failure so consistent errors are visible instead of silently
         # returning empty results on every request (RES-N9).

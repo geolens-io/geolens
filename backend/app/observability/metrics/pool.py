@@ -54,7 +54,7 @@ async def _refresh_pool_metrics() -> None:
         db_pool_overflow.set(pool.overflow())
         db_pool_size.set(pool.size())
 
-    except Exception:
+    except Exception:  # broad: pool metrics refresh is non-fatal; engine/pool errors should not crash background loop
         logger.warning("Failed to refresh pool metrics", exc_info=True)
 
 

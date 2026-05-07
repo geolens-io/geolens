@@ -28,7 +28,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
-        except Exception:
+        except Exception:  # broad: middleware boundary — log any unhandled exception with request context, then re-raise
             structlog.stdlib.get_logger("api.error").exception("Unhandled exception")
             raise
         finally:

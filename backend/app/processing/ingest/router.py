@@ -106,7 +106,7 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
     """
     try:
         return await get_allowed_extensions_list(db)
-    except Exception as exc:
+    except Exception as exc:  # broad: persistent_config lookup must not crash uploads; fall back to safe default list
         logger.warning(
             "Failed to load allowed extensions from persistent_config — using fallback",
             error=str(exc),
@@ -187,7 +187,7 @@ async def request_presigned_upload(
                     ]
                 )
             )
-        except Exception:
+        except Exception:  # broad: S3/MinIO presign-multipart can throw varied SDK errors; map to 502
             logger.exception("presigned_multipart_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -214,7 +214,7 @@ async def request_presigned_upload(
                 s3_key,
                 request.content_type,
             )
-        except Exception:
+        except Exception:  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
             logger.exception("presigned_put_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -257,7 +257,7 @@ async def complete_presigned_upload(
                 um["upload_id"],
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
-        except Exception:
+        except Exception:  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
             logger.exception(
                 "multipart_upload_completion_failed",
                 job_id=str(job.id),
@@ -640,7 +640,7 @@ async def commit_import(
     # on failure so it isn't orphaned on disk/S3.
     try:
         await queue_ingest_job(job, str(user.id), db=db, token=token)
-    except Exception:
+    except Exception:  # broad: defer failure or DB error during enqueue — clean up staging file then re-raise
         if job.file_path:
             saved: Path | str = (
                 Path(job.file_path) if job.file_path.startswith("/") else job.file_path

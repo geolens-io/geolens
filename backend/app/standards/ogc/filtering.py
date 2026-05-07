@@ -159,7 +159,7 @@ def apply_cql2_filter(
     ast = parse_cql2_filter(filter_expr, filter_lang)
     try:
         sa_filter = to_filter(ast, FIELD_MAPPING)
-    except Exception as e:
+    except Exception as e:  # broad: pygeofilter to_filter can throw varied errors on unsupported CQL2; map to 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid CQL2 expression: {e}",

@@ -68,7 +68,7 @@ def load_extensions() -> None:
             if callable(loader):
                 loader(_extensions)
                 logger.info("Loaded extension", name=ep.name)
-        except Exception:
+        except Exception:  # broad: extension entry-point loaders may raise provider-specific errors; logged via logger.warning
             logger.warning("Failed to load extension", name=ep.name, exc_info=True)
 
     # Extract routers registered by extensions

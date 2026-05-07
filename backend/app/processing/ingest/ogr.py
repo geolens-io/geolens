@@ -54,10 +54,10 @@ async def _communicate_with_timeout(
             proc.kill()
         except ProcessLookupError:
             pass
-        except Exception:
+        except Exception:  # broad: kill() can fail with permission/state errors; fall back to terminate()
             try:
                 proc.terminate()
-            except Exception:
+            except Exception:  # broad: terminate() best-effort cleanup; give up if subprocess is already gone
                 pass
         try:
             await asyncio.wait_for(proc.wait(), timeout=5)

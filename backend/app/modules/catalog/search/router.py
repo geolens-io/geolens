@@ -744,7 +744,7 @@ async def _build_collection_metadata(
     try:
         result = await db.execute(extent_stmt)
         row = result.one()
-    except Exception:
+    except Exception:  # broad: ST_Extent aggregation can fail on diverse PostGIS errors; degrade to no-extent metadata
         logger.error(
             "Failed to compute spatial extent for collection metadata", exc_info=True
         )
@@ -813,7 +813,7 @@ async def _build_collection_metadata(
     # metadata endpoint — degrade to "extent only, no summaries".
     try:
         summary_row = (await db.execute(summary_stmt)).one()
-    except Exception:
+    except Exception:  # broad: summary aggregation can hit diverse DB errors; degrade to no-summary metadata
         logger.error(
             "Failed to compute summaries for collection metadata", exc_info=True
         )
@@ -952,7 +952,7 @@ async def list_collections(
                     "bbox": [bbox],
                     "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
                 }
-            except Exception:
+            except Exception:  # broad: extent parse — geoalchemy/shapely errors degrade to no-spatial extent
                 logger.warning("Failed to serialize OGC bbox extent", exc_info=True)
         if ds.record.temporal_start is not None or ds.record.temporal_end is not None:
             extent["temporal"] = {
@@ -1317,7 +1317,7 @@ async def get_collection_item(
     if rec_type in ("raster_dataset", "vrt_dataset"):
         try:
             item_raster_meta = await _build_raster_assets(db, record_id)
-        except Exception:
+        except Exception:  # broad: raster meta enrichment is best-effort; any DB error degrades to no raster props
             logger.warning(
                 "ogc_item_raster_meta_failed",
                 record_id=str(record_id),
@@ -1402,7 +1402,7 @@ async def _bulk_fetch_dataset_metadata(
                             "description": da.description,
                         }
                     )
-        except Exception:
+        except Exception:  # broad: bulk STAC asset fetch — degrade to empty so other enrichment can still run
             logger.warning(
                 "search_bulk_fetch_stac_assets_failed",
                 dataset_count=len(all_dataset_ids),
@@ -1431,7 +1431,7 @@ async def _bulk_fetch_dataset_metadata(
                 )
                 for _row in (await inner_db.execute(geojson_stmt)).all():
                     extents[str(_row.id)] = _row.geojson
-        except Exception:
+        except Exception:  # broad: bulk GeoJSON extent fetch — degrade to empty so search response still ships
             logger.warning(
                 "search_bulk_fetch_geojson_extents_failed",
                 dataset_count=len(all_dataset_ids),
@@ -1469,7 +1469,7 @@ async def _bulk_fetch_dataset_metadata(
             raster_meta.update(
                 await get_catalog_port().fetch_raster_meta_bulk(db, raster_ids)
             )
-        except Exception:
+        except Exception:  # broad: bulk raster meta fetch — degrade to empty so search response still ships
             logger.warning(
                 "search_bulk_fetch_raster_meta_failed",
                 raster_count=len(raster_ids),
@@ -1505,7 +1505,7 @@ async def _bulk_fetch_dataset_metadata(
                             raster_meta[str(row.dataset_id)]["source_count"] = (
                                 row.source_count
                             )
-            except Exception:
+            except Exception:  # broad: VRT source-count enrichment is best-effort; any DB error skips the field
                 logger.warning(
                     "search_bulk_fetch_vrt_source_count_failed",
                     raster_count=len(raster_ids),

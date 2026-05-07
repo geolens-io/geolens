@@ -89,7 +89,7 @@ async def _refresh_job_metrics() -> None:
                     jobs_failed_total.labels(queue=q).inc(delta)
                 _prev_counts[key] = count
 
-    except Exception:
+    except Exception:  # broad: metrics refresh is non-fatal; DB/aggregation errors should not crash background loop
         logger.warning("Failed to refresh job metrics", exc_info=True)
 
 

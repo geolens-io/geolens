@@ -163,7 +163,7 @@ def validate_icon_upload(
         # GET response (SEC-01) is the second defense layer for that case.
         try:
             root = fromstring(content)
-        except Exception as exc:
+        except Exception as exc:  # broad: lxml fromstring can throw varied parser errors on malformed SVG; map to ValueError
             raise ValueError("SVG icon content is invalid") from exc
         sanitized = tostring(root, encoding="utf-8")
 

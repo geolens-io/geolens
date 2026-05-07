@@ -121,7 +121,7 @@ async def create_embed_token(
             cache = get_cache()
             for h in revoked_hashes:
                 await cache.delete(f"embed_token:{h}")
-        except Exception:
+        except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
             logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     # Generate raw token
@@ -193,7 +193,7 @@ async def revoke_embed_token(
     try:
         cache = get_cache()
         await cache.delete(f"embed_token:{token.token_hash}")
-    except Exception:
+    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return token
@@ -227,7 +227,7 @@ async def update_embed_token(
     try:
         cache = get_cache()
         await cache.delete(f"embed_token:{token.token_hash}")
-    except Exception:
+    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return token
@@ -419,7 +419,7 @@ async def bulk_revoke_embed_tokens(
         cache = get_cache()
         for token in tokens:
             await cache.delete(f"embed_token:{token.token_hash}")
-    except Exception:
+    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
         logger.error("Cache invalidation failed for embed token", exc_info=True)
 
     return len(tokens)

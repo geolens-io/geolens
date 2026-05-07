@@ -58,12 +58,12 @@ async def execute_safe(
                 try:
                     await conn.execute(text("SAVEPOINT _role_check"))
                     await conn.execute(text("SET LOCAL ROLE geolens_readonly"))
-                except Exception:
+                except Exception:  # broad: defense-in-depth role check — missing role/permission errors fall back to default role
                     await conn.execute(text("ROLLBACK TO SAVEPOINT _role_check"))
                 finally:
                     try:
                         await conn.execute(text("RELEASE SAVEPOINT _role_check"))
-                    except Exception:
+                    except Exception:  # broad: savepoint release best-effort cleanup; ignore on already-released state
                         pass
                 await conn.execute(
                     text(f"SET LOCAL statement_timeout = '{timeout_ms}'")
@@ -71,7 +71,7 @@ async def execute_safe(
                 result = await conn.execute(text(limited_sql))
                 columns = list(result.keys())
                 all_rows = result.fetchall()
-    except Exception as exc:
+    except Exception as exc:  # broad: SQL execution can throw asyncpg/sqlalchemy errors of varied types; classify in handler
         _handle_execution_error(exc, sql)
 
     # Convert rows to list-of-lists

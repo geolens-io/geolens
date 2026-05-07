@@ -441,7 +441,7 @@ class AdminService:
                 text("SELECT COUNT(DISTINCT record_id) FROM catalog.record_embeddings")
             )
             embedded_records = embedded_result.scalar_one()
-        except Exception:
+        except Exception:  # broad: pgvector table may be missing or DB unavailable; degrade to zeros for admin UI
             logger.warning("Failed to query embedding stats", exc_info=True)
             return EmbeddingStatsResponse(
                 total_records=0,
@@ -493,7 +493,7 @@ class AdminService:
                     )
                 )
                 total_storage_bytes = result.scalar_one()
-        except Exception:
+        except Exception:  # broad: pg_total_relation_size can fail on missing data.* tables; degrade to None
             logger.warning("Failed to compute storage usage", exc_info=True)
             total_storage_bytes = None
 

@@ -87,11 +87,11 @@ async def defer_with_orphan_guard(
     """
     try:
         await defer_call()
-    except Exception as defer_exc:
+    except Exception as defer_exc:  # broad: defer_async can throw various job-runner errors; orphan-guard handles all
         try:
             await rollback(defer_exc)
             await db.commit()
-        except Exception:
+        except Exception:  # broad: rollback itself can fail with DB errors; log both, still surface 503 to client
             # Rollback itself failed — log the rollback error plus the
             # defer context so operators can diagnose both. Still raise
             # 503 so the client retry flow stays consistent.

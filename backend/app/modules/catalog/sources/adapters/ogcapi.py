@@ -59,7 +59,7 @@ async def probe_ogcapi(
 
     try:
         data = response.json()
-    except Exception as exc:
+    except Exception as exc:  # broad: httpx response.json() can throw varied parser/decoder errors; degrade to None
         logger.debug(
             "OGC API probe: landing page JSON parse failed", url=url, error=str(exc)
         )
@@ -100,7 +100,7 @@ async def probe_ogcapi(
                         "OGC API probe: conformance link blocked by SSRF check",
                         href=abs_href,
                     )
-                except Exception as exc:
+                except Exception as exc:  # broad: conformance fetch — httpx/JSON parse can throw varied errors; degrade gracefully
                     logger.debug(
                         "OGC API probe: conformance fetch failed",
                         href=abs_href,
@@ -129,7 +129,7 @@ async def probe_ogcapi(
             "OGC API probe: collections URL blocked by SSRF check", url=collections_url
         )
         return None
-    except Exception as exc:
+    except Exception as exc:  # broad: collections fetch — httpx/JSON parse can throw varied errors; degrade to None
         logger.debug(
             "OGC API probe: collections fetch failed",
             collections_url=collections_url,
