@@ -156,6 +156,22 @@ async def classify_manifest_source(
     if parsed.scheme:
         raise ManifestSourceError(f"Unsupported manifest source URI: {source.uri}")
 
+    # Phase 268 H-29: defense-in-depth — even though the ManifestSourceUri
+    # regex now rejects `..` segments, also resolve the candidate path
+    # against the configured upload_staging_dir and refuse anything whose
+    # resolved path escapes that directory. This catches symlink chases,
+    # encoding tricks, and any future regex weakening.
+    staging_root = Path(settings.upload_staging_dir).resolve()
+    candidate = (staging_root / source.uri).resolve()
+    try:
+        candidate.relative_to(staging_root)
+    except ValueError as exc:
+        raise ManifestSourceError(
+            f"Local manifest source URI {source.uri!r} resolves outside "
+            f"the configured upload_staging_dir; path traversal is not "
+            f"permitted."
+        ) from exc
+
     return ManifestPreparedSource(
         kind="local",
         source=source,

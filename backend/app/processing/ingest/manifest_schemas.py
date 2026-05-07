@@ -25,11 +25,22 @@ ManifestSourceUri = Annotated[
     Field(
         min_length=1,
         max_length=2000,
+        # Phase 268 H-29: the local-path alternation now allows only `./`
+        # prefix (NOT `../`); this reverses the prior `(?:\.{1,2}/)?`.
+        # The `..` mid-path / trailing exclusion is enforced separately by
+        # `_reject_dotdot_segments` below — pydantic_core's regex engine
+        # (Rust) does not support look-ahead, so a single regex can't
+        # express both the prefix-shape and the `..`-anywhere rule.
+        # HTTP/storage URIs in the alternation remain unrestricted because
+        # they're not resolved as local filesystem paths.
         pattern=(
-            r"^(?:(?:\.{1,2}/)?[^\s:/][^\s:]*|https?://[^\s]+|"
+            r"^(?:(?:\./)?[^\s:/][^\s:]*|"
+            r"https?://[^\s]+|"
             r"s3://[^\s]+|gs://[^\s]+|az://[^\s]+|abfs://[^\s]+)$"
         ),
-        description="Relative path, HTTP(S) URL, or storage URI.",
+        description=(
+            "Relative path (no `..` traversal), HTTP(S) URL, or storage URI."
+        ),
     ),
 ]
 ManifestUrl = Annotated[
@@ -68,6 +79,33 @@ class ManifestSource(_ManifestBaseModel):
     description: NonEmptyString5000 | None = None
     format: NonEmptyString100 | None = None
     layer: NonEmptyString500 | None = None
+
+    @field_validator("uri")
+    @classmethod
+    def _reject_dotdot_segments(cls, uri: str) -> str:
+        """Phase 268 H-29: reject `..` path traversal in manifest source URIs.
+
+        Looks at every path segment (split on `/`). If any equals `..`, the
+        URI is rejected — this catches `../etc/passwd`, `foo/../bar`, and
+        trailing `./..` regardless of whether the local-path or storage-URI
+        alternation matched the structural regex. The check is also applied
+        to remote schemes for defense-in-depth (no legitimate HTTP/S3 URI
+        contains `..` segments either).
+        """
+        # Strip scheme so the segment check sees only the path portion;
+        # otherwise `https://...` would be split on `/` and pass trivially.
+        # urlparse handles this without re-implementing scheme parsing.
+        from urllib.parse import urlparse
+
+        parsed = urlparse(uri)
+        path = parsed.path if parsed.scheme else uri
+        segments = path.split("/")
+        if ".." in segments:
+            raise ValueError(
+                "Manifest source URI must not contain `..` path segments "
+                "(traversal is rejected)."
+            )
+        return uri
 
 
 class ManifestMetadata(_ManifestBaseModel):

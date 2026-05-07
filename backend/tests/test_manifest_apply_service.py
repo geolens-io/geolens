@@ -155,6 +155,75 @@ class TestManifestApplyHelpers:
         with pytest.raises(ManifestSourceError, match="private/internal"):
             await classify_manifest_source(source)
 
+    def test_dotdot_traversal_rejected_at_schema_layer(self):
+        """Phase 268 H-29: ManifestSource must reject any URI containing
+        a `..` path segment. The Pydantic validator catches it before any
+        ingest classification runs."""
+        for unsafe in (
+            "../etc/passwd",
+            "../../app/.env",
+            "data/../../../proc/self/environ",
+            "./..",
+            "foo/../bar",
+            "tests/fixtures/../../etc/passwd",
+        ):
+            with pytest.raises(Exception) as exc_info:
+                ManifestSource(type="vector", uri=unsafe)
+            # Either the regex pattern OR the field validator should reject;
+            # both manifest as ValidationError.
+            err = str(exc_info.value)
+            assert (
+                "`..`" in err
+                or ".." in err
+                or "String should match pattern" in err
+            ), f"unexpected error for {unsafe!r}: {err}"
+
+    @pytest.mark.anyio
+    async def test_classify_manifest_source_rejects_paths_outside_staging_dir(
+        self, monkeypatch
+    ):
+        """Phase 268 H-29: defense-in-depth — even if the regex/validator
+        is bypassed somehow, classify_manifest_source must refuse paths
+        whose resolved form escapes upload_staging_dir."""
+        # Construct a ManifestSource directly bypassing validation by
+        # patching the validator to a no-op, simulating any future
+        # accidental relaxation of the schema.
+        from app.processing.ingest import manifest_schemas
+        from app.processing.ingest.manifest_sources import classify_manifest_source
+
+        original_validator = manifest_schemas.ManifestSource._reject_dotdot_segments
+
+        def passthrough(cls, uri: str) -> str:
+            return uri
+
+        monkeypatch.setattr(
+            manifest_schemas.ManifestSource,
+            "_reject_dotdot_segments",
+            classmethod(passthrough),
+        )
+        # Also clear the regex pattern by constructing model_validate over
+        # a value that would have failed it; simpler: just call the runtime
+        # check directly via a forged-shaped object.
+        forged = manifest_schemas.ManifestSource.model_construct(
+            type="vector",
+            uri="../../etc/secrets.geojson",
+            title=None,
+            description=None,
+            format=None,
+            layer=None,
+        )
+
+        with pytest.raises(ManifestSourceError, match="upload_staging_dir"):
+            await classify_manifest_source(forged)
+
+        # Restore validator (defensive — monkeypatch teardown handles it
+        # but be explicit).
+        monkeypatch.setattr(
+            manifest_schemas.ManifestSource,
+            "_reject_dotdot_segments",
+            original_validator,
+        )
+
 
 @pytest.mark.anyio
 class TestManifestApplyService:
