@@ -123,7 +123,7 @@ export async function addLayerToMapApi(
   mapId: string,
   data: MapLayerInput,
 ): Promise<MapLayerResponse> {
-  return apiFetch<MapLayerResponse>(`/maps/${mapId}/layers/`, {
+  return apiFetch<MapLayerResponse>(`/maps/${mapId}/layers`, {
     method: 'POST',
     body: JSON.stringify(data),
   });

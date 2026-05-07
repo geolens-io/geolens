@@ -370,7 +370,7 @@ class TestUpdateMap:
 
         # Add layer referencing the non-public dataset
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -409,7 +409,7 @@ class TestUpdateMap:
         map_id = created["id"]
 
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -519,12 +519,12 @@ class TestMapHistory:
         created = await _create_map(client, admin_auth_header, "Layer History Map")
 
         first_resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds_a.id)},
             headers=admin_auth_header,
         )
         second_resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds_b.id)},
             headers=admin_auth_header,
         )
@@ -728,7 +728,7 @@ class TestDuplicateMap:
 
         # Add a layer
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -845,12 +845,12 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(public_ds.id), "sort_order": 0},
             headers=admin_auth_header,
         )
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(private_ds.id), "sort_order": 1},
             headers=admin_auth_header,
         )
@@ -888,7 +888,7 @@ class TestDuplicateMap:
             headers=admin_auth_header,
         )
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(private_ds.id)},
             headers=admin_auth_header,
         )
@@ -919,7 +919,7 @@ class TestDuplicateMap:
         created = await _create_map(client, admin_auth_header, "Admin Fork Test")
         map_id = created["id"]
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(private_ds.id)},
             headers=admin_auth_header,
         )
@@ -1005,7 +1005,7 @@ class TestDuplicateMap:
         )
         for ds_id, order in [(pub_ds.id, 0), (priv_ds1.id, 1), (priv_ds2.id, 2)]:
             await client.post(
-                f"/maps/{map_id}/layers/",
+                f"/maps/{map_id}/layers",
                 json={"dataset_id": str(ds_id), "sort_order": order},
                 headers=admin_auth_header,
             )
@@ -1491,7 +1491,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ adds a layer."""
+        """POST /maps/{id}/layers adds a layer."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
 
@@ -1499,7 +1499,7 @@ class TestMapLayers:
         map_id = created["id"]
 
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -1515,9 +1515,9 @@ class TestMapLayers:
         client: AsyncClient,
         admin_auth_header: dict,
     ):
-        """POST /maps/{random_uuid}/layers/ returns 404."""
+        """POST /maps/{random_uuid}/layers returns 404."""
         resp = await client.post(
-            f"/maps/{uuid.uuid4()}/layers/",
+            f"/maps/{uuid.uuid4()}/layers",
             json={"dataset_id": str(uuid.uuid4())},
             headers=admin_auth_header,
         )
@@ -1538,7 +1538,7 @@ class TestMapLayers:
 
         # Add layer
         add_resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -1583,7 +1583,7 @@ class TestMapLayers:
         target = await _create_map(client, admin_auth_header, "Remove Target")
 
         add_resp = await client.post(
-            f"/maps/{source['id']}/layers/",
+            f"/maps/{source['id']}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -1604,9 +1604,9 @@ class TestMapLayers:
         client: AsyncClient,
         viewer_auth_header: dict,
     ):
-        """POST /maps/{id}/layers/ as viewer returns 403."""
+        """POST /maps/{id}/layers as viewer returns 403."""
         resp = await client.post(
-            f"/maps/{uuid.uuid4()}/layers/",
+            f"/maps/{uuid.uuid4()}/layers",
             json={"dataset_id": str(uuid.uuid4())},
             headers=viewer_auth_header,
         )
@@ -1630,7 +1630,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ with custom paint/layout stores them."""
+        """POST /maps/{id}/layers with custom paint/layout stores them."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
 
@@ -1641,7 +1641,7 @@ class TestMapLayers:
         custom_layout = {"visibility": "visible"}
 
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={
                 "dataset_id": str(ds.id),
                 "paint": custom_paint,
@@ -1664,7 +1664,7 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ accepts known legacy paint keys but stores clean paint."""
+        """POST /maps/{id}/layers accepts known legacy paint keys but stores clean paint."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
 
@@ -1672,7 +1672,7 @@ class TestMapLayers:
         map_id = created["id"]
 
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={
                 "dataset_id": str(ds.id),
                 "paint": {
@@ -1705,13 +1705,13 @@ class TestMapLayers:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ rejects private paint keys outside the rollout allowlist."""
+        """POST /maps/{id}/layers rejects private paint keys outside the rollout allowlist."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
 
         resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds.id), "paint": {"_client-cache": "leak"}},
             headers=admin_auth_header,
         )
@@ -1729,7 +1729,7 @@ class TestMapLayers:
         created = await _create_map(client, admin_auth_header)
 
         resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -1805,12 +1805,12 @@ class TestMapLayers:
         created = await _create_map(client, admin_auth_header)
 
         first_resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds_a.id), "sort_order": 5},
             headers=admin_auth_header,
         )
         second_resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds_b.id), "sort_order": 6},
             headers=admin_auth_header,
         )
@@ -1888,7 +1888,7 @@ class TestMapLayers:
         target = await _create_map(client, admin_auth_header, "Target Diff Map")
 
         add_resp = await client.post(
-            f"/maps/{source['id']}/layers/",
+            f"/maps/{source['id']}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -1923,7 +1923,7 @@ class TestMapLayers:
         created = await _create_map(client, admin_auth_header)
 
         add_resp = await client.post(
-            f"/maps/{created['id']}/layers/",
+            f"/maps/{created['id']}/layers",
             json={"dataset_id": str(ds_a.id)},
             headers=admin_auth_header,
         )
@@ -2511,7 +2511,7 @@ async def _create_map_with_layer(
             headers=headers,
         )
     await client.post(
-        f"/maps/{map_id}/layers/",
+        f"/maps/{map_id}/layers",
         json={"dataset_id": str(dataset_id)},
         headers=headers,
     )
@@ -2742,7 +2742,7 @@ class TestLayerTypeRoundTrip:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ with raster dataset returns layer_type='raster_geolens'."""
+        """POST /maps/{id}/layers with raster dataset returns layer_type='raster_geolens'."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_raster_dataset(test_db_session, created_by=admin_id)
 
@@ -2750,7 +2750,7 @@ class TestLayerTypeRoundTrip:
         map_id = created["id"]
 
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -2764,7 +2764,7 @@ class TestLayerTypeRoundTrip:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ with vector dataset returns layer_type='vector_geolens'."""
+        """POST /maps/{id}/layers with vector dataset returns layer_type='vector_geolens'."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
 
@@ -2772,7 +2772,7 @@ class TestLayerTypeRoundTrip:
         map_id = created["id"]
 
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -2795,7 +2795,7 @@ class TestLayerTypeRoundTrip:
 
         # Add raster layer
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -2853,7 +2853,7 @@ class TestLayerTypeRoundTrip:
 
         # Add layer via add_layer endpoint with explicit layer_type
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id), "layer_type": "raster_geolens"},
             headers=admin_auth_header,
         )
@@ -2917,14 +2917,14 @@ class TestShowInLegendRoundTrip:
         admin_auth_header: dict,
         test_db_session,
     ):
-        """POST /maps/{id}/layers/ defaults show_in_legend to true."""
+        """POST /maps/{id}/layers defaults show_in_legend to true."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
         resp = await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )
@@ -2945,7 +2945,7 @@ class TestShowInLegendRoundTrip:
 
         # Add layer
         await client.post(
-            f"/maps/{map_id}/layers/",
+            f"/maps/{map_id}/layers",
             json={"dataset_id": str(ds.id)},
             headers=admin_auth_header,
         )

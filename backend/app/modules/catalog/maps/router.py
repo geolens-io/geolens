@@ -1428,7 +1428,7 @@ async def get_thumbnail(
 
 
 @router.post(
-    "/{map_id}/layers/",
+    "/{map_id}/layers",
     response_model=MapLayerResponse,
     status_code=status.HTTP_201_CREATED,
 )
