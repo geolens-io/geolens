@@ -248,6 +248,93 @@ def generate_tags(stem: str, theme: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Bootstrap API key from username/password
+# ---------------------------------------------------------------------------
+
+BOOTSTRAP_KEY_NAME = "seed-natural-earth"
+
+
+async def bootstrap_api_key(
+    client: httpx.AsyncClient, base_url: str, username: str, password: str
+) -> tuple[str, str | None]:
+    """Log in with username/password and mint a temporary API key.
+
+    Returns (plaintext_key, key_id). The key_id is returned so the caller can
+    delete the key on exit (best-effort cleanup). If the create-key response
+    omits the id, key_id is None and cleanup is silently skipped.
+
+    Raises RuntimeError on login or create-key failure with a user-friendly
+    message that points at the exact remediation (wrong password, missing
+    upload permission, etc.).
+    """
+    # Step 1: Login -- form-encoded body for the OAuth-style endpoint.
+    login_resp = await client.post(
+        f"{base_url}/api/auth/login/",
+        data={"username": username, "password": password},
+    )
+    if login_resp.status_code != 200:
+        raise RuntimeError(
+            f"Login failed for user {username!r}: HTTP {login_resp.status_code}. "
+            f"Check --username/--password (or GEOLENS_ADMIN_USERNAME/PASSWORD env vars). "
+            f"Body: {login_resp.text[:200]}"
+        )
+    token = login_resp.json().get("access_token")
+    if not token:
+        raise RuntimeError("Login succeeded but response had no access_token")
+
+    # Step 2: Create API key under the authenticated user. Name is fixed so the
+    # exit-time cleanup (and any prior interrupted run) can find and delete it.
+    create_resp = await client.post(
+        f"{base_url}/api/auth/api-keys/",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": BOOTSTRAP_KEY_NAME},
+    )
+    if create_resp.status_code not in (200, 201):
+        raise RuntimeError(
+            f"Failed to create temporary API key (the user must have permission "
+            f"to mint keys -- admins always do). HTTP {create_resp.status_code}. "
+            f"Body: {create_resp.text[:200]}"
+        )
+    body = create_resp.json()
+    plaintext = body.get("key")
+    key_id = body.get("id")
+    if not plaintext:
+        raise RuntimeError("create-key response had no plaintext key field")
+    return plaintext, key_id
+
+
+async def cleanup_bootstrap_key(
+    client: httpx.AsyncClient, base_url: str, username: str, password: str, key_id: str
+) -> None:
+    """Best-effort delete of the bootstrap API key on exit.
+
+    Re-logs in (the original token may have expired by now on long runs) and
+    deletes the key. Failures are logged at WARNING and never propagate -- the
+    seed run already succeeded by the time this runs.
+    """
+    try:
+        login_resp = await client.post(
+            f"{base_url}/api/auth/login/",
+            data={"username": username, "password": password},
+        )
+        login_resp.raise_for_status()
+        token = login_resp.json().get("access_token")
+        if not token:
+            return
+        await client.delete(
+            f"{base_url}/api/auth/api-keys/{key_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to clean up bootstrap API key %s; delete it manually "
+            "from Admin > API Keys if desired. (%s)",
+            BOOTSTRAP_KEY_NAME,
+            exc,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Idempotency check
 # ---------------------------------------------------------------------------
 
@@ -541,7 +628,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--api-key",
         default=os.environ.get("GEOLENS_API_KEY"),
-        help="GeoLens API key (or set GEOLENS_API_KEY env var)",
+        help="GeoLens API key (or set GEOLENS_API_KEY env var). "
+             "Alternative to --username/--password.",
+    )
+    parser.add_argument(
+        "--username",
+        default=os.environ.get("GEOLENS_ADMIN_USERNAME"),
+        help="GeoLens username (admin or other upload-permitted user). "
+             "When provided with --password, the script logs in and mints a "
+             "temporary API key for the run, then deletes it on exit.",
+    )
+    parser.add_argument(
+        "--password",
+        default=os.environ.get("GEOLENS_ADMIN_PASSWORD"),
+        help="GeoLens password (paired with --username).",
     )
     parser.add_argument(
         "--base-url",
@@ -828,6 +928,7 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
     """Download and ingest Natural Earth datasets into GeoLens."""
     base_url = args.base_url.rstrip("/")
     api_key = args.api_key
+    bootstrap_key_id: str | None = None
 
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(300.0, connect=30.0),
@@ -840,6 +941,21 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             print(f"Cannot reach GeoLens at {base_url}: {exc}")
             sys.exit(1)
+
+        # If --username/--password were provided (and no explicit --api-key),
+        # mint a bootstrap key and clean it up on exit. This is the
+        # README-documented happy path -- a fresh `admin/admin` install has
+        # no API keys yet, so the script needs to mint one to get past the
+        # 401 it would otherwise hit on every request.
+        if not api_key and args.username and args.password:
+            print(f"Logging in as {args.username!r} and minting a temporary API key...")
+            try:
+                api_key, bootstrap_key_id = await bootstrap_api_key(
+                    client, base_url, args.username, args.password
+                )
+            except RuntimeError as exc:
+                print(f"Bootstrap failed: {exc}", file=sys.stderr)
+                sys.exit(1)
 
         # Cache directory setup
         cache_dir: Path | None = args.cache_dir
@@ -897,6 +1013,14 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
         print("--- Collection Assignment ---")
         await create_collections(client, base_url, api_key, results)
 
+        # Clean up the temporary bootstrap key (best-effort; never propagates)
+        if bootstrap_key_id and args.username and args.password:
+            print()
+            print("Cleaning up temporary bootstrap API key...")
+            await cleanup_bootstrap_key(
+                client, base_url, args.username, args.password, bootstrap_key_id
+            )
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -920,9 +1044,21 @@ if __name__ == "__main__":
     if args.dry_run:
         run_dry_run(datasets)
     else:
-        if not args.api_key:
+        # Allow either:
+        #   --api-key <key>                          (use existing key)
+        #   --username <name> --password <pass>      (login + mint key)
+        # Plus matching env-var equivalents (GEOLENS_API_KEY,
+        # GEOLENS_ADMIN_USERNAME, GEOLENS_ADMIN_PASSWORD).
+        has_api_key = bool(args.api_key)
+        has_login = bool(args.username and args.password)
+        if not has_api_key and not has_login:
             print(
-                "Error: --api-key or GEOLENS_API_KEY env var required",
+                "Error: provide either --api-key (or GEOLENS_API_KEY env var) "
+                "OR --username/--password (or GEOLENS_ADMIN_USERNAME/PASSWORD env vars).\n"
+                "\n"
+                "Examples:\n"
+                "  python scripts/seed-natural-earth.py --username admin --password admin\n"
+                "  python scripts/seed-natural-earth.py --api-key <plaintext-key>",
                 file=sys.stderr,
             )
             sys.exit(1)

@@ -218,14 +218,16 @@ L'overlay de demo amorce automatiquement 20 jeux de donnees representatifs, les 
 
 ### Seed Data
 
-Remplissez le catalogue avec 130 jeux de donnees [Natural Earth](https://www.naturalearthdata.com/) 1:10m:
+Remplissez le catalogue avec des jeux de donnees [Natural Earth](https://www.naturalearthdata.com/) 1:10m:
 
 ```bash
 pip install httpx  # dependance unique sur l'hote
-python scripts/seed-natural-earth.py --api-key admin
+python scripts/seed-natural-earth.py --username admin --password admin
 ```
 
-Le script telecharge depuis le [NACIS CDN](https://naciscdn.org/naturalearth/), ignore les doublons lors d'une nouvelle execution et cree deux collections (Cultural 10m, Physical 10m). Utilisez `--dry-run` pour previsualiser ou `--theme cultural` pour filtrer par theme.
+Le script se connecte, cree une API key temporaire pour l'execution, ingeste les jeux de donnees et supprime la cle a la sortie. Il telecharge depuis le [NACIS CDN](https://naciscdn.org/naturalearth/), ignore les doublons lors d'une nouvelle execution et cree deux collections (Cultural 10m, Physical 10m). Utilisez `--dry-run` pour previsualiser ou `--theme cultural` pour filtrer par theme.
+
+Si vous avez deja une API key (Admin > API Keys > Create New, ou via `POST /api/auth/api-keys/`), passez `--api-key <plaintext>` au lieu de `--username/--password`.
 
 ## Architecture
 

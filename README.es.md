@@ -218,14 +218,16 @@ El overlay de demo autosiembra 20 datasets representativos, los marca como publi
 
 ### Seed Data
 
-Puebla el catalogo con 130 datasets 1:10m de [Natural Earth](https://www.naturalearthdata.com/):
+Puebla el catalogo con datasets 1:10m de [Natural Earth](https://www.naturalearthdata.com/):
 
 ```bash
 pip install httpx  # dependencia unica en el host
-python scripts/seed-natural-earth.py --api-key admin
+python scripts/seed-natural-earth.py --username admin --password admin
 ```
 
-El script descarga desde el [NACIS CDN](https://naciscdn.org/naturalearth/), omite duplicados al volver a ejecutarse y crea dos colecciones (Cultural 10m, Physical 10m). Usa `--dry-run` para previsualizar o `--theme cultural` para filtrar por tema.
+El script inicia sesion, crea una API key temporal para la ejecucion, ingesta los datasets y elimina la clave al salir. Descarga desde el [NACIS CDN](https://naciscdn.org/naturalearth/), omite duplicados al volver a ejecutarse y crea dos colecciones (Cultural 10m, Physical 10m). Usa `--dry-run` para previsualizar o `--theme cultural` para filtrar por tema.
+
+Si ya tienes una API key existente (Admin > API Keys > Create New, o via `POST /api/auth/api-keys/`), pasa `--api-key <plaintext>` en lugar de `--username/--password`.
 
 ## Arquitectura
 

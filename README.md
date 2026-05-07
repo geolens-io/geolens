@@ -276,14 +276,16 @@ For a smaller, single-dataset walkthrough that does not require the demo image b
 
 ### Seed Data
 
-Populate the catalog with 130 [Natural Earth](https://www.naturalearthdata.com/) 1:10m datasets:
+Populate the catalog with [Natural Earth](https://www.naturalearthdata.com/) 1:10m vector datasets:
 
 ```bash
 pip install httpx  # one-time dependency on the host
-python scripts/seed-natural-earth.py --api-key admin
+python scripts/seed-natural-earth.py --username admin --password admin
 ```
 
-The script downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), skips duplicates on re-run, and creates two collections (Cultural 10m, Physical 10m). Use `--dry-run` to preview or `--theme cultural` to filter by theme.
+The script logs in, mints a temporary API key for the run, ingests every Natural Earth 1:10m dataset, and deletes the temporary key on exit. It downloads from the [NACIS CDN](https://naciscdn.org/naturalearth/), skips duplicates on re-run, and creates two collections (Cultural 10m, Physical 10m). Use `--dry-run` to preview or `--theme cultural` to filter by theme.
+
+If you already have a long-lived API key (Admin > API Keys > Create New, or via `POST /api/auth/api-keys/`), pass `--api-key <plaintext>` instead of `--username/--password`.
 
 ## Architecture
 

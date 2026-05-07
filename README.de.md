@@ -218,14 +218,16 @@ Das Demo-Overlay seedet automatisch 20 repraesentative Datensaetze, setzt sie au
 
 ### Seed Data
 
-Befuellen Sie den Katalog mit 130 [Natural Earth](https://www.naturalearthdata.com/) 1:10m Datensaetzen:
+Befuellen Sie den Katalog mit [Natural Earth](https://www.naturalearthdata.com/) 1:10m Datensaetzen:
 
 ```bash
 pip install httpx  # einmalige Abhaengigkeit auf dem Host
-python scripts/seed-natural-earth.py --api-key admin
+python scripts/seed-natural-earth.py --username admin --password admin
 ```
 
-Das Skript laedt vom [NACIS CDN](https://naciscdn.org/naturalearth/) herunter, ueberspringt Duplikate bei erneuter Ausfuehrung und erstellt zwei Sammlungen (Cultural 10m, Physical 10m). Nutzen Sie `--dry-run` zur Vorschau oder `--theme cultural` zum Filtern nach Thema.
+Das Skript meldet sich an, erstellt einen temporaeren API-Key fuer den Lauf, ingestiert die Datensaetze und loescht den Key beim Beenden. Es laedt vom [NACIS CDN](https://naciscdn.org/naturalearth/) herunter, ueberspringt Duplikate bei erneuter Ausfuehrung und erstellt zwei Sammlungen (Cultural 10m, Physical 10m). Nutzen Sie `--dry-run` zur Vorschau oder `--theme cultural` zum Filtern nach Thema.
+
+Wenn Sie bereits einen API-Key haben (Admin > API Keys > Create New, oder via `POST /api/auth/api-keys/`), uebergeben Sie `--api-key <plaintext>` anstelle von `--username/--password`.
 
 ## Architektur
 
