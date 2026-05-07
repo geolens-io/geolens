@@ -25,13 +25,17 @@ def test_cors_warning_fires_in_production_with_empty_cors():
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
 
-    assert fake_logger.warning.call_count == 1, (
-        f"SEC-08: cors_allowed_origins_unset warning must fire once; got "
-        f"{fake_logger.warning.call_args_list}"
-    )
-    args, _ = fake_logger.warning.call_args
-    assert args[0] == "cors_allowed_origins_unset", (
-        f"SEC-08: warning key mismatch; got {args[0]!r}"
+    # SEC-08: behavior assertion — fires exactly once with the canonical event
+    # name. Survives refactors that change call-count details (e.g., adding
+    # an unrelated info() log) but break only on actual contract change.
+    fake_logger.warning.assert_called_once_with(
+        "cors_allowed_origins_unset",
+        message=(
+            "CORS_ALLOWED_ORIGINS is empty in production (LOG_JSON=true). "
+            "All origins will pass the request-origin check; this is "
+            "likely a misconfiguration. Set "
+            "CORS_ALLOWED_ORIGINS=<comma-separated origins> to restrict."
+        ),
     )
 
 
@@ -44,9 +48,9 @@ def test_cors_warning_silent_in_dev():
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
 
-    assert fake_logger.warning.call_count == 0, (
-        "Dev mode (log_json=False) must not trigger CORS warning"
-    )
+    # SEC-08: dev mode must not warn — behavior assertion uses the built-in
+    # MagicMock error message which lists the offending call_args_list.
+    fake_logger.warning.assert_not_called()
 
 
 def test_cors_warning_silent_with_origins_configured():
@@ -60,9 +64,8 @@ def test_cors_warning_silent_with_origins_configured():
 
     main_module._warn_if_cors_unset(fake_settings, fake_logger)
 
-    assert fake_logger.warning.call_count == 0, (
-        "Configured CORS origins must not trigger the warning"
-    )
+    # SEC-08: configured origins must not warn — behavior assertion.
+    fake_logger.warning.assert_not_called()
 
 
 def test_cors_warning_helper_is_called_from_lifespan():
@@ -97,21 +100,36 @@ def test_tile_signing_fallback_warns_once_when_none(monkeypatch):
     mock_logger = MagicMock()
     monkeypatch.setattr(signing_module, "logger", mock_logger)
 
-    # First call — warning fires
+    # First call — warning fires with canonical event name + message kwarg.
+    # SEC-11: behavior assertion against the actual structlog event name
+    # operators grep for in production logs.
     signing_module._get_signing_key()
-    assert mock_logger.warning.call_count == 1, (
-        f"SEC-11: first call must fire fallback warning; got "
-        f"{mock_logger.warning.call_args_list}"
-    )
-    first_args, _ = mock_logger.warning.call_args_list[0]
-    assert first_args[0] == "tile_signing_secret_fallback", (
-        f"SEC-11: warning key mismatch; got {first_args[0]!r}"
+    mock_logger.warning.assert_called_once_with(
+        "tile_signing_secret_fallback",
+        message=(
+            "TILE_SIGNING_SECRET is unset; falling back to JWT_SECRET_KEY "
+            "for HMAC tile signing. Set TILE_SIGNING_SECRET to a separate "
+            "secret (openssl rand -hex 32) to isolate tile-signing key "
+            "rotation from JWT key rotation."
+        ),
     )
 
-    # Second call — warning does NOT fire again (one-shot)
+    # Second call — one-shot guard: assert_called_once_with would now FAIL if
+    # the warning re-fires, so re-running it on the same mock proves the
+    # one-shot semantics survived the second invocation.
+    # call_count: kept — one-shot regression guard requires absolute count
+    # comparison across two calls; assert_called_once_with checks total-once
+    # which is exactly what we want, and re-asserting it after the second
+    # call captures the regression.
     signing_module._get_signing_key()
-    assert mock_logger.warning.call_count == 1, (
-        "SEC-11: warning fired more than once — one-shot guard failed"
+    mock_logger.warning.assert_called_once_with(
+        "tile_signing_secret_fallback",
+        message=(
+            "TILE_SIGNING_SECRET is unset; falling back to JWT_SECRET_KEY "
+            "for HMAC tile signing. Set TILE_SIGNING_SECRET to a separate "
+            "secret (openssl rand -hex 32) to isolate tile-signing key "
+            "rotation from JWT key rotation."
+        ),
     )
 
 
@@ -133,9 +151,8 @@ def test_tile_signing_no_warn_when_configured(monkeypatch):
     monkeypatch.setattr(signing_module, "logger", mock_logger)
 
     signing_module._get_signing_key()
-    assert mock_logger.warning.call_count == 0, (
-        "tile_signing_secret is configured — fallback warning must not fire"
-    )
+    # SEC-11: configured tile_signing_secret must not warn — behavior assertion.
+    mock_logger.warning.assert_not_called()
 
 
 def test_get_signing_key_returns_jwt_fallback_bytes(monkeypatch):
