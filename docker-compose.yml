@@ -465,7 +465,16 @@ services:
   # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
   # not for sharing on a LAN or exposing through Docker port forwarding.
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # Phase 279 ADMIN-10 + ADMIN-12 (M-19 / L-29): bumped from
+    # RELEASE.2025-04-22T22-12-26Z to RELEASE.2025-09-07T16-13-09Z (the latest
+    # standard, non-hotfix MinIO release on quay.io as of 2026-05) and pinned
+    # by sha256 digest for reproducible pulls. The tag is kept as documentation;
+    # the digest is what Docker resolves.
+    # Bump procedure:
+    #   docker pull quay.io/minio/minio:<NEW_TAG>
+    #   docker inspect quay.io/minio/minio:<NEW_TAG> \
+    #     --format '{{index .RepoDigests 0}}'
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
     command: server /data --console-address ":9001"
     ports:
@@ -494,7 +503,10 @@ services:
           memory: 256M
 
   minio-setup:
-    image: quay.io/minio/mc:RELEASE.2025-04-22T03-17-43Z
+    # Phase 279 ADMIN-10 + ADMIN-12: bump + digest pin (paired with minio above).
+    # Latest standard mc release on quay.io as of 2026-05 is
+    # RELEASE.2025-08-13T08-35-41Z. Same bump procedure as minio above.
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     profiles: ["cloud-dev"]
     depends_on:
       minio:
