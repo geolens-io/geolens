@@ -29,6 +29,10 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   email, and `.env.demo` demo-sandbox host comments. PyPI metadata for
   already-shipped 1.0.x wheels is immutable; the next published version
   will carry the corrected author email. No runtime behavior change.
+- Corrected widget developer guide path: `frontend/docs/widgets.md` referenced
+  `src/components/widgets/` but the directory is named `src/components/map-widgets/`.
+  Two path references in the body were corrected so the registration recipe
+  matches the actual source layout.
 
 ## [1.0.2] - 2026-05-05
 
