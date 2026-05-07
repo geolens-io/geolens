@@ -207,6 +207,58 @@ Plans:
 - [ ] 276-06-PLAN.md — DatasetPage bundle < 200 KB via lazy imports (CODE-06)
 - [ ] 276-07-PLAN.md — Frontend cleanups: DS_Store, eslint-disable, logger.ts, useEffect, line-gradient TODOs (CODE-07, CODE-10, CODE-11, CODE-12, CODE-13)
 
+### Phase 277: i18n & Env Standardization (v13.13)
+**Goal**: All deferred builder i18n blocks are translated into es/fr/de; env var naming is consistent across Settings model, compose, and `.env.example`; legacy aliases are deprecated or removed.
+**Depends on**: Nothing (independent i18n + env-config sweep)
+**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, CONF-07, CONF-08, CONF-09, CONF-10, CONF-11, CONF-12, CONF-13, CONF-14, CONF-15
+**Success Criteria** (what must be TRUE):
+  1. `PUBLIC_BASE_URL` legacy alias either removed or surfacing a startup deprecation log; `PUBLIC_API_URL` / `PUBLIC_APP_URL` doc defaults align with `_DEFAULT_*` derivation logic in `core/public_urls.py` (CONF-01, CONF-15)
+  2. `DATABASE_POOL_PRE_PING` default value is consistent across compose / Settings / `.env.example` — pre-ping is on by default (CONF-02)
+  3. `WORKER_SHUTDOWN_TIMEOUT` and `ENV_ONLY_CONFIG` are read via the Pydantic Settings model — no remaining `os.environ.get()` for either var in production code (CONF-03, CONF-04)
+  4. `.env.example` documents `GEOLENS_BASE_URL` (Tooling / load tests block), `API_PROXY_TARGET` (Frontend dev-server proxy block), and the MinIO compose-default convention (CONF-05, CONF-12, CONF-13)
+  5. `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` use `${VAR:-default}` in compose so cloud-dev profile works without `.env` (CONF-12)
+  6. `VITE_API_PROXY_TARGET` legacy fallback is removed from `frontend/vite.config.ts` (CONF-14)
+  7. `IconPicker` upload aria-label is sourced from `t()` via a typed `uploadAriaLabel` prop (CONF-06)
+  8. `style.zoomExpression` (11 keys), `style.symbol` (10 keys including new `uploadIcon`), `style.raster` (16 keys), `style.hillshade` (8 keys) blocks are fully translated to es/fr/de — 45 keys × 3 langs = 135 strings (CONF-07, CONF-08, CONF-09)
+  9. Admin/SAML i18n leftover keys with project-meaningful (non-proper-noun) values are translated in es/fr/de; proper-noun/acronym retentions documented (CONF-10)
+  10. Dataset `OverviewTab` `provenanceFeatures` / `provenanceUpload` / `provenanceTitle` keys move from inline `defaultValue` fallbacks into `dataset.json` with locale-appropriate translations (CONF-11)
+**Plans**: 8 plans
+
+Plans:
+- [ ] 277-01-PLAN.md — Backend Settings expansion + PUBLIC_BASE_URL deprecation log + .env.example PUBLIC_* alignment (CONF-01, CONF-03, CONF-04, CONF-15)
+- [ ] 277-02-PLAN.md — Compose DATABASE_POOL_PRE_PING flip + MinIO defaults + .env.example doc blocks for GEOLENS_BASE_URL / API_PROXY_TARGET / MinIO (CONF-02, CONF-05, CONF-12, CONF-13)
+- [x] 277-03-PLAN.md — vite.config.ts VITE_API_PROXY_TARGET legacy removal (CONF-14)
+- [x] 277-04-PLAN.md — IconPicker uploadAriaLabel prop + EN translation key (CONF-06)
+- [x] 277-05-PLAN.md — i18n: style.zoomExpression block × 3 langs (CONF-07)
+- [ ] 277-06-PLAN.md — i18n: style.symbol block × 3 langs (CONF-08)
+- [ ] 277-07-PLAN.md — i18n: style.raster + style.hillshade blocks × 3 langs (CONF-09)
+- [x] 277-08-PLAN.md — Dataset overview.provenance* keys + admin.json leftover translations (CONF-10, CONF-11)
+
+### Phase 278: Test Health & Coverage (v13.13)
+**Goal**: Backend coverage threshold raises to 60%, frontend thresholds ratchet up, flaky `waitForTimeout` calls are replaced with polling assertions, and pending test TODOs are resolved.
+**Depends on**: Nothing (independent test-quality sweep)
+**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, TEST-06, TEST-07, TEST-08, TEST-09, TEST-10
+**Success Criteria** (what must be TRUE):
+  1. Backend `pytest --fail-under` raises 58.5 → 60.0; rationale documented in `pyproject.toml` (TEST-01)
+  2. Frontend coverage thresholds ratchet to actual + 2 points per dimension (TEST-02)
+  3. `LayerPanel.test.tsx` and `MapTitleBar.test.tsx` exist as new co-located tests (TEST-03)
+  4. 4 raw `page.waitForTimeout` calls in `e2e/builder.spec.ts` are replaced with polling assertions (TEST-04)
+  5. Raw `page.waitForTimeout` (incl. 12s timeout) in post-impl-validation + record-detail-ux-audit specs are replaced with polling assertions (TEST-05)
+  6. One backend phase's mock-call-count / `assert_called_*` assertions are sample-audited and refactored to behavior assertions (TEST-06)
+  7. 8 `it.todo` placeholders in `SourcesTab.test.tsx:128-135` are implemented OR moved to a tracked backlog file (TEST-07)
+  8. `VrtCreatorForm.test.tsx:104` raw `setTimeout` is replaced with `waitFor()` (TEST-08)
+  9. 35 inline `pytest.skip("reason")` calls migrate to `@pytest.mark.skip(reason=...)` decorator form (TEST-09)
+  10. H-33 `dataset-detail-spec` L144 follow-up resolved — fixture stabilized OR test deleted with rationale; pending todo `2026-05-07-h33-dataset-detail-spec-l144-followup.md` is closed (TEST-10)
+**Plans**: 6 plans
+
+Plans:
+- [ ] 278-01-PLAN.md — Coverage threshold ratchets: backend pyproject + frontend vitest config (TEST-01, TEST-02)
+- [ ] 278-02-PLAN.md — New component tests: LayerPanel + MapTitleBar (TEST-03)
+- [ ] 278-03-PLAN.md — E2E polling refactor: builder + post-impl + record-detail specs (TEST-04, TEST-05)
+- [x] 278-04-PLAN.md — Frontend test cleanup: SourcesTab it.todo migration + VrtCreatorForm setTimeout → waitFor (TEST-07, TEST-08)
+- [ ] 278-05-PLAN.md — Backend test hygiene: mock-assertion sample-audit + pytest.skip → decorator migration (TEST-06, TEST-09)
+- [ ] 278-06-PLAN.md — H-33 L144 fixture stabilization or deletion + pending todo close (TEST-10)
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -217,6 +269,8 @@ Plans:
 | 261. Layer Visibility Debug & Audit | 0/TBD | Not started | - |
 | 262. Milestone Closeout | 0/1 | Not started | - |
 | 276. Backend & Frontend Code Quality (v13.13) | 4/7 | In Progress|  |
+| 277. i18n & Env Standardization (v13.13) | 4/8 | In Progress|  |
+| 278. Test Health & Coverage (v13.13) | 4/6 | In Progress | - |
 
 ## Backlog
 

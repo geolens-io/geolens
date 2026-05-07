@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
 status: completed
-stopped_at: "276-04 complete — 113 broad-except sites annotated with theme-clustered # broad: rationales (CODE-08) + new test_no_unjustified_broad_except_sites architecture-guard. Total preserved at 139 grep matches; 0 sites tightened. Commits 927a6770 (chore), 0303398f (test). Phase 276 progress: 4/7 plans (276-01, 276-03, 276-04, 276-05)."
-last_updated: "2026-05-07T20:34:00.000Z"
+stopped_at: "278-04 complete: TEST-07 zero-diff at HEAD (preempted in ced17b2f); TEST-08 fixed in ab2ba3e8. 10/10 tests pass."
+last_updated: "2026-05-07T21:44:12.080Z"
 last_activity: "2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests"
 progress:
-  total_phases: 12
-  completed_phases: 2
-  total_plans: 15
-  completed_plans: 17
+  total_phases: 14
+  completed_phases: 3
+  total_plans: 29
+  completed_plans: 29
   percent: 100
 ---
 
@@ -77,8 +77,10 @@ Plan 276-04 (broad-except annotation sweep + architecture-guard, CODE-08) execut
 
 Phase 276 progress: 4/7 plans complete (276-01, 276-03, 276-04, 276-05). STATE remains pinned to v13.11 milestone; a future v13.13 milestone-start will repoint STATE and re-anchor the progress bar.
 
+Plan 278-04 (frontend test cleanup — SourcesTab it.todo migration + VrtCreatorForm setTimeout → waitFor, TEST-07/TEST-08) executed 2026-05-07 alongside v13.11 winddown. Single new commit `ab2ba3e8` (refactor — VrtCreatorForm selectSource helper compound waitFor against input-cleared + dropdown-button-absent). TEST-07 was preemptively shipped by parallel agent in `ced17b2f` (commit titled "refactor(278-03): … (TEST-05)"); zero-diff at HEAD for SourcesTab.test.tsx and `.planning/backlog/SourcesTab-test-todos.md` when 278-04 began. Commit `ab2ba3e8` also inadvertently included `e2e/dataset-detail.spec.ts` from a concurrent 278-06 (TEST-10) agent — orphan attribution; functional state at HEAD correct (mirrors v13.12 Phase 269 race-condition pattern). Closes TEST-07 + TEST-08. Phase 278 progress: 4/6 plans complete (278-02, 278-03, 278-04, 278-06).
+
 ## Session Continuity
 
-Last session: 2026-05-07T20:34:00.000Z
-Stopped at: 276-04 complete — 113 broad-except sites annotated with theme-clustered # broad: rationales (CODE-08) + new test_no_unjustified_broad_except_sites architecture-guard. Total preserved at 139 grep matches; 0 sites tightened. Commits 927a6770 (chore), 0303398f (test). Phase 276 progress: 4/7 plans (276-01, 276-03, 276-04, 276-05).
+Last session: 2026-05-07T21:43:47.393Z
+Stopped at: 278-04 complete: TEST-07 zero-diff at HEAD (preempted in ced17b2f); TEST-08 fixed in ab2ba3e8. 10/10 tests pass.
 Resume file: None
