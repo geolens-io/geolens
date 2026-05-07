@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +34,16 @@ class User(Base):
             "idx_users_status_pending",
             "status",
             postgresql_where="status = 'pending'",
+        ),
+        # DBM-09: GIN trigram index for admin user search ILIKE on username.
+        # Migration 0015 is the source of truth for the actual DDL.
+        Index(
+            "ix_users_username_trgm",
+            text("lower(catalog.immutable_unaccent(username))"),
+            postgresql_using="gin",
+            postgresql_ops={
+                "lower(catalog.immutable_unaccent(username))": "gin_trgm_ops"
+            },
         ),
         {"schema": "catalog"},
     )

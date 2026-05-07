@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, desc, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, desc, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,16 @@ class AuditLog(Base):
             "ix_catalog_audit_logs_resource_id",
             "resource_id",
             postgresql_where="resource_id IS NOT NULL",
+        ),
+        # DBM-09: GIN trigram index for admin audit-log ILIKE search.
+        # Migration 0015 is the source of truth for the actual DDL.
+        Index(
+            "ix_audit_logs_action_trgm",
+            text("lower(catalog.immutable_unaccent(action))"),
+            postgresql_using="gin",
+            postgresql_ops={
+                "lower(catalog.immutable_unaccent(action))": "gin_trgm_ops"
+            },
         ),
         {"schema": "catalog"},
     )
