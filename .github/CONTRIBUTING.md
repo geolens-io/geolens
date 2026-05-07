@@ -65,6 +65,24 @@ docker compose exec frontend npm test
 docker compose exec frontend npm run test -- --watch  # Watch mode
 ```
 
+**End-to-end (Playwright):**
+
+E2E tests run **locally only** -- the `e2e-test` job in `.github/workflows/ci.yml` is gated `if: false` to conserve CI minutes (the dockerized stack + browser fixtures push the per-PR runtime well past the free-tier budget). Backend, frontend, and security checks remain on the per-PR critical path.
+
+Reviewers and contributors are responsible for running the relevant smoke suite locally before requesting review on changes that touch user flows:
+
+```bash
+# Make sure docker compose is up first.
+npm run e2e:smoke           # All smoke groups (core + builder + fixtures)
+npm run e2e:smoke:core      # admin / auth / search / dataset-detail / collections / permissions
+npm run e2e:smoke:builder   # builder + builder-styling
+npm run e2e:smoke:fixtures  # upload + non-spatial
+npm run e2e:smoke:audit     # accessibility / post-impl-validation / record-detail-ux-audit / demo-smoke
+npm run e2e                 # Catch-all (everything in e2e/)
+```
+
+If a change touches accessibility, the public viewer, the demo seed, or record detail, run `e2e:smoke:audit` in addition to the per-area smoke. PR descriptions should note which smoke groups passed locally.
+
 ## Code Style
 
 Code style is enforced by linters and formatters. Run them before submitting a PR:

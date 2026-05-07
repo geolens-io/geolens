@@ -557,7 +557,11 @@ jobs:
         #     the base image ships pip >= 26.1.
         run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
 
-  # ---------- E2E (disabled to save CI minutes — run locally via `npx playwright test`) ----------
+  # ---------- E2E (LOCAL-ONLY GATE — see .github/CONTRIBUTING.md "End-to-end (Playwright)") ----------
+  # Disabled to save CI minutes: the dockerized stack + browser fixtures push the per-PR runtime
+  # well past the free-tier Actions budget. Reviewers run `npm run e2e:smoke[:audit]` locally
+  # before approving user-flow changes (PR description should note which suites passed).
+  # Re-enable on a nightly cron schedule if a CI signal is needed.
   e2e-test:
     name: E2E Tests
     if: false
