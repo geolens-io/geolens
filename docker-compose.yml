@@ -314,7 +314,10 @@ services:
           memory: 96M
 
   titiler:
-    image: ghcr.io/developmentseed/titiler:2.0.0
+    # API-08 (Phase 275 / L-19): bumped from 2.0.0 to 2.0.2 — latest 2.x stable.
+    # Held back from 3.x without contract testing of the GeoLens-consumed surface
+    # (/cog/* tile + /healthz). 2.x line tip per developmentseed/titiler releases.
+    image: ghcr.io/developmentseed/titiler:2.0.2
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
@@ -521,7 +524,9 @@ services:
           memory: 64M
 
   valkey:
-    image: valkey/valkey:8.1.6-alpine
+    # API-08 (Phase 275 / L-20): bumped from 8.1.6-alpine to 8.1.7-alpine — current
+    # 8.x latest. Cloud-dev profile only; not part of the 2GB VPS budget.
+    image: valkey/valkey:8.1.7-alpine
     profiles: ["cloud-dev"]
     ports:
       - "127.0.0.1:6379:6379"

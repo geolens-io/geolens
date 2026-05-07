@@ -9,7 +9,8 @@
 FROM python:3.14.3-slim AS backend-builder
 
 # uv is build-time + runtime: see runtime-stage comment below for runtime rationale.
-COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
+# API-08 (Phase 275 / L-21): aligned uv installer pin across builder + runtime stages.
+COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -61,7 +62,8 @@ RUN chmod +x /app/scripts/api-entrypoint.sh /app/scripts/worker-entrypoint.sh
 FROM python:3.14.3-slim AS backend-base
 
 # uv kept for enterprise overlay install (api-entrypoint.sh runs `uv add --editable`).
-COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /uvx /bin/
+# API-08 (Phase 275 / L-21): aligned uv installer pin across builder + runtime stages.
+COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
 
 # Runtime apt deps — clean install on a fresh layer (no apt cache from builder).
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
