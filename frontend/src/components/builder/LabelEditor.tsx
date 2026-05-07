@@ -64,9 +64,18 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
       if (lastConfigRef.current) {
         onLabelChange(lastConfigRef.current);
       } else {
+        const firstColumn = columns[0]?.name;
+        // Without a column, the upstream handler normalizes config back to null
+        // (empty column = non-functional config). That made the Switch appear
+        // dead from the user's perspective. Bail out early instead so the Switch
+        // stays off until columns are available — caller can show a toast or
+        // disabled state if needed (LB-DEBUG: Phase 261 audit).
+        if (!firstColumn) {
+          return;
+        }
         onLabelChange({
           ...DEFAULTS,
-          column: columns[0]?.name ?? '',
+          column: firstColumn,
           placement: isLine ? 'line' : 'point',
         });
       }
@@ -87,7 +96,13 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
     <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
       <div className="flex items-center justify-between">
         <Label className="text-xs font-medium">{t('labels.title')}</Label>
-        <Switch checked={isOn} onCheckedChange={handleToggle} />
+        <Switch
+          checked={isOn}
+          onCheckedChange={handleToggle}
+          disabled={!isOn && columns.length === 0}
+          aria-disabled={!isOn && columns.length === 0}
+          title={!isOn && columns.length === 0 ? t('labels.noColumns', { defaultValue: 'No columns available to label' }) : undefined}
+        />
       </div>
 
       {isOn && labelConfig && (
