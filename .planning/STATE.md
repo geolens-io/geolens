@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
 status: completed
-stopped_at: 276-01 complete — router LOC-cap guard + service_diff docstring + Identity quoting comment shipped (commits 57d02014, d968f567, 0029a98d; CODE-09 docstring orphan-attributed to 2483cc31)
-last_updated: "2026-05-07T19:46:00.000Z"
+stopped_at: 276-05 complete — auth-store version: 1 + migrate scaffold (CODE-04) + 3 cross-feature stores relocated to src/stores/ (CODE-05); 32 consumer imports updated; 1216 vitest tests green; Playwright UAT deferred to manual verification. Commits 2483cc31, 08642d8d, caf4cd83 (with side-effect commit 53392993 carrying Task 2 bulk move per multi-active coordination note in 276-05 SUMMARY).
+last_updated: "2026-05-07T19:51:39.833Z"
 last_activity: "2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests"
 progress:
   total_phases: 12
   completed_phases: 1
   total_plans: 15
-  completed_plans: 12
-  percent: 80
+  completed_plans: 13
+  percent: 87
 ---
 
 # State
@@ -23,7 +23,7 @@ Plan: 258-02 complete (Phase 258 all plans shipped)
 Status: Phase 258 complete — Plans 01+02 shipped
 Last activity: 2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests
 
-Progress: [███████░░░] 73%
+Progress: [█████████░] 87%
 
 ## Project Reference
 
@@ -71,10 +71,12 @@ Plan 276-03 (OSS-side overlay-dispatch tests for Branding/Auth/Audit Extensions,
 
 Plan 276-01 (architecture LOC cap + service_diff comment + Identity quoting, CODE-01/CODE-09/CODE-14) executed 2026-05-07 alongside v13.11 winddown. Commits `57d02014` (test RED), `d968f567` (test GREEN), `0029a98d` (Identity quoting comment). CODE-09 docstring edit orphan-attributed to commit `2483cc31` (functional state correct at HEAD; race with concurrent Plan 276-05 executor). Closes M-09 / L-08 / L-55. New architecture-guard at `backend/tests/test_layering.py:804`.
 
-Phase 276 progress: 2/7 plans complete (276-01, 276-03). STATE remains pinned to v13.11 milestone; a future v13.13 milestone-start will repoint STATE and re-anchor the progress bar.
+Plan 276-05 (auth-store version+migrate + 3 cross-feature store relocations, CODE-04/CODE-05) executed 2026-05-07 alongside v13.11 winddown. Three commits: `2483cc31` (Task 1 — auth-store version: 1 + migrate scaffold, 4 new tests), `08642d8d` (Task 2 finish — moved-store test self-import paths), `caf4cd83` (Task 3 — DOM-level smoke substitute for Playwright MCP UAT, 9 new tests). The bulk of Task 2's work (6 store renames + 32 consumer-import updates) landed in side-effect commit `53392993` due to multi-active parallel-agent commit-race; functional state at HEAD is correct (1216 vitest tests passing; bundle sizes unchanged; zero stale imports). Closes M-41 / M-42 / L-41. Task 3 Playwright MCP UAT deferred to manual reviewer verification — see `.planning/phases/276-backend-frontend-code-quality/276-05-SUMMARY.md` "Playwright UAT" section for the 4-flow checklist.
+
+Phase 276 progress: 3/7 plans complete (276-01, 276-03, 276-05). STATE remains pinned to v13.11 milestone; a future v13.13 milestone-start will repoint STATE and re-anchor the progress bar.
 
 ## Session Continuity
 
-Last session: 2026-05-07T19:46:00Z
-Stopped at: 276-01 complete — router LOC-cap guard + service_diff docstring + Identity quoting comment shipped (commits 57d02014, d968f567, 0029a98d; CODE-09 docstring orphan-attributed to 2483cc31)
+Last session: 2026-05-07T19:51:32.996Z
+Stopped at: 276-05 complete — auth-store version: 1 + migrate scaffold (CODE-04) + 3 cross-feature stores relocated to src/stores/ (CODE-05); 32 consumer imports updated; 1216 vitest tests green; Playwright UAT deferred to manual verification. Commits 2483cc31, 08642d8d, caf4cd83 (with side-effect commit 53392993 carrying Task 2 bulk move per multi-active coordination note in 276-05 SUMMARY).
 Resume file: None

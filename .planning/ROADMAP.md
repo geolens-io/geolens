@@ -203,7 +203,7 @@ Plans:
 - [ ] 276-02-PLAN.md — chat_service.py Phase-226 facade decomposition (CODE-02)
 - [x] 276-03-PLAN.md — Branding/Auth/Audit Extension overlay-dispatch tests (CODE-03) ✅ 2026-05-07
 - [ ] 276-04-PLAN.md — Backend broad-except annotation sweep + architecture-guard (CODE-08)
-- [ ] 276-05-PLAN.md — Auth-store version+migrate + 3 cross-feature store moves + Playwright UAT (CODE-04, CODE-05)
+- [x] 276-05-PLAN.md — Auth-store version+migrate + 3 cross-feature store moves + Playwright UAT (CODE-04, CODE-05)
 - [ ] 276-06-PLAN.md — DatasetPage bundle < 200 KB via lazy imports (CODE-06)
 - [ ] 276-07-PLAN.md — Frontend cleanups: DS_Store, eslint-disable, logger.ts, useEffect, line-gradient TODOs (CODE-07, CODE-10, CODE-11, CODE-12, CODE-13)
 
@@ -216,7 +216,7 @@ Plans:
 | 260. Builder Quality Sweep | 0/TBD | Not started | - |
 | 261. Layer Visibility Debug & Audit | 0/TBD | Not started | - |
 | 262. Milestone Closeout | 0/1 | Not started | - |
-| 276. Backend & Frontend Code Quality (v13.13) | 2/7 | In progress | - |
+| 276. Backend & Frontend Code Quality (v13.13) | 3/7 | In Progress|  |
 
 ## Backlog
 
