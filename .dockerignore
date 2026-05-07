@@ -1,3 +1,14 @@
+# .dockerignore — default-deny + explicit allow pattern.
+#
+# `**` excludes everything by default; `!path/` lines re-include specific
+# subdirectories. This keeps the Docker build context minimal and prevents
+# accidentally shipping host-only directories (.venv, node_modules, .git, etc.)
+# even if they appear inside an allowed subdirectory (the include-then-exclude
+# rules at the bottom of the file handle nested exclusions).
+#
+# When adding new top-level directories that need to be in the build context,
+# add a `!path/` line + a `!path/**` line in the explicit-allow section below.
+
 **
 
 !Dockerfile

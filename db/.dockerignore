@@ -1,2 +1,11 @@
+# db/.dockerignore — patterns aligned with project convention (frontend/.dockerignore, root .dockerignore).
+# Build context is small (Dockerfile + postgresql.conf), but defensive ignores
+# prevent host .env files / OS junk / VCS metadata from accidentally landing in
+# the image if someone drops them in db/.
+
 .git
+.git*
+.env
+.env.*
 *.md
+.DS_Store
