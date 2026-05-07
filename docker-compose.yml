@@ -108,6 +108,24 @@ services:
       dockerfile: Dockerfile
       target: api
     command: sh -c "uv run alembic upgrade head"
+    security_opt:
+      - no-new-privileges:true
+    # cap_drop ALL + minimal cap_add for entrypoint setpriv + chown.
+    # See backend/scripts/api-entrypoint.sh — same image as api/worker.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    # Immutable root filesystem; writable paths via tmpfs (cleared on exit).
+    # Smaller tmpfs than api since one-shot doesn't process uploads.
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /home/appuser:size=64m,uid=1001,gid=1001
     volumes:
       - ./backend/alembic:/app/alembic
     environment:
@@ -140,6 +158,28 @@ services:
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
+    # no-new-privileges:true blocks setuid binaries from elevating privileges.
+    # It does NOT block setpriv (which de-escalates), so the entrypoint's
+    # "start as root -> fix volumes -> setpriv to uid 1001" pattern is unaffected.
+    security_opt:
+      - no-new-privileges:true
+    # cap_drop ALL + minimal cap_add for entrypoint setpriv + chown.
+    # See backend/scripts/api-entrypoint.sh for the volume-perm-fix + uid-drop flow.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN          # chown -R appuser:appgroup ${STAGING_DIR}
+      - DAC_OVERRIDE   # chmod g+rwX inside arbitrary-perm volume mounts
+      - FOWNER         # chmod operates on files owned by other UIDs
+      - SETGID         # setpriv --regid 1001
+      - SETUID         # setpriv --reuid 1001
+    # Immutable root filesystem; writable paths via tmpfs (cleared on restart).
+    # /app/staging is the named volume `upload_staging` (not tmpfs).
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /home/appuser:size=128m,uid=1001,gid=1001
+      - /var/run:size=8m
     entrypoint: ["/app/scripts/api-entrypoint.sh"]
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
@@ -203,6 +243,22 @@ services:
     init: true
     stop_grace_period: 35s
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    # Same cap profile as api — same image, same setpriv-based entrypoint.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /home/appuser:size=128m,uid=1001,gid=1001
+      - /var/run:size=8m
     entrypoint: ["/app/scripts/worker-entrypoint.sh"]
     volumes:
       - ./backend/app:/app/app
@@ -242,6 +298,13 @@ services:
     stop_grace_period: 15s
     security_opt:
       - no-new-privileges:true
+    # titiler binds port 8000 inside container (>1024) — no NET_BIND_SERVICE needed.
+    cap_drop:
+      - ALL
+    # Immutable root with /tmp tmpfs for GDAL VSI cache writes.
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 1
     environment:
       # GDAL raster I/O tuning — these control how Titiler reads COG/VRT files
@@ -288,6 +351,13 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # NOTE: read_only NOT applied to frontend (dev). Vite writes HMR cache to
+    # /tmp/.vite/ and /app/node_modules/.vite/; the bind-mount of source under
+    # /app means the root filesystem is effectively writable already. Production
+    # frontend (docker-compose.demo.yml frontend target) uses nginx-unprivileged
+    # which IS compatible with read_only — see Plan 272-06.
+    # cap_drop: [ALL] is applied in Plan 272-06 once USER node lands in
+    # frontend/Dockerfile.dev (vite needs no privileges as a non-root user).
     ports:
       - "${FRONTEND_PORT:-8080}:5173"
     volumes:
