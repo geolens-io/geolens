@@ -267,9 +267,15 @@ describe('DatasetPage hero state machine', () => {
     setUser(null);
   });
 
-  it('shows skeleton loading state for raster datasets initially', () => {
+  it('shows skeleton loading state for raster datasets initially', async () => {
     setup({ record_type: 'raster_dataset', raster: { tile_url: '/raster-tiles/test/{z}/{x}/{y}.png' } as DatasetResponse['raster'] });
     render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    // PERF-06 (Phase 274): DatasetMap is lazy-loaded — flush the dynamic
+    // import microtask under fake timers so the lazy module resolves before
+    // we assert the mock is in the DOM. After this first test, the lazy
+    // module is cached for the rest of the suite.
+    await act(async () => {});
 
     expect(screen.getByTestId('hero-skeleton')).toBeInTheDocument();
     expect(screen.getByTestId('dataset-map')).toBeInTheDocument();

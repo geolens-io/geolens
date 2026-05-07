@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -18,7 +18,11 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/components/drawing/drawing-store';
 import { DatasetDeleteDialog } from '@/components/dataset/DatasetDeleteDialog';
 import { ReuploadDialog } from '@/components/dataset/ReuploadDialog';
-import { DatasetMap } from '@/components/dataset/DatasetMap';
+// PERF-06 (Phase 274): lazy-load DatasetMap so map-vendor chunk is fetched
+// only when this page actually renders (after data fetch resolves).
+const DatasetMap = lazy(() =>
+  import('@/components/dataset/DatasetMap').then((m) => ({ default: m.DatasetMap }))
+);
 import { DatasetDetailSkeleton } from '@/components/dataset/DatasetDetailSkeleton';
 import {
   DatasetDetailHeader,
@@ -448,24 +452,33 @@ export function DatasetPage() {
             <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
           )}
           <MapErrorBoundary>
-            <DatasetMap
-              key={isRasterOrVrt ? mapKey : undefined}
-              bbox={bbox}
-              tableName={dataset.table_name}
-              geometryType={dataset.geometry_type}
-              datasetId={id}
-              columnInfo={dataset.column_info}
-              containerRef={mapContainerRef}
-              canEdit={canEditData && !isRaster && !isVrt && !isTable}
-              recordType={dataset.record_type}
-              rasterTileUrl={dataset.raster?.tile_url}
-              tileVersion={dataset.updated_at}
-              onFeatureClick={setReadOnlyFeatureGid}
-              {...(isRasterOrVrt ? {
-                onMapReady,
-                onTileError,
-              } : {})}
-            />
+            <Suspense
+              fallback={
+                <Skeleton
+                  data-testid="dataset-map-suspense"
+                  className="absolute inset-0 z-10 rounded-lg"
+                />
+              }
+            >
+              <DatasetMap
+                key={isRasterOrVrt ? mapKey : undefined}
+                bbox={bbox}
+                tableName={dataset.table_name}
+                geometryType={dataset.geometry_type}
+                datasetId={id}
+                columnInfo={dataset.column_info}
+                containerRef={mapContainerRef}
+                canEdit={canEditData && !isRaster && !isVrt && !isTable}
+                recordType={dataset.record_type}
+                rasterTileUrl={dataset.raster?.tile_url}
+                tileVersion={dataset.updated_at}
+                onFeatureClick={setReadOnlyFeatureGid}
+                {...(isRasterOrVrt ? {
+                  onMapReady,
+                  onTileError,
+                } : {})}
+              />
+            </Suspense>
           </MapErrorBoundary>
           {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
             <div className="absolute bottom-2 left-2 z-10 px-2 py-1 rounded bg-muted/80 text-xs text-muted-foreground">

@@ -1,8 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
-import { ViewerMap } from '@/components/viewer/ViewerMap';
+// PERF-06 (Phase 274): lazy-load ViewerMap so map-vendor chunk fetch
+// is deferred until the share-token resolves and rendering is imminent.
+const ViewerMap = lazy(() =>
+  import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
+);
 import { LayerLegend } from '@/components/viewer/LayerLegend';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
@@ -123,15 +127,17 @@ export function PublicMapViewerPage() {
   return (
     <main id="map-viewport" className="w-full h-[calc(100dvh-3.5rem-1px)] relative overflow-hidden">
       <MapErrorBoundary>
-        <ViewerMap
-          layers={layers}
-          basemapStyle={basemapId ?? data.basemap_style}
-          basemapOverride={basemapId !== null}
-          showBasemapLabels={data.show_basemap_labels ?? true}
-          terrainConfig={data.terrain_config ?? null}
-          initialViewState={viewState}
-          visibleLayers={visibleLayers}
-        />
+        <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
+          <ViewerMap
+            layers={layers}
+            basemapStyle={basemapId ?? data.basemap_style}
+            basemapOverride={basemapId !== null}
+            showBasemapLabels={data.show_basemap_labels ?? true}
+            terrainConfig={data.terrain_config ?? null}
+            initialViewState={viewState}
+            visibleLayers={visibleLayers}
+          />
+        </Suspense>
       </MapErrorBoundary>
 
       <MapTitlePill name={data.name} description={data.description} />

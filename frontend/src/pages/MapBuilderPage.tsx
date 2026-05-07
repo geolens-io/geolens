@@ -1,11 +1,15 @@
-import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { FileText, History, Loader2, PanelLeftClose, PanelLeftOpen, Save, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
-import { BuilderMap } from '@/components/builder/BuilderMap';
+// PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
+// only when the builder is about to render (post-data-fetch).
+const BuilderMap = lazy(() =>
+  import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
+);
 import { LayerPanel } from '@/components/builder/LayerPanel';
 import { LayerEditorPanel } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
@@ -471,14 +475,16 @@ export function MapBuilderPage() {
           </button>
         )}
         <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
-          <BuilderMap
-            layers={layers.localLayers}
-            basemapStyle={layers.localBasemap}
-            initialViewState={layers.initialViewState}
-            terrainConfig={layers.localTerrainConfig}
-            onMapRef={handleMapRef}
-            showBasemapLabels={layers.showBasemapLabels}
-          />
+          <Suspense fallback={<LoadingState />}>
+            <BuilderMap
+              layers={layers.localLayers}
+              basemapStyle={layers.localBasemap}
+              initialViewState={layers.initialViewState}
+              terrainConfig={layers.localTerrainConfig}
+              onMapRef={handleMapRef}
+              showBasemapLabels={layers.showBasemapLabels}
+            />
+          </Suspense>
         </MapErrorBoundary>
         {layers.ephemeralResult && (
           <EphemeralBadge
