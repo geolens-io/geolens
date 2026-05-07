@@ -59,18 +59,6 @@ async function setStoredUserRoles(page: Page, roles: string[]) {
   }, roles);
 }
 
-async function expectSingleActiveContext(
-  page: Page,
-  expected: 'geometry' | 'attributes' | 'metadata',
-) {
-  const activeContexts = page.locator('[data-testid^="edit-context-option-"][data-state="on"]');
-  await expect(activeContexts).toHaveCount(1);
-  await expect(page.getByTestId(`edit-context-option-${expected}`)).toHaveAttribute(
-    'data-state',
-    'on',
-  );
-}
-
 test.describe('Dataset Detail', () => {
   test.beforeAll(async () => {
     const token = getAuthToken();
@@ -141,6 +129,18 @@ test.describe('Dataset Detail', () => {
     expect(download.suggestedFilename()).toBeTruthy();
   });
 
+  // Skipped 2026-04-20 (commit 2dff66e1) — "data-dependent timing issue":
+  // the pending-edits state machine races on initial render when the seeded
+  // summary column happens to be empty vs pre-filled, producing intermittent
+  // failures. Underlying testIds (`pending-edits-bar`, `pending-edits-save`,
+  // `pending-edits-cancel`, `editable-field-shell-summary`) are all live in
+  // current `PendingEditsBar.tsx` + `EditableField.tsx`; the test logic is
+  // sound but needs a deterministic seed-baseline fixture before it can run
+  // green on CI.
+  // TODO(test-audit v13.12): tracked as M-finding follow-up — replace
+  // conditional `summary != "" ? branch : baseline-fill branch` with a
+  // dedicated test fixture + datasetID so the timing-sensitive prelude is
+  // removed. Until then: keep skipped so dataset-detail smoke stays green.
   test.skip('editable markers, viewer hint-on-attempt, and pending lifecycle remain stable', async ({
     page,
   }) => {
@@ -223,79 +223,14 @@ test.describe('Dataset Detail', () => {
     await expect(page.getByText(denyHintText)).toBeVisible();
   });
 
-  test.skip('context guard choices, validation troubleshoot, and freshness guidance are visible in-flow', async ({
-    page,
-  }) => {
-    await page.route('**/api/datasets/*/validate/', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          is_valid: false,
-          errors: [{ field: 'source_url', message: 'Source URL is required', severity: 'error' }],
-          warnings: [{ field: 'update_frequency', message: 'Missing update cadence', severity: 'warning' }],
-          quality_score: null,
-        }),
-      });
-    });
-
-    await openAdminCountriesDataset(page);
-
-    await expectSingleActiveContext(page, 'attributes');
-
-    const summaryShell = page.getByTestId('editable-field-shell-summary');
-    await summaryShell.locator('p[role="button"]').click();
-    const summaryTextarea = summaryShell.locator('textarea');
-    await expect(summaryTextarea).toBeVisible();
-    const cancelBaseline = await summaryTextarea.inputValue();
-    const cancelDraft = deriveDistinctDraft(cancelBaseline, 'context-guard-cancel');
-    await summaryTextarea.fill(cancelDraft);
-    await page.getByRole('tab', { name: 'Overview' }).click();
-    await expect(page.getByTestId('pending-edits-bar')).toBeVisible();
-
-    await page.getByTestId('edit-context-option-metadata').click();
-    await expect(page.getByTestId('context-switch-guard-dialog')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save & switch' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Discard & switch' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByTestId('context-switch-guard-dialog')).toHaveCount(0);
-    await expectSingleActiveContext(page, 'attributes');
-
-    await page.getByTestId('edit-context-option-metadata').click();
-    await page.getByRole('button', { name: 'Discard & switch' }).click();
-    await expectSingleActiveContext(page, 'metadata');
-    await expect(page.getByTestId('pending-edits-bar')).toHaveCount(0);
-
-    await page.getByTestId('edit-context-option-attributes').click();
-    await expectSingleActiveContext(page, 'attributes');
-
-    await summaryShell.locator('p[role="button"]').click();
-    await expect(summaryTextarea).toBeVisible();
-    const saveBaseline = await summaryTextarea.inputValue();
-    const saveDraft = deriveDistinctDraft(saveBaseline, 'context-guard-save');
-    await summaryTextarea.fill(saveDraft);
-    await page.getByRole('tab', { name: 'Overview' }).click();
-    await expect(page.getByTestId('pending-edits-bar')).toBeVisible();
-
-    await page.getByTestId('edit-context-option-metadata').click();
-    await page.getByRole('button', { name: 'Save & switch' }).click();
-    await expect(page.getByTestId('pending-edits-bar')).toHaveCount(0);
-    await expectSingleActiveContext(page, 'metadata');
-
-    await expect(page.getByTestId('validation-helper-text')).toBeVisible();
-    const overviewTroubleshootTrigger = page
-      .getByLabel('Overview')
-      .getByTestId('validation-troubleshoot-trigger');
-    await expect(overviewTroubleshootTrigger).toBeVisible();
-    await overviewTroubleshootTrigger.click();
-    await expect(page.getByTestId('validation-troubleshoot-dialog')).toBeVisible();
-    await page.getByTestId('validation-troubleshoot-close').click();
-    await expect(page.getByTestId('validation-troubleshoot-dialog')).toHaveCount(0);
-
-    await page.getByRole('tab', { name: 'Source & Quality' }).click();
-    await expect(page.getByTestId('quality-freshness-time')).toBeVisible();
-    await expect(page.getByTestId('quality-cadence-guidance')).toBeVisible();
-  });
+  // The previous "context guard choices, validation troubleshoot, and
+  // freshness guidance are visible in-flow" test was deleted (test-audit
+  // v13.12, H-33). It exercised an "edit-context" toggle UI
+  // (`edit-context-option-attributes`, `edit-context-option-metadata`,
+  // `context-switch-guard-dialog`, `Save & switch`, `Discard & switch`)
+  // that was never shipped — no matching components or testIds exist in
+  // `frontend/src/components/dataset/`. The validation-troubleshoot and
+  // quality-freshness assertions live on inside `ValidationStatus.test.tsx`
+  // and `QualityScoreCard.test.tsx` (vitest) which cover the same surface
+  // without depending on the absent context-switch UI.
 });
