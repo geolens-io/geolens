@@ -1,4 +1,4 @@
-import { useSearchStore } from '@/components/search/search-store';
+import { useSearchStore } from '@/stores/search-store';
 
 const initialState = useSearchStore.getState();
 

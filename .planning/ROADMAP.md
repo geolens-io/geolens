@@ -199,7 +199,7 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
-- [ ] 276-01-PLAN.md — Backend architecture LOC cap + service_diff comment + Identity quoting (CODE-01, CODE-09, CODE-14)
+- [x] 276-01-PLAN.md — Backend architecture LOC cap + service_diff comment + Identity quoting (CODE-01, CODE-09, CODE-14) ✅ 2026-05-07
 - [ ] 276-02-PLAN.md — chat_service.py Phase-226 facade decomposition (CODE-02)
 - [x] 276-03-PLAN.md — Branding/Auth/Audit Extension overlay-dispatch tests (CODE-03) ✅ 2026-05-07
 - [ ] 276-04-PLAN.md — Backend broad-except annotation sweep + architecture-guard (CODE-08)
@@ -216,7 +216,7 @@ Plans:
 | 260. Builder Quality Sweep | 0/TBD | Not started | - |
 | 261. Layer Visibility Debug & Audit | 0/TBD | Not started | - |
 | 262. Milestone Closeout | 0/1 | Not started | - |
-| 276. Backend & Frontend Code Quality (v13.13) | 1/7 | In progress | - |
+| 276. Backend & Frontend Code Quality (v13.13) | 2/7 | In progress | - |
 
 ## Backlog
 
