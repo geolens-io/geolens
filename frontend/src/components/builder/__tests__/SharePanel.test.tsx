@@ -237,4 +237,16 @@ describe('SEC-07: embed code sandbox attribute', () => {
     });
     expect(code).not.toContain('et=');
   });
+
+  // DOM-level assertion: render ShareDialog and read the embed-code textarea
+  // value. Substitutes for the deferred Playwright MCP UAT — confirms the
+  // sandbox value reaches the rendered DOM exactly as the unit-tested pure
+  // function emits it (no later string-rewriting in the component layer).
+  it('rendered embed textarea contains sandbox="allow-scripts" only', () => {
+    setup({ enterprise: false, hasShareToken: true });
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(textarea).toBeTruthy();
+    expect(textarea.value).toContain('sandbox="allow-scripts"');
+    expect(textarea.value).not.toContain('allow-same-origin');
+  });
 });
