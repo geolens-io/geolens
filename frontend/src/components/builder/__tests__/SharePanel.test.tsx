@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
-import { ShareDialog } from '@/components/builder/SharePanel';
+import { ShareDialog, generateEmbedCode } from '@/components/builder/SharePanel';
 import {
   useCreateEmbedToken,
   useMapEmbedTokens,
@@ -188,5 +188,53 @@ describe('ShareDialog edition gates', () => {
 
     expect(screen.getByText('Expiration')).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: /restrict to domains/i })).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SEC-07 / M-70: embed iframe sandbox attribute                      */
+/* ------------------------------------------------------------------ */
+//
+// Pins the v13.13 closure of M-70. The combination of `allow-scripts` +
+// `allow-same-origin` neutralizes the iframe sandbox (MDN-documented
+// anti-pattern) — embed iframes loaded by external sites would have
+// access to cookies/localStorage of the GeoLens deployment, defeating
+// share-token isolation.
+describe('SEC-07: embed code sandbox attribute', () => {
+  it('uses allow-scripts only, no allow-same-origin', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toContain('sandbox="allow-scripts"');
+    expect(code).not.toContain('allow-same-origin');
+  });
+
+  it('returns empty string when shareToken is missing', () => {
+    const code = generateEmbedCode({
+      shareToken: '',
+      embedTokenRaw: '',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toBe('');
+  });
+
+  it('includes et=<token> when embedTokenRaw is provided', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toContain('et=tok-456');
+  });
+
+  it('omits et= param when embedTokenRaw is empty', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: '',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).not.toContain('et=');
   });
 });

@@ -30,6 +30,39 @@ function parseOrigins(input: string): string[] {
     .map((s) => (s.includes('://') ? s : `https://${s}`));
 }
 
+/**
+ * Generate the iframe embed snippet for a shared map.
+ *
+ * SEC-07 / M-70: deliberately omits `allow-same-origin` from the sandbox
+ * attribute. Per MDN, combining `allow-scripts` with `allow-same-origin`
+ * lets the iframe remove its own sandboxing (it can rewrite the parent
+ * document's storage / cookies for the iframe's origin), neutralizing
+ * the protection. The embedded map viewer authenticates via the
+ * `et=<token>` query param and does not need same-origin access — so we
+ * keep the iframe in the strongest sandbox that still allows MapLibre
+ * GL JS to run.
+ *
+ * Exported so SharePanel.test.tsx can pin the rendered snippet shape
+ * without mounting the full ShareDialog component.
+ */
+export function generateEmbedCode({
+  shareToken,
+  embedTokenRaw,
+  origin,
+}: {
+  shareToken: string;
+  embedTokenRaw: string;
+  origin: string;
+}): string {
+  if (!shareToken) return '';
+  const params = new URLSearchParams({ embed: 'true' });
+  if (embedTokenRaw) {
+    params.set('et', embedTokenRaw);
+  }
+  const url = `${origin}/m/${shareToken}?${params.toString()}`;
+  return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts" style="border:none;"></iframe>`;
+}
+
 const VISIBILITY_OPTIONS: Array<{
   value: MapVisibility;
   icon: typeof Lock;
@@ -402,13 +435,11 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
   }
 
   function getEmbedCode() {
-    if (!shareToken) return '';
-    const params = new URLSearchParams({ embed: 'true' });
-    if (embedTokenRaw) {
-      params.set('et', embedTokenRaw);
-    }
-    const url = `${window.location.origin}/m/${shareToken}?${params.toString()}`;
-    return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
+    return generateEmbedCode({
+      shareToken: shareToken || '',
+      embedTokenRaw: embedTokenRaw || '',
+      origin: window.location.origin,
+    });
   }
 
   async function handleCopyShareLink() {
