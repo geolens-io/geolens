@@ -107,6 +107,11 @@ class Settings(BaseSettings):
     # CONF-03 (Phase 277 / M-38): replaces raw os.environ.get("WORKER_SHUTDOWN_TIMEOUT") in worker.py
     worker_shutdown_timeout: int = 30
 
+    # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
+    # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads
+    # and writes return 403. Keep in sync with .env.example.
+    env_only_config: bool = False
+
     db_use_external_pooler: bool = False
     db_pool_size: int = 10
     db_max_overflow: int = 3  # DBM-04 (Phase 271): connection-budget headroom

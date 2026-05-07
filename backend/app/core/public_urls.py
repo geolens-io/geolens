@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from urllib.parse import urlsplit, urlunsplit
 
@@ -67,7 +66,7 @@ def join_public_url(base_url: str, path: str) -> str:
 
 
 def _is_env_only() -> bool:
-    return os.environ.get("ENV_ONLY_CONFIG", "").lower() in ("true", "1", "yes")
+    return settings.env_only_config
 
 
 def _request_origin(request: Request | None) -> str | None:

@@ -248,7 +248,9 @@ async def test_get_public_urls_uses_db_overrides_when_env_only_disabled(
     loader = AsyncMock(
         return_value={public_urls.PUBLIC_APP_URL_KEY: "https://catalog.example.com/"}
     )
-    monkeypatch.delenv("ENV_ONLY_CONFIG", raising=False)
+    # CONF-04 (Phase 277): _is_env_only() now reads settings.env_only_config;
+    # patch the Settings attribute directly instead of mutating os.environ.
+    monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
     monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
     monkeypatch.setattr(public_urls.settings, "public_app_url", None, raising=False)
     monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
@@ -268,7 +270,9 @@ async def test_get_public_urls_skips_db_when_env_only_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loader = AsyncMock()
-    monkeypatch.setenv("ENV_ONLY_CONFIG", "true")
+    # CONF-04 (Phase 277): _is_env_only() now reads settings.env_only_config;
+    # patch the Settings attribute directly instead of mutating os.environ.
+    monkeypatch.setattr(public_urls.settings, "env_only_config", True, raising=False)
     monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
     monkeypatch.setattr(
         public_urls.settings,
@@ -404,7 +408,8 @@ async def test_get_public_api_url_propagates_for_external_use_flag(
     monkeypatch.setattr(public_urls.settings, "public_api_url", None, raising=False)
     monkeypatch.setattr(public_urls.settings, "public_base_url", None, raising=False)
     loader = AsyncMock(return_value={})
-    monkeypatch.delenv("ENV_ONLY_CONFIG", raising=False)
+    # CONF-04 (Phase 277): _is_env_only() reads settings.env_only_config now.
+    monkeypatch.setattr(public_urls.settings, "env_only_config", False, raising=False)
     monkeypatch.setattr(public_urls, "_load_public_url_overrides", loader)
 
     request = _make_request(headers={"origin": "https://attacker.com"})

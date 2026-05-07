@@ -1,11 +1,12 @@
 """Tests for PersistentConfig generic class and centralized registry."""
 
-import os
 from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete
+
+from app.core.config import settings
 
 
 @pytest.fixture(autouse=True)
@@ -84,7 +85,7 @@ async def test_get_returns_env_default_when_env_only(client: AsyncClient):
         await REGISTRATION_ENABLED.set(db, True)
 
         # Now enable ENV_ONLY mode
-        with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+        with patch.object(settings, "env_only_config", True):
             value = await REGISTRATION_ENABLED.get(db)
             assert value is False  # Should return env_default, not DB value
 
@@ -98,7 +99,7 @@ async def test_set_raises_when_env_only(client: AsyncClient):
     from app.api.main import app
 
     async for db in app.dependency_overrides[get_db]():
-        with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+        with patch.object(settings, "env_only_config", True):
             from fastapi import HTTPException
 
             with pytest.raises(HTTPException) as exc_info:
@@ -357,7 +358,7 @@ async def test_put_settings_returns_403_when_env_only(
     client: AsyncClient, admin_auth_header: dict
 ):
     """PUT /settings/ returns 403 when ENV_ONLY_CONFIG=true."""
-    with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+    with patch.object(settings, "env_only_config", True):
         resp = await client.put(
             "/settings/",
             json={"settings": {"registration_enabled": True}},
@@ -373,7 +374,7 @@ async def test_get_config_mode_reports_env_only(client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json()["env_only"] is False
 
-    with patch.dict(os.environ, {"ENV_ONLY_CONFIG": "true"}):
+    with patch.object(settings, "env_only_config", True):
         resp = await client.get("/settings/config-mode/")
         assert resp.status_code == 200
         assert resp.json()["env_only"] is True
