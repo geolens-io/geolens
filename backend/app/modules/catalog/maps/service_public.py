@@ -76,12 +76,16 @@ async def create_share_token(
         # Re-activate if previously revoked
         if not token_obj.is_active:
             token_obj.is_active = True
-            raw_token = secrets.token_urlsafe(16)
+            # SEC-10 / L-60: 32-byte (256-bit) entropy parity with embed tokens.
+            # Existing 16-byte tokens already in the DB continue to validate
+            # — the lookup is by sha256 hash, not raw length.
+            raw_token = secrets.token_urlsafe(32)
             token_obj.token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
             token_obj.token_hint = raw_token[:8]
             token_obj._raw_token = raw_token  # transient, not persisted
         return token_obj
-    raw_token = secrets.token_urlsafe(16)
+    # 32 bytes per SEC-10
+    raw_token = secrets.token_urlsafe(32)
     token_obj = MapShareToken(
         map_id=map_id,
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
