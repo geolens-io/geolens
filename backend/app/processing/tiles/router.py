@@ -68,6 +68,8 @@ class _DatasetMeta(NamedTuple):
     visibility: str
     column_info: list
     tile_cache_ttl: int | None
+    # Phase 269 H-23: tile column allowlist (None / [] / list[str]).
+    tile_columns: list[str] | None
 
 
 _dataset_cache: dict[str, tuple[float, _DatasetMeta]] = {}
@@ -655,6 +657,7 @@ async def tile_endpoint(
             visibility=dataset.record.visibility,
             column_info=dataset.column_info or [],
             tile_cache_ttl=dataset.tile_cache_ttl,
+            tile_columns=dataset.tile_columns,
         )
         with _dataset_cache_lock:
             _dataset_cache[table_name] = (now, meta)
@@ -732,7 +735,15 @@ async def tile_endpoint(
         )
 
     try:
-        tile_data = await get_tile(pool, table_name, z, x, y, columns)
+        tile_data = await get_tile(
+            pool,
+            table_name,
+            z,
+            x,
+            y,
+            columns,
+            tile_columns=meta.tile_columns,
+        )
     except asyncio.TimeoutError:
         logger.warning(
             "Tile pool acquire timeout",

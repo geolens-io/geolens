@@ -274,6 +274,16 @@ class Dataset(Base):
     # Per-dataset tile cache TTL override (null = use global settings.tile_cache_ttl)
     tile_cache_ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Phase 269 H-23: per-dataset tile column allowlist.
+    # NULL  → fall back to per-zoom defaults (no attrs at z<10, all attrs at
+    #         z>=10) so wide-table datasets don't blow up tile size at low zoom.
+    # []    → no attribute columns at any zoom (geometry-only tiles).
+    # [...] → admin-curated allowlist; only these columns flow into MVT
+    #         properties at any zoom.
+    tile_columns: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String()), nullable=True
+    )
+
     # Relationships
     record: Mapped["Record"] = relationship(
         "Record", back_populates="dataset", lazy="joined"
