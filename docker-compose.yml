@@ -75,6 +75,18 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    # Resource budget for 2GB VPS deployment target.
+    # postgresql.conf assumes shared_buffers=512MB + work_mem*max_connections
+    # headroom; this cap matches that envelope. Honored when deploying via
+    # `docker compose --compatibility up` (Compose-native limits don't require Swarm).
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
 
   migrate:
     build:
@@ -90,6 +102,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # One-shot service; same envelope as api so the migration fits the
+    # 2GB VPS budget when run alongside running containers.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 384M
 
   api:
     build:
@@ -143,6 +162,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    # 2GB VPS budget: api + worker share the application footprint;
+    # 512M cap matches uvicorn single-worker baseline + GDAL ingest spikes.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
 
   worker:
     build:
@@ -176,6 +205,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    # Procrastinate worker; smaller than api because it has no tile pool.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 384M
+        reservations:
+          cpus: "0.25"
+          memory: 96M
 
   titiler:
     image: ghcr.io/developmentseed/titiler:2.0.0
@@ -210,6 +248,15 @@ services:
       db:
         condition: service_healthy
     # No ports: section — internal only, reachable at http://titiler:8000
+    # GDAL_CACHEMAX=200 plus titiler runtime fits in 384M.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
+        reservations:
+          cpus: "0.1"
+          memory: 96M
 
   frontend:
     build:
@@ -230,6 +277,12 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    # Vite dev server (or nginx in demo overlay) — minimal footprint.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
 
   backup:
     # Enable with: docker compose --profile backup up -d
