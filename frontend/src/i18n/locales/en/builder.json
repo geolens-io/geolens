@@ -159,7 +159,7 @@
       "duplicatePosition": "Stop positions should increase",
       "customExpression": "Custom expression — switch to Advanced editor",
       "advanced": "Advanced expression",
-      "advancedHint": "Edit raw MapLibre expression. Paste a canonical interpolate-linear-line-progress expression to re-hydrate the stops panel.",
+      "advancedHint": "Paste a MapLibre line-gradient expression. Recognized canonical expressions will re-populate the stops panel.",
       "applyExpression": "Apply",
       "cancelExpression": "Cancel",
       "parseError": "Invalid JSON",

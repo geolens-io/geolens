@@ -438,3 +438,168 @@ describe('LineGradientControls — advanced expression editor', () => {
     expect(screen.queryByRole('textbox', { name: 'style.lineGradient.advanced' })).not.toBeInTheDocument();
   });
 });
+
+describe('LineGradientControls — UI polish (Phase 258)', () => {
+  it('polish-01: gradient preview swatch renders in canonical gradient mode with linear-gradient background', () => {
+    const stops = [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }];
+    const expr = stopsToLineGradientExpression(stops);
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': expr }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    const swatch = screen.getByTestId('line-gradient-preview-swatch');
+    expect(swatch).toBeInTheDocument();
+    // jsdom normalizes hex to rgb() in computed style; check the component's background prop
+    // by reading the style attribute (raw) or the computed background property.
+    const style = swatch.getAttribute('style') ?? '';
+    expect(style).toContain('linear-gradient(to right,');
+    // jsdom may normalize hex colors to rgb() in the style attribute; accept either form.
+    const bg = (swatch as HTMLElement).style.background;
+    expect(bg).toContain('0%');
+    expect(bg).toContain('100%');
+  });
+
+  it('polish-01: gradient preview swatch is NOT rendered in customExpression branch', () => {
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': ['step', ['line-progress'], '#000', 0.5, '#fff'] }}
+        styleConfig={null}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    expect(screen.queryByTestId('line-gradient-preview-swatch')).not.toBeInTheDocument();
+    expect(screen.getByText('style.lineGradient.customExpression')).toBeInTheDocument();
+  });
+
+  it('polish-01: gradient preview swatch is NOT rendered in solid mode', () => {
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
+    expect(screen.queryByTestId('line-gradient-preview-swatch')).not.toBeInTheDocument();
+  });
+
+  it('polish-02: gradient stop rows do not render the per-row "Color" label key', () => {
+    const stops = [
+      { position: 0, color: '#000' },
+      { position: 0.5, color: '#888' },
+      { position: 1, color: '#fff' },
+    ];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    // In gradient mode the solid-mode StyleColorPicker is not rendered.
+    // None of the gradient-row StyleColorPicker labels should be the i18n key.
+    expect(screen.queryAllByText('style.lineGradient.color')).toHaveLength(0);
+  });
+
+  it('polish-03: Solid/Gradient toggle buttons carry focus-visible ring + cursor-pointer classes', () => {
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
+    const solid = screen.getByRole('button', { name: 'style.lineGradient.solid' });
+    const gradient = screen.getByRole('button', { name: 'style.lineGradient.gradient' });
+    for (const btn of [solid, gradient]) {
+      expect(btn.className).toContain('focus-visible:ring-2');
+      expect(btn.className).toContain('focus-visible:ring-ring');
+      expect(btn.className).toContain('focus-visible:ring-offset-1');
+      expect(btn.className).toContain('cursor-pointer');
+    }
+  });
+
+  it('polish-04: advanced disclosure button spans full width with w-full + justify-start', () => {
+    render(<LineGradientControls paint={{}} styleConfig={null} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
+    const disclosure = screen.getByRole('button', { name: 'style.lineGradient.advanced' });
+    expect(disclosure.className).toContain('w-full');
+    expect(disclosure.className).toContain('justify-start');
+  });
+
+  it('polish-05: each gradient stop row renders a visible "pos" prefix span', () => {
+    const stops = [
+      { position: 0, color: '#000' },
+      { position: 0.5, color: '#888' },
+      { position: 1, color: '#fff' },
+    ];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    expect(screen.getAllByText('pos')).toHaveLength(stops.length);
+  });
+
+  it('polish-07: trash button is wrapped in a Tooltip with data-slot="tooltip-trigger"', () => {
+    const stops = [
+      { position: 0, color: '#000' },
+      { position: 0.5, color: '#888' },
+      { position: 1, color: '#fff' },
+    ];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    const trashButtons = screen.getAllByRole('button', { name: 'style.lineGradient.removeStop' });
+    expect(trashButtons).toHaveLength(3);
+    // Radix asChild merges data-slot onto the child; if not propagated in jsdom,
+    // fall back to closest ancestor with the attribute.
+    for (const btn of trashButtons) {
+      const hasTriggerSlot =
+        btn.getAttribute('data-slot') === 'tooltip-trigger' ||
+        btn.closest('[data-slot="tooltip-trigger"]') !== null;
+      expect(hasTriggerSlot).toBe(true);
+    }
+  });
+
+  it('polish-07: trash button preserves aria-label through Tooltip wrap', () => {
+    const stops = [
+      { position: 0, color: '#000' },
+      { position: 0.5, color: '#888' },
+      { position: 1, color: '#fff' },
+    ];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    for (const btn of screen.getAllByRole('button', { name: 'style.lineGradient.removeStop' })) {
+      expect(btn.getAttribute('aria-label')).toBe('style.lineGradient.removeStop');
+    }
+  });
+
+  it('polish-07: trash button stays disabled at minimum 2 stops through Tooltip wrap', () => {
+    const stops = [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={vi.fn()}
+        t={t}
+      />,
+    );
+    for (const btn of screen.getAllByRole('button', { name: 'style.lineGradient.removeStop' })) {
+      expect(btn).toBeDisabled();
+    }
+  });
+});

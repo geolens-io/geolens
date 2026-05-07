@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Trash2, Plus, ChevronDown, ChevronRight, Code } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { StyleColorPicker } from './StyleColorPicker';
 import type { BuilderStyleConfig, StyleConfig } from '@/types/api';
@@ -270,7 +271,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
           aria-label={t('style.lineGradient.solid')}
           aria-pressed={mode === 'solid'}
           className={cn(
-            'px-2 py-1',
+            'px-2 py-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
             mode === 'solid' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
           )}
           onClick={() => mode === 'gradient' && activateSolid()}
@@ -282,7 +283,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
           aria-label={t('style.lineGradient.gradient')}
           aria-pressed={mode === 'gradient'}
           className={cn(
-            'px-2 py-1',
+            'px-2 py-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
             mode === 'gradient' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
           )}
           onClick={() => mode === 'solid' && activateGradient()}
@@ -307,6 +308,16 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
       {mode === 'gradient' && !isCustomExpression && liveStops && (
         <div className="space-y-1.5">
+          <div
+            data-testid="line-gradient-preview-swatch"
+            aria-hidden="true"
+            className="h-3 rounded w-full border border-border"
+            style={{
+              background: `linear-gradient(to right, ${liveStops
+                .map((s) => `${s.color} ${Math.round(s.position * 100)}%`)
+                .join(', ')})`,
+            }}
+          />
           {liveStops.map((stop, idx) => {
             const pendingPos = pendingPositionEdits[idx];
             const displayedPos = pendingPos !== undefined ? pendingPos : stop.position;
@@ -326,10 +337,11 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
               <div key={idx} className="space-y-1">
                 <div className="flex items-center gap-2">
                   <StyleColorPicker
-                    label={t('style.lineGradient.color')}
+                    label=""
                     color={stop.color}
                     onChange={(hex) => updateStopColor(idx, hex)}
                   />
+                  <span className="text-xs text-muted-foreground shrink-0" aria-hidden="true">pos</span>
                   <Input
                     type="number"
                     aria-label={t('style.lineGradient.position')}
@@ -343,16 +355,23 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
                     }}
                     className="h-7 w-20 text-xs"
                   />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={t('style.lineGradient.removeStop')}
-                    disabled={liveStops.length <= 2}
-                    onClick={() => removeStop(idx)}
-                    className="h-7 w-7 p-0"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t('style.lineGradient.removeStop')}
+                        disabled={liveStops.length <= 2}
+                        onClick={() => removeStop(idx)}
+                        className="h-7 w-7 p-0"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {t('style.lineGradient.removeStop')}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 {!positionValid && (
                   <div className="text-xs text-destructive">{t('style.lineGradient.invalidPosition')}</div>
@@ -380,7 +399,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
           type="button"
           aria-label={t('style.lineGradient.advanced')}
           aria-expanded={advancedOpen}
-          className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="flex w-full items-center justify-start gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
           onClick={() => (advancedOpen ? cancelAdvanced() : openAdvanced())}
         >
           {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}
