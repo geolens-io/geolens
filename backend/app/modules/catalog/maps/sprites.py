@@ -16,6 +16,12 @@ from xml.etree.ElementTree import Element
 from defusedxml import ElementTree
 from defusedxml.ElementTree import fromstring, tostring
 from PIL import Image, ImageColor, ImageDraw, UnidentifiedImageError
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.catalog.maps.models import MapIconAsset
+from app.modules.catalog.maps.schemas import MapIconResponse
+from app.platform.storage import get_storage
 
 # SEC-09: register the SVG namespace as the empty prefix so re-serialized SVGs
 # emit `<svg xmlns="...">` rather than `<ns0:svg xmlns:ns0="...">`. This keeps
@@ -24,12 +30,6 @@ from PIL import Image, ImageColor, ImageDraw, UnidentifiedImageError
 # and slip past byte-match checks. Registering once at import time is safe;
 # stdlib ElementTree namespace registration is process-global.
 _stdlib_ET.register_namespace("", "http://www.w3.org/2000/svg")
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.modules.catalog.maps.models import MapIconAsset
-from app.modules.catalog.maps.schemas import MapIconResponse
-from app.platform.storage import get_storage
 
 MAX_ICON_BYTES = 512 * 1024
 SUPPORTED_MEDIA_TYPES = {"image/svg+xml": ".svg", "image/png": ".png"}
