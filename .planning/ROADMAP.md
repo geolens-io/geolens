@@ -253,11 +253,11 @@ Plans:
 
 Plans:
 - [ ] 278-01-PLAN.md — Coverage threshold ratchets: backend pyproject + frontend vitest config (TEST-01, TEST-02)
-- [ ] 278-02-PLAN.md — New component tests: LayerPanel + MapTitleBar (TEST-03)
-- [ ] 278-03-PLAN.md — E2E polling refactor: builder + post-impl + record-detail specs (TEST-04, TEST-05)
+- [x] 278-02-PLAN.md — New component tests: LayerPanel + MapTitleBar (TEST-03)
+- [x] 278-03-PLAN.md — E2E polling refactor: builder + post-impl + record-detail specs (TEST-04, TEST-05)
 - [x] 278-04-PLAN.md — Frontend test cleanup: SourcesTab it.todo migration + VrtCreatorForm setTimeout → waitFor (TEST-07, TEST-08)
-- [ ] 278-05-PLAN.md — Backend test hygiene: mock-assertion sample-audit + pytest.skip → decorator migration (TEST-06, TEST-09)
-- [ ] 278-06-PLAN.md — H-33 L144 fixture stabilization or deletion + pending todo close (TEST-10)
+- [x] 278-05-PLAN.md — Backend test hygiene: mock-assertion sample-audit + pytest.skip → decorator migration (TEST-06, TEST-09)
+- [x] 278-06-PLAN.md — H-33 L144 fixture stabilization or deletion + pending todo close (TEST-10)
 
 ## Progress
 
@@ -270,7 +270,7 @@ Plans:
 | 262. Milestone Closeout | 0/1 | Not started | - |
 | 276. Backend & Frontend Code Quality (v13.13) | 4/7 | In Progress|  |
 | 277. i18n & Env Standardization (v13.13) | 4/8 | In Progress|  |
-| 278. Test Health & Coverage (v13.13) | 4/6 | In Progress | - |
+| 278. Test Health & Coverage (v13.13) | 5/6 | In Progress|  |
 
 ## Backlog
 

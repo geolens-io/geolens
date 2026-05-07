@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
 status: completed
-stopped_at: "278-04 complete: TEST-07 zero-diff at HEAD (preempted in ced17b2f); TEST-08 fixed in ab2ba3e8. 10/10 tests pass."
-last_updated: "2026-05-07T21:44:12.080Z"
+stopped_at: "278-05 complete: TEST-06 sample-audit (6/6 mock-call-count → behavior assertions) in 79560030; TEST-09 (29 inline pytest.skip → @pytest.mark.skipif decorators across 6 backend files) in 95d619ec. Backend collection topology unchanged (2541/2555); 9 inline skips remain with justification comments."
+last_updated: "2026-05-07T21:50:00.000Z"
 last_activity: "2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests"
 progress:
   total_phases: 14
   completed_phases: 3
   total_plans: 29
-  completed_plans: 29
+  completed_plans: 30
   percent: 100
 ---
 
@@ -79,8 +79,10 @@ Phase 276 progress: 4/7 plans complete (276-01, 276-03, 276-04, 276-05). STATE r
 
 Plan 278-04 (frontend test cleanup — SourcesTab it.todo migration + VrtCreatorForm setTimeout → waitFor, TEST-07/TEST-08) executed 2026-05-07 alongside v13.11 winddown. Single new commit `ab2ba3e8` (refactor — VrtCreatorForm selectSource helper compound waitFor against input-cleared + dropdown-button-absent). TEST-07 was preemptively shipped by parallel agent in `ced17b2f` (commit titled "refactor(278-03): … (TEST-05)"); zero-diff at HEAD for SourcesTab.test.tsx and `.planning/backlog/SourcesTab-test-todos.md` when 278-04 began. Commit `ab2ba3e8` also inadvertently included `e2e/dataset-detail.spec.ts` from a concurrent 278-06 (TEST-10) agent — orphan attribution; functional state at HEAD correct (mirrors v13.12 Phase 269 race-condition pattern). Closes TEST-07 + TEST-08. Phase 278 progress: 4/6 plans complete (278-02, 278-03, 278-04, 278-06).
 
+Plan 278-05 (mock-assertion sample-audit + pytest.skip migration, TEST-06/TEST-09) executed 2026-05-07 alongside v13.11 winddown. Two commits: `79560030` (refactor — TEST-06: 6/6 mock-call-count assertions in `test_phase_273_startup_warnings.py` converted to behavior-style `assert_not_called`/`assert_called_once_with` matching against canonical structlog event names + verbatim message kwargs; one-shot regression guard preserved by re-asserting `assert_called_once_with` after second invocation) and `95d619ec` (refactor — TEST-09: 29 inline `pytest.skip` calls migrated to `@pytest.mark.skipif` decorators across 6 backend files via 9 module-level constants; 9 inline skips retained with `# pytest.skip kept inline:` justification comments — all module-level `allow_module_level=True`, runtime-interpolated reasons, or after-meaningful-work). Backend collection topology byte-identical at 2541/2555 tests; pass/skip/fail topology delta is a strict improvement (2 vrt_titiler tests previously errored on async DB fixture before reaching their inline `_check_titiler()` skip; with the gather-time decorator gate they now correctly skip — 7 errors → 5 errors, 1 skip → 3 skips, total preserved at 45). Reusable behavior-assertion template documented in SUMMARY for the remaining ~84 mock-assertion sites elsewhere in the codebase. Closes TEST-06 + TEST-09. Phase 278 progress: 5/6 plans complete (278-02, 278-03, 278-04, 278-05, 278-06).
+
 ## Session Continuity
 
-Last session: 2026-05-07T21:43:47.393Z
-Stopped at: 278-04 complete: TEST-07 zero-diff at HEAD (preempted in ced17b2f); TEST-08 fixed in ab2ba3e8. 10/10 tests pass.
+Last session: 2026-05-07T21:50:00.000Z
+Stopped at: 278-05 complete: TEST-06 sample-audit (6/6 mock-call-count → behavior assertions) in 79560030; TEST-09 (29 inline pytest.skip → @pytest.mark.skipif decorators across 6 backend files) in 95d619ec. Backend collection topology unchanged (2541/2555); 9 inline skips remain with justification comments.
 Resume file: None
