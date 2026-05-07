@@ -465,6 +465,15 @@ app.add_middleware(
     RequestBodyLimitMiddleware,
     max_bytes=settings.upload_max_size_mb * 1024 * 1024,
 )
+# SEC-17 / L-63: middleware mount order is significant.
+# add_middleware PREPENDS to the chain — later calls wrap as the OUTER layer.
+# On the RESPONSE path, OUTER runs LAST. We need SecurityHeadersMiddleware to
+# run FIRST on the response (so headers are added BEFORE compression), then
+# GZipMiddleware to compress, so the order is:
+#   1. SecurityHeadersMiddleware (added FIRST → INNER → runs FIRST on response)
+#   2. GZipMiddleware            (added SECOND → OUTER → runs SECOND on response)
+# Pinned by tests/test_phase_273_middleware_order.py — do not flip without
+# updating that regression test.
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=256, compresslevel=4)
 app.add_middleware(DynamicCORSMiddleware)
