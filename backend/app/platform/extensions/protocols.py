@@ -18,6 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from app.core.identity import Identity
+
+    # NOTE (CODE-14): Identity forward-reference quoting convention —
+    # use ``"Identity"`` for required Identity parameters and
+    # ``"Identity | None"`` for optional ones. Both are quoted because
+    # the import only resolves under TYPE_CHECKING; runtime imports
+    # would create a circular dependency with app.core.identity.
+    # Keep this convention consistent across the file.
     from app.platform.audit import AuditEvent
     from app.processing.ai.llm_loop import (
         ActionCollector,
