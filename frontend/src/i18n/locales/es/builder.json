@@ -148,22 +148,22 @@
       "accent": "Accent"
     },
     "lineGradient": {
-      "label": "Line color",
-      "solid": "Solid color",
-      "gradient": "Gradient",
-      "addStop": "Add stop",
-      "removeStop": "Remove stop",
-      "position": "Position",
+      "label": "Color de línea",
+      "solid": "Color sólido",
+      "gradient": "Degradado",
+      "addStop": "Agregar parada",
+      "removeStop": "Eliminar parada",
+      "position": "Posición",
       "color": "Color",
-      "invalidPosition": "Position must be between 0 and 1",
-      "duplicatePosition": "Stop positions should increase",
-      "customExpression": "Custom expression — switch to Advanced editor",
-      "advanced": "Advanced expression",
-      "advancedHint": "Edit raw MapLibre expression. Paste a canonical interpolate-linear-line-progress expression to re-hydrate the stops panel.",
-      "applyExpression": "Apply",
-      "cancelExpression": "Cancel",
-      "parseError": "Invalid JSON",
-      "structureError": "Expression must be an array starting with a known operator"
+      "invalidPosition": "La posición debe estar entre 0 y 1",
+      "duplicatePosition": "Las posiciones de las paradas deben aumentar",
+      "customExpression": "Expresión personalizada — cambia al editor avanzado",
+      "advanced": "Expresión avanzada",
+      "advancedHint": "Pega una expresión line-gradient de MapLibre. Las expresiones canónicas reconocidas volverán a llenar el panel de paradas.",
+      "applyExpression": "Aplicar",
+      "cancelExpression": "Cancelar",
+      "parseError": "JSON no válido",
+      "structureError": "La expresión debe ser un arreglo que comience con un operador conocido"
     }
   },
   "filters": {

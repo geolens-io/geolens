@@ -148,22 +148,22 @@
       "accent": "Accent"
     },
     "lineGradient": {
-      "label": "Line color",
-      "solid": "Solid color",
-      "gradient": "Gradient",
-      "addStop": "Add stop",
-      "removeStop": "Remove stop",
+      "label": "Linienfarbe",
+      "solid": "Volltonfarbe",
+      "gradient": "Verlauf",
+      "addStop": "Stopp hinzufügen",
+      "removeStop": "Stopp entfernen",
       "position": "Position",
-      "color": "Color",
-      "invalidPosition": "Position must be between 0 and 1",
-      "duplicatePosition": "Stop positions should increase",
-      "customExpression": "Custom expression — switch to Advanced editor",
-      "advanced": "Advanced expression",
-      "advancedHint": "Edit raw MapLibre expression. Paste a canonical interpolate-linear-line-progress expression to re-hydrate the stops panel.",
-      "applyExpression": "Apply",
-      "cancelExpression": "Cancel",
-      "parseError": "Invalid JSON",
-      "structureError": "Expression must be an array starting with a known operator"
+      "color": "Farbe",
+      "invalidPosition": "Position muss zwischen 0 und 1 liegen",
+      "duplicatePosition": "Stopp-Positionen sollten ansteigen",
+      "customExpression": "Benutzerdefinierter Ausdruck — wechsle zum erweiterten Editor",
+      "advanced": "Erweiterter Ausdruck",
+      "advancedHint": "Füge einen MapLibre line-gradient-Ausdruck ein. Erkannte kanonische Ausdrücke füllen das Stopp-Panel erneut.",
+      "applyExpression": "Anwenden",
+      "cancelExpression": "Abbrechen",
+      "parseError": "Ungültiges JSON",
+      "structureError": "Ausdruck muss ein Array sein, das mit einem bekannten Operator beginnt"
     }
   },
   "filters": {
