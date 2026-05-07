@@ -71,10 +71,10 @@ services:
       api:
         condition: service_healthy
       worker:
-        # Ingest jobs are processed by the Celery worker — the seeder needs
-        # both the API (for POST /api/ingest/*) and the worker (to drain the
-        # queue) before submitting any jobs. Without this, a cold-start race
-        # can leave submitted jobs stuck pending.
+        # Ingest jobs are processed by the Procrastinate worker — the seeder
+        # needs both the API (for POST /api/ingest/*) and the worker (to
+        # drain the queue) before submitting any jobs. Without this, a
+        # cold-start race can leave submitted jobs stuck pending.
         condition: service_healthy
     # Seeder is idempotent on datasets (skips existing) so retries are safe.
     # Guards against transient API slowness / DB not-ready at first boot.
