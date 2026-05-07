@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 import uuid as uuid_mod
+from collections import OrderedDict
 
 import structlog
 from sqlalchemy import select
@@ -21,9 +23,70 @@ logger = structlog.stdlib.get_logger(__name__)
 EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class()
 
 
+# Phase 269 H-22: TTL LRU cache for query embeddings.
+# Per-query embedding generation calls the configured AI provider (e.g.,
+# OpenAI text-embedding-3-small at 200-800 ms per call). Repeated identical
+# queries within ~5 minutes are common during user sessions and should not
+# pay that cost on every request. The cache key is `(query_text.lower(),
+# model_name)` so case variations and accidental whitespace collide. TTL is
+# 300 seconds (matches audit recommendation), max 512 entries.
+_EMBEDDING_CACHE_TTL_SECONDS = 300.0
+_EMBEDDING_CACHE_MAX_SIZE = 512
+_embedding_cache: "OrderedDict[tuple[str, str], tuple[float, list[float]]]" = (
+    OrderedDict()
+)
+
+
+def _embedding_cache_get(key: tuple[str, str]) -> list[float] | None:
+    """Return a cached embedding if present and not expired; else None."""
+    entry = _embedding_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, vector = entry
+    if expires_at < time.monotonic():
+        _embedding_cache.pop(key, None)
+        return None
+    # Move to end so LRU-eviction picks the truly oldest entry.
+    _embedding_cache.move_to_end(key)
+    return vector
+
+
+def _embedding_cache_put(key: tuple[str, str], vector: list[float]) -> None:
+    """Insert with TTL; evict oldest when over capacity."""
+    expires_at = time.monotonic() + _EMBEDDING_CACHE_TTL_SECONDS
+    _embedding_cache[key] = (expires_at, vector)
+    _embedding_cache.move_to_end(key)
+    while len(_embedding_cache) > _EMBEDDING_CACHE_MAX_SIZE:
+        _embedding_cache.popitem(last=False)
+
+
+def _embedding_cache_clear() -> None:
+    """Clear the cache (test-helper)."""
+    _embedding_cache.clear()
+
+
 async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
-    """Generate an embedding through the configured CatalogPort provider."""
-    return await get_catalog_port().generate_embedding(text, session)
+    """Generate an embedding through the configured CatalogPort provider.
+
+    Phase 269 H-22: results are memoized in a TTL LRU cache keyed on
+    `(text.strip().lower(), model_name)`, TTL 300s. Cache write only happens
+    on the success path; provider errors propagate to callers as before.
+    """
+    normalized = text.strip().lower()
+    if not normalized:
+        # Don't cache empty inputs — let the provider raise its usual error.
+        return await get_catalog_port().generate_embedding(text, session)
+
+    model_name = await EMBEDDING_MODEL.get(session)
+    cache_key = (normalized, model_name)
+
+    cached = _embedding_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    vector = await get_catalog_port().generate_embedding(text, session)
+    _embedding_cache_put(cache_key, vector)
+    return vector
 
 
 async def _attach_updated_actor_identities(
