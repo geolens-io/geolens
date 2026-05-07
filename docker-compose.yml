@@ -76,6 +76,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
+      # API-05 (Phase 275): host-port fallback. .env.example defaults to 5434 to
+      # avoid colliding with a local postgres on 5432; the bare compose fallback
+      # uses 5432 so `docker compose up` without copying .env still works on a
+      # clean host. Set DB_PORT in .env to override.
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -185,6 +189,10 @@ services:
       - /var/run:size=8m
     entrypoint: ["/app/scripts/api-entrypoint.sh"]
     ports:
+      # API-05 (Phase 275): host-port fallback. .env.example defaults to 8001
+      # to avoid colliding with a local uvicorn or other API on 8000; the bare
+      # compose fallback uses 8000 so `docker compose up` without copying .env
+      # still works. Set API_PORT in .env to override.
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./backend/app:/app/app
