@@ -48,11 +48,25 @@ def _apply_filters(
     if date_to is not None:
         query = query.where(AuditLog.created_at <= date_to)
     if search is not None:
-        pattern = f"%{search}%"
+        # ADMIN-02 (Phase 279 / M-02): rewrite ILIKE to lower(unaccent(...)).like
+        # so the planner picks ix_audit_logs_action_trgm and ix_users_username_trgm
+        # functional GIN indexes from migration 0015. Those indexes are on
+        # lower(catalog.immutable_unaccent(...)); ILIKE on the bare column does
+        # NOT match the indexed expression, so without this rewrite every admin
+        # audit search is a seq scan against a table that grows linearly with
+        # admin activity. Same shape as catalog.search.service_filters.
+        unaccented_like = func.concat("%", func.unaccent(search.lower()), "%")
+        action_match = func.lower(func.unaccent(AuditLog.action)).like(unaccented_like)
+        username_match = AuditLog.user_id.in_(
+            select(User.id).where(
+                func.lower(func.unaccent(User.username)).like(unaccented_like)
+            )
+        )
+        # resource_type stays ILIKE -- it is a fixed enum-like string column with
+        # low cardinality and no trigram index; the optimizer handles it with the
+        # existing composite index on (resource_type) when present.
         search_filter = (
-            AuditLog.action.ilike(pattern)
-            | AuditLog.resource_type.ilike(pattern)
-            | AuditLog.user_id.in_(select(User.id).where(User.username.ilike(pattern)))
+            action_match | AuditLog.resource_type.ilike(f"%{search}%") | username_match
         )
         query = query.where(search_filter)
     return query
