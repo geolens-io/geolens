@@ -3,7 +3,11 @@
 Adds standard security headers to all API responses:
 - X-Content-Type-Options: nosniff -- prevents MIME-type sniffing
 - Referrer-Policy: strict-origin-when-cross-origin -- limits referrer leakage
+  (skipped if the route already set Referrer-Policy, e.g. OAuth callbacks
+  use no-referrer per SEC-13)
 - Content-Security-Policy: frame-ancestors 'self' -- prevents clickjacking
+  (skipped if the route already set Content-Security-Policy, e.g. the icon
+  GET endpoint uses `default-src 'none'; sandbox` for SVG per SEC-01)
 - X-Frame-Options: DENY -- legacy clickjacking protection
 - Permissions-Policy: camera=(), microphone=(), geolocation=() -- restricts browser features
 - Strict-Transport-Security (conditional) -- enforces HTTPS when behind TLS terminator
@@ -26,7 +30,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # routes still get the global strict-origin-when-cross-origin default.
         if "referrer-policy" not in (h.lower() for h in response.headers.keys()):
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        # SEC-01: only set the global Content-Security-Policy if the route did
+        # NOT already set it. The icon GET handler (router for catalog.maps)
+        # uses `default-src 'none'; sandbox` for image/svg+xml responses to
+        # isolate uploaded SVGs from the user's auth context; non-icon routes
+        # still get the global frame-ancestors 'self' default.
+        if "content-security-policy" not in (
+            h.lower() for h in response.headers.keys()
+        ):
+            response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=()"

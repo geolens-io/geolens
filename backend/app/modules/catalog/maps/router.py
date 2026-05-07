@@ -498,7 +498,15 @@ async def get_map_icon_asset_endpoint(
     icon_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Serve an uploaded or bundled icon asset by stable icon ID."""
+    """Serve an uploaded or bundled icon asset by stable icon ID.
+
+    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
+    origins, run scripts, or read auth cookies even if validation is bypassed
+    in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
+    image/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware
+    default ``frame-ancestors 'self'``.
+    """
     icon = await get_icon_content(db, icon_id)
     if icon is None:
         raise HTTPException(
@@ -506,10 +514,16 @@ async def get_map_icon_asset_endpoint(
             detail="Icon not found",
         )
     content, media_type = icon
+    headers = {"Cache-Control": "public, max-age=3600"}
+    if media_type == "image/svg+xml":
+        # SEC-01: isolate uploaded SVGs from the user's auth context. The
+        # SecurityHeadersMiddleware uses setdefault semantics for CSP so this
+        # route-level value wins over the global frame-ancestors default.
+        headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
     return Response(
         content=content,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=3600"},
+        headers=headers,
     )
 
 
