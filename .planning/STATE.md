@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v13.11
 milestone_name: Map Builder Polish & Quality Sweep
 status: completed
-stopped_at: "278-05 complete: TEST-06 sample-audit (6/6 mock-call-count → behavior assertions) in 79560030; TEST-09 (29 inline pytest.skip → @pytest.mark.skipif decorators across 6 backend files) in 95d619ec. Backend collection topology unchanged (2541/2555); 9 inline skips remain with justification comments."
-last_updated: "2026-05-07T21:50:00.000Z"
-last_activity: "2026-05-07 — 258-02 complete: POLISH-06 stable per-stop UUID keys; type extension + memoized hydration + key={stop.id} + 4 regression tests"
+stopped_at: "278-01 complete: TEST-01 backend fail_under 58.5→60 in 18aef1aa; TEST-02 frontend thresholds 32/27/27/32→41/39/37/42 in 4d13ad3d. Phase 278 now 6/6 plans complete (all TEST-01..10 reqs closed)."
+last_updated: "2026-05-07T22:13:12.261Z"
+last_activity: "2026-05-07 — 278-01 complete: backend fail_under 58.5→60 + frontend thresholds 32/27/27/32→41/39/37/42 (floor(actual) per dim); +9/+12/+10/+10 deltas; 1239 frontend + 2333 backend tests green"
 progress:
   total_phases: 14
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 29
-  completed_plans: 30
+  completed_plans: 31
   percent: 100
 ---
 
@@ -81,8 +81,10 @@ Plan 278-04 (frontend test cleanup — SourcesTab it.todo migration + VrtCreator
 
 Plan 278-05 (mock-assertion sample-audit + pytest.skip migration, TEST-06/TEST-09) executed 2026-05-07 alongside v13.11 winddown. Two commits: `79560030` (refactor — TEST-06: 6/6 mock-call-count assertions in `test_phase_273_startup_warnings.py` converted to behavior-style `assert_not_called`/`assert_called_once_with` matching against canonical structlog event names + verbatim message kwargs; one-shot regression guard preserved by re-asserting `assert_called_once_with` after second invocation) and `95d619ec` (refactor — TEST-09: 29 inline `pytest.skip` calls migrated to `@pytest.mark.skipif` decorators across 6 backend files via 9 module-level constants; 9 inline skips retained with `# pytest.skip kept inline:` justification comments — all module-level `allow_module_level=True`, runtime-interpolated reasons, or after-meaningful-work). Backend collection topology byte-identical at 2541/2555 tests; pass/skip/fail topology delta is a strict improvement (2 vrt_titiler tests previously errored on async DB fixture before reaching their inline `_check_titiler()` skip; with the gather-time decorator gate they now correctly skip — 7 errors → 5 errors, 1 skip → 3 skips, total preserved at 45). Reusable behavior-assertion template documented in SUMMARY for the remaining ~84 mock-assertion sites elsewhere in the codebase. Closes TEST-06 + TEST-09. Phase 278 progress: 5/6 plans complete (278-02, 278-03, 278-04, 278-05, 278-06).
 
+Plan 278-01 (coverage threshold ratchets, TEST-01/TEST-02) executed 2026-05-07 alongside v13.11 winddown. Two commits: `18aef1aa` (chore — TEST-01: backend `fail_under` raised 58.5 → 60 with inline rationale comment citing TEST-01/Phase 278 + ratchet methodology; baseline actual 77.02% leaves 17pt headroom — further ratchet deferred to follow-up round once unrelated test-collection errors `test_tile_cache.py` cachetools import + `test_phase_272_compose.py` setup are resolved) and `4d13ad3d` (chore — TEST-02: frontend coverage thresholds ratcheted 32/27/27/32 → 41/39/37/42 statements/branches/functions/lines with inline rationale + actuals + per-dim deltas; plan-prescribed `+2` buffer (43/41/39/44) failed all 4 dims because actuals 41.51/39.42/37.99/42.69 sit < 1pt above their integer floors and the plan's `+1` fallback would also fail for the same reason — landed at `+0` (= floor(actual)) with explicit rationale comment so next ratchet round understands the choice). All 1239 frontend tests + 2333 backend tests passing at new thresholds; gate-fail loud on >1.5pt regression. Closes TEST-01 + TEST-02. Phase 278 progress: 6/6 plans complete (278-01, 278-02, 278-03, 278-04, 278-05, 278-06).
+
 ## Session Continuity
 
-Last session: 2026-05-07T21:50:00.000Z
-Stopped at: 278-05 complete: TEST-06 sample-audit (6/6 mock-call-count → behavior assertions) in 79560030; TEST-09 (29 inline pytest.skip → @pytest.mark.skipif decorators across 6 backend files) in 95d619ec. Backend collection topology unchanged (2541/2555); 9 inline skips remain with justification comments.
+Last session: 2026-05-07T22:13:00.000Z
+Stopped at: 278-01 complete: TEST-01 backend fail_under 58.5→60 in 18aef1aa; TEST-02 frontend thresholds 32/27/27/32→41/39/37/42 in 4d13ad3d. All 1239 frontend tests + 2333 backend tests pass at new thresholds. Phase 278 now 6/6 plans complete.
 Resume file: None
