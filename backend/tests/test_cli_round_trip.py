@@ -56,6 +56,9 @@ _SDK_PY_PATH = _REPO_ROOT / "sdks" / "python"
 _CLI_PATH = _REPO_ROOT / "cli"
 
 if not (_SDK_PY_PATH / "geolens" / "auth.py").is_file():
+    # pytest.skip kept inline: allow_module_level=True is required at module
+    # scope to abort the rest of the import chain (the SDK + CLI imports below
+    # would fail) before any test functions are defined.
     pytest.skip(
         "geolens source tree not present at "
         f"{_SDK_PY_PATH} (expected when running inside the api container; "
@@ -63,6 +66,8 @@ if not (_SDK_PY_PATH / "geolens" / "auth.py").is_file():
         allow_module_level=True,
     )
 if not (_CLI_PATH / "geolens_cli" / "main.py").is_file():
+    # pytest.skip kept inline: allow_module_level=True — same reason as above,
+    # CLI tree absence is checked at module scope before geolens_cli import.
     pytest.skip(
         "geolens_cli source tree not present at "
         f"{_CLI_PATH} (expected when running inside the api container; "
@@ -82,6 +87,10 @@ for p in (_SDK_PY_PATH, _CLI_PATH):
 try:
     from geolens_cli.main import app  # noqa: E402
 except ImportError as _import_err:
+    # pytest.skip kept inline: skip is inside try/except (cannot model the
+    # exception path with a decorator) and the reason f-string interpolates
+    # the live ImportError message; allow_module_level=True is required at
+    # module scope.
     pytest.skip(
         f"geolens_cli imports failed (likely missing optional dep: {_import_err}); "
         "Backend Tests CI doesn't install CLI deps. Host pytest and the "
@@ -337,6 +346,10 @@ class TestPublishRoundTrip:
                 result.output
             )
         else:
+            # pytest.skip kept inline: branches on the runtime CLI exit code
+            # AND interpolates exit_code + output into the reason string —
+            # the value is only known after the test has executed the publish
+            # command. A decorator cannot model post-execution branching.
             pytest.skip(
                 f"Publish round-trip exited {result.exit_code}; "
                 f"unit test cli/tests/test_publish_unit.py covers the "

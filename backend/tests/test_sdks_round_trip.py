@@ -58,6 +58,9 @@ from httpx import ASGITransport
 # CI's dedicated `sdks-check` job catches generation drift independently.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _SDK_PY_PATH = _REPO_ROOT / "sdks" / "python"
+# pytest.skip kept inline: allow_module_level=True is required at module scope
+# (no test function exists yet to decorate); the `if` runs at import time
+# to abort the rest of the module load when the SDK tree is absent.
 if not (_SDK_PY_PATH / "geolens" / "auth.py").is_file():
     pytest.skip(
         "geolens source tree not present at "
@@ -70,6 +73,20 @@ if str(_SDK_PY_PATH) not in _sys.path:
 
 from geolens.auth import GeolensClient  # noqa: E402
 from geolens.client import AuthenticatedClient, Client  # noqa: E402
+
+# Phase 278 TEST-09: lift the 3 TypeScript-round-trip skip preconditions to
+# module-level constants so the conditional skips become @pytest.mark.skipif
+# decorators (collected at gather-time). All three checks are pure (no
+# side effects, no network).
+_TS_DIST_PATH = _REPO_ROOT / "sdks" / "typescript" / "dist" / "index.js"
+_NODE_AVAILABLE: bool = shutil.which("node") is not None
+_TS_SDK_BUILT: bool = _TS_DIST_PATH.exists()
+try:
+    import uvicorn as _uvicorn_check  # noqa: F401
+
+    _UVICORN_AVAILABLE: bool = True
+except ImportError:
+    _UVICORN_AVAILABLE = False
 
 
 # --------------------------- Helpers ---------------------------
@@ -299,29 +316,33 @@ class TestPythonRoundTrip:
 
 
 @pytest.mark.anyio
+@pytest.mark.skipif(not _NODE_AVAILABLE, reason="node not available on this runner")
+@pytest.mark.skipif(
+    not _TS_SDK_BUILT,
+    reason=(
+        "TypeScript SDK not built (sdks/typescript/dist/index.js missing). "
+        "Run `cd sdks/typescript && npm install && npm run build` first."
+    ),
+)
+@pytest.mark.skipif(
+    not _UVICORN_AVAILABLE,
+    reason="uvicorn not installed (TS half needs a real HTTP server)",
+)
 async def test_typescript_round_trip(client, admin_auth_header) -> None:
     """Spawn a Node subprocess that exercises the TypeScript SDK against a
     uvicorn instance bound to a free port on 127.0.0.1.
 
-    Per RESEARCH Assumption A3: if ``node`` is not available on the runner
-    OR the SDK has not been built (``dist/index.js`` missing), this test skips
-    with a clear reason. The CI workflow ensures both are present.
+    Per RESEARCH Assumption A3: skip preconditions (node availability, TS SDK
+    built, uvicorn importable) are evaluated at module import time and
+    expressed as @pytest.mark.skipif decorators (Phase 278 TEST-09). The CI
+    workflow ensures all three are present.
     """
+    # `node` resolves to the path discovered at module import; node executable
+    # location does not change during the test run.
     node = shutil.which("node")
-    if not node:
-        pytest.skip("node not available on this runner")
+    ts_dist = _TS_DIST_PATH
 
-    ts_dist = _REPO_ROOT / "sdks" / "typescript" / "dist" / "index.js"
-    if not ts_dist.exists():
-        pytest.skip(
-            f"TypeScript SDK not built ({ts_dist} missing). "
-            "Run `cd sdks/typescript && npm install && npm run build` first."
-        )
-
-    try:
-        import uvicorn  # noqa: F401
-    except ImportError:
-        pytest.skip("uvicorn not installed (TS half needs a real HTTP server)")
+    import uvicorn
 
     from app.api.main import app
 

@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 # Resolve repo root from this test file's location:
 #   backend/tests/test_phase_275_runbooks.py -> parents[2] -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Phase 278 TEST-09: lift the gitignored slash-command target to a module-level
+# constant so the conditional skip can be expressed as a decorator (skipif),
+# not a runtime check. Path is fully derivable from REPO_ROOT — no side effects.
+_OC_AUDIT_COMMAND_PATH = REPO_ROOT / ".claude/commands/oc-audit.md"
+_OC_AUDIT_COMMAND_PRESENT = _OC_AUDIT_COMMAND_PATH.exists()
 
 
 def _read(rel_path: str) -> str:
@@ -61,22 +69,19 @@ def test_oc_audit_methodology_doc_exists() -> None:
     )
 
 
+@pytest.mark.skipif(
+    not _OC_AUDIT_COMMAND_PRESENT,
+    reason=".claude/commands/oc-audit.md not present (gitignored)",
+)
 def test_oc_audit_command_references_methodology() -> None:
     """API-12: .claude/commands/oc-audit.md links to the methodology doc.
 
     Note: `.claude/` is gitignored in this repo (Claude Code slash-command config
     is user-local), so this test reads the local file. The cross-reference is a
-    developer-experience concern; CI without the local Claude config will skip
-    via the conditional below.
+    developer-experience concern; CI without the local Claude config skips via
+    the @pytest.mark.skipif decorator above (Phase 278 TEST-09).
     """
-    target = REPO_ROOT / ".claude/commands/oc-audit.md"
-    if not target.exists():
-        # File is gitignored and may be absent on CI / fresh checkouts. The
-        # cross-reference itself is a local-developer-only deliverable.
-        import pytest
-
-        pytest.skip(".claude/commands/oc-audit.md not present (gitignored)")
-    body = target.read_text(encoding="utf-8")
+    body = _OC_AUDIT_COMMAND_PATH.read_text(encoding="utf-8")
     assert "oc-audit-methodology" in body, (
         ".claude/commands/oc-audit.md must cross-link to docs/oc-audit-methodology.md"
     )

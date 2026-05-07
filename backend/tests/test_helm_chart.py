@@ -24,13 +24,27 @@ _HELM_CHART = _REPO_ROOT / "deployment" / "helm" / "geolens"
 _SECRET_TEMPLATE = _HELM_CHART / "templates" / "secret.yaml"
 _VALUES = _HELM_CHART / "values.yaml"
 
+# Phase 278 TEST-09: lift file-existence checks to module-level so the
+# conditional skip becomes a decorator. Paths are pure derivations from
+# REPO_ROOT — no side effects.
+_SECRET_TEMPLATE_PRESENT = _SECRET_TEMPLATE.exists()
+_VALUES_PRESENT = _VALUES.exists()
+
 
 def _read(path: Path) -> str:
+    # pytest.skip kept inline: defensive guard against any caller passing a
+    # path not covered by the module-level skipif decorators below. Decorator-
+    # gated callers will never reach this branch; this is the helper's safety
+    # net for accidental future call sites with an unguarded path.
     if not path.exists():
         pytest.skip(f"Helm chart file not found at {path}")
     return path.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(
+    not _SECRET_TEMPLATE_PRESENT,
+    reason="Helm secret template not present (deployment/helm/ omitted)",
+)
 def test_helm_secret_template_uses_jwt_secret_key() -> None:
     """The Helm secret renders JWT_SECRET_KEY (matches Pydantic field name).
 
@@ -47,6 +61,10 @@ def test_helm_secret_template_uses_jwt_secret_key() -> None:
     )
 
 
+@pytest.mark.skipif(
+    not _SECRET_TEMPLATE_PRESENT,
+    reason="Helm secret template not present (deployment/helm/ omitted)",
+)
 def test_helm_secret_template_does_not_use_legacy_secret_key() -> None:
     """The deprecated SECRET_KEY env-var name must not reappear.
 
@@ -70,6 +88,10 @@ def test_helm_secret_template_does_not_use_legacy_secret_key() -> None:
             )
 
 
+@pytest.mark.skipif(
+    not _VALUES_PRESENT,
+    reason="Helm values.yaml not present (deployment/helm/ omitted)",
+)
 def test_helm_values_uses_jwt_secret_key_naming() -> None:
     """values.yaml must use jwtSecretKey (matches the env-var rename).
 

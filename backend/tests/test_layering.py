@@ -122,17 +122,33 @@ def _has_pathspec_magic() -> bool:
     exit code that is not the standard "no matches" rc=1. In containers
     pinned to ancient git, fall back to skipping rather than failing.
     """
-    result = subprocess.run(
-        ["git", "--version"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return False
     if result.returncode != 0:
         return False
     # `git version 2.X.Y` -> extract minor X
     match = re.search(r"git version 2\.(\d+)", result.stdout)
     return match is not None and int(match.group(1)) >= 13
+
+
+# Module-level evaluation of git availability (Phase 278 TEST-09).
+# Cached once at import time so @pytest.mark.skipif decorators can reference
+# it. Both checks are pure (no side effects beyond a single subprocess call
+# to `git --version`); wrapped in try/except above to never raise at import.
+_GIT_METADATA_AVAILABLE: bool = _has_git_metadata()
+_PATHSPEC_MAGIC_AVAILABLE: bool = _has_pathspec_magic()
+_GIT_METADATA_REASON = "git metadata unavailable; arch test only runs on full clones"
+_PATHSPEC_MAGIC_REASON_GENERIC = (
+    "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce architecture "
+    "invariant via grep-based guard"
+)
 
 
 def _git_grep(pattern: str, path: str) -> subprocess.CompletedProcess[str]:
@@ -216,6 +232,7 @@ def _private_service_import_offenders(
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
 def test_core_does_not_import_from_any_module() -> None:
     """`backend/app/core/` must never import from `app.modules.*`.
 
@@ -231,9 +248,6 @@ def test_core_does_not_import_from_any_module() -> None:
     verbatim because it covers a different invariant (the deleted module
     PATH, not just the layering rule).
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-
     result = _git_grep(
         r"^\s*(from|import)\s+app\.modules\.",
         "backend/app/core/",
@@ -255,6 +269,7 @@ def test_core_does_not_import_from_any_module() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
 def test_app_settings_imports_only_via_core_db_models() -> None:
     """`AppSetting` must only be imported from `app.core.db.models`.
 
@@ -262,9 +277,6 @@ def test_app_settings_imports_only_via_core_db_models() -> None:
     (Phase 212 D-05). Anywhere across `backend/` that still names that module
     is a regression.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-
     # Match only import-shaped lines so docstrings/error messages in this
     # file that reference the deleted path do not trigger a self-positive.
     result = _git_grep(
@@ -285,6 +297,7 @@ def test_app_settings_imports_only_via_core_db_models() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
 def test_no_imports_from_auth_visibility() -> None:
     """`auth.visibility` import path must not appear anywhere under `backend/`.
 
@@ -292,9 +305,6 @@ def test_no_imports_from_auth_visibility() -> None:
     becomes a hard ModuleNotFoundError after this phase - any surviving import
     is a migration miss. Maps directly to ROADMAP SC#4.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-
     result = _git_grep(
         r"^\s*(from|import)\s+app\.modules\.auth\.visibility",
         "backend/",
@@ -314,6 +324,14 @@ def test_no_imports_from_auth_visibility() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; rely on the import-shaped "
+        "guard above (test_no_imports_from_auth_visibility) instead"
+    ),
+)
 def test_no_auth_visibility_module_referenced() -> None:
     """Broader guard: `auth.visibility` string must not appear as a module reference.
 
@@ -324,14 +342,6 @@ def test_no_auth_visibility_module_referenced() -> None:
     import-anchor; here we use the broader regex deliberately and rely on the
     pathspec exclusion instead).
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; rely on the import-shaped "
-            "guard above (test_no_imports_from_auth_visibility) instead"
-        )
-
     result = subprocess.run(
         [
             "git",
@@ -491,6 +501,14 @@ def test_workflow_publication_chokepoints_use_extension() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; install a newer git "
+        "or run this test from the host"
+    ),
+)
 def test_cross_domain_does_not_import_user_from_auth_models() -> None:
     """`from app.modules.auth.models import .*User` must only appear in the allowlist.
 
@@ -534,14 +552,6 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
 
     Maps directly to ROADMAP Phase 214 SC#2.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; install a newer git "
-            "or run this test from the host"
-        )
-
     result = subprocess.run(
         [
             "git",
@@ -591,6 +601,7 @@ def test_cross_domain_does_not_import_user_from_auth_models() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
 def test_no_external_imports_of_dataset_domain_submodules() -> None:
     """Phase 224 DECOUPLE-04: no external module imports the catalog/datasets/
     domain/service_X sub-modules directly. All consumers must go through the
@@ -621,9 +632,6 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
     (Phase 222) and BILLING-02 (Phase 223) architecture guards.
     See ``oc-separation-audit-20260430-b.md`` §5 + §7 P0 #1.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-
     # Pattern matches any of the 5 sub-modules OR the _sql_safety helper.
     # _sql_safety is an internal module (underscore prefix) holding shared
     # SQL-injection-prevention regexes; external callers must reach
@@ -867,6 +875,14 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 222 AUDIT-02 invariant via grep-based guard"
+    ),
+)
 def test_no_log_action_calls_outside_audit_service() -> None:
     """Phase 222 AUDIT-02: ``log_action()`` is called only by ``DefaultAuditSink.emit()``.
 
@@ -896,14 +912,6 @@ def test_no_log_action_calls_outside_audit_service() -> None:
     get_audit_sink().emit()") — implementation is via the ``audit_emit()``
     facade introduced in Plan 02.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
-            "Phase 222 AUDIT-02 invariant via grep-based guard"
-        )
-
     result = subprocess.run(
         [
             "git",
@@ -974,8 +982,13 @@ def test_no_core_marketplace_import() -> None:
         pass  # Expected: module was deleted
 
     # (b) No surviving import of app.core.marketplace anywhere in backend/app/
+    # pytest.skip kept inline: must run AFTER the importlib check above (a),
+    # which is the test's primary assertion; a top-level skipif decorator
+    # would skip the importlib check too and miss regressions.
     if not _has_git_metadata():
         pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    # pytest.skip kept inline: same reason as the git-metadata guard above —
+    # must follow part (a) of the test, not skip the entire function.
     if not _has_pathspec_magic():
         pytest.skip(
             "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
@@ -1015,6 +1028,7 @@ def test_no_core_marketplace_import() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
 def test_billing_dispatch_uses_hardcoded_timeout() -> None:
     """Phase 223 BILLING-04 / D-11: the production dispatch loop hardcodes timeout=10.0.
 
@@ -1032,9 +1046,6 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
     Negative-control: any change that wraps the timeout in a settings field
     or env-var lookup will fail this test (the literal will be missing).
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-
     result = subprocess.run(
         [
             "git",
@@ -1068,6 +1079,14 @@ def test_billing_dispatch_uses_hardcoded_timeout() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 225 PROCESS-04 invariant via grep-based guard"
+    ),
+)
 def test_no_processing_imports_catalog() -> None:
     """Phase 225 PROCESS-02/04: backend/app/processing/ must not have module-level imports from app.modules.catalog.*.
 
@@ -1098,14 +1117,6 @@ def test_no_processing_imports_catalog() -> None:
     Maps to Phase 225 ROADMAP SC#2 / SC#3. Inlines former Phase 999.11
     (added in same phase as the inversion — guard before inversion fails CI).
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
-            "Phase 225 PROCESS-04 invariant via grep-based guard"
-        )
-
     result = subprocess.run(
         [
             "git",
@@ -1137,6 +1148,14 @@ def test_no_processing_imports_catalog() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 230 CATPORT-04 invariant via grep-based guard"
+    ),
+)
 def test_no_catalog_imports_processing() -> None:
     """Phase 230 CATPORT-02/04: catalog/ must not import app.processing.*.
 
@@ -1145,14 +1164,6 @@ def test_no_catalog_imports_processing() -> None:
     (app.core.catalog_port). Strict zero-hit across module-level imports,
     function-local imports, and comments that try to preserve a direct edge.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
-            "Phase 230 CATPORT-04 invariant via grep-based guard"
-        )
-
     result = subprocess.run(
         [
             "git",
@@ -1184,6 +1195,14 @@ def test_no_catalog_imports_processing() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 226 AIEXT-03 invariant via grep-based guard"
+    ),
+)
 def test_no_hardcoded_ai_provider_branches() -> None:
     """Phase 226 AIEXT-03/05: no hardcoded ``if provider ==`` dispatch in processing/ai/.
 
@@ -1200,14 +1219,6 @@ def test_no_hardcoded_ai_provider_branches() -> None:
 
     Maps to AIEXT-03 + AIEXT-05 (REQUIREMENTS.md §Phase 226).
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
-            "Phase 226 AIEXT-03 invariant via grep-based guard"
-        )
-
     result = subprocess.run(
         [
             "git",
@@ -1240,6 +1251,7 @@ def test_no_hardcoded_ai_provider_branches() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
 def test_no_module_level_provider_sdk_imports_in_processing() -> None:
     """oc-audit 2026-05-02 §5 + Phase 231: backend/app/processing/ must not have
     module-level imports of provider SDKs (anthropic, openai).
@@ -1256,9 +1268,6 @@ def test_no_module_level_provider_sdk_imports_in_processing() -> None:
     ``backend/app/processing/embeddings/helpers.py``, run this test,
     confirm it fails with the offending line surfaced. Revert.
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-
     result = subprocess.run(
         [
             "git",
@@ -1398,6 +1407,10 @@ def test_upload_thumbnail_route_uses_json_body() -> None:
     if not router_path.exists():
         # Test runs from monorepo root; if path is relative-broken, skip
         # rather than false-fail on environment misconfiguration.
+        # pytest.skip kept inline: reason interpolates router_path which is
+        # computed via _backend_path() — the resolved value depends on the
+        # test runtime layout (host vs container), so a static decorator
+        # reason cannot capture the actual missing path.
         pytest.skip(f"router file not found at {router_path}")
 
     source = router_path.read_text(encoding="utf-8")
@@ -1484,6 +1497,14 @@ def test_upload_thumbnail_route_uses_json_body() -> None:
 
 
 @pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 276 CODE-08 invariant via grep-based guard"
+    ),
+)
 def test_no_unjustified_broad_except_sites() -> None:
     """Phase 276 CODE-08: every ``except Exception:`` site under backend/app/
     must justify itself with ``# broad: <reason>`` or
@@ -1520,14 +1541,6 @@ def test_no_unjustified_broad_except_sites() -> None:
 
     Maps to CODE-08 (REQUIREMENTS.md §Phase 276).
     """
-    if not _has_git_metadata():
-        pytest.skip("git metadata unavailable; arch test only runs on full clones")
-    if not _has_pathspec_magic():
-        pytest.skip(
-            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
-            "Phase 276 CODE-08 invariant via grep-based guard"
-        )
-
     # Match `except Exception:` and `except Exception as foo:` lines
     # under backend/app/ only (tests/ is out of scope).
     result = subprocess.run(

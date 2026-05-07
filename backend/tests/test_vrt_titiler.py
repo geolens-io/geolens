@@ -51,6 +51,16 @@ def _check_titiler() -> bool:
     return _TITILER_AVAILABLE
 
 
+# Phase 278 TEST-09: evaluate Titiler reachability once at module import time
+# so the conditional skip can be expressed as a @pytest.mark.skipif decorator
+# (collected at gather-time rather than at test-execution time). The 3-second
+# urlopen timeout in _check_titiler bounds the import-time cost; result is
+# memoized via the global `_TITILER_AVAILABLE`. Tests still call _check_titiler
+# at runtime if needed (it returns the cached value), but the decorator gate
+# fires first.
+_TITILER_REACHABLE: bool = _check_titiler()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -103,6 +113,10 @@ def _build_vrt(vrt_path: str, cog_path: str) -> None:
 class TestVrtTitilerProxy:
     """VRT tile serving via the raster proxy endpoint."""
 
+    @pytest.mark.skipif(
+        not _TITILER_REACHABLE,
+        reason="Titiler not reachable at http://titiler:8000",
+    )
     async def test_vrt_served_via_tile_proxy(self, client, test_db_session):
         """A VRT file pointing at a COG on the staging volume is served via the tile proxy.
 
@@ -113,9 +127,6 @@ class TestVrtTitilerProxy:
         4. Call raster-auth-check to get the open-path
         5. Call the tile proxy; assert HTTP 200 with valid PNG bytes (or 204 no tile)
         """
-        if not _check_titiler():
-            pytest.skip("Titiler not reachable at http://titiler:8000")
-
         admin_id = await _get_admin_id(test_db_session)
 
         # Create the DB record
@@ -224,10 +235,12 @@ class TestVrtTitilerProxy:
             except Exception:
                 pass
 
+    @pytest.mark.skipif(
+        not _TITILER_REACHABLE,
+        reason="Titiler not reachable at http://titiler:8000",
+    )
     async def test_auth_check_recognizes_vrt_dataset(self, client, test_db_session):
         """raster-auth-check returns 200 for a vrt_dataset record type."""
-        if not _check_titiler():
-            pytest.skip("Titiler not reachable at http://titiler:8000")
 
         admin_id = await _get_admin_id(test_db_session)
 
