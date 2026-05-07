@@ -122,11 +122,23 @@ export default defineConfig({
         'src/vite-env.d.ts',
         'src/components/ui/**',
       ],
+      // Coverage thresholds ratchet upward as the suite grows (TEST-02, Phase 278).
+      // Each dimension is set to floor(actual_pct) from the most recent local
+      // `npm test -- --run --coverage` run. To ratchet further: re-run coverage,
+      // recompute floor(actual) and bump these (add a +1 / +2 buffer when actual
+      // sits comfortably above the floor). Never lower without a documented
+      // rationale in CHANGELOG.
+      // 2026-05-07 actuals: statements 41.51 / branches 39.42 / functions 37.99 / lines 42.69
+      // Note: plan-prescribed +2 buffer (43/41/39/44) failed all four dimensions because
+      // actuals sit < 1pt above their integer floors. +1 buffer would also fail for the
+      // same reason. Set to floor(actual) (= +0 buffer) — values still ratchet meaningfully
+      // above the prior 32/27/27/32 baseline (statements +9, branches +12, functions +10,
+      // lines +10) so the gate catches any non-trivial coverage regression.
       thresholds: {
-        statements: 32,
-        branches: 27,
-        functions: 27,
-        lines: 32,
+        statements: 41,
+        branches: 39,
+        functions: 37,
+        lines: 42,
       },
     },
   },
