@@ -26,11 +26,18 @@ services:
       # from the public demo UI are still gated by their own per-request
       # limit; this setting only affects the seeder container pathway.
       UPLOAD_MAX_SIZE_MB: "300"
+      # Phase 268 H-19: explicit opt-in to allow .env.demo defaults. Without
+      # this flag, the api refuses to boot with public-demo credentials.
+      GEOLENS_DEMO_MODE: "true"
 
   worker:
     # Clear dev bind mounts for worker too
     volumes:
       - upload_staging:/app/staging
+    environment:
+      # Phase 268 H-19: workers also load Settings(), so they need the same
+      # demo-mode opt-in to start with .env.demo defaults.
+      GEOLENS_DEMO_MODE: "true"
 
   frontend:
     build:

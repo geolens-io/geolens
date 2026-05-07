@@ -300,6 +300,53 @@ class TestJwtSecretLengthValidator:
         assert s.jwt_secret_key.get_secret_value() == long_key
 
 
+class TestDemoCredentialsGuard:
+    """Phase 268 H-19: refuse to boot with .env.demo defaults unless
+    GEOLENS_DEMO_MODE=true is set.
+
+    The .env.demo file ships with known-public credentials. Any non-demo
+    deployment using them is forging-trivial. The guard refuses startup
+    unless the deployment explicitly opts in via GEOLENS_DEMO_MODE=true.
+    """
+
+    def test_demo_jwt_secret_rejected_without_demo_mode(self):
+        # Use the literal value committed to .env.demo
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                jwt_secret_key="demo-only-do-not-use-in-production-change-me"
+            )
+        assert "GEOLENS_DEMO_MODE" in str(exc_info.value)
+        assert "JWT_SECRET_KEY" in str(exc_info.value)
+
+    def test_demo_jwt_secret_accepted_with_demo_mode(self):
+        s = _make_settings(
+            jwt_secret_key="demo-only-do-not-use-in-production-change-me",
+            geolens_demo_mode=True,
+        )
+        assert s.geolens_demo_mode is True
+        assert (
+            s.jwt_secret_key.get_secret_value()
+            == "demo-only-do-not-use-in-production-change-me"
+        )
+
+    def test_demo_admin_password_rejected_without_demo_mode(self):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(geolens_admin_password="demodemo")
+        assert "GEOLENS_DEMO_MODE" in str(exc_info.value)
+        assert "GEOLENS_ADMIN_PASSWORD" in str(exc_info.value)
+
+    def test_demo_admin_password_accepted_with_demo_mode(self):
+        s = _make_settings(
+            geolens_admin_password="demodemo",
+            geolens_demo_mode=True,
+        )
+        assert s.geolens_admin_password.get_secret_value() == "demodemo"
+
+    def test_geolens_demo_mode_defaults_to_false(self):
+        s = _make_settings()
+        assert s.geolens_demo_mode is False
+
+
 class TestLogLevelValidator:
     """LOG_LEVEL must be a valid stdlib logging level."""
 
