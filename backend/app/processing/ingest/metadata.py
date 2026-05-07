@@ -916,10 +916,10 @@ async def add_4326_column(
         )
     )
 
-    # B-tree index on gid for ORDER BY / keyset pagination (Phase 180 OPT-03)
-    await session.execute(
-        text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_gid ON {tref} (gid)")
-    )
+    # DBM-05 (Phase 271): the previously-created `idx_<table>_gid` btree
+    # was redundant with the PK btree on `gid SERIAL PRIMARY KEY`. Removed
+    # so new ingests no longer ship the duplicate. Migration 0016 drops
+    # the leftovers from existing tables.
 
     await session.commit()
 
