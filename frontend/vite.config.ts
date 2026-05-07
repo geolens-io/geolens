@@ -5,11 +5,12 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 // API_PROXY_TARGET is consumed only by the dev-server proxy below (Node side).
-// It is *not* exposed to the browser bundle, so the legacy `VITE_` prefix is not
-// required. The fallback for backwards compatibility is preserved one release.
+// It is *not* exposed to the browser bundle, so the `VITE_` prefix that Vite
+// requires for browser-side env vars is intentionally absent. The deprecation
+// window for the legacy `VITE_API_PROXY_TARGET` alias has closed (CONF-14,
+// Phase 277 — see CHANGELOG.md for the original rename announcement).
 const apiProxyTarget =
   process.env.API_PROXY_TARGET ||
-  process.env.VITE_API_PROXY_TARGET ||
   'http://localhost:8000'
 
 function resolveExistingPath(target: string): string[] {
