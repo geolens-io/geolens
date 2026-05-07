@@ -8,7 +8,7 @@ Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in 
 
 [![CI](https://github.com/geolens-io/geolens/actions/workflows/ci.yml/badge.svg)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)]()
+[![Python: backend 3.13 / SDK 3.10+](https://img.shields.io/badge/python-3.13_backend_%7C_3.10%2B_SDK-blue.svg)]()
 [![PostgreSQL 17 + PostGIS 3.5](https://img.shields.io/badge/PostGIS_3.5-PostgreSQL_17-336791.svg)](https://postgis.net/)
 [![OGC Compliant](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
@@ -236,6 +236,7 @@ First-run troubleshooting:
 - If startup looks stuck, run `docker compose ps` and wait until `db`, `api`, `worker`, and `frontend` are healthy or running.
 - Check logs with `docker compose logs api`, `docker compose logs frontend`, and `docker compose logs worker`.
 - Slow first builds and health delays are usually image build, migration, or raster dependency startup work; rerun `docker compose ps` after a minute before restarting services.
+- **Cold-build time:** the first `docker compose up -d` takes 5-10 minutes (image builds + GDAL + Postgres extensions). Subsequent starts settle in ~60 seconds. Run `docker compose ps` to confirm `db`, `api`, `worker`, and `frontend` are healthy before troubleshooting.
 
 For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
@@ -366,7 +367,8 @@ is deferred until a real-world adopter request makes it concrete.
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
 | [Cloud Deployment](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | AWS, GCP, and DigitalOcean deployment guides |
 | [Developer Docs](https://docs.getgeolens.com/) | Build custom map builder widgets |
-| [API Reference](#see-it-in-action) | Interactive Swagger UI at `/api/docs` when running |
+| [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
+| [Manifest examples](examples/manifests/) | Working `geolens.yaml` examples — first-catalog, public-cog (remote COG), s3-source, url-source |
 
 ## Community
 
