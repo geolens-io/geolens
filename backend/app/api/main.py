@@ -506,7 +506,7 @@ app.include_router(api_router)
 init_metrics(app)
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
 @limiter.exempt
 async def health():
     """Health check endpoint for ALB, Docker, and Nginx."""
