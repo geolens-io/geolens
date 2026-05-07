@@ -9,6 +9,7 @@ import {
   type SortingState,
   type VisibilityState,
 } from '@tanstack/react-table';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { toast } from 'sonner';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
@@ -96,6 +97,8 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const editingCellRef = useRef<EditingCell | null>(null);
   editingCellRef.current = editingCell;
+  // Scroll container ref used by the row virtualizer (PERF-07).
+  const parentRef = useRef<HTMLDivElement>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -229,6 +232,20 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     onColumnVisibilityChange: setColumnVisibility,
   });
 
+  // PERF-07: virtualize the body so that 100-row pages render only the visible
+  // window (~10-20 rows + overscan), keeping DOM-node count flat regardless of
+  // page size or column count. The virtualizer iterates over the post-sort,
+  // post-filter row model from TanStack Table — sort/filter state changes flow
+  // through naturally on each render via `count: rows.length`.
+  const rows = table.getRowModel().rows;
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 36,
+    overscan: 8,
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+
   const approximateTotal = data?.approximate_total ?? 0;
   const rowCount = data?.rows?.length ?? 0;
   const effectiveTotal = approximateTotal > 0 ? approximateTotal : rowCount;
@@ -284,72 +301,113 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         </DropdownMenu>
       </div>
 
-      <div className="rounded-md border">
-        <Table className="w-max min-w-full">
-          <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder ? null : (
-                      <button
-                        type="button"
-                        className="flex items-center gap-1 hover:text-foreground"
-                        onClick={header.column.getToggleSortingHandler()}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {header.column.getIsSorted() === 'asc' ? (
-                          <span> ↑</span>
-                        ) : header.column.getIsSorted() === 'desc' ? (
-                          <span> ↓</span>
-                        ) : (
-                          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
-                        )}
-                      </button>
-                    )}
+      {/*
+        PERF-07: scroll container is `parentRef`. Virtualization is applied to
+        the <tbody> only — the native <table>/<thead>/<tr>/<td> structure is
+        preserved so column auto-sizing, sticky headers, and the existing
+        `w-max min-w-full` layout continue to work. Vertical scroll is captured
+        here (max-h + overflow-auto); the inner shadcn Table container's
+        `overflow-x-auto` continues to handle wide-column horizontal overflow
+        within this scroll region.
+
+        The recommended TanStack pattern for native-table virtualization
+        (https://tanstack.com/virtual/latest/docs/framework/react/examples/table)
+        keeps rendered <tr>s in document flow and shifts each one back to its
+        virtualized offset via `translateY(virtualRow.start - index * size)`.
+        Total scrollable height is enforced by an inner spacer div wrapping
+        the <table>.
+      */}
+      <div
+        ref={parentRef}
+        className="rounded-md border relative max-h-[60vh] overflow-auto"
+      >
+        <div
+          style={
+            rows.length === 0
+              ? undefined
+              : { height: `${virtualizer.getTotalSize()}px`, width: '100%' }
+          }
+        >
+          <Table className="w-max min-w-full">
+            <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder ? null : (
+                        <button
+                          type="button"
+                          className="flex items-center gap-1 hover:text-foreground"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.column.getIsSorted() === 'asc' ? (
+                            <span> ↑</span>
+                          ) : header.column.getIsSorted() === 'desc' ? (
+                            <span> ↓</span>
+                          ) : (
+                            <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                          )}
+                        </button>
+                      )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+              {/* Filter row */}
+              <TableRow>
+                {table.getHeaderGroups()[0]?.headers.map((header) => (
+                  <TableHead key={`filter-${header.id}`} className="py-1">
+                    {!NON_FILTERABLE_COLUMNS.has(header.column.id) ? (
+                      <Input
+                        value={columnFilters[header.column.id] ?? ''}
+                        onChange={(e) => handleFilterChange(header.column.id, e.target.value)}
+                        placeholder={t('attributes.filter')}
+                        className="bg-transparent border-0 border-b rounded-none text-xs h-7 focus-visible:ring-0 focus-visible:border-primary"
+                      />
+                    ) : null}
                   </TableHead>
                 ))}
               </TableRow>
-            ))}
-            {/* Filter row */}
-            <TableRow>
-              {table.getHeaderGroups()[0]?.headers.map((header) => (
-                <TableHead key={`filter-${header.id}`} className="py-1">
-                  {!NON_FILTERABLE_COLUMNS.has(header.column.id) ? (
-                    <Input
-                      value={columnFilters[header.column.id] ?? ''}
-                      onChange={(e) => handleFilterChange(header.column.id, e.target.value)}
-                      placeholder={t('attributes.filter')}
-                      className="bg-transparent border-0 border-b rounded-none text-xs h-7 focus-visible:ring-0 focus-visible:border-primary"
-                    />
-                  ) : null}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-8">
-                  {t('attributes.noResults')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className={row.index % 2 === 1 ? 'bg-muted/30' : ''}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className={`max-w-xs truncate ${cellPadding}`}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-8">
+                    {t('attributes.noResults')}
+                  </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                virtualItems.map((virtualRow, index) => {
+                  const row = rows[virtualRow.index];
+                  return (
+                    <TableRow
+                      key={row.id}
+                      data-index={virtualRow.index}
+                      ref={(el) => {
+                        if (el) virtualizer.measureElement(el);
+                      }}
+                      className={virtualRow.index % 2 === 1 ? 'bg-muted/30' : ''}
+                      style={{
+                        // Shift each rendered <tr> from its document-flow position
+                        // to its virtualized offset. All rendered rows form a
+                        // contiguous block of equal-height items, so subtracting
+                        // index * size collapses them onto virtualRow.start.
+                        transform: `translateY(${virtualRow.start - index * virtualRow.size}px)`,
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className={`max-w-xs truncate ${cellPadding}`}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       {/* Pagination */}
