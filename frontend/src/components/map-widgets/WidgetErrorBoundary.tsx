@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import i18n from '@/i18n/i18n';
+import { logger } from '@/lib/logger';
 
 /** Isolates widget crashes so one broken widget doesn't take down the host */
 export class WidgetErrorBoundary extends Component<
@@ -13,7 +14,7 @@ export class WidgetErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error(`Widget "${this.props.widgetId}" crashed:`, error, info.componentStack);
+    logger.error(`Widget "${this.props.widgetId}" crashed:`, error, info.componentStack);
   }
 
   render() {

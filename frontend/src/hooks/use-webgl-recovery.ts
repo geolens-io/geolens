@@ -1,5 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { logger } from '@/lib/logger';
 
 /**
  * Detect WebGL context loss on a MapLibre map and provide recovery state.
@@ -41,7 +42,7 @@ export function useWebGLRecovery(
         if (style) map.setStyle(style);
         setContextLost(false);
       } catch (err) {
-        console.error('WebGL recovery: style restoration failed', err);
+        logger.error('WebGL recovery: style restoration failed', err);
         setContextLost(true); // Keep overlay visible so user knows to reload
       }
     };

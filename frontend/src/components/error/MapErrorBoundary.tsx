@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/lib/logger';
 
 interface MapErrorBoundaryState {
   hasError: boolean;
@@ -54,7 +55,7 @@ export class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorB
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    console.error('[MapErrorBoundary]', error, errorInfo);
+    logger.error('[MapErrorBoundary]', error, errorInfo);
   }
 
   private handleReset = () => {

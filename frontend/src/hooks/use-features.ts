@@ -5,6 +5,7 @@ import { addColumn, dropColumn } from '@/api/datasets';
 import type { Geometry } from 'geojson';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
+import { logger } from '@/lib/logger';
 
 export function useCreateFeature() {
   const qc = useQueryClient();
@@ -23,7 +24,7 @@ export function useCreateFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
     onError: (err) => {
-      console.error('[useCreateFeature]', err);
+      logger.error('[useCreateFeature]', err);
     },
   });
 }
@@ -47,7 +48,7 @@ export function useUpdateFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
     onError: (err) => {
-      console.error('[useUpdateFeature]', err);
+      logger.error('[useUpdateFeature]', err);
     },
   });
 }
@@ -67,7 +68,7 @@ export function useDeleteFeature() {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(variables.datasetId) });
     },
     onError: (err) => {
-      console.error('[useDeleteFeature]', err);
+      logger.error('[useDeleteFeature]', err);
     },
   });
 }

@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/lib/logger';
 
 interface LazyLoadErrorBoundaryState {
   hasError: boolean;
@@ -77,7 +78,7 @@ export class LazyLoadErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    console.error('[LazyLoadErrorBoundary]', error, errorInfo);
+    logger.error('[LazyLoadErrorBoundary]', error, errorInfo);
 
     // Auto-retry once for chunk load errors
     if (isChunkLoadError(error) && this.state.retryCount < 1) {

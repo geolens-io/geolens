@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { retryJob } from '@/api/ingest';
+import { logger } from '@/lib/logger';
 
 export function useCatalogStats() {
   return useQuery({
@@ -114,7 +115,7 @@ export function useRetryAdminJob() {
       qc.invalidateQueries({ queryKey: queryKeys.admin.allJobs });
     },
     onError: (err) => {
-      console.error('[useRetryAdminJob]', err);
+      logger.error('[useRetryAdminJob]', err);
       toast.error(i18n.t('admin:errors.retryJobFailed'));
     },
   });
@@ -290,7 +291,7 @@ export function useBackfillEmbeddings() {
       qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
     },
     onError: (err) => {
-      console.error('[useBackfillEmbeddings]', err);
+      logger.error('[useBackfillEmbeddings]', err);
       toast.error(i18n.t('admin:errors.backfillFailed'));
     },
   });
@@ -306,7 +307,7 @@ export function useUpdateSemanticSearch() {
       qc.invalidateQueries({ queryKey: queryKeys.settings.all });
     },
     onError: (err) => {
-      console.error('[useUpdateSemanticSearch]', err);
+      logger.error('[useUpdateSemanticSearch]', err);
       toast.error(i18n.t('admin:errors.semanticSearchFailed'));
     },
   });

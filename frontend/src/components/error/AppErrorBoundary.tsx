@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { logger } from '@/lib/logger';
 
 interface AppErrorBoundaryState {
   hasError: boolean;
@@ -53,7 +54,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    console.error('[AppErrorBoundary]', error, errorInfo);
+    logger.error('[AppErrorBoundary]', error, errorInfo);
   }
 
   render() {
