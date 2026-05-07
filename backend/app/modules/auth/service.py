@@ -51,6 +51,41 @@ class AuthService:
             algorithm=settings.jwt_algorithm,
         )
 
+    def create_download_token(
+        self,
+        identity: AuthenticatedIdentity,
+        dataset_id: uuid.UUID,
+        expire_seconds: int = 120,
+    ) -> str:
+        """Create a download-scoped JWT for a single dataset.
+
+        SEC-04 / M-66: a JWT in a URL query parameter is far more leak-prone
+        than a Bearer header (browser history, server logs, accidental copy).
+        Issuing a separate token with ``typ='download'``, an explicit ``scope``
+        binding the token to one dataset, and a ≤2-minute TTL bounds the
+        damage if the URL is exposed. The session JWT continues to work via
+        the Authorization header — only the ?token= lane is restricted.
+
+        ``expire_seconds`` is capped at 120 by validation; callers passing a
+        larger value get the cap applied silently. Capped form, never raised.
+        """
+        # Cap TTL to 120s — defense against caller mis-configuration.
+        ttl = min(expire_seconds, 120)
+        now = datetime.now(UTC)
+        payload = {
+            "sub": str(identity.user_id),
+            "username": identity.username,
+            "typ": "download",
+            "scope": f"dataset:{dataset_id}",
+            "exp": now + timedelta(seconds=ttl),
+            "iat": now,
+        }
+        return jwt.encode(
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
+        )
+
     # ------------------------------------------------------------------
     # Refresh tokens
     # ------------------------------------------------------------------

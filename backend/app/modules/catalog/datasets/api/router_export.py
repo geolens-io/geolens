@@ -156,30 +156,61 @@ async def _resolve_download_user(
 ) -> User:
     """Resolve user for download endpoints.
 
-    Accepts standard auth (header JWT, API key) plus a `token` query
-    parameter carrying a JWT — needed for browser-initiated downloads
-    where fetch+blob would load the entire file into memory.
+    Accepts standard auth (header JWT, API key) plus a ``token`` query
+    parameter — but the query-param token MUST be a download-scoped JWT
+    (``typ='download'``, ``scope='dataset:{dataset_id}'``) with ≤2-minute
+    TTL, not a session JWT.
+
+    SEC-04 / M-66: a session JWT in a URL is leak-prone (browser history,
+    server logs, referer headers). Restricting query-param auth to
+    download-scoped tokens bounds damage if the URL is exposed. The
+    Authorization header path keeps accepting full session JWTs unchanged.
     """
     if user is not None:
         return user
 
-    # Fallback: JWT in ?token= query param (browser <a href> downloads)
+    # Fallback: download-scoped JWT in ?token= query param (browser <a href> downloads)
     qt = request.query_params.get("token")
     if qt:
         try:
             payload = jwt.decode(
                 qt, settings.jwt_secret_key.get_secret_value(), algorithms=["HS256"]
             )
-            user_id = payload.get("sub")
-            if user_id:
+        except jwt.PyJWTError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired download token",
+            )
+
+        # Per SEC-04: enforce typ='download' on the query-param lane.
+        if payload.get("typ") != "download":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=(
+                    "Query-param ?token= requires a download-scoped JWT "
+                    "(typ='download'); use Authorization header for session tokens"
+                ),
+            )
+
+        # Scope check: token MUST be bound to the dataset_id in the URL.
+        expected_scope = f"dataset:{request.path_params.get('dataset_id', '')}"
+        if payload.get("scope") != expected_scope:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Download token scope does not match this dataset",
+            )
+
+        user_id = payload.get("sub")
+        if user_id:
+            try:
                 result = await db.execute(
                     select(User).where(User.id == uuid.UUID(user_id))
                 )
                 found = result.scalar_one_or_none()
                 if found and found.is_active and found.status == "active":
                     return found
-        except (jwt.PyJWTError, ValueError):
-            pass
+            except ValueError:
+                pass
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
