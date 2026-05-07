@@ -180,9 +180,16 @@ def _build_shared_layer_dict(
     is_public = ds_visibility == "public"
     if ds_record_type in ("raster_dataset", "vrt_dataset"):
         tile_url = f"/raster-tiles/{layer.dataset_id}/tiles/{{z}}/{{x}}/{{y}}.png"
-    elif is_public:
-        tile_url = f"/tiles/public/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
     else:
+        # Phase 273 SEC-16 / L-62: previous public-vs-private branch produced
+        # `/tiles/public/data.{table_name}/...`, but no such route is mounted
+        # — `app.processing.tiles.router` only registers the prefix `/tiles`
+        # with a catch-all `{table_path:path}/{z}/{x}/{y}.pbf` whose handler
+        # rejects anything not starting with literal `data.`. The auth path
+        # for public datasets is handled inside that single endpoint
+        # (visibility check + HMAC-or-anonymous), so all consumers (raster
+        # excluded) can use one URL. The `is_public` flag is still returned
+        # alongside the dict (`not is_public` below) — leaving it bound here.
         tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
     return {
         "dataset_id": str(layer.dataset_id),
@@ -227,7 +234,11 @@ async def get_shared_map(
     Applies visibility filtering based on the optional user/roles:
     - Anonymous: only public datasets
     - Authenticated: datasets visible per apply_visibility_filter()
-    Tile URLs: public datasets use /tiles/public/, non-public use /tiles/ (auth required).
+    Tile URLs: vector datasets use /tiles/data.{table_name}/... — the tile
+    endpoint internally distinguishes public (anonymous-allowed) vs
+    private (HMAC-signature-required) at request time. Raster datasets
+    use /raster-tiles/{dataset_id}/tiles/... (separate router). See
+    Phase 273 SEC-16 for prior `/tiles/public/...` URL hint cleanup.
     """
     if user_roles is None:
         user_roles = set()
