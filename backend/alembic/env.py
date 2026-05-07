@@ -112,6 +112,32 @@ def include_object(obj, name, type_, reflected, compare_to):
 def do_run_migrations(connection):
     # Ensure catalog schema exists before Alembic creates its version table
     connection.execute(sa.text("CREATE SCHEMA IF NOT EXISTS catalog"))
+    # Pre-create alembic_version with VARCHAR(255) so descriptive migration
+    # names (e.g. `0013_partial_indexes_embed_tokens_ingest_jobs`, 41 chars)
+    # don't fail with StringDataRightTruncationError on UPDATE. Alembic's
+    # auto-create defaults to VARCHAR(32). Idempotent — the ALTER widens the
+    # column on databases where the 32-char form was already created.
+    connection.execute(
+        sa.text(
+            "CREATE TABLE IF NOT EXISTS catalog.alembic_version ("
+            "  version_num VARCHAR(255) NOT NULL, "
+            "  CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)"
+            ")"
+        )
+    )
+    connection.execute(
+        sa.text(
+            "DO $$ BEGIN "
+            "IF EXISTS (SELECT 1 FROM information_schema.columns "
+            "  WHERE table_schema = 'catalog' "
+            "    AND table_name = 'alembic_version' "
+            "    AND column_name = 'version_num' "
+            "    AND character_maximum_length < 255) THEN "
+            "  ALTER TABLE catalog.alembic_version "
+            "  ALTER COLUMN version_num TYPE VARCHAR(255); "
+            "END IF; END $$"
+        )
+    )
     connection.execute(sa.text("COMMIT"))
     context.configure(
         connection=connection,
