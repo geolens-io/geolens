@@ -455,7 +455,7 @@ async def visibility_check_endpoint(
     )
 
 
-@router.get("/icons/", response_model=MapIconListResponse)
+@router.get("/icons", response_model=MapIconListResponse)
 async def list_map_icons_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
@@ -466,7 +466,7 @@ async def list_map_icons_endpoint(
 
 
 @router.post(
-    "/icons/",
+    "/icons",
     response_model=MapIconResponse,
     status_code=status.HTTP_201_CREATED,
 )

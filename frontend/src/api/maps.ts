@@ -170,13 +170,13 @@ export async function importMapStyleJson(style: Record<string, unknown>): Promis
 }
 
 export async function listMapIcons(): Promise<MapIconListResponse> {
-  return apiFetch<MapIconListResponse>('/maps/icons/');
+  return apiFetch<MapIconListResponse>('/maps/icons');
 }
 
 export async function uploadMapIcon(file: File): Promise<MapIconResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  return apiFetch<MapIconResponse>('/maps/icons/', {
+  return apiFetch<MapIconResponse>('/maps/icons', {
     method: 'POST',
     body: formData,
   });
