@@ -16,6 +16,7 @@ import {
   getBranding,
   updateBranding,
   getEnabledWidgets,
+  getEnterpriseOnlyTabs,
 } from '@/api/settings';
 
 // --- Public hooks (used by non-admin pages) ---
@@ -91,6 +92,22 @@ export function useApiKeyStatus() {
     queryFn: getApiKeyStatus,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
+  });
+}
+
+// Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. The backend
+// _ENTERPRISE_ONLY_TABS frozenset is the canonical source; AdminSidebar reads
+// the list via this hook and falls back to a local default when the API is
+// unavailable so the sidebar still renders during boot/network failures.
+// Tabs rarely change (currently only branding + appearance), so a long
+// staleTime is safe and avoids re-fetching on every admin route navigation.
+export function useEnterpriseOnlyTabs() {
+  return useQuery({
+    queryKey: queryKeys.settings.enterpriseTabs,
+    queryFn: getEnterpriseOnlyTabs,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    retry: 1,
   });
 }
 

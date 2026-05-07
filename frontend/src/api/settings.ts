@@ -103,6 +103,20 @@ export async function getApiKeyStatus(): Promise<ApiKeyStatusResponse> {
   return apiFetch<ApiKeyStatusResponse>('/settings/api-key-status/');
 }
 
+// --- Enterprise-tabs registry (Phase 279 ADMIN-03 / M-03) ---
+
+export interface EnterpriseTabsResponse {
+  tabs: string[];
+}
+
+// Phase 279 ADMIN-03 (M-03): Server-driven enterprise-only tab list. Used by
+// AdminSidebar to conditionally render Settings tabs without hardcoding the
+// enterpriseOnly flag in two places (frontend + backend). The backend
+// _ENTERPRISE_ONLY_TABS frozenset is the canonical source.
+export async function getEnterpriseOnlyTabs(): Promise<EnterpriseTabsResponse> {
+  return apiFetch<EnterpriseTabsResponse>('/settings/enterprise-tabs/');
+}
+
 // --- Embedding dimension detection ---
 
 export interface DetectEmbeddingDimsResponse {

@@ -139,6 +139,8 @@ export const queryKeys = {
     configMode: ['settings', 'config-mode'] as const,
     apiKeyStatus: ['settings', 'api-key-status'] as const,
     branding: ['settings', 'branding'] as const,
+    // Phase 279 ADMIN-03 (M-03): server-driven enterprise-only Settings-tab list.
+    enterpriseTabs: ['settings', 'enterprise-tabs'] as const,
   },
 
   // -------------------------------------------------------------------------

@@ -22,6 +22,18 @@ vi.mock('@/hooks/use-edition', () => ({
   useEdition: () => useEditionMock(),
 }));
 
+// Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. Defaults to
+// the canonical post-279 set so existing tests (which expect appearance to be
+// hidden in community) keep passing without changes. Per-test overrides via
+// `mockReturnValueOnce` exercise the loading / drift / extension scenarios.
+const useEnterpriseOnlyTabsMock = vi.fn<() => { data: { tabs: string[] } | undefined }>(() => ({
+  data: { tabs: ['branding', 'appearance'] },
+}));
+
+vi.mock('@/hooks/use-settings', () => ({
+  useEnterpriseOnlyTabs: () => useEnterpriseOnlyTabsMock(),
+}));
+
 // i18n returns the key by default in tests, so we match on i18n keys' last segment
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -45,6 +57,7 @@ vi.mock('react-i18next', () => ({
         'admin:settings.tabs.network': 'Network',
         'admin:settings.tabs.storage': 'Storage',
         'admin:settings.tabs.map': 'Map',
+        'admin:settings.tabs.appearance': 'Appearance',
         'admin:settings.tabs.permissions': 'Permissions',
       };
       return labels[key] ?? key;
@@ -172,5 +185,67 @@ describe('AdminSidebar SAML gating (Phase 217 SAML-10)', () => {
     expect(screen.getByText('SAML SSO')).toBeInTheDocument();
     const link = document.querySelector('a[href="/admin/saml"]');
     expect(link).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 279 Plan 02 — Server-driven enterprise-tab list (ADMIN-03 / M-03)
+//
+// Verifies the AdminSidebar reads the canonical enterprise-only Settings tab
+// keys from the server-driven `useEnterpriseOnlyTabs` hook and falls back to
+// the local FALLBACK_ENTERPRISE_ONLY_TABS constant when the API is loading
+// or has errored. This eliminates the prior drift between backend
+// `_ENTERPRISE_ONLY_TABS` and frontend hardcoded enterpriseOnly flags.
+// ---------------------------------------------------------------------------
+
+describe('AdminSidebar server-driven enterpriseOnly tabs (Phase 279 ADMIN-03)', () => {
+  it('hides server-marked enterprise tabs in community edition', () => {
+    // Default mock: community + canonical {branding, appearance}.
+    renderSidebar();
+    // The "Appearance" tab is enterpriseOnly per the server set — must NOT
+    // render in community.
+    expect(screen.queryByText('Appearance')).toBeNull();
+    expect(document.querySelector('a[href="/admin/settings/appearance"]')).toBeNull();
+    // Non-enterprise tabs must still render.
+    expect(screen.getByText('General')).toBeInTheDocument();
+    expect(screen.getByText('Auth')).toBeInTheDocument();
+  });
+
+  it('shows server-marked enterprise tabs in enterprise edition', () => {
+    useEditionMock.mockReturnValueOnce({
+      isEnterprise: true,
+      edition: 'enterprise',
+      isLoading: false,
+    });
+    renderSidebar();
+    // "Appearance" is enterpriseOnly but enterprise edition sees ALL tabs.
+    expect(screen.getByText('Appearance')).toBeInTheDocument();
+    expect(document.querySelector('a[href="/admin/settings/appearance"]')).not.toBeNull();
+  });
+
+  it('falls back to local defaults when the API hook is loading (data undefined)', () => {
+    // Simulate: hook is still loading, data is undefined. Sidebar must still
+    // hide enterprise tabs in community edition by consulting
+    // FALLBACK_ENTERPRISE_ONLY_TABS = ['branding', 'appearance'].
+    useEnterpriseOnlyTabsMock.mockReturnValueOnce({ data: undefined });
+    renderSidebar();
+    // No flash of forbidden UI — Appearance still hidden via fallback.
+    expect(screen.queryByText('Appearance')).toBeNull();
+    expect(document.querySelector('a[href="/admin/settings/appearance"]')).toBeNull();
+  });
+
+  it('respects newly-added server-marked enterprise tabs (server-driven extensibility)', () => {
+    // Simulate the server adding a hypothetical "permissions" tab to the
+    // enterprise-only set without a frontend redeploy. The sidebar must
+    // hide it without code changes.
+    useEnterpriseOnlyTabsMock.mockReturnValueOnce({
+      data: { tabs: ['branding', 'appearance', 'permissions'] },
+    });
+    renderSidebar();
+    // Newly-marked enterprise tab disappears in community edition.
+    expect(screen.queryByText('Permissions')).toBeNull();
+    expect(document.querySelector('a[href="/admin/settings/permissions"]')).toBeNull();
+    // Other community tabs still render.
+    expect(screen.getByText('General')).toBeInTheDocument();
   });
 });
