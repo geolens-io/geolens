@@ -11,6 +11,17 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- `PUT /maps/{id}/thumbnail/` request body changed from `text/plain` raw
+  `data:image/...` string to `application/json` `{"data_uri": "..."}`.
+  Required to enable Python SDK generation (the `text/plain` body shape was
+  silently dropped by `openapi-python-client`). Custom callers must send
+  `Content-Type: application/json` with `{"data_uri": "data:image/png;base64,..."}`.
+  Internal SDKs (`pip install geolens`, `@geolens/sdk`) at 1.0.2+ already use
+  the new shape. Recommend a 1.1.0 minor bump on the next public release to
+  signal this contract change.
+
 ## [1.0.2] - 2026-05-05
 
 ### Added
