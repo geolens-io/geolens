@@ -264,6 +264,8 @@ docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
 
 The demo overlay auto-seeds 20 representative datasets, sets them to public visibility, and resets data every 24 hours. See `.env.demo` for configuration.
 
+For a smaller, single-dataset walkthrough that does not require the demo image build, see [Add Your First Dataset](#add-your-first-dataset) above and the working example at [`examples/manifests/first-catalog/`](examples/manifests/first-catalog/).
+
 ### Seed Data
 
 Populate the catalog with 130 [Natural Earth](https://www.naturalearthdata.com/) 1:10m datasets:
