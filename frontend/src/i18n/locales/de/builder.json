@@ -110,14 +110,15 @@
     "none": "None",
     "symbol": {
       "title": "Symbol",
-      "iconImage": "Icon",
-      "size": "Size",
-      "rotation": "Rotation",
-      "anchor": "Anchor",
-      "offsetX": "Offset X",
-      "offsetY": "Offset Y",
-      "categoryMapping": "Icons by value",
-      "categoryIcon": "Icon for {{value}}"
+      "iconImage": "Symbol",
+      "uploadIcon": "Symbol hochladen",
+      "size": "Größe",
+      "rotation": "Drehung",
+      "anchor": "Anker",
+      "offsetX": "Versatz X",
+      "offsetY": "Versatz Y",
+      "categoryMapping": "Symbole nach Wert",
+      "categoryIcon": "Symbol für {{value}}"
     },
     "raster": {
       "title": "Raster",

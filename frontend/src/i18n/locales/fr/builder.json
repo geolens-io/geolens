@@ -109,15 +109,16 @@
     "renderSymbol": "Symbol",
     "none": "None",
     "symbol": {
-      "title": "Symbol",
-      "iconImage": "Icon",
-      "size": "Size",
+      "title": "Symbole",
+      "iconImage": "Icône",
+      "uploadIcon": "Téléverser une icône",
+      "size": "Taille",
       "rotation": "Rotation",
-      "anchor": "Anchor",
-      "offsetX": "Offset X",
-      "offsetY": "Offset Y",
-      "categoryMapping": "Icons by value",
-      "categoryIcon": "Icon for {{value}}"
+      "anchor": "Ancrage",
+      "offsetX": "Décalage X",
+      "offsetY": "Décalage Y",
+      "categoryMapping": "Icônes par valeur",
+      "categoryIcon": "Icône pour {{value}}"
     },
     "raster": {
       "title": "Raster",
