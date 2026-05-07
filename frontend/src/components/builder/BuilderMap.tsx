@@ -562,8 +562,10 @@ export const BuilderMap = memo(function BuilderMap({
         initialViewState={defaultView}
         mapStyle={styleValue}
         styleDiffing={false}
-        // Required for thumbnail capture via canvas.toBlob()
-        canvasContextAttributes={{ preserveDrawingBuffer: true }}
+        // PERF-08 (Phase 274): preserveDrawingBuffer dropped — captures use
+        // map.triggerRepaint() + synchronous toDataURL() in use-builder-save.ts
+        // doCapture / handleExportPNG so the WebGL canvas keeps its default
+        // (no-buffer-retention) memory profile during normal editing.
         style={{ width: '100%', height: '100%' }}
         minZoom={1}
         onLoad={handleLoad}

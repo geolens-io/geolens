@@ -16,42 +16,52 @@ import type { MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerRespons
 import { useWidgetStore } from '@/components/map-widgets/map-widget-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
-/** Crop and resize the map canvas to a 400x250 JPEG, then upload it. */
+/** Crop and resize the map canvas to a 400x250 JPEG, then upload it.
+ *  PERF-08 (Phase 274): we no longer keep preserveDrawingBuffer permanently
+ *  enabled. Force one render frame and read pixels from the freshly-painted
+ *  canvas. Using `once('render')` is more reliable than relying on the
+ *  synchronous post-triggerRepaint state because some browsers async-defer
+ *  the repaint to the next animation frame. */
 function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
-  try {
-    const srcCanvas = map.getCanvas();
-    const thumbW = 400;
-    const thumbH = 250;
-    const targetRatio = thumbW / thumbH;
-    const srcW = srcCanvas.width;
-    const srcH = srcCanvas.height;
-    const srcRatio = srcW / srcH;
+  const onRender = () => {
+    try {
+      const srcCanvas = map.getCanvas();
+      const thumbW = 400;
+      const thumbH = 250;
+      const targetRatio = thumbW / thumbH;
+      const srcW = srcCanvas.width;
+      const srcH = srcCanvas.height;
+      const srcRatio = srcW / srcH;
 
-    let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
-    if (srcRatio > targetRatio) {
-      cropW = Math.round(srcH * targetRatio);
-      cropX = Math.round((srcW - cropW) / 2);
-    } else {
-      cropH = Math.round(srcW / targetRatio);
-      cropY = Math.round((srcH - cropH) / 2);
-    }
+      let cropX = 0, cropY = 0, cropW = srcW, cropH = srcH;
+      if (srcRatio > targetRatio) {
+        cropW = Math.round(srcH * targetRatio);
+        cropX = Math.round((srcW - cropW) / 2);
+      } else {
+        cropH = Math.round(srcW / targetRatio);
+        cropY = Math.round((srcH - cropH) / 2);
+      }
 
-    const offscreen = document.createElement('canvas');
-    offscreen.width = thumbW;
-    offscreen.height = thumbH;
-    const ctx = offscreen.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
-      const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
-      uploadThumbnail(mapId, dataUri).then(() => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
-      }).catch(() => {
-        // Silent failure for thumbnails
-      });
+      const offscreen = document.createElement('canvas');
+      offscreen.width = thumbW;
+      offscreen.height = thumbH;
+      const ctx = offscreen.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, thumbW, thumbH);
+        const dataUri = offscreen.toDataURL('image/jpeg', 0.7);
+        uploadThumbnail(mapId, dataUri).then(() => {
+          queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
+        }).catch(() => {
+          // Silent failure for thumbnails
+        });
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('[thumbnail] capture failed:', err);
     }
-  } catch (err) {
-    if (import.meta.env.DEV) console.warn('[thumbnail] capture failed:', err);
-  }
+  };
+
+  map.once('render', onRender);
+  map.triggerRepaint();
 }
 
 /** Run `fn` immediately if the map is loaded, otherwise wait for the idle event
@@ -95,9 +105,10 @@ function waitForVisibleLayerSources(
 }
 
 /** Capture a 400x250 JPEG thumbnail from the map canvas and upload it.
- *  If the map is already idle/loaded, captures immediately (preserveDrawingBuffer
- *  guarantees canvas contents persist). Otherwise waits for the idle event with a
- *  3-second safety timeout to prevent silent drops. */
+ *  PERF-08 (Phase 274): no longer relies on permanent preserveDrawingBuffer.
+ *  Uses map.triggerRepaint() + map.once('render') to read pixels from a
+ *  freshly-painted canvas (see doCapture body). If the map is not yet
+ *  idle/loaded, waits for idle first via waitForVisibleLayerSources. */
 function captureThumbnail(
   map: MaplibreMap,
   mapId: string,
@@ -395,26 +406,35 @@ export function useBuilderSave(state: SaveState) {
     if (!map) return;
 
     const doExport = () => {
-      try {
-        const canvas = map.getCanvas();
-        canvas.toBlob((blob) => {
-          if (!blob) {
-            toast.error(t('toasts.exportFailed'));
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${state.localName || 'map'}-export.png`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          toast.success(t('toasts.exportSuccess'));
-        }, 'image/png');
-      } catch {
-        toast.error(t('toasts.exportFailed'));
-      }
+      // PERF-08 (Phase 274): force a render frame, then read pixels.
+      // Mirrors the doCapture pattern: the WebGL canvas no longer retains
+      // its drawing buffer, so we register the read on the next render
+      // event tick and trigger an immediate repaint.
+      const onRender = () => {
+        try {
+          const canvas = map.getCanvas();
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              toast.error(t('toasts.exportFailed'));
+              return;
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${state.localName || 'map'}-export.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast.success(t('toasts.exportSuccess'));
+          }, 'image/png');
+        } catch {
+          toast.error(t('toasts.exportFailed'));
+        }
+      };
+
+      map.once('render', onRender);
+      map.triggerRepaint();
     };
 
     whenMapIdle(map, doExport);

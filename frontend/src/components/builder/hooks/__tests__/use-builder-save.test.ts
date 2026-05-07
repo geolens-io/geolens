@@ -95,6 +95,19 @@ function createMockMap(overrides: { loaded?: boolean } = {}) {
   };
 }
 
+/** PERF-08 (Phase 274): doCapture and handleExportPNG now register
+ *  `map.once('render', ...)` and call `map.triggerRepaint()` instead of
+ *  reading the canvas synchronously. Tests must locate the registered
+ *  render callback and invoke it to simulate the next render frame. */
+function fireRenderCallback(mockMap: ReturnType<typeof createMockMap>): void {
+  const renderCall = mockMap.once.mock.calls.find(
+    (c: unknown[]) => c[0] === 'render',
+  );
+  if (!renderCall) return;
+  const cb = renderCall[1] as () => void;
+  cb();
+}
+
 /** The real SaveState accepted by useBuilderSave. */
 type SaveState = Parameters<typeof useBuilderSave>[0];
 
@@ -487,6 +500,13 @@ describe('useBuilderSave', () => {
       result.current.handleExportPNG();
     });
 
+    // PERF-08 (Phase 274): export now registers `once('render', ...)` and
+    // triggers a repaint instead of reading the canvas inline. Simulate the
+    // render event firing so the canvas-read path runs.
+    expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+    expect(mockMap.triggerRepaint).toHaveBeenCalled();
+    act(() => { fireRenderCallback(mockMap); });
+
     expect(mockMap.getCanvas).toHaveBeenCalled();
     expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
   });
@@ -579,6 +599,13 @@ describe('useBuilderSave', () => {
       const mockMap = createMockMap({ loaded: true });
       await triggerSaveSuccess(mockMap);
 
+      // PERF-08 (Phase 274): doCapture registers `once('render', ...)` then
+      // calls triggerRepaint(); fire the render callback to simulate the
+      // next animation frame.
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
       expect(mockMap.getCanvas).toHaveBeenCalled();
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
       expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
@@ -592,11 +619,16 @@ describe('useBuilderSave', () => {
       // Not captured yet
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
-      // Simulate idle event
+      // Simulate idle event — this registers `once('render', ...)` per PERF-08.
       const idleCallback = mockMap.once.mock.calls.find(
         (c: unknown[]) => c[0] === 'idle',
       )![1] as () => void;
       act(() => { idleCallback(); });
+
+      // Idle alone is not enough now; render frame has to fire.
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
 
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
     });
@@ -608,10 +640,16 @@ describe('useBuilderSave', () => {
 
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
-      // Advance past 3s timeout
+      // Advance past 3s timeout — whenMapIdle's safety timer fires the
+      // capture path, which now registers `once('render', ...)`.
       act(() => { vi.advanceTimersByTime(3000); });
 
       expect(mockMap.off).toHaveBeenCalledWith('idle', expect.any(Function));
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      // Simulate the render frame (PERF-08).
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
       expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
@@ -622,12 +660,15 @@ describe('useBuilderSave', () => {
       const mockMap = createMockMap({ loaded: false });
       await triggerSaveSuccess(mockMap);
 
-      // Simulate idle event fires quickly
+      // Simulate idle event fires quickly — this registers the render
+      // listener (PERF-08) but does not yet capture.
       const idleCallback = mockMap.once.mock.calls.find(
         (c: unknown[]) => c[0] === 'idle',
       )![1] as () => void;
       act(() => { idleCallback(); });
 
+      // Fire the render frame to actually capture pixels.
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
       expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
 
       // Advance past timeout — should NOT double-capture
@@ -652,7 +693,7 @@ describe('useBuilderSave', () => {
   });
 
   describe('maybeAutoCaptureThumbnail', () => {
-    it('waits for visible layer sources before capturing a missing thumbnail', () => {
+    it('waits for visible layer sources before capturing a missing thumbnail', async () => {
       vi.useFakeTimers();
       const origCreateElement = document.createElement.bind(document);
       const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
@@ -703,13 +744,21 @@ describe('useBuilderSave', () => {
         idleCallback();
       });
 
+      // PERF-08 (Phase 274): idle alone schedules the render listener; the
+      // render frame must fire to actually upload pixels.
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      // Use real timers briefly to let the uploadThumbnail microtask resolve.
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
       expect(mockUploadThumbnail).toHaveBeenCalledWith(
         'map-1',
         expect.stringContaining('data:image/jpeg'),
       );
 
       createElementSpy.mockRestore();
-      vi.useRealTimers();
     });
   });
 });
