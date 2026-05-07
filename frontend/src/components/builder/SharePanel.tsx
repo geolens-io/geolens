@@ -141,7 +141,7 @@ function ShareLinkSettings({
     <div className="space-y-3">
       <button
         type="button"
-        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+        className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
         onClick={() => {
           const next = !showSettings;
           setShowSettings(next);
@@ -456,7 +456,7 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
                     role="radio"
                     aria-checked={isActive}
                     className={cn(
-                      'w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors',
+                      'cursor-pointer w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors',
                       isActive
                         ? 'ring-2 ring-primary border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',

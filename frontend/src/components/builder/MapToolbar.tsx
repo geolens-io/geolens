@@ -80,7 +80,7 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
                 <button
                   onClick={tool.onClick}
                   className={cn(
-                    'flex items-center justify-center h-7 w-7 rounded-md transition-colors',
+                    'flex cursor-pointer items-center justify-center h-7 w-7 rounded-md transition-colors',
                     tool.active
                       ? 'bg-foreground text-background'
                       : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -109,7 +109,7 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
                   <button
                     onClick={() => toggle('legend')}
                     className={cn(
-                      'flex items-center justify-center h-7 w-7 rounded-md transition-colors',
+                      'flex cursor-pointer items-center justify-center h-7 w-7 rounded-md transition-colors',
                       legendActive
                         ? 'bg-foreground text-background'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground',
@@ -135,7 +135,7 @@ export function MapToolbar({ onStyleJsonClick }: MapToolbarProps) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={onStyleJsonClick}
-                    className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="flex cursor-pointer items-center justify-center h-7 w-7 rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     aria-label={t('toolbar.styleJson', { defaultValue: 'Style JSON' })}
                   >
                     <FileJson className="h-3.5 w-3.5" />

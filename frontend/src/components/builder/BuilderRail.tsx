@@ -90,8 +90,8 @@ export function BuilderRail({
                 btn.disabled
                   ? 'text-muted-foreground/40 cursor-not-allowed'
                   : activePanel === btn.id
-                    ? 'bg-accent text-primary'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    ? 'cursor-pointer bg-accent text-primary'
+                    : 'cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
               <btn.icon className="h-4 w-4" />
@@ -126,7 +126,7 @@ export function BuilderRail({
               onClick={() => onPanelChange(null)}
               title={t('rail.closePanel', { defaultValue: 'Close panel' })}
               aria-label={t('rail.closePanel', { defaultValue: 'Close panel' })}
-              className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="flex cursor-pointer items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               <ChevronRight className="h-3.5 w-3.5 rtl-mirror" />
             </button>

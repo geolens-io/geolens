@@ -569,7 +569,7 @@ export const BuilderMap = memo(function BuilderMap({
         onLoad={handleLoad}
         aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       >
-        <NavigationControl position="bottom-right" />
+        <NavigationControl position="top-right" />
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         {popupInfo && (
           <FeaturePopup
@@ -590,7 +590,7 @@ export const BuilderMap = memo(function BuilderMap({
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">{t('errors.mapMessage')}</p>
-            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded px-1">{t('common.reload')}</button>
+            <button type="button" onClick={reload} className="cursor-pointer text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded px-1">{t('common.reload')}</button>
           </div>
         </div>
       )}

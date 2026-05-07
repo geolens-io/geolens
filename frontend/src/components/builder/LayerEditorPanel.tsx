@@ -64,7 +64,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             onClick={onBack}
             aria-label={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
             title={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
-            className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+            className="flex cursor-pointer items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
           >
             <ChevronLeft className="h-4 w-4 rtl-mirror" />
           </button>
@@ -115,7 +115,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 aria-selected={activeTab === tab}
                 aria-controls={`tabpanel-${layer.id}-${tab}`}
                 className={cn(
-                  'px-2.5 py-2 text-xs font-semibold transition-colors',
+                  'cursor-pointer px-2.5 py-2 text-xs font-semibold transition-colors',
                   activeTab === tab
                     ? 'text-foreground border-b-2 border-primary'
                     : 'text-muted-foreground hover:text-foreground'

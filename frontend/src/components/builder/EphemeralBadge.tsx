@@ -30,7 +30,7 @@ export function EphemeralBadge({ featureCount, onDismiss, truncated, totalCount 
       <button
         type="button"
         onClick={onDismiss}
-        className="text-muted-foreground hover:text-foreground transition-colors"
+        className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
         title={t('ephemeralBadge.dismiss')}
         aria-label={t('ephemeralBadge.dismiss')}
       >

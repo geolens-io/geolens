@@ -179,7 +179,7 @@ export function ZoomExpressionEditor({
             type="button"
             aria-pressed={mode === 'fixed'}
             className={cn(
-              'flex-1 rounded px-2 py-1 text-xs transition-colors',
+              'flex-1 cursor-pointer rounded px-2 py-1 text-xs transition-colors',
               mode === 'fixed' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
             )}
             onClick={switchToFixed}
@@ -190,7 +190,7 @@ export function ZoomExpressionEditor({
             type="button"
             aria-pressed={mode === 'zoom'}
             className={cn(
-              'flex-1 rounded px-2 py-1 text-xs transition-colors',
+              'flex-1 cursor-pointer rounded px-2 py-1 text-xs transition-colors',
               mode === 'zoom' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
             )}
             onClick={switchToZoom}
@@ -219,7 +219,7 @@ export function ZoomExpressionEditor({
                 type="button"
                 aria-pressed={draft.kind === kind}
                 className={cn(
-                  'flex-1 rounded border px-2 py-1 text-xs transition-colors',
+                  'flex-1 cursor-pointer rounded border px-2 py-1 text-xs transition-colors',
                   draft.kind === kind
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',

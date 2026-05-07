@@ -124,7 +124,7 @@ export function MapTitleBar({
               <Button
                 variant={hasUnsavedChanges ? 'default' : 'outline'}
                 size="sm"
-                className="h-7 text-xs gap-1"
+                className="h-7 text-xs gap-1 relative"
                 onClick={onSave}
                 disabled={isSaving}
                 aria-label={t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` })}
@@ -132,7 +132,13 @@ export function MapTitleBar({
                 {isSaving ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : hasUnsavedChanges ? (
-                  <Save className="h-3 w-3" />
+                  <span className="relative inline-flex">
+                    <Save className="h-3 w-3" />
+                    <span
+                      className="absolute -top-1 -right-1 h-1.5 w-1.5 rounded-full bg-warning ring-1 ring-background"
+                      aria-label={t('titleBar.unsavedDot', { defaultValue: 'Unsaved changes' })}
+                    />
+                  </span>
                 ) : (
                   <span className="h-1.5 w-1.5 rounded-full bg-success" />
                 )}

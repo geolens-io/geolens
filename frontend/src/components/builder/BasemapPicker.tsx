@@ -30,7 +30,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-label={`${t('basemap.title')}: ${current?.label ?? t('basemap.title')}`}
-        className="flex items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-muted/40 hover:bg-accent/50 transition-colors border border-border/40"
+        className="flex cursor-pointer items-center gap-2 w-full rounded-lg px-2 py-1.5 bg-muted/40 hover:bg-accent/50 transition-colors border border-border/40"
       >
         <img
           src={basemapThumbnail(value)}
@@ -65,7 +65,7 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
                   setOpen(false);
                 }}
                 className={cn(
-                  'flex flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                  'flex cursor-pointer flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                   value === b.id
                     ? 'ring-2 ring-primary ring-offset-2 ring-offset-background bg-accent'
                     : 'hover:bg-accent/50',

@@ -23,7 +23,7 @@ export function ColumnsReference({ columns, defaultOpen = false }: ColumnsRefere
   return (
     <div className="mt-2 pt-2 border-t">
       <button
-        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
+        className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
         onClick={() => setOpen((v) => !v)}
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}

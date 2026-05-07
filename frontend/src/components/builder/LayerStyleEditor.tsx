@@ -568,7 +568,7 @@ function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange,
             <button
               key={preset.key} type="button"
               className={cn(
-                'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                'flex-1 cursor-pointer px-2 py-1 text-xs rounded border transition-colors',
                 isActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
               )}
               onClick={() => {
@@ -800,7 +800,7 @@ function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChange, defa
   return (
     <div className="border-t pt-2">
       <button
-        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
+        className="flex cursor-pointer items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground w-full"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -866,7 +866,7 @@ function JsonBlock({ label, value, onApply, layerType }: { label: string; value:
     return (
       <div>
         <button
-          className="text-xs text-muted-foreground hover:text-foreground underline"
+          className="cursor-pointer text-xs text-muted-foreground hover:text-foreground underline"
           onClick={handleOpen}
         >
           {label}

@@ -170,7 +170,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
                 key={opt.value}
                 type="button"
                 className={cn(
-                  'flex-1 px-2 py-1 text-xs rounded border transition-colors',
+                  'flex-1 cursor-pointer px-2 py-1 text-xs rounded border transition-colors',
                   placement === opt.value
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',

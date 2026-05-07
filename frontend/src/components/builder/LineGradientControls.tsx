@@ -453,7 +453,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
           type="button"
           aria-label={t('style.lineGradient.advanced')}
           aria-expanded={advancedOpen}
-          className="flex w-full items-center justify-start gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="flex cursor-pointer w-full items-center justify-start gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
           onClick={() => (advancedOpen ? cancelAdvanced() : openAdvanced())}
         >
           {advancedOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3 rtl-mirror" />}

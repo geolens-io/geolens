@@ -131,7 +131,7 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
           <span className="text-foreground">{chip.label}</span>
           <button
             onClick={() => onClearFilter(chip.layerId)}
-            className="flex items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+            className="flex cursor-pointer items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
             aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
           >
             <X className="h-2.5 w-2.5" />

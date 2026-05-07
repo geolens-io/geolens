@@ -66,7 +66,7 @@ export function IconPicker({ value, onChange, label }: IconPickerProps) {
               key={icon.id}
               type="button"
               className={cn(
-                'flex h-8 w-8 items-center justify-center rounded border bg-background text-[10px] font-medium',
+                'flex cursor-pointer h-8 w-8 items-center justify-center rounded border bg-background text-[10px] font-medium',
                 value === icon.sprite_id ? 'border-primary ring-1 ring-primary' : 'border-border hover:bg-accent',
               )}
               onClick={() => onChange(icon.sprite_id)}

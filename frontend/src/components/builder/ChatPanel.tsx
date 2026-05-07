@@ -440,7 +440,7 @@ export function ChatPanel({
                 <button
                   key={suggestion}
                   type="button"
-                  className="text-xs px-2.5 py-1 rounded-full border border-border hover:bg-accent hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
+                  className="cursor-pointer text-xs px-2.5 py-1 rounded-full border border-border hover:bg-accent hover:border-primary/30 text-muted-foreground hover:text-foreground transition-colors"
                   onClick={() => {
                     setInput(suggestion);
                     requestAnimationFrame(() => {
@@ -498,7 +498,7 @@ export function ChatPanel({
                       msg.role === 'assistant' && (
                       <button
                         type="button"
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                         onClick={handleUndo}
                       >
                         <Undo2 className="h-3 w-3" />

@@ -445,8 +445,9 @@ export function syncLayersToMap(
     removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
     managedSourcesRef.current = desiredSources;
   } catch (err) {
-    // On failure, keep managedSourcesRef at pre-removal value so next sync retries cleanup
-    console.warn('[map-sync] removeStaleSourcesAndLayers failed', err);
+    // On failure, keep managedSourcesRef at pre-removal value so next sync retries cleanup.
+    // DEV-only diagnostic — silenced in production to keep the runtime console clean.
+    if (import.meta.env.DEV) console.warn('[map-sync] removeStaleSourcesAndLayers failed', err);
   }
 
   // Only reorder when layer order actually changed (not on every paint/visibility sync).

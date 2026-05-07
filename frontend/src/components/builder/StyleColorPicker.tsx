@@ -72,7 +72,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
                 type="button"
                 onClick={() => onChange(hex)}
                 className={cn(
-                  'w-5 h-5 rounded-sm border transition-transform hover:scale-125',
+                  'cursor-pointer w-5 h-5 rounded-sm border transition-transform hover:scale-125',
                   localColor === hex ? 'ring-2 ring-primary ring-offset-background' : 'border-border',
                 )}
                 style={{ background: hex }}
