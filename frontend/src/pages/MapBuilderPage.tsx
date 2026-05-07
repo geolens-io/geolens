@@ -199,6 +199,22 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
   );
+  // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
+  // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
+  // refetchOnMount / window-focus invalidations) produce shape-equivalent
+  // but identity-different widget arrays — declaring `[mapData?.widgets,
+  // enabledWidgetIds]` directly as deps would reset the user's local widget
+  // toggles on every background refetch. Coercing the deps to stable JSON
+  // strings (savedWidgetKey) and a NUL-joined ID list (enabledWidgetKey)
+  // gives the useEffect value-equality semantics, which is what we actually
+  // want for "restore widgets when the saved set or admin allowlist
+  // changes".
+  //
+  // If a future author "simplifies" this back to raw object/array deps,
+  // local widget toggle state will silently regress on every refetch.
+  // Verify with the map-builder UAT in Plan 276-05: open builder, toggle a
+  // widget OFF, trigger a refetch (Cmd-R / window focus / queryClient
+  // invalidateQueries), confirm the toggle stays OFF.
   const savedWidgetKey = mapData ? `${mapData.id}:${JSON.stringify(mapData.widgets ?? null)}` : '';
   const enabledWidgetKey = enabledWidgetIds == null ? '__all__' : enabledWidgetIds.join('\0');
 
@@ -210,7 +226,7 @@ export function MapBuilderPage() {
       ? getDefaultWidgetIds(enabledWidgetIds)
       : resolveAvailableWidgetIds(mapData.widgets, enabledWidgetIds);
     useWidgetStore.getState().replace(nextWidgets);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- key strings avoid resetting local toggles on unrelated mapData identity changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see Phase 276 CODE-12 block comment above
   }, [savedWidgetKey, enabledWidgetKey]);
 
   const save = useBuilderSave({

@@ -217,7 +217,6 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     if (paintExpr != null && parsedFromPaint == null) {
       savedGradientExprRef.current = paintExpr;
     }
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { 'line-gradient': _drop, ...paintWithoutGradient } = paint;
     const nextPaint =
       savedSolidColorRef.current

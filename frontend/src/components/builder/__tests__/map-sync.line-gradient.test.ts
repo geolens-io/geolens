@@ -88,8 +88,10 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     const layer = makeLayer({
       id: 'l-intent',
       paint: { 'line-color': '#000', 'line-width': 2 },
-      // TODO(Phase 256): drop `as unknown` cast once StyleConfig['builder'] declares
-      // `lineGradient`. See REVIEW.md IN-03.
+      // Cast required: StyleConfig requires `mode | column | ramp` for data-driven
+      // styling, but this test only exercises the line-gradient detection path,
+      // which reads `style_config.builder.lineGradient` and ignores the rest.
+      // Constructing a full StyleConfig just to satisfy TS would obscure intent.
       style_config: { builder: { lineGradient: { stops: [{ position: 0, color: '#00f' }] } } } as unknown as SyncLayerInput['style_config'],
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
@@ -125,8 +127,11 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     const layer = makeLayer({
       id: 'l-array-intent',
       paint: { 'line-color': '#000', 'line-width': 2 },
-      // TODO(Phase 256): drop `as unknown` cast once StyleConfig['builder'] declares
-      // `lineGradient`. See REVIEW.md IN-03.
+      // Cast required: this test deliberately constructs an invalid array-shaped
+      // `lineGradient` to lock the rejection path in `lineGradientNeededFor`.
+      // The runtime contract is `{ stops: ... }`-only; the cast bypasses TS so
+      // we can verify the runtime guard rejects array-shaped intent without
+      // weakening the public BuilderStyleConfig type.
       style_config: {
         builder: { lineGradient: [{ position: 0, color: '#00f' }] },
       } as unknown as SyncLayerInput['style_config'],
