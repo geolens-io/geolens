@@ -20,6 +20,15 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 
+# Phase 268 H-31: loopback IP set used to gate the localhost-Origin bypass.
+# The Origin header alone is trivially forgeable from non-browser callers
+# (curl, server-side scripts, CLIs) — they can simply set
+# ``Origin: http://localhost`` and bypass any allowed_origins whitelist.
+# To prevent that, the bypass now also requires ``request.client.host`` to
+# be a loopback IP (which a remote attacker cannot forge — ``client.host``
+# is the actual TCP peer address).
+_LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
+
 
 def _normalize_origin(origin: str) -> str:
     """Lowercase, strip trailing slash, strip default ports."""
@@ -42,6 +51,20 @@ def _is_localhost_origin(origin: str) -> bool:
     """Check if origin is a localhost address (http/https, IPv4/IPv6)."""
     parsed = urlparse(origin.lower().rstrip("/"))
     return (parsed.hostname or "") in _LOCALHOST_HOSTS
+
+
+def _client_is_loopback(request: Request) -> bool:
+    """Phase 268 H-31: True iff the actual TCP peer is a loopback IP.
+
+    ``request.client.host`` is the TCP-connection peer address, set by the
+    ASGI server from the actual socket — it cannot be forged via headers.
+    Used to gate the legacy localhost-Origin bypass so non-browser callers
+    on a remote host can no longer trivially set ``Origin: http://localhost``
+    to bypass the allowed_origins whitelist.
+    """
+    if request.client is None:
+        return False
+    return (request.client.host or "").lower() in _LOOPBACK_CLIENT_IPS
 
 
 def extract_request_origin(request: Request) -> str | None:
@@ -268,21 +291,25 @@ async def validate_embed_token_access(
         )
 
     # Domain-locking check (before dataset scope check).
-    # NOTE: Localhost origins (localhost, 127.0.0.1, [::1]) bypass domain
-    # restrictions intentionally to support local development. This does NOT
-    # affect production security because embed tokens still require valid
-    # token hash + active status + dataset scope + expiration.
+    # Phase 268 H-31: the legacy localhost-Origin bypass was trivially
+    # forgeable by non-browser callers (curl, server-side scripts) — any
+    # caller could set ``Origin: http://localhost`` and skip the allowlist.
+    # The bypass is now gated on ``request.client.host`` being a loopback
+    # IP (which is the actual TCP peer and cannot be forged remotely).
     if allowed_origins:
         if request is None:
             return False
         origin = extract_request_origin(request)
         if origin is None:
             return False
-        if not _is_localhost_origin(origin):
+        if _is_localhost_origin(origin) and _client_is_loopback(request):
+            # Local-development bypass: Origin claims localhost AND the TCP
+            # peer is also loopback (only possible from same-host calls).
+            pass
+        elif origin not in allowed_origins:
             # Both origin (from extract_request_origin) and allowed_origins
-            # (from create_embed_token) are pre-normalized
-            if origin not in allowed_origins:
-                return False
+            # (from create_embed_token) are pre-normalized.
+            return False
 
     # Dataset scope check
     if str(dataset_id) not in scoped_dataset_ids:
