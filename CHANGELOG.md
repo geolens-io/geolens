@@ -22,6 +22,14 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   the new shape. Recommend a 1.1.0 minor bump on the next public release to
   signal this contract change.
 
+### Fixed
+
+- Replaced unowned `geolens.io` domain references with `getgeolens.com` in
+  `sdks/python/pyproject.toml` author email, `cli/pyproject.toml` author
+  email, and `.env.demo` demo-sandbox host comments. PyPI metadata for
+  already-shipped 1.0.x wheels is immutable; the next published version
+  will carry the corrected author email. No runtime behavior change.
+
 ## [1.0.2] - 2026-05-05
 
 ### Added

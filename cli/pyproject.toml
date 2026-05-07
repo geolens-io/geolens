@@ -9,7 +9,7 @@ description = "Apache-2.0 command-line interface for the GeoLens API. Login, sca
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
-authors = [{ name = "GeoLens", email = "noreply@geolens.io" }]
+authors = [{ name = "GeoLens", email = "noreply@getgeolens.com" }]
 keywords = ["geolens", "geospatial", "cli", "stac", "openapi"]
 classifiers = [
   "Development Status :: 4 - Beta",

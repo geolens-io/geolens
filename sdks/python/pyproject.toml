@@ -9,7 +9,7 @@ description = "Auto-generated Python SDK for the GeoLens API. Typed clients with
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
-authors = [{ name = "GeoLens", email = "noreply@geolens.io" }]
+authors = [{ name = "GeoLens", email = "noreply@getgeolens.com" }]
 keywords = ["geolens", "geospatial", "openapi", "sdk"]
 classifiers = [
   "Development Status :: 4 - Beta",
