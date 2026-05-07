@@ -231,6 +231,28 @@ First-run troubleshooting:
 
 For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). For upgrading, see the [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
 
+### Add Your First Dataset
+
+The fastest way from a freshly-started stack to data in the catalog is the **manifest CLI**. A manifest is a YAML file describing one or more datasets and their sources; `geolens apply` validates it locally and uploads the work to the API in one step.
+
+```bash
+pip install geolens-cli                              # installs the `geolens` command
+geolens login http://localhost:8080                  # admin / admin
+geolens apply examples/manifests/first-catalog/geolens.yaml
+```
+
+The example at [`examples/manifests/first-catalog/`](examples/manifests/first-catalog/) ships a small `city-parks.geojson` and a ready-to-apply `geolens.yaml` so the round trip from clone to first dataset is one command.
+
+To start your own catalog, scaffold a fresh manifest with `geolens init` and edit it for your sources:
+
+```bash
+geolens init                       # writes geolens.yaml in the current directory
+geolens validate geolens.yaml      # local schema check, no API call
+geolens apply geolens.yaml         # validates + applies via /ingest/manifest/apply
+```
+
+See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manifest schema, source kinds, and CI integration patterns.
+
 ### Demo Mode
 
 Run a pre-populated demo instance with sample Natural Earth data:
