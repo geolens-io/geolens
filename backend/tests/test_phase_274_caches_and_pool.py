@@ -205,13 +205,23 @@ def test_schema_cache_eviction_at_64():
 
 
 def test_chat_service_call_site_passes_map_id():
-    """PERF-04: chat_service.py threads map_id into the schema_context call."""
-    from app.processing.ai import chat_service
+    """PERF-04: chat-edit threads map_id into the schema_context call.
 
-    src = inspect.getsource(chat_service)
-    assert re.search(
-        r"build_sql_schema_context\([^)]*map_id\s*=", src
-    ), "PERF-04: chat_service must thread map_id into build_sql_schema_context"
+    Phase 276 CODE-02: chat_service was split into a facade + chat_*.py
+    sub-modules; the actual ``build_sql_schema_context`` call now lives in
+    ``chat_actions._handle_query_data``. The PERF-04 contract still holds
+    (map_id is threaded through), so this test checks both modules and
+    accepts the call in either source — preserving the original intent
+    after the facade decomposition.
+    """
+    from app.processing.ai import chat_actions, chat_service
+
+    pattern = r"build_sql_schema_context\([^)]*map_id\s*="
+    sources = (inspect.getsource(chat_service), inspect.getsource(chat_actions))
+    assert any(re.search(pattern, src) for src in sources), (
+        "PERF-04: chat_service or chat_actions must thread map_id into "
+        "build_sql_schema_context"
+    )
 
 
 def test_handle_query_data_signature_accepts_map_id():

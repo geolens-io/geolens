@@ -741,17 +741,24 @@ def test_no_external_imports_of_search_private_service_modules() -> None:
 
 @pytest.mark.architecture
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
-    """Phase 238 BOUND-02 + Phase 269 H-05: decomposed service splits stay bounded.
+    """Phase 238 BOUND-02 + Phase 269 H-05 + Phase 276 CODE-02: decomposed splits stay bounded.
 
     Originally introduced as the maps/search size-budget guard in Phase 238
     BOUND-02. Phase 269 (v13.12 H-05) extended coverage to the Phase 224
     dataset-domain split (`datasets/domain/service_*.py`), which previously
-    had a private-import guard but no companion size cap.
+    had a private-import guard but no companion size cap. Phase 276 CODE-02
+    added processing/ai/chat_*.py coverage when chat_service.py was split
+    into a facade + sub-modules.
     """
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 100,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 110,
+        # Phase 276 CODE-02 — chat_service.py is now a facade re-exporting
+        # from chat_*.py sub-modules. 400 is the established Phase-226 cap
+        # for facade modules that retain a meaty orchestrator + system-prompt
+        # builder.
+        "backend/app/processing/ai/chat_service.py": 400,
     }
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
@@ -765,6 +772,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 480,
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 460,
         "backend/app/modules/catalog/datasets/domain/service_query.py": 390,
+        # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
+        # default (largest is chat_actions.py at ~245 LOC). No explicit
+        # per-file overrides needed; default applies.
     }
 
     files_to_check = list(facade_line_budgets)
@@ -776,6 +786,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
             _backend_path("app/modules/catalog/datasets/domain"),
         )
         for path in sorted(root.glob("service_*.py"))
+    )
+    # Phase 276 CODE-02: extend discovery to processing/ai/chat_*.py sub-modules
+    # (the chat_service.py facade is already covered via facade_line_budgets).
+    files_to_check.extend(
+        _repo_style_rel(path)
+        for path in sorted(_backend_path("app/processing/ai").glob("chat_*.py"))
+        if path.name != "chat_service.py"
     )
 
     violations: list[str] = []
@@ -792,8 +809,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 
     if violations:
         pytest.fail(
-            "Phase 238 BOUND-02 / Phase 269 H-05 invariant violated: "
-            "decomposed service modules (maps / search / datasets-domain) "
+            "Phase 238 BOUND-02 / Phase 269 H-05 / Phase 276 CODE-02 "
+            "invariant violated: decomposed service modules "
+            "(maps / search / datasets-domain / processing/ai/chat_*) "
             "exceeded their line-count budgets. Split the module or add a "
             "reviewed explicit cap only when growth is intentional.\n"
             + "\n".join(violations)
