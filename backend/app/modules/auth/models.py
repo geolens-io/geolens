@@ -126,6 +126,8 @@ class RefreshToken(Base):
         # alembic check sees it; the migration is the source of truth for
         # the actual DDL.
         Index("ix_catalog_refresh_tokens_expires_at", "expires_at"),
+        # DBM-10 covering index added in migration 0014.
+        Index("ix_refresh_tokens_user_id", "user_id"),
         {"schema": "catalog"},
     )
 
