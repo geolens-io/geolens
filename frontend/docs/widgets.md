@@ -30,7 +30,7 @@ Developer registers widget (code)
 ### 1. Create the component
 
 ```tsx
-// src/components/widgets/builtin/MyWidget.tsx
+// src/components/map-widgets/builtin/MyWidget.tsx
 import type { WidgetContext } from '../types';
 
 export function MyWidget({ ctx }: { ctx: WidgetContext }) {
@@ -45,7 +45,7 @@ export function MyWidget({ ctx }: { ctx: WidgetContext }) {
 
 ### 2. Register it
 
-Add to `src/components/widgets/register-widgets.ts`:
+Add to `src/components/map-widgets/register-widgets.ts`:
 
 ```tsx
 import { Ruler } from 'lucide-react';
