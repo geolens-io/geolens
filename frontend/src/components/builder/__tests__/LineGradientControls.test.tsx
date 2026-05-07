@@ -88,8 +88,17 @@ describe('LineGradientControls — UI', () => {
     // UAT regression-lock: onBuilderChange MUST receive nextPaint that includes
     // the new line-gradient expression, otherwise upstream save reads stale paint
     // (closure capture) and shadows the gradient.
+    // Phase 258 POLISH-06: stops now carry id fields (optional); use objectContaining
+    // so the assertion accepts the extra `id` field without breaking GRAD-04.
     expect(onBuilderChange).toHaveBeenCalledWith(
-      { lineGradient: { stops: [...DEFAULT_GRADIENT_STOPS] } },
+      {
+        lineGradient: {
+          stops: expect.arrayContaining([
+            expect.objectContaining({ position: 0, color: '#0066cc' }),
+            expect.objectContaining({ position: 1, color: '#cc3300' }),
+          ]),
+        },
+      },
       expect.objectContaining({ 'line-gradient': expr, 'line-color': '#abcdef' }),
     );
   });
@@ -601,5 +610,142 @@ describe('LineGradientControls — UI polish (Phase 258)', () => {
     for (const btn of screen.getAllByRole('button', { name: 'style.lineGradient.removeStop' })) {
       expect(btn).toBeDisabled();
     }
+  });
+});
+
+describe('LineGradientControls — stable stop keys (Phase 258)', () => {
+  it('polish-06: stopsToLineGradientExpression strips id from canonical paint output', () => {
+    const stopsWithIds = [
+      { position: 0, color: '#000', id: 'aaa' },
+      { position: 1, color: '#fff', id: 'bbb' },
+    ];
+    const stopsWithoutIds = [
+      { position: 0, color: '#000' },
+      { position: 1, color: '#fff' },
+    ];
+    expect(stopsToLineGradientExpression(stopsWithIds)).toEqual(
+      stopsToLineGradientExpression(stopsWithoutIds),
+    );
+    expect(stopsToLineGradientExpression(stopsWithIds)).toEqual([
+      'interpolate',
+      ['linear'],
+      ['line-progress'],
+      0, '#000',
+      1, '#fff',
+    ]);
+  });
+
+  it('polish-06: addStop assigns a fresh id to the new stop and preserves existing ids', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    // Pre-seed builder stops WITH stable ids so we can assert preservation.
+    const initialStops = [
+      { position: 0, color: '#000', id: 'stop-a' },
+      { position: 1, color: '#fff', id: 'stop-b' },
+    ];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(initialStops) }}
+        styleConfig={{ builder: { lineGradient: { stops: initialStops } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.addStop' }));
+
+    const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+    const committedStops = lastBuilderCall[0].lineGradient.stops as Array<{ position: number; color: string; id?: string }>;
+    expect(committedStops).toHaveLength(3);
+    // All 3 stops must have an id.
+    for (const s of committedStops) {
+      expect(typeof s.id).toBe('string');
+      expect(s.id!.length).toBeGreaterThan(0);
+    }
+    // Existing ids preserved.
+    const ids = committedStops.map((s) => s.id);
+    expect(ids).toContain('stop-a');
+    expect(ids).toContain('stop-b');
+    // The third id is fresh and unique.
+    const freshId = ids.find((id) => id !== 'stop-a' && id !== 'stop-b');
+    expect(freshId).toBeTruthy();
+    expect(freshId).not.toBe('stop-a');
+    expect(freshId).not.toBe('stop-b');
+  });
+
+  it('polish-06: legacy builder stops without ids get assigned ids at first hydration', async () => {
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    // Mount with stops that lack `id` (legacy JSONB shape).
+    const legacyStops = [
+      { position: 0, color: '#000' },
+      { position: 1, color: '#fff' },
+    ];
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(legacyStops) }}
+        styleConfig={{ builder: { lineGradient: { stops: legacyStops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    // Trigger a commit (e.g., addStop) so we can inspect the next stops.
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.addStop' }));
+    const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+    const committedStops = lastBuilderCall[0].lineGradient.stops as Array<{ position: number; color: string; id?: string }>;
+    // Every stop in the committed builder JSONB now has an id (the legacy ones got
+    // assigned at hydration; the freshly-added one got assigned at addStop).
+    for (const s of committedStops) {
+      expect(typeof s.id).toBe('string');
+      expect(s.id!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('polish-06: midpoint insertion preserves React identity of pre-existing stop rows (key=stop.id)', async () => {
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    const initialStops = [
+      { position: 0, color: '#000', id: 'first' },
+      { position: 1, color: '#fff', id: 'last' },
+    ];
+    const { rerender, container } = render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(initialStops) }}
+        styleConfig={{ builder: { lineGradient: { stops: initialStops } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    // Tag the first and last stop rows by recording their DOM nodes.
+    const positionInputsBefore = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+    expect(positionInputsBefore).toHaveLength(2);
+    const firstNodeBefore = positionInputsBefore[0];
+    const lastNodeBefore = positionInputsBefore[1];
+
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.addStop' }));
+    // Re-render with the committed 3-stop set (parent normally pushes this back via styleConfig).
+    const committed = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1][0].lineGradient.stops;
+    rerender(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(committed) }}
+        styleConfig={{ builder: { lineGradient: { stops: committed } } } as unknown as StyleConfig}
+        onPaintProp={vi.fn()}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    const positionInputsAfter = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+    expect(positionInputsAfter).toHaveLength(3);
+    // The inputs at the FIRST and LAST positions must be the same DOM nodes as before
+    // (React reused them because their parent rows were keyed by stable id).
+    // After sorted insertion of the midpoint stop, the `first` stop (id='first', pos=0) is
+    // still at index 0 and the `last` stop (id='last', pos=1) is now at index 2.
+    expect(positionInputsAfter[0]).toBe(firstNodeBefore);
+    expect(positionInputsAfter[2]).toBe(lastNodeBefore);
+    // Sanity: container still mounted.
+    expect(container.contains(positionInputsAfter[0])).toBe(true);
   });
 });

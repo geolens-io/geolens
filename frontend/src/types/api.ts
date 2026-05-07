@@ -738,7 +738,12 @@ export interface BuilderStyleConfig {
    *  Phase 255 engine consumes a non-empty plain object via lineGradientNeededFor() to
    *  emit lineMetrics: true on the backing vector source. */
   lineGradient?: {
-    stops: Array<{ position: number; color: string }>;
+    /** Phase 258 POLISH-06: optional per-stop UUID for stable React keys.
+     *  Persisted in the JSONB builder shape only; NEVER emitted to the canonical
+     *  interpolate-linear-line-progress paint expression (v13.9 GRAD-05/06 byte
+     *  identity contract). Legacy stops without `id` are auto-assigned at hydration
+     *  inside LineGradientControls. */
+    stops: Array<{ position: number; color: string; id?: string }>;
   };
 }
 

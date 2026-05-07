@@ -13,6 +13,23 @@ export const DEFAULT_GRADIENT_STOPS: ReadonlyArray<{ position: number; color: st
   { position: 1, color: '#cc3300' },
 ];
 
+// Hydrated working-set stop type — id is REQUIRED at runtime once liveStops is
+// computed. This contrasts with the persisted JSONB shape where id is optional
+// (legacy stops loaded from saved maps may not have one). All hydration paths
+// (paint expression, builder JSONB, DEFAULT_GRADIENT_STOPS) MUST populate id
+// before using a stop as `liveStops`.
+type WorkingStop = { position: number; color: string; id: string };
+
+function ensureStopIds(
+  stops: ReadonlyArray<{ position: number; color: string; id?: string }>,
+): WorkingStop[] {
+  return stops.map((s) => ({
+    position: s.position,
+    color: s.color,
+    id: s.id ?? crypto.randomUUID(),
+  }));
+}
+
 // Permissive allowlist for the raw-expression structural validator. The goal
 // is to reject obvious garbage (random strings, plain objects, unknown ops)
 // before commit; full MapLibre semantic validation happens at runtime.
@@ -95,7 +112,7 @@ interface LineGradientControlsProps {
 }
 
 export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilderChange, t }: LineGradientControlsProps) {
-  const builderStops = (styleConfig?.builder?.lineGradient?.stops ?? null) as Array<{ position: number; color: string }> | null;
+  const builderStops = (styleConfig?.builder?.lineGradient?.stops ?? null) as Array<{ position: number; color: string; id?: string }> | null;
   const paintExpr = paint['line-gradient'];
   const parsedFromPaint = paintExpr != null ? lineGradientExpressionToStops(paintExpr) : null;
 
@@ -126,11 +143,36 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const [advancedText, setAdvancedText] = useState<string>('');
   const [advancedError, setAdvancedError] = useState<'parseError' | 'structureError' | null>(null);
 
-  const liveStops: Array<{ position: number; color: string }> | null =
+  // Memoize id assignment so subsequent renders against the same source-of-truth
+  // preserve ids without re-generating UUIDs each render. The memo key is the
+  // reference identity of the underlying stops array (builderStops or parsedFromPaint).
+  const liveStopsSource: ReadonlyArray<{ position: number; color: string; id?: string }> | null =
     builderStops && builderStops.length > 0 ? builderStops : parsedFromPaint;
+
+  const hydratedStopsRef = useRef<{ source: typeof liveStopsSource; hydrated: WorkingStop[] | null }>({
+    source: null,
+    hydrated: null,
+  });
+
+  let liveStops: WorkingStop[] | null;
+  if (liveStopsSource === null) {
+    liveStops = null;
+    hydratedStopsRef.current = { source: null, hydrated: null };
+  } else if (
+    hydratedStopsRef.current.source === liveStopsSource &&
+    hydratedStopsRef.current.hydrated &&
+    hydratedStopsRef.current.hydrated.length === liveStopsSource.length
+  ) {
+    // Source reference unchanged AND length matches — reuse memoized hydration.
+    liveStops = hydratedStopsRef.current.hydrated;
+  } else {
+    liveStops = ensureStopIds(liveStopsSource);
+    hydratedStopsRef.current = { source: liveStopsSource, hydrated: liveStops };
+  }
+
   const isCustomExpression = paintExpr != null && parsedFromPaint == null;
 
-  function commitStops(nextStops: Array<{ position: number; color: string }>) {
+  function commitStops(nextStops: WorkingStop[]) {
     // Compose the next paint snapshot once and pass it to both callbacks so the
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow
@@ -161,7 +203,10 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
       onBuilderChange({ lineGradient: undefined }, nextPaint);
       return;
     }
-    const stops = (liveStops && liveStops.length >= 2) ? liveStops : [...DEFAULT_GRADIENT_STOPS];
+    const stops: WorkingStop[] =
+      liveStops && liveStops.length >= 2
+        ? liveStops
+        : ensureStopIds([...DEFAULT_GRADIENT_STOPS]);
     commitStops(stops);
   }
 
@@ -195,7 +240,10 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     const newPosition = Math.round(((prev.position + last.position) / 2) * 100) / 100;
     // Keep stops in sorted (monotonically increasing position) order so the
     // canonical interpolate-linear-line-progress expression renders correctly.
-    const next = [...liveStops, { position: newPosition, color: last.color }]
+    const next: WorkingStop[] = [
+      ...liveStops,
+      { position: newPosition, color: last.color, id: crypto.randomUUID() },
+    ]
       .slice()
       .sort((a, b) => a.position - b.position);
     commitStops(next);
@@ -334,7 +382,7 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
                   : liveStops[idx - 1].position;
             const monotonic = idx === 0 || displayedPos > prevDisplayedPos;
             return (
-              <div key={idx} className="space-y-1">
+              <div key={stop.id} className="space-y-1">
                 <div className="flex items-center gap-2">
                   <StyleColorPicker
                     label=""
