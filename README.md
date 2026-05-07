@@ -187,6 +187,14 @@ Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at 
 - Audit logging for all administrative actions
 - Internationalization: English, Spanish, French, German
 
+**Enterprise overlay** (private `geolens-enterprise` source): SAML 2.0 single sign-on with group→role mapping, edition lifecycle controls, advanced sharing, audit-log export, custom branding. Operator runbook stubs:
+
+- [SAML configuration](docs/saml.md)
+- [Edition deactivation runbook](docs/edition-deactivation.md)
+- [Edition reactivation runbook](docs/edition-reactivation.md)
+
+For licensing or evaluation, contact `enterprise@getgeolens.com`.
+
 </details>
 
 ## Screenshots

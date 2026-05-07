@@ -8,9 +8,13 @@ No CLA required -- the Apache 2.0 license covers all contributions.
 
 Full user, admin, and API documentation lives at **[docs.getgeolens.com](https://docs.getgeolens.com)**. Source MDX files for the documentation site live in the [getgeolens-com repo](https://github.com/geolens-io/getgeolens.com/tree/main/docs/) under `docs/src/content/docs/guides/`. Submit product-doc fixes via PRs against that repo, not this one.
 
-This repository does not maintain a root `docs/` directory. Keep README images
-under `.github/assets/`, release notes in `CHANGELOG.md`, support routing in
-`SUPPORT.md`, and private/internal material out of the public repository tree.
+This repository keeps `docs/` reserved for short public stubs that point at the
+docs site (e.g. `docs/saml.md`, `docs/edition-deactivation.md`,
+`docs/edition-reactivation.md`). Full narrative product docs live in the sibling
+`getgeolens.com` repo and are served at `docs.getgeolens.com`. Keep README
+images under `.github/assets/`, release notes in `CHANGELOG.md`, support
+routing in `SUPPORT.md`, and private/internal material out of the public
+repository tree.
 
 ## Development Setup
 
