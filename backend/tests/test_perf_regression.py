@@ -257,3 +257,128 @@ async def test_browse_latency(
     assert elapsed_ms < BROWSE_THRESHOLD_MS, (
         f"Browse took {elapsed_ms:.1f}ms (threshold: {BROWSE_THRESHOLD_MS}ms)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 269 H-25: extended perf-marker coverage to AI / STAC / OGC / raster /
+# ingest hot paths. The five existing markers cover only `/search/datasets/`,
+# `/tiles/data.{table}/0/0/0.pbf`, `/datasets/{id}/rows`, `/datasets/{id}`,
+# and `/datasets/?limit=50` — leaving STAC, OGC API Features/Records, raster
+# proxy, and ingest discovery endpoints unguarded.
+#
+# These additional markers test single-row warm-paths only (matching the
+# existing markers' minimal-data approach); their job is to detect order-of-
+# magnitude regressions on hot paths, not to baseline production load.
+# ---------------------------------------------------------------------------
+
+# Generous threshold for endpoint families with no v11.0 baseline.
+GENERAL_THRESHOLD_MS = 800
+
+
+@pytest.mark.perf
+async def test_ogc_records_items_latency(
+    client: AsyncClient, admin_auth_header: dict, _perf_dataset
+):
+    """OGC Records GET /collections/datasets/items completes under threshold."""
+    url = "/collections/datasets/items?limit=10"
+
+    # Warm-up
+    await client.get(url, headers=admin_auth_header)
+
+    start = time.perf_counter()
+    resp = await client.get(url, headers=admin_auth_header)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
+    assert elapsed_ms < GENERAL_THRESHOLD_MS, (
+        f"OGC Records items took {elapsed_ms:.1f}ms "
+        f"(threshold: {GENERAL_THRESHOLD_MS}ms)"
+    )
+
+
+@pytest.mark.perf
+async def test_ogc_features_items_latency(
+    client: AsyncClient, admin_auth_header: dict, _perf_dataset
+):
+    """OGC Features GET /collections/{dataset_id}/items completes under threshold."""
+    dataset_id, _ = _perf_dataset
+    url = f"/collections/{dataset_id}/items?limit=10"
+
+    # Warm-up
+    await client.get(url, headers=admin_auth_header)
+
+    start = time.perf_counter()
+    resp = await client.get(url, headers=admin_auth_header)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
+    assert elapsed_ms < GENERAL_THRESHOLD_MS, (
+        f"OGC Features items took {elapsed_ms:.1f}ms "
+        f"(threshold: {GENERAL_THRESHOLD_MS}ms)"
+    )
+
+
+@pytest.mark.perf
+async def test_stac_landing_latency(
+    client: AsyncClient, admin_auth_header: dict, _perf_dataset
+):
+    """STAC GET /stac/ landing page completes under threshold."""
+    url = "/stac/"
+
+    # Warm-up
+    await client.get(url, headers=admin_auth_header)
+
+    start = time.perf_counter()
+    resp = await client.get(url, headers=admin_auth_header)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
+    assert elapsed_ms < GENERAL_THRESHOLD_MS, (
+        f"STAC landing took {elapsed_ms:.1f}ms (threshold: {GENERAL_THRESHOLD_MS}ms)"
+    )
+
+
+@pytest.mark.perf
+async def test_stac_collections_latency(
+    client: AsyncClient, admin_auth_header: dict, _perf_dataset
+):
+    """STAC GET /stac/collections list completes under threshold."""
+    url = "/stac/collections"
+
+    # Warm-up
+    await client.get(url, headers=admin_auth_header)
+
+    start = time.perf_counter()
+    resp = await client.get(url, headers=admin_auth_header)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
+    assert elapsed_ms < GENERAL_THRESHOLD_MS, (
+        f"STAC collections took {elapsed_ms:.1f}ms "
+        f"(threshold: {GENERAL_THRESHOLD_MS}ms)"
+    )
+
+
+@pytest.mark.perf
+async def test_ingest_upload_config_latency(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Ingest GET /ingest/upload/config completes under threshold.
+
+    No `_perf_dataset` dependency: this endpoint reads only settings, so
+    it's a pure read-path latency probe for the ingest router boot path.
+    """
+    url = "/ingest/upload/config"
+
+    # Warm-up
+    await client.get(url, headers=admin_auth_header)
+
+    start = time.perf_counter()
+    resp = await client.get(url, headers=admin_auth_header)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
+    assert elapsed_ms < GENERAL_THRESHOLD_MS, (
+        f"Ingest config took {elapsed_ms:.1f}ms "
+        f"(threshold: {GENERAL_THRESHOLD_MS}ms)"
+    )
