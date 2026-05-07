@@ -195,10 +195,15 @@ class AuthService:
         username: str,
         password: str,
         email: str | None = None,
-    ) -> User:
-        """Create a new pending user (no role assigned).
+    ) -> uuid.UUID:
+        """Create a new pending user (no role assigned). Returns the new user id.
 
         Raises ValueError if the username or email already exists.
+
+        Phase 279 ADMIN-05 (L-02): contract change — this method now FLUSHES but
+        does NOT commit. The caller controls the transaction so a follow-up
+        audit_emit can land in the same transaction as the user insert. The
+        returned UUID is the new user's id (populated by ``flush()``).
         """
         # Check username uniqueness (case-insensitive)
         existing = await self.db.execute(
@@ -223,8 +228,9 @@ class AuthService:
             is_active=False,
         )
         self.db.add(user)
-        await self.db.commit()
-        return user
+        # Flush so user.id is populated (server_default UUID); caller commits.
+        await self.db.flush()
+        return user.id
 
     # ------------------------------------------------------------------
     # Role queries

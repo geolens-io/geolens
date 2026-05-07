@@ -153,9 +153,18 @@ async def register(
             detail="Registration is disabled",
         )
 
+    # Phase 279 ADMIN-05 (L-02): emit user.register audit event for funnel
+    # visibility (how many users register and from which IP). Lazy import
+    # follows the established LAZY pattern (preserved per D-17) used by the
+    # other audit-emitting routes in this file.
+    from app.modules.audit.service import (
+        AuditEvent,
+        audit_emit,
+    )  # LAZY — preserved per D-17
+
     service = AuthService(db)
     try:
-        await service.register_user(
+        new_user_id = await service.register_user(
             username=body.username,
             password=body.password,
             email=body.email,
@@ -165,6 +174,23 @@ async def register(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         )
+
+    # Phase 279 ADMIN-05 (L-02): the registrant is the actor (no acting admin
+    # exists yet). resource_id == user_id == the new pending user. ip_address
+    # is captured for funnel + abuse-detection visibility.
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=new_user_id,
+            action="user.register",
+            resource_type="user",
+            resource_id=new_user_id,
+            details={"username": body.username, "email": body.email},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
 
     return RegisterResponse(
         message="Registration submitted. Your account is awaiting admin approval."
