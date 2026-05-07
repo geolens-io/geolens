@@ -8,15 +8,41 @@ import hmac
 import hashlib
 import time
 
+import structlog
+
 from app.core.config import settings
+
+logger = structlog.stdlib.get_logger(__name__)
+
+# SEC-11 / L-64: one-shot flag — emit the fallback warning at most once per
+# process. Re-running on every tile request would flood the log.
+_warned_fallback: bool = False
 
 
 def _get_signing_key() -> bytes:
-    """Return the signing key bytes, preferring tile_signing_secret."""
+    """Return the signing key bytes, preferring tile_signing_secret.
+
+    SEC-11: when tile_signing_secret is None, fall back to jwt_secret_key
+    AND emit a one-shot WARN so operators know they're sharing one secret
+    for two purposes (JWT signing + tile URL signing).
+    """
+    global _warned_fallback
     # SecretStr implements __bool__ against the inner value, so the `or`
     # fallthrough yields jwt_secret_key when tile_signing_secret is None or
     # an empty SecretStr (the latter is already coerced to None by
     # empty_str_to_none in config.py, but the check is defensive either way).
+    if settings.tile_signing_secret is None and not _warned_fallback:
+        logger.warning(
+            "tile_signing_secret_fallback",
+            message=(
+                "TILE_SIGNING_SECRET is unset; falling back to JWT_SECRET_KEY "
+                "for HMAC tile signing. Set TILE_SIGNING_SECRET to a separate "
+                "secret (openssl rand -hex 32) to isolate tile-signing key "
+                "rotation from JWT key rotation."
+            ),
+        )
+        _warned_fallback = True
+
     secret = settings.tile_signing_secret or settings.jwt_secret_key
     return secret.get_secret_value().encode()
 
