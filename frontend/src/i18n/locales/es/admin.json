@@ -2,9 +2,9 @@
   "title": "Administración",
   "errors": {
     "retryJobFailed": "Error al reintentar la tarea",
-    "createUserFailed": "Failed to create user",
-    "updateUserFailed": "Failed to update user",
-    "deleteUserFailed": "Failed to delete user",
+    "createUserFailed": "Error al crear usuario",
+    "updateUserFailed": "Error al actualizar usuario",
+    "deleteUserFailed": "Error al eliminar usuario",
     "backfillFailed": "Error en el relleno de embeddings",
     "semanticSearchFailed": "Error al actualizar la configuración de búsqueda semántica"
   },

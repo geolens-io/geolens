@@ -2,9 +2,9 @@
   "title": "Verwaltung",
   "errors": {
     "retryJobFailed": "Auftrag konnte nicht wiederholt werden",
-    "createUserFailed": "Failed to create user",
-    "updateUserFailed": "Failed to update user",
-    "deleteUserFailed": "Failed to delete user",
+    "createUserFailed": "Erstellen des Benutzers fehlgeschlagen",
+    "updateUserFailed": "Aktualisieren des Benutzers fehlgeschlagen",
+    "deleteUserFailed": "Löschen des Benutzers fehlgeschlagen",
     "backfillFailed": "Einbettungs-Backfill fehlgeschlagen",
     "semanticSearchFailed": "Semantische Sucheinstellung konnte nicht aktualisiert werden"
   },
@@ -426,7 +426,7 @@
       "urlError": "URL muss {z}/{x}/{y}-Platzhalter enthalten oder mit .json enden",
       "removeBasemap": "Basiskarte entfernen",
       "add": "Hinzufügen",
-      "attributionLabel": "Attribution",
+      "attributionLabel": "Quellenangabe",
       "attributionPlaceholder": "\u00a9 Anbietername",
       "attributionHelp": "Optional. HTML für Links erlaubt.",
       "apiKeyLabel": "API-Schlüssel",
