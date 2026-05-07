@@ -454,6 +454,58 @@ class MapStyleImportResponse(BaseModel):
     summary: MapStyleImportSummary
 
 
+class MapStyleImportRequest(BaseModel):
+    """Typed request body for POST /maps/import — API-01 / M-05.
+
+    Mirrors the top-level keys of the MapLibre Style Specification that
+    ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
+    forward-compatibility with future MapLibre fields (e.g. ``projection``,
+    ``light``, ``transition``) so adding a new key on the client side
+    doesn't require a server release.
+
+    Replacing the previous bare-``dict`` body parameter removes
+    ``additionalProperties: true`` from the OpenAPI schema and lets
+    openapi-python-client generate a navigable named model class.
+    """
+
+    version: int | None = Field(
+        default=None,
+        description="MapLibre style version (always 8 in current spec)",
+    )
+    name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Display name for the imported map",
+    )
+    metadata: dict | None = Field(
+        default=None,
+        description="Free-form metadata bag (used by GeoLens for center/zoom/basemap hints)",
+    )
+    center: list[float] | None = Field(
+        default=None,
+        description="[longitude, latitude] map center",
+    )
+    zoom: float | None = Field(default=None, ge=0, le=24)
+    bearing: float | None = Field(default=None, ge=-180, le=180)
+    pitch: float | None = Field(default=None, ge=0, le=85)
+    sources: dict | None = Field(
+        default=None,
+        description="MapLibre sources object keyed by source id",
+    )
+    sprite: str | None = Field(default=None, max_length=2000)
+    glyphs: str | None = Field(default=None, max_length=2000)
+    terrain: dict | None = Field(
+        default=None,
+        description="MapLibre terrain config (source + exaggeration)",
+    )
+    layers: list[dict] | None = Field(
+        default=None,
+        description="MapLibre layer specifications",
+    )
+
+    model_config = ConfigDict(extra="allow")
+
+
 class MapIconResponse(BaseModel):
     id: str
     name: str
