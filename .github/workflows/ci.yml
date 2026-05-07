@@ -541,7 +541,9 @@ jobs:
 
       - name: Run pip-audit (dependency vulnerability scan)
         # Ignored vulns:
-        #   CVE-2026-4539 — (pre-existing carve-out, see prior commits)
+        #   (CVE-2026-4539 — removed Phase 279 ADMIN-11 (M-20); pip is patched
+        #     and the CVE no longer surfaces in pip-audit output. See commit
+        #     history for prior carve-out details.)
         #   CVE-2026-3219 — pip 26.0.1: confused-tar/zip handling. No fix
         #     version published yet; vuln only matters when GeoLens
         #     installs adversarial archives, which it doesn't (pip is the
@@ -555,7 +557,7 @@ jobs:
         #     base image; bumping it requires a base-image refresh that's
         #     out of scope for this CI carve-out. Remove this ignore once
         #     the base image ships pip >= 26.1.
-        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
+        run: uv run pip-audit --strict --desc --ignore-vuln CVE-2026-3219 --ignore-vuln CVE-2026-6357
 
   # ---------- E2E (LOCAL-ONLY GATE — see .github/CONTRIBUTING.md "End-to-end (Playwright)") ----------
   # Disabled to save CI minutes: the dockerized stack + browser fixtures push the per-PR runtime
