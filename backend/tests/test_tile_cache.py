@@ -12,16 +12,34 @@ from app.platform.cache.tile_cache import TileCacheProvider
 # --- Fixtures ---
 
 
+def _read_label_counter(counter, label_value: str) -> float:
+    """Read the per-label-set value of a labeled Prometheus Counter (PERF-11).
+
+    Labeled Counters do not expose ``._value`` at the parent level —
+    each label combination has its own underlying child. ``.labels(...)``
+    returns the child, whose ``._value.get()`` gives the cumulative tally.
+    """
+    return counter.labels(table_name=label_value)._value.get()
+
+
+def _reset_label_counter(counter, label_value: str) -> None:
+    """Zero a per-label-set Counter for test isolation."""
+    counter.labels(table_name=label_value)._value.set(0)
+
+
 @pytest.fixture
 def tile_cache():
     """Create TileCacheProvider backed by fakeredis (binary mode)."""
     provider = TileCacheProvider.__new__(TileCacheProvider)
     provider._client = fakeredis.aioredis.FakeRedis(decode_responses=False)
-    # Reset Prometheus counters for isolation
+    # Reset Prometheus counters for isolation. PERF-11 — counters are now
+    # labeled by table_name; reset the labels we use in this fixture's
+    # downstream tests.
     from app.platform.cache.tile_cache import tile_cache_hits, tile_cache_misses
 
-    tile_cache_hits._value.set(0)
-    tile_cache_misses._value.set(0)
+    for label in ("test_table", "t", "_other"):
+        _reset_label_counter(tile_cache_hits, label)
+        _reset_label_counter(tile_cache_misses, label)
     return provider
 
 
@@ -35,7 +53,7 @@ async def test_tile_cache_get_miss(tile_cache):
 
     result = await tile_cache.get("test_table", 5, 10, 15)
     assert result is None
-    assert tile_cache_misses._value.get() == 1
+    assert _read_label_counter(tile_cache_misses, "test_table") == 1
 
 
 @pytest.mark.asyncio
@@ -48,7 +66,7 @@ async def test_tile_cache_set_and_get(tile_cache):
     await tile_cache.set("test_table", 5, 10, 15, compressed, ttl=60)
     result = await tile_cache.get("test_table", 5, 10, 15)
     assert result == compressed
-    assert tile_cache_hits._value.get() == 1
+    assert _read_label_counter(tile_cache_hits, "test_table") == 1
 
 
 @pytest.mark.asyncio
@@ -60,7 +78,7 @@ async def test_tile_cache_hit_increments_counter(tile_cache):
     await tile_cache.set("t", 1, 2, 3, data, ttl=60)
     await tile_cache.get("t", 1, 2, 3)
     await tile_cache.get("t", 1, 2, 3)
-    assert tile_cache_hits._value.get() == 2
+    assert _read_label_counter(tile_cache_hits, "t") == 2
 
 
 @pytest.mark.asyncio
@@ -70,7 +88,7 @@ async def test_tile_cache_miss_increments_counter(tile_cache):
 
     await tile_cache.get("t", 1, 2, 3)
     await tile_cache.get("t", 4, 5, 6)
-    assert tile_cache_misses._value.get() == 2
+    assert _read_label_counter(tile_cache_misses, "t") == 2
 
 
 # --- Graceful degradation tests ---
@@ -81,7 +99,7 @@ async def test_tile_cache_get_returns_none_on_redis_failure():
     """Redis failure on get returns None (graceful degradation)."""
     from app.platform.cache.tile_cache import tile_cache_misses
 
-    tile_cache_misses._value.set(0)
+    _reset_label_counter(tile_cache_misses, "t")
 
     provider = TileCacheProvider.__new__(TileCacheProvider)
     mock_client = AsyncMock()
@@ -90,7 +108,7 @@ async def test_tile_cache_get_returns_none_on_redis_failure():
 
     result = await provider.get("t", 1, 2, 3)
     assert result is None
-    assert tile_cache_misses._value.get() == 1
+    assert _read_label_counter(tile_cache_misses, "t") == 1
 
 
 @pytest.mark.asyncio
