@@ -382,7 +382,9 @@ class TestFindOrCreateOAuthUser:
         return await create_provider(db, OAuthProviderCreate(**defaults))
 
     async def test_auto_create_user(self, client, test_db_session):
-        """OAUTH-05: New email auto-creates user with default role and auth_provider='oauth'."""
+        """OAUTH-05: New verified email auto-creates user with default role
+        and auth_provider='oauth'. Phase 268 H-30: email_verified=True is
+        required for the email to be claimed on the new user."""
         from app.modules.auth.oauth.service import find_or_create_oauth_user
 
         provider = await self._create_test_provider(test_db_session)
@@ -391,6 +393,7 @@ class TestFindOrCreateOAuthUser:
         userinfo = {
             "sub": "new-user-sub-123",
             "email": f"newuser-{uuid.uuid4().hex[:6]}@example.com",
+            "email_verified": True,  # H-30: required for email to persist
             "name": "New User",
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
@@ -408,7 +411,8 @@ class TestFindOrCreateOAuthUser:
         assert "viewer" in role_names
 
     async def test_email_linking(self, client, test_db_session):
-        """OAUTH-06: OAuth login with existing email links to existing user."""
+        """OAUTH-06: OAuth login with existing email + verified email links
+        to existing user. Phase 268 H-30: also requires email_verified=True."""
         from app.modules.auth.models import User
         from app.modules.auth.oauth.models import OAuthAccount
         from app.modules.auth.oauth.service import find_or_create_oauth_user
@@ -434,6 +438,7 @@ class TestFindOrCreateOAuthUser:
         userinfo = {
             "sub": "existing-user-sub-456",
             "email": email,
+            "email_verified": True,  # H-30: required for auto-link
             "name": "Existing User",
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
@@ -453,6 +458,120 @@ class TestFindOrCreateOAuthUser:
         link = result.scalar_one_or_none()
         assert link is not None
         assert link.subject == "existing-user-sub-456"
+
+    async def test_email_linking_blocked_when_email_unverified_with_collision(
+        self, client, test_db_session
+    ):
+        """Phase 268 H-30: an OAuth login with an existing-email collision
+        but email_verified=False MUST be refused entirely (raises
+        OAuthEmailUnverifiedError) — neither auto-linking the victim's
+        account nor creating a new account with the duplicate email."""
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import (
+            OAuthEmailUnverifiedError,
+            find_or_create_oauth_user,
+        )
+        from app.modules.auth.providers.local import hash_password
+
+        email = f"victim-{uuid.uuid4().hex[:6]}@example.com"
+
+        local_user = User(
+            username=f"victim-{uuid.uuid4().hex[:6]}",
+            email=email,
+            password_hash=hash_password("password123"),
+            is_active=True,
+            status="active",
+            auth_provider="local",
+        )
+        test_db_session.add(local_user)
+        await test_db_session.flush()
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        # Attacker's IdP-side userinfo with the same email but UNVERIFIED.
+        userinfo = {
+            "sub": "attacker-sub-999",
+            "email": email,
+            "email_verified": False,
+            "name": "Attacker",
+        }
+
+        with pytest.raises(OAuthEmailUnverifiedError):
+            await find_or_create_oauth_user(
+                test_db_session, provider, userinfo, {}
+            )
+
+    async def test_email_linking_blocked_when_email_verified_missing(
+        self, client, test_db_session
+    ):
+        """Phase 268 H-30: missing email_verified claim is treated the same
+        as email_verified=False — collision case raises."""
+        from app.modules.auth.models import User
+        from app.modules.auth.oauth.service import (
+            OAuthEmailUnverifiedError,
+            find_or_create_oauth_user,
+        )
+        from app.modules.auth.providers.local import hash_password
+
+        email = f"missing-claim-{uuid.uuid4().hex[:6]}@example.com"
+
+        local_user = User(
+            username=f"victim2-{uuid.uuid4().hex[:6]}",
+            email=email,
+            password_hash=hash_password("password123"),
+            is_active=True,
+            status="active",
+            auth_provider="local",
+        )
+        test_db_session.add(local_user)
+        await test_db_session.flush()
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        # Note: no `email_verified` key at all
+        userinfo = {
+            "sub": "missing-claim-sub",
+            "email": email,
+            "name": "Unknown Verification",
+        }
+        with pytest.raises(OAuthEmailUnverifiedError):
+            await find_or_create_oauth_user(
+                test_db_session, provider, userinfo, {}
+            )
+
+    async def test_unverified_email_no_collision_creates_user_without_email(
+        self, client, test_db_session
+    ):
+        """Phase 268 H-30: when no local user has the unverified email,
+        create the new user without claiming that email (set email=None).
+        Allows IdPs that don't set email_verified to still be usable for
+        net-new accounts without the auto-link risk."""
+        from app.modules.auth.oauth.service import find_or_create_oauth_user
+
+        provider = await self._create_test_provider(test_db_session)
+        await test_db_session.commit()
+
+        # No local user with this email.
+        new_email = f"newuser-h30-{uuid.uuid4().hex[:6]}@example.com"
+        userinfo = {
+            "sub": "h30-new-user-sub",
+            "email": new_email,
+            # email_verified intentionally omitted
+            "name": "New User No Verification",
+        }
+        user = await find_or_create_oauth_user(
+            test_db_session, provider, userinfo, {}
+        )
+        await test_db_session.commit()
+
+        assert user is not None
+        # The user is created but does NOT claim the unverified email.
+        assert user.email is None, (
+            f"H-30: expected email=None but got {user.email!r} — the "
+            "validator allowed an unverified email to be claimed."
+        )
 
     async def test_existing_oauth_link_returns_user(self, client, test_db_session):
         """Returning OAuth user with existing link returns the linked user directly."""
@@ -590,6 +709,7 @@ class TestFindOrCreateOAuthUser:
         userinfo = {
             "sub": f"collision-sub-{uuid.uuid4().hex[:6]}",
             "email": f"{base_username}@example.com",
+            "email_verified": True,  # H-30: required so email drives username
             "name": "Collision User",
         }
         user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})

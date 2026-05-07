@@ -137,7 +137,22 @@ async def oauth_callback(
 
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through
-    except Exception:
+    except Exception as exc:
+        # Phase 268 H-30: surface email-not-verified collisions explicitly.
+        from app.modules.auth.oauth.service import OAuthEmailUnverifiedError
+
+        if isinstance(exc, OAuthEmailUnverifiedError):
+            correlation_id = uuid.uuid4().hex[:12]
+            logger.warning(
+                "OAuth callback refused: unverified email collision",
+                provider=provider_slug,
+                correlation_id=correlation_id,
+            )
+            error_url = (
+                f"{frontend_url}/oauth/callback"
+                f"#error=email_not_verified&correlation_id={correlation_id}"
+            )
+            return RedirectResponse(url=error_url, status_code=302)
         correlation_id = uuid.uuid4().hex[:12]
         logger.exception(
             "OAuth callback failed",

@@ -21,6 +21,19 @@ from app.modules.auth.oauth.schemas import (
 logger = structlog.stdlib.get_logger(__name__)
 
 
+class OAuthEmailUnverifiedError(Exception):
+    """Phase 268 H-30: raised when an OAuth login presents an unverified
+    email that collides with an existing local user.
+
+    The router translates this into a redirect with an
+    ``error=email_not_verified`` correlation to surface the issue to the
+    operator without exposing whether the colliding email exists (the
+    error itself reveals the collision; surfacing username-enumeration
+    detail is acceptable here because the attacker already supplied the
+    email under attempt — no new info beyond their own input).
+    """
+
+
 async def create_provider(
     db: AsyncSession,
     data: OAuthProviderCreate,
@@ -236,7 +249,21 @@ async def find_or_create_oauth_user(
         return existing_link.user
 
     # Step 2: Check email match (case-insensitive)
-    if email:
+    # Phase 268 H-30: only honor the email-match auto-link when the IdP
+    # explicitly marked the email as verified. Without this gate, an attacker
+    # who registered their own IdP account at victim@example.com (with an
+    # IdP that does not enforce verification, OR an admin-added permissive
+    # provider) could sign in via OAuth and inherit the existing GeoLens
+    # account that was previously registered locally with that email.
+    # OIDC-compliant providers (Google, Microsoft, Okta, Auth0) always set
+    # `email_verified` for verified addresses; if the claim is missing or
+    # false, the login is refused entirely if a local user exists with that
+    # email (preventing both account takeover AND new-user creation that
+    # would otherwise hit a UNIQUE-constraint error). If no local collision,
+    # fall through to step 3 with `email=None` so the new user is created
+    # without claiming the unverified address.
+    email_verified = userinfo.get("email_verified") is True
+    if email and email_verified:
         result = await db.execute(
             select(User).where(func.lower(User.email) == func.lower(email))
         )
@@ -257,6 +284,31 @@ async def find_or_create_oauth_user(
                 user_id=str(existing_user.id),
             )
             return existing_user
+    elif email and not email_verified:
+        # Refuse the login entirely if the unverified email collides with an
+        # existing local user (closes the account-takeover path). If no
+        # collision, drop the email so new-user creation does not claim it.
+        result = await db.execute(
+            select(User.id).where(func.lower(User.email) == func.lower(email))
+        )
+        if result.scalar_one_or_none() is not None:
+            logger.warning(
+                "OAuth login refused: unverified email collides with local user",
+                provider=provider.slug,
+                email=email,
+            )
+            raise OAuthEmailUnverifiedError(
+                "OAuth provider returned an unverified email that matches an "
+                "existing account. Sign in with the local account first and "
+                "link OAuth from your profile, or have your IdP verify the "
+                "email."
+            )
+        logger.info(
+            "OAuth login: email not verified by IdP, dropping email for new user",
+            provider=provider.slug,
+            email=email,
+        )
+        email = None
 
     # Step 3: Auto-create new user
     base_username = _generate_username(display_name, email)
