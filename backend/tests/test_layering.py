@@ -820,8 +820,13 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
     # DEFAULT_CAP when natural decomposition opportunities arise; do NOT
     # raise these caps to mask regrowth without a documented carve-out.
     allowlist: dict[str, int] = {
-        # Empty for the RED phase — proves the guard names every router
-        # currently > 1500 LOC.
+        # Phase 276 CODE-01 baseline at plan time:
+        #   maps/router.py    = 1610 LOC -> cap 1700 (+5.6% headroom)
+        #   search/router.py  = 1515 LOC -> cap 1600 (+5.6% headroom)
+        # Both are top decomposition candidates for a future phase; the cap
+        # is a HARD ceiling, not a waiver — growth past it still fails CI.
+        "backend/app/modules/catalog/maps/router.py": 1700,
+        "backend/app/modules/catalog/search/router.py": 1600,
     }
 
     violations: list[str] = []
