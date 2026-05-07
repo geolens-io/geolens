@@ -145,45 +145,40 @@ geolens/
 ├── backend/                    # FastAPI application
 │   ├── alembic/                # Database migrations
 │   ├── app/
-│   │   ├── admin/              # Admin dashboard stats & management
-│   │   ├── ai/                 # AI chat, metadata generation, SQL sandbox
-│   │   ├── assets/             # Static asset URL helpers
-│   │   ├── audit/              # Audit log (who changed what)
-│   │   ├── auth/               # Authentication (JWT, OAuth, API keys)
-│   │   ├── cache/              # Caching layer (memory, Redis, tile cache)
-│   │   ├── collections/        # Dataset collection grouping
-│   │   ├── config_ops/         # Import/export of server configuration
-│   │   ├── datasets/           # Dataset CRUD, reupload, VRT, export
-│   │   ├── dcat/               # DCAT metadata serialization
-│   │   ├── embed_tokens/       # Secure embed/share token management
-│   │   ├── embeddings/         # pgvector semantic search embeddings
-│   │   ├── export/             # Data export (GeoPackage, Shapefile, etc.)
-│   │   ├── extensions/         # Feature-toggle extension points
-│   │   ├── features/           # GeoJSON feature read/write per dataset
-│   │   ├── health/             # Health check endpoint
-│   │   ├── ingest/             # File & service ingestion (ogr2ogr pipeline)
-│   │   ├── jobs/               # Background job tracking
-│   │   ├── layers/             # Map layer style definitions
-│   │   ├── maps/               # Saved map compositions
-│   │   ├── metrics/            # Prometheus metrics & connection pool stats
-│   │   ├── middleware/         # CORS, logging, security, body-limit
-│   │   ├── models/             # Shared SQLAlchemy base model
-│   │   ├── ogc/                # OGC API - Features endpoint
-│   │   ├── raster/             # Raster/COG processing and VRT mosaics
-│   │   ├── records/            # Unified record discovery API
-│   │   ├── runtime/            # Staging directory management
-│   │   ├── sandbox/            # Safe SQL execution sandbox
-│   │   ├── search/             # Catalog search & saved searches
-│   │   ├── services/           # External service probing (ArcGIS, WFS)
-│   │   ├── settings/           # App settings (basemaps, auth, toggles)
-│   │   ├── stac/               # STAC catalog endpoint
-│   │   ├── storage/            # File storage abstraction (local, S3)
-│   │   ├── tiles/              # Vector tile serving & token signing
-│   │   ├── utils/              # Shared geo utilities
-│   │   ├── validation/         # Dataset quality & completeness checks
-│   │   └── vector/             # Vector quicklook generation
+│   │   ├── api/                # FastAPI app factory, root router, lifespan
+│   │   ├── core/               # Edition flags, persistent config, permissions
+│   │   ├── modules/            # Domain areas
+│   │   │   ├── admin/          # Admin dashboard stats & user management
+│   │   │   ├── audit/          # Audit log (who changed what)
+│   │   │   ├── auth/           # Authentication (JWT, OAuth, API keys)
+│   │   │   ├── catalog/        # Datasets, records, maps, layers, search,
+│   │   │   │                   # collections, sources, validation, features
+│   │   │   ├── embed_tokens/   # Secure embed/share token management
+│   │   │   └── settings/       # App settings (basemaps, auth, toggles)
+│   │   ├── observability/      # Logging config, metrics, structlog setup
+│   │   ├── platform/           # Shared platform services
+│   │   │   ├── assets/         # Static asset URL helpers
+│   │   │   ├── audit.py        # AuditSink protocol + dispatcher
+│   │   │   ├── cache/          # Caching layer (memory, Redis, tile cache)
+│   │   │   ├── config_ops/     # Import/export of server configuration
+│   │   │   ├── extensions/     # Open-core extension protocol seams
+│   │   │   ├── jobs/           # Background job tracking
+│   │   │   ├── sandbox/        # Safe SQL execution sandbox
+│   │   │   └── storage/        # File storage abstraction (local, S3)
+│   │   └── processing/         # Ingest, export, and tile pipelines
+│   │       ├── ai/             # AI chat, metadata generation
+│   │       ├── embeddings/     # pgvector semantic search embeddings
+│   │       ├── export/         # Data export (GeoPackage, Shapefile, etc.)
+│   │       ├── ingest/         # File & service ingestion (ogr2ogr pipeline)
+│   │       ├── raster/         # Raster/COG processing and VRT mosaics
+│   │       ├── tiles/          # Vector tile serving & token signing
+│   │       └── vector/         # Vector quicklook generation
+│   │   └── standards/          # OGC, STAC, DCAT integrations
+│   │       ├── dcat/           # DCAT metadata serialization
+│   │       ├── ogc/            # OGC API - Features and Records endpoints
+│   │       └── stac/           # STAC catalog endpoint
 │   ├── scripts/                # Backend helper scripts
-│   └── tests/                  # pytest tests (unit/ and api/)
+│   └── tests/                  # pytest tests (flat directory of test_*.py)
 ├── frontend/                   # React + Vite application
 │   └── src/
 │       ├── api/                # API client functions (one file per domain)
@@ -218,7 +213,7 @@ geolens/
 └── .github/assets/             # README and repository profile assets
 ```
 
-Most backend modules follow a consistent pattern:
+Most backend domain modules under `backend/app/modules/<domain>/` follow a consistent pattern:
 
 | File | Purpose |
 |---|---|
@@ -226,6 +221,11 @@ Most backend modules follow a consistent pattern:
 | `service.py` | Business logic (called by the router) |
 | `schemas.py` | Pydantic request/response models |
 | `models.py` | SQLAlchemy ORM models |
+
+Larger domains (`catalog/datasets/`, `catalog/maps/`, `catalog/search/`) split the
+service layer into multiple `service_*.py` modules behind a stable facade and
+add architecture-guard tests in `backend/tests/test_layering.py` that prevent
+direct imports of split internals from outside the domain.
 
 ## First Contribution
 
