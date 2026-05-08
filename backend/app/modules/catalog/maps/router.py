@@ -932,6 +932,11 @@ async def update_map_endpoint(
 
 
 @router.patch("/{map_id}/layers", response_model=MapResponse)
+@router.patch(
+    "/{map_id}/layers/",
+    response_model=MapResponse,
+    include_in_schema=False,
+)
 async def patch_map_layers_endpoint(
     map_id: uuid.UUID,
     body: MapLayerDiffRequest,

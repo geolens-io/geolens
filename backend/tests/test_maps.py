@@ -2073,6 +2073,54 @@ class TestMapLayersTrailingSlash:
         assert body_no_slash["dataset_id"] == str(ds.id)
         assert body_with_slash["dataset_id"] == str(ds.id)
 
+    async def test_patch_layers_with_trailing_slash(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """v13.14 fixup: PATCH /maps/{id}/layers/ must also accept the
+        trailing-slash form directly. Phase 280 only fixed POST; this guard
+        covers the sibling PATCH endpoint so future programmatic callers
+        don't hit the same 307 / in-container hostname leak.
+
+        Without the alias decorator on ``patch_map_layers_endpoint``, the
+        trailing-slash form returns 405 Method Not Allowed (because POST
+        is registered on /layers/ but PATCH is not), or 307 if FastAPI's
+        redirect_slashes kicks in. Either failure breaks programmatic
+        clients.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id, name="PATCH Slash")
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        # Empty diff body — exercises only the routing/method dispatch.
+        resp = await client.patch(
+            f"/maps/{map_id}/layers/",
+            json={"added": [], "updated": [], "removed": [], "order": None},
+            headers=admin_auth_header,
+            follow_redirects=False,
+        )
+
+        assert resp.status_code == 200, (
+            f"PATCH /maps/.../layers/ should not 307/405; got {resp.status_code} body={resp.text}"
+        )
+        assert "location" not in {k.lower() for k in resp.headers.keys()}
+        location = resp.headers.get("location", "")
+        assert "api:8000" not in location and "://api/" not in location, (
+            f"in-container hostname leak: {location!r}"
+        )
+
+        # Sanity — non-slash form still works (canonical, OpenAPI-listed).
+        resp_no_slash = await client.patch(
+            f"/maps/{map_id}/layers",
+            json={"added": [{"dataset_id": str(ds.id)}], "updated": [], "removed": [], "order": None},
+            headers=admin_auth_header,
+            follow_redirects=False,
+        )
+        assert resp_no_slash.status_code == 200
+
 
 # ---------------------------------------------------------------------------
 # Thumbnail upload/retrieve
