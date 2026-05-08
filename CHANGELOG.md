@@ -39,6 +39,31 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   immediately after `<meta charset>` in `index.html`, before the FOUC
   prevention script, per the WHATWG "important meta" recommendation.
 
+### Fixed
+
+- **`POST /api/maps/{id}/layers/`** no longer returns a 307 redirect that
+  leaked the in-container `http://api:8000/...` hostname through Vite's
+  dev proxy, which broke programmatic clients (Node `fetch`,
+  `openapi-python-client`-generated SDKs) and 17 of 18 builder smoke
+  tests. The route is now declared on both slash variants directly via a
+  dual-decorator alias (`include_in_schema=False` on the trailing-slash
+  form so OpenAPI canonicalizes on the no-slash sub-collection convention
+  per `docs/api-style.md`). v13.14 Phase 280.
+- **Admin Audit Logs page-guard** at `AdminAuditPage.tsx:29` was checking
+  the capability key `view_audit`, which is not part of the canonical
+  `ALL_CAPABILITIES` registry — admins were always redirected away from
+  `/admin/audit` to `/admin/overview` before the heading rendered. The
+  guard now checks `manage_settings`, the capability the backend already
+  enforces on `/admin/audit-logs/*`. v13.14 Phase 281.
+- **`e2e/dataset-detail.spec.ts:49`** `getByText('FEATURES')` was
+  strict-mode-failing against the thematic-demo seed catalog because
+  related-dataset card text like `"75 features"`, `"248 features"`
+  substring-matched the locator. Now uses `getByText('Features',
+  { exact: true })` to resolve uniquely to the `DatasetStatsBar` label
+  (the underlying text node is `"Features"` — Tailwind's `uppercase`
+  class is presentation-only and does not change Playwright's matched
+  text). v13.14 Phase 282.
+
 ## [1.1.0] - 2026-05-07
 
 > Pre-public-release security & audit hardening sweep (v13.12) plus a
