@@ -1,32 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <clipPath id="g">
-      <circle cx="26" cy="26" r="18"/>
-    </clipPath>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">GeoLens favicon</title>
+  <desc id="desc">Simplified GeoLens mark optimized for favicon sizes (16-32px).</desc>
 
-  <!-- Lens ring -->
-  <circle cx="26" cy="26" r="18" fill="none" stroke="#334155" stroke-width="3.2"/>
+  <line x1="41.5" y1="41.5" x2="56" y2="56" stroke="#334155" stroke-width="4.4" stroke-linecap="round"></line>
 
-  <!-- Graticule (clipped to lens) -->
-  <g clip-path="url(#g)" stroke="#334155" fill="none" stroke-width="1.6" opacity="0.5">
-    <line x1="8" y1="26" x2="44" y2="26"/>
-    <line x1="26" y1="8" x2="26" y2="44"/>
-    <ellipse cx="26" cy="26" rx="9" ry="18"/>
-    <ellipse cx="26" cy="26" rx="18" ry="9"/>
+  <circle cx="28" cy="28" r="18" fill="none" stroke="#334155" stroke-width="3.4"></circle>
+
+  <g stroke="#334155" stroke-width="3" stroke-linecap="round">
+    <line x1="28" y1="4.5" x2="28" y2="9"></line>
+    <line x1="28" y1="47" x2="28" y2="51.5"></line>
+    <line x1="4.5" y1="28" x2="9" y2="28"></line>
+    <line x1="47" y1="28" x2="51.5" y2="28"></line>
   </g>
 
-  <!-- Crosshair ticks -->
-  <g stroke="#334155" stroke-width="2.8">
-    <line x1="26" y1="3" x2="26" y2="6"/>
-    <line x1="26" y1="46" x2="26" y2="49"/>
-    <line x1="3" y1="26" x2="6" y2="26"/>
-    <line x1="46" y1="26" x2="49" y2="26"/>
-  </g>
-
-  <!-- Center dot -->
-  <circle cx="26" cy="26" r="2" fill="#334155"/>
-
-  <!-- Magnifier handle -->
-  <line x1="39" y1="39" x2="56" y2="56" stroke="#334155" stroke-width="4.8" stroke-linecap="round"/>
+  <circle cx="28" cy="28" r="2.6" fill="#334155"></circle>
 </svg>
