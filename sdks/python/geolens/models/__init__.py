@@ -167,6 +167,7 @@ from .embed_token_list_response import EmbedTokenListResponse
 from .embed_token_response import EmbedTokenResponse
 from .embed_token_update import EmbedTokenUpdate
 from .embedding_stats_response import EmbeddingStatsResponse
+from .enterprise_tabs_response import EnterpriseTabsResponse
 from .export_format import ExportFormat
 from .facet_count_response import FacetCountResponse
 from .facet_count_response_record_type import FacetCountResponseRecordType
@@ -674,6 +675,7 @@ __all__ = (
     "EmbedTokenListResponse",
     "EmbedTokenResponse",
     "EmbedTokenUpdate",
+    "EnterpriseTabsResponse",
     "ExportFormat",
     "FacetCountResponse",
     "FacetCountResponseRecordType",

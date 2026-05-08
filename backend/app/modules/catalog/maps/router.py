@@ -1480,9 +1480,19 @@ async def get_thumbnail(
 
 
 @router.post(
+    "/{map_id}/layers/",
+    response_model=MapLayerResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+# Phase 280: declare both slash variants directly so neither emits a 307.
+# FastAPI's default redirect_slashes builds a relative Location header that
+# resolves against the request's Host header, leaking the in-container
+# `api:8000` hostname through Vite's dev proxy.
+@router.post(
     "/{map_id}/layers",
     response_model=MapLayerResponse,
     status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
 )
 async def add_layer_endpoint(
     map_id: uuid.UUID,

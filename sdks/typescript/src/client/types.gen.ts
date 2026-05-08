@@ -694,7 +694,7 @@ export type AuditLogResponse = {
     /**
      * User Id
      */
-    user_id: string;
+    user_id: string | null;
     /**
      * Username
      */
@@ -3123,6 +3123,26 @@ export type EmbeddingStatsResponse = {
      * Total number of records in the catalog.
      */
     total_records: number;
+};
+
+/**
+ * EnterpriseTabsResponse
+ *
+ * Response for GET /settings/enterprise-tabs/.
+ *
+ * Canonical enterprise-only Settings tab keys (Phase 279 / ADMIN-03 / M-03).
+ * Read by the frontend AdminSidebar to decide which tabs to hide in
+ * community editions. The backend ``_require_enterprise_for_key`` gate
+ * consults the same source set, eliminating drift between the two
+ * sources of truth.
+ */
+export type EnterpriseTabsResponse = {
+    /**
+     * Tabs
+     *
+     * Tab keys (e.g. 'branding', 'appearance') restricted to enterprise editions. Sorted alphabetically for stable client-side comparison.
+     */
+    tabs: Array<string>;
 };
 
 /**
@@ -16983,7 +17003,7 @@ export type AddLayerEndpointMapsMapIdLayersPostData = {
         map_id: string;
     };
     query?: never;
-    url: '/maps/{map_id}/layers';
+    url: '/maps/{map_id}/layers/';
 };
 
 export type AddLayerEndpointMapsMapIdLayersPostErrors = {
@@ -19186,6 +19206,51 @@ export type GetEnabledWidgetsSettingsEnabledWidgetsGetResponses = {
 };
 
 export type GetEnabledWidgetsSettingsEnabledWidgetsGetResponse = GetEnabledWidgetsSettingsEnabledWidgetsGetResponses[keyof GetEnabledWidgetsSettingsEnabledWidgetsGetResponses];
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/settings/enterprise-tabs/';
+};
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetError = GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors[keyof GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetErrors];
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EnterpriseTabsResponse;
+};
+
+export type GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponse = GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses[keyof GetEnterpriseOnlyTabsSettingsEnterpriseTabsGetResponses];
 
 export type GetFeatureFlagsSettingsFeatureFlagsGetData = {
     body?: never;

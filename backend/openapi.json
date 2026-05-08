@@ -1136,9 +1136,16 @@
             "type": "string"
           },
           "user_id": {
-            "format": "uuid",
-            "title": "User Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           },
           "username": {
             "anyOf": [
@@ -5456,6 +5463,24 @@
           "coverage_percent"
         ],
         "title": "EmbeddingStatsResponse",
+        "type": "object"
+      },
+      "EnterpriseTabsResponse": {
+        "description": "Response for GET /settings/enterprise-tabs/.\n\nCanonical enterprise-only Settings tab keys (Phase 279 / ADMIN-03 / M-03).\nRead by the frontend AdminSidebar to decide which tabs to hide in\ncommunity editions. The backend ``_require_enterprise_for_key`` gate\nconsults the same source set, eliminating drift between the two\nsources of truth.",
+        "properties": {
+          "tabs": {
+            "description": "Tab keys (e.g. 'branding', 'appearance') restricted to enterprise editions. Sorted alphabetically for stable client-side comparison.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tabs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tabs"
+        ],
+        "title": "EnterpriseTabsResponse",
         "type": "object"
       },
       "ExportFormat": {
@@ -33254,10 +33279,12 @@
         "tags": [
           "Maps"
         ]
-      },
+      }
+    },
+    "/maps/{map_id}/layers/": {
       "post": {
         "description": "Add a layer to a map.",
-        "operationId": "add_layer_endpoint_maps__map_id__layers_post",
+        "operationId": "add_layer_endpoint_maps__map_id__layers__post",
         "parameters": [
           {
             "in": "path",
@@ -38174,6 +38201,99 @@
           }
         },
         "summary": "Get Enabled Widgets",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/settings/enterprise-tabs/": {
+      "get": {
+        "description": "Return the canonical list of Settings tab keys that are enterprise-only.\n\nPhase 279 ADMIN-03 (M-03): single source of truth for enterprise-only\nSettings tabs. The frontend AdminSidebar uses this to conditionally render\nthe tabs in community vs enterprise editions. The backend\n``_require_enterprise_for_key`` gate uses the same set to 404 community\nattempts at writing enterprise-tab settings \u2014 keeping these aligned\nprevents silent UX drift.\n\nNote: not gated by ``require_enterprise``. Community callers must be able\nto read the list to render their own sidebar correctly (the response tells\nthem which tabs to HIDE).",
+        "operationId": "get_enterprise_only_tabs_settings_enterprise_tabs__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnterpriseTabsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Enterprise Only Tabs",
         "tags": [
           "Admin"
         ]
