@@ -1,0 +1,68 @@
+{
+  "_meta": {
+    "name": "Global Earthquakes M5+ (Last 5 Years)",
+    "description": "Every magnitude-5-or-greater earthquake from May 2021 to May 2026. Size = magnitude. Color = depth.",
+    "theme": "When the Earth Moves",
+    "snapshot_date": "2026-05-08"
+  },
+  "name": "Global Earthquakes M5+ (Last 5 Years)",
+  "description": "Every magnitude-5-or-greater earthquake from May 2021 to May 2026. Size = magnitude. Color = depth.",
+  "center_lng": 0.0,
+  "center_lat": 20.0,
+  "zoom": 1.8,
+  "bearing": 0.0,
+  "pitch": 0.0,
+  "basemap_style": "dark-matter",
+  "show_basemap_labels": true,
+  "visibility": "public",
+  "widgets": ["legend", "measurement"],
+  "layers": [
+    {
+      "_stem": "usgs_quakes_m5",
+      "_ext": ".geojson",
+      "display_name": "Earthquakes (M5+)",
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 0.85,
+      "paint": {
+        "circle-radius": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["to-number", ["get", "mag"]], 0],
+          5, 4,
+          6, 8,
+          7, 14,
+          8, 22,
+          9, 30
+        ],
+        "circle-color": [
+          "interpolate",
+          ["linear"],
+          ["coalesce", ["to-number", ["get", "depth_km"]], 0],
+          0, "#fde725",
+          50, "#f39c12",
+          200, "#e74c3c",
+          700, "#7d3c98"
+        ],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 0.6,
+        "circle-opacity": 0.85
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": {
+        "mode": "graduated",
+        "column": "mag",
+        "target": "radius",
+        "classCount": 5,
+        "method": "manual",
+        "ramp": "YlOrRd",
+        "colors": ["#fde725", "#f39c12", "#e74c3c", "#7d3c98"],
+        "breaks": [6, 7, 8, 9]
+      },
+      "show_in_legend": true
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "_meta": {
+    "name": "Grand Canyon: Land in 3D",
+    "description": "USGS 3DEP elevation data with multidirectional hillshade overlay. Tilt and rotate to walk the canyon walls.",
+    "theme": "When the Land Speaks",
+    "snapshot_date": "2025-01-01"
+  },
+  "name": "Grand Canyon: Land in 3D",
+  "description": "USGS 3DEP elevation data with multidirectional hillshade overlay. Tilt and rotate to walk the canyon walls.",
+  "center_lng": -112.1,
+  "center_lat": 36.1,
+  "zoom": 10.5,
+  "bearing": -25.0,
+  "pitch": 60.0,
+  "basemap_style": "dark-matter",
+  "show_basemap_labels": false,
+  "visibility": "public",
+  "widgets": ["legend", "measurement"],
+  "layers": [
+    {
+      "_stem": "grand_canyon_dem",
+      "_ext": ".tif",
+      "display_name": "Elevation (DEM)",
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 0.85,
+      "paint": {},
+      "layout": {},
+      "layer_type": "raster_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": {
+        "rescale": "1500,2900",
+        "colormap": "terrain"
+      },
+      "show_in_legend": true
+    },
+    {
+      "_stem": "grand_canyon_hillshade",
+      "_ext": ".tif",
+      "display_name": "Hillshade",
+      "sort_order": 1,
+      "visible": true,
+      "opacity": 0.5,
+      "paint": {},
+      "layout": {},
+      "layer_type": "raster_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": {},
+      "show_in_legend": false
+    }
+  ]
+}

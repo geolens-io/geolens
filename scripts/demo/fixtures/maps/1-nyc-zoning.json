@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "name": "NYC Zoning: Manhattan in 3D",
+    "description": "PLUTO landuse codes color the buildings; height_roof extrudes them. Manhattan + Brooklyn waterfront.",
+    "theme": "When the Land Speaks",
+    "snapshot_date": "2026-04-01"
+  },
+  "name": "NYC Zoning: Manhattan in 3D",
+  "description": "PLUTO landuse codes color the buildings; height_roof extrudes them. Manhattan + Brooklyn waterfront.",
+  "center_lng": -73.985,
+  "center_lat": 40.748,
+  "zoom": 14.5,
+  "bearing": -30.0,
+  "pitch": 60.0,
+  "basemap_style": "dark-matter",
+  "show_basemap_labels": true,
+  "visibility": "public",
+  "widgets": ["legend", "measurement"],
+  "layers": [
+    {
+      "_stem": "nyc_pluto_zoning",
+      "_ext": ".geojson",
+      "display_name": "Buildings by Land Use",
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 0.9,
+      "paint": {
+        "fill-color": [
+          "match",
+          ["coalesce", ["to-string", ["get", "landuse"]], "0"],
+          "01", "#e74c3c",
+          "02", "#f39c12",
+          "03", "#3498db",
+          "04", "#9b59b6",
+          "05", "#16a085",
+          "06", "#2ecc71",
+          "07", "#f1c40f",
+          "#7f8c8d"
+        ],
+        "fill-opacity": 0.92,
+        "_outline-color": "#0f0f1a",
+        "_outline-width": 0.2,
+        "_height_column": "height"
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "filter": null,
+      "label_config": null,
+      "style_config": {
+        "mode": "categorical",
+        "column": "landuse",
+        "target": "color",
+        "categories": [
+          {"value": "01", "label": "Residential", "color": "#e74c3c"},
+          {"value": "02", "label": "Mixed Residential/Commercial", "color": "#f39c12"},
+          {"value": "03", "label": "Commercial/Office", "color": "#3498db"},
+          {"value": "04", "label": "Public Facilities", "color": "#9b59b6"},
+          {"value": "05", "label": "Open Space", "color": "#16a085"},
+          {"value": "06", "label": "Industrial", "color": "#2ecc71"},
+          {"value": "07", "label": "Transportation", "color": "#f1c40f"}
+        ]
+      },
+      "show_in_legend": true
+    }
+  ]
+}

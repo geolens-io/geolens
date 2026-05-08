@@ -1,20 +1,14 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const DEMO_MAP_NAMES = [
-  'Earth as Seen from Space',
-  'Global Bathymetry',
-  'Population at a Glance',
-  'GDP per Capita PPP 2023',
-  "The World's Disputed Places",
-  'One Territory, Multiple Official Maps',
-  'Conflict Events 2024 (UCDP GED)',
-  'Refugees by Country of Origin 2023',
+  'Grand Canyon: Land in 3D',
+  'NYC Zoning: Manhattan in 3D',
+  'Population Density: 4-State Bars',
+  'Global Earthquakes M5+ (Last 5 Years)',
+  'Western US Wildfires 2020-2024',
 ];
 
-const OPTIONAL_DEMO_MAPS = [
-  'Where the Ice Is',
-  'Life Expectancy & Income',
-];
+const OPTIONAL_DEMO_MAPS: string[] = [];
 
 const CONSOLE_NOISE_PATTERNS = [
   /ResizeObserver loop/i,
