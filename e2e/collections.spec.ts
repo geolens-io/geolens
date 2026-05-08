@@ -95,7 +95,13 @@ test.describe.serial('Collections', () => {
       page.getByRole('heading', { name: 'Add Datasets' }),
     ).toBeVisible();
 
-    await page.getByPlaceholder('Search datasets by name...').fill('Reefs');
+    // Phase 281: search term must match the seeded thematic-demo catalog.
+    // "Coastline" returns exactly one dataset record (Coastline (10m)) from
+    // /api/search/datasets/, no collection records, so the first Add button
+    // always corresponds to a real dataset that the membership endpoint
+    // accepts. The previous "Reefs" term was zero-result against the
+    // current seed and the Add button never rendered.
+    await page.getByPlaceholder('Search datasets by name...').fill('Coastline');
     await page.getByRole('button', { name: 'Search' }).click();
 
     const addButton = page.getByRole('button', { name: 'Add' }).first();
