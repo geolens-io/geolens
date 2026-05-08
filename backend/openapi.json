@@ -33279,12 +33279,10 @@
         "tags": [
           "Maps"
         ]
-      }
-    },
-    "/maps/{map_id}/layers/": {
+      },
       "post": {
-        "description": "Add a layer to a map.",
-        "operationId": "add_layer_endpoint_maps__map_id__layers__post",
+        "description": "Add a layer to a map.\n\nPhase 280: declared on both slash variants directly so neither emits a\n307. FastAPI's default redirect_slashes builds a relative Location\nheader that resolves against the request's Host header, leaking the\nin-container ``api:8000`` hostname through Vite's dev proxy. The\ncanonical (OpenAPI-published) form is the no-slash sub-collection\nconvention from ``docs/api-style.md``; the trailing-slash form is a\nhidden alias for callers that send the slash.",
+        "operationId": "add_layer_endpoint_maps__map_id__layers_post",
         "parameters": [
           {
             "in": "path",

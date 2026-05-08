@@ -2151,10 +2151,18 @@ export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends 
  * Add Layer Endpoint
  *
  * Add a layer to a map.
+ *
+ * Phase 280: declared on both slash variants directly so neither emits a
+ * 307. FastAPI's default redirect_slashes builds a relative Location
+ * header that resolves against the request's Host header, leaking the
+ * in-container ``api:8000`` hostname through Vite's dev proxy. The
+ * canonical (OpenAPI-published) form is the no-slash sub-collection
+ * convention from ``docs/api-style.md``; the trailing-slash form is a
+ * hidden alias for callers that send the slash.
  */
 export const addLayerEndpointMapsMapIdLayersPost = <ThrowOnError extends boolean = false>(options: Options<AddLayerEndpointMapsMapIdLayersPostData, ThrowOnError>) => (options.client ?? client).post<AddLayerEndpointMapsMapIdLayersPostResponses, AddLayerEndpointMapsMapIdLayersPostErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/maps/{map_id}/layers/',
+    url: '/maps/{map_id}/layers',
     ...options,
     headers: {
         'Content-Type': 'application/json',

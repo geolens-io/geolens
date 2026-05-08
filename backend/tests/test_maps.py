@@ -1966,13 +1966,17 @@ class TestMapLayers:
 
 
 class TestMapLayersTrailingSlash:
-    """Phase 280: both slash variants of POST /maps/{id}/layers must return
-    201 directly without a 307 redirect that could leak the in-container
-    `api:8000` hostname through dev-proxy Host-header preservation.
+    """Phase 280: POST /maps/{id}/layers must accept the trailing-slash form
+    directly (no 307 redirect) so host-side fetch callers — Node test
+    runners, third-party SDKs, curl clients — never resolve the relative
+    Location header against the in-container ``api:8000`` Host.
 
-    Regression for the 260508-d6i smoke failure (#5, #6) where Node fetch
-    on the host followed a relative-path Location and resolved it against
-    `Host: api:8000`, producing `getaddrinfo ENOTFOUND api`.
+    The canonical OpenAPI form is the no-slash sub-collection convention
+    from ``docs/api-style.md``; the trailing-slash form is a hidden alias
+    declared on the same handler. The trailing-slash regression guard
+    below is the load-bearing one — it would have caught the 260508-d6i
+    smoke failure (#5, #6). The parity guard ensures both decorators
+    stay wired to the same handler with the same response contract.
     """
 
     async def test_add_layer_with_trailing_slash(
@@ -1981,6 +1985,12 @@ class TestMapLayersTrailingSlash:
         admin_auth_header: dict,
         test_db_session,
     ):
+        """Trailing-slash form returns 201 directly — no 307 redirect.
+
+        This is the regression guard for the 260508-d6i smoke failure.
+        Reverting the alias decorator on ``add_layer_endpoint`` makes
+        this test fail with status_code=307.
+        """
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
@@ -1996,47 +2006,72 @@ class TestMapLayersTrailingSlash:
             f"Expected 201, got {resp.status_code}; "
             f"location={resp.headers.get('location')!r}"
         )
-        # No redirect Location header should be emitted.
-        assert "location" not in {k.lower() for k in resp.headers.keys()}, (
-            f"Unexpected Location header: {resp.headers.get('location')!r}"
+        # No redirect Location header should be emitted on the direct
+        # 201 path. (If one IS emitted by a future regression, fail
+        # loudly and surface the leak signature so the failure log
+        # documents the in-container hostname leak the alias prevents.)
+        location = resp.headers.get("location")
+        assert location is None, (
+            f"Unexpected Location header on direct 201: {location!r} "
+            "— alias decorator missing or ordering changed"
         )
 
-    async def test_add_layer_without_trailing_slash(
+    async def test_add_layer_slash_variants_parity(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
     ):
+        """Slash and no-slash variants accept the same payload and produce
+        equivalent response shapes (same fields, same dataset_id).
+
+        Guards against future divergence between the canonical no-slash
+        decorator and the trailing-slash alias — e.g., someone adding a
+        response_model override to one decorator but not the other.
+        """
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
-        resp = await client.post(
+        payload = {"dataset_id": str(ds.id)}
+
+        resp_no_slash = await client.post(
             f"/maps/{map_id}/layers",
-            json={"dataset_id": str(ds.id)},
+            json=payload,
             headers=admin_auth_header,
             follow_redirects=False,
         )
-        assert resp.status_code == 201, (
-            f"Expected 201, got {resp.status_code}; "
-            f"location={resp.headers.get('location')!r}"
+        resp_with_slash = await client.post(
+            f"/maps/{map_id}/layers/",
+            json=payload,
+            headers=admin_auth_header,
+            follow_redirects=False,
         )
-        location = resp.headers.get("location")
-        # If somehow a Location IS present, it must not leak the in-container
-        # hostname — that is the exact 260508-d6i failure signature.
-        if location is not None:
-            assert "api:8000" not in location, (
-                f"Location leaks in-container hostname: {location!r}"
-            )
-            assert "://api/" not in location, (
-                f"Location leaks in-container hostname: {location!r}"
-            )
-        # Strongest assertion: alias decorator should make this a direct 201
-        # with no Location at all.
-        assert resp.status_code != 307, (
-            f"Got 307 redirect to {location!r} — alias decorator missing"
+
+        # Both variants must succeed directly — no 307 from either form.
+        assert resp_no_slash.status_code == 201, (
+            f"No-slash form: expected 201, got {resp_no_slash.status_code}"
         )
+        assert resp_with_slash.status_code == 201, (
+            f"Trailing-slash form: expected 201, "
+            f"got {resp_with_slash.status_code}"
+        )
+
+        body_no_slash = resp_no_slash.json()
+        body_with_slash = resp_with_slash.json()
+
+        # Same response shape (same set of top-level keys).
+        assert set(body_no_slash.keys()) == set(body_with_slash.keys()), (
+            f"Response shape diverged between slash variants: "
+            f"no_slash={sorted(body_no_slash.keys())!r} "
+            f"with_slash={sorted(body_with_slash.keys())!r}"
+        )
+
+        # Same dataset_id round-tripped (the ID itself differs because
+        # each POST creates a fresh layer row).
+        assert body_no_slash["dataset_id"] == str(ds.id)
+        assert body_with_slash["dataset_id"] == str(ds.id)
 
 
 # ---------------------------------------------------------------------------

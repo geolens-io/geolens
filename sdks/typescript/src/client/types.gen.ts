@@ -17003,7 +17003,7 @@ export type AddLayerEndpointMapsMapIdLayersPostData = {
         map_id: string;
     };
     query?: never;
-    url: '/maps/{map_id}/layers/';
+    url: '/maps/{map_id}/layers';
 };
 
 export type AddLayerEndpointMapsMapIdLayersPostErrors = {

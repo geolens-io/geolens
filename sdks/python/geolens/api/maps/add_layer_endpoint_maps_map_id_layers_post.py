@@ -23,7 +23,7 @@ def _get_kwargs(
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/maps/{map_id}/layers/".format(
+        "url": "/maps/{map_id}/layers".format(
             map_id=quote(str(map_id), safe=""),
         ),
     }
@@ -106,6 +106,14 @@ def sync_detailed(
 
      Add a layer to a map.
 
+    Phase 280: declared on both slash variants directly so neither emits a
+    307. FastAPI's default redirect_slashes builds a relative Location
+    header that resolves against the request's Host header, leaking the
+    in-container ``api:8000`` hostname through Vite's dev proxy. The
+    canonical (OpenAPI-published) form is the no-slash sub-collection
+    convention from ``docs/api-style.md``; the trailing-slash form is a
+    hidden alias for callers that send the slash.
+
     Args:
         map_id (UUID):
         body (MapLayerInput):
@@ -140,6 +148,14 @@ def sync(
 
      Add a layer to a map.
 
+    Phase 280: declared on both slash variants directly so neither emits a
+    307. FastAPI's default redirect_slashes builds a relative Location
+    header that resolves against the request's Host header, leaking the
+    in-container ``api:8000`` hostname through Vite's dev proxy. The
+    canonical (OpenAPI-published) form is the no-slash sub-collection
+    convention from ``docs/api-style.md``; the trailing-slash form is a
+    hidden alias for callers that send the slash.
+
     Args:
         map_id (UUID):
         body (MapLayerInput):
@@ -168,6 +184,14 @@ async def asyncio_detailed(
     """Add Layer Endpoint
 
      Add a layer to a map.
+
+    Phase 280: declared on both slash variants directly so neither emits a
+    307. FastAPI's default redirect_slashes builds a relative Location
+    header that resolves against the request's Host header, leaking the
+    in-container ``api:8000`` hostname through Vite's dev proxy. The
+    canonical (OpenAPI-published) form is the no-slash sub-collection
+    convention from ``docs/api-style.md``; the trailing-slash form is a
+    hidden alias for callers that send the slash.
 
     Args:
         map_id (UUID):
@@ -200,6 +224,14 @@ async def asyncio(
     """Add Layer Endpoint
 
      Add a layer to a map.
+
+    Phase 280: declared on both slash variants directly so neither emits a
+    307. FastAPI's default redirect_slashes builds a relative Location
+    header that resolves against the request's Host header, leaking the
+    in-container ``api:8000`` hostname through Vite's dev proxy. The
+    canonical (OpenAPI-published) form is the no-slash sub-collection
+    convention from ``docs/api-style.md``; the trailing-slash form is a
+    hidden alias for callers that send the slash.
 
     Args:
         map_id (UUID):
