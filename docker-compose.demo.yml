@@ -17,13 +17,19 @@ services:
     # Clear dev bind mounts — use code baked into the image
     volumes:
       - upload_staging:/app/staging
-    # Production command — no --reload — UVICORN_WORKERS may be >1
+    # Production command — no --reload — UVICORN_WORKERS may be >1.
+    # All continuation lines at the same indent so YAML `>` folds newlines
+    # to single spaces; mismatched indent preserves them and sh sees a
+    # multi-line script (uvicorn binds to its 127.0.0.1 default and the
+    # frontend container can't reach api). `--no-dev` is required because
+    # `read_only: true` (Phase 272) blocks uv from mutating /app/.venv to
+    # install dev deps that the prod image was built without.
     command: >
-      sh -c "uv run uvicorn app.api.main:app
-        --host 0.0.0.0 --port 8000
-        --workers $${UVICORN_WORKERS:-2}
-        --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
-        --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
+      sh -c "uv run --no-dev uvicorn app.api.main:app
+      --host 0.0.0.0 --port 8000
+      --workers $${UVICORN_WORKERS:-2}
+      --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
+      --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
     environment:
       # 300 MB so the seeder can upload the downsampled NE shaded relief
       # (~100 MB) and the UCDP GED CSV subset (~130 MB). Interactive uploads

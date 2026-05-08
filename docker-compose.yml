@@ -53,9 +53,18 @@ x-ai-env: &ai-env
 # ==============================================================================
 # Resource budget for 2GB VPS deployment target (Phase 272 / INF-01).
 #
-# Default-profile steady-state memory sum (db + api + worker + titiler + frontend):
+# Default-profile is the LOCAL DEV profile and uses Vite dev server, which
+# needs ~512 MB to bundle the GeoLens dep graph without OOM-kill. That
+# breaks the strict 2 GB VPS sum here (~2304 MB), so the 2 GB VPS target
+# applies to the DEMO/PRODUCTION overlay (docker-compose.demo.yml) which
+# substitutes nginx for vite — the production frontend fits in ~64 MB.
+#
+# Local-dev steady-state (db + api + worker + titiler + vite frontend):
+#   db(768M) + api(384M) + worker(384M) + titiler(256M) + frontend(512M) = 2304M
+#
+# Demo/production steady-state (db + api + worker + titiler + nginx frontend):
 #   db(768M) + api(384M) + worker(384M) + titiler(256M) + frontend(128M) = 1920M
-# This leaves ~128 MB host headroom on a 2 GB VPS (kernel + Docker engine ~150-200 MB).
+# Leaves ~128 MB host headroom on a 2 GB VPS (kernel + Docker engine ~150-200 MB).
 #
 # Transient peaks:
 #   - migrate(384M) runs once at startup; exits before api starts (depends_on:
