@@ -46,6 +46,7 @@ import logging
 import subprocess
 import sys
 import zipfile
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,6 +67,9 @@ def already_present(path: Path, min_bytes: int = 1024) -> bool:
     """Idempotency check matching run-seeder.sh's existing convention.
 
     Returns True iff the path exists and is at least min_bytes in size.
+    The atomic-rename pattern below ensures a partial-write never leaves
+    a file at the final path — so an existing final path is always a
+    completed write.
     """
     return path.exists() and path.stat().st_size >= min_bytes
 
@@ -74,6 +78,38 @@ def run_gdal(cmd: list[str]) -> None:
     """Invoke a GDAL CLI tool via subprocess. Raises CalledProcessError on non-zero exit."""
     logger.info("RUN: %s", " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write text to ``path`` via a `.partial` sidecar + atomic rename.
+
+    Ensures `already_present(path)` only ever sees a completed write — a
+    SIGTERM or disk-full mid-write leaves a `.partial` file behind, never
+    a truncated final file (per code-review MA-02).
+    """
+    tmp = path.with_suffix(path.suffix + ".partial")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
+def atomic_gdal_output(cmd: list[str], output_path: Path) -> None:
+    """Run a GDAL command that writes to ``output_path``, completing atomically.
+
+    The GDAL CLI writes to ``output_path.partial``; on success the file is
+    renamed to its final path. On failure the partial is removed so a retry
+    starts from a clean slate (per code-review MA-02 / MI-04).
+    """
+    tmp = output_path.with_suffix(output_path.suffix + ".partial")
+    if tmp.exists():
+        tmp.unlink()
+    cmd_with_tmp = [arg if arg != str(output_path) else str(tmp) for arg in cmd]
+    try:
+        run_gdal(cmd_with_tmp)
+        tmp.replace(output_path)
+    except Exception:
+        if tmp.exists():
+            tmp.unlink()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -105,18 +141,18 @@ async def fetch_grand_canyon_dem(client: httpx.AsyncClient) -> None:
     # gdal_translate -projwin requires bounds in (ulx, uly, lrx, lry) order
     # = (west, north, east, south). For the Grand Canyon AOI:
     #   west=-113.0, north=37.0, east=-111.5, south=36.0
-    run_gdal([
+    atomic_gdal_output([
         "gdal_translate",
         "-of", "COG",
         "-co", "COMPRESS=DEFLATE",
         "-projwin", "-113.0", "37.0", "-111.5", "36.0",
         vrt,
         str(out_dem),
-    ])
+    ], out_dem)
     # Multidirectional hillshade. -s 111120 converts degree units to meters at
     # the equator (roughly correct at 36N). -z 1.5 exaggerates relief for
     # visual punch.
-    run_gdal([
+    atomic_gdal_output([
         "gdaldem", "hillshade",
         "-z", "1.5",
         "-s", "111120",
@@ -125,7 +161,7 @@ async def fetch_grand_canyon_dem(client: httpx.AsyncClient) -> None:
         "-co", "COMPRESS=DEFLATE",
         str(out_dem),
         str(out_hs),
-    ])
+    ], out_hs)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +200,7 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
     r = await client.get(buildings_url, timeout=HTTP_TIMEOUT)
     r.raise_for_status()
     buildings_fc = r.json()
-    out_buildings.write_text(json.dumps(buildings_fc))
+    atomic_write_text(out_buildings, json.dumps(buildings_fc))
     logger.info("  %d buildings", len(buildings_fc.get("features", [])))
 
     # 2) Tabular PLUTO — Manhattan (MN) + Brooklyn (BK) only.
@@ -178,7 +214,7 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
     r = await client.get(pluto_url, timeout=HTTP_TIMEOUT)
     r.raise_for_status()
     pluto_rows = r.json()
-    out_pluto.write_text(json.dumps(pluto_rows))
+    atomic_write_text(out_pluto, json.dumps(pluto_rows))
     logger.info("  %d PLUTO rows", len(pluto_rows))
 
     # 3) Join in Python. mappluto_bbl is on the building feature properties;
@@ -219,7 +255,7 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
         joined_features.append(feat)
 
     out_fc = {"type": "FeatureCollection", "features": joined_features}
-    out_final.write_text(json.dumps(out_fc))
+    atomic_write_text(out_final, json.dumps(out_fc))
     logger.info("Wrote %s with %d features", out_final.name, len(joined_features))
 
 
@@ -241,7 +277,8 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
         logger.info("pop_density_tracts.geojson already present, skipping")
         return
 
-    # 1) Download TIGER zip.
+    # 1) Download TIGER zip — write to .partial then atomic rename so a
+    # truncated download can never be mistaken for a cached complete zip.
     out_zip = OUT_DIR / "cb_2024_us_tract_500k.zip"
     if not already_present(out_zip):
         zip_url = (
@@ -249,26 +286,28 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
             "cb_2024_us_tract_500k.zip"
         )
         logger.info("Downloading TIGER cb_2024_us_tract_500k.zip (~58 MB)...")
+        zip_tmp = out_zip.with_suffix(".zip.partial")
         async with client.stream("GET", zip_url, timeout=HTTP_TIMEOUT) as resp:
             resp.raise_for_status()
-            with out_zip.open("wb") as fh:
+            with zip_tmp.open("wb") as fh:
                 async for chunk in resp.aiter_bytes():
                     fh.write(chunk)
+        zip_tmp.replace(out_zip)
 
-    # 2) Filter + reproject to GeoJSON via ogr2ogr. Try /vsizip first; if it
-    # fails, fall back to unzipping then running ogr2ogr against the .shp.
+    # 2) Filter + reproject to GeoJSON via ogr2ogr (atomic). Try /vsizip first;
+    # if it fails, fall back to unzipping then running ogr2ogr against the .shp.
     out_tracts = OUT_DIR / "tracts_4state.geojson"
     if not already_present(out_tracts):
         vsizip_path = f"/vsizip/{out_zip}"
         try:
-            run_gdal([
+            atomic_gdal_output([
                 "ogr2ogr",
                 "-f", "GeoJSON",
                 "-where", "STATEFP IN ('06','48','36','12')",
                 "-t_srs", "EPSG:4326",
                 str(out_tracts),
                 vsizip_path,
-            ])
+            ], out_tracts)
         except subprocess.CalledProcessError:
             logger.warning("ogr2ogr against /vsizip failed, falling back to extract+run")
             extract_dir = OUT_DIR / "cb_2024_us_tract_500k_extracted"
@@ -280,14 +319,14 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
                 raise RuntimeError(
                     f"No .shp file found in {extract_dir} after extraction"
                 )
-            run_gdal([
+            atomic_gdal_output([
                 "ogr2ogr",
                 "-f", "GeoJSON",
                 "-where", "STATEFP IN ('06','48','36','12')",
                 "-t_srs", "EPSG:4326",
                 str(out_tracts),
                 str(shp_files[0]),
-            ])
+            ], out_tracts)
 
     # 3) Pull ACS rows for the 4 states.
     acs_url = (
@@ -354,7 +393,7 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
         else:
             props["_density"] = None
 
-    out_final.write_text(json.dumps(tracts_fc))
+    atomic_write_text(out_final, json.dumps(tracts_fc))
     logger.info(
         "Wrote %s with %d features (%d with computed density)",
         out_final.name, len(tracts_fc.get("features", [])), n_with_pop,
@@ -396,7 +435,7 @@ async def fetch_usgs_quakes(client: httpx.AsyncClient) -> None:
         depth_km = coords[2] if len(coords) > 2 else 0
         feat.setdefault("properties", {})["depth_km"] = depth_km
 
-    out.write_text(json.dumps(fc))
+    atomic_write_text(out, json.dumps(fc))
     logger.info("Wrote %s with %d features", out.name, len(fc.get("features", [])))
 
 
@@ -457,6 +496,17 @@ async def fetch_nifc_fires(client: httpx.AsyncClient) -> None:
             logger.warning("NIFC pagination exceeded 50 pages, breaking")
             break
 
+    # Pagination sanity: a zero-feature result for the documented filter is
+    # not an empty fixture, it is a service problem (filter syntax change,
+    # service rename). Fail loud so the seeder doesn't ship an empty layer
+    # that quietly breaks the wildfires map (per code-review MI-03).
+    if not all_features:
+        raise RuntimeError(
+            "NIFC pagination returned 0 features — service may have changed "
+            "(check WFIGS_Interagency_Perimeters availability and filter "
+            "field names: attr_POOState, attr_FireDiscoveryDateTime)."
+        )
+
     # Derive fire_year from attr_FireDiscoveryDateTime (epoch ms) for
     # paint-expression access.
     for feat in all_features:
@@ -473,7 +523,7 @@ async def fetch_nifc_fires(client: httpx.AsyncClient) -> None:
             props["fire_year"] = None
 
     out_fc = {"type": "FeatureCollection", "features": all_features}
-    out.write_text(json.dumps(out_fc))
+    atomic_write_text(out, json.dumps(out_fc))
     logger.info("Wrote %s with %d features", out.name, len(all_features))
 
 
@@ -482,7 +532,8 @@ async def fetch_nifc_fires(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 # Ordered list keeps argparse --only choices stable across runs.
-FETCHERS: list[tuple[str, callable]] = [
+Fetcher = Callable[[httpx.AsyncClient], Awaitable[None]]
+FETCHERS: list[tuple[str, Fetcher]] = [
     ("grand_canyon_dem", fetch_grand_canyon_dem),
     ("nyc_pluto_zoning", fetch_nyc_pluto_zoning),
     ("pop_density_tracts", fetch_pop_density_tracts),
