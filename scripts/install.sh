@@ -4,6 +4,9 @@ set -eu
 REPO_URL="${GEOLENS_REPO_URL:-https://github.com/geolens-io/geolens.git}"
 INSTALL_DIR="${GEOLENS_INSTALL_DIR:-geolens}"
 
+# Restore terminal echo if interrupted between stty -echo / stty echo.
+trap 'stty echo </dev/tty 2>/dev/null; exit 130' INT TERM
+
 say() {
   printf '%s\n' "$*"
 }
@@ -21,6 +24,27 @@ need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found"
 }
 
+# Detect a usable controlling terminal once. `[ -r /dev/tty ]` is not enough —
+# the device file can be readable per perms while open(2) fails with ENXIO when
+# there is no controlling terminal (e.g., `curl ... | sh` in some contexts).
+HAS_TTY=false
+if (printf '' >/dev/tty) 2>/dev/null; then
+  HAS_TTY=true
+fi
+
+generate_jwt_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+    return
+  fi
+  if [ -r /dev/urandom ]; then
+    LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | dd bs=1 count=64 2>/dev/null
+    printf '\n'
+    return
+  fi
+  fail "cannot generate JWT_SECRET_KEY: install openssl, or run on a host with /dev/urandom."
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -29,7 +53,7 @@ check_port() {
 }
 
 disk_available_kb() {
-  df -k . 2>/dev/null | awk 'NR == 2 {print $4}'
+  df -k . 2>/dev/null | awk 'NR == 2 {print $4} END {if (NR < 2) print 0}'
 }
 
 memory_total_kb() {
@@ -42,12 +66,64 @@ memory_total_kb() {
   fi
 }
 
+# Read a value from .env. Handles values containing `=` correctly (returns the
+# full remainder after the first `=`). Returns empty if the key is missing or
+# the value is empty.
+get_env_value() {
+  key="$1"
+  awk -v k="$key" '
+    {
+      pat = "^" k "="
+      if ($0 ~ pat) {
+        print substr($0, length(k) + 2)
+        exit
+      }
+    }
+  ' .env
+}
+
+# Replace `KEY=...` in .env (or append if missing). Pass the value via ENVIRON
+# rather than `awk -v` so backslashes in passwords are preserved verbatim —
+# `awk -v val=foo\bar` would interpret `\b` as a backspace.
+update_env_value() {
+  key="$1"
+  value="$2"
+  tmp=".env.tmp.$$"
+
+  __VAL="$value" awk -v key="$key" '
+    BEGIN { val = ENVIRON["__VAL"]; updated = 0 }
+    $0 ~ "^" key "=" {
+      print key "=" val
+      updated = 1
+      next
+    }
+    { print }
+    END {
+      if (!updated) {
+        print key "=" val
+      }
+    }
+  ' .env > "$tmp"
+  mv "$tmp" .env
+}
+
+# Ask for a value: env-var override > tty prompt > default.
+# Args: label default secret(true|false) envvar
 prompt_value() {
   label="$1"
   default="$2"
   secret="${3:-false}"
+  envvar="${4:-}"
 
-  if [ -r /dev/tty ]; then
+  if [ -n "$envvar" ]; then
+    eval "envval=\${$envvar:-}"
+    if [ -n "$envval" ]; then
+      printf '%s\n' "$envval"
+      return
+    fi
+  fi
+
+  if [ "$HAS_TTY" = "true" ]; then
     if [ "$secret" = "true" ]; then
       printf '%s [%s]: ' "$label" "$default" >/dev/tty
       stty -echo </dev/tty 2>/dev/null || true
@@ -67,28 +143,6 @@ prompt_value() {
   printf '%s\n' "$default"
 }
 
-update_env_value() {
-  key="$1"
-  value="$2"
-  tmp=".env.tmp.$$"
-
-  awk -v key="$key" -v value="$value" '
-    BEGIN { updated = 0 }
-    $0 ~ "^" key "=" {
-      print key "=" value
-      updated = 1
-      next
-    }
-    { print }
-    END {
-      if (!updated) {
-        print key "=" value
-      }
-    }
-  ' .env > "$tmp"
-  mv "$tmp" .env
-}
-
 say "GeoLens installer"
 say "Repository: $REPO_URL"
 say "Install directory: $INSTALL_DIR"
@@ -103,42 +157,77 @@ if [ "$mem_kb" -gt 0 ] && [ "$mem_kb" -lt 4194304 ]; then
   warn "this host reports less than 4 GB RAM. GeoLens may start slowly or fail under raster workloads."
 fi
 
-disk_kb="$(disk_available_kb || printf '0\n')"
+disk_kb="$(disk_available_kb)"
+[ -n "$disk_kb" ] || disk_kb=0
 if [ "$disk_kb" -gt 0 ] && [ "$disk_kb" -lt 10485760 ]; then
   warn "less than 10 GB disk is available in the current filesystem."
 fi
 
-check_port 5434
-check_port 8001
-check_port 8080
-
-if [ -d "$INSTALL_DIR/.git" ]; then
+# If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
+PROJECT_HINT=""
+if [ -f docker-compose.yml ] && [ -f .env.example ]; then
+  say "Using current directory: $(pwd)"
+elif [ -d "$INSTALL_DIR/.git" ]; then
   say "Using existing checkout: $INSTALL_DIR"
+  cd "$INSTALL_DIR"
+  PROJECT_HINT="$INSTALL_DIR"
 elif [ -e "$INSTALL_DIR" ]; then
   fail "$INSTALL_DIR exists but is not a Git checkout. Move it or set GEOLENS_INSTALL_DIR."
 else
   git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
+  cd "$INSTALL_DIR"
+  PROJECT_HINT="$INSTALL_DIR"
 fi
-
-cd "$INSTALL_DIR"
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  admin_user="$(prompt_value 'Admin username' 'admin' false)"
-  admin_password="$(prompt_value 'Admin password' 'admin' true)"
+fi
+
+# JWT_SECRET_KEY: generate iff missing or empty. Existing real values are kept.
+existing_jwt="$(get_env_value JWT_SECRET_KEY)"
+if [ -z "$existing_jwt" ]; then
+  jwt="$(generate_jwt_secret)"
+  update_env_value JWT_SECRET_KEY "$jwt"
+  say "Generated JWT_SECRET_KEY."
+fi
+
+# Admin credentials: prompt only if either is empty. Honors GEOLENS_ADMIN_USERNAME /
+# GEOLENS_ADMIN_PASSWORD env vars for non-interactive installs.
+existing_admin_user="$(get_env_value GEOLENS_ADMIN_USERNAME)"
+existing_admin_pass="$(get_env_value GEOLENS_ADMIN_PASSWORD)"
+if [ -z "$existing_admin_user" ] || [ -z "$existing_admin_pass" ]; then
+  admin_user="$(prompt_value 'Admin username' 'admin' false GEOLENS_ADMIN_USERNAME)"
+  admin_password="$(prompt_value 'Admin password' 'admin' true GEOLENS_ADMIN_PASSWORD)"
   update_env_value GEOLENS_ADMIN_USERNAME "$admin_user"
   update_env_value GEOLENS_ADMIN_PASSWORD "$admin_password"
 else
-  say ".env already exists; leaving local configuration unchanged."
+  say ".env already has admin credentials; leaving unchanged."
 fi
+
+# Read the configured ports from .env so the in-use check matches what compose
+# will actually bind, even if the user changed DB_PORT/API_PORT/FRONTEND_PORT.
+db_port="$(get_env_value DB_PORT)"
+api_port="$(get_env_value API_PORT)"
+fe_port="$(get_env_value FRONTEND_PORT)"
+[ -n "$db_port" ] || db_port=5434
+[ -n "$api_port" ] || api_port=8001
+[ -n "$fe_port" ] || fe_port=8080
+
+check_port "$db_port"
+check_port "$api_port"
+check_port "$fe_port"
 
 say "Starting GeoLens..."
 docker compose up -d
 
 say ""
 say "GeoLens is starting."
-say "UI:  http://localhost:8080"
-say "API: http://localhost:8001"
+say "UI:  http://localhost:${fe_port}"
+say "API: http://localhost:${api_port}"
 say ""
 say "Check service health with:"
-say "  cd $INSTALL_DIR && docker compose ps"
+if [ -n "$PROJECT_HINT" ]; then
+  say "  cd $PROJECT_HINT && docker compose ps"
+else
+  say "  docker compose ps"
+fi

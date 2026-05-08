@@ -16,8 +16,8 @@ Importez des Shapefiles, GeoTIFFs, GeoPackages ou CSVs. GeoLens stocke tout dans
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git && cd geolens
-cp .env.example .env && docker compose up -d
-# Ouvrez http://localhost:8080 - identifiants: admin / admin
+bash scripts/install.sh
+# Ouvrez http://localhost:8080 — connectez-vous avec les identifiants choisis
 ```
 
 <p align="center">
@@ -191,11 +191,18 @@ Depuis QGIS, utilisez **Layer > Add WFS / OGC API Features** et pointez vers `ht
 ```bash
 git clone https://github.com/geolens-io/geolens.git
 cd geolens
-cp .env.example .env
-docker compose up -d
+bash scripts/install.sh
 ```
 
-Attendez environ 60 secondes, ouvrez [http://localhost:8080](http://localhost:8080), puis connectez-vous avec `admin` / `admin`.
+`scripts/install.sh` copie `.env.example` vers `.env`, génère un secret de
+signature JWT, demande les identifiants administrateur (par défaut :
+`admin` / `admin`), puis exécute `docker compose up -d`. Pour une installation
+non interactive, définissez `GEOLENS_ADMIN_USERNAME` et `GEOLENS_ADMIN_PASSWORD`
+dans l'environnement avant de lancer le script et les invites seront ignorées.
+Relancer le script est idempotent — les valeurs existantes dans `.env` sont
+préservées.
+
+Attendez environ 60 secondes, ouvrez [http://localhost:8080](http://localhost:8080), puis connectez-vous avec les identifiants administrateur que vous avez définis.
 
 Vérifiez que tous les services sont sains :
 

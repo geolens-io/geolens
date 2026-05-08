@@ -82,6 +82,7 @@ Creates minimal test datasets for end-to-end test suites.
 
 | Script | Purpose |
 |--------|---------|
+| `install.sh` | First-run installer — see below |
 | `init-db.sh` | Initialize the PostGIS database schema |
 | `init-test-db.sh` | Initialize a host-accessible `geolens_test` database with the extensions, schemas, and roles expected by CI and local debugging |
 | `restore.sh` | Restore a database backup |
@@ -89,3 +90,34 @@ Creates minimal test datasets for end-to-end test suites.
 | `run-baseline.sh` | Run performance baselines |
 | `analyze-query-plans.sh` | Analyze slow query plans |
 | `cleanup-test-pollution.sql` | Remove leftover test data |
+
+### `install.sh`
+
+First-run installer for a self-hosted GeoLens stack. Verifies prerequisites
+(`git`, `docker`, Docker Compose v2), warns on hosts under 4 GB RAM / 10 GB
+disk, generates a `JWT_SECRET_KEY` (via `openssl rand -hex 32`, with
+`/dev/urandom` fallback), seeds admin credentials in `.env`, checks the
+configured `DB_PORT` / `API_PORT` / `FRONTEND_PORT` are free, and runs
+`docker compose up -d`.
+
+```bash
+# From inside a checkout
+bash scripts/install.sh
+
+# Or have the script clone for you
+GEOLENS_INSTALL_DIR=geolens bash <(curl -fsSL https://raw.githubusercontent.com/geolens-io/geolens/main/scripts/install.sh)
+
+# Non-interactive — env vars override the prompts
+GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD='change-me' bash scripts/install.sh
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `GEOLENS_REPO_URL` | Override the clone URL (default: `https://github.com/geolens-io/geolens.git`) |
+| `GEOLENS_INSTALL_DIR` | Directory to clone into when not already in a checkout (default: `geolens`) |
+| `GEOLENS_ADMIN_USERNAME` | Skip the admin-username prompt with this value |
+| `GEOLENS_ADMIN_PASSWORD` | Skip the admin-password prompt with this value |
+
+Re-running the script is idempotent — existing `.env` values (including a
+real `JWT_SECRET_KEY`) are preserved. Only missing or empty values are
+populated.

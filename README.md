@@ -14,8 +14,8 @@ Upload Shapefiles, GeoTIFFs, GeoPackages, or CSVs. GeoLens stores everything in 
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git && cd geolens
-cp .env.example .env && docker compose up -d
-# Open http://localhost:8080 — login: admin / admin
+bash scripts/install.sh
+# Open http://localhost:8080 — login with the credentials you chose
 ```
 
 <p align="center">
@@ -225,11 +225,17 @@ For licensing or evaluation, contact `enterprise@getgeolens.com`.
 ```bash
 git clone https://github.com/geolens-io/geolens.git
 cd geolens
-cp .env.example .env
-docker compose up -d
+bash scripts/install.sh
 ```
 
-Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080). Log in with `admin` / `admin`.
+`scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
+secret, prompts for admin credentials (defaults to `admin` / `admin`), and runs
+`docker compose up -d`. For unattended installs, set `GEOLENS_ADMIN_USERNAME` and
+`GEOLENS_ADMIN_PASSWORD` in the environment before running and the prompts are
+skipped. Re-running the script is idempotent — existing values in `.env` are
+preserved.
+
+Wait about 60 seconds for services to start, then open [http://localhost:8080](http://localhost:8080). Log in with the admin credentials you set.
 
 Verify all services are healthy:
 
