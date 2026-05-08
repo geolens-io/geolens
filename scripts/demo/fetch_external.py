@@ -481,9 +481,31 @@ async def fetch_nifc_fires(client: httpx.AsyncClient) -> None:
             "resultOffset": offset,
         }
         logger.info("NIFC page %d (offset=%d)...", page, offset)
-        r = await client.get(base, params=params, timeout=HTTP_TIMEOUT)
-        r.raise_for_status()
-        fc = r.json()
+        # NIFC ArcGIS is intermittently flaky — pages occasionally close
+        # mid-response with httpx.RemoteProtocolError. Retry transient
+        # network errors before declaring the whole fetch a failure.
+        attempt = 0
+        max_attempts = 4
+        while True:
+            try:
+                r = await client.get(base, params=params, timeout=HTTP_TIMEOUT)
+                r.raise_for_status()
+                fc = r.json()
+                break
+            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout, httpx.ConnectError) as exc:
+                attempt += 1
+                if attempt >= max_attempts:
+                    raise
+                wait_s = 2**attempt
+                logger.warning(
+                    "NIFC page %d transient error (%s); retrying in %ds (attempt %d/%d)",
+                    page,
+                    exc.__class__.__name__,
+                    wait_s,
+                    attempt + 1,
+                    max_attempts,
+                )
+                await asyncio.sleep(wait_s)
         page_features = fc.get("features", []) or []
         all_features.extend(page_features)
         exceeded = fc.get("properties", {}).get("exceededTransferLimit")
