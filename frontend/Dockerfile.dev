@@ -9,10 +9,12 @@ WORKDIR /app
 # Install deps as root because npm ci writes to global locations + WORKDIR.
 # The cache mount is shared across builds to speed up dependency resolution.
 # `--chown=node:node` on COPY ensures /app contents are node-owned before
-# USER node takes effect.
+# USER node takes effect; the post-install chown re-owns node_modules so vite
+# can write its dep optimizer cache when /app/node_modules is an anon volume.
 COPY --chown=node:node package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline
+    npm ci --prefer-offline && \
+    chown -R node:node /app/node_modules
 
 # Copy source as node user.
 COPY --chown=node:node . .

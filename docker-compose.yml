@@ -111,7 +111,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
-    command: sh -c "uv run alembic upgrade head"
+    command: sh -c "uv run --no-dev alembic upgrade head"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
     # should stop the dependency chain, not retry blindly.
     restart: "no"
@@ -129,10 +129,14 @@ services:
       - SETUID
     # Immutable root filesystem; writable paths via tmpfs (cleared on exit).
     # Smaller tmpfs than api since one-shot doesn't process uploads.
+    # /app/staging is tmpfs (not the upload_staging volume) — migrate never
+    # writes uploads, but the shared api-entrypoint.sh probe requires the dir
+    # writable before alembic runs.
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
       - /home/appuser:size=64m,uid=1001,gid=1001
+      - /app/staging:size=8m,uid=1001,gid=1001
     volumes:
       - ./backend/alembic:/app/alembic
     environment:
@@ -202,13 +206,17 @@ services:
     # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids
     # --workers > 1 with --reload). Production demo overlay (docker-compose.demo.yml)
     # overrides without --reload, allowing UVICORN_WORKERS > 1 for true parallelism.
+    # All continuation lines at the same indent so `>` folds newlines into
+    # single spaces. Mismatched indent makes YAML preserve the newlines and
+    # sh then sees a multi-line script (uvicorn flags become "command not
+    # found" lines and uvicorn binds to its 127.0.0.1 default).
     command: >
-      sh -c "uv run uvicorn app.api.main:app
-        --host 0.0.0.0 --port 8000
-        --workers $${UVICORN_WORKERS:-1}
-        --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
-        --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
-        --reload --reload-dir /app/app"
+      sh -c "uv run --no-dev uvicorn app.api.main:app
+      --host 0.0.0.0 --port 8000
+      --workers $${UVICORN_WORKERS:-1}
+      --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
+      --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
+      --reload --reload-dir /app/app"
     environment:
       <<: [*db-env, *auth-env, *db-ssl-env, *storage-env, *logging-env, *ai-env]
       PYTHONPATH: /app
@@ -410,11 +418,14 @@ services:
       api:
         condition: service_healthy
     # Vite dev server (or nginx in demo overlay) — minimal footprint.
+    # Dev: 512M is the floor for vite + esbuild dep bundling on this graph;
+    # 128M OOM-kills vite during optimizer pass. Demo overlay (nginx) drops
+    # back to a small footprint.
     deploy:
       resources:
         limits:
-          cpus: "0.25"
-          memory: 128M
+          cpus: "0.5"
+          memory: 512M
 
   backup:
     # Enable with: docker compose --profile backup up -d

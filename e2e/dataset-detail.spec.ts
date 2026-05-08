@@ -23,40 +23,9 @@ function getAuthToken(): string {
 let datasetTitle: string;
 let datasetId: string;
 
-function deriveDistinctDraft(currentSummary: string, marker: string): string {
-  const suffix = ` [${marker}]`;
-  const trimmedSummary = currentSummary.trimEnd();
-
-  if (trimmedSummary.endsWith(suffix)) {
-    const withoutSuffix = trimmedSummary.slice(0, -suffix.length).trimEnd();
-    return withoutSuffix.length > 0 ? withoutSuffix : `${marker} draft`;
-  }
-
-  return trimmedSummary.length > 0 ? `${trimmedSummary}${suffix}` : `${marker} draft`;
-}
-
 async function openAdminCountriesDataset(page: Page) {
   await page.goto(`/datasets/${datasetId}`);
   await page.waitForURL(new RegExp(`/datasets/${datasetId}$`));
-}
-
-async function setStoredUserRoles(page: Page, roles: string[]) {
-  await page.evaluate((nextRoles) => {
-    const raw = localStorage.getItem('geolens-auth');
-    if (!raw) return;
-
-    const parsed = JSON.parse(raw) as {
-      state?: {
-        user?: {
-          roles?: string[];
-        };
-      };
-    };
-
-    if (!parsed.state?.user) return;
-    parsed.state.user.roles = nextRoles;
-    localStorage.setItem('geolens-auth', JSON.stringify(parsed));
-  }, roles);
 }
 
 test.describe('Dataset Detail', () => {
@@ -129,92 +98,30 @@ test.describe('Dataset Detail', () => {
     expect(download.suggestedFilename()).toBeTruthy();
   });
 
-  // Re-enabled 2026-05-07 (Phase 278, TEST-10) — replaces the racy
-  // UI-driven fill-prelude with a deterministic API-seeded fixture so the
-  // pending-edits state machine starts from a known-good baseline. The
-  // prior skipped test (commit 2dff66e1) cited "data-dependent timing
-  // issue": the conditional `if summary == "" : fill : noop` prelude
-  // raced against initial render on CI. Seeding via PATCH
-  // `/api/datasets/{id}` removes the race entirely.
-  test('editable markers, viewer hint-on-attempt, and pending lifecycle remain stable', async ({
-    page,
-  }) => {
-    // Deterministic seed: PATCH the summary to a known value BEFORE the UI
-    // test runs. Bypasses the editable-field state-machine race fixed in
-    // Phase 278 (TEST-10, H-33). The seeded summary is unique per run so
-    // re-runs against the same dataset don't rely on prior state.
-    const token = getAuthToken();
-    const seedSummary = `E2E baseline summary (run ${Date.now()})`;
-    const seedResp = await page.request.patch(
-      `${BASE_URL}/api/datasets/${datasetId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        data: { summary: seedSummary },
-      },
-    );
-    expect(seedResp.ok()).toBe(true);
-
-    await openAdminCountriesDataset(page);
-
-    // Ensure Overview tab is active and loaded
-    await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
-
-    const summaryShell = page.getByTestId('editable-field-shell-summary');
-    await expect(summaryShell).toHaveAttribute('data-editable', 'true');
-
-    // Open the InlineEdit textarea by clicking the role=button trigger; the
-    // shell renders the editor inline once summaryValue is non-empty (which
-    // the API seed guarantees).
-    const summaryTextarea = summaryShell.locator('textarea');
-    await summaryShell.locator('[role="button"]').click();
-    await expect(summaryTextarea).toBeVisible();
-    await expect(summaryTextarea).toHaveValue(seedSummary);
-
-    // Pending bar appears after draft changes and disappears after cancel.
-    const cancelBaseline = await summaryTextarea.inputValue();
-    const cancelDraft = deriveDistinctDraft(cancelBaseline, 'pending-cancel');
-    await summaryTextarea.fill(cancelDraft);
-    expect(cancelDraft).not.toBe(cancelBaseline);
-    await expect(summaryTextarea).not.toHaveValue(cancelBaseline);
-    await page.getByRole('tab', { name: 'Overview' }).click();
-
-    await expect(page.getByTestId('pending-edits-bar')).toBeVisible();
-    await expect(page.getByTestId('pending-edits-count')).toContainText('unsaved change');
-
-    await page.getByTestId('pending-edits-cancel').click();
-    await expect(page.getByTestId('pending-edits-bar')).toHaveCount(0);
-
-    // Pending bar also clears after save.
-    await summaryShell.locator('[role="button"]').click();
-    await expect(summaryTextarea).toBeVisible();
-    const saveBaseline = await summaryTextarea.inputValue();
-    const saveDraft = deriveDistinctDraft(saveBaseline, 'pending-save');
-    await summaryTextarea.fill(saveDraft);
-    expect(saveDraft).not.toBe(saveBaseline);
-    await expect(summaryTextarea).not.toHaveValue(saveBaseline);
-    await page.getByRole('tab', { name: 'Overview' }).click();
-
-    await expect(page.getByTestId('pending-edits-bar')).toBeVisible();
-    await page.getByTestId('pending-edits-save').click();
-    await expect(page.getByTestId('pending-edits-bar')).toHaveCount(0);
-
-    // Simulate viewer capability state to verify neutral read-only defaults and hint-on-attempt.
-    await setStoredUserRoles(page, ['viewer']);
-    await page.reload();
-
-    const viewerSummaryShell = page.getByTestId('editable-field-shell-summary');
-    await expect(viewerSummaryShell).toHaveAttribute('data-editable', 'false');
-    await expect(viewerSummaryShell).toHaveClass(/bg-transparent/);
-    await expect(viewerSummaryShell.getByTestId('editable-field-shell-icon')).toHaveCount(0);
-
-    const denyHintText = 'You can view this field. Editors can make changes.';
-    await expect(page.getByText(denyHintText)).toHaveCount(0);
-    await viewerSummaryShell.click();
-    await expect(page.getByText(denyHintText)).toBeVisible();
-  });
+  // Removed 2026-05-07 (v1.1.0 UAT, TEST-10 Path B). The test asserted that
+  // typing into the multiline InlineEdit textarea then clicking the Overview
+  // tab leaves the draft as a "pending edit". That contradicts the UX shipped
+  // in commit a8c75e67 ("Fix multiline InlineEdit save-on-blur (cancel on
+  // blur, Ctrl+Enter to save)") — multiline blur explicitly calls cancel(),
+  // so a tab-click reverts the draft and pending-edits-bar never appears.
+  //
+  // Phase 278-06 (TEST-10) Path A unskipped this test with a PATCH-seed
+  // fixture for the upstream empty-summary race, but Path A could not fix
+  // the inherent blur-cancels-draft conflict. The 5-run flake check at the
+  // v1.1.0 UAT exposed this; per Phase 278-06's own decision memo, the
+  // documented fall-through is Path B with vitest alternative coverage:
+  //
+  //   | Behavior                                 | Vitest coverage                                   |
+  //   |------------------------------------------|---------------------------------------------------|
+  //   | Pending bar lifecycle (save + cancel)    | DatasetPage.edit-affordances.test.tsx:267-298,300-315 |
+  //   | PendingEditsBar isolated lifecycle (4×)  | components/dataset/__tests__/PendingEditsBar.test.tsx |
+  //   | EditableFieldShell role-gating + hint    | components/dataset/__tests__/EditableFieldShell.test.tsx |
+  //
+  // All 12 vitest cases pass. The lost coverage is the real-network
+  // integration path (browser → frontend → backend → Postgres) for these
+  // exact assertions, which the surviving test 1 (`map renders, attribute
+  // table loads, export triggers download`) above still exercises against
+  // the same dataset.
 
   // The previous "context guard choices, validation troubleshoot, and
   // freshness guidance are visible in-flow" test was deleted (test-audit
