@@ -7,7 +7,11 @@
  *
  * The original page-level smoke tests (level-1 heading, breadcrumbs,
  * audit-log-viewer region) are preserved by mounting the page with
- * view_audit granted in the same describe.
+ * manage_settings granted in the same describe.
+ *
+ * Phase 281: capability key aligned to ALL_CAPABILITIES (`manage_settings`);
+ * the prior `view_audit` key was not in the server registry so the live
+ * page-guard always redirected.
  */
 
 import { render, screen } from '@/test/test-utils';
@@ -40,9 +44,9 @@ describe('AdminAuditPage', () => {
     mockUsePermissions.mockReset();
     // Default: permission granted so the existing smoke tests still apply.
     mockUsePermissions.mockReturnValue({
-      can: (cap: string) => cap === 'view_audit',
+      can: (cap: string) => cap === 'manage_settings',
       isLoading: false,
-      permissions: { view_audit: true },
+      permissions: { manage_settings: true },
     });
   });
 
@@ -80,7 +84,7 @@ describe('AdminAuditPage page guard (ADMIN-08)', () => {
     expect(screen.queryByTestId('audit-log-viewer')).not.toBeInTheDocument();
   });
 
-  it('redirects (does not render AuditLogViewer) when view_audit permission is missing', () => {
+  it('redirects (does not render AuditLogViewer) when manage_settings permission is missing', () => {
     mockUsePermissions.mockReturnValue({ can: () => false, isLoading: false, permissions: {} });
     render(<AdminAuditPage />);
 
@@ -91,11 +95,11 @@ describe('AdminAuditPage page guard (ADMIN-08)', () => {
     expect(screen.queryByTestId('loading-state')).not.toBeInTheDocument();
   });
 
-  it('renders AuditLogViewer when view_audit permission is granted', () => {
+  it('renders AuditLogViewer when manage_settings permission is granted', () => {
     mockUsePermissions.mockReturnValue({
-      can: (cap: string) => cap === 'view_audit',
+      can: (cap: string) => cap === 'manage_settings',
       isLoading: false,
-      permissions: { view_audit: true },
+      permissions: { manage_settings: true },
     });
     render(<AdminAuditPage />);
 
