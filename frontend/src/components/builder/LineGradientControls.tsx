@@ -36,7 +36,11 @@ function ensureStopIds(
 const KNOWN_MAPLIBRE_OPERATORS = new Set<string>([
   'interpolate', 'interpolate-hcl', 'interpolate-lab', 'step', 'match', 'case', 'let', 'var',
   'coalesce', 'concat', 'literal', 'at', 'length', 'get', 'has', 'in', 'feature-state',
-  'geometry-type', 'id', 'properties', 'to-string', 'to-number', 'to-boolean', 'typeof',
+  'geometry-type',
+  // 'id' here is the MapLibre ["id"] data accessor (returns feature id) — NOT
+  // related to the optional stop.id field added in Phase 258 POLISH-06.
+  'id',
+  'properties', 'to-string', 'to-number', 'to-boolean', 'typeof',
   'rgb', 'rgba', 'to-color', 'to-rgba',
   // arithmetic
   '+', '-', '*', '/', '%', '^', 'abs', 'min', 'max', 'round', 'floor', 'ceil', 'sqrt', 'log10', 'log2', 'ln', 'exp', 'pi', 'e',
@@ -87,7 +91,10 @@ export function lineGradientExpressionToStops(
   if (!Array.isArray(expr)) return null;
   if (expr[0] !== 'interpolate') return null;
   const interp = expr[1];
-  if (!Array.isArray(interp) || interp[0] !== 'linear' || interp.length !== 1) return null;
+  // WR-02: accept ['linear', ...trailing] from third-party serializers that pad
+  // with extra args. By MapLibre spec the linear arg list is empty, but only
+  // operator identity actually matters for gradient parsing.
+  if (!Array.isArray(interp) || interp[0] !== 'linear') return null;
   const input = expr[2];
   if (!Array.isArray(input) || input[0] !== 'line-progress' || input.length !== 1) return null;
   const tail = expr.slice(3);
@@ -306,6 +313,11 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     const parsedStops = lineGradientExpressionToStops(result.value);
     if (parsedStops != null) {
       onBuilderChange({ lineGradient: { stops: parsedStops } }, nextPaint);
+      // IN-03: switch the controls into gradient view so the freshly-applied
+      // canonical stops are immediately visible. Without this, applyAdvanced
+      // from solid mode commits the paint but leaves the toggle on Solid until
+      // a parent remount re-derives initialMode.
+      setMode('gradient');
     } else {
       onBuilderChange({ lineGradient: undefined }, nextPaint);
     }

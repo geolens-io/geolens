@@ -54,6 +54,20 @@ describe('LineGradientControls — round-trip parser', () => {
     expect(lineGradientExpressionToStops(['interpolate', ['linear'], ['line-progress'], 0, '#000', 1])).toBeNull();
   });
 
+  it('parser: lineGradientExpressionToStops accepts ["linear", ...trailing] from third-party serializers (WR-02)', () => {
+    // Some third-party tools serialize the linear interpolation type with trailing
+    // padding (e.g. ['linear', null] or ['linear', {}]). MapLibre treats only the
+    // operator identity as load-bearing, so the parser now accepts these.
+    const stops = lineGradientExpressionToStops([
+      'interpolate', ['linear', null], ['line-progress'],
+      0, '#000', 1, '#fff',
+    ]);
+    expect(stops).toEqual([
+      { position: 0, color: '#000' },
+      { position: 1, color: '#fff' },
+    ]);
+  });
+
   it('parser: stops -> line-gradient expression -> stops round-trips bit-for-bit', () => {
     const stops = [
       { position: 0, color: '#0066cc' },
@@ -404,6 +418,26 @@ describe('LineGradientControls — advanced expression editor', () => {
       return Array.isArray(patch.lineGradient?.stops);
     });
     expect(builderCalls).toHaveLength(1);
+  });
+
+  it('advanced: applying a canonical gradient from solid mode switches the toggle to Gradient (IN-03)', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    // Mount in solid mode (no gradient in paint, no builder stops).
+    render(<LineGradientControls paint={{ 'line-color': '#abcdef' }} styleConfig={null} onPaintProp={onPaintProp} onBuilderChange={onBuilderChange} t={t} />);
+    expect(screen.getByRole('button', { name: 'style.lineGradient.solid' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'style.lineGradient.gradient' })).toHaveAttribute('aria-pressed', 'false');
+    // Open the advanced editor and apply a canonical gradient.
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.advanced' }));
+    const textbox = screen.getByRole('textbox', { name: 'style.lineGradient.advanced' });
+    fireEvent.change(textbox, {
+      target: { value: JSON.stringify(['interpolate', ['linear'], ['line-progress'], 0, '#0066cc', 1, '#cc3300']) },
+    });
+    await user.click(screen.getByRole('button', { name: 'style.lineGradient.applyExpression' }));
+    // Toggle MUST flip to Gradient (without parent remount).
+    expect(screen.getByRole('button', { name: 'style.lineGradient.gradient' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'style.lineGradient.solid' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('advanced: applying a non-canonical line-gradient expression commits to paint and shows the customExpression hint (no silent flatten)', async () => {
