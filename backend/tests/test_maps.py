@@ -1965,6 +1965,80 @@ class TestMapLayers:
         assert await test_db_session.get(MapLayer, uuid.UUID(old_layer_id)) is None
 
 
+class TestMapLayersTrailingSlash:
+    """Phase 280: both slash variants of POST /maps/{id}/layers must return
+    201 directly without a 307 redirect that could leak the in-container
+    `api:8000` hostname through dev-proxy Host-header preservation.
+
+    Regression for the 260508-d6i smoke failure (#5, #6) where Node fetch
+    on the host followed a relative-path Location and resolved it against
+    `Host: api:8000`, producing `getaddrinfo ENOTFOUND api`.
+    """
+
+    async def test_add_layer_with_trailing_slash(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+            follow_redirects=False,
+        )
+        assert resp.status_code == 201, (
+            f"Expected 201, got {resp.status_code}; "
+            f"location={resp.headers.get('location')!r}"
+        )
+        # No redirect Location header should be emitted.
+        assert "location" not in {k.lower() for k in resp.headers.keys()}, (
+            f"Unexpected Location header: {resp.headers.get('location')!r}"
+        )
+
+    async def test_add_layer_without_trailing_slash(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+            follow_redirects=False,
+        )
+        assert resp.status_code == 201, (
+            f"Expected 201, got {resp.status_code}; "
+            f"location={resp.headers.get('location')!r}"
+        )
+        location = resp.headers.get("location")
+        # If somehow a Location IS present, it must not leak the in-container
+        # hostname — that is the exact 260508-d6i failure signature.
+        if location is not None:
+            assert "api:8000" not in location, (
+                f"Location leaks in-container hostname: {location!r}"
+            )
+            assert "://api/" not in location, (
+                f"Location leaks in-container hostname: {location!r}"
+            )
+        # Strongest assertion: alias decorator should make this a direct 201
+        # with no Location at all.
+        assert resp.status_code != 307, (
+            f"Got 307 redirect to {location!r} — alias decorator missing"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Thumbnail upload/retrieve
 # ---------------------------------------------------------------------------
