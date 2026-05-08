@@ -84,11 +84,13 @@ describe('LabelEditor LAYER-01 — toggle no-op when no columns available', () =
     expect(sw).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('handleToggle bails out (no onLabelChange call) when toggled on with empty columns', async () => {
-    // Forced-on path: bypass the disabled guard by mounting with onCheckedChange wired directly
-    // through the Switch; we drive handleToggle programmatically by clicking. Even if a future
-    // change re-enables the Switch in this state, the bail-out keeps the toggle from snapping
-    // back via the upstream null-normalization (LAYER-01).
+  it('Switch click is suppressed when disabled (no onLabelChange call)', async () => {
+    // Behavioral counterpart to the test above: the disabled DOM attribute also has
+    // to actually suppress the click (Radix sometimes propagates onCheckedChange
+    // even with disabled if pointer-events are misconfigured). Together these two
+    // tests lock LAYER-01's primary defense — the in-component handleToggle bail-out
+    // at LabelEditor.tsx:73-75 is unreachable while the disabled guard is in place,
+    // so it is not separately exercised here.
     const onLabelChange = vi.fn();
     render(
       <LabelEditor
@@ -98,10 +100,7 @@ describe('LabelEditor LAYER-01 — toggle no-op when no columns available', () =
         geometryType="Point"
       />,
     );
-    const sw = screen.getByRole('switch');
-    // Disabled state means the click won't fire onCheckedChange; the bail-out is the
-    // belt-and-suspenders second line of defense documented in handleToggle.
-    fireEvent.click(sw);
+    fireEvent.click(screen.getByRole('switch'));
     expect(onLabelChange).not.toHaveBeenCalled();
   });
 });
