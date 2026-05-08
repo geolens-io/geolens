@@ -11,6 +11,34 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Added
+
+- **Browser tab favicon** switched to the simplified favicon variant from
+  `geolens-io/branding` v0.1.0 — no graticule, optimized for 16–64 px tab
+  rendering per brand guide §3. Adds 16/32/64 PNG fallbacks for older
+  browsers and `sizes="any"` on the SVG `<link>` for the Chromium
+  favicon-pick path.
+- **PWA manifest** at `/manifest.webmanifest` with `theme_color: #3b6fd4`
+  (frozen sRGB approximation of `--primary-500`), `display: standalone`,
+  and 192/512/1024 app-icon entries. Enables "Add to Home Screen" /
+  install prompts on supported browsers. App icons (light + dark
+  1024×1024 sources, 192/512 sips downscales) live under
+  `frontend/public/`.
+- **`apple-touch-icon.png`** (180×180) for legacy iOS Safari
+  Add-to-Home-Screen.
+- **`BRANDING-VERSION`** marker at repo root pinning the brand-asset
+  sync to `geolens-io/branding` v0.1.0. See [README §Branding](./README.md#branding)
+  for the bump procedure.
+- `<meta name="theme-color">` on the HTML head matching the manifest
+  `theme_color` so Android Chrome's address bar and the standalone PWA
+  title bar stay visually consistent.
+
+### Changed
+
+- `<meta name="viewport">` and `<meta name="theme-color">` moved to
+  immediately after `<meta charset>` in `index.html`, before the FOUC
+  prevention script, per the WHATWG "important meta" recommendation.
+
 ## [1.1.0] - 2026-05-07
 
 > Pre-public-release security & audit hardening sweep (v13.12) plus a

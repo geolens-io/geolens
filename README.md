@@ -382,6 +382,19 @@ is deferred until a real-world adopter request makes it concrete.
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) — questions, ideas, show and tell
 - [Contributing Guide](.github/CONTRIBUTING.md) — development setup, code style, and PR guidelines
 
+## Branding
+
+Brand assets — favicon, app icons, color tokens, and typography — sync from the
+canonical [`geolens-io/branding`](https://github.com/geolens-io/branding)
+repository via copy-on-release. The currently-pinned version lives at
+[`BRANDING-VERSION`](./BRANDING-VERSION) at the repo root. Bump procedure: re-run
+the `cp` for any changed source files, re-run `sips -z N N` for PWA icon
+downscales if the 1024×1024 source dimensions change, then update
+`BRANDING-VERSION`'s version + sync date lines.
+
+The brand assets carry their own license (see the upstream repo); this is
+distinct from the Apache 2.0 license that covers the GeoLens source code below.
+
 ## License
 
 GeoLens is licensed under the [Apache License 2.0](LICENSE).
