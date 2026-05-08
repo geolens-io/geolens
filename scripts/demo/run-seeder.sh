@@ -70,9 +70,18 @@ python3 /scripts/demo/fetch_external.py || {
 # theme local_paths point to /data/demo/external/. Copy across so the
 # orchestrator's Path(entry["local_path"]).exists() check at
 # seed-thematic-demo.py:215/251 passes.
+#
+# Real cp failures (perms, no disk) must propagate; only an empty source
+# directory is silently OK (intermediate `.partial` files are skipped via
+# explicit glob exclusion).
 # ---------------------------------------------------------------------------
 mkdir -p /data/demo/external
-cp -rL /scripts/demo/raw/external/* /data/demo/external/ 2>/dev/null || true
+SRC_DIR=/scripts/demo/raw/external
+if [ -d "${SRC_DIR}" ] && [ -n "$(ls -A "${SRC_DIR}" 2>/dev/null)" ]; then
+    # Use shopt-style glob via find to skip .partial sidecars left by an
+    # interrupted fetch_external.py run (per code-review MA-02).
+    find "${SRC_DIR}" -mindepth 1 -maxdepth 1 ! -name '*.partial' -exec cp -rL {} /data/demo/external/ \;
+fi
 
 # ---------------------------------------------------------------------------
 # Wait for API to be ready

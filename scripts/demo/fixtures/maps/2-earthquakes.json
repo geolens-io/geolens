@@ -56,11 +56,11 @@
         "mode": "graduated",
         "column": "mag",
         "target": "radius",
-        "classCount": 5,
+        "classCount": 4,
         "method": "manual",
         "ramp": "YlOrRd",
         "colors": ["#fde725", "#f39c12", "#e74c3c", "#7d3c98"],
-        "breaks": [6, 7, 8, 9]
+        "breaks": [6, 7, 8]
       },
       "show_in_legend": true
     }

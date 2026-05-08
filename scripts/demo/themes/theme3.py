@@ -17,8 +17,8 @@ set under scripts/demo/fixtures/maps/.
 from __future__ import annotations
 from themes import ThemeDataset
 
-THEME_NAME = ""
-THEME_DESCRIPTION = ""
+THEME_NAME = "(unused)"
+THEME_DESCRIPTION = "Reserved theme slot — not part of the current demo."
 THEME_IDX = 2
 
 DATASETS: list[ThemeDataset] = []
