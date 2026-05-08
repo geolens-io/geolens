@@ -103,39 +103,8 @@ test.describe('Dataset Detail', () => {
     expect(download.suggestedFilename()).toBeTruthy();
   });
 
-  // Removed 2026-05-07 (v1.1.0 UAT, TEST-10 Path B). The test asserted that
-  // typing into the multiline InlineEdit textarea then clicking the Overview
-  // tab leaves the draft as a "pending edit". That contradicts the UX shipped
-  // in commit a8c75e67 ("Fix multiline InlineEdit save-on-blur (cancel on
-  // blur, Ctrl+Enter to save)") — multiline blur explicitly calls cancel(),
-  // so a tab-click reverts the draft and pending-edits-bar never appears.
-  //
-  // Phase 278-06 (TEST-10) Path A unskipped this test with a PATCH-seed
-  // fixture for the upstream empty-summary race, but Path A could not fix
-  // the inherent blur-cancels-draft conflict. The 5-run flake check at the
-  // v1.1.0 UAT exposed this; per Phase 278-06's own decision memo, the
-  // documented fall-through is Path B with vitest alternative coverage:
-  //
-  //   | Behavior                                 | Vitest coverage                                   |
-  //   |------------------------------------------|---------------------------------------------------|
-  //   | Pending bar lifecycle (save + cancel)    | DatasetPage.edit-affordances.test.tsx:267-298,300-315 |
-  //   | PendingEditsBar isolated lifecycle (4×)  | components/dataset/__tests__/PendingEditsBar.test.tsx |
-  //   | EditableFieldShell role-gating + hint    | components/dataset/__tests__/EditableFieldShell.test.tsx |
-  //
-  // All 12 vitest cases pass. The lost coverage is the real-network
-  // integration path (browser → frontend → backend → Postgres) for these
-  // exact assertions, which the surviving test 1 (`map renders, attribute
-  // table loads, export triggers download`) above still exercises against
-  // the same dataset.
-
-  // The previous "context guard choices, validation troubleshoot, and
-  // freshness guidance are visible in-flow" test was deleted (test-audit
-  // v13.12, H-33). It exercised an "edit-context" toggle UI
-  // (`edit-context-option-attributes`, `edit-context-option-metadata`,
-  // `context-switch-guard-dialog`, `Save & switch`, `Discard & switch`)
-  // that was never shipped — no matching components or testIds exist in
-  // `frontend/src/components/dataset/`. The validation-troubleshoot and
-  // quality-freshness assertions live on inside `ValidationStatus.test.tsx`
-  // and `QualityScoreCard.test.tsx` (vitest) which cover the same surface
-  // without depending on the absent context-switch UI.
+  // Two tests removed in v13.12 H-33 / v13.13 Phase 278-06 TEST-10 Path B.
+  // Coverage moved to vitest (DatasetPage.edit-affordances, PendingEditsBar,
+  // EditableFieldShell, ValidationStatus, QualityScoreCard). See
+  // .planning/milestones/v13.13-MILESTONE-AUDIT.md (TEST-10) for rationale.
 });

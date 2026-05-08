@@ -32,10 +32,7 @@ export function AdminAuditPage() {
   }
 
   if (!can('manage_settings')) {
-    // Belt-and-suspenders: backend also returns 403 from /admin/audit-logs/
-    // via require_permission("manage_settings"). The page-level guard gives
-    // non-admin users who paste the URL directly a redirect first (UX) and
-    // the API gates the data anyway (security). Phase 279 / L-05, Phase 281.
+    // Phase 279 / ADMIN-08 (rationale in file-header JSDoc above).
     return <Navigate to="/admin" replace />;
   }
 

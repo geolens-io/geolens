@@ -2002,6 +2002,12 @@ class TestMapLayersTrailingSlash:
             headers=admin_auth_header,
             follow_redirects=False,
         )
+        # Name the 307 regression mode explicitly before the generic
+        # equality check so a future failure log states the cause directly.
+        assert resp.status_code != 307, (
+            "307 regression: trailing-slash decorator missing on "
+            f"add_layer_endpoint; Location={resp.headers.get('location')!r}"
+        )
         assert resp.status_code == 201, (
             f"Expected 201, got {resp.status_code}; "
             f"location={resp.headers.get('location')!r}"

@@ -382,20 +382,24 @@ test.describe.serial('Map Builder', () => {
     // step (when offsetWidth crosses widthBefore), but localStorage is only
     // written at pointerup with the final drag value — so the two diverge.
     // Polling localStorage means we wait for the pointerup commit, after which
-    // both values are stable.
+    // both values are stable. Capture the resolved value into a closure to
+    // avoid a redundant page.evaluate round-trip after the poll.
+    let storedNum: number | null = null;
     await expect
       .poll(async () => {
         const v = await page.evaluate(() => localStorage.getItem('geolens-builder-sidebar-width'));
-        return v ? Number(v) : null;
+        storedNum = v === null ? null : Number(v);
+        return storedNum;
       }, {
         timeout: 3_000,
         message: 'drag should persist a wider sidebar to localStorage',
       })
       .toBeGreaterThan(widthBefore);
 
-    const stored = await page.evaluate(() => localStorage.getItem('geolens-builder-sidebar-width'));
-    expect(stored).not.toBeNull();
-    const storedNum = Number(stored);
+    if (storedNum === null) {
+      throw new Error('localStorage was empty after expect.poll resolved; pointerup did not commit');
+    }
+    expect(Number.isFinite(storedNum)).toBe(true);
     expect(storedNum).toBeGreaterThanOrEqual(200); // SIDEBAR_MIN
     expect(storedNum).toBeLessThanOrEqual(600); // SIDEBAR_MAX
 
