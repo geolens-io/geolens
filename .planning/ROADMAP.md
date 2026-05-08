@@ -51,7 +51,9 @@
 - ✅ **v13.8 Map Builder Advanced Styling** — Phases 246-251 (shipped 2026-05-06) — see [archive](milestones/v13.8-ROADMAP.md)
 - ✅ **v13.9 Map Builder Closeout** — Phases 252-256 (shipped 2026-05-06) — see [archive](milestones/v13.9-ROADMAP.md)
 - ✅ **v13.10 GH Issues Hygiene** — Phase 257 (shipped 2026-05-07) — see [archive](milestones/v13.10-ROADMAP.md)
-- 🚧 **v13.11 Map Builder Polish & Quality Sweep** — Phases 258-262 (in progress)
+- ✅ **v13.11 Map Builder Polish & Quality Sweep** — Phases 258-262 (shipped 2026-05-07) — see [archive](milestones/v13.11-ROADMAP.md)
+- ✅ **v13.12 Pre-Public Security & Audit Hardening** — Phases 263-270 (shipped 2026-05-07) — see [archive](milestones/v13.12-ROADMAP.md)
+- ✅ **v13.13 Backlog Sweep** — Phases 271-279 (shipped 2026-05-07) — see [archive](milestones/v13.13-MILESTONE-AUDIT.md)
 
 ## Phases
 
@@ -77,201 +79,51 @@
 
 </details>
 
-### 🚧 v13.11 Map Builder Polish & Quality Sweep (In Progress)
+<details>
+<summary>✅ v13.11 Map Builder Polish & Quality Sweep (Phases 258-262) — SHIPPED 2026-05-07</summary>
 
-**Milestone Goal:** Close BUILDER-POLISH-01 (Phase 256 UI audit findings), translate the line-gradient i18n block to es/fr/de, sweep cheap builder-polish backlog items, investigate + fix the Label-Layer toggle regression, and ship close hygiene that retires BUILDER-POLISH-01 from the deferred list.
+- [x] Phase 258: line-gradient-ui-closeout (2/2 plans) — completed 2026-05-07
+- [x] Phase 259: i18n-translations (1/1 plan) — completed 2026-05-07
+- [x] Phase 260: builder-quality-sweep (1/1 plan) — completed 2026-05-07
+- [x] Phase 261: layer-visibility-debug-audit (1/1 plan) — completed 2026-05-07
+- [x] Phase 262: milestone-closeout (1/1 plan) — completed 2026-05-07
 
-- [x] **Phase 258: Line-Gradient UI Closeout** — Fix all 7 Phase 256 audit findings in `LineGradientControls.tsx` and rewrite the `advancedHint` copy (2/2 plans complete)
-- [ ] **Phase 259: i18n Translations** — Translate the 16-key `lineGradient` block into es/fr/de with real (non-fallback) strings
-- [ ] **Phase 260: Builder Quality Sweep** — Unsaved-changes indicator, cursor-pointer audit, console warning cleanup, zoom-control alignment
-- [ ] **Phase 261: Layer Visibility Debug & Audit** — Root-cause and fix the Label-Layer toggle regression; audit layer order/visibility behavior end-to-end
-- [ ] **Phase 262: Milestone Closeout** — Update MEMORY.md and close the BUILDER-POLISH-01 todo file
+17/17 v13.11 requirements satisfied. Audit: passed. 7 source-file commits. Closed BUILDER-POLISH-01 (Phase 256 UI audit findings). Full details: [milestones/v13.11-ROADMAP.md](milestones/v13.11-ROADMAP.md).
 
-## Phase Details
+</details>
 
-### Phase 258: Line-Gradient UI Closeout
-**Goal**: The line-gradient builder panel is visually complete — the Phase 256 BLOCKER (missing gradient preview swatch) and all 6 minor audit findings are resolved, and the `advancedHint` copy reads in builder-user vocabulary
-**Depends on**: Nothing (first phase of this milestone)
-**Requirements**: POLISH-01, POLISH-02, POLISH-03, POLISH-04, POLISH-05, POLISH-06, POLISH-07, COPY-01
-**Success Criteria** (what must be TRUE):
-  1. When Gradient mode is active, a visible `linear-gradient` bar appears above the stop list showing the current gradient output — users can see the resulting gradient before saving
-  2. Per-stop rows in the gradient panel show a stop-index label (or no label) instead of repeating the word "Color" on every row
-  3. The Solid/Gradient toggle buttons display a visible focus ring on keyboard navigation and use `cursor-pointer` on hover
-  4. The advanced-expression disclosure button spans the full panel width, matching the `AdvancedJsonEditor` convention
-  5. Each stop row has a visible position identifier (e.g., `pos` prefix) visible to sighted users, stable React keys (not index-based), and a tooltip on its trash button
-  6. The `advancedHint` string uses plain builder vocabulary — no mention of "interpolate-linear-line-progress" or internal implementation terms
-**Plans**: 2 plans
-**UI hint**: yes
+<details>
+<summary>✅ v13.12 Pre-Public Security & Audit Hardening (Phases 263-270) — SHIPPED 2026-05-07</summary>
 
-Plans:
-- [x] 258-01-PLAN.md — Visual fixes + EN copy rewrite (POLISH-01..05, POLISH-07, COPY-01) — completed 2026-05-07 (commit a3098856)
-- [x] 258-02-PLAN.md — Stable per-stop React keys with UUID hydration (POLISH-06) — completed 2026-05-07 (commit cc5a7138)
+- [x] Phase 263: security-and-oss-audit-dispatch — completed 2026-05-07
+- [x] Phase 264: infrastructure-audit-dispatch — completed 2026-05-07
+- [x] Phase 265: api-and-docs-audit-dispatch — completed 2026-05-07
+- [x] Phase 266: code-perf-i18n-audit-dispatch — completed 2026-05-07
+- [x] Phase 267: findings-triage-and-classification — completed 2026-05-07
+- [x] Phase 268: security-and-infra-remediation — completed 2026-05-07
+- [x] Phase 269: api-docs-code-perf-i18n-remediation — completed 2026-05-07
+- [x] Phase 270: re-audit-verification-and-public-readiness — completed 2026-05-07
 
-### Phase 259: i18n Translations
-**Goal**: The `lineGradient` i18n block in es, fr, and de locale files contains real translations reviewed for consistency with sibling cartographic terms — no English fallbacks remain in the 16-key block
-**Depends on**: Phase 258
-**Requirements**: COPY-02
-**Success Criteria** (what must be TRUE):
-  1. `es/builder.json`, `fr/builder.json`, and `de/builder.json` each contain a fully-translated `lineGradient` block with no English-string values
-  2. Translated terms for "Line color", "Add stop", "Remove stop", "Gradient", "Position", "Apply", "Cancel", and related keys are consistent with how adjacent cartographic controls are worded in the same locale files
+32/32 v13.12 requirements satisfied. Coordinated 17-audit sweep (sec/dep/security-review/env/oc/docker/db/migration/perf/api-contract/doc/admin/demo/i18n/backend/frontend/test) → 193 findings (2C / 37H / 83M / 71L). All 39 Critical+High remediated inline; 154 M+L deferred to v13.13. ~40 source-file commits. Audit: composite grade A−, recommendation **CONDITIONAL-GO**. Full details: [milestones/v13.12-ROADMAP.md](milestones/v13.12-ROADMAP.md).
 
-### Phase 260: Builder Quality Sweep
-**Goal**: The map builder surface has a visible unsaved-changes indicator, consistent `cursor-pointer` across all interactive controls, a clean runtime console, and zoom controls that appear in the same position on public and builder/private map views
-**Depends on**: Phase 258
-**Requirements**: QUALITY-01, QUALITY-02, QUALITY-03, QUALITY-04
-**Success Criteria** (what must be TRUE):
-  1. The builder Save button shows an orange dot (or equivalent) when there are uncommitted edits, and the indicator clears after a successful save
-  2. Every interactive element across `LayerStyleEditor`, `LineControls`, `LineGradientControls`, `RasterControls`, `LayerItem`, and builder dialog buttons uses `cursor-pointer` — no builder control leaves the cursor as `default`
-  3. Loading, editing, saving, and interacting with the builder produces no `console.warn` or `console.error` output in the browser runtime, or each remaining warning has a one-line rationale comment
-  4. The zoom control widget occupies the same screen position on public/embed map views as on the builder/private map — switching surfaces does not disorient the user
-**Plans**: TBD
-**UI hint**: yes
+</details>
 
-### Phase 261: Layer Visibility Debug & Audit
-**Goal**: The Label-Layer toggle works as expected — the regression is reproduced, root-caused, fixed, and locked behind a regression test; a broader audit of layer order and visibility confirms no sibling regressions exist
-**Depends on**: Phase 258
-**Requirements**: LAYER-01, LAYER-02
-**Success Criteria** (what must be TRUE):
-  1. Clicking the label-layer visibility toggle in the builder turns label visibility on and off — the toggle state matches the rendered map
-  2. A regression test exists that fails without the fix and passes after it, locking the Label-Layer toggle behavior
-  3. Per-layer visibility toggle, drag-and-drop reordering, label-companion layers, hillshade companions, and multi-layer datasets have been exercised end-to-end; any regressions discovered during the audit are fixed before this phase closes
-**Plans**: TBD
+<details>
+<summary>✅ v13.13 Backlog Sweep (Phases 271-279) — SHIPPED 2026-05-07</summary>
 
-### Phase 262: Milestone Closeout
-**Goal**: BUILDER-POLISH-01 is retired from the deferred-item ledger — MEMORY.md reflects shipped state and the Phase 256 todo file is closed
-**Depends on**: Phase 258, Phase 259, Phase 260, Phase 261
-**Requirements**: CLOSE-01, CLOSE-02
-**Success Criteria** (what must be TRUE):
-  1. The MEMORY.md milestone status entry for v13.9 (or v13.10) notes that BUILDER-POLISH-01 shipped in v13.11, with a phase reference — no entry reads "deferred as polish backlog"
-  2. `2026-05-07-phase-256-ui-audit-blocker-backlog-gradient-preview-swatch.md` is moved to `.planning/todos/done/` (or deleted) with a one-line completion record citing the v13.11 phase that shipped each finding
-**Plans**: 1 plan
+- [x] Phase 271: db-migration-hardening (DBM-01..09) — completed 2026-05-07
+- [x] Phase 272: docker-infrastructure (INF-01..16) — completed 2026-05-07
+- [x] Phase 273: security-defense-in-depth (SEC-01..17) — completed 2026-05-07
+- [x] Phase 274: performance-polish (PERF-01..11) — completed 2026-05-07
+- [x] Phase 275: api-contract-docs-refresh (API-01..14) — completed 2026-05-07
+- [x] Phase 276: backend-frontend-code-quality (CODE-01..14) — completed 2026-05-07
+- [x] Phase 277: i18n-env-standardization (CONF-01..15) — completed 2026-05-07
+- [x] Phase 278: test-health-coverage (TEST-01..10) — completed 2026-05-07
+- [x] Phase 279: admin-polish-closeout (ADMIN-01..13, CLOSE-01..05) — completed 2026-05-07
 
-Plans:
-- [ ] 262-01: Update MEMORY.md and close BUILDER-POLISH-01 todo file
+130/130 v13.13 requirements satisfied across 51 plans. Cleared the 154 deferred M+L findings from v13.12. ~106 source-file commits. Audit: composite grade A, recommendation **GO**. v1.1.0 tagged 2026-05-07 (commit 1bfc7b99). Full details: [milestones/v13.13-MILESTONE-AUDIT.md](milestones/v13.13-MILESTONE-AUDIT.md).
 
-### Phase 275: API Contract & Docs Refresh (v13.13)
-**Goal**: OpenAPI schema is accurate and typed, CHANGELOG is populated for the v1.1.0 release, README reflects current capabilities and build times, and demo/compose configuration is consistent
-**Depends on**: Nothing (independent docs/contract refresh)
-**Requirements**: API-01, API-02, API-03, API-04, API-05, API-06, API-07, API-08, API-09, API-10, API-11, API-12, API-13, API-14
-**Success Criteria** (what must be TRUE):
-  1. POST /maps/import accepts a typed Pydantic body — OpenAPI no longer emits `additionalProperties: true` (API-01)
-  2. CHANGELOG.md `[Unreleased]` lists all 10 routes added since v1.0.0 + the PUT thumbnail breaking change is preserved (API-02)
-  3. /maps namespace + /ingest/manifest/apply slash convention is documented in `docs/api-style.md` (API-03)
-  4. README.md cites correct dataset count, working API Reference link, public-cog discoverability, cold-build time, and widened Python badge (API-04, API-09, API-13)
-  5. docker-compose.yml port fallbacks documented; titiler/valkey/uv image pins bumped (API-05, API-08)
-  6. frontend/README.md replaces Vite boilerplate with GeoLens orientation (API-06)
-  7. GET /health is tagged `Health` in OpenAPI; status code conventions documented (API-07)
-  8. docker-compose.enterprise.yml status reconciled in oc-audit methodology (API-10)
-  9. docs/edition-deactivation.md documents pg_dump pre-step before alembic downgrade (API-11)
-  10. docs/oc-audit-methodology.md documents dual-path audit output convention (API-12)
-  11. .env.demo references getgeolens.com (not .io); README has JWT mint one-liner; em-dash punctuation consistent (API-14)
-**Plans**: 8 plans
-
-Plans:
-- [ ] 275-01-PLAN.md — POST /maps/import typed body (API-01)
-- [ ] 275-02-PLAN.md — API style guide + GET /health tag (API-03, API-07)
-- [ ] 275-03-PLAN.md — CHANGELOG [Unreleased] populated with 10 new routes (API-02)
-- [ ] 275-04-PLAN.md — README accuracy + CODE_OF_CONDUCT pledge + UTF-8 READMEs (API-04, API-09, API-13)
-- [ ] 275-05-PLAN.md — frontend/README.md GeoLens orientation (API-06)
-- [ ] 275-06-PLAN.md — Compose port comments + image pins + oc-audit methodology reference (API-05, API-08, API-10)
-- [ ] 275-07-PLAN.md — Demo cluster Celery→Procrastinate, domain rename, JWT one-liner, em-dash (API-14)
-- [ ] 275-08-PLAN.md — Edition deactivation pg_dump pre-step + oc-audit-methodology.md (API-11, API-12)
-
-### Phase 276: Backend & Frontend Code Quality (v13.13)
-**Goal**: Architecture guard covers large modules, `chat_service.py` is decomposed, frontend stores are co-located in `src/stores/`, and the DatasetPage bundle is below 200 KB. Playwright MCP UAT confirms no visual regressions after store moves.
-**Depends on**: Nothing (independent code-quality sweep)
-**Requirements**: CODE-01, CODE-02, CODE-03, CODE-04, CODE-05, CODE-06, CODE-07, CODE-08, CODE-09, CODE-10, CODE-11, CODE-12, CODE-13, CODE-14
-**Success Criteria** (what must be TRUE):
-  1. An architecture-guard test fails when any backend router exceeds 1500 LOC outside an explicit allowlist; passes today (CODE-01)
-  2. `processing/ai/chat_service.py` is a < 400-LOC facade re-exporting from 4-5 cohesive sub-modules each < 400 LOC; all AI chat tests pass without modification (CODE-02)
-  3. `BrandingExtension`, `AuthExtension`, `AuditExtension` Protocol seams gain OSS-side overlay-dispatch tests (CODE-03)
-  4. Auth zustand persist store declares `version: 1` + a `migrate` scaffold (CODE-04)
-  5. `drawing-store`, `map-widget-store`, `search-store` live in `frontend/src/stores/`; all consumer imports updated; Playwright MCP UAT confirms map builder + dataset map drawing + search behavior (CODE-05)
-  6. `DatasetPage` route bundle < 200 KB raw via lazy-imports for `ReuploadDialog`, `VrtCreateDialog`, and (if needed) `DetailPanel` (CODE-06)
-  7. No `.DS_Store` files in working tree (CODE-07)
-  8. Every backend `except Exception:` site has `# broad: <reason>` justification or is tightened; an architecture-guard test enforces this going forward (CODE-08)
-  9. `maps/service_diff.py` BOUND-01 carve-out has a 1-line internal-helper-only docstring comment (CODE-09)
-  10. `LineGradientControls.tsx:220` redundant `eslint-disable-next-line` removed (or documented as required by eslint config) (CODE-10)
-  11. `frontend/src/lib/logger.ts` exists; error-boundary + mutation-hook `console.error` calls route through it (CODE-11)
-  12. `MapBuilderPage`'s hand-rolled-string-key `useEffect` has a Phase 276 rationale block comment (or has been refactored to useMemo with UAT verification) (CODE-12)
-  13. Stale `TODO(Phase 256)` comments in line-gradient tests are resolved (cast removed) or rewritten with non-stale rationale (CODE-13)
-  14. `Identity` forward-reference quoting convention in `protocols.py` is documented in a comment (CODE-14)
-**Plans**: 7 plans
-
-Plans:
-- [x] 276-01-PLAN.md — Backend architecture LOC cap + service_diff comment + Identity quoting (CODE-01, CODE-09, CODE-14) ✅ 2026-05-07
-- [ ] 276-02-PLAN.md — chat_service.py Phase-226 facade decomposition (CODE-02)
-- [x] 276-03-PLAN.md — Branding/Auth/Audit Extension overlay-dispatch tests (CODE-03) ✅ 2026-05-07
-- [x] 276-04-PLAN.md — Backend broad-except annotation sweep + architecture-guard (CODE-08) ✅ 2026-05-07
-- [x] 276-05-PLAN.md — Auth-store version+migrate + 3 cross-feature store moves + Playwright UAT (CODE-04, CODE-05)
-- [ ] 276-06-PLAN.md — DatasetPage bundle < 200 KB via lazy imports (CODE-06)
-- [ ] 276-07-PLAN.md — Frontend cleanups: DS_Store, eslint-disable, logger.ts, useEffect, line-gradient TODOs (CODE-07, CODE-10, CODE-11, CODE-12, CODE-13)
-
-### Phase 277: i18n & Env Standardization (v13.13)
-**Goal**: All deferred builder i18n blocks are translated into es/fr/de; env var naming is consistent across Settings model, compose, and `.env.example`; legacy aliases are deprecated or removed.
-**Depends on**: Nothing (independent i18n + env-config sweep)
-**Requirements**: CONF-01, CONF-02, CONF-03, CONF-04, CONF-05, CONF-06, CONF-07, CONF-08, CONF-09, CONF-10, CONF-11, CONF-12, CONF-13, CONF-14, CONF-15
-**Success Criteria** (what must be TRUE):
-  1. `PUBLIC_BASE_URL` legacy alias either removed or surfacing a startup deprecation log; `PUBLIC_API_URL` / `PUBLIC_APP_URL` doc defaults align with `_DEFAULT_*` derivation logic in `core/public_urls.py` (CONF-01, CONF-15)
-  2. `DATABASE_POOL_PRE_PING` default value is consistent across compose / Settings / `.env.example` — pre-ping is on by default (CONF-02)
-  3. `WORKER_SHUTDOWN_TIMEOUT` and `ENV_ONLY_CONFIG` are read via the Pydantic Settings model — no remaining `os.environ.get()` for either var in production code (CONF-03, CONF-04)
-  4. `.env.example` documents `GEOLENS_BASE_URL` (Tooling / load tests block), `API_PROXY_TARGET` (Frontend dev-server proxy block), and the MinIO compose-default convention (CONF-05, CONF-12, CONF-13)
-  5. `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` use `${VAR:-default}` in compose so cloud-dev profile works without `.env` (CONF-12)
-  6. `VITE_API_PROXY_TARGET` legacy fallback is removed from `frontend/vite.config.ts` (CONF-14)
-  7. `IconPicker` upload aria-label is sourced from `t()` via a typed `uploadAriaLabel` prop (CONF-06)
-  8. `style.zoomExpression` (11 keys), `style.symbol` (10 keys including new `uploadIcon`), `style.raster` (16 keys), `style.hillshade` (8 keys) blocks are fully translated to es/fr/de — 45 keys × 3 langs = 135 strings (CONF-07, CONF-08, CONF-09)
-  9. Admin/SAML i18n leftover keys with project-meaningful (non-proper-noun) values are translated in es/fr/de; proper-noun/acronym retentions documented (CONF-10)
-  10. Dataset `OverviewTab` `provenanceFeatures` / `provenanceUpload` / `provenanceTitle` keys move from inline `defaultValue` fallbacks into `dataset.json` with locale-appropriate translations (CONF-11)
-**Plans**: 8 plans
-
-Plans:
-- [ ] 277-01-PLAN.md — Backend Settings expansion + PUBLIC_BASE_URL deprecation log + .env.example PUBLIC_* alignment (CONF-01, CONF-03, CONF-04, CONF-15)
-- [ ] 277-02-PLAN.md — Compose DATABASE_POOL_PRE_PING flip + MinIO defaults + .env.example doc blocks for GEOLENS_BASE_URL / API_PROXY_TARGET / MinIO (CONF-02, CONF-05, CONF-12, CONF-13)
-- [x] 277-03-PLAN.md — vite.config.ts VITE_API_PROXY_TARGET legacy removal (CONF-14)
-- [x] 277-04-PLAN.md — IconPicker uploadAriaLabel prop + EN translation key (CONF-06)
-- [x] 277-05-PLAN.md — i18n: style.zoomExpression block × 3 langs (CONF-07)
-- [ ] 277-06-PLAN.md — i18n: style.symbol block × 3 langs (CONF-08)
-- [ ] 277-07-PLAN.md — i18n: style.raster + style.hillshade blocks × 3 langs (CONF-09)
-- [x] 277-08-PLAN.md — Dataset overview.provenance* keys + admin.json leftover translations (CONF-10, CONF-11)
-
-### Phase 278: Test Health & Coverage (v13.13)
-**Goal**: Backend coverage threshold raises to 60%, frontend thresholds ratchet up, flaky `waitForTimeout` calls are replaced with polling assertions, and pending test TODOs are resolved.
-**Depends on**: Nothing (independent test-quality sweep)
-**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04, TEST-05, TEST-06, TEST-07, TEST-08, TEST-09, TEST-10
-**Success Criteria** (what must be TRUE):
-  1. Backend `pytest --fail-under` raises 58.5 → 60.0; rationale documented in `pyproject.toml` (TEST-01)
-  2. Frontend coverage thresholds ratchet to actual + 2 points per dimension (TEST-02)
-  3. `LayerPanel.test.tsx` and `MapTitleBar.test.tsx` exist as new co-located tests (TEST-03)
-  4. 4 raw `page.waitForTimeout` calls in `e2e/builder.spec.ts` are replaced with polling assertions (TEST-04)
-  5. Raw `page.waitForTimeout` (incl. 12s timeout) in post-impl-validation + record-detail-ux-audit specs are replaced with polling assertions (TEST-05)
-  6. One backend phase's mock-call-count / `assert_called_*` assertions are sample-audited and refactored to behavior assertions (TEST-06)
-  7. 8 `it.todo` placeholders in `SourcesTab.test.tsx:128-135` are implemented OR moved to a tracked backlog file (TEST-07)
-  8. `VrtCreatorForm.test.tsx:104` raw `setTimeout` is replaced with `waitFor()` (TEST-08)
-  9. 35 inline `pytest.skip("reason")` calls migrate to `@pytest.mark.skip(reason=...)` decorator form (TEST-09)
-  10. H-33 `dataset-detail-spec` L144 follow-up resolved — fixture stabilized OR test deleted with rationale; pending todo `2026-05-07-h33-dataset-detail-spec-l144-followup.md` is closed (TEST-10)
-**Plans**: 6 plans
-
-Plans:
-- [x] 278-01-PLAN.md — Coverage threshold ratchets: backend pyproject + frontend vitest config (TEST-01, TEST-02)
-- [x] 278-02-PLAN.md — New component tests: LayerPanel + MapTitleBar (TEST-03)
-- [x] 278-03-PLAN.md — E2E polling refactor: builder + post-impl + record-detail specs (TEST-04, TEST-05)
-- [x] 278-04-PLAN.md — Frontend test cleanup: SourcesTab it.todo migration + VrtCreatorForm setTimeout → waitFor (TEST-07, TEST-08)
-- [x] 278-05-PLAN.md — Backend test hygiene: mock-assertion sample-audit + pytest.skip → decorator migration (TEST-06, TEST-09)
-- [x] 278-06-PLAN.md — H-33 L144 fixture stabilization or deletion + pending todo close (TEST-10)
-
-## Progress
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 258. Line-Gradient UI Closeout | 2/2 | Complete | 2026-05-07 |
-| 259. i18n Translations | 0/TBD | Not started | - |
-| 260. Builder Quality Sweep | 0/TBD | Not started | - |
-| 261. Layer Visibility Debug & Audit | 0/TBD | Not started | - |
-| 262. Milestone Closeout | 0/1 | Not started | - |
-| 276. Backend & Frontend Code Quality (v13.13) | 4/7 | In Progress|  |
-| 277. i18n & Env Standardization (v13.13) | 4/8 | In Progress|  |
-| 278. Test Health & Coverage (v13.13) | 6/6 | Complete | 2026-05-07 |
-| 279. Admin Polish & Closeout (v13.13) | 4/4 | Complete   | 2026-05-07 |
+</details>
 
 ## Backlog
 
