@@ -11,6 +11,15 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-08
+
+> v13.14 Smoke Stabilization milestone — bug fixes for 4 smoke-test
+> regressions surfaced by a fresh local env reset + thematic-demo seed,
+> plus a follow-up post-implementation audit that closed 7 cosmetic
+> findings and one bug-class (typed `Capability` literal union for the
+> frontend permissions hook). Brand assets shipped via the v0.1.0 sync
+> are also rolled into this release.
+
 ### Added
 
 - **Browser tab favicon** switched to the simplified favicon variant from
@@ -41,14 +50,16 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Fixed
 
-- **`POST /api/maps/{id}/layers/`** no longer returns a 307 redirect that
-  leaked the in-container `http://api:8000/...` hostname through Vite's
-  dev proxy, which broke programmatic clients (Node `fetch`,
-  `openapi-python-client`-generated SDKs) and 17 of 18 builder smoke
-  tests. The route is now declared on both slash variants directly via a
-  dual-decorator alias (`include_in_schema=False` on the trailing-slash
-  form so OpenAPI canonicalizes on the no-slash sub-collection convention
-  per `docs/api-style.md`). v13.14 Phase 280.
+- **`POST /api/maps/{id}/layers/` and `PATCH /api/maps/{id}/layers/`** no
+  longer return a 307 redirect that leaked the in-container
+  `http://api:8000/...` hostname through Vite's dev proxy, which broke
+  programmatic clients (Node `fetch`, `openapi-python-client`-generated
+  SDKs) and 17 of 18 builder smoke tests. Both routes are now declared
+  on both slash variants directly via a dual-decorator alias
+  (`include_in_schema=False` on the trailing-slash form so OpenAPI
+  canonicalizes on the no-slash sub-collection convention per
+  `docs/api-style.md`). v13.14 Phase 280 (POST) + v13.14 followup
+  (PATCH).
 - **Admin Audit Logs page-guard** at `AdminAuditPage.tsx:29` was checking
   the capability key `view_audit`, which is not part of the canonical
   `ALL_CAPABILITIES` registry — admins were always redirected away from
@@ -70,6 +81,27 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   (the underlying text node is `"Features"` — Tailwind's `uppercase`
   class is presentation-only and does not change Playwright's matched
   text). v13.14 Phase 282.
+- **`e2e/builder.spec.ts:343` sidebar-resize flake** — the test asserted
+  `localStorage` value equals `sidebar.offsetWidth` after drag, but
+  `expect.poll(offsetWidth)` resolved at the first onMove step (mid-drag)
+  while `localStorage` was only written at pointerup, so the two values
+  diverged by ~20 px on every run. Replaced with `expect.poll` against
+  the persisted `localStorage` value directly so the poll waits for the
+  pointerup commit; reload assertion now compares `offsetWidth` to the
+  persisted value. Latent flake hidden by Phase 280's POST 307 cascade
+  for ~6 weeks; surfaced once the cascade cleared. v13.14 followup.
+
+### Internal
+
+- **Typed `Capability` literal union** for the frontend `usePermissions().can()`
+  hook at `frontend/src/lib/capabilities.ts`, mirroring the backend's
+  canonical `ALL_CAPABILITIES` list at `backend/app/core/permissions.py`.
+  Closes the bug class that allowed Phase 281's `view_audit` typo to
+  silently return `false` for everyone (including admins) — typos on
+  unregistered keys now fail at TypeScript compile time. New CI guard at
+  `backend/tests/test_capability_drift.py` reads both sources and asserts
+  byte-for-byte alignment, so future drift fails fast. v13.14 post-impl
+  audit P2.
 
 ## [1.1.0] - 2026-05-07
 
