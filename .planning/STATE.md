@@ -72,6 +72,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 | 260508-bv1 | Sync v0.1.0 branding | 2026-05-08 | 659b9e61 | Needs Review | [260508-bv1-sync-v0-1-0-branding](./quick/260508-bv1-sync-v0-1-0-branding/) |
 | 260508-d6i | Reset local env + thematic demo seed + full smoke (6 failures surfaced) | 2026-05-08 | 7bac058b | Needs Review | [260508-d6i-reset-local-environment-and-run-smoke-ch](./quick/260508-d6i-reset-local-environment-and-run-smoke-ch/) |
 | 260508-lkz | Rebuild demo themes + fixtures with 5 visually arresting 3D + Map Builder showcase maps (code-only; seeder run + Playwright deferred) | 2026-05-08 | cb474308 | Verified | [260508-lkz-rebuild-geolens-demo-themes-and-fixtures](./quick/260508-lkz-rebuild-geolens-demo-themes-and-fixtures/) |
+| 260508-nl9 | Live validation of 260508-lkz demo fixtures (seeder + Playwright MCP) — surfaced 5 bugs, fixed 2 inline (gdal-bin in seeder image; NIFC retry), 2 documented as follow-ups (worker MissingGreenlet on raster + clip_to_mercator_bounds; api /tmp tmpfs cap < UPLOAD_MAX_SIZE_MB) | 2026-05-08 |  | Incomplete | [260508-nl9-run-seeder-and-playwright-mcp-smoke-chec](./quick/260508-nl9-run-seeder-and-playwright-mcp-smoke-chec/) |
 
 ## Deferred Items
 

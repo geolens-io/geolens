@@ -1,0 +1,30 @@
+# Local override for 260508-nl9 validation task.
+# Stacks on docker-compose.demo.yml to handle the new (260508-lkz) demo
+# fixtures whose Grand Canyon DEM is ~716 MB on disk:
+#   - UPLOAD_MAX_SIZE_MB=1000: demo overlay's 300 MB is too small.
+#   - UVICORN_WORKERS=1 + memory=2G: more headroom for the multipart upload.
+#   - tmpfs /tmp=2G: SpooledTemporaryFile rolls over to /tmp once past
+#     spool_max_size (1 MiB); the demo's 512 MB tmpfs/tmp fills up before the
+#     full DEM body has been read, surfacing as `400 "There was an error
+#     parsing the body"` from FastAPI's generic body-parse catch.
+# Lives in the quick task dir for the duration of the validation run.
+services:
+  api:
+    environment:
+      UPLOAD_MAX_SIZE_MB: "1000"
+      UVICORN_WORKERS: "1"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    tmpfs:
+      - /tmp:size=2g,mode=1777
+      - /home/appuser:size=128m,uid=1001,gid=1001
+      - /var/run:size=8m
+  worker:
+    environment:
+      UPLOAD_MAX_SIZE_MB: "1000"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
