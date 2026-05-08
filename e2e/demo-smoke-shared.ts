@@ -3,7 +3,7 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 const DEMO_MAP_NAMES = [
   'Grand Canyon: Land in 3D',
   'NYC Zoning: Manhattan in 3D',
-  'Population Density: 4-State Bars',
+  'Density Bars: Los Angeles',
   'Global Earthquakes M5+ (Last 5 Years)',
   'Western US Wildfires 2020-2024',
 ];
