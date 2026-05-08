@@ -53,6 +53,28 @@ cleanup() {
 trap cleanup SIGTERM SIGINT EXIT
 
 # ---------------------------------------------------------------------------
+# Pre-fetch external data sources (USGS DEM, NYC PLUTO, Census, NIFC).
+# fetch_external.py is idempotent — skips files already present with non-zero
+# size. Failure here aborts the run before the orchestrator tries to ingest
+# missing files.
+# ---------------------------------------------------------------------------
+echo "Pre-fetching external demo data..."
+python3 /scripts/demo/fetch_external.py || {
+    echo "ERROR: fetch_external.py failed" >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Bridge host->container canonical path. fetch_external.py writes to
+# /scripts/demo/raw/external/ (the /scripts/ mount). The orchestrator's
+# theme local_paths point to /data/demo/external/. Copy across so the
+# orchestrator's Path(entry["local_path"]).exists() check at
+# seed-thematic-demo.py:215/251 passes.
+# ---------------------------------------------------------------------------
+mkdir -p /data/demo/external
+cp -rL /scripts/demo/raw/external/* /data/demo/external/ 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
 # Wait for API to be ready
 # ---------------------------------------------------------------------------
 echo "Waiting for API..."
