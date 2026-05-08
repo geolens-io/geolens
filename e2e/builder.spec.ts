@@ -377,27 +377,33 @@ test.describe.serial('Map Builder', () => {
     await page.mouse.move(hitX! + 100, startY, { steps: 15 });
     await page.mouse.up();
 
-    // Poll until the sidebar's offsetWidth reflects the drag — replaces a fixed
-    // 300ms wait. Auto-retries until layout settles or the timeout fires.
+    // Poll the persisted localStorage value directly. The previous form polled
+    // sidebar.offsetWidth, which races: the poll resolves at the first onMove
+    // step (when offsetWidth crosses widthBefore), but localStorage is only
+    // written at pointerup with the final drag value — so the two diverge.
+    // Polling localStorage means we wait for the pointerup commit, after which
+    // both values are stable.
     await expect
-      .poll(async () => await sidebar.evaluate((el) => el.offsetWidth), {
+      .poll(async () => {
+        const v = await page.evaluate(() => localStorage.getItem('geolens-builder-sidebar-width'));
+        return v ? Number(v) : null;
+      }, {
         timeout: 3_000,
-        message: 'sidebar should resize after drag',
+        message: 'drag should persist a wider sidebar to localStorage',
       })
       .toBeGreaterThan(widthBefore);
 
-    const widthAfter = await sidebar.evaluate((el) => el.offsetWidth);
-    expect(widthAfter).toBeGreaterThan(widthBefore);
-
-    // Verify width persisted to localStorage
     const stored = await page.evaluate(() => localStorage.getItem('geolens-builder-sidebar-width'));
-    expect(stored).toBe(String(widthAfter));
+    expect(stored).not.toBeNull();
+    const storedNum = Number(stored);
+    expect(storedNum).toBeGreaterThanOrEqual(200); // SIDEBAR_MIN
+    expect(storedNum).toBeLessThanOrEqual(600); // SIDEBAR_MAX
 
-    // Reload and verify persistence
+    // Reload and verify the persisted value drives the rendered width.
     await page.reload();
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
     const widthAfterReload = await sidebar.evaluate((el) => el.offsetWidth);
-    expect(widthAfterReload).toBe(widthAfter);
+    expect(widthAfterReload).toBe(storedNum);
   });
 
   test('sidebar collapsed state persists across reload', async ({ page }) => {
