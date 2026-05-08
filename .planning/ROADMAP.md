@@ -54,8 +54,53 @@
 - ✅ **v13.11 Map Builder Polish & Quality Sweep** — Phases 258-262 (shipped 2026-05-07) — see [archive](milestones/v13.11-ROADMAP.md)
 - ✅ **v13.12 Pre-Public Security & Audit Hardening** — Phases 263-270 (shipped 2026-05-07) — see [archive](milestones/v13.12-ROADMAP.md)
 - ✅ **v13.13 Backlog Sweep** — Phases 271-279 (shipped 2026-05-07) — see [archive](milestones/v13.13-MILESTONE-AUDIT.md)
+- 🚧 **v13.14 Smoke Stabilization** — Phases 280-282 (in progress)
 
 ## Phases
+
+### 🚧 v13.14 Smoke Stabilization (In Progress)
+
+**Milestone Goal:** Address the 4 smoke-check failures surfaced by quick task `260508-d6i` (full E2E smoke run after fresh stack reset + thematic-demo seed). Ship a fix for the HIGH-priority `POST /api/maps/{id}/layers/` trailing-slash redirect product bug, root-cause and resolve the admin Audit-Logs + collections Add-button failures, and tighten the dataset-detail strict-mode selector. Re-run smoke after each phase to confirm no regressions and `npm run e2e:smoke` returns green at milestone close.
+
+**Source:** `.planning/quick/260508-d6i-reset-local-environment-and-run-smoke-ch/260508-d6i-SUMMARY.md` (smoke run results) + `.planning/quick/260508-d6i-reset-local-environment-and-run-smoke-ch/260508-d6i-VERIFICATION.md` (HIGH/MEDIUM/LOW triage).
+
+- [x] **Phase 280: Trailing-Slash Redirect Fix on `POST /api/maps/{id}/layers/`** — HIGH-priority server-side product bug. **Shipped 2026-05-08** (1 plan, 2 commits: `a0eea2d6` + `e7d9168b`). Dual-decorator alias with `include_in_schema=False` lands both `/maps/{id}/layers/` and `/maps/{id}/layers` directly on `add_layer_endpoint` — no 307. `TestMapLayersTrailingSlash` regression class added. Builder smoke went from 1 passed / 2 failed / 15 cascaded did-not-runs to 15 passed / 1 failed / 2 did-not-runs (the new failure is a pre-existing latent flake on `builder.spec.ts:343` sidebar drag-handle test that the cascade had been hiding — out-of-scope). 4 baseline core failures (admin Audit Logs, collections Add, dataset-detail FEATURES) untouched and routed to Phase 281/282.
+- [ ] **Phase 281: Admin Audit-Logs Heading + Collections Add-Button Investigation** — MEDIUM-priority. Two failures with unknown root cause: `admin.spec.ts:67`/`:181` cannot find the `Audit Logs` heading after navigation (no `/admin/audit-logs` request observed in api logs — likely client-side route or rename), and `collections.spec.ts:91` cannot find the `Add` button on the collections detail page. Use Playwright MCP to reproduce both failures interactively and determine whether each is a real UI regression or test drift. Fix the root cause (either patch the React component or update the spec selector — whichever is correct). Re-run full smoke at end of phase.
+- [ ] **Phase 282: Dataset-Detail Selector Tightening** — LOW/MEDIUM-priority test brittleness. `dataset-detail.spec.ts:49` uses `getByText('FEATURES')` which strict-mode-fails against the richer thematic-demo catalog (substring matches "75 features", "248 features", etc.). Fix: change to `getByText('FEATURES', { exact: true })` or scope the locator to the detail panel root. Verify via re-run, then full smoke at milestone close.
+
+## Phase Details
+
+### Phase 280: Trailing-Slash Redirect Fix on `POST /api/maps/{id}/layers/`
+**Goal:** `POST /api/maps/{id}/layers/` returns 200/201 (not 307) and Node fetch / curl can complete the request without falling back to the in-container `http://api:8000/...` hostname; 17 of 18 builder smoke tests recover; full `npm run e2e:smoke` regression-free.
+**Depends on:** Nothing (first phase of this milestone)
+**Requirements:** SMOKE-280-01 (route accepts both slash variants), SMOKE-280-02 (no 307 redirect to in-container hostname), SMOKE-280-03 (`e2e:smoke:builder` passes)
+**Success Criteria** (what must be TRUE):
+  1. `curl -i -X POST http://localhost:8080/api/maps/{id}/layers/ ...` returns 200/201 with no `Location:` header (no redirect).
+  2. The same request from Node fetch (Playwright `request` context) succeeds — no `getaddrinfo ENOTFOUND api` error.
+  3. `npm run e2e:smoke:builder` passes both `beforeAll` setup tests in `builder.spec.ts` and `builder-styling.spec.ts`.
+  4. `npm run e2e:smoke` (full chain) returns either pass or only failures unrelated to the layers POST route.
+  5. The fix is documented in CLAUDE.md / MEMORY.md trailing-slash known-issue note (entry updated to "fixed in v13.14 Phase 280" or removed).
+
+### Phase 281: Admin Audit-Logs Heading + Collections Add-Button Investigation
+**Goal:** Both `admin.spec.ts:67`/`:181` and `collections.spec.ts:91` failures have a determined root cause, the appropriate fix is applied (component or spec, whichever is correct), and full smoke re-run is regression-free.
+**Depends on:** Phase 280
+**Requirements:** SMOKE-281-01 (admin Audit Logs heading visible after navigation OR spec updated to match new selector), SMOKE-281-02 (collections Add button visible OR spec/component reconciled), SMOKE-281-03 (full smoke green for both specs)
+**Success Criteria** (what must be TRUE):
+  1. Playwright MCP investigation produces a written one-paragraph root-cause for each failure (regression vs. drift, with evidence).
+  2. The fix targets only what's broken — if a component regression, the React component is patched; if test drift, the spec selector is updated.
+  3. `npm run e2e:smoke:core` passes `admin.spec.ts:67`, `admin.spec.ts:181`, and `collections.spec.ts:91` (and the cascaded `collections.spec.ts:115`/`:130` skips clear).
+  4. `npm run e2e:smoke` (full chain) shows no regressions outside the targeted specs.
+**UI hint:** yes (frontend investigation likely)
+
+### Phase 282: Dataset-Detail Selector Tightening + Milestone Close
+**Goal:** `dataset-detail.spec.ts:49` `getByText('FEATURES')` no longer matches multiple elements against a richly-seeded catalog, the spec passes, full smoke is green end-to-end, and the milestone is closed (MEMORY.md updated, STATE.md last_activity updated).
+**Depends on:** Phase 280, Phase 281
+**Requirements:** SMOKE-282-01 (selector tightened to exact match or panel-scoped), SMOKE-282-02 (`npm run e2e:smoke` returns green), SMOKE-282-03 (MEMORY.md v13.14 entry written)
+**Success Criteria** (what must be TRUE):
+  1. `dataset-detail.spec.ts:49`'s `getByText('FEATURES')` is replaced with `getByText('FEATURES', { exact: true })` OR scoped to the detail-panel root via a parent locator.
+  2. Re-running just this spec against the seeded thematic-demo catalog passes.
+  3. `npm run e2e:smoke` (full chain — core + builder + fixtures) returns 0 failures.
+  4. MEMORY.md gets a v13.14 milestone entry summarizing what shipped (3 phases, ~3-5 source-file commits).
 
 <details>
 <summary>✅ v13.9 Map Builder Closeout (Phases 252-256) — SHIPPED 2026-05-06</summary>
