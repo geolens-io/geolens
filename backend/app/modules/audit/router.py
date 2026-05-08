@@ -10,9 +10,11 @@
 # unless you also add a hard limit upstream.
 #
 # # Permissions
-# All endpoints require `view_audit` (admin role only). The audit log contains
-# resource IDs and user IDs that would otherwise be hidden by RBAC, so it
-# must never be exposed at lower roles.
+# All endpoints require `manage_settings` (admin role only). The audit log
+# contains resource IDs and user IDs that would otherwise be hidden by RBAC,
+# so it must never be exposed at lower roles. Note: an earlier draft named
+# `view_audit`, but that key is not in the canonical `ALL_CAPABILITIES`
+# registry — see backend/app/core/permissions.py.
 """
 
 import csv
