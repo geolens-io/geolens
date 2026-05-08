@@ -264,6 +264,15 @@ RUN find "$DATA_DIR" -maxdepth 1 \( -name "*.geojson" -o -name "*.csv" \) -exec 
 # ============================================================================
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
+# gdal-bin provides gdal_translate and ogr2ogr, which fetch_external.py
+# (Phase 260508-lkz) shells out to at runtime for the Grand Canyon DEM
+# clip + reproject and the Census tracts shapefile→GeoJSON conversion.
+# Without these binaries, fetch_external.py raises FileNotFoundError and
+# the seeder aborts before invoking the orchestrator.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gdal-bin \
+    && rm -rf /var/lib/apt/lists/*
+
 # Use uv pip (already available in the base image) instead of installing
 # python3-pip via apt. Saves ~40 MB and one apt layer.
 RUN uv pip install --system --no-cache httpx
