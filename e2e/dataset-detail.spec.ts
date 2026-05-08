@@ -87,7 +87,12 @@ test.describe('Dataset Detail', () => {
 
     // Verify dataset detail content renders with metadata tabs
     await expect(page.locator('[role="tab"]').filter({ hasText: 'Overview' })).toBeVisible();
-    await expect(page.getByText('FEATURES')).toBeVisible();
+    // The DatasetStatsBar StatCell label renders the i18n string "Features"
+    // visually upper-cased via Tailwind's `uppercase` class — Playwright's
+    // getByText matches the underlying text-node content, not the CSS-rendered
+    // form, so we match "Features" (not "FEATURES"). { exact: true } prevents
+    // RelatedDatasets card text like "248 features" from substring-matching.
+    await expect(page.getByText('Features', { exact: true })).toBeVisible();
 
     // Verify export triggers download
     await page.getByRole('tab', { name: 'Access' }).click();
