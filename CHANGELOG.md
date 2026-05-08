@@ -55,7 +55,14 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
   `/admin/audit` to `/admin/overview` before the heading rendered. The
   guard now checks `manage_settings`, the capability the backend already
   enforces on `/admin/audit-logs/*`. v13.14 Phase 281.
-- **`e2e/dataset-detail.spec.ts:49`** `getByText('FEATURES')` was
+- **`e2e/collections.spec.ts:91`** smoke test searched for the dataset
+  `Reefs`, which was present in the legacy Natural Earth fixture but not
+  in the thematic-demo seed catalog — the test timed out waiting for an
+  Add button against an empty search result and cascaded `:115`/`:130`
+  skips. Search term updated to `Coastline`, which is registered in
+  `scripts/demo/themes/theme1.py` and present in both seeders. v13.14
+  Phase 281.
+- **`e2e/dataset-detail.spec.ts:90`** `getByText('FEATURES')` was
   strict-mode-failing against the thematic-demo seed catalog because
   related-dataset card text like `"75 features"`, `"248 features"`
   substring-matched the locator. Now uses `getByText('Features',
