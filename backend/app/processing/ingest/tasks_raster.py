@@ -144,6 +144,15 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
     11. Update asset URIs and create distribution record
     12. Update job to complete
     13. Invalidate cache, defer embedding
+
+    Session lifecycle (gh #100): the AsyncSession is split into two short-lived
+    blocks so it is NOT held open across the long-running CPU work in steps 4-8
+    (sha256, GDAL metadata extraction, COG conversion, quicklook generation —
+    each runs via ``asyncio.to_thread``). Holding a session open across those
+    ``to_thread`` calls in Python 3.14 + SQLAlchemy 2.0 + greenlet 3.3 corrupts
+    the greenlet bridge state and the next ``session.flush()`` raises
+    ``MissingGreenlet``. See ``.planning/debug/worker-missing-greenlet-100.md``
+    for the full diagnosis.
     """
     _bind_task_log_context(task_name="ingest_raster", job_id=job_id)
     import asyncio
@@ -155,22 +164,30 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
     from app.platform.jobs.models import IngestJob
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
-        )
-        job = result.scalar_one_or_none()
-        if job is None:
-            structlog.get_logger().warning(
-                "Ingest job not found, skipping", job_id=job_id
+    job_uuid = uuid.UUID(job_id)
+    local_cog_path: str | None = None
+    tmp_dir: str | None = None
+    original_file_path = file_path
+    final_status: str = "pending"
+
+    try:
+        # ----------------------------------------------------------------- #
+        # Phase 1 (short-lived session): load job, mark running, validate.
+        # Snapshot the values needed for CPU work into local variables so
+        # phase 2 can re-load the job in a fresh session without depending
+        # on attached ORM state surviving the asyncio.to_thread calls.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            result = await session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
             )
-            return
+            job = result.scalar_one_or_none()
+            if job is None:
+                structlog.get_logger().warning(
+                    "Ingest job not found, skipping", job_id=job_id
+                )
+                return
 
-        local_cog_path: str | None = None
-        tmp_dir: str | None = None
-        original_file_path = file_path
-
-        try:
             # 1. Mark running
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
@@ -195,203 +212,235 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 job.completed_at = datetime.now(timezone.utc)
                 await session.commit()
                 _Path(file_path).unlink(missing_ok=True)
+                final_status = "failed"
                 return
 
-            # 4. Hash source file
-            source_sha256 = await asyncio.to_thread(sha256_file, file_path)
-
-            # 5. Extract metadata
-            meta = await asyncio.to_thread(extract_raster_metadata, file_path)
-
-            # Read GDAL options from user_metadata (set at commit time)
-            um = job.user_metadata or {}
-            assign_crs = um.get("srid_override")
-            user_compression = um.get("compression") or "DEFLATE"
-            user_resampling = um.get("resampling") or None
-            user_nodata = um.get("nodata_override")
-            crs_missing = um.get("crs_missing", False)
-
-            if not meta.get("crs_wkt") and not assign_crs:
-                if crs_missing:
-                    raise ValueError(
-                        "Missing CRS: raster has no coordinate reference system. "
-                        "Provide a CRS override (EPSG code) at import time."
-                    )
-                raise ValueError(
-                    "Missing CRS: raster has no coordinate reference system."
-                )
-
+            # Snapshot job attributes needed in phase 2 (after CPU work).
+            # These plain Python values do not require an attached ORM session.
+            um: dict = job.user_metadata or {}
+            source_filename: str | None = job.source_filename
             is_manifest_vrt = _is_manifest_vrt_job(job)
 
-            if is_manifest_vrt:
-                local_cog_path = file_path
-                cog_status = "verified"
-            else:
-                # 6. Check/convert to COG. Verify disk space first — COG conversion
-                # can produce output up to ~3× source size (decompressed + tiled +
-                # overviews); a stretched disk crashes here with opaque IOError and
-                # may leave concurrent ingests in a half-converted state.
-                tmp_dir = tempfile.mkdtemp()
-                source_bytes = os.path.getsize(file_path)
-                free_bytes = shutil.disk_usage(tmp_dir).free
-                min_free = source_bytes * 3
-                if free_bytes < min_free:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
-                    raise ValueError(
-                        f"Insufficient disk space for COG conversion: need ~{min_free // (1024 * 1024)} MB, "
-                        f"have {free_bytes // (1024 * 1024)} MB free at staging directory."
-                    )
-                local_cog_path, cog_status = await asyncio.to_thread(
-                    check_and_prepare_cog,
-                    file_path,
-                    tmp_dir,
-                    compression=user_compression,
-                    resampling=user_resampling,
-                    nodata=user_nodata,
-                    assign_crs=assign_crs if assign_crs and crs_missing else None,
+        # ----------------------------------------------------------------- #
+        # CPU work — NO session open. asyncio.to_thread calls run GDAL/numpy
+        # in the thread pool. Holding a session open here is what triggers
+        # the MissingGreenlet bug (gh #100).
+        # ----------------------------------------------------------------- #
+
+        # 4. Hash source file
+        source_sha256 = await asyncio.to_thread(sha256_file, file_path)
+
+        # 5. Extract metadata
+        meta = await asyncio.to_thread(extract_raster_metadata, file_path)
+
+        # Read GDAL options from user_metadata (set at commit time)
+        assign_crs = um.get("srid_override")
+        user_compression = um.get("compression") or "DEFLATE"
+        user_resampling = um.get("resampling") or None
+        user_nodata = um.get("nodata_override")
+        crs_missing = um.get("crs_missing", False)
+
+        if not meta.get("crs_wkt") and not assign_crs:
+            if crs_missing:
+                raise ValueError(
+                    "Missing CRS: raster has no coordinate reference system. "
+                    "Provide a CRS override (EPSG code) at import time."
                 )
-            assert (
-                local_cog_path is not None
-            )  # check_and_prepare_cog always returns a path
+            raise ValueError("Missing CRS: raster has no coordinate reference system.")
 
-            # 7. Hash COG
-            asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
-            cog_size = os.path.getsize(local_cog_path)
-
-            # 8. Generate quicklooks
-            ql256 = await asyncio.to_thread(generate_quicklook, local_cog_path, 256)
-            ql512 = await asyncio.to_thread(generate_quicklook, local_cog_path, 512)
-
-            # 9. Create DB records
-            um = job.user_metadata or {}
-            title = um.get("title") or job.source_filename or "raster_dataset"
-            if is_manifest_vrt:
-                from app.processing.ingest.tasks_vrt import create_vrt_dataset
-
-                record, dataset, raster_asset = await create_vrt_dataset(
-                    session,
-                    meta=meta,
-                    asset_sha256=asset_sha256,
-                    vrt_size=cog_size,
-                    source_filename=job.source_filename,
-                    created_by=uuid.UUID(user_id),
-                    title=title,
-                    summary=um.get("summary"),
-                    visibility=um.get("visibility", "private"),
-                    record_status=um.get("record_status", "published"),
-                    vrt_type=um.get("vrt_type", "mosaic"),
-                    resolution_strategy=um.get("resolution_strategy", "finest"),
-                    source_dataset_ids=[],
-                )
-            else:
-                record, dataset, raster_asset = await create_raster_dataset(
-                    session,
-                    meta=meta,
-                    source_sha256=source_sha256,
-                    asset_sha256=asset_sha256,
-                    cog_status=cog_status,
-                    cog_size=cog_size,
-                    source_filename=job.source_filename,
-                    created_by=uuid.UUID(user_id),
-                    title=title,
-                    summary=um.get("summary"),
-                    visibility=um.get("visibility", "private"),
-                    record_status=um.get("record_status", "published"),
-                )
-
-            # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
-            parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
-                temporal_start=um.get("temporal_start") or meta.get("temporal_start"),
-                temporal_end=um.get("temporal_end"),
-            )
-            if parsed_start is not None:
-                record.temporal_start = parsed_start
-            if parsed_end is not None:
-                record.temporal_end = parsed_end
-            if temporal_errors:
-                job.user_metadata = {
-                    **(job.user_metadata or {}),
-                    "temporal_parse_errors": temporal_errors,
-                }
-            await session.flush()
-
-            # 10. Store COG and quicklooks to managed storage
-            from app.platform.storage import get_storage
-
-            storage = get_storage()
-            base_key = f"rasters/{dataset.id}/{asset_sha256}"
-            cog_key = (
-                f"{base_key}/source.vrt"
-                if is_manifest_vrt
-                else f"{base_key}/source.cog.tif"
-            )
-            ql256_key = f"{base_key}/quicklook_256.png"
-            ql512_key = f"{base_key}/quicklook_512.png"
-
-            with open(local_cog_path, "rb") as fobj:
-                await storage.put(cog_key, fobj)
-            await storage.put(ql256_key, io.BytesIO(ql256))
-            await storage.put(ql512_key, io.BytesIO(ql512))
-
-            # 11. Update asset URIs and create distribution
-            raster_asset.asset_uri = cog_key
-            raster_asset.quicklook_256_uri = ql256_key
-            raster_asset.quicklook_512_uri = ql512_key
-            await session.flush()
-
-            from app.platform.extensions import get_processing_port as _get_port
-
-            RecordDistribution = _get_port().get_record_distribution_orm_class()
-
-            distribution = RecordDistribution(
-                record_id=record.id,
-                distribution_type="download",
-                format="vrt" if is_manifest_vrt else "geotiff",
-                url=cog_key,
-            )
-            session.add(distribution)
-
-            # 12. Finalize job
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-
-            # Invalidate cache
-            await invalidate_catalog_cache()
-
-            # 13. Generate embedding (non-fatal)
-            from app.processing.embeddings.helpers import defer_embedding
-
-            await defer_embedding(dataset)
-
-        except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
-            await session.rollback()
-            structlog.get_logger().exception(
-                "Ingest task failed",
-                job_id=str(job.id),
-                task="ingest_raster",
-            )
-            async with async_session() as err_session:
-                from sqlalchemy import update as sa_update
-
-                await err_session.execute(
-                    sa_update(IngestJob)
-                    .where(IngestJob.id == uuid.UUID(job_id))
-                    .values(
-                        status="failed",
-                        error_message=str(exc),
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                )
-                await err_session.commit()
-            raise
-        finally:
-            # Clean up temp COG dir
-            if tmp_dir:
+        if is_manifest_vrt:
+            local_cog_path = file_path
+            cog_status = "verified"
+        else:
+            # 6. Check/convert to COG. Verify disk space first — COG conversion
+            # can produce output up to ~3× source size (decompressed + tiled +
+            # overviews); a stretched disk crashes here with opaque IOError and
+            # may leave concurrent ingests in a half-converted state.
+            tmp_dir = tempfile.mkdtemp()
+            source_bytes = os.path.getsize(file_path)
+            free_bytes = shutil.disk_usage(tmp_dir).free
+            min_free = source_bytes * 3
+            if free_bytes < min_free:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-            # Clean up local staging file
-            if job.status == "complete":
-                _Path(file_path).unlink(missing_ok=True)
-            elif file_path != original_file_path:
-                _Path(file_path).unlink(missing_ok=True)
+                raise ValueError(
+                    f"Insufficient disk space for COG conversion: need ~{min_free // (1024 * 1024)} MB, "
+                    f"have {free_bytes // (1024 * 1024)} MB free at staging directory."
+                )
+            local_cog_path, cog_status = await asyncio.to_thread(
+                check_and_prepare_cog,
+                file_path,
+                tmp_dir,
+                compression=user_compression,
+                resampling=user_resampling,
+                nodata=user_nodata,
+                assign_crs=assign_crs if assign_crs and crs_missing else None,
+            )
+        assert local_cog_path is not None  # check_and_prepare_cog always returns a path
+
+        # 7. Hash COG
+        asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
+        cog_size = os.path.getsize(local_cog_path)
+
+        # 8. Generate quicklooks
+        ql256 = await asyncio.to_thread(generate_quicklook, local_cog_path, 256)
+        ql512 = await asyncio.to_thread(generate_quicklook, local_cog_path, 512)
+
+        # ----------------------------------------------------------------- #
+        # Phase 2 (short-lived session): create DB records, store assets,
+        # commit job. Re-load the job in a fresh session — its attributes
+        # were already snapshotted into ``um``/``source_filename`` above.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            result = await session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+            if job is None:
+                structlog.get_logger().warning(
+                    "Ingest job vanished between phases, skipping",
+                    job_id=job_id,
+                )
+                return
+
+            try:
+                # 9. Create DB records
+                title = um.get("title") or source_filename or "raster_dataset"
+                if is_manifest_vrt:
+                    from app.processing.ingest.tasks_vrt import create_vrt_dataset
+
+                    record, dataset, raster_asset = await create_vrt_dataset(
+                        session,
+                        meta=meta,
+                        asset_sha256=asset_sha256,
+                        vrt_size=cog_size,
+                        source_filename=source_filename,
+                        created_by=uuid.UUID(user_id),
+                        title=title,
+                        summary=um.get("summary"),
+                        visibility=um.get("visibility", "private"),
+                        record_status=um.get("record_status", "published"),
+                        vrt_type=um.get("vrt_type", "mosaic"),
+                        resolution_strategy=um.get("resolution_strategy", "finest"),
+                        source_dataset_ids=[],
+                    )
+                else:
+                    record, dataset, raster_asset = await create_raster_dataset(
+                        session,
+                        meta=meta,
+                        source_sha256=source_sha256,
+                        asset_sha256=asset_sha256,
+                        cog_status=cog_status,
+                        cog_size=cog_size,
+                        source_filename=source_filename,
+                        created_by=uuid.UUID(user_id),
+                        title=title,
+                        summary=um.get("summary"),
+                        visibility=um.get("visibility", "private"),
+                        record_status=um.get("record_status", "published"),
+                    )
+
+                # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
+                parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
+                    temporal_start=um.get("temporal_start")
+                    or meta.get("temporal_start"),
+                    temporal_end=um.get("temporal_end"),
+                )
+                if parsed_start is not None:
+                    record.temporal_start = parsed_start
+                if parsed_end is not None:
+                    record.temporal_end = parsed_end
+                if temporal_errors:
+                    job.user_metadata = {
+                        **(job.user_metadata or {}),
+                        "temporal_parse_errors": temporal_errors,
+                    }
+                await session.flush()
+
+                # 10. Store COG and quicklooks to managed storage
+                from app.platform.storage import get_storage
+
+                storage = get_storage()
+                base_key = f"rasters/{dataset.id}/{asset_sha256}"
+                cog_key = (
+                    f"{base_key}/source.vrt"
+                    if is_manifest_vrt
+                    else f"{base_key}/source.cog.tif"
+                )
+                ql256_key = f"{base_key}/quicklook_256.png"
+                ql512_key = f"{base_key}/quicklook_512.png"
+
+                with open(local_cog_path, "rb") as fobj:
+                    await storage.put(cog_key, fobj)
+                await storage.put(ql256_key, io.BytesIO(ql256))
+                await storage.put(ql512_key, io.BytesIO(ql512))
+
+                # 11. Update asset URIs and create distribution
+                raster_asset.asset_uri = cog_key
+                raster_asset.quicklook_256_uri = ql256_key
+                raster_asset.quicklook_512_uri = ql512_key
+                await session.flush()
+
+                from app.platform.extensions import get_processing_port as _get_port
+
+                RecordDistribution = _get_port().get_record_distribution_orm_class()
+
+                distribution = RecordDistribution(
+                    record_id=record.id,
+                    distribution_type="download",
+                    format="vrt" if is_manifest_vrt else "geotiff",
+                    url=cog_key,
+                )
+                session.add(distribution)
+
+                # 12. Finalize job
+                job.status = "complete"
+                job.dataset_id = dataset.id
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+                final_status = "complete"
+
+                # Invalidate cache
+                await invalidate_catalog_cache()
+
+                # 13. Generate embedding (non-fatal)
+                from app.processing.embeddings.helpers import defer_embedding
+
+                await defer_embedding(dataset)
+
+            except Exception:  # broad: re-raised below; rollback first so the
+                # outer handler can write a clean failure record via a fresh session.
+                await session.rollback()
+                raise
+
+    except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
+        structlog.get_logger().exception(
+            "Ingest task failed",
+            job_id=job_id,
+            task="ingest_raster",
+        )
+        # Write failure status via a fresh session — phase 1/2 sessions are
+        # already closed (or rolled back) by the time we get here.
+        async with async_session() as err_session:
+            from sqlalchemy import update as sa_update
+
+            await err_session.execute(
+                sa_update(IngestJob)
+                .where(IngestJob.id == job_uuid)
+                .values(
+                    status="failed",
+                    error_message=str(exc),
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            await err_session.commit()
+        final_status = "failed"
+        raise
+    finally:
+        # Clean up temp COG dir
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        # Clean up local staging file
+        if final_status == "complete":
+            _Path(file_path).unlink(missing_ok=True)
+        elif file_path != original_file_path:
+            _Path(file_path).unlink(missing_ok=True)
