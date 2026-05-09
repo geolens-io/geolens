@@ -171,17 +171,29 @@ def prepare_with_overviews(
 ) -> str:
     """Copy file to a temp path and add compressed overviews.
 
-    Returns the temp path with overviews added.
+    Returns the temp path with overviews added. If the source already has
+    internal overviews (e.g. an upstream COG produced by `-of COG` or by a
+    user pipeline that built them), `gdaladdo` is skipped: GDAL refuses to
+    add external overviews when internal overviews are present
+    ("ERROR 6: Cannot add external overviews when there are already
+    internal overviews"). `gdal_translate ... COPY_SRC_OVERVIEWS=YES`
+    downstream still picks up the existing overviews, so the COG output is
+    correct either way.
     """
+    import rasterio
+    import shutil
+
     suffix = Path(input_path).suffix
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     tmp.close()
     tmp_path = tmp.name
 
-    # Copy original to temp
-    import shutil
-
     shutil.copy2(input_path, tmp_path)
+
+    with rasterio.open(input_path) as src:
+        has_internal_overviews = bool(src.overviews(1)) if src.count >= 1 else False
+    if has_internal_overviews:
+        return tmp_path
 
     # Choose resampling based on dtype if not provided
     if resampling is None:
