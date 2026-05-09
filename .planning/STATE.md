@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v13.14
 milestone_name: Smoke Stabilization
 status: shipped
-last_updated: "2026-05-08T16:01:12.000Z"
+last_updated: "2026-05-08T20:08:00.000Z"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -73,6 +73,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 | 260508-d6i | Reset local env + thematic demo seed + full smoke (6 failures surfaced) | 2026-05-08 | 7bac058b | Needs Review | [260508-d6i-reset-local-environment-and-run-smoke-ch](./quick/260508-d6i-reset-local-environment-and-run-smoke-ch/) |
 | 260508-lkz | Rebuild demo themes + fixtures with 5 visually arresting 3D + Map Builder showcase maps (code-only; seeder run + Playwright deferred) | 2026-05-08 | cb474308 | Verified | [260508-lkz-rebuild-geolens-demo-themes-and-fixtures](./quick/260508-lkz-rebuild-geolens-demo-themes-and-fixtures/) |
 | 260508-nl9 | Live validation of 260508-lkz demo fixtures (seeder + Playwright MCP) — surfaced 5 bugs, fixed 2 inline (gdal-bin in seeder image; NIFC retry), 2 documented as follow-ups (worker MissingGreenlet on raster + clip_to_mercator_bounds; api /tmp tmpfs cap < UPLOAD_MAX_SIZE_MB) | 2026-05-08 |  | Incomplete | [260508-nl9-run-seeder-and-playwright-mcp-smoke-chec](./quick/260508-nl9-run-seeder-and-playwright-mcp-smoke-chec/) |
+| 260508-rr5 | Fix /tmp tmpfs cap blocking large uploads (gh #101) — set tempfile.tempdir to /app/staging in app/api/main.py | 2026-05-08 | 220a2052 | Verified | [260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads](./quick/260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads/) |
 
 ## Deferred Items
 
