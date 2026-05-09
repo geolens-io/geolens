@@ -507,7 +507,9 @@ async def _score_geometry_validity(
             val = result.scalar_one_or_none()
             if val is not None:
                 return round(float(val), 1)
-    except Exception:  # broad: ST_IsValid quality score is non-fatal; degrade to 100.0 on any DB error
+    except (
+        Exception
+    ):  # broad: ST_IsValid quality score is non-fatal; degrade to 100.0 on any DB error
         pass
     return 100.0
 
@@ -934,16 +936,49 @@ async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> Non
 
     Only updates rows whose geometry actually extends beyond the bounds,
     so this is a no-op for most datasets.
+
+    Two CRS-related quirks the SQL has to handle:
+
+    1. Envelope is in SRID 4326. If the column's SRID differs (4979 / any
+       projected CRS), transform the envelope to match — otherwise PostGIS
+       raises `coveredby: Operation on mixed SRID geometries`.
+    2. The envelope is always 2D. If the column is declared 3D (e.g.
+       `MultiPointZ` for a 4979 source with elevation), `ST_Intersection`
+       drops Z and the UPDATE then fails with `Column has Z dimension but
+       geometry does not`. Wrap the result in `ST_Force3D` to put Z back
+       (clipped vertices land at z=0, which is acceptable for the few rows
+       that get clipped past ±85° lat).
     """
     _validate_table_name(table_name)
+
+    geom_meta = await session.execute(
+        text(
+            "SELECT srid, coord_dimension FROM geometry_columns "
+            "WHERE f_table_schema = 'data' "
+            "  AND f_table_name = :table_name "
+            "  AND f_geometry_column = 'geom'"
+        ).bindparams(table_name=table_name)
+    )
+    row = geom_meta.first()
+    if row is None:
+        return  # column has no registered metadata — nothing safe to clip
+    src_srid = int(row[0])
+    column_is_3d = int(row[1]) >= 3
+
+    if src_srid == 4326:
+        envelope = _MERCATOR_SAFE_ENVELOPE
+    else:
+        envelope = f"ST_Transform({_MERCATOR_SAFE_ENVELOPE}, {src_srid})"
+
+    clipped = f"ST_CollectionExtract(ST_Intersection(geom, {envelope}), ST_Dimension(geom) + 1)"
+    if column_is_3d:
+        clipped = f"ST_Force3D({clipped})"
+
     await session.execute(
         text(
             f"UPDATE {_qtable(table_name)} "
-            f"SET geom = ST_CollectionExtract("
-            f"  ST_Intersection(geom, {_MERCATOR_SAFE_ENVELOPE}),"
-            f"  ST_Dimension(geom) + 1"
-            f") "
-            f"WHERE NOT ST_CoveredBy(geom, {_MERCATOR_SAFE_ENVELOPE})"
+            f"SET geom = {clipped} "
+            f"WHERE NOT ST_CoveredBy(geom, {envelope})"
         )
     )
     await session.commit()
@@ -956,6 +991,12 @@ async def add_4326_column(
 
     If source_srid is 4326, copies geom directly (ensuring SRID is set).
     Otherwise, reprojects via ST_Transform.
+
+    The 4326 column is declared 2D (`geometry(Geometry, 4326)`) — it backs
+    tile/map rendering, which is inherently 2D. If the source `geom` is 3D
+    (e.g. SRID 4979 with elevation), `ST_Force2D` strips Z so the UPDATE
+    doesn't fail with `Geometry has Z dimension but column does not`. Z is
+    still preserved in the original `geom` column.
     """
     tref = _qtable(table_name)
 
@@ -968,11 +1009,11 @@ async def add_4326_column(
 
     if source_srid == 4326:
         await session.execute(
-            text(f"UPDATE {tref} SET geom_4326 = ST_SetSRID(geom, 4326)")
+            text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_SetSRID(geom, 4326))")
         )
     else:
         await session.execute(
-            text(f"UPDATE {tref} SET geom_4326 = ST_Transform(geom, 4326)")
+            text(f"UPDATE {tref} SET geom_4326 = ST_Force2D(ST_Transform(geom, 4326))")
         )
 
     await session.execute(
