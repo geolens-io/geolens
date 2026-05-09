@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -50,3 +51,28 @@ def ensure_staging_ready(directory: str | Path) -> Path:
         raise StagingRuntimeError(target_dir, "directory is not writable", exc) from exc
 
     return target_dir
+
+
+def redirect_tempfile_to_staging(directory: str | Path) -> None:
+    """Redirect stdlib `tempfile` rollover/scratch to the staging directory.
+
+    Two contexts hit this:
+      - api: Starlette's MultiPartParser rolls SpooledTemporaryFile to
+        tempfile.tempdir; tmpfs `/tmp` (default 512 MiB in compose) fills on
+        large uploads → opaque 400 (gh #101, fixed by 260508-rr5).
+      - worker: COG conversion's pre-flight `shutil.disk_usage(tempfile.mkdtemp()).free`
+        reads tmpfs /tmp (~512 MiB), not the multi-GB staging volume → spurious
+        "Insufficient disk space for COG conversion" on rasters that would fit.
+
+    Must run BEFORE FastAPI/Procrastinate/Starlette imports in the embedding
+    module so the very first request handler / task uses the override.
+    Defensive on OSError so unit-test / alembic-only containers without the
+    staging volume mounted don't crash on import — the override is then a
+    no-op until the directory exists.
+    """
+    target_dir = Path(directory)
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    tempfile.tempdir = str(target_dir)

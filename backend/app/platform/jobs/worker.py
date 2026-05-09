@@ -18,7 +18,14 @@ from sqlalchemy import and_, or_, select, text
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-from app.core.runtime.staging import ensure_staging_ready
+from app.core.runtime.staging import ensure_staging_ready, redirect_tempfile_to_staging
+
+# Redirect stdlib tempfile to the staging volume BEFORE any task module is
+# imported. Otherwise the COG conversion sanity check in tasks_raster
+# (`shutil.disk_usage(tempfile.mkdtemp()).free`) reads the worker's small
+# `/tmp` tmpfs and rejects rasters that would fit fine on the multi-GB
+# staging volume. Mirrors the same redirect in `app.api.main`.
+redirect_tempfile_to_staging(settings.upload_staging_dir)
 
 # Configure structured logging with service label
 setup_logging(json_logs=settings.log_json, log_level=settings.log_level)

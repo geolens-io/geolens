@@ -1,34 +1,15 @@
 import asyncio
-import tempfile
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import structlog
 
-# GH-101 (Option 2 — Recommended): Starlette's MultiPartParser uses
-# SpooledTemporaryFile which rolls over to tempfile.tempdir (default /tmp).
-# The api container has /tmp on tmpfs:size=512m, so any upload past ~511 MiB
-# exhausts tmpfs and surfaces as an opaque 400 "There was an error parsing
-# the body". Redirect rollover to the existing /app/staging named volume
-# (already mounted, already writable by the api user, large enough). Must
-# run at module-import time — BEFORE FastAPI() instantiation and BEFORE any
-# request handler is registered — so the very first multipart upload sees
-# the override. Kept defensive: if the staging dir does not exist (unit
-# tests, alembic-only containers), create it; do not let module import die
-# on a missing volume.
+# Must run BEFORE FastAPI/Starlette imports — see redirect_tempfile_to_staging
+# docstring. Originally added inline for gh #101 (260508-rr5), now shared with
+# the worker (which had the same /tmp tmpfs problem during COG conversion).
 from app.core.config import settings
+from app.core.runtime.staging import redirect_tempfile_to_staging
 
-_staging_dir = Path(settings.upload_staging_dir)
-try:
-    _staging_dir.mkdir(parents=True, exist_ok=True)
-except OSError:
-    # Defensive: silently skip if the path is on a read-only filesystem or
-    # inaccessible (unit tests on macOS dev machines, alembic-only containers
-    # where /app/staging may not be mounted). The tempdir override still
-    # redirects stdlib tempfile — if the path doesn't exist the override is
-    # effectively a no-op until the volume appears.
-    pass
-tempfile.tempdir = str(_staging_dir)
+redirect_tempfile_to_staging(settings.upload_staging_dir)
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
