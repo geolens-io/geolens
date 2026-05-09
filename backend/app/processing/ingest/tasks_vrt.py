@@ -158,6 +158,12 @@ async def ingest_vrt(
     11. Update asset URIs and create distribution record
     12. Set job.dataset_id on completion
     13. Invalidate cache, defer embedding
+
+    Session lifecycle (gh #100): the AsyncSession is split into two short-lived
+    blocks so it is NOT held open across the long-running CPU work in steps 5-8
+    (gdalbuildvrt subprocess, rasterio metadata extraction, sha256, quicklook
+    generation — each runs via ``asyncio.to_thread``). See
+    ``.planning/debug/worker-missing-greenlet-100.md`` for the full diagnosis.
     """
     _bind_task_log_context(task_name="ingest_vrt", job_id=job_id)
     import asyncio
@@ -177,20 +183,25 @@ async def ingest_vrt(
 
     logger_vrt = __import__("logging").getLogger(__name__)
 
+    job_uuid = uuid.UUID(job_id)
     tmp_dir: str | None = None
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
-        )
-        job = result.scalar_one_or_none()
-        if job is None:
-            structlog.get_logger().warning(
-                "Ingest job not found, skipping", job_id=job_id
+    try:
+        # ----------------------------------------------------------------- #
+        # Phase 1 (short-lived session): load job, mark running, load source
+        # asset rows. Snapshot all values needed for phase 2.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            result = await session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
             )
-            return
+            job = result.scalar_one_or_none()
+            if job is None:
+                structlog.get_logger().warning(
+                    "Ingest job not found, skipping", job_id=job_id
+                )
+                return
 
-        try:
             # 1. Mark running
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
@@ -211,117 +222,155 @@ async def ingest_vrt(
             # Preserve insertion order
             ordered_assets = [asset_map[sid] for sid in ids if sid in asset_map]
 
-            # 4. Resolve paths
+            # 4. Resolve paths (snapshot to plain strings before closing session)
             source_paths = [
                 resolve_vrt_source_path(asset.asset_uri) for asset in ordered_assets
             ]
 
-            # 5. Build VRT
-            tmp_dir = tempfile.mkdtemp()
-            vrt_path = os.path.join(tmp_dir, "source.vrt")
-            await asyncio.to_thread(
-                build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+            # Snapshot job fields needed in phase 2.
+            um: dict = job.user_metadata or {}
+
+        # ----------------------------------------------------------------- #
+        # CPU work — NO session open. asyncio.to_thread calls run GDAL/numpy
+        # in the thread pool.
+        # ----------------------------------------------------------------- #
+
+        # 5. Build VRT
+        tmp_dir = tempfile.mkdtemp()
+        vrt_path = os.path.join(tmp_dir, "source.vrt")
+        await asyncio.to_thread(
+            build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+        )
+
+        # 6. Extract metadata from assembled VRT
+        meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+        if not meta.get("crs_wkt"):
+            raise ValueError("Assembled VRT has no coordinate reference system.")
+
+        # 7. Hash and size VRT file
+        asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
+        vrt_size = os.path.getsize(vrt_path)
+
+        # 8. Generate quicklooks (non-fatal)
+        ql256: bytes | None = None
+        ql512: bytes | None = None
+        try:
+            ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+        except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
+            logger_vrt.warning(
+                "Quicklook generation failed for VRT %s", job_id, exc_info=True
             )
 
-            # 6. Extract metadata from assembled VRT
-            meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
-            if not meta.get("crs_wkt"):
-                raise ValueError("Assembled VRT has no coordinate reference system.")
+        # ----------------------------------------------------------------- #
+        # Phase 2 (short-lived session): create DB records, store assets,
+        # commit job.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            result = await session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+            if job is None:
+                structlog.get_logger().warning(
+                    "Ingest job vanished between phases, skipping",
+                    job_id=job_id,
+                )
+                return
 
-            # 7. Hash and size VRT file
-            asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
-            vrt_size = os.path.getsize(vrt_path)
-
-            # 8. Generate quicklooks (non-fatal)
-            ql256: bytes | None = None
-            ql512: bytes | None = None
             try:
-                ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
-                ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
-            except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
-                logger_vrt.warning(
-                    "Quicklook generation failed for VRT %s", job_id, exc_info=True
+                # 9. Create DB records
+                title = um.get("title") or f"vrt_{vrt_type}"
+                record, dataset, raster_asset = await create_vrt_dataset(
+                    session,
+                    meta=meta,
+                    asset_sha256=asset_sha256,
+                    vrt_size=vrt_size,
+                    source_filename=None,
+                    created_by=uuid.UUID(user_id),
+                    title=title,
+                    summary=um.get("summary"),
+                    visibility=um.get("visibility", "private"),
+                    vrt_type=vrt_type,
+                    resolution_strategy=resolution_strategy,
+                    source_dataset_ids=ids,
                 )
 
-            # 9. Create DB records
-            um = job.user_metadata or {}
-            title = um.get("title") or f"vrt_{vrt_type}"
-            record, dataset, raster_asset = await create_vrt_dataset(
-                session,
-                meta=meta,
-                asset_sha256=asset_sha256,
-                vrt_size=vrt_size,
-                source_filename=None,
-                created_by=uuid.UUID(user_id),
-                title=title,
-                summary=um.get("summary"),
-                visibility=um.get("visibility", "private"),
-                vrt_type=vrt_type,
-                resolution_strategy=resolution_strategy,
-                source_dataset_ids=ids,
+                # 10. Store VRT and quicklooks to managed storage
+                from app.platform.storage import get_storage
+
+                storage = get_storage()
+                base_key = f"rasters/{dataset.id}/{asset_sha256}"
+                vrt_key = f"{base_key}/source.vrt"
+                ql256_key = f"{base_key}/quicklook_256.png"
+                ql512_key = f"{base_key}/quicklook_512.png"
+
+                with open(vrt_path, "rb") as fobj:
+                    await storage.put(vrt_key, fobj)
+
+                if ql256 is not None:
+                    await storage.put(ql256_key, io.BytesIO(ql256))
+                if ql512 is not None:
+                    await storage.put(ql512_key, io.BytesIO(ql512))
+
+                # 11. Update asset URIs and create distribution
+                raster_asset.asset_uri = vrt_key
+                if ql256 is not None:
+                    raster_asset.quicklook_256_uri = ql256_key
+                if ql512 is not None:
+                    raster_asset.quicklook_512_uri = ql512_key
+                await session.flush()
+
+                distribution = RecordDistribution(
+                    record_id=record.id,
+                    distribution_type="download",
+                    format="vrt",
+                    url=vrt_key,
+                )
+                session.add(distribution)
+
+                # 12. Finalize job
+                job.status = "complete"
+                job.dataset_id = dataset.id
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+
+                # Invalidate cache
+                await invalidate_catalog_cache()
+
+                # 13. Generate embedding (non-fatal)
+                from app.processing.embeddings.helpers import defer_embedding
+
+                await defer_embedding(dataset)
+
+            except Exception:  # broad: re-raised below; rollback first so the
+                # outer handler can write a clean failure record via a fresh session.
+                await session.rollback()
+                raise
+
+    except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
+        structlog.get_logger().exception(
+            "Ingest task failed",
+            extra={"job_id": job_id, "task": "ingest_vrt"},
+        )
+        # Write failure status via a fresh session.
+        async with async_session() as err_session:
+            from sqlalchemy import update as sa_update
+
+            await err_session.execute(
+                sa_update(IngestJob)
+                .where(IngestJob.id == job_uuid)
+                .values(
+                    status="failed",
+                    error_message=str(exc),
+                    completed_at=datetime.now(timezone.utc),
+                )
             )
-
-            # 10. Store VRT and quicklooks to managed storage
-            from app.platform.storage import get_storage
-
-            storage = get_storage()
-            base_key = f"rasters/{dataset.id}/{asset_sha256}"
-            vrt_key = f"{base_key}/source.vrt"
-            ql256_key = f"{base_key}/quicklook_256.png"
-            ql512_key = f"{base_key}/quicklook_512.png"
-
-            with open(vrt_path, "rb") as fobj:
-                await storage.put(vrt_key, fobj)
-
-            if ql256 is not None:
-                await storage.put(ql256_key, io.BytesIO(ql256))
-            if ql512 is not None:
-                await storage.put(ql512_key, io.BytesIO(ql512))
-
-            # 11. Update asset URIs and create distribution
-            raster_asset.asset_uri = vrt_key
-            if ql256 is not None:
-                raster_asset.quicklook_256_uri = ql256_key
-            if ql512 is not None:
-                raster_asset.quicklook_512_uri = ql512_key
-            await session.flush()
-
-            distribution = RecordDistribution(
-                record_id=record.id,
-                distribution_type="download",
-                format="vrt",
-                url=vrt_key,
-            )
-            session.add(distribution)
-
-            # 12. Finalize job
-            job.status = "complete"
-            job.dataset_id = dataset.id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-
-            # Invalidate cache
-            await invalidate_catalog_cache()
-
-            # 13. Generate embedding (non-fatal)
-            from app.processing.embeddings.helpers import defer_embedding
-
-            await defer_embedding(dataset)
-
-        except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
-            await session.rollback()
-            job.status = "failed"
-            job.error_message = str(exc)
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-            structlog.get_logger().exception(
-                "Ingest task failed",
-                extra={"job_id": str(job.id), "task": "ingest_vrt"},
-            )
-            raise
-        finally:
-            if tmp_dir:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+            await err_session.commit()
+        raise
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.regenerate_vrt"])
@@ -350,6 +399,10 @@ async def regenerate_vrt(
     13. Update dataset footprint geometry
     14. Mark job complete
     15. Invalidate cache, defer embedding
+
+    Session lifecycle (gh #100): same two-phase split as ``ingest_vrt`` —
+    the session is closed before the GDAL subprocess + asyncio.to_thread
+    work and reopened for the metadata updates.
     """
     import asyncio
 
@@ -372,36 +425,41 @@ async def regenerate_vrt(
 
     logger_regen = __import__("logging").getLogger(__name__)
 
+    job_uuid = uuid.UUID(job_id)
+    vrt_id = uuid.UUID(vrt_dataset_id)
     tmp_dir: str | None = None
-    vrt_asset = None
     generation_id: uuid.UUID | None = None
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
-        )
-        job = result.scalar_one_or_none()
-        if job is None:
-            structlog.get_logger().warning(
-                "Ingest job not found, skipping", job_id=job_id
+    try:
+        # ----------------------------------------------------------------- #
+        # Phase 1 (short-lived session): load job, mark running, load VRT
+        # asset + source links + source assets, create generation record.
+        # Snapshot all values needed for phase 2.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            result = await session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
             )
-            return
+            job = result.scalar_one_or_none()
+            if job is None:
+                structlog.get_logger().warning(
+                    "Ingest job not found, skipping", job_id=job_id
+                )
+                return
 
-        try:
             # 1. Mark running
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
             await session.commit()
 
             # 2. Load VRT RasterAsset
-            vrt_id = uuid.UUID(vrt_dataset_id)
             asset_result = await session.execute(
                 select(RasterAsset)
                 .join(Dataset, RasterAsset.dataset_id == Dataset.id)
                 .where(Dataset.id == vrt_id)
             )
-            vrt_asset = asset_result.scalar_one_or_none()
-            if vrt_asset is None:
+            vrt_asset_row = asset_result.scalar_one_or_none()
+            if vrt_asset_row is None:
                 raise ValueError(f"VRT dataset {vrt_dataset_id} not found")
 
             # 3. Load vrt_source_links ordered by position
@@ -427,7 +485,7 @@ async def regenerate_vrt(
             session.add(generation)
             await session.flush()
             generation_id = generation.id
-            vrt_asset.current_generation_id = generation.id
+            vrt_asset_row.current_generation_id = generation.id
             await session.commit()
 
             # 4. Load source RasterAsset rows and resolve paths
@@ -442,112 +500,175 @@ async def regenerate_vrt(
                 resolve_vrt_source_path(a.asset_uri) for a in ordered_assets
             ]
 
-            # 5. Build VRT to temp path
-            tmp_dir = tempfile.mkdtemp()
-            vrt_path = os.path.join(tmp_dir, "source.vrt")
-            vrt_type = vrt_asset.vrt_type or "mosaic"
-            resolution_strategy = vrt_asset.resolution_strategy or "finest"
+            # Snapshot the VRT asset's invariant config for phase 2
+            # (the existing storage key + quicklook keys + VRT type/strategy).
+            vrt_storage_key: str = vrt_asset_row.asset_uri  # unchanged across regen
+            vrt_ql256_uri: str | None = vrt_asset_row.quicklook_256_uri
+            vrt_ql512_uri: str | None = vrt_asset_row.quicklook_512_uri
+            vrt_type: str = vrt_asset_row.vrt_type or "mosaic"
+            resolution_strategy: str = vrt_asset_row.resolution_strategy or "finest"
 
-            await asyncio.to_thread(
-                build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+        # ----------------------------------------------------------------- #
+        # CPU work — NO session open.
+        # ----------------------------------------------------------------- #
+
+        # 5. Build VRT to temp path
+        tmp_dir = tempfile.mkdtemp()
+        vrt_path = os.path.join(tmp_dir, "source.vrt")
+
+        await asyncio.to_thread(
+            build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+        )
+
+        # 6 & 7. Extract metadata (also serves as post-validation)
+        meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+        if not meta.get("crs_wkt"):
+            raise ValueError("Regenerated VRT has no coordinate reference system.")
+
+        # 8. Hash and size
+        new_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
+        new_size = os.path.getsize(vrt_path)
+
+        # 9. Generate quicklooks (non-fatal)
+        ql256: bytes | None = None
+        ql512: bytes | None = None
+        try:
+            ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+        except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
+            logger_regen.warning(
+                "Quicklook regeneration failed for VRT %s",
+                vrt_dataset_id,
+                exc_info=True,
             )
 
-            # 6 & 7. Extract metadata (also serves as post-validation)
-            meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
-            if not meta.get("crs_wkt"):
-                raise ValueError("Regenerated VRT has no coordinate reference system.")
+        # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
+        storage = get_storage()
 
-            # 8. Hash and size
-            new_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
-            new_size = os.path.getsize(vrt_path)
+        with open(vrt_path, "rb") as fobj:
+            await storage.put(vrt_storage_key, fobj)
 
-            # 9. Generate quicklooks (non-fatal)
-            ql256: bytes | None = None
-            ql512: bytes | None = None
+        if ql256 is not None and vrt_ql256_uri:
+            await storage.put(vrt_ql256_uri, io.BytesIO(ql256))
+        if ql512 is not None and vrt_ql512_uri:
+            await storage.put(vrt_ql512_uri, io.BytesIO(ql512))
+
+        # ----------------------------------------------------------------- #
+        # Phase 2 (short-lived session): update RasterAsset metadata, mark
+        # job complete, update dataset footprint.
+        # ----------------------------------------------------------------- #
+        async with async_session() as session:
+            result = await session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+            if job is None:
+                structlog.get_logger().warning(
+                    "Ingest job vanished between phases, skipping",
+                    job_id=job_id,
+                )
+                return
+
             try:
-                ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
-                ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
-            except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
-                logger_regen.warning(
-                    "Quicklook regeneration failed for VRT %s",
-                    vrt_dataset_id,
-                    exc_info=True,
+                # Re-load VRT asset in the new session.
+                asset_result = await session.execute(
+                    select(RasterAsset)
+                    .join(Dataset, RasterAsset.dataset_id == Dataset.id)
+                    .where(Dataset.id == vrt_id)
                 )
+                vrt_asset = asset_result.scalar_one_or_none()
+                if vrt_asset is None:
+                    raise ValueError(
+                        f"VRT dataset {vrt_dataset_id} disappeared between phases"
+                    )
 
-            # 10. Overwrite existing storage key (atomic swap -- same URI, new content)
-            storage = get_storage()
-            vrt_key = vrt_asset.asset_uri  # unchanged -- same key
-
-            with open(vrt_path, "rb") as fobj:
-                await storage.put(vrt_key, fobj)
-
-            if ql256 is not None and vrt_asset.quicklook_256_uri:
-                await storage.put(vrt_asset.quicklook_256_uri, io.BytesIO(ql256))
-            if ql512 is not None and vrt_asset.quicklook_512_uri:
-                await storage.put(vrt_asset.quicklook_512_uri, io.BytesIO(ql512))
-
-            # 11. Update RasterAsset metadata fields
-            nodata_val = meta.get("nodata")
-            vrt_asset.sha256 = new_sha256
-            vrt_asset.size_bytes = new_size
-            vrt_asset.crs_wkt = meta.get("crs_wkt")
-            vrt_asset.epsg = meta.get("epsg")
-            vrt_asset.band_count = meta.get("band_count")
-            vrt_asset.dtype = meta.get("dtype")
-            vrt_asset.nodata = str(nodata_val) if nodata_val is not None else None
-            vrt_asset.res_x = meta.get("res_x")
-            vrt_asset.res_y = meta.get("res_y")
-            vrt_asset.width = meta.get("width")
-            vrt_asset.height = meta.get("height")
-            vrt_asset.compression = meta.get("compression")
-
-            # 12. Status transitions
-            vrt_asset.status = "ready"
-            vrt_asset.last_regenerated_at = datetime.now(timezone.utc)
-            vrt_asset.current_generation_id = None
-
-            # 12b. Update generation record
-            generation.status = "completed"
-            generation.completed_at = datetime.now(timezone.utc)
-            # `started_at` is set at record creation below in step 4 — guarded
-            # here so mypy/runtime don't crash if a future refactor drops it.
-            if generation.started_at is not None:
-                generation.duration_seconds = (
-                    generation.completed_at - generation.started_at
-                ).total_seconds()
-
-            # 13. Update dataset footprint geometry
-            dataset_result = await session.execute(
-                select(Dataset).where(Dataset.id == vrt_id)
-            )
-            vrt_dataset = dataset_result.scalar_one_or_none()
-            if vrt_dataset is not None and meta.get("bbox_wkt"):
-                vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
-                    meta["bbox_wkt"], 4326
-                )
-
-            # 14. Finalize job
-            job.status = "complete"
-            job.dataset_id = vrt_id
-            job.completed_at = datetime.now(timezone.utc)
-            await session.commit()
-
-            # 15. Invalidate cache and defer embedding
-            await invalidate_catalog_cache()
-            await defer_embedding(vrt_dataset)
-
-        except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
-            await session.rollback()
-            if vrt_asset is not None:
-                vrt_asset.status = "failed"
-                vrt_asset.current_generation_id = None
-            job.status = "failed"
-            job.error_message = str(exc)
-            job.completed_at = datetime.now(timezone.utc)
-
-            # Update generation record on failure
-            if generation_id is not None:
+                # Re-load generation record.
                 gen_result = await session.execute(
+                    select(VrtGeneration).where(VrtGeneration.id == generation_id)
+                )
+                generation = gen_result.scalar_one_or_none()
+                if generation is None:
+                    raise ValueError(
+                        f"VrtGeneration {generation_id} disappeared between phases"
+                    )
+
+                # 11. Update RasterAsset metadata fields
+                nodata_val = meta.get("nodata")
+                vrt_asset.sha256 = new_sha256
+                vrt_asset.size_bytes = new_size
+                vrt_asset.crs_wkt = meta.get("crs_wkt")
+                vrt_asset.epsg = meta.get("epsg")
+                vrt_asset.band_count = meta.get("band_count")
+                vrt_asset.dtype = meta.get("dtype")
+                vrt_asset.nodata = str(nodata_val) if nodata_val is not None else None
+                vrt_asset.res_x = meta.get("res_x")
+                vrt_asset.res_y = meta.get("res_y")
+                vrt_asset.width = meta.get("width")
+                vrt_asset.height = meta.get("height")
+                vrt_asset.compression = meta.get("compression")
+
+                # 12. Status transitions
+                vrt_asset.status = "ready"
+                vrt_asset.last_regenerated_at = datetime.now(timezone.utc)
+                vrt_asset.current_generation_id = None
+
+                # 12b. Update generation record
+                generation.status = "completed"
+                generation.completed_at = datetime.now(timezone.utc)
+                # `started_at` is set at record creation in phase 1 — guarded
+                # here so mypy/runtime don't crash if a future refactor drops it.
+                if generation.started_at is not None:
+                    generation.duration_seconds = (
+                        generation.completed_at - generation.started_at
+                    ).total_seconds()
+
+                # 13. Update dataset footprint geometry
+                dataset_result = await session.execute(
+                    select(Dataset).where(Dataset.id == vrt_id)
+                )
+                vrt_dataset = dataset_result.scalar_one_or_none()
+                if vrt_dataset is not None and meta.get("bbox_wkt"):
+                    vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
+                        meta["bbox_wkt"], 4326
+                    )
+
+                # 14. Finalize job
+                job.status = "complete"
+                job.dataset_id = vrt_id
+                job.completed_at = datetime.now(timezone.utc)
+                await session.commit()
+
+                # 15. Invalidate cache and defer embedding
+                await invalidate_catalog_cache()
+                if vrt_dataset is not None:
+                    await defer_embedding(vrt_dataset)
+
+            except Exception:  # broad: re-raised below; rollback first so the
+                # outer handler can write a clean failure record via a fresh session.
+                await session.rollback()
+                raise
+
+    except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
+        structlog.get_logger().exception(
+            "Ingest task failed",
+            job_id=job_id,
+            task="regenerate_vrt",
+        )
+        # Failure handler runs via a fresh session: mark vrt asset failed,
+        # mark generation failed, mark job failed.
+        async with async_session() as err_session:
+            from sqlalchemy import update as sa_update
+
+            # Mark VRT asset failed and clear the generation pointer.
+            await err_session.execute(
+                sa_update(RasterAsset)
+                .where(RasterAsset.dataset_id == vrt_id)
+                .values(status="failed", current_generation_id=None)
+            )
+
+            # Update generation record on failure.
+            if generation_id is not None:
+                gen_result = await err_session.execute(
                     select(VrtGeneration).where(VrtGeneration.id == generation_id)
                 )
                 gen = gen_result.scalar_one_or_none()
@@ -560,13 +681,17 @@ async def regenerate_vrt(
                         ).total_seconds()
                     gen.error_message = str(exc)
 
-            structlog.get_logger().exception(
-                "Ingest task failed",
-                job_id=str(job.id),
-                task="regenerate_vrt",
+            await err_session.execute(
+                sa_update(IngestJob)
+                .where(IngestJob.id == job_uuid)
+                .values(
+                    status="failed",
+                    error_message=str(exc),
+                    completed_at=datetime.now(timezone.utc),
+                )
             )
-            await session.commit()
-            raise
-        finally:
-            if tmp_dir:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+            await err_session.commit()
+        raise
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
