@@ -54,7 +54,11 @@ services:
       context: .
       dockerfile: Dockerfile
       target: frontend
-    ports:
+    # !override fully replaces the dev mapping ("8080:5173") with the prod
+    # mapping ("8080:8080"). Compose's default merge would concatenate both
+    # entries, causing host port 8080 to be bound twice and the container to
+    # fail with "Bind for 0.0.0.0:8080 failed: port is already allocated".
+    ports: !override
       - "${FRONTEND_PORT:-8080}:8080"
     volumes: []
     depends_on:
