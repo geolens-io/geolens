@@ -429,14 +429,14 @@ export function MapBuilderPage() {
       {/* Mobile sidebar as Sheet */}
       {isMobile && (
         <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
-          <SheetContent side="left" className="w-80 max-w-[calc(100vw-3rem)] p-0 flex flex-col">
+          <SheetContent side="left" className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col">
             <SheetHeader className="sr-only">
               <SheetTitle>{layers.localName || t('mapBuilder')}</SheetTitle>
               <SheetDescription>{t('descriptionLabel')}</SheetDescription>
             </SheetHeader>
             <div className="p-3 border-b flex items-center justify-between">
               <span className="text-sm font-semibold truncate">{layers.localName}</span>
-              <Button variant={layers.hasUnsavedChanges ? 'default' : 'outline'} size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={save.handleSave} disabled={save.isSaving}>
+              <Button variant={layers.hasUnsavedChanges ? 'default' : 'outline'} size="sm" className="min-h-11 gap-1 shrink-0 px-3 text-xs" onClick={save.handleSave} disabled={save.isSaving}>
                 {save.isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                 {t('actions.save')}
               </Button>
@@ -558,7 +558,7 @@ export function MapBuilderPage() {
                 aria-label={btn.label}
                 aria-pressed={!btn.disabled && railPanel === btn.id}
                 className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+                  'flex h-11 w-11 items-center justify-center rounded-md transition-colors',
                   btn.disabled
                     ? 'cursor-not-allowed text-muted-foreground/40'
                     : railPanel === btn.id
@@ -590,7 +590,7 @@ export function MapBuilderPage() {
       {/* Mobile rail as Sheet overlay */}
       {isMobile && railPanel && (
         <Sheet open={!!railPanel} onOpenChange={(open) => { if (!open) setRailPanel(null); }}>
-          <SheetContent side="right" className="w-80 p-0 flex flex-col">
+          <SheetContent side="right" className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col">
             <SheetHeader className="sr-only">
               <SheetTitle>{railSheetTitle}</SheetTitle>
               <SheetDescription>{railSheetDescription}</SheetDescription>

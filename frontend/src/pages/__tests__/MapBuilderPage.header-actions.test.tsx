@@ -15,6 +15,7 @@ const dialogsState = {
   sidebarCollapsed: false,
   setSidebarCollapsed: vi.fn(),
 };
+let mockIsMobile = false;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -96,7 +97,7 @@ vi.mock('@/hooks/use-settings', () => ({
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-layout', () => ({
-  useBuilderLayout: () => ({ isMobile: false }),
+  useBuilderLayout: () => ({ isMobile: mockIsMobile }),
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
@@ -113,6 +114,7 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     localBasemap: 'carto',
     showBasemapLabels: true,
     basemapConfig: null,
+    localTerrainConfig: null,
     setLocalBasemap: vi.fn(),
     setShowBasemapLabels: vi.fn(),
     setBasemapConfig: vi.fn(),
@@ -128,6 +130,7 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     handlePaintChange: vi.fn(),
     handleOpacityChange: vi.fn(),
     handleFilterChange: vi.fn(),
+    handlePopupChange: vi.fn(),
     handleLabelChange: vi.fn(),
     handleStyleConfigChange: vi.fn(),
     handleLayoutChange: vi.fn(),
@@ -144,6 +147,7 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     handleQueryResult: vi.fn(),
     handleDismissEphemeral: vi.fn(),
     handleRenderModeChange: vi.fn(),
+    chatLayerActions: [],
   }),
 }));
 
@@ -154,6 +158,8 @@ vi.mock('@/components/builder/hooks/use-builder-save', () => ({
     handleExportPNG: vi.fn(),
     handleFork: vi.fn(),
     isForkPending: false,
+    saveStatus: 'saved',
+    isSaveRetryable: false,
     maybeAutoCaptureThumbnail: vi.fn(),
     blocker: { state: 'unblocked', reset: vi.fn(), proceed: vi.fn() },
   }),
@@ -164,6 +170,7 @@ const mockUseParams = vi.mocked(useParams);
 describe('MapBuilderPage header actions', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
+    mockIsMobile = false;
     dialogsState.setShowShare.mockReset();
   });
 
@@ -178,5 +185,19 @@ describe('MapBuilderPage header actions', () => {
     await user.click(shareButton);
 
     expect(dialogsState.setShowShare).toHaveBeenCalledWith(true);
+  });
+
+  it('uses 44px mobile sheet and rail targets while leaving map context visible', () => {
+    mockIsMobile = true;
+
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    const sheet = document.body.querySelector('[data-slot="sheet-content"]');
+    expect(sheet?.className).toContain('max-w-[calc(100vw-5rem)]');
+
+    expect(screen.getByRole('button', { name: 'actions.save' }).className).toContain('min-h-11');
+    const notesRailButton = document.body.querySelector('button[title="dock.notes"]');
+    expect(notesRailButton?.className).toContain('h-11');
+    expect(notesRailButton?.className).toContain('w-11');
   });
 });
