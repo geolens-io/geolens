@@ -140,8 +140,8 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     const firstColor = await swatches.first().getAttribute('title');
     expect(firstColor).toBeTruthy();
 
-    // Collapse the layer panel
-    await page.getByRole('button', { name: 'Collapse options' }).click();
+    // Return to the layer list through the current sidebar-local inspector control.
+    await page.getByRole('button', { name: 'Back to layers' }).click();
     await expect(page.getByText('Data-Driven Style')).not.toBeVisible();
 
     // Re-expand
