@@ -254,6 +254,22 @@ def test_build_maplibre_style_exports_terrain_block():
     )
 
 
+def test_build_maplibre_style_exports_basemap_config_metadata():
+    map_obj = _map()
+    map_obj.basemap_config = {
+        "label_mode": "subtle",
+        "road_visibility": "hidden",
+        "boundary_visibility": "subtle",
+        "building_visibility": False,
+        "land_water_tone": "muted",
+        "relief_contrast": "strong",
+    }
+
+    style = build_maplibre_style(map_obj, [_layer()])
+
+    assert style["metadata"]["geolens"]["basemap_config"] == map_obj.basemap_config
+
+
 def test_build_maplibre_style_omits_terrain_block_when_dem_source_missing():
     map_obj = _map()
     map_obj.terrain_config = {
@@ -642,6 +658,38 @@ def test_parse_maplibre_style_import_restores_terrain_from_metadata_fallback():
     assert imported.terrain_config["enabled"] is True
     assert imported.terrain_config["source_dataset_id"] == str(dem_id)
     assert imported.terrain_config["exaggeration"] == 1.5
+
+
+def test_parse_maplibre_style_import_restores_basemap_config_from_metadata():
+    style = {
+        "version": 8,
+        "name": "Basemap config style",
+        "sources": {},
+        "layers": [],
+        "metadata": {
+            "geolens": {
+                "basemap_config": {
+                    "label_mode": "hidden",
+                    "road_visibility": "subtle",
+                    "boundary_visibility": "full",
+                    "building_visibility": True,
+                    "land_water_tone": "contrast",
+                    "relief_contrast": "soft",
+                }
+            }
+        },
+    }
+
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.basemap_config == {
+        "label_mode": "hidden",
+        "road_visibility": "subtle",
+        "boundary_visibility": "full",
+        "building_visibility": True,
+        "land_water_tone": "contrast",
+        "relief_contrast": "soft",
+    }
 
 
 def test_parse_maplibre_style_import_restores_outline_and_extrusion_companions():

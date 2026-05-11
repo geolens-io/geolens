@@ -30,6 +30,16 @@ from app.modules.catalog.maps.service import create_share_token, update_share_to
 from tests.factories import create_dataset, get_user_id
 
 
+BASEMAP_CONFIG_PAYLOAD = {
+    "label_mode": "subtle",
+    "road_visibility": "subtle",
+    "boundary_visibility": "hidden",
+    "building_visibility": False,
+    "land_water_tone": "muted",
+    "relief_contrast": "strong",
+}
+
+
 def test_maps_service_facade_exports_public_api() -> None:
     """The public maps service facade preserves existing caller imports."""
     from app.modules.catalog.maps import service
@@ -209,6 +219,31 @@ class TestCreateMap:
         )
         assert resp.status_code == 201
         assert resp.json()["description"] is None
+
+    async def test_create_map_defaults_basemap_config_to_null(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Omitted basemap_config preserves existing saved-map behavior."""
+        created = await _create_map(client, admin_auth_header)
+
+        assert created["basemap_config"] is None
+        assert created["show_basemap_labels"] is True
+
+    async def test_create_map_persists_basemap_config(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """POST /maps/ accepts the strict curated basemap appearance contract."""
+        resp = await client.post(
+            "/maps/",
+            json={
+                "name": f"Basemap Config Map {uuid.uuid4().hex[:6]}",
+                "basemap_config": BASEMAP_CONFIG_PAYLOAD,
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +494,40 @@ class TestUpdateMap:
         )
         assert resp.status_code == 200
         assert resp.json()["visibility"] == "public"
+
+    async def test_update_map_round_trips_basemap_config(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """PUT /maps/{id} stores and returns curated basemap appearance fields."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"basemap_config": BASEMAP_CONFIG_PAYLOAD},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
+
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        assert fetched.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
+
+    async def test_update_map_rejects_extra_basemap_config_fields(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """The basemap_config API rejects raw/unrecognized style-layer edits."""
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={"basemap_config": {**BASEMAP_CONFIG_PAYLOAD, "raw_layers": []}},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -1431,6 +1500,29 @@ class TestSharedMap:
         assert data["name"] == "Shared Map"
         assert "layers" in data
         assert "basemap_style" in data
+
+    async def test_get_shared_map_includes_basemap_config(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Public share payloads include persisted basemap appearance metadata."""
+        created = await _create_map(client, admin_auth_header, "Shared Basemap Map")
+        map_id = created["id"]
+
+        put_resp = await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public", "basemap_config": BASEMAP_CONFIG_PAYLOAD},
+            headers=admin_auth_header,
+        )
+        assert put_resp.status_code == 200
+        share_resp = await client.post(
+            f"/maps/{map_id}/share/", headers=admin_auth_header
+        )
+        token = share_resp.json()["token"]
+
+        resp = await client.get(f"/maps/shared/{token}")
+
+        assert resp.status_code == 200
+        assert resp.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
 
     async def test_get_shared_map_invalid_token(self, client: AsyncClient):
         """GET /maps/shared/{bogus_token} returns 404."""
