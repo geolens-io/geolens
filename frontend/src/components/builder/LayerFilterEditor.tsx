@@ -481,79 +481,85 @@ export function LayerFilterEditor({
             const ops = OPERATORS_BY_TYPE[colType];
 
             return (
-              <div key={cond.id} className="flex items-center gap-1.5">
+              <div key={cond.id} data-testid="filter-condition-row" className="space-y-1.5">
                 {/* Field select */}
-                <Select
-                  value={cond.field}
-                  onValueChange={(val) => updateCondition(cond.id, { field: val })}
-                  aria-label={t('filters.field')}
-                >
-                  <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
-                    <SelectValue placeholder={t('filters.field')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columnInfo.map((col) => (
-                      <SelectItem key={col.name} value={col.name} className="text-xs">
-                        {col.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div data-testid="filter-field-row" className="min-w-0">
+                  <Select
+                    value={cond.field}
+                    onValueChange={(val) => updateCondition(cond.id, { field: val })}
+                    aria-label={t('filters.field')}
+                  >
+                    <SelectTrigger className="h-7 w-full min-w-0 text-xs" aria-label={t('filters.field')}>
+                      <SelectValue placeholder={t('filters.field')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columnInfo.map((col) => (
+                        <SelectItem key={col.name} value={col.name} className="text-xs">
+                          {col.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                {/* Operator select */}
-                <Select
-                  value={cond.operator}
-                  onValueChange={(val) => updateCondition(cond.id, { operator: val })}
-                  aria-label={t('filters.op')}
-                >
-                  <SelectTrigger className="h-7 text-xs w-24 shrink-0">
-                    <SelectValue placeholder={t('filters.op')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ops.map((op) => (
-                      <SelectItem key={op.value} value={op.value} className="text-xs">
-                        {op.labelKey ? t(op.labelKey) : op.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div data-testid="filter-value-row" className="grid grid-cols-[minmax(5rem,6.5rem)_minmax(0,1fr)_1.75rem] items-center gap-1.5">
+                  {/* Operator select */}
+                  <Select
+                    value={cond.operator}
+                    onValueChange={(val) => updateCondition(cond.id, { operator: val })}
+                    aria-label={t('filters.op')}
+                  >
+                    <SelectTrigger className="h-7 w-full text-xs" aria-label={t('filters.op')}>
+                      <SelectValue placeholder={t('filters.op')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ops.map((op) => (
+                        <SelectItem key={op.value} value={op.value} className="text-xs">
+                          {op.labelKey ? t(op.labelKey) : op.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                {/* Value input (hidden for is_null and has) */}
-                {cond.operator !== 'is_null' && cond.operator !== 'has' && (
-                  getFieldType(cond.field) === 'boolean' && cond.operator === '==' ? (
-                    <Select
-                      value={cond.value || 'true'}
-                      onValueChange={(val) => updateCondition(cond.id, { value: val })}
-                    >
-                      <SelectTrigger className="h-7 text-xs w-24 shrink-0" aria-label={t('filters.value')}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="true" className="text-xs">true</SelectItem>
-                        <SelectItem value="false" className="text-xs">false</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  {/* Value input (hidden for is_null and has) */}
+                  {cond.operator !== 'is_null' && cond.operator !== 'has' ? (
+                    getFieldType(cond.field) === 'boolean' && cond.operator === '==' ? (
+                      <Select
+                        value={cond.value || 'true'}
+                        onValueChange={(val) => updateCondition(cond.id, { value: val })}
+                      >
+                        <SelectTrigger className="h-7 w-full text-xs" aria-label={t('filters.value')}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true" className="text-xs">true</SelectItem>
+                          <SelectItem value="false" className="text-xs">false</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        className="h-7 w-full min-w-0 text-xs"
+                        placeholder={t('filters.value')}
+                        aria-label={t('filters.value')}
+                        value={cond.value}
+                        onChange={(e) => updateCondition(cond.id, { value: e.target.value }, true)}
+                      />
+                    )
                   ) : (
-                    <Input
-                      className="h-7 text-xs flex-1 min-w-0"
-                      placeholder={t('filters.value')}
-                      aria-label={t('filters.value')}
-                      value={cond.value}
-                      onChange={(e) => updateCondition(cond.id, { value: e.target.value }, true)}
-                    />
-                  )
-                )}
+                    <span aria-hidden="true" />
+                  )}
 
-                {/* Remove button */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0"
-                  onClick={() => removeCondition(cond.id)}
-                  aria-label={t('filters.removeCondition', { defaultValue: 'Remove condition' })}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
+                  {/* Remove button */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0 justify-self-end"
+                    onClick={() => removeCondition(cond.id)}
+                    aria-label={t('filters.removeCondition', { defaultValue: 'Remove condition' })}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
             );
           })}

@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { parseFilterExpression, buildFilterExpression } from '../LayerFilterEditor';
+import { createElement } from 'react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, within } from '@/test/test-utils';
+import { LayerFilterEditor, parseFilterExpression, buildFilterExpression } from '../LayerFilterEditor';
 import type { FilterSpecification } from 'maplibre-gl';
 
 // Column info used for buildFilterExpression tests
@@ -212,5 +214,28 @@ describe('opaque roundtrip', () => {
       const reparse = parseFilterExpression(deserialized);
       expect(reparse.kind).toBe('opaque');
     }
+  });
+});
+
+describe('LayerFilterEditor layout', () => {
+  it('keeps the field selector on its own row before operator and value controls', () => {
+    render(createElement(LayerFilterEditor, {
+      columnInfo: [
+        { name: 'very_long_descriptive_field_name', type: 'text' },
+        ...columns,
+      ],
+      filter: ['all', ['==', ['get', 'very_long_descriptive_field_name'], 'Parks']] as FilterSpecification,
+      onFilterChange: vi.fn(),
+    }));
+
+    const condition = screen.getByTestId('filter-condition-row');
+    const fieldRow = within(condition).getByTestId('filter-field-row');
+    const valueRow = within(condition).getByTestId('filter-value-row');
+
+    expect(fieldRow).toContainElement(screen.getByRole('combobox', { name: 'Field' }));
+    expect(valueRow).toContainElement(screen.getByRole('combobox', { name: 'Op' }));
+    expect(valueRow).toContainElement(screen.getByRole('textbox', { name: 'Value' }));
+    expect(valueRow).toContainElement(screen.getByRole('button', { name: 'Remove condition' }));
+    expect(fieldRow).not.toBe(valueRow);
   });
 });
