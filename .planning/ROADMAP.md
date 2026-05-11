@@ -72,7 +72,7 @@
 - [x] Phase 1004: styling-and-cartography-control-polish — requirements STYLE-01..08 (completed 2026-05-11)
 - [x] Phase 1005: preview-save-share-output-parity — requirements OUTPUT-01..06 (completed 2026-05-11)
 - [x] Phase 1006: responsive-accessibility-copy-hardening — requirements A11Y-01..06 (completed 2026-05-11)
-- [ ] Phase 1007: durable-builder-qa-gate-and-closeout — requirements QA-01..06
+- [x] Phase 1007: durable-builder-qa-gate-and-closeout — requirements QA-01..06 (completed 2026-05-11)
 
 **Requirements:** 38 total, 38 mapped, 0 unmapped.
 

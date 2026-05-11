@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1001
 milestone_name: Map Builder UI/UX Polish Sweep
-status: ready_to_plan
-last_updated: "2026-05-11T21:01:43Z"
-last_activity: 2026-05-11 — Phase 1006 hardened authenticated map-route shell state, mobile builder sheet/touch targets, and basemap recovery copy with complete builder locales.
+status: completed
+last_updated: "2026-05-11T22:12:00Z"
+last_activity: 2026-05-11 — Phase 1007 converted builder polish coverage into deterministic Vitest, Playwright, accessibility, and builder-smoke QA gates, replacing the sidebar drag flake with keyboard resize coverage.
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 7
-  completed_plans: 7
-  percent: 83
+  completed_phases: 6
+  total_plans: 8
+  completed_plans: 8
+  percent: 100
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** 1007 next — Durable builder QA gate and closeout
-**Plan:** —
-**Status:** Phase 1006 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1006-responsive-accessibility-copy-hardening/`; ready to plan Phase 1007.
-**Last activity:** 2026-05-11 — Phase 1006 restored authenticated user state for persisted tokens, prevented token/user-null map routes from showing editor/footer artifacts, tightened mobile builder sheets and touch targets, and added localized basemap recovery copy.
+**Phase:** 1007 complete — Durable builder QA gate and closeout
+**Plan:** 1007-01 complete
+**Status:** v1001 phases complete; milestone closeout/audit in progress.
+**Last activity:** 2026-05-11 — Phase 1007 added durable builder QA gates, public-output accessibility coverage, deterministic sidebar resize coverage, and refreshed builder-styling smoke selectors.
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1007 planning.
+**Current focus:** v1001 milestone closeout.
 
 ## Last Shipped Milestone
 
@@ -95,6 +95,7 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 - Phase 1004 completed 2026-05-11: style controls are grouped by visual intent, pending geometry-aware swatches reflect in-memory style edits, data-driven/raster validation is recoverable, filters explicitly state selected-layer scope, label/popup empty states are clearer, and focused tests preserve `paint` / `style_config` / style JSON alignment.
 - Phase 1005 completed 2026-05-11: public/shared/embed viewer layer identity no longer relies on `sort_order`, shared-token API payloads include layer IDs, builder save state distinguishes saved/unsaved/saving/failed/retry, share/embed output warns about unsaved publication lag, and server-side thumbnails remain deferred to OPS-01/NEXT-04.
 - Phase 1006 completed 2026-05-11: authenticated map routes restore user state before loading editor chrome, token/user-null routes suppress footer artifacts, mobile builder sheets leave more map context with 44px touched controls, and BuilderMap surfaces localized non-blocking basemap recovery copy.
+- Phase 1007 completed 2026-05-11: focused builder regression and builder-smoke gates now avoid seeded demo-map dependencies, the sidebar resize flake is replaced with deterministic keyboard slider coverage, desktop/tablet/mobile builder state is asserted in Playwright, builder/public-output accessibility checks pass, and touched builder/public-output Vitest coverage is recorded.
 
 ## Recent Decisions
 
@@ -154,9 +155,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T21:01:43Z
-Stopped at: Phase 1006 complete; ready to plan Phase 1007.
-Resume file: `.planning/phases/1006-responsive-accessibility-copy-hardening/1006-VERIFICATION.md`
+Last session: 2026-05-11T22:12:00Z
+Stopped at: Phase 1007 complete; v1001 milestone closeout in progress.
+Resume file: `.planning/phases/1007-durable-builder-qa-gate-and-closeout/1007-VERIFICATION.md`
 
 ---
-*Last updated: 2026-05-11 after completing Phase 1006*
+*Last updated: 2026-05-11 after completing Phase 1007*

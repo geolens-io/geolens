@@ -57,12 +57,12 @@
 
 ### Durable QA Gate
 
-- [ ] **QA-01**: Developer can run a focused builder regression suite covering the polished workflow without requiring seeded demo maps unless the test explicitly opts in.
-- [ ] **QA-02**: Developer can run builder smoke tests without the known sidebar drag-handle flake or with a deterministic replacement that proves the intended behavior.
-- [ ] **QA-03**: Developer can run Playwright coverage for desktop, tablet, and mobile builder paths that asserts key UI state rather than relying only on screenshots.
-- [ ] **QA-04**: Developer can run accessibility checks for the builder and public saved-map outputs with documented exclusions only for MapLibre canvas internals.
-- [ ] **QA-05**: Reviewer can compare before/after screenshots for genuinely visual polish decisions, with screenshot paths recorded in the phase artifact.
-- [ ] **QA-06**: Developer can run focused Vitest coverage for touched builder components, hooks, and adapters, including regression tests for style/public-output alignment.
+- [x] **QA-01**: Developer can run a focused builder regression suite covering the polished workflow without requiring seeded demo maps unless the test explicitly opts in.
+- [x] **QA-02**: Developer can run builder smoke tests without the known sidebar drag-handle flake or with a deterministic replacement that proves the intended behavior.
+- [x] **QA-03**: Developer can run Playwright coverage for desktop, tablet, and mobile builder paths that asserts key UI state rather than relying only on screenshots.
+- [x] **QA-04**: Developer can run accessibility checks for the builder and public saved-map outputs with documented exclusions only for MapLibre canvas internals.
+- [x] **QA-05**: Reviewer can compare before/after screenshots for genuinely visual polish decisions, with screenshot paths recorded in the phase artifact.
+- [x] **QA-06**: Developer can run focused Vitest coverage for touched builder components, hooks, and adapters, including regression tests for style/public-output alignment.
 
 ## vNext Requirements
 
@@ -134,12 +134,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | A11Y-04 | Phase 1006 | Complete |
 | A11Y-05 | Phase 1006 | Complete |
 | A11Y-06 | Phase 1006 | Complete |
-| QA-01 | Phase 1007 | Pending |
-| QA-02 | Phase 1007 | Pending |
-| QA-03 | Phase 1007 | Pending |
-| QA-04 | Phase 1007 | Pending |
-| QA-05 | Phase 1007 | Pending |
-| QA-06 | Phase 1007 | Pending |
+| QA-01 | Phase 1007 | Complete |
+| QA-02 | Phase 1007 | Complete |
+| QA-03 | Phase 1007 | Complete |
+| QA-04 | Phase 1007 | Complete |
+| QA-05 | Phase 1007 | Complete |
+| QA-06 | Phase 1007 | Complete |
 
 **Coverage:**
 - v1001 requirements: 38 total
@@ -148,4 +148,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-11*
-*Last updated: 2026-05-11 after Phase 1006 verification*
+*Last updated: 2026-05-11 after Phase 1007 verification*
