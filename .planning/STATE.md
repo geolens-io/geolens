@@ -1,32 +1,35 @@
 ---
 gsd_state_version: 1.0
-milestone: v1000
-milestone_name: Map Stack and Basemap Layer Controls
-status: completed
-last_updated: "2026-05-11T17:55:00.000Z"
+milestone: v1001
+milestone_name: Map Builder UI/UX Polish Sweep
+status: defining_requirements
+last_updated: "2026-05-11T18:10:00.000Z"
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-**Milestone:** v1000 — Map Stack and Basemap Layer Controls
-**Status:** Completed and archived. Phase 1000 plus Phase 1001 gap closure shipped 7/7 plans, including authenticated public DEM metadata preservation and the completion pre-flight Map Stack test helper fix.
+**Milestone:** v1001 — Map Builder UI/UX Polish Sweep
+**Phase:** Not started (defining requirements)
+**Plan:** —
+**Status:** Defining requirements for a broad builder workflow sweep covering create/edit/style/preview/share paths, with inspector polish and durable visual/keyboard/accessibility regression coverage.
+**Last activity:** 2026-05-11 — Milestone v1001 started after user selected Workflow Sweep plus Broad Sweep.
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-11 at v1000 close)
+See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone.
+**Current focus:** Defining requirements for v1001 Map Builder UI/UX Polish Sweep.
 
 ## Last Shipped Milestone
 
@@ -144,4 +147,4 @@ Stopped at: Phase 1000 complete and verified at 7/7; auto-advance cleared at mil
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after v1000 milestone close*
+*Last updated: 2026-05-11 after starting v1001 Map Builder UI/UX Polish Sweep*
