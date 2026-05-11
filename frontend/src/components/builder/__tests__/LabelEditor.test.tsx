@@ -104,3 +104,16 @@ describe('LabelEditor LAYER-01 — toggle no-op when no columns available', () =
     expect(onLabelChange).not.toHaveBeenCalled();
   });
 });
+
+describe('LabelEditor accessibility', () => {
+  it('gives label switches explicit accessible names', () => {
+    renderLabelEditor({
+      column: 'name',
+      fontSize: 12,
+      allowOverlap: false,
+    });
+
+    expect(screen.getByRole('switch', { name: 'Enable labels' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Allow overlap' })).toBeInTheDocument();
+  });
+});

@@ -89,8 +89,8 @@ describe('LayerPanel', () => {
 
   it('renders one LayerItem per layer in populated state and shows count badge', () => {
     const layers = [
-      makeLayer({ id: 'a', dataset_name: 'Layer A' }),
-      makeLayer({ id: 'b', dataset_name: 'Layer B' }),
+      makeLayer({ id: 'a', dataset_name: 'Layer A', sort_order: 0 }),
+      makeLayer({ id: 'b', dataset_name: 'Layer B', sort_order: 1 }),
     ];
 
     render(<LayerPanel {...defaultProps({ layers })} />);
@@ -100,9 +100,25 @@ describe('LayerPanel', () => {
     // List container renders with role="list" and the title aria-label
     const list = screen.getByRole('list', { name: 'layers.title' });
     expect(list).toBeInTheDocument();
-    // Each LayerItem renders as a role="group" with the layer name as aria-label
-    expect(screen.getByRole('group', { name: 'Layer A' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Layer B' })).toBeInTheDocument();
+    // Each LayerItem renders as a role="group" with the layer name and metadata in its aria-label
+    expect(screen.getByRole('group', { name: /Layer A, Polygon, #1/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Layer B, Polygon, #2/ })).toBeInTheDocument();
+  });
+
+  it('surfaces stable metadata badges for duplicate dataset layers', () => {
+    const layers = [
+      makeLayer({ id: 'a', dataset_id: 'dataset-1', dataset_name: 'Population', sort_order: 0 }),
+      makeLayer({ id: 'b', dataset_id: 'dataset-1', dataset_name: 'Population', sort_order: 1 }),
+    ];
+
+    render(<LayerPanel {...defaultProps({ layers })} />);
+
+    expect(screen.getAllByText('Population')).toHaveLength(2);
+    expect(screen.getAllByText('Polygon')).toHaveLength(2);
+    expect(screen.getByText('#1')).toBeInTheDocument();
+    expect(screen.getByText('#2')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Population, Polygon, #1/ })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Population, Polygon, #2/ })).toBeInTheDocument();
   });
 
   it('clicking the empty-state Add data button fires onAddDataClick', () => {

@@ -101,6 +101,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           onCheckedChange={handleToggle}
           disabled={!isOn && columns.length === 0}
           aria-disabled={!isOn && columns.length === 0}
+          aria-label={t('labels.enable', { defaultValue: 'Enable labels' })}
           title={!isOn && columns.length === 0 ? t('labels.noColumns', { defaultValue: 'No columns available to label' }) : undefined}
         />
       </div>
@@ -259,6 +260,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
             <Switch
               checked={labelConfig.allowOverlap ?? false}
               onCheckedChange={(v) => update({ allowOverlap: v })}
+              aria-label={t('labels.allowOverlap')}
               className="scale-75"
             />
           </div>

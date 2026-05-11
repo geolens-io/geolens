@@ -62,6 +62,29 @@ function getLabelSummary(layer: MapLayerResponse): string | null {
   return lc.column;
 }
 
+function humanizeLayerKind(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getLayerKindBadge(layer: MapLayerResponse, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (layer.is_dem) return t('layerItem.demBadge', { defaultValue: 'DEM' });
+  const renderMode = layer.style_config?.render_mode;
+  if (renderMode === 'heatmap') return t('layerItem.heatmapBadge', { defaultValue: 'Heatmap' });
+  if (renderMode === 'hillshade') return t('layerItem.hillshadeBadge', { defaultValue: 'Hillshade' });
+  if (renderMode === 'symbol') return t('layerItem.symbolBadge', { defaultValue: 'Symbol' });
+  return humanizeLayerKind(layer.dataset_geometry_type) ?? t('layerItem.layerBadge', { defaultValue: 'Layer' });
+}
+
+function getLayerPositionBadge(layer: MapLayerResponse, t: (key: string, opts?: Record<string, unknown>) => string): string | null {
+  if (!Number.isFinite(layer.sort_order)) return null;
+  const position = layer.sort_order + 1;
+  return t('layerItem.stackPosition', { position, defaultValue: `#${position}` });
+}
+
 interface LayerItemProps {
   layer: MapLayerResponse;
   isFirst: boolean;
@@ -144,9 +167,17 @@ export const LayerItem = memo(function LayerItem({
   const filterSummary = useMemo(() => hasActiveFilter ? getFilterSummary(layer) : null, [hasActiveFilter, layer]);
   const labelSummary = useMemo(() => getLabelSummary(layer), [layer]);
   const caps = useMemo(() => getLayerCapabilities(layer), [layer]);
+  const layerName = layer.display_name ?? layer.dataset_name;
+  const layerKindBadge = useMemo(() => getLayerKindBadge(layer, t), [layer, t]);
+  const layerPositionBadge = useMemo(() => getLayerPositionBadge(layer, t), [layer, t]);
+  const layerMetaBadges = useMemo(
+    () => [layerKindBadge, layerPositionBadge].filter((badge): badge is string => Boolean(badge)),
+    [layerKindBadge, layerPositionBadge],
+  );
+  const accessibleLayerName = [layerName, ...layerMetaBadges].join(', ');
 
   return (
-    <div ref={setNodeRef} style={style} role="group" aria-label={layer.display_name ?? layer.dataset_name}>
+    <div ref={setNodeRef} style={style} role="group" aria-label={accessibleLayerName}>
       <div className={cn(
         'flex items-center gap-1.5 px-2 py-1.5 rounded hover:bg-accent/50 group transition-[opacity,background-color] duration-200',
         !layer.visible && 'opacity-50',
@@ -204,10 +235,18 @@ export const LayerItem = memo(function LayerItem({
             className="flex-1 text-sm truncate cursor-text flex items-center gap-1 min-w-0 min-h-[28px] py-0.5 rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             onDoubleClick={() => setEditing(true)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'F2') setEditing(true); }}
-            title={t('layerItem.renameHint')}
-            aria-label={`${layer.display_name ?? layer.dataset_name} — ${t('layerItem.renameHint')}`}
+            title={`${accessibleLayerName} - ${t('layerItem.renameHint')}`}
+            aria-label={`${accessibleLayerName} — ${t('layerItem.renameHint')}`}
           >
-            <span className="truncate">{layer.display_name ?? layer.dataset_name}</span>
+            <span className="min-w-0 flex-1 truncate">{layerName}</span>
+            {layerMetaBadges.map((badge) => (
+              <span
+                key={badge}
+                className="shrink-0 rounded border border-border/60 bg-muted px-1 text-[10px] leading-4 text-muted-foreground"
+              >
+                {badge}
+              </span>
+            ))}
             {styleSummary && (
               <Tooltip>
                 <TooltipTrigger asChild>
