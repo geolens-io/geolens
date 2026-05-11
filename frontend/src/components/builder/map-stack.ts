@@ -32,7 +32,7 @@ export type MapStackRole =
   | 'interaction-popups'
   | 'interaction-widgets';
 
-export type MapStackBadgeTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning';
+export type MapStackBadgeTone = 'neutral' | 'muted' | 'info' | 'success' | 'warning' | 'danger';
 
 export interface MapStackBadge {
   label: string;
@@ -228,6 +228,9 @@ function typeBadge(layer: MapLayerResponse): MapStackBadge {
   if (mode === 'heatmap') return { label: 'Heatmap', tone: 'info' };
   if (mode === 'symbol') return { label: 'Symbol', tone: 'info' };
   if (layer.is_dem) return { label: 'DEM', tone: 'info' };
+  if (layer.layer_type !== 'raster_geolens' && !layer.dataset_geometry_type) {
+    return { label: 'Unsupported', tone: 'warning' };
+  }
   if (layer.dataset_geometry_type) return { label: layer.dataset_geometry_type, tone: 'neutral' };
   if (layer.layer_type === 'raster_geolens') return { label: 'Raster', tone: 'neutral' };
   return { label: 'Layer', tone: 'neutral' };

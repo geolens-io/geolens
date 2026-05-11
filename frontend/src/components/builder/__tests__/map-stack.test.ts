@@ -187,6 +187,26 @@ describe('buildMapStack', () => {
     });
   });
 
+  it('marks unsupported vector layers and missing terrain sources for stack row state', () => {
+    const unsupportedLayer = makeLayer({
+      id: 'unsupported-layer',
+      dataset_geometry_type: null,
+      layer_type: 'vector_geolens',
+      dataset_record_type: 'vector_dataset',
+    });
+
+    const groups = buildMapStack(makeMap({
+      terrain_config: { enabled: true, source_dataset_id: 'missing-dem', exaggeration: 3 },
+      layers: [unsupportedLayer],
+    }));
+    const entries = flattenMapStack(groups);
+
+    expect(entries.find((entry) => entry.id === 'data:unsupported-layer')?.badges)
+      .toContainEqual({ label: 'Unsupported', tone: 'warning' });
+    expect(entries.find((entry) => entry.id === 'surface:terrain')?.badges)
+      .toContainEqual({ label: 'Missing source', tone: 'warning' });
+  });
+
   it('sorts copied layer inputs without mutating the persisted layer array', () => {
     const first = makeLayer({ id: 'first', sort_order: 2 });
     const second = makeLayer({ id: 'second', sort_order: 1 });

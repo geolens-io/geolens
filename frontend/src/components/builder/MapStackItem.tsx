@@ -74,6 +74,7 @@ const BADGE_TONE_CLASSES: Record<MapStackBadgeTone, string> = {
   info: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-300',
   success: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300',
   warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300',
+  danger: 'border-destructive/40 bg-destructive/10 text-destructive',
 };
 
 function primaryLayerTitle(layer: MapLayerResponse) {
@@ -188,6 +189,11 @@ function translateBadgeLabel(
     preset: 'preset',
     raster: 'raster',
     layer: 'layer',
+    selected: 'selected',
+    locked: 'locked',
+    disabled: 'disabled',
+    unsupported: 'unsupported',
+    'needs attention': 'needsAttention',
   };
   const key = known[label.trim().toLowerCase()];
   return key ? t(`mapStack.badges.${key}`, { defaultValue: label }) : label;
@@ -261,6 +267,16 @@ export const MapStackItem = memo(function MapStackItem({
   const subtitle = translatedSubtitle(entry, t);
   const [nameValue, setNameValue] = useState(displayTitle);
   const showInspectorButton = canOpenInspector(entry, layer);
+  const capabilities = useMemo(() => primaryLayer ? getLayerCapabilities(primaryLayer) : null, [primaryLayer]);
+  const isUnsupported = Boolean(
+    primaryLayer
+      && capabilities
+      && capabilities.kind === 'vector'
+      && !capabilities.supportsStyleEditor,
+  );
+  const terrainStatus = entry.metadata.terrain?.sourceStatus;
+  const isDisabled = terrainStatus === 'disabled';
+  const needsAttention = terrainStatus === 'missing';
 
   useEffect(() => {
     if (!editing) setNameValue(displayTitle);
@@ -281,8 +297,16 @@ export const MapStackItem = memo(function MapStackItem({
     ...badge,
     label: translateBadgeLabel(badge.label, t),
   }));
-  const visibleBadges = translatedBadges.slice(0, 3);
-  const hiddenBadgeCount = Math.max(translatedBadges.length - visibleBadges.length, 0);
+  const stateBadges = [
+    isActive ? { label: translateBadgeLabel('Selected', t), tone: 'info' as const } : null,
+    entry.locked ? { label: translateBadgeLabel('Locked', t), tone: 'muted' as const } : null,
+    isDisabled ? { label: translateBadgeLabel('Disabled', t), tone: 'muted' as const } : null,
+    isUnsupported ? { label: translateBadgeLabel('Unsupported', t), tone: 'warning' as const } : null,
+    needsAttention ? { label: translateBadgeLabel('Needs attention', t), tone: 'danger' as const } : null,
+  ].filter((badge): badge is { label: string; tone: MapStackBadgeTone } => Boolean(badge));
+  const allBadges = [...stateBadges, ...translatedBadges];
+  const visibleBadges = allBadges.slice(0, 3);
+  const hiddenBadgeCount = Math.max(allBadges.length - visibleBadges.length, 0);
   const hideLayerLabel = t('layerItem.hideLayer', { defaultValue: 'Hide layer' });
   const showLayerLabel = t('layerItem.showLayer', { defaultValue: 'Show layer' });
   const openInspectorLabel = t('layerItem.expandOptions', { defaultValue: 'Expand options' });
@@ -290,15 +314,31 @@ export const MapStackItem = memo(function MapStackItem({
   const rowLabel = [
     displayTitle,
     entry.orderLabel,
-    ...translatedBadges.map((badge) => badge.label),
+    ...allBadges.map((badge) => badge.label),
   ].filter(Boolean).join(', ');
   const canRename = Boolean(primaryLayer);
+  const rowState = needsAttention
+    ? 'error'
+    : isUnsupported
+      ? 'unsupported'
+      : isDisabled
+        ? 'disabled'
+        : isActive
+          ? 'selected'
+          : !entry.visible
+            ? 'hidden'
+            : entry.locked
+              ? 'locked'
+              : 'normal';
 
   return (
     <div
       style={style}
       role="group"
       aria-label={rowLabel}
+      data-state={rowState}
+      data-locked={entry.locked ? 'true' : undefined}
+      data-visible={entry.visible ? 'true' : 'false'}
       data-testid={primaryLayer ? `layer-item-${primaryLayer.id}` : 'map-stack-item'}
       className={cn(
         'group/map-stack-row px-2 transition-[opacity,background-color] duration-200',
@@ -307,8 +347,10 @@ export const MapStackItem = memo(function MapStackItem({
     >
       <div
         className={cn(
-          'grid min-h-[56px] grid-cols-[1.5rem_1.75rem_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border border-transparent py-1.5 pe-1.5 transition-colors',
-          isActive ? 'bg-accent/60' : 'hover:bg-accent/40',
+          'grid min-h-[56px] grid-cols-[1.5rem_1.75rem_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border py-1.5 pe-1.5 transition-colors focus-within:ring-2 focus-within:ring-ring',
+          isActive ? 'border-primary/50 bg-accent/70' : 'border-transparent hover:bg-accent/40',
+          needsAttention && 'border-destructive/40 bg-destructive/5',
+          isUnsupported && 'border-amber-300/60 bg-amber-50/50 dark:border-amber-900/60 dark:bg-amber-950/20',
         )}
       >
         {dragHandleProps ? (
