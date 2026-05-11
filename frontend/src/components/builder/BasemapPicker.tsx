@@ -48,42 +48,36 @@ export function BasemapPicker({ value, onChange, showLabels = true, onToggleLabe
         />
       </button>
 
-      {/* Expanded: grid of options — always in DOM, animated via grid-rows transition */}
-      <div className={cn(
-        "grid transition-[grid-template-rows] duration-200 ease-out",
-        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-      )}>
-        <div className="overflow-hidden">
-          <div className="grid grid-cols-4 gap-2 pt-2">
-            {options.map((b) => (
-              <button
-                key={b.id}
-                data-testid="basemap-option"
-                aria-pressed={value === b.id}
-                onClick={() => {
-                  onChange(b.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex cursor-pointer flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-                  value === b.id
-                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-background bg-accent'
-                    : 'hover:bg-accent/50',
-                )}
-              >
-                <img
-                  src={basemapThumbnail(b.id)}
-                  alt={b.label}
-                  className="w-full aspect-square rounded object-cover max-h-14"
-                />
-                <span className="text-[11px] text-center leading-tight truncate w-full">
-                  {b.label}
-                </span>
-              </button>
-            ))}
-          </div>
+      {open && (
+        <div className="grid grid-cols-4 gap-2 pt-2">
+          {options.map((b) => (
+            <button
+              key={b.id}
+              data-testid="basemap-option"
+              aria-pressed={value === b.id}
+              onClick={() => {
+                onChange(b.id);
+                setOpen(false);
+              }}
+              className={cn(
+                'flex cursor-pointer flex-col items-center gap-0.5 rounded-md p-1 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                value === b.id
+                  ? 'ring-2 ring-primary ring-offset-2 ring-offset-background bg-accent'
+                  : 'hover:bg-accent/50',
+              )}
+            >
+              <img
+                src={basemapThumbnail(b.id)}
+                alt={b.label}
+                className="w-full aspect-square rounded object-cover max-h-14"
+              />
+              <span className="text-[11px] text-center leading-tight truncate w-full">
+                {b.label}
+              </span>
+            </button>
+          ))}
         </div>
-      </div>
+      )}
 
       {/* Basemap labels toggle */}
       {onToggleLabels && (

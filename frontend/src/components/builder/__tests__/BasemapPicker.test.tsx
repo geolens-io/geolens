@@ -26,6 +26,7 @@ describe('BasemapPicker', () => {
     // Header button is the only one with aria-expanded
     const header = screen.getByRole('button', { expanded: false });
     expect(within(header).getByText('Positron')).toBeInTheDocument();
+    expect(screen.queryByTestId('basemap-option')).not.toBeInTheDocument();
   });
 
   it('uses static PNG for built-in basemap thumbnail', () => {
@@ -53,10 +54,8 @@ describe('BasemapPicker', () => {
     await user.click(screen.getByRole('button', { expanded: false }));
     await user.click(screen.getByText('Dark'));
     expect(onChange).toHaveBeenCalledWith('openfreemap-dark');
-    // After closing, options remain in DOM (animation wrapper) but the grid
-    // container collapses to grid-rows-[0fr]
-    const gridWrapper = screen.getAllByTestId('basemap-option')[0].closest('[class*="grid-rows"]');
-    expect(gridWrapper).toHaveClass('grid-rows-[0fr]');
+    expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+    expect(screen.queryByTestId('basemap-option')).not.toBeInTheDocument();
   });
 
   it('uses SVG fallback for unknown basemap IDs', () => {
