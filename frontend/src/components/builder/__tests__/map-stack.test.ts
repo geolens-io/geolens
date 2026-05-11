@@ -201,4 +201,85 @@ describe('buildMapStack', () => {
     expect(flattenMapStack(groups).find((entry) => entry.id === 'data:second')?.orderLabel)
       .toBe('Data 1 of 2 (top)');
   });
+
+  it('builds a complete stack from existing saved-map fields without new backend fields', () => {
+    const groups = buildMapStack(makeMap({
+      basemap_style: 'satellite',
+      show_basemap_labels: false,
+      terrain_config: null,
+      layers: [
+        makeLayer({
+          id: 'parcels',
+          dataset_id: 'parcels',
+          dataset_name: 'Parcels',
+          dataset_geometry_type: 'POLYGON',
+          sort_order: 0,
+        }),
+      ],
+    }));
+
+    expect(groups.map((item) => item.id)).toEqual(MAP_STACK_GROUP_ORDER);
+    expect(group(groups, 'surface')?.entries.map((entry) => entry.id)).toEqual(['surface:background']);
+    expect(group(groups, 'basemap')?.entries[0]).toMatchObject({
+      id: 'basemap:preset:satellite',
+      metadata: {
+        basemap: {
+          style: 'satellite',
+          sublayer: 'preset',
+          futureControl: true,
+        },
+      },
+    });
+    expect(group(groups, 'data')?.entries.map((entry) => entry.id)).toEqual(['data:parcels']);
+    expect(flattenMapStack(groups).find((entry) => entry.id === 'labels:basemap')).toMatchObject({
+      visible: false,
+      metadata: {
+        basemap: {
+          labelsVisible: false,
+        },
+      },
+    });
+  });
+
+  it('keeps legacy terrain config useful when the saved DEM source is unavailable', () => {
+    const groups = buildMapStack(makeMap({
+      terrain_config: { enabled: true, source_dataset_id: 'missing-dem', exaggeration: 3 },
+      layers: [],
+    }));
+
+    const terrain = flattenMapStack(groups).find((entry) => entry.id === 'surface:terrain');
+    expect(terrain).toMatchObject({
+      role: 'surface-terrain',
+      title: 'Terrain source missing',
+      visible: false,
+      metadata: {
+        terrain: {
+          enabled: false,
+          exaggeration: 3,
+          sourceDatasetId: 'missing-dem',
+          sourceLayerId: null,
+          sourceStatus: 'missing',
+          verticalUnits: null,
+        },
+      },
+    });
+    expect(terrain?.badges.map((badge) => badge.label)).toContain('Missing source');
+  });
+
+  it('defaults omitted basemap-label state to visible for older or shared payloads', () => {
+    const groups = buildMapStack({
+      basemap_style: 'positron',
+      terrain_config: null,
+      layers: [],
+    } as MapStackMapInput);
+
+    expect(flattenMapStack(groups).find((entry) => entry.id === 'labels:basemap')).toMatchObject({
+      visible: true,
+      metadata: {
+        basemap: {
+          labelsVisible: true,
+        },
+      },
+    });
+  });
 });
