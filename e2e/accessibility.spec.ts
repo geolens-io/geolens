@@ -18,8 +18,11 @@ function formatViolations(violations: any[]): string {
 
 test.describe('Accessibility - WCAG 2AA', () => {
   let builderMapId: string;
+  let builderMapName: string;
+  let shareToken: string;
 
   test.beforeAll(async () => {
+    builderMapName = `A11y Builder Test ${Date.now()}`;
     const response = await fetch(`${BASE_URL}/api/maps/`, {
       method: 'POST',
       headers: {
@@ -27,7 +30,7 @@ test.describe('Accessibility - WCAG 2AA', () => {
         Authorization: `Bearer ${getAuthToken()}`,
       },
       body: JSON.stringify({
-        name: `A11y Builder Test ${Date.now()}`,
+        name: builderMapName,
         description: 'Temporary map for builder accessibility coverage',
       }),
     });
@@ -36,6 +39,28 @@ test.describe('Accessibility - WCAG 2AA', () => {
     const payload = await response.json();
     builderMapId = payload.id;
     expect(builderMapId).toBeTruthy();
+
+    const publishResponse = await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+      body: JSON.stringify({ visibility: 'public' }),
+    });
+    expect(publishResponse.ok).toBe(true);
+
+    const shareResponse = await fetch(`${BASE_URL}/api/maps/${builderMapId}/share/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAuthToken()}`,
+      },
+    });
+    expect(shareResponse.ok).toBe(true);
+    const sharePayload = await shareResponse.json();
+    shareToken = sharePayload.token;
+    expect(shareToken).toBeTruthy();
   });
 
   test.afterAll(async () => {
@@ -68,6 +93,23 @@ test.describe('Accessibility - WCAG 2AA', () => {
 
       const results = await new AxeBuilder({ page })
         .withTags(wcagTags)
+        .analyze();
+
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    });
+
+    test('public saved-map output has no accessibility violations', async ({ page }) => {
+      await page.goto(`/m/${shareToken}`);
+      await expect(page.getByText(builderMapName)).toBeVisible({ timeout: 15_000 });
+      await page.waitForLoadState('networkidle').catch(() => {
+        /* MapLibre/background tile requests may keep the page active. */
+      });
+
+      const results = await new AxeBuilder({ page })
+        .withTags(wcagTags)
+        .exclude('.maplibregl-canvas')
+        .exclude('.maplibregl-control-container')
+        .exclude('.maplibregl-ctrl-attrib-inner')
         .analyze();
 
       expect(results.violations, formatViolations(results.violations)).toEqual([]);
