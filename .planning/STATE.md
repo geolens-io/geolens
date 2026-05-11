@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1001
 milestone_name: Map Builder UI/UX Polish Sweep
-status: defining_requirements
-last_updated: "2026-05-11T18:10:00.000Z"
+status: ready_to_plan
+last_updated: "2026-05-11T18:25:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,10 +17,10 @@ progress:
 ## Current Position
 
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** Not started (defining requirements)
+**Phase:** 1002 next — Kepler-guided builder workflow audit and triage
 **Plan:** —
-**Status:** Defining requirements for a broad builder workflow sweep covering create/edit/style/preview/share paths, with inspector polish and durable visual/keyboard/accessibility regression coverage.
-**Last activity:** 2026-05-11 — Milestone v1001 started after user selected Workflow Sweep plus Broad Sweep.
+**Status:** Requirements and roadmap created for a broad builder workflow sweep covering create/edit/style/preview/share paths, with inspector polish and durable visual/keyboard/accessibility regression coverage.
+**Last activity:** 2026-05-11 — Milestone v1001 roadmap created after user approved requirements with Kepler.gl behavior-reference caveat.
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -29,7 +29,7 @@ Progress: [░░░░░░░░░░] 0%
 See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Defining requirements for v1001 Map Builder UI/UX Polish Sweep.
+**Current focus:** Phase 1002 planning.
 
 ## Last Shipped Milestone
 
@@ -72,6 +72,13 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 ### Roadmap Evolution
 
+- Phase 1002 added: Kepler-guided builder workflow audit and triage (FLOW-01..06).
+- Phase 1003 added: Map Stack inspector interaction polish (STACK-01..06).
+- Phase 1004 added: styling and cartography control polish (STYLE-01..08).
+- Phase 1005 added: preview, save, share, and output parity (OUTPUT-01..06).
+- Phase 1006 added: responsive, accessibility, and copy hardening (A11Y-01..06).
+- Phase 1007 added: durable builder QA gate and closeout (QA-01..06).
+- v1001 uses Kepler.gl as a functionality and behavior guide for layer workflow, filters, interactions, map settings, and save/export semantics, while keeping GeoLens visual styling and MapLibre architecture.
 - Phase 1000 added: Kepler-inspired map stack and basemap layer controls.
 - Phase 1000 captures the 2026-05-10 decision to keep the GeoLens Map Builder/MapLibre architecture instead of replacing it wholesale with Kepler.gl, while refactoring layer management toward Kepler-style stack, grouping, and styling patterns.
 - Phase 1000 planned 2026-05-10 as 5 plans / 4 waves, then added 1000-06 as a verification-gap closure plan: UX blockers, pure Map Stack model, unified inspector UI, persisted basemap appearance/z-order contract, relief/marketing-output Playwright MCP validation, and public-viewer basemap_config rendering.
@@ -147,4 +154,4 @@ Stopped at: Phase 1000 complete and verified at 7/7; auto-advance cleared at mil
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after starting v1001 Map Builder UI/UX Polish Sweep*
+*Last updated: 2026-05-11 after creating v1001 roadmap*
