@@ -121,6 +121,27 @@
     "color": "Farbe",
     "width": "Breite",
     "radius": "Radius",
+    "preview": {
+      "title": "Ausstehende Stilvorschau",
+      "description": "Zeigt diesen Layer vor dem Speichern"
+    },
+    "reset": "Zurücksetzen",
+    "resetTitle": "Stil dieses Layers zurücksetzen",
+    "unsupportedBuilderState": "Dieser importierte Stil verwendet Einstellungen, die der visuelle Editor nicht sicher ändern kann. Gültige Einstellungen bleiben erhalten; verwenden Sie erweitertes JSON für nicht unterstützte Teile.",
+    "sections": {
+      "render": "Darstellung",
+      "renderDescription": "Wählen Sie, wie dieser Punkt-Layer gezeichnet wird.",
+      "dataDriven": "Datengesteuerter Stil",
+      "dataDrivenDescription": "Färben oder skalieren Sie Features nach Attribut.",
+      "appearance": "Farbe, Form und Sichtbarkeit",
+      "appearanceDescription": "Passen Sie sichtbare Geometrie und Zoombereich des ausgewählten Layers an.",
+      "heatmap": "Heatmap-Darstellung",
+      "heatmapDescription": "Dichte, Radius, Intensität und Farbverlauf anpassen.",
+      "symbol": "Symbol-Darstellung",
+      "symbolDescription": "Wählen Sie Symbole, Größe, Drehung und wertbezogene Symbole.",
+      "advanced": "Erweitertes Stil-JSON",
+      "advancedDescription": "Bearbeiten Sie MapLibre paint und layout bei Bedarf direkt."
+    },
     "styledBy": "Stilisiert nach: {{column}}",
     "radiusByColumn": "Radius nach: {{column}}",
     "widthByColumn": "Breite nach: {{column}}",
@@ -184,8 +205,10 @@
     },
     "raster": {
       "title": "Raster",
+      "help": "Passen Sie die Bilddarstellung nur für diesen Layer an.",
       "brightnessMin": "Helligkeit min.",
       "brightnessMax": "Helligkeit max.",
+      "brightnessRangeError": "Helligkeit min. muss kleiner oder gleich Helligkeit max. sein.",
       "contrast": "Kontrast",
       "saturation": "Sättigung",
       "hueRotate": "Farbton",
@@ -201,6 +224,7 @@
       "resetTitle": "Rasterstil zurücksetzen"
     },
     "hillshade": {
+      "help": "Passen Sie die aus diesem DEM-Layer erzeugte Relief-Überlagerung an.",
       "direction": "Richtung",
       "anchor": "Anker",
       "anchorViewport": "Ansicht",
@@ -231,6 +255,10 @@
   },
   "filters": {
     "title": "Filter",
+    "layerTitle": "Layer-Filter",
+    "thisLayer": "dieser Layer",
+    "scopeHelp": "Gilt nur für {{layer}}. Duplizierte Layer desselben Datasets behalten eigene Filter und die öffentliche Ausgabe folgt dem gespeicherten Layer-Filter.",
+    "noColumns": "Dieser Layer hat keine filterbaren Spalten.",
     "addFilter": "Filter hinzufügen",
     "field": "Feld",
     "op": "Op",
@@ -254,6 +282,7 @@
   },
   "labels": {
     "title": "Beschriftungen",
+    "scopeHelp": "Beschriftungseinstellungen gelten nur für diesen Layer.",
     "column": "Spalte",
     "fontSize": "Schriftgröße",
     "textColor": "Textfarbe",
@@ -279,10 +308,12 @@
     "allowOverlap": "Überlappung erlauben",
     "zoomRange": "Zoombereich",
     "minZoom": "Min. Zoom",
-    "maxZoom": "Max. Zoom"
+    "maxZoom": "Max. Zoom",
+    "noColumns": "Dieser Layer hat keine Spalten für Beschriftungen."
   },
   "popup": {
     "enable": "Popup für diesen Layer aktivieren",
+    "scopeHelp": "Popup-Einstellungen gelten nur, wenn Features dieses Layers angeklickt werden.",
     "titleTemplate": "Titelvorlage",
     "expressionHelp": "Verwenden Sie {column_name} Platzhalter. Beispiel: {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
@@ -297,6 +328,7 @@
   },
   "dataDriven": {
     "title": "Datengesteuerter Stil",
+    "scopeHelp": "Erstellt MapLibre-paint-Ausdrücke und hält die Builder-Stilkonfiguration synchron.",
     "clearTitle": "Datengesteuerten Stil entfernen",
     "mode": "Modus",
     "categorical": "Kategorisch",
@@ -305,6 +337,10 @@
     "selectColumn": "Spalte auswählen",
     "noTextColumns": "Keine Textspalten",
     "noNumericColumns": "Keine numerischen Spalten",
+    "noTextColumnsHelp": "Kategorische Stile benötigen eine Textspalte. Wechseln Sie zum abgestuften Modus oder fügen Sie ein Textattribut hinzu.",
+    "noNumericColumnsHelp": "Abgestufte Stile benötigen eine numerische Spalte. Wechseln Sie zum kategorischen Modus oder fügen Sie ein numerisches Attribut hinzu.",
+    "missingColumnHelp": "Spalte \"{{column}}\" ist nicht mehr verfügbar. Wählen Sie eine andere Spalte oder entfernen Sie den datengesteuerten Stil.",
+    "statsUnavailableHelp": "Für diese Spalte sind noch keine Statistiken verfügbar. Wählen Sie eine andere numerische Spalte oder versuchen Sie es nach der Dataset-Verarbeitung erneut.",
     "colorRamp": "Farbverlauf",
     "method": "Methode",
     "equalInterval": "Gleiche Intervalle",

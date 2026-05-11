@@ -39,6 +39,61 @@ const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 });
 
 describe('LayerStyleEditor - dash presets', () => {
+  it('shows a geometry-aware pending style preview and scoped reset action', async () => {
+    const onStyleConfigChange = vi.fn();
+    const onOpacityChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          opacity: 0.42,
+          paint: { 'fill-color': '#123456', 'fill-opacity': 0.4, '_outline-color': '#abcdef' },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={onOpacityChange}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Pending style preview')).toBeInTheDocument();
+    expect(screen.getByText('Reflects this layer before save')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
+      'fill-color': expect.any(String),
+      'fill-opacity': expect.any(Number),
+    }));
+    expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
+  });
+
+  it('warns about unsupported imported style state without mutating style config', () => {
+    const onStyleConfigChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          style_config: {
+            mode: 'third_party_breaks',
+            column: 'traffic',
+            ramp: 'custom',
+          } as unknown as import('@/types/api').StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/This imported style uses settings the visual editor cannot safely change/i)).toBeInTheDocument();
+    expect(onStyleConfigChange).not.toHaveBeenCalled();
+  });
+
   it('renders 4 dash preset buttons for line layers', () => {
     render(
       <LayerStyleEditor

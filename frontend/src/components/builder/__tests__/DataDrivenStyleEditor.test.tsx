@@ -245,6 +245,40 @@ describe('DataDrivenStyleEditor', () => {
     });
   });
 
+  describe('recoverable validation copy', () => {
+    it('explains how to recover when categorical mode has no text columns', () => {
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({ dataset_column_info: [{ name: 'population', type: 'integer' }] })}
+          onStyleConfigChange={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText(/Categorical styles need a text column/i)).toBeInTheDocument();
+    });
+
+    it('explains missing imported style columns without changing style config', () => {
+      const onStyleConfigChange = vi.fn();
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            style_config: {
+              mode: 'graduated',
+              column: 'old_population',
+              ramp: 'YlOrRd',
+              classCount: 5,
+              method: 'equal_interval',
+            },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      expect(screen.getByText(/Column "old_population" is no longer available/i)).toBeInTheDocument();
+      expect(onStyleConfigChange).not.toHaveBeenCalled();
+    });
+  });
+
   describe('useEffect guard — graduated', () => {
     it('resolves custom ramp to YlOrRd when regenerating graduated colors', async () => {
       const customConfig: StyleConfig = {

@@ -395,12 +395,18 @@ export function DataDrivenStyleEditor({
 
   const hasTooManyCategories =
     mode === 'categorical' && valuesData && valuesData.values.length > 20;
+  const noCompatibleColumns = filteredColumns.length === 0;
+  const selectedColumnMissing = Boolean(column) && !columns.some((c) => c.name === column);
+  const graduatedStatsUnavailable =
+    mode === 'graduated' &&
+    Boolean(column) &&
+    (!statsData || statsData.min === null || statsData.max === null || !Array.isArray(statsData.quantiles));
 
   const showTargetSelector = availableTargets.length > 1 && mode === 'graduated';
   const isSizeTarget = target !== 'color' && mode === 'graduated';
 
   return (
-    <div className="space-y-2.5 p-3 bg-muted/30 rounded-md border">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
         <Label className="text-xs font-medium">{t('dataDriven.title')}</Label>
         {column && (
@@ -416,6 +422,9 @@ export function DataDrivenStyleEditor({
           </Button>
         )}
       </div>
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        {t('dataDriven.scopeHelp')}
+      </p>
 
       <div className="flex items-center gap-2">
         <span className="text-xs text-muted-foreground w-20">{t('dataDriven.mode')}</span>
@@ -481,6 +490,26 @@ export function DataDrivenStyleEditor({
           </SelectContent>
         </Select>
       </div>
+
+      {noCompatibleColumns && (
+        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+          {mode === 'categorical'
+            ? t('dataDriven.noTextColumnsHelp')
+            : t('dataDriven.noNumericColumnsHelp')}
+        </p>
+      )}
+
+      {selectedColumnMissing && (
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+          {t('dataDriven.missingColumnHelp', { column })}
+        </p>
+      )}
+
+      {graduatedStatsUnavailable && (
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+          {t('dataDriven.statsUnavailableHelp')}
+        </p>
+      )}
 
       {/* Color ramp — only shown for color target */}
       {column && !isSizeTarget && (
@@ -652,7 +681,7 @@ export function DataDrivenStyleEditor({
       )}
 
       {hasTooManyCategories && (
-        <p className="text-2xs text-warning">
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
           {t('dataDriven.categoriesWarning', { count: valuesData.values.length })}
         </p>
       )}

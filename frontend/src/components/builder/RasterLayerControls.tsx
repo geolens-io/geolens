@@ -51,6 +51,9 @@ export function RasterLayerControls({
 }: RasterLayerControlsProps) {
   const { t } = useTranslation('builder');
   const renderMode = isDem && styleConfig?.render_mode === 'hillshade' ? 'hillshade' : 'raster';
+  const brightnessMin = getNumber('raster-brightness-min', 0);
+  const brightnessMax = getNumber('raster-brightness-max', 1);
+  const hasBrightnessRangeError = renderMode === 'raster' && brightnessMin > brightnessMax;
 
   function getNumber(key: RasterPaintKey | HillshadePaintKey, fallback: number): number {
     return typeof paint[key] === 'number' ? paint[key] : fallback;
@@ -103,6 +106,11 @@ export function RasterLayerControls({
           {t('style.raster.reset', { defaultValue: 'Reset' })}
         </Button>
       </div>
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        {renderMode === 'hillshade'
+          ? t('style.hillshade.help', { defaultValue: 'Tune the relief overlay generated from this DEM layer.' })
+          : t('style.raster.help', { defaultValue: 'Adjust imagery appearance for this layer only.' })}
+      </p>
 
       {isDem && (
         <div className="flex items-center gap-2">
@@ -194,7 +202,7 @@ export function RasterLayerControls({
         <>
       <RasterSliderRow
         label={t('style.raster.brightnessMin', { defaultValue: 'Brightness min' })}
-        value={getNumber('raster-brightness-min', 0)}
+        value={brightnessMin}
         min={0}
         max={1}
         step={0.01}
@@ -203,13 +211,18 @@ export function RasterLayerControls({
       />
       <RasterSliderRow
         label={t('style.raster.brightnessMax', { defaultValue: 'Brightness max' })}
-        value={getNumber('raster-brightness-max', 1)}
+        value={brightnessMax}
         min={0}
         max={1}
         step={0.01}
         format="percent"
         onChange={(v) => setPaintValue('raster-brightness-max', v)}
       />
+      {hasBrightnessRangeError && (
+        <p className="rounded-md bg-warning/15 px-2 py-1.5 text-[11px] leading-snug text-warning-foreground">
+          {t('style.raster.brightnessRangeError', { defaultValue: 'Brightness min must be less than or equal to brightness max.' })}
+        </p>
+      )}
       <RasterSliderRow
         label={t('style.raster.contrast', { defaultValue: 'Contrast' })}
         value={getNumber('raster-contrast', 0)}

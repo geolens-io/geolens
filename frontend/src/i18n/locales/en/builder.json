@@ -124,6 +124,27 @@
     "blur": "Blur",
     "offset": "Offset",
     "radius": "Radius",
+    "preview": {
+      "title": "Pending style preview",
+      "description": "Reflects this layer before save"
+    },
+    "reset": "Reset",
+    "resetTitle": "Reset this layer style",
+    "unsupportedBuilderState": "This imported style uses settings the visual editor cannot safely change. Valid settings are preserved; use Advanced JSON for the unsupported parts.",
+    "sections": {
+      "render": "Render as",
+      "renderDescription": "Choose how this point layer should draw.",
+      "dataDriven": "Data-driven style",
+      "dataDrivenDescription": "Color or size features by an attribute.",
+      "appearance": "Color, shape, and visibility",
+      "appearanceDescription": "Tune the selected layer's visible geometry and zoom range.",
+      "heatmap": "Heatmap appearance",
+      "heatmapDescription": "Tune density, radius, intensity, and ramp.",
+      "symbol": "Symbol appearance",
+      "symbolDescription": "Choose icons, size, rotation, and value-specific symbols.",
+      "advanced": "Advanced style JSON",
+      "advancedDescription": "Edit MapLibre paint and layout directly when needed."
+    },
     "zoomExpression": {
       "fixed": "Fixed",
       "variesByZoom": "Varies by zoom",
@@ -184,8 +205,10 @@
     },
     "raster": {
       "title": "Raster",
+      "help": "Adjust imagery appearance for this layer only.",
       "brightnessMin": "Brightness min",
       "brightnessMax": "Brightness max",
+      "brightnessRangeError": "Brightness min must be less than or equal to brightness max.",
       "contrast": "Contrast",
       "saturation": "Saturation",
       "hueRotate": "Hue",
@@ -201,6 +224,7 @@
       "resetTitle": "Reset raster style"
     },
     "hillshade": {
+      "help": "Tune the relief overlay generated from this DEM layer.",
       "direction": "Direction",
       "anchor": "Anchor",
       "anchorViewport": "Viewport",
@@ -231,6 +255,10 @@
   },
   "filters": {
     "title": "Filters",
+    "layerTitle": "Layer filter",
+    "thisLayer": "this layer",
+    "scopeHelp": "Applies only to {{layer}}. Duplicate layers from the same dataset keep separate filters and public output follows the saved layer filter.",
+    "noColumns": "This layer has no filterable columns.",
     "addFilter": "Add filter",
     "field": "Field",
     "op": "Op",
@@ -254,6 +282,7 @@
   },
   "labels": {
     "title": "Labels",
+    "scopeHelp": "Label settings apply only to this layer.",
     "column": "Column",
     "fontSize": "Font size",
     "textColor": "Text color",
@@ -279,10 +308,12 @@
     "allowOverlap": "Allow overlap",
     "zoomRange": "Zoom Range",
     "minZoom": "Min zoom",
-    "maxZoom": "Max zoom"
+    "maxZoom": "Max zoom",
+    "noColumns": "This layer has no columns available for labels."
   },
   "popup": {
     "enable": "Enable popup for this layer",
+    "scopeHelp": "Popup settings apply only when features from this layer are clicked.",
     "titleTemplate": "Title template",
     "expressionHelp": "Use {column_name} placeholders. Example: {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
@@ -297,6 +328,7 @@
   },
   "dataDriven": {
     "title": "Data-Driven Style",
+    "scopeHelp": "Creates MapLibre paint expressions while keeping the builder style config aligned.",
     "clearTitle": "Clear data-driven style",
     "mode": "Mode",
     "categorical": "Categorical",
@@ -305,6 +337,10 @@
     "selectColumn": "Select column",
     "noTextColumns": "No text columns",
     "noNumericColumns": "No numeric columns",
+    "noTextColumnsHelp": "Categorical styles need a text column. Switch to graduated mode or add a text attribute.",
+    "noNumericColumnsHelp": "Graduated styles need a numeric column. Switch to categorical mode or add a numeric attribute.",
+    "missingColumnHelp": "Column \"{{column}}\" is no longer available. Pick another column or clear the data-driven style.",
+    "statsUnavailableHelp": "Statistics are not available for this column yet. Pick another numeric column or try again after the dataset finishes processing.",
     "colorRamp": "Color Ramp",
     "method": "Method",
     "equalInterval": "Equal Interval",

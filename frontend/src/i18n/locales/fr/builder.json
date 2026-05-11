@@ -121,6 +121,27 @@
     "color": "Couleur",
     "width": "Largeur",
     "radius": "Rayon",
+    "preview": {
+      "title": "Aperçu du style en attente",
+      "description": "Reflète cette couche avant l'enregistrement"
+    },
+    "reset": "Réinitialiser",
+    "resetTitle": "Réinitialiser le style de cette couche",
+    "unsupportedBuilderState": "Ce style importé utilise des paramètres que l'éditeur visuel ne peut pas modifier en toute sécurité. Les paramètres valides sont conservés ; utilisez le JSON avancé pour les parties non prises en charge.",
+    "sections": {
+      "render": "Afficher comme",
+      "renderDescription": "Choisissez comment cette couche de points doit s'afficher.",
+      "dataDriven": "Style piloté par les données",
+      "dataDrivenDescription": "Colorez ou dimensionnez les entités par attribut.",
+      "appearance": "Couleur, forme et visibilité",
+      "appearanceDescription": "Ajustez la géométrie visible et la plage de zoom de la couche sélectionnée.",
+      "heatmap": "Apparence de carte de chaleur",
+      "heatmapDescription": "Ajustez densité, rayon, intensité et palette.",
+      "symbol": "Apparence des symboles",
+      "symbolDescription": "Choisissez icônes, taille, rotation et symboles par valeur.",
+      "advanced": "JSON de style avancé",
+      "advancedDescription": "Modifiez directement paint et layout MapLibre si nécessaire."
+    },
     "styledBy": "Stylisé par : {{column}}",
     "radiusByColumn": "Rayon par : {{column}}",
     "widthByColumn": "Largeur par : {{column}}",
@@ -184,8 +205,10 @@
     },
     "raster": {
       "title": "Raster",
+      "help": "Ajustez l'apparence de l'image uniquement pour cette couche.",
       "brightnessMin": "Luminosité min.",
       "brightnessMax": "Luminosité max.",
+      "brightnessRangeError": "La luminosité min doit être inférieure ou égale à la luminosité max.",
       "contrast": "Contraste",
       "saturation": "Saturation",
       "hueRotate": "Teinte",
@@ -201,6 +224,7 @@
       "resetTitle": "Réinitialiser le style raster"
     },
     "hillshade": {
+      "help": "Ajustez la couche de relief générée depuis cette couche MNE.",
       "direction": "Direction",
       "anchor": "Ancrage",
       "anchorViewport": "Vue",
@@ -231,6 +255,10 @@
   },
   "filters": {
     "title": "Filtres",
+    "layerTitle": "Filtre de couche",
+    "thisLayer": "cette couche",
+    "scopeHelp": "S'applique uniquement à {{layer}}. Les couches dupliquées du même jeu de données conservent des filtres séparés et la sortie publique suit le filtre de couche enregistré.",
+    "noColumns": "Cette couche n'a pas de colonnes filtrables.",
     "addFilter": "Ajouter un filtre",
     "field": "Champ",
     "op": "Op",
@@ -254,6 +282,7 @@
   },
   "labels": {
     "title": "Étiquettes",
+    "scopeHelp": "Les paramètres d'étiquettes s'appliquent uniquement à cette couche.",
     "column": "Colonne",
     "fontSize": "Taille de police",
     "textColor": "Couleur du texte",
@@ -279,10 +308,12 @@
     "allowOverlap": "Autoriser le chevauchement",
     "zoomRange": "Plage de zoom",
     "minZoom": "Zoom min",
-    "maxZoom": "Zoom max"
+    "maxZoom": "Zoom max",
+    "noColumns": "Cette couche n'a aucune colonne disponible pour les étiquettes."
   },
   "popup": {
     "enable": "Activer la popup pour cette couche",
+    "scopeHelp": "Les paramètres de popup s'appliquent seulement quand des entités de cette couche sont cliquées.",
     "titleTemplate": "Modèle du titre",
     "expressionHelp": "Utilisez les espaces réservés {column_name}. Exemple : {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
@@ -297,6 +328,7 @@
   },
   "dataDriven": {
     "title": "Style base sur les donnees",
+    "scopeHelp": "Crée des expressions paint MapLibre tout en gardant la configuration de style du builder alignée.",
     "clearTitle": "Effacer le style piloté par les données",
     "mode": "Mode",
     "categorical": "Catégoriel",
@@ -305,6 +337,10 @@
     "selectColumn": "Sélectionner une colonne",
     "noTextColumns": "Aucune colonne de texte",
     "noNumericColumns": "Aucune colonne numérique",
+    "noTextColumnsHelp": "Les styles catégoriels nécessitent une colonne de texte. Passez au mode gradué ou ajoutez un attribut texte.",
+    "noNumericColumnsHelp": "Les styles gradués nécessitent une colonne numérique. Passez au mode catégoriel ou ajoutez un attribut numérique.",
+    "missingColumnHelp": "La colonne \"{{column}}\" n'est plus disponible. Choisissez une autre colonne ou effacez le style piloté par les données.",
+    "statsUnavailableHelp": "Les statistiques ne sont pas encore disponibles pour cette colonne. Choisissez une autre colonne numérique ou réessayez après le traitement du jeu de données.",
     "colorRamp": "Palette de couleurs",
     "method": "Méthode",
     "equalInterval": "Intervalles égaux",

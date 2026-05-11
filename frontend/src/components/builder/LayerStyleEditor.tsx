@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, memo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Code, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Code, AlertTriangle, RotateCcw } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,8 @@ import { isNumericColumn } from '@/lib/column-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { cn } from '@/lib/utils';
+import { GeometrySwatch } from '@/components/map/LegendEntries';
+import { getLayerColors } from '@/components/map/layer-icons';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
 type PointRenderMode = 'points' | 'heatmap' | 'symbol';
@@ -84,6 +86,95 @@ function withBuilderConfig(styleConfig: StyleConfig | null | undefined, patch: B
   if (nextBuilder) nextConfig.builder = nextBuilder;
   else delete nextConfig.builder;
   return Object.keys(nextConfig).length > 0 ? nextConfig : null;
+}
+
+function stylePreviewStyle(layer: MapLayerResponse) {
+  const paint = layer.paint ?? {};
+  const gt = (layer.dataset_geometry_type ?? '').toUpperCase();
+  if (gt.includes('POLYGON')) {
+    return {
+      outlineColor: typeof paint['_outline-color'] === 'string' ? paint['_outline-color'] as string : undefined,
+      strokeDisabled: Boolean(layer.style_config?.builder?.strokeDisabled ?? paint['_stroke-disabled']),
+      opacity: layer.opacity,
+      fillOpacity: typeof paint['fill-opacity'] === 'number' ? paint['fill-opacity'] as number : undefined,
+      strokeWidth: typeof layer.style_config?.builder?.outlineWidth === 'number'
+        ? layer.style_config.builder.outlineWidth
+        : typeof paint['_outline-width'] === 'number'
+          ? paint['_outline-width'] as number
+          : undefined,
+    };
+  }
+  if (gt.includes('POINT')) {
+    return {
+      outlineColor: typeof paint['circle-stroke-color'] === 'string' ? paint['circle-stroke-color'] as string : undefined,
+      strokeDisabled: Boolean(layer.style_config?.builder?.strokeDisabled ?? paint['_stroke-disabled']),
+      opacity: layer.opacity,
+      fillOpacity: typeof paint['circle-opacity'] === 'number' ? paint['circle-opacity'] as number : undefined,
+      strokeWidth: typeof paint['circle-stroke-width'] === 'number' ? paint['circle-stroke-width'] as number : undefined,
+    };
+  }
+  return {
+    opacity: layer.opacity,
+    fillOpacity: typeof paint['line-opacity'] === 'number' ? paint['line-opacity'] as number : undefined,
+    strokeWidth: typeof paint['line-width'] === 'number' ? paint['line-width'] as number : undefined,
+  };
+}
+
+function hasUnsupportedBuilderState(layer: MapLayerResponse, geomType: string): boolean {
+  const config = layer.style_config;
+  if (!config) return false;
+  if (config.render_mode === 'heatmap' || config.render_mode === 'symbol') return false;
+  if (config.mode !== undefined && config.mode !== 'categorical' && config.mode !== 'graduated') return true;
+  if (geomType === 'circle' || geomType === 'line' || geomType === 'fill') return false;
+  return true;
+}
+
+function StyleControlSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3 rounded-md border bg-muted/25 p-3">
+      <div className="space-y-0.5">
+        <div className="text-xs font-semibold text-foreground">{title}</div>
+        {description && <p className="text-[11px] leading-snug text-muted-foreground">{description}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function StylePreview({ layer, onReset }: { layer: MapLayerResponse; onReset: () => void }) {
+  const { t } = useTranslation('builder');
+  const colors = getLayerColors(layer);
+  const swatchColor = colors[0] ?? '#6366f1';
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border bg-background p-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <GeometrySwatch geometryType={layer.dataset_geometry_type} color={swatchColor} style={stylePreviewStyle(layer)} />
+        <div className="min-w-0">
+          <div className="truncate text-xs font-medium">{t('style.preview.title')}</div>
+          <p className="truncate text-[11px] text-muted-foreground">{t('style.preview.description')}</p>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        className="shrink-0"
+        onClick={onReset}
+        title={t('style.resetTitle')}
+      >
+        <RotateCcw className="h-3 w-3" />
+        {t('style.reset')}
+      </Button>
+    </div>
+  );
 }
 
 /* ---------- Shared stroke toggle + color + width controls ---------- */
@@ -155,7 +246,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
   const { t } = useTranslation('builder');
   const geomType = getLayerType(layer.dataset_geometry_type);
   const paint = layer.paint;
-  const layoutObj = (layer.layout as Record<string, unknown>) ?? {};
+  const layoutObj = useMemo(
+    () => (layer.layout as Record<string, unknown>) ?? {},
+    [layer.layout],
+  );
   const isDataDriven = !!layer.style_config?.column;
   const renderMode: PointRenderMode = layer.style_config?.render_mode === 'heatmap'
     ? 'heatmap'
@@ -277,12 +371,38 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     onStyleConfigChange(layer.id, nextConfig, stripLegacyBuilderPaint(paint));
   }, [layer.id, layer.style_config, onStyleConfigChange, paint, symbolConfig]);
 
+  const handleResetStyle = useCallback(() => {
+    if (geomType === 'fill') {
+      onStyleConfigChange(layer.id, null, FILL_DEFAULTS);
+    } else if (geomType === 'line') {
+      const nextLayout = { ...layoutObj };
+      delete nextLayout['line-dasharray'];
+      delete nextLayout['_minzoom'];
+      delete nextLayout['_maxzoom'];
+      onStyleConfigChange(layer.id, null, LINE_DEFAULTS);
+      onLayoutChange(layer.id, nextLayout);
+    } else {
+      onStyleConfigChange(layer.id, null, CIRCLE_DEFAULTS);
+    }
+    onOpacityChange(layer.id, 1);
+  }, [geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
+
+  const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
+
   return (
     <div className="space-y-2">
+      <StylePreview layer={layer} onReset={handleResetStyle} />
+
+      {unsupportedBuilderState && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning-foreground">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{t('style.unsupportedBuilderState')}</span>
+        </div>
+      )}
+
       {/* Render as dropdown — point layers only */}
       {geomType === 'circle' && (
-        <div className="space-y-1">
-          <div className="text-xs font-medium">{t('style.renderAs')}</div>
+        <StyleControlSection title={t('style.sections.render')} description={t('style.sections.renderDescription')}>
           <Select
             value={renderMode}
             onValueChange={(mode) => onRenderModeChange?.(layer.id, mode as PointRenderMode)}
@@ -296,40 +416,46 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
               <SelectItem value="heatmap">{t('style.renderHeatmap')}</SelectItem>
             </SelectContent>
           </Select>
-        </div>
+        </StyleControlSection>
       )}
 
       {/* Heatmap controls — shown when render mode is heatmap */}
       {geomType === 'circle' && renderMode === 'heatmap' && (
-        <HeatmapStyleControls
-          layer={{ ...layer, paint: controlPaint }}
-          onPaintChange={handleHeatmapPaintChange}
-        />
+        <StyleControlSection title={t('style.sections.heatmap')} description={t('style.sections.heatmapDescription')}>
+          <HeatmapStyleControls
+            layer={{ ...layer, paint: controlPaint }}
+            onPaintChange={handleHeatmapPaintChange}
+          />
+        </StyleControlSection>
       )}
 
       {geomType === 'circle' && renderMode === 'symbol' && (
-        <SymbolControls
-          layer={layer}
-          config={symbolConfig}
-          onChange={handleSymbolConfigChange}
-          t={t}
-        />
+        <StyleControlSection title={t('style.sections.symbol')} description={t('style.sections.symbolDescription')}>
+          <SymbolControls
+            layer={layer}
+            config={symbolConfig}
+            onChange={handleSymbolConfigChange}
+            t={t}
+          />
+        </StyleControlSection>
       )}
 
       {/* Data-driven style editor — hidden when in heatmap mode */}
       {renderMode !== 'heatmap' && renderMode !== 'symbol' && (
-        <LazyLoadErrorBoundary>
-          <Suspense fallback={null}>
-            <DataDrivenStyleEditor
-              layer={layer}
-              onStyleConfigChange={onStyleConfigChange}
-            />
-          </Suspense>
-        </LazyLoadErrorBoundary>
+        <StyleControlSection title={t('style.sections.dataDriven')} description={t('style.sections.dataDrivenDescription')}>
+          <LazyLoadErrorBoundary>
+            <Suspense fallback={null}>
+              <DataDrivenStyleEditor
+                layer={layer}
+                onStyleConfigChange={onStyleConfigChange}
+              />
+            </Suspense>
+          </LazyLoadErrorBoundary>
+        </StyleControlSection>
       )}
 
       {/* Flat color controls */}
-      <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
+      <StyleControlSection title={t('style.sections.appearance')} description={t('style.sections.appearanceDescription')}>
         {geomType === 'fill' && (
           <FillControls
             layer={layer} paint={controlPaint} isDataDriven={isDataDriven}
@@ -390,15 +516,17 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           format="zoom"
           onChange={(val) => onLayoutChange(layer.id, { ...layoutObj, '_maxzoom': val })}
         />
-      </div>
+      </StyleControlSection>
 
-      <AdvancedJsonEditor
-        paint={paint}
-        layout={(layer.layout as Record<string, unknown>) ?? {}}
-        onPaintChange={(p) => onPaintChange(layer.id, p)}
-        onLayoutChange={(l) => onLayoutChange(layer.id, l)}
-        layerType={geomType}
-      />
+      <StyleControlSection title={t('style.sections.advanced')} description={t('style.sections.advancedDescription')}>
+        <AdvancedJsonEditor
+          paint={paint}
+          layout={(layer.layout as Record<string, unknown>) ?? {}}
+          onPaintChange={(p) => onPaintChange(layer.id, p)}
+          onLayoutChange={(l) => onLayoutChange(layer.id, l)}
+          layerType={geomType}
+        />
+      </StyleControlSection>
     </div>
   );
 });
@@ -612,7 +740,7 @@ function SymbolControls({ layer, config, onChange, t }: SymbolControlsProps) {
   }
 
   return (
-    <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
+    <div className="space-y-3">
       <div className="text-xs font-medium">{t('style.symbol.title')}</div>
       <IconPicker
         label={t('style.symbol.iconImage')}

@@ -121,6 +121,27 @@
     "color": "Color",
     "width": "Ancho",
     "radius": "Radio",
+    "preview": {
+      "title": "Vista previa de estilo pendiente",
+      "description": "Refleja esta capa antes de guardar"
+    },
+    "reset": "Restablecer",
+    "resetTitle": "Restablecer estilo de esta capa",
+    "unsupportedBuilderState": "Este estilo importado usa ajustes que el editor visual no puede cambiar con seguridad. Los ajustes válidos se conservan; use JSON avanzado para las partes no compatibles.",
+    "sections": {
+      "render": "Renderizar como",
+      "renderDescription": "Elija cómo se dibuja esta capa de puntos.",
+      "dataDriven": "Estilo basado en datos",
+      "dataDrivenDescription": "Coloree o dimensione entidades por atributo.",
+      "appearance": "Color, forma y visibilidad",
+      "appearanceDescription": "Ajuste la geometría visible y el rango de zoom de la capa seleccionada.",
+      "heatmap": "Apariencia de mapa de calor",
+      "heatmapDescription": "Ajuste densidad, radio, intensidad y rampa.",
+      "symbol": "Apariencia de símbolo",
+      "symbolDescription": "Elija iconos, tamaño, rotación y símbolos por valor.",
+      "advanced": "JSON de estilo avanzado",
+      "advancedDescription": "Edite paint y layout de MapLibre directamente cuando sea necesario."
+    },
     "styledBy": "Estilizado por: {{column}}",
     "radiusByColumn": "Radio por: {{column}}",
     "widthByColumn": "Ancho por: {{column}}",
@@ -184,8 +205,10 @@
     },
     "raster": {
       "title": "Ráster",
+      "help": "Ajuste la apariencia de la imagen solo para esta capa.",
       "brightnessMin": "Brillo mín.",
       "brightnessMax": "Brillo máx.",
+      "brightnessRangeError": "El brillo mínimo debe ser menor o igual que el brillo máximo.",
       "contrast": "Contraste",
       "saturation": "Saturación",
       "hueRotate": "Tono",
@@ -201,6 +224,7 @@
       "resetTitle": "Restablecer estilo ráster"
     },
     "hillshade": {
+      "help": "Ajuste la capa de relieve generada desde esta capa DEM.",
       "direction": "Dirección",
       "anchor": "Ancla",
       "anchorViewport": "Vista",
@@ -229,8 +253,12 @@
       "structureError": "La expresión debe ser un arreglo que comience con un operador conocido"
     }
   },
-  "filters": {
+    "filters": {
     "title": "Filtros",
+    "layerTitle": "Filtro de capa",
+    "thisLayer": "esta capa",
+    "scopeHelp": "Se aplica solo a {{layer}}. Las capas duplicadas del mismo dataset conservan filtros separados y la salida pública sigue el filtro de capa guardado.",
+    "noColumns": "Esta capa no tiene columnas filtrables.",
     "addFilter": "Agregar filtro",
     "field": "Campo",
     "op": "Op",
@@ -254,6 +282,7 @@
   },
   "labels": {
     "title": "Etiquetas",
+    "scopeHelp": "La configuración de etiquetas se aplica solo a esta capa.",
     "column": "Columna",
     "fontSize": "Tamaño de fuente",
     "textColor": "Color de texto",
@@ -279,10 +308,12 @@
     "allowOverlap": "Permitir superposición",
     "zoomRange": "Rango de zoom",
     "minZoom": "Zoom mínimo",
-    "maxZoom": "Zoom máximo"
+    "maxZoom": "Zoom máximo",
+    "noColumns": "Esta capa no tiene columnas disponibles para etiquetas."
   },
   "popup": {
     "enable": "Activar popup para esta capa",
+    "scopeHelp": "La configuración de popup se aplica solo cuando se hace clic en entidades de esta capa.",
     "titleTemplate": "Plantilla del título",
     "expressionHelp": "Use marcadores {column_name}. Ejemplo: {city}, {state}",
     "expressionPlaceholder": "{city}, {state}",
@@ -297,6 +328,7 @@
   },
   "dataDriven": {
     "title": "Estilo basado en datos",
+    "scopeHelp": "Crea expresiones paint de MapLibre manteniendo alineada la configuración de estilo del builder.",
     "clearTitle": "Limpiar estilo basado en datos",
     "mode": "Modo",
     "categorical": "Categórico",
@@ -305,6 +337,10 @@
     "selectColumn": "Seleccionar columna",
     "noTextColumns": "Sin columnas de texto",
     "noNumericColumns": "Sin columnas numéricas",
+    "noTextColumnsHelp": "Los estilos categóricos necesitan una columna de texto. Cambie a modo graduado o añada un atributo de texto.",
+    "noNumericColumnsHelp": "Los estilos graduados necesitan una columna numérica. Cambie a modo categórico o añada un atributo numérico.",
+    "missingColumnHelp": "La columna \"{{column}}\" ya no está disponible. Elija otra columna o borre el estilo basado en datos.",
+    "statsUnavailableHelp": "Las estadísticas aún no están disponibles para esta columna. Elija otra columna numérica o inténtelo después de procesar el dataset.",
     "colorRamp": "Rampa de colores",
     "method": "Método",
     "equalInterval": "Intervalo igual",

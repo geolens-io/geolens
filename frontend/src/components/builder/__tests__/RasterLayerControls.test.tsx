@@ -127,6 +127,22 @@ describe('RasterLayerControls', () => {
     expect(onPaintChange).not.toHaveBeenCalledWith(expect.objectContaining({ 'raster-opacity': 0.8 }));
   });
 
+  it('shows recoverable validation when raster brightness range is inverted', () => {
+    render(
+      <RasterLayerControls
+        paint={{
+          'raster-brightness-min': 0.8,
+          'raster-brightness-max': 0.2,
+        }}
+        opacity={1}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Brightness min must be less than or equal to brightness max/i)).toBeInTheDocument();
+  });
+
   it('resets raster paint keys and restores full opacity', () => {
     const onPaintChange = vi.fn();
     const onOpacityChange = vi.fn();
