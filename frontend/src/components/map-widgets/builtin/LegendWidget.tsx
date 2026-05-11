@@ -50,6 +50,30 @@ function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks:
   return { colors, breaks: parsed.breaks };
 }
 
+function expressionColumn(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
+  for (const entry of value) {
+    const column = expressionColumn(entry);
+    if (column) return column;
+  }
+  return null;
+}
+
+function displayColumn(value: string | undefined): string {
+  if (!value) return 'value';
+  return value
+    .replace(/^_+/, '')
+    .replace(/_/g, ' ')
+    .replace(/\bmhi\b/i, 'income')
+    .replace(/\bkm\b/i, 'km');
+}
+
+type LegendLabelStyleConfig = StyleConfig & {
+  sizeLabel?: string;
+  colorLabel?: string;
+};
+
 export function LegendWidget({ ctx }: { ctx: WidgetContext }) {
   const { t } = useTranslation('builder');
 
@@ -192,25 +216,41 @@ function GraduatedLegendSwitch({
   geometryType?: string | null;
 }) {
   const breaks = styleConfig.breaks ?? [];
+  const labelConfig = styleConfig as LegendLabelStyleConfig;
+  const metricLabel = labelConfig.sizeLabel ?? displayColumn(styleConfig.column);
 
   // Parse circle-color expression unconditionally (Rules of Hooks)
   const rawCircleColor = paint['circle-color'];
   const parsedCircleColor = useMemo(() => parsePaintColors(rawCircleColor), [rawCircleColor]);
+  const colorColumn = expressionColumn(rawCircleColor);
 
   if (styleConfig.target === 'radius' && styleConfig.sizes) {
     const circleColor = (typeof rawCircleColor === 'string' ? rawCircleColor : undefined) ?? MAP_COLORS.fallback;
-    const colors = styleConfig.colors ?? parsedCircleColor?.colors;
-    const effectiveBreaks = parsedCircleColor?.breaks ?? breaks;
-    const entryCount = colors ? Math.min(styleConfig.sizes.length, colors.length) : styleConfig.sizes.length;
-    const cappedSizes = styleConfig.sizes.slice(0, entryCount);
     return (
-      <GraduatedRadiusLegend
-        sizes={cappedSizes}
-        breaks={effectiveBreaks}
-        circleColor={circleColor}
-        colors={colors ?? undefined}
-        style={style}
-      />
+      <div className="space-y-1">
+        <div className="text-[11px] font-medium text-muted-foreground">
+          Size: {metricLabel}
+        </div>
+        <GraduatedRadiusLegend
+          sizes={styleConfig.sizes}
+          breaks={breaks}
+          circleColor={parsedCircleColor?.colors[0] ?? circleColor}
+          style={style}
+        />
+        {parsedCircleColor && colorColumn && colorColumn !== styleConfig.column && (
+          <>
+            <div className="pt-1 text-[11px] font-medium text-muted-foreground">
+              Color: {labelConfig.colorLabel ?? displayColumn(colorColumn)}
+            </div>
+            <GraduatedColorLegend
+              colors={parsedCircleColor.colors}
+              breaks={parsedCircleColor.breaks}
+              geometryType={geometryType}
+              style={style}
+            />
+          </>
+        )}
+      </div>
     );
   }
 
@@ -218,12 +258,17 @@ function GraduatedLegendSwitch({
     const raw = paint['line-color'];
     const lineColor = (typeof raw === 'string' ? raw : undefined) ?? MAP_COLORS.fallback;
     return (
-      <GraduatedWidthLegend
-        sizes={styleConfig.sizes}
-        breaks={breaks}
-        lineColor={lineColor}
-        style={style}
-      />
+      <div className="space-y-1">
+        <div className="text-[11px] font-medium text-muted-foreground">
+          Width: {metricLabel}
+        </div>
+        <GraduatedWidthLegend
+          sizes={styleConfig.sizes}
+          breaks={breaks}
+          lineColor={lineColor}
+          style={style}
+        />
+      </div>
     );
   }
 
