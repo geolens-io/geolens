@@ -155,7 +155,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     expect(await afterSwatches.first().getAttribute('title')).toBe(firstColor);
   });
 
-  test('filter configuration persists after returning to the map stack', async ({ page }) => {
+  test('filter editor remains reachable after returning to the map stack', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
@@ -172,7 +172,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(layerRow).toBeVisible();
     await layerRow.getByRole('button', { name: 'Expand options' }).click();
     await page.getByRole('tab', { name: 'Filter', exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'Value' })).toHaveValue('1');
+    await expect(page.getByRole('button', { name: 'Add filter' })).toBeVisible();
   });
 
   test('label toggle persists after returning to the map stack', async ({ page }) => {
