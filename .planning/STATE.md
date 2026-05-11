@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1001
 milestone_name: Map Builder UI/UX Polish Sweep
 status: ready_to_plan
-last_updated: "2026-05-11T20:23:19.875Z"
-last_activity: 2026-05-11 — Phase 1003 Map Stack inspector interaction polish completed; ready to plan Phase 1004.
+last_updated: "2026-05-11T20:37:51.679Z"
+last_activity: 2026-05-11 — Phase 1004 Styling and cartography control polish completed; ready to plan Phase 1005.
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 33
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
+  percent: 50
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** 1004 next — Styling and cartography control polish
+**Phase:** 1005 next — Preview, save, share, and output parity
 **Plan:** —
-**Status:** Phase 1003 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1003-map-stack-inspector-interaction-polish/`; ready to plan Phase 1004.
-**Last activity:** 2026-05-11 — Phase 1003 shipped stable omitted layer ordering, a data-first empty Map Stack prompt, clearer row state badges/attributes, and inspector keyboard focus polish.
+**Status:** Phase 1004 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1004-styling-and-cartography-control-polish/`; ready to plan Phase 1005.
+**Last activity:** 2026-05-11 — Phase 1004 grouped style controls by visual intent, added pending-style swatches, clarified selected-layer filter scope, improved label/popup empty states, and preserved `paint` / `style_config` contracts.
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1004 planning.
+**Current focus:** Phase 1005 planning.
 
 ## Last Shipped Milestone
 
@@ -92,6 +92,7 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 - Phase 1000 completed 2026-05-11: 6/6 plans shipped across 5 waves, satisfying MAPSTACK-01..07 while preserving saved-map compatibility and the existing MapLibre builder architecture.
 - Phase 1001 completed 2026-05-11: authenticated public saved-map layer conversion now preserves `is_dem` and `dem_vertical_units`, and focused public viewer regression coverage closes MAPSTACK-02, MAPSTACK-04, MAPSTACK-07 plus `INT-PUBLIC-DEM-01` and `FLOW-AUTH-PUBLIC-DEM-01`.
 - Phase 1003 completed 2026-05-11: add-layer calls that omit `sort_order` now append to the next available layer order, empty maps present a data-first Map Stack prompt, row states expose selected/hidden/locked/disabled/unsupported/error-like signals, and inspector tabs/back controls have visible keyboard focus.
+- Phase 1004 completed 2026-05-11: style controls are grouped by visual intent, pending geometry-aware swatches reflect in-memory style edits, data-driven/raster validation is recoverable, filters explicitly state selected-layer scope, label/popup empty states are clearer, and focused tests preserve `paint` / `style_config` / style JSON alignment.
 
 ## Recent Decisions
 
@@ -151,9 +152,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T20:23:19Z
-Stopped at: Phase 1003 complete; ready to plan Phase 1004.
-Resume file: `.planning/phases/1003-map-stack-inspector-interaction-polish/1003-VERIFICATION.md`
+Last session: 2026-05-11T20:37:51Z
+Stopped at: Phase 1004 complete; ready to plan Phase 1005.
+Resume file: `.planning/phases/1004-styling-and-cartography-control-polish/1004-VERIFICATION.md`
 
 ---
-*Last updated: 2026-05-11 after completing Phase 1003*
+*Last updated: 2026-05-11 after completing Phase 1004*

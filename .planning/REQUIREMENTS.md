@@ -28,14 +28,14 @@
 
 ### Styling and Cartography
 
-- [ ] **STYLE-01**: User can configure simple point, line, polygon, raster, DEM hillshade, terrain, symbol, and label styling with controls grouped by visual intent.
-- [ ] **STYLE-02**: User can configure categorical, graduated, heatmap, zoom-expression, line-gradient, and raster adjustment styles with validation that explains invalid inputs.
-- [ ] **STYLE-03**: User can preview style changes in the map and in compact inspector swatches before saving, including geometry-aware swatches for point, line, and polygon layers.
-- [ ] **STYLE-04**: User can reset or cancel style edits without accidentally losing unrelated layer settings.
-- [ ] **STYLE-05**: User can see and fix unsupported style states imported from MapLibre style JSON without corrupting valid builder-managed style config.
-- [ ] **STYLE-06**: User can configure popup behavior and label behavior without tab gating, empty-column states, or disabled controls feeling broken.
-- [ ] **STYLE-07**: User can use color, opacity, size, width, blur, halo, relief, and basemap appearance controls without text clipping across supported viewports.
-- [ ] **STYLE-08**: Reviewer can verify that builder controls, `paint`, `style_config`, exported style JSON, imported style JSON, and public render output stay aligned.
+- [x] **STYLE-01**: User can configure simple point, line, polygon, raster, DEM hillshade, terrain, symbol, and label styling with controls grouped by visual intent.
+- [x] **STYLE-02**: User can configure categorical, graduated, heatmap, zoom-expression, line-gradient, and raster adjustment styles with validation that explains invalid inputs.
+- [x] **STYLE-03**: User can preview style changes in the map and in compact inspector swatches before saving, including geometry-aware swatches for point, line, and polygon layers.
+- [x] **STYLE-04**: User can reset or cancel style edits without accidentally losing unrelated layer settings.
+- [x] **STYLE-05**: User can see and fix unsupported style states imported from MapLibre style JSON without corrupting valid builder-managed style config.
+- [x] **STYLE-06**: User can configure popup behavior and label behavior without tab gating, empty-column states, or disabled controls feeling broken.
+- [x] **STYLE-07**: User can use color, opacity, size, width, blur, halo, relief, and basemap appearance controls without text clipping across supported viewports.
+- [x] **STYLE-08**: Reviewer can verify that builder controls, `paint`, `style_config`, exported style JSON, imported style JSON, and public render output stay aligned.
 
 ### Preview, Save, Share, and Output
 
@@ -114,14 +114,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STACK-04 | Phase 1003 | Complete |
 | STACK-05 | Phase 1003 | Complete |
 | STACK-06 | Phase 1003 | Complete |
-| STYLE-01 | Phase 1004 | Pending |
-| STYLE-02 | Phase 1004 | Pending |
-| STYLE-03 | Phase 1004 | Pending |
-| STYLE-04 | Phase 1004 | Pending |
-| STYLE-05 | Phase 1004 | Pending |
-| STYLE-06 | Phase 1004 | Pending |
-| STYLE-07 | Phase 1004 | Pending |
-| STYLE-08 | Phase 1004 | Pending |
+| STYLE-01 | Phase 1004 | Complete |
+| STYLE-02 | Phase 1004 | Complete |
+| STYLE-03 | Phase 1004 | Complete |
+| STYLE-04 | Phase 1004 | Complete |
+| STYLE-05 | Phase 1004 | Complete |
+| STYLE-06 | Phase 1004 | Complete |
+| STYLE-07 | Phase 1004 | Complete |
+| STYLE-08 | Phase 1004 | Complete |
 | OUTPUT-01 | Phase 1005 | Pending |
 | OUTPUT-02 | Phase 1005 | Pending |
 | OUTPUT-03 | Phase 1005 | Pending |

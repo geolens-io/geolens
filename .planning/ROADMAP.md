@@ -69,7 +69,7 @@
 
 - [x] Phase 1002: kepler-guided-builder-workflow-audit-and-triage — requirements FLOW-01..06 (completed 2026-05-11)
 - [x] Phase 1003: map-stack-inspector-interaction-polish — requirements STACK-01..06 (completed 2026-05-11)
-- [ ] Phase 1004: styling-and-cartography-control-polish — requirements STYLE-01..08
+- [x] Phase 1004: styling-and-cartography-control-polish — requirements STYLE-01..08 (completed 2026-05-11)
 - [ ] Phase 1005: preview-save-share-output-parity — requirements OUTPUT-01..06
 - [ ] Phase 1006: responsive-accessibility-copy-hardening — requirements A11Y-01..06
 - [ ] Phase 1007: durable-builder-qa-gate-and-closeout — requirements QA-01..06
