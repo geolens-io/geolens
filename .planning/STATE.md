@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v13.14
 milestone_name: Smoke Stabilization
-status: in_progress
-last_updated: "2026-05-11T13:52:24.000Z"
+status: completed
+last_updated: "2026-05-11T14:15:00.000Z"
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # State
@@ -17,16 +17,16 @@ progress:
 ## Current Position
 
 **Milestone:** Phase 1000 Backlog — Kepler-inspired map stack and basemap layer controls
-**Status:** Plans 1000-01 through 1000-04 complete. Ready for 1000-05 relief/marketing-output polish and Playwright MCP validation.
+**Status:** Phase 1000 complete. Plans 1000-01 through 1000-05 shipped with final relief/marketing-output polish and Playwright MCP validation.
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution is in progress with plans 1000-01 through 1000-04 complete.
+**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution is complete with all 5 plans shipped.
 
 ## Last Shipped Milestone
 
@@ -67,6 +67,8 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - Phase 1000 plan 1000-02 completed 2026-05-11: pure `buildMapStack` model for Surface, Relief, Basemap, Data, Labels, and Interactions with saved-map compatibility tests and no API migration.
 - Phase 1000 plan 1000-03 completed 2026-05-11: unified `MapStackPanel` sidebar, desktop/mobile shared sidebar-local layer inspector, primary layer action preservation, and builder locale strings for stack groups and badges.
 - Phase 1000 plan 1000-04 completed 2026-05-11: persisted `basemap_config` API/storage/style JSON contract, curated Map Stack basemap controls, MapLibre basemap style transforms, explicit z-order policy, and basemap OpenAPI/SDK artifacts.
+- Phase 1000 plan 1000-05 completed 2026-05-11: relief-focused Surface/Relief affordances, builder/public-viewer terrain alignment, cleaner builder legend output, and Playwright MCP screenshots for desktop, tablet, mobile, public, and Grand Canyon relief flows.
+- Phase 1000 completed 2026-05-11: 5/5 plans shipped across 4 waves, satisfying MAPSTACK-01..07 while preserving saved-map compatibility and the existing MapLibre builder architecture.
 
 ## Recent Decisions
 
@@ -79,6 +81,8 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - **Map Stack inspector preserves existing builder test contracts.** Phase 1000-03 kept primary layer rows discoverable as `layer-item-*`, preserved "Expand options" as the inspector button name, and kept `Basemap` unique visible text while replacing the split sidebar with one stack panel.
 - **Basemap appearance now has a persisted compatibility field.** Phase 1000-04 introduced nullable `basemap_config` while preserving `show_basemap_labels`; null config keeps old saved maps equivalent, and builder saves derive the legacy label flag from `label_mode`.
 - **Generated artifact ownership remains selective in dirty worktrees.** Phase 1000-04 committed only basemap OpenAPI/SDK hunks after `make sdks`; unrelated generated drift for dataset `tile_columns` and the map-layer route description remains for its owning work.
+- **Relief language separates surfaces from visual overlays.** Phase 1000-05 keeps DEM terrain framed as an elevation surface, with hillshade/visual relief called out separately so users do not mistake terrain for a paint layer.
+- **Visual QA can use temporary seeded maps when demo data is absent.** Phase 1000-05 used Playwright MCP plus a temporary public QA map and recorded screenshot paths/nonblank checks when local demo fixtures were not seeded.
 
 ### Quick Tasks Completed
 
@@ -122,9 +126,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T13:52:24Z
-Stopped at: Completed 1000-04-PLAN.md; 1000-05 can polish relief/marketing outputs and run Playwright MCP validation on the persisted basemap/z-order foundation.
+Last session: 2026-05-11T14:15:00Z
+Stopped at: Completed Phase 1000 plan 1000-05, including focused frontend/E2E verification and Playwright MCP visual QA evidence.
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after Phase 1000 plan 1000-04 execution*
+*Last updated: 2026-05-11 after Phase 1000 plan 1000-05 execution*

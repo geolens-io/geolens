@@ -189,7 +189,7 @@ Plans:
 
 ---
 
-### Phase 1000: Kepler-inspired map stack and basemap layer controls (BACKLOG — P1)
+### Phase 1000: Kepler-inspired map stack and basemap layer controls (COMPLETED 2026-05-11 — P1)
 
 **Goal:** Refactor the Map Builder layer-management UX around a unified Map Stack while keeping GeoLens' current MapLibre/editor architecture. Borrow Kepler.gl-style patterns where they fit: clear stack ordering, editable layer groups, styleable basemap sublayers, explicit surface/relief controls, and marketing-quality saved-map defaults.
 **Requirements:** MAPSTACK-01..07 (see plan frontmatter)
@@ -198,7 +198,7 @@ Plans:
 **Estimated effort:** 1-2 weeks
 **Priority:** P1 — current Layers / Basemap / Terrain split is confusing for advanced styling, limits basemap refinement, and makes it harder to showcase 3D/relief maps cleanly.
 **Context:** `.planning/phases/1000-kepler-inspired-map-stack-and-basemap-layer-controls/1000-CONTEXT.md`
-**Plans:** 4/5 plans complete / 4 waves
+**Plans:** 5/5 plans complete / 4 waves
 
 Initial scope:
 - [x] Replace the separate Layers / Basemap / Terrain mental model with a unified Map Stack panel that groups Surface, Relief, Basemap sublayers, Data layers, Labels, and interaction/popups.
@@ -206,15 +206,15 @@ Initial scope:
 - [x] Make basemaps styleable as collections of sublayers, including at least labels, roads, land/water, boundaries, and optional buildings where supported.
 - [x] Define a clear stack and z-order policy for basemap, terrain, relief, labels, and user-added layers, including how a user can show relief beneath readable basemap detail.
 - [x] Fix known layer-management UX bugs: mobile layer editing unavailable, collapsed basemap contents still visible, cramped filter controls, duplicate layer names, and unnamed switches.
-- [ ] Keep public/map-thumbnail outputs marketing-clean by excluding editor chrome and avoiding accidental legend/control overlays unless the map owner explicitly includes them.
-- [ ] Validate with Playwright MCP screenshots across desktop, tablet, and mobile builder flows plus representative public saved maps.
+- [x] Keep public/map-thumbnail outputs marketing-clean by excluding editor chrome and avoiding accidental legend/control overlays unless the map owner explicitly includes them.
+- [x] Validate with Playwright MCP screenshots across desktop, tablet, and mobile builder flows plus representative public saved maps.
 
 Plans:
 - [x] 1000-01: Fix layer-management UX blockers and focused regression tests - completed 2026-05-11
 - [x] 1000-02: Add a normalized Map Stack model for surface, relief, basemap, data, and labels - completed 2026-05-11
 - [x] 1000-03: Replace split sidebar sections with a unified Map Stack inspector - completed 2026-05-11
 - [x] 1000-04: Persist basemap appearance controls and enforce explicit z-order policy - completed 2026-05-11
-- [ ] 1000-05: Polish relief/marketing outputs and run Playwright MCP validation
+- [x] 1000-05: Polish relief/marketing outputs and run Playwright MCP validation - completed 2026-05-11
 
 ---
 
