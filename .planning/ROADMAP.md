@@ -55,6 +55,7 @@
 - ✅ **v13.12 Pre-Public Security & Audit Hardening** — Phases 263-270 (shipped 2026-05-07) — see [archive](milestones/v13.12-ROADMAP.md)
 - ✅ **v13.13 Backlog Sweep** — Phases 271-279 (shipped 2026-05-07) — see [archive](milestones/v13.13-MILESTONE-AUDIT.md)
 - ✅ **v13.14 Smoke Stabilization** — Phases 280-282 (shipped 2026-05-08) — see [archive](milestones/v13.14-ROADMAP.md)
+- ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
 
 ## Phases
 
@@ -66,6 +67,16 @@
 - [x] Phase 282: dataset-detail-selector-tightening-milestone-close (1/1 plan) — completed 2026-05-08
 
 3 phases, 3 plans, ~5 source-file commits. Closed 4 of 6 baseline smoke failures from quick task `260508-d6i` (HIGH priority `POST /maps/{id}/layers/` 307 redirect, MEDIUM priority admin Audit Logs page-guard, MEDIUM priority collections Add-button seed-data drift, LOW/MEDIUM priority dataset-detail FEATURES strict-mode mismatch). Remaining `builder.spec.ts:343` sidebar drag-handle flake is pre-existing and out of scope. Final smoke: 50 passed / 1 failed / 2 did-not-run.
+
+</details>
+
+<details>
+<summary>✅ v1000 Map Stack and Basemap Layer Controls (Phases 1000-1001) — SHIPPED 2026-05-11</summary>
+
+- [x] Phase 1000: Kepler-inspired map stack and basemap layer controls (6/6 plans) — completed 2026-05-11
+- [x] Phase 1001: Preserve DEM metadata in authenticated public maps (1/1 plan) — completed 2026-05-11
+
+7/7 MAPSTACK requirements satisfied. Audit: complete with tracked tech debt for generated SDK drift, visual QA automation, seeded demo E2E gating, and full release gates not rerun. Full details: [milestones/v1000-ROADMAP.md](milestones/v1000-ROADMAP.md).
 
 </details>
 
@@ -183,55 +194,6 @@ Plans:
 **Goal:** Add SBOM generation (CycloneDX or SPDX) + Cosign-signed images to the deployment pipeline. Typical enterprise procurement gate.
 **Source:** `oc-separation-audit-20260430-b.md` §4 finding #4 / §7 P2
 **Estimated effort:** 1 week
-
-Plans:
-- [ ] TBD
-
----
-
-### Phase 1000: Kepler-inspired map stack and basemap layer controls (COMPLETED 2026-05-11 — P1)
-
-**Goal:** Refactor the Map Builder layer-management UX around a unified Map Stack while keeping GeoLens' current MapLibre/editor architecture. Borrow Kepler.gl-style patterns where they fit: clear stack ordering, editable layer groups, styleable basemap sublayers, explicit surface/relief controls, and marketing-quality saved-map defaults.
-**Requirements:** MAPSTACK-01..07 (see plan frontmatter)
-**Depends on:** Next active map-builder milestone selection; preserve existing saved-map compatibility or define an explicit migration.
-**Source:** `docs-internal/audits/ux-review-map-layer-management-20260510.md`; 2026-05-10 Playwright MCP builder QA, layer-order review, and Kepler.gl comparison.
-**Estimated effort:** 1-2 weeks
-**Priority:** P1 — current Layers / Basemap / Terrain split is confusing for advanced styling, limits basemap refinement, and makes it harder to showcase 3D/relief maps cleanly.
-**Context:** `.planning/phases/1000-kepler-inspired-map-stack-and-basemap-layer-controls/1000-CONTEXT.md`
-**Plans:** 6/6 plans complete / 5 waves
-
-Initial scope:
-- [x] Replace the separate Layers / Basemap / Terrain mental model with a unified Map Stack panel that groups Surface, Relief, Basemap sublayers, Data layers, Labels, and interaction/popups.
-- [x] Treat DEM/terrain as layer-like stack items with explicit roles, while distinguishing elevation surfaces from visual relief overlays such as hillshade and contours.
-- [x] Make basemaps styleable as collections of sublayers, including at least labels, roads, land/water, boundaries, and optional buildings where supported.
-- [x] Define a clear stack and z-order policy for basemap, terrain, relief, labels, and user-added layers, including how a user can show relief beneath readable basemap detail.
-- [x] Fix known layer-management UX bugs: mobile layer editing unavailable, collapsed basemap contents still visible, cramped filter controls, duplicate layer names, and unnamed switches.
-- [x] Keep public/map-thumbnail outputs marketing-clean by excluding editor chrome and avoiding accidental legend/control overlays unless the map owner explicitly includes them.
-- [x] Validate with Playwright MCP screenshots across desktop, tablet, and mobile builder flows plus representative public saved maps.
-
-Plans:
-- [x] 1000-01: Fix layer-management UX blockers and focused regression tests - completed 2026-05-11
-- [x] 1000-02: Add a normalized Map Stack model for surface, relief, basemap, data, and labels - completed 2026-05-11
-- [x] 1000-03: Replace split sidebar sections with a unified Map Stack inspector - completed 2026-05-11
-- [x] 1000-04: Persist basemap appearance controls and enforce explicit z-order policy - completed 2026-05-11
-- [x] 1000-05: Polish relief/marketing outputs and run Playwright MCP validation - completed 2026-05-11
-- [x] 1000-06: Apply persisted basemap appearance in public viewers - completed 2026-05-11
-
----
-
-### Phase 1001: Preserve DEM metadata in authenticated public maps (GAP CLOSURE - P1)
-
-**Goal:** Close the Phase 1000 milestone-audit gap where authenticated public saved maps can lose DEM/relief semantics during `MapResponse.layers` to `ViewerMap` conversion.
-**Requirements:** MAPSTACK-02, MAPSTACK-04, MAPSTACK-07
-**Gap Closure:** Closes gaps from `.planning/milestones/v1000-MILESTONE-AUDIT.md` (`INT-PUBLIC-DEM-01`, `FLOW-AUTH-PUBLIC-DEM-01`).
-**Depends on:** Phase 1000 public-viewer basemap and terrain work.
-**Estimated effort:** 1 focused plan
-**Priority:** P1 - blocks Phase 1000 audit pass for authenticated public DEM/relief maps.
-
-Scope:
-- [ ] Preserve `is_dem` and `dem_vertical_units` in `PublicMapViewerPage.toSharedLayer`.
-- [ ] Add a DEM fixture regression test for authenticated public saved-map conversion.
-- [ ] Rerun focused public-viewer tests plus frontend lint.
 
 Plans:
 - [ ] TBD

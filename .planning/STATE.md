@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v13.14
-milestone_name: Smoke Stabilization
+milestone: v1000
+milestone_name: Map Stack and Basemap Layer Controls
 status: completed
-last_updated: "2026-05-11T15:06:13.000Z"
+last_updated: "2026-05-11T17:55:00.000Z"
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 7
   percent: 100
 ---
 
@@ -16,19 +16,28 @@ progress:
 
 ## Current Position
 
-**Milestone:** Phase 1000 Backlog — Kepler-inspired map stack and basemap layer controls
-**Status:** Phase 1000 complete and verified. Plans 1000-01 through 1000-06 shipped, including the public-viewer basemap_config gap closure.
+**Milestone:** v1000 — Map Stack and Basemap Layer Controls
+**Status:** Completed and archived. Phase 1000 plus Phase 1001 gap closure shipped 7/7 plans, including authenticated public DEM metadata preservation and the completion pre-flight Map Stack test helper fix.
 
 Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
+See: .planning/PROJECT.md (updated 2026-05-11 at v1000 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution is complete with all 6 plans shipped.
+**Current focus:** Planning next milestone.
 
 ## Last Shipped Milestone
+
+**Version:** v1000 Map Stack and Basemap Layer Controls
+**Shipped:** 2026-05-11
+**Phases:** 1000-1001 (2 phases, 7 plans, 27 tasks)
+**Requirements:** 7/7 satisfied (MAPSTACK-01..07)
+**Audit:** `tech_debt` / `COMPLETE_WITH_TECH_DEBT_REVIEW` — generated SDK drift, visual QA automation, seeded demo E2E gating, and full release gates not rerun
+**Archive:** `.planning/milestones/v1000-ROADMAP.md`, `.planning/milestones/v1000-REQUIREMENTS.md`, `.planning/milestones/v1000-MILESTONE-AUDIT.md`
+
+## Prior Shipped Milestone
 
 **Version:** v13.14 Smoke Stabilization
 **Shipped:** 2026-05-08
@@ -37,7 +46,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 **Audit:** none — bugfix milestone, smoke regression coverage validated by `npm run e2e:smoke` final 50/1/2 result
 **Source:** quick task `260508-d6i` (full smoke run after fresh stack reset + thematic-demo seed)
 
-## Prior Shipped Milestone
+## Earlier Shipped Milestone
 
 **Version:** v13.13 Backlog Sweep
 **Shipped:** 2026-05-07
@@ -70,6 +79,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - Phase 1000 plan 1000-05 completed 2026-05-11: relief-focused Surface/Relief affordances, builder/public-viewer terrain alignment, cleaner builder legend output, and Playwright MCP screenshots for desktop, tablet, mobile, public, and Grand Canyon relief flows.
 - Phase 1000 plan 1000-06 completed 2026-05-11: public shared-token and authenticated map viewers pass persisted `basemap_config` into `ViewerMap`, which reapplies curated basemap appearance after load, style reloads, and runtime config/label changes.
 - Phase 1000 completed 2026-05-11: 6/6 plans shipped across 5 waves, satisfying MAPSTACK-01..07 while preserving saved-map compatibility and the existing MapLibre builder architecture.
+- Phase 1001 completed 2026-05-11: authenticated public saved-map layer conversion now preserves `is_dem` and `dem_vertical_units`, and focused public viewer regression coverage closes MAPSTACK-02, MAPSTACK-04, MAPSTACK-07 plus `INT-PUBLIC-DEM-01` and `FLOW-AUTH-PUBLIC-DEM-01`.
 
 ## Recent Decisions
 
@@ -85,6 +95,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - **Relief language separates surfaces from visual overlays.** Phase 1000-05 keeps DEM terrain framed as an elevation surface, with hillshade/visual relief called out separately so users do not mistake terrain for a paint layer.
 - **Visual QA can use temporary seeded maps when demo data is absent.** Phase 1000-05 used Playwright MCP plus a temporary public QA map and recorded screenshot paths/nonblank checks when local demo fixtures were not seeded.
 - **Public viewers reuse builder basemap transforms.** Phase 1000-06 applies persisted `basemap_config` in `ViewerMap` through `applyBasemapConfigToMap` with the `viewer-source-` managed-source prefix, keeping public saved maps aligned with builder-authored basemap appearance.
+- **Authenticated public viewers preserve DEM metadata.** Phase 1001 keeps DEM identity and vertical units intact from `MapResponse.layers` through `PublicMapViewerPage.toSharedLayer` into `ViewerMap`, matching the builder and shared-token viewer expectations.
 
 ### Quick Tasks Completed
 
@@ -133,4 +144,4 @@ Stopped at: Phase 1000 complete and verified at 7/7; auto-advance cleared at mil
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after Phase 1000 verification and transition*
+*Last updated: 2026-05-11 after v1000 milestone close*

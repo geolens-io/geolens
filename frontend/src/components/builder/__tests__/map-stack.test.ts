@@ -43,6 +43,7 @@ function makeMap(overrides: Partial<MapStackMapInput> = {}): MapStackMapInput {
   return {
     basemap_style: overrides.basemap_style ?? 'positron',
     show_basemap_labels: overrides.show_basemap_labels ?? true,
+    basemap_config: overrides.basemap_config ?? null,
     terrain_config: overrides.terrain_config ?? null,
     layers: overrides.layers ?? [],
     widgets: overrides.widgets ?? null,
