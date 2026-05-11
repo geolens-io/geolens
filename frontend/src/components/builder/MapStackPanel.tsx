@@ -320,6 +320,7 @@ export const MapStackPanel = memo(function MapStackPanel({
   }
 
   const totalEntries = stackGroups.reduce((sum, group) => sum + group.entries.length, 0);
+  const hasUserLayers = layers.length > 0;
   const title = t('mapStack.title', { defaultValue: 'Map Stack' });
 
   return (
@@ -344,6 +345,32 @@ export const MapStackPanel = memo(function MapStackPanel({
           {t('layers.addData')}
         </Button>
       </div>
+
+      {!hasUserLayers && (
+        <section
+          aria-label={t('mapStack.empty.title', { defaultValue: 'Start with data' })}
+          data-testid="map-stack-empty-data-first"
+          className="mx-2 mb-2 rounded-md border border-dashed border-primary/40 bg-primary/5 p-3"
+        >
+          <h3 className="text-sm font-semibold text-foreground">
+            {t('mapStack.empty.title', { defaultValue: 'Start with data' })}
+          </h3>
+          <p className="mt-1 text-xs leading-snug text-muted-foreground">
+            {t('mapStack.empty.description', {
+              defaultValue: 'Add a dataset first, then tune terrain, basemap, labels, and interactions around it.',
+            })}
+          </p>
+          <Button
+            variant="default"
+            size="sm"
+            className="mt-3 h-9 w-full gap-1 text-xs"
+            onClick={onAddDataClick}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('layers.addData')}
+          </Button>
+        </section>
+      )}
 
       <DndContext
         sensors={sensors}

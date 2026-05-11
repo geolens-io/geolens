@@ -17,6 +17,10 @@
   "mapStack": {
     "title": "Pila del mapa",
     "entryCount": "{{count}} elementos de pila",
+    "empty": {
+      "title": "Empiece con datos",
+      "description": "Agregue primero un conjunto de datos y luego ajuste terreno, mapa base, etiquetas e interacciones."
+    },
     "groups": {
       "surface": { "title": "Superficie" },
       "relief": { "title": "Relieve" },
@@ -59,6 +63,11 @@
       "preset": "Preajuste",
       "raster": "Ráster",
       "layer": "Capa",
+      "selected": "Seleccionada",
+      "locked": "Bloqueada",
+      "disabled": "Desactivada",
+      "unsupported": "No compatible",
+      "needsAttention": "Requiere atención",
       "copy": "Copia {{index}} de {{count}}",
       "widgets": "{{count}} widget"
     },

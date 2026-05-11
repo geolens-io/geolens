@@ -17,6 +17,10 @@
   "mapStack": {
     "title": "Kartenstapel",
     "entryCount": "{{count}} Stapelelemente",
+    "empty": {
+      "title": "Mit Daten beginnen",
+      "description": "Fügen Sie zuerst einen Datensatz hinzu und passen Sie danach Terrain, Basiskarte, Beschriftungen und Interaktionen an."
+    },
     "groups": {
       "surface": { "title": "Oberfläche" },
       "relief": { "title": "Relief" },
@@ -59,6 +63,11 @@
       "preset": "Vorgabe",
       "raster": "Raster",
       "layer": "Layer",
+      "selected": "Ausgewählt",
+      "locked": "Gesperrt",
+      "disabled": "Deaktiviert",
+      "unsupported": "Nicht unterstützt",
+      "needsAttention": "Benötigt Aufmerksamkeit",
       "copy": "Kopie {{index}} von {{count}}",
       "widgets": "{{count}} Widget"
     },

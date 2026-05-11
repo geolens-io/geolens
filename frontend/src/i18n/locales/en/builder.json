@@ -17,6 +17,10 @@
   "mapStack": {
     "title": "Map Stack",
     "entryCount": "{{count}} stack items",
+    "empty": {
+      "title": "Start with data",
+      "description": "Add a dataset first, then tune terrain, basemap, labels, and interactions around it."
+    },
     "groups": {
       "surface": { "title": "Surface" },
       "relief": { "title": "Relief" },
@@ -59,6 +63,11 @@
       "preset": "Preset",
       "raster": "Raster",
       "layer": "Layer",
+      "selected": "Selected",
+      "locked": "Locked",
+      "disabled": "Disabled",
+      "unsupported": "Unsupported",
+      "needsAttention": "Needs attention",
       "copy": "Copy {{index}} of {{count}}",
       "widgets": "{{count}} widget"
     },

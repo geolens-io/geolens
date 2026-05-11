@@ -17,6 +17,10 @@
   "mapStack": {
     "title": "Pile de carte",
     "entryCount": "{{count}} éléments de pile",
+    "empty": {
+      "title": "Commencer par les données",
+      "description": "Ajoutez d'abord un jeu de données, puis ajustez le terrain, le fond de carte, les étiquettes et les interactions."
+    },
     "groups": {
       "surface": { "title": "Surface" },
       "relief": { "title": "Relief" },
@@ -59,6 +63,11 @@
       "preset": "Préréglage",
       "raster": "Raster",
       "layer": "Couche",
+      "selected": "Sélectionnée",
+      "locked": "Verrouillée",
+      "disabled": "Désactivée",
+      "unsupported": "Non compatible",
+      "needsAttention": "Demande attention",
       "copy": "Copie {{index}} sur {{count}}",
       "widgets": "{{count}} widget"
     },
