@@ -2,31 +2,31 @@
 gsd_state_version: 1.0
 milestone: v13.14
 milestone_name: Smoke Stabilization
-status: shipped
-last_updated: "2026-05-11T12:43:40.000Z"
+status: in_progress
+last_updated: "2026-05-11T13:07:15.000Z"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 3
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 5
   completed_plans: 3
-  percent: 100
+  percent: 60
 ---
 
 # State
 
 ## Current Position
 
-**Milestone:** v13.14 Smoke Stabilization — **SHIPPED 2026-05-08**
-**Status:** All 3 phases complete (280, 281, 282). 4 of 6 smoke failures from quick task `260508-d6i` closed. Remaining `builder.spec.ts:343` flake out of scope.
+**Milestone:** Phase 1000 Backlog — Kepler-inspired map stack and basemap layer controls
+**Status:** Plans 1000-01, 1000-02, and 1000-03 complete. Ready for 1000-04 persisted basemap appearance and z-order contract work.
 
-Progress: [██████████] 100%
+Progress: [██████░░░░] 60%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution has started with plans 1000-01 and 1000-02 complete.
+**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution is in progress with plans 1000-01, 1000-02, and 1000-03 complete.
 
 ## Last Shipped Milestone
 
@@ -65,6 +65,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - Phase 1000 planned 2026-05-10 as 5 plans / 4 waves: UX blockers, pure Map Stack model, unified inspector UI, persisted basemap appearance/z-order contract, and relief/marketing-output Playwright MCP validation.
 - Phase 1000 plan 1000-01 completed 2026-05-11: mobile layer editor reachability, collapsed basemap option hiding, readable filter rows, duplicate-layer row metadata, named label switches, and focused builder E2E coverage.
 - Phase 1000 plan 1000-02 completed 2026-05-11: pure `buildMapStack` model for Surface, Relief, Basemap, Data, Labels, and Interactions with saved-map compatibility tests and no API migration.
+- Phase 1000 plan 1000-03 completed 2026-05-11: unified `MapStackPanel` sidebar, desktop/mobile shared sidebar-local layer inspector, primary layer action preservation, and builder locale strings for stack groups and badges.
 
 ## Recent Decisions
 
@@ -74,6 +75,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - **Closeout plan written inline by orchestrator after planner timeout.** The Phase 279 planner agent timed out on the 5th plan (closeout). Orchestrator wrote MILESTONE-AUDIT.md + STATE.md + MEMORY.md + MILESTONES.md + PROJECT.md updates inline. Pattern works as a fallback when planner can't reach the closeout step.
 - **Layer-management blocker fixes landed before deeper inspector refactor.** Phase 1000-01 kept the desktop flyout stable while enabling the same LayerEditorPanel inside the mobile sheet, unmounted collapsed basemap options, and used non-persisted row metadata for duplicate layer disambiguation.
 - **Map Stack model is migration-free.** Phase 1000-02 established a frontend-only stack builder over existing `basemap_style`, `show_basemap_labels`, `terrain_config`, `widgets`, and `layers` fields. Future inspector work should consume this model before introducing persisted basemap appearance fields.
+- **Map Stack inspector preserves existing builder test contracts.** Phase 1000-03 kept primary layer rows discoverable as `layer-item-*`, preserved "Expand options" as the inspector button name, and kept `Basemap` unique visible text while replacing the split sidebar with one stack panel.
 
 ### Quick Tasks Completed
 
@@ -117,9 +119,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T12:43:40Z
-Stopped at: Phase 1000 plans 1000-01 and 1000-02 completed; 1000-03 can consume the unblocked layer-management UI and `buildMapStack` for the unified inspector.
+Last session: 2026-05-11T13:07:15Z
+Stopped at: Completed 1000-03-PLAN.md; 1000-04 can build persisted basemap appearance controls and z-order policy on the unified Map Stack shell.
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after Phase 1000 plan 1000-01 execution*
+*Last updated: 2026-05-11 after Phase 1000 plan 1000-03 execution*

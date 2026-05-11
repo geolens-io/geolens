@@ -198,7 +198,7 @@ Plans:
 **Estimated effort:** 1-2 weeks
 **Priority:** P1 — current Layers / Basemap / Terrain split is confusing for advanced styling, limits basemap refinement, and makes it harder to showcase 3D/relief maps cleanly.
 **Context:** `.planning/phases/1000-kepler-inspired-map-stack-and-basemap-layer-controls/1000-CONTEXT.md`
-**Plans:** 2/5 plans complete / 4 waves
+**Plans:** 3/5 plans complete / 4 waves
 
 Initial scope:
 - [ ] Replace the separate Layers / Basemap / Terrain mental model with a unified Map Stack panel that groups Surface, Relief, Basemap sublayers, Data layers, Labels, and interaction/popups.
@@ -212,7 +212,7 @@ Initial scope:
 Plans:
 - [x] 1000-01: Fix layer-management UX blockers and focused regression tests - completed 2026-05-11
 - [x] 1000-02: Add a normalized Map Stack model for surface, relief, basemap, data, and labels - completed 2026-05-11
-- [ ] 1000-03: Replace split sidebar sections with a unified Map Stack inspector
+- [x] 1000-03: Replace split sidebar sections with a unified Map Stack inspector - completed 2026-05-11
 - [ ] 1000-04: Persist basemap appearance controls and enforce explicit z-order policy
 - [ ] 1000-05: Polish relief/marketing outputs and run Playwright MCP validation
 
