@@ -1,10 +1,11 @@
-import type { Map as MaplibreMap, GeoJSONSource, VectorSourceSpecification } from 'maplibre-gl';
+import type { Map as MaplibreMap, GeoJSONSource, StyleSpecification, VectorSourceSpecification } from 'maplibre-gl';
 import type { FilterSpecification } from 'maplibre-gl';
 import { toast } from 'sonner';
-import type { MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { applyBasemapConfigToStyle } from '@/lib/basemap-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
@@ -23,6 +24,13 @@ export {
 } from './layer-adapters/shared';
 
 export const TERRAIN_SOURCE_ID = 'terrain-dem';
+export const MAP_STACK_Z_ORDER_POLICY = [
+  'surface terrain',
+  'basemap relief and detail',
+  'user data geometry',
+  'basemap labels',
+  'user data labels',
+] as const;
 
 export function isTerrainCapableDemLayer(layer: {
   is_dem?: boolean | null;
@@ -157,6 +165,68 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
       map.moveLayer(layer.id);
     } else {
       map.setLayoutProperty(layer.id, 'visibility', 'none');
+    }
+  }
+}
+
+
+function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
+  return style.layers.filter(
+    (layer) => !('source' in layer) || !String(layer.source ?? '').startsWith(sourcePrefix),
+  ) as StyleSpecification['layers'];
+}
+
+function changedPaintKeys(
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined,
+) {
+  if (!after) return [];
+  return Object.keys(after).filter((key) => before?.[key] !== after[key]);
+}
+
+/** Apply curated basemap appearance controls to the loaded MapLibre style. */
+export function applyBasemapConfigToMap(
+  map: MaplibreMap,
+  basemapConfig: MapBasemapConfig | null | undefined,
+  showBasemapLabels = true,
+  sourcePrefix = 'source-',
+) {
+  const style = map.getStyle() as StyleSpecification | undefined;
+  if (!style?.layers) return;
+
+  const basemapOnlyStyle: StyleSpecification = {
+    ...style,
+    layers: basemapStyleLayers(style, sourcePrefix),
+  };
+  const nextStyle = applyBasemapConfigToStyle(
+    basemapOnlyStyle,
+    basemapConfig,
+    showBasemapLabels,
+  );
+  const nextById = new Map(nextStyle.layers.map((layer) => [layer.id, layer]));
+
+  for (const current of basemapOnlyStyle.layers) {
+    const next = nextById.get(current.id);
+    if (!next || !map.getLayer(current.id)) continue;
+
+    const currentLayout = 'layout' in current ? current.layout as Record<string, unknown> | undefined : undefined;
+    const nextLayout = 'layout' in next ? next.layout as Record<string, unknown> | undefined : undefined;
+    if (currentLayout?.visibility !== nextLayout?.visibility && nextLayout?.visibility != null) {
+      try {
+        map.setLayoutProperty(current.id, 'visibility', nextLayout.visibility);
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn('[map-sync] basemap layout sync failed', current.id, error);
+      }
+    }
+
+    const currentPaint = 'paint' in current ? current.paint as Record<string, unknown> | undefined : undefined;
+    const nextPaint = 'paint' in next ? next.paint as Record<string, unknown> | undefined : undefined;
+    for (const key of changedPaintKeys(currentPaint, nextPaint)) {
+      try {
+        map.setPaintProperty(current.id, key, nextPaint?.[key]);
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn('[map-sync] basemap paint sync failed', current.id, key, error);
+      }
     }
   }
 }

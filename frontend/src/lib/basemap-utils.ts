@@ -1,5 +1,11 @@
 import type { StyleSpecification } from 'maplibre-gl';
 import type { BasemapEntry } from '@/api/settings';
+import type {
+  MapBasemapConfig,
+  MapBasemapLandWaterTone,
+  MapBasemapReliefContrast,
+  MapBasemapVisibilityMode,
+} from '@/types/api';
 import positronThumb from '@/assets/basemaps/positron.png';
 import darkThumb from '@/assets/basemaps/dark.png';
 import osmThumb from '@/assets/basemaps/osm.png';
@@ -8,6 +14,65 @@ import brightThumb from '@/assets/basemaps/bright.png';
 export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
 export const BLANK_BASEMAP_ID = 'blank';
+
+export const DEFAULT_BASEMAP_CONFIG: MapBasemapConfig = {
+  label_mode: 'full',
+  road_visibility: 'full',
+  boundary_visibility: 'full',
+  building_visibility: true,
+  land_water_tone: 'default',
+  relief_contrast: null,
+};
+
+const VISIBILITY_MODES = new Set<MapBasemapVisibilityMode>(['full', 'subtle', 'hidden']);
+const LAND_WATER_TONES = new Set<MapBasemapLandWaterTone>(['default', 'muted', 'contrast', 'monochrome']);
+const RELIEF_CONTRASTS = new Set<MapBasemapReliefContrast>(['soft', 'standard', 'strong']);
+
+type StyleLayer = StyleSpecification['layers'][number] & {
+  id: string;
+  type?: string;
+  source?: unknown;
+  'source-layer'?: unknown;
+  paint?: Record<string, unknown>;
+  layout?: Record<string, unknown>;
+};
+
+const ROAD_PATTERNS = [
+  'road',
+  'street',
+  'highway',
+  'motorway',
+  'trunk',
+  'primary',
+  'secondary',
+  'tertiary',
+  'path',
+  'rail',
+  'transit',
+  'transport',
+];
+const BOUNDARY_PATTERNS = ['boundary', 'admin', 'country', 'state', 'province'];
+const BUILDING_PATTERNS = ['building', 'extrusion'];
+const WATER_PATTERNS = ['water', 'river', 'lake', 'ocean'];
+const LAND_PATTERNS = ['land', 'earth', 'park', 'wood', 'forest', 'natural', 'greenspace'];
+
+const LAND_WATER_PALETTE: Record<
+  Exclude<MapBasemapLandWaterTone, 'default'>,
+  { land: string; water: string; park: string }
+> = {
+  muted: { land: '#f1f0ea', water: '#d8e5e8', park: '#dee7d8' },
+  contrast: { land: '#f4ead4', water: '#8fb8d8', park: '#b8d5a5' },
+  monochrome: { land: '#f2f2f0', water: '#d9dde0', park: '#e5e5df' },
+};
+
+const RELIEF_PALETTE: Record<
+  MapBasemapReliefContrast,
+  { exaggeration: number; shadow: string; highlight: string }
+> = {
+  soft: { exaggeration: 0.35, shadow: '#8d969c', highlight: '#ffffff' },
+  standard: { exaggeration: 0.55, shadow: '#6f7b83', highlight: '#ffffff' },
+  strong: { exaggeration: 0.85, shadow: '#47545c', highlight: '#ffffff' },
+};
 
 /** Fallback glyphs for inline styles (raster basemaps) so text labels render. */
 const FALLBACK_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
@@ -93,6 +158,195 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
     },
     layers: [{ id: 'basemap-tiles', type: 'raster' as const, source: 'basemap' }],
     glyphs: FALLBACK_GLYPHS,
+  };
+}
+
+function validVisibilityMode(value: unknown, fallback: MapBasemapVisibilityMode) {
+  return typeof value === 'string' && VISIBILITY_MODES.has(value as MapBasemapVisibilityMode)
+    ? value as MapBasemapVisibilityMode
+    : fallback;
+}
+
+function validLandWaterTone(value: unknown) {
+  return typeof value === 'string' && LAND_WATER_TONES.has(value as MapBasemapLandWaterTone)
+    ? value as MapBasemapLandWaterTone
+    : DEFAULT_BASEMAP_CONFIG.land_water_tone;
+}
+
+function validReliefContrast(value: unknown) {
+  if (value == null) return null;
+  return typeof value === 'string' && RELIEF_CONTRASTS.has(value as MapBasemapReliefContrast)
+    ? value as MapBasemapReliefContrast
+    : null;
+}
+
+export function normalizeBasemapConfig(
+  value: Partial<MapBasemapConfig> | null | undefined,
+  showBasemapLabels = true,
+): MapBasemapConfig {
+  const labelFallback = showBasemapLabels ? DEFAULT_BASEMAP_CONFIG.label_mode : 'hidden';
+  return {
+    label_mode: validVisibilityMode(value?.label_mode, labelFallback),
+    road_visibility: validVisibilityMode(
+      value?.road_visibility,
+      DEFAULT_BASEMAP_CONFIG.road_visibility,
+    ),
+    boundary_visibility: validVisibilityMode(
+      value?.boundary_visibility,
+      DEFAULT_BASEMAP_CONFIG.boundary_visibility,
+    ),
+    building_visibility: typeof value?.building_visibility === 'boolean'
+      ? value.building_visibility
+      : DEFAULT_BASEMAP_CONFIG.building_visibility,
+    land_water_tone: validLandWaterTone(value?.land_water_tone),
+    relief_contrast: validReliefContrast(value?.relief_contrast),
+  };
+}
+
+function layerTokens(layer: StyleLayer) {
+  return [
+    layer.id,
+    typeof layer.source === 'string' ? layer.source : '',
+    typeof layer['source-layer'] === 'string' ? layer['source-layer'] : '',
+  ].join(' ').toLowerCase();
+}
+
+function matchesAny(layer: StyleLayer, patterns: string[]) {
+  const tokens = layerTokens(layer);
+  return patterns.some((pattern) => tokens.includes(pattern));
+}
+
+function isTextLabelLayer(layer: StyleLayer) {
+  if (layer.type !== 'symbol') return false;
+  const layout = layer.layout ?? {};
+  return layout['text-field'] != null || layerTokens(layer).includes('label');
+}
+
+function isRoadLayer(layer: StyleLayer) {
+  return (layer.type === 'line' || layer.type === 'symbol') && matchesAny(layer, ROAD_PATTERNS);
+}
+
+function isBoundaryLayer(layer: StyleLayer) {
+  return (layer.type === 'line' || layer.type === 'symbol') && matchesAny(layer, BOUNDARY_PATTERNS);
+}
+
+function isBuildingLayer(layer: StyleLayer) {
+  return layer.type === 'fill-extrusion' || matchesAny(layer, BUILDING_PATTERNS);
+}
+
+function isWaterLayer(layer: StyleLayer) {
+  return matchesAny(layer, WATER_PATTERNS);
+}
+
+function isParkLayer(layer: StyleLayer) {
+  return matchesAny(layer, ['park', 'wood', 'forest', 'natural', 'greenspace']);
+}
+
+function isLandLayer(layer: StyleLayer) {
+  return layer.type === 'background' || matchesAny(layer, LAND_PATTERNS);
+}
+
+function withLayout(layer: StyleLayer, layout: Record<string, unknown>) {
+  return { ...layer, layout: { ...(layer.layout ?? {}), ...layout } };
+}
+
+function withPaint(layer: StyleLayer, paint: Record<string, unknown>) {
+  return { ...layer, paint: { ...(layer.paint ?? {}), ...paint } };
+}
+
+function withVisibility(layer: StyleLayer, visible: boolean) {
+  return withLayout(layer, { visibility: visible ? 'visible' : 'none' });
+}
+
+function applyProminence(
+  layer: StyleLayer,
+  mode: MapBasemapVisibilityMode,
+  subtlePaint: Record<string, unknown>,
+) {
+  if (mode === 'hidden') return withVisibility(layer, false);
+  const visibleLayer = withVisibility(layer, true);
+  return mode === 'subtle' ? withPaint(visibleLayer, subtlePaint) : visibleLayer;
+}
+
+function applyLandWaterTone(layer: StyleLayer, tone: MapBasemapLandWaterTone) {
+  if (tone === 'default') return layer;
+  const palette = LAND_WATER_PALETTE[tone];
+  if (layer.type === 'background') {
+    return withPaint(layer, { 'background-color': palette.land });
+  }
+  if (layer.type !== 'fill') return layer;
+  if (isWaterLayer(layer)) return withPaint(layer, { 'fill-color': palette.water });
+  if (isParkLayer(layer)) return withPaint(layer, { 'fill-color': palette.park });
+  if (isLandLayer(layer)) return withPaint(layer, { 'fill-color': palette.land });
+  return layer;
+}
+
+function applyReliefContrast(
+  layer: StyleLayer,
+  reliefContrast: MapBasemapReliefContrast | null | undefined,
+) {
+  if (!reliefContrast || layer.type !== 'hillshade') return layer;
+  const palette = RELIEF_PALETTE[reliefContrast];
+  return withPaint(layer, {
+    'hillshade-exaggeration': palette.exaggeration,
+    'hillshade-shadow-color': palette.shadow,
+    'hillshade-highlight-color': palette.highlight,
+  });
+}
+
+function applyBasemapLayerConfig(
+  layer: StyleLayer,
+  config: MapBasemapConfig,
+): StyleLayer {
+  let next = applyLandWaterTone(layer, config.land_water_tone);
+  next = applyReliefContrast(next, config.relief_contrast);
+
+  if (isBuildingLayer(next)) {
+    next = withVisibility(next, config.building_visibility);
+  }
+  const roadLayer = isRoadLayer(next);
+  const boundaryLayer = isBoundaryLayer(next);
+  if (roadLayer) {
+    next = applyProminence(
+      next,
+      config.road_visibility,
+      next.type === 'line'
+        ? { 'line-opacity': 0.35 }
+        : { 'text-opacity': 0.45, 'icon-opacity': 0.35 },
+    );
+  }
+  if (boundaryLayer) {
+    next = applyProminence(
+      next,
+      config.boundary_visibility,
+      next.type === 'line' ? { 'line-opacity': 0.4 } : { 'text-opacity': 0.45 },
+    );
+  }
+  const sublayerHidden =
+    (roadLayer && config.road_visibility === 'hidden') ||
+    (boundaryLayer && config.boundary_visibility === 'hidden');
+  if (isTextLabelLayer(next) && !sublayerHidden) {
+    next = applyProminence(next, config.label_mode, {
+      'text-opacity': 0.55,
+      'icon-opacity': 0.45,
+      'text-halo-width': 0.8,
+    });
+  }
+
+  return next;
+}
+
+export function applyBasemapConfigToStyle(
+  style: StyleSpecification,
+  value: Partial<MapBasemapConfig> | null | undefined,
+  showBasemapLabels = true,
+): StyleSpecification {
+  const config = normalizeBasemapConfig(value, showBasemapLabels);
+  return {
+    ...style,
+    layers: style.layers.map((layer) =>
+      applyBasemapLayerConfig(layer as StyleLayer, config) as StyleSpecification['layers'][number],
+    ) as StyleSpecification['layers'],
   };
 }
 

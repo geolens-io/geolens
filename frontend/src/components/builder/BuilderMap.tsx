@@ -20,6 +20,7 @@ import {
   toSyncInput,
   reorderBasemapLabels,
   reorderDataLayers,
+  applyBasemapConfigToMap,
   getSourceId,
   getLayerId,
   ensureRasterDemTerrainSource,
@@ -29,7 +30,7 @@ import {
 } from './map-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -56,6 +57,7 @@ interface BuilderMapProps {
     pitch?: number;
   };
   terrainConfig?: MapTerrainConfig | null;
+  basemapConfig?: MapBasemapConfig | null;
   onMapRef?: (map: MaplibreMap | null) => void;
   showBasemapLabels?: boolean;
   /** Called when the user clicks a map feature. `null` when clicking empty space. */
@@ -67,6 +69,7 @@ export const BuilderMap = memo(function BuilderMap({
   basemapStyle,
   initialViewState,
   terrainConfig = null,
+  basemapConfig = null,
   onMapRef,
   showBasemapLabels = true,
   onFeatureSelect,
@@ -176,8 +179,8 @@ export const BuilderMap = memo(function BuilderMap({
     .join(',');
 
   // Keep a ref to the latest sync inputs so style.load handler can access them
-  const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels });
-  syncInputsRef.current = { layers, tokenMap, tileConfig, showBasemapLabels };
+  const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig });
+  syncInputsRef.current = { layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
 
   const layersRef = useRef(layers);
   layersRef.current = layers;
@@ -266,11 +269,12 @@ export const BuilderMap = memo(function BuilderMap({
     if (!map) return;
 
     const onStyleLoad = () => {
-      const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
+      const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
       lastOrderKeyRef.current = '';
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
       syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels: sbl });
+      applyBasemapConfigToMap(map, bc, sbl);
       applyTerrainConfig();
       refreshQueryLayerIds();
     };
@@ -449,14 +453,15 @@ export const BuilderMap = memo(function BuilderMap({
     tokenSig,
   ]);
 
-  // Reorder basemap labels — only when showBasemapLabels actually changes.
+  // Reorder and restyle basemap labels/details when appearance controls change.
   // Data labels must be re-stacked above basemap labels after toggling.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     reorderBasemapLabels(map, showBasemapLabels);
+    applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels);
     reorderDataLayers(map, layersRef.current.map((l) => ({ id: l.id })));
-  }, [showBasemapLabels, mapReady]);
+  }, [basemapConfig, showBasemapLabels, mapReady]);
 
   // Update tile URLs in-place when tokens refresh (vector only)
   useEffect(() => {
