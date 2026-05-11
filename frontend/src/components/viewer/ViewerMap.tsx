@@ -19,10 +19,10 @@ import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import type { MapLibreEvent, MapMouseEvent, StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
+import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
+import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import { fetchGeoJsonZ } from '@/api/geojson-z';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -53,12 +53,14 @@ interface ViewerMapProps {
   onMapReady?: (map: MaplibreMap) => void;
   apiKey?: string;
   embedToken?: string;
+  basemapConfig?: MapBasemapConfig | null;
   showBasemapLabels?: boolean;
   terrainConfig?: MapTerrainConfig | null;
 }
 
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
 const VIEWER_PREFIX = 'viewer-';
+const VIEWER_SOURCE_PREFIX = `${VIEWER_PREFIX}source-`;
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
 function toViewerSyncInput(
@@ -115,6 +117,7 @@ export const ViewerMap = memo(function ViewerMap({
   onMapReady,
   apiKey,
   embedToken,
+  basemapConfig = null,
   showBasemapLabels = true,
   terrainConfig = null,
 }: ViewerMapProps) {
@@ -447,8 +450,13 @@ export const ViewerMap = memo(function ViewerMap({
   }, [visibleLayers]);
 
   // Ref to hold current sync inputs so the style.load callback can access them
-  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels });
-  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels };
+  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels, basemapConfig });
+  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
+
+  const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
+    if (!map.isStyleLoaded()) return;
+    applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, VIEWER_SOURCE_PREFIX);
+  }, [basemapConfig, showBasemapLabels]);
 
   /** Wrapper: convert viewer state to normalized inputs and call unified syncLayersToMap */
   const runSync = useCallback((map: MaplibreMap) => {
@@ -457,7 +465,8 @@ export const ViewerMap = memo(function ViewerMap({
     const syncInputs: SyncLayerInput[] = ls.map((l) => toViewerSyncInput(l, vl));
     const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
     syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, geojsonDataRef.current, syncOpts);
-  }, []);
+    applyViewerBasemapConfig(map);
+  }, [applyViewerBasemapConfig]);
 
   // Sync layers to map (on data/visibility changes)
   useEffect(() => {
@@ -560,13 +569,20 @@ export const ViewerMap = memo(function ViewerMap({
       }
       // style.load wipes all custom sources; re-seed terrain source if a DEM is present.
       reseedTerrainOnStyleLoad();
+      applyViewerBasemapConfig(map);
     };
 
     map.on('style.load', onStyleLoad);
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [mapReady, runSync, reseedTerrainOnStyleLoad]);
+  }, [mapReady, runSync, reseedTerrainOnStyleLoad, applyViewerBasemapConfig]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    applyViewerBasemapConfig(map);
+  }, [basemapConfig, showBasemapLabels, mapReady, applyViewerBasemapConfig]);
 
   // Cleanup on unmount
   useEffect(() => {
