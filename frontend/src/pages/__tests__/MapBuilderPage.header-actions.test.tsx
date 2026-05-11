@@ -1,6 +1,6 @@
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
-import { render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen } from '@/test/test-utils';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
 
 const dialogsState = {
@@ -171,7 +171,9 @@ describe('MapBuilderPage header actions', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
     mockIsMobile = false;
+    dialogsState.sidebarCollapsed = false;
     dialogsState.setShowShare.mockReset();
+    localStorage.clear();
   });
 
   it('surfaces share as a primary desktop action for existing maps', async () => {
@@ -199,5 +201,19 @@ describe('MapBuilderPage header actions', () => {
     const notesRailButton = document.body.querySelector('button[title="dock.notes"]');
     expect(notesRailButton?.className).toContain('h-11');
     expect(notesRailButton?.className).toContain('w-11');
+  });
+
+  it('persists deterministic keyboard sidebar resizing through the resize slider', () => {
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    const resizeHandle = screen.getByRole('slider', { name: 'tooltips.resizeSidebar' });
+    expect(resizeHandle).toHaveAttribute('aria-valuenow', '260');
+    expect(resizeHandle).toHaveAttribute('aria-valuemin', '200');
+    expect(resizeHandle).toHaveAttribute('aria-valuemax', '600');
+
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' });
+
+    expect(resizeHandle).toHaveAttribute('aria-valuenow', '270');
+    expect(localStorage.getItem('geolens-builder-sidebar-width')).toBe('270');
   });
 });

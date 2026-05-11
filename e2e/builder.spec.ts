@@ -203,6 +203,25 @@ test.describe.serial('Map Builder', () => {
     await waitForBuilder(page);
   });
 
+  test('asserts desktop and tablet builder shell states without screenshots', async ({ page }) => {
+    for (const viewport of [
+      { width: 1440, height: 900, label: 'desktop' },
+      { width: 834, height: 1112, label: 'tablet' },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/maps/${mapId}`);
+      await waitForBuilder(page);
+
+      await expect(page.getByTestId('builder-sidebar'), `${viewport.label} sidebar`).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Map Stack' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Data' })).toBeVisible();
+      await expect(page.locator('[data-testid^="layer-item"]').first()).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
+      await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
+      await expect(page.locator('[inert]')).toHaveCount(0);
+    }
+  });
+
   test('sidebar collapses with inert attribute and reopens', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
@@ -513,50 +532,25 @@ test.describe.serial('Map Builder', () => {
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test('sidebar drag handle resizes sidebar', async ({ page }) => {
+  test('sidebar resize slider persists keyboard resizing', async ({ page }) => {
+    await page.addInitScript(() => localStorage.removeItem('geolens-builder-sidebar-width'));
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    // Clear persisted width
-    await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-width'));
-
-    // Get the drag handle and sidebar
     const handle = page.getByTestId('builder-sidebar-resize-handle');
     await expect(handle).toBeVisible();
     const sidebar = page.getByTestId('builder-sidebar');
 
     const widthBefore = await sidebar.evaluate((el) => el.offsetWidth);
+    await expect(handle).toHaveAttribute('role', 'slider');
+    await expect(handle).toHaveAttribute('aria-valuemin', '200');
+    await expect(handle).toHaveAttribute('aria-valuemax', '600');
 
-    // Find a y-coordinate where the handle is actually hittable (avoid icons/buttons)
-    const hitX = await page.evaluate(() => {
-      const h = document.querySelector('[class*="cursor-col-resize"]');
-      if (!h) return null;
-      const rect = h.getBoundingClientRect();
-      // Scan to find a hittable x
-      for (let x = Math.floor(rect.left); x <= Math.ceil(rect.right); x++) {
-        const el = document.elementFromPoint(x, rect.top + 50);
-        if (h.contains(el) || el === h) return x;
-      }
-      return null;
-    });
-    expect(hitX).toBeTruthy();
+    await handle.focus();
+    await expect(handle).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
 
-    const box = await handle.boundingBox();
-    expect(box).toBeTruthy();
-    const startY = box!.y + 50; // Use a point near top, away from layer controls
-
-    await page.mouse.move(hitX!, startY);
-    await page.mouse.down();
-    await page.mouse.move(hitX! + 100, startY, { steps: 15 });
-    await page.mouse.up();
-
-    // Poll the persisted localStorage value directly. The previous form polled
-    // sidebar.offsetWidth, which races: the poll resolves at the first onMove
-    // step (when offsetWidth crosses widthBefore), but localStorage is only
-    // written at pointerup with the final drag value — so the two diverge.
-    // Polling localStorage means we wait for the pointerup commit, after which
-    // both values are stable. Capture the resolved value into a closure to
-    // avoid a redundant page.evaluate round-trip after the poll.
     let storedNum: number | null = null;
     await expect
       .poll(async () => {
@@ -565,16 +559,17 @@ test.describe.serial('Map Builder', () => {
         return storedNum;
       }, {
         timeout: 3_000,
-        message: 'drag should persist a wider sidebar to localStorage',
+        message: 'keyboard resize should persist a wider sidebar to localStorage',
       })
       .toBeGreaterThan(widthBefore);
 
     if (storedNum === null) {
-      throw new Error('localStorage was empty after expect.poll resolved; pointerup did not commit');
+      throw new Error('localStorage was empty after keyboard resize resolved');
     }
     expect(Number.isFinite(storedNum)).toBe(true);
     expect(storedNum).toBeGreaterThanOrEqual(200); // SIDEBAR_MIN
     expect(storedNum).toBeLessThanOrEqual(600); // SIDEBAR_MAX
+    await expect(handle).toHaveAttribute('aria-valuenow', String(storedNum));
 
     // Reload and verify the persisted value drives the rendered width.
     await page.reload();
