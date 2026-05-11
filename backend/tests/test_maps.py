@@ -1624,6 +1624,67 @@ class TestMapLayers:
         assert data["opacity"] == 1.0
         assert "id" in data
 
+    async def test_add_layer_assigns_next_sort_order_when_omitted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /maps/{id}/layers assigns unique order when sort_order is omitted."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds_a = await create_dataset(test_db_session, created_by=admin_id)
+        ds_b = await create_dataset(test_db_session, created_by=admin_id)
+
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        first_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds_a.id)},
+            headers=admin_auth_header,
+        )
+        second_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds_b.id)},
+            headers=admin_auth_header,
+        )
+
+        assert first_resp.status_code == 201
+        assert second_resp.status_code == 201
+        assert first_resp.json()["sort_order"] == 0
+        assert second_resp.json()["sort_order"] == 1
+
+    async def test_add_layer_duplicate_dataset_omitted_order_stays_distinct(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Duplicate dataset layers get stable identity through unique sort order."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        first_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        second_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+        assert first_resp.status_code == 201
+        assert second_resp.status_code == 201
+        first = first_resp.json()
+        second = second_resp.json()
+        assert first["id"] != second["id"]
+        assert [first["sort_order"], second["sort_order"]] == [0, 1]
+
     async def test_add_layer_map_not_found(
         self,
         client: AsyncClient,
