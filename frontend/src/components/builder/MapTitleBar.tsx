@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Save, Loader2, Share2, MoreHorizontal, Info, Copy, Download, Pencil, ChevronRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Save, Share2, MoreHorizontal, Info, Copy, Download, Pencil, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -37,6 +37,8 @@ interface MapTitleBarProps {
   onMarkDirty: () => void;
   hasUnsavedChanges: boolean;
   isSaving: boolean;
+  saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
+  isSaveRetryable?: boolean;
   onSave: () => void;
   onShare?: () => void;
   overflow: OverflowActions;
@@ -50,11 +52,37 @@ export function MapTitleBar({
   onMarkDirty,
   hasUnsavedChanges,
   isSaving,
+  saveStatus = isSaving ? 'saving' : hasUnsavedChanges ? 'unsaved' : 'saved',
+  isSaveRetryable = false,
   onSave,
   onShare,
   overflow,
 }: MapTitleBarProps) {
   const { t } = useTranslation('builder');
+  const saveStatusLabel = saveStatus === 'saving'
+    ? t('titleBar.saveStatus.saving', { defaultValue: 'Saving...' })
+    : saveStatus === 'failed'
+      ? t('titleBar.saveStatus.failed', { defaultValue: 'Save failed' })
+      : saveStatus === 'unsaved'
+        ? t('titleBar.saveStatus.unsaved', { defaultValue: 'Unsaved changes' })
+        : t('titleBar.saveStatus.saved', { defaultValue: 'Saved' });
+  const saveButtonLabel = saveStatus === 'failed'
+    ? t('titleBar.retrySave', { defaultValue: 'Retry save' })
+    : saveStatus === 'unsaved'
+      ? t('actions.save', { defaultValue: 'Save' })
+      : saveStatus === 'saving'
+        ? t('titleBar.saveStatus.saving', { defaultValue: 'Saving...' })
+        : t('titleBar.saved', { defaultValue: 'Saved' });
+  const saveTooltip = saveStatus === 'failed'
+    ? t('tooltips.retrySave', { defaultValue: 'Save failed. Retry saving changes.' })
+    : saveStatus === 'unsaved'
+      ? t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` })
+      : saveStatus === 'saving'
+        ? t('titleBar.saveStatus.saving', { defaultValue: 'Saving...' })
+        : t('tooltips.allSaved', { defaultValue: 'All changes saved' });
+  const saveButtonAriaLabel = saveStatus === 'failed'
+    ? t('titleBar.retrySave', { defaultValue: 'Retry save' })
+    : t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` });
 
   return (
     <div className="h-10 border-b bg-background flex items-center gap-3 px-3 shrink-0">
@@ -119,18 +147,38 @@ export function MapTitleBar({
             </Tooltip>
           )}
 
+          <div
+            data-testid="builder-save-status"
+            className="hidden md:flex min-w-[7.5rem] items-center justify-end gap-1.5 text-xs"
+          >
+            {saveStatus === 'saving' ? (
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
+            ) : saveStatus === 'failed' ? (
+              <AlertTriangle className="h-3 w-3 text-destructive" aria-hidden="true" />
+            ) : saveStatus === 'unsaved' ? (
+              <span className="h-2 w-2 rounded-full bg-warning" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="h-3 w-3 text-success" aria-hidden="true" />
+            )}
+            <span className={saveStatus === 'failed' ? 'font-medium text-destructive' : 'text-muted-foreground'}>
+              {saveStatusLabel}
+            </span>
+          </div>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant={hasUnsavedChanges ? 'default' : 'outline'}
+                variant={saveStatus === 'failed' ? 'destructive' : hasUnsavedChanges ? 'default' : 'outline'}
                 size="sm"
                 className="h-7 text-xs gap-1 relative"
                 onClick={onSave}
                 disabled={isSaving}
-                aria-label={t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` })}
+                aria-label={saveButtonAriaLabel}
               >
                 {isSaving ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
+                ) : saveStatus === 'failed' ? (
+                  <AlertTriangle className="h-3 w-3" />
                 ) : hasUnsavedChanges ? (
                   <span className="relative inline-flex">
                     <Save className="h-3 w-3" />
@@ -143,18 +191,12 @@ export function MapTitleBar({
                   <span className="h-1.5 w-1.5 rounded-full bg-success" />
                 )}
                 <span className="hidden sm:inline">
-                  {hasUnsavedChanges
-                    ? t('actions.save', { defaultValue: 'Save' })
-                    : t('titleBar.saved', { defaultValue: 'Saved' })
-                  }
+                  {isSaveRetryable ? t('titleBar.retry', { defaultValue: 'Retry' }) : saveButtonLabel}
                 </span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {hasUnsavedChanges
-                ? t('tooltips.save', { shortcut: SAVE_SHORTCUT, defaultValue: `Save (${SAVE_SHORTCUT})` })
-                : t('tooltips.allSaved', { defaultValue: 'All changes saved' })
-              }
+              {saveTooltip}
             </TooltipContent>
           </Tooltip>
 

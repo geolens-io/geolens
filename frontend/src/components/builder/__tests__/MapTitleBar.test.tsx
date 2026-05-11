@@ -98,8 +98,8 @@ describe('MapTitleBar', () => {
 
     // No "Unsaved changes" indicator
     expect(screen.queryByLabelText('Unsaved changes')).not.toBeInTheDocument();
-    // Save button shows "Saved"
-    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(screen.getByTestId('builder-save-status')).toHaveTextContent('Saved');
+    expect(screen.getAllByText('Saved')).toHaveLength(2);
   });
 
   it('disables the save button and shows a spinner when isSaving=true', () => {
@@ -116,6 +116,22 @@ describe('MapTitleBar', () => {
     // Loader2 from lucide-react renders an SVG with class "animate-spin"
     const spinner = container.querySelector('.animate-spin');
     expect(spinner).not.toBeNull();
+  });
+
+  it('shows failed save state with a retry action', () => {
+    render(
+      <MapTitleBar
+        {...defaultProps({
+          hasUnsavedChanges: true,
+          isSaving: false,
+          saveStatus: 'failed',
+          isSaveRetryable: true,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('builder-save-status')).toHaveTextContent('Save failed');
+    expect(screen.getByRole('button', { name: 'Retry save' })).toHaveTextContent('Retry');
   });
 
   it('clicking the save button fires onSave', () => {

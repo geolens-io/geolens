@@ -28,6 +28,8 @@ interface BuilderDialogsProps {
   // Share
   showShare: boolean;
   onShowShareChange: (open: boolean) => void;
+  hasUnsavedChanges: boolean;
+  saveStatus: 'saved' | 'unsaved' | 'saving' | 'failed';
   // Info
   showInfo: boolean;
   onShowInfoChange: (open: boolean) => void;
@@ -47,6 +49,8 @@ export function BuilderDialogs({
   isAdding,
   showShare,
   onShowShareChange,
+  hasUnsavedChanges,
+  saveStatus,
   showInfo,
   onShowInfoChange,
   blockerState,
@@ -79,6 +83,8 @@ export function BuilderDialogs({
           visibility={mapData.visibility ?? 'private'}
           open={showShare}
           onOpenChange={onShowShareChange}
+          hasUnsavedChanges={hasUnsavedChanges}
+          saveStatus={saveStatus}
         />
       )}
 

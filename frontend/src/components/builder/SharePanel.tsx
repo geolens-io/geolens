@@ -305,9 +305,18 @@ interface ShareDialogProps {
   visibility: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  hasUnsavedChanges?: boolean;
+  saveStatus?: 'saved' | 'unsaved' | 'saving' | 'failed';
 }
 
-export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDialogProps) {
+export function ShareDialog({
+  mapId,
+  visibility,
+  open,
+  onOpenChange,
+  hasUnsavedChanges = false,
+  saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
+}: ShareDialogProps) {
   const { t } = useTranslation('builder');
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
@@ -473,6 +482,37 @@ export function ShareDialog({ mapId, visibility, open, onOpenChange }: ShareDial
         </DialogHeader>
 
         <div className="space-y-5">
+          {(hasUnsavedChanges || saveStatus === 'failed' || saveStatus === 'saving') && (
+            <div
+              data-testid="share-output-save-state"
+              className={cn(
+                'flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
+                saveStatus === 'failed'
+                  ? 'border-destructive/30 bg-destructive/5 text-foreground'
+                  : 'border-warning/30 bg-warning/5 text-foreground',
+              )}
+            >
+              {saveStatus === 'saving' ? (
+                <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+              ) : (
+                <AlertTriangle
+                  className={cn(
+                    'mt-0.5 h-3.5 w-3.5 shrink-0',
+                    saveStatus === 'failed' ? 'text-destructive' : 'text-warning',
+                  )}
+                  aria-hidden="true"
+                />
+              )}
+              <p>
+                {saveStatus === 'failed'
+                  ? t('share.saveFailedWarning', { defaultValue: 'Save failed. Share links and embeds still show the last saved map until you retry successfully.' })
+                  : saveStatus === 'saving'
+                    ? t('share.savingWarning', { defaultValue: 'Saving changes. Share links and embeds update after this save finishes.' })
+                    : t('share.unsavedWarning', { defaultValue: 'Unsaved changes are only in the builder preview. Save before copying links or embeds.' })}
+              </p>
+            </div>
+          )}
+
           {/* Visibility selector */}
           <div className="space-y-2">
             <p className="text-sm font-medium">{t('share.visibilityTitle')}</p>

@@ -22,12 +22,24 @@
       "description": "Agregue primero un conjunto de datos y luego ajuste terreno, mapa base, etiquetas e interacciones."
     },
     "groups": {
-      "surface": { "title": "Superficie" },
-      "relief": { "title": "Relieve" },
-      "basemap": { "title": "Mapa base" },
-      "data": { "title": "Datos" },
-      "labels": { "title": "Etiquetas" },
-      "interactions": { "title": "Interacciones" }
+      "surface": {
+        "title": "Superficie"
+      },
+      "relief": {
+        "title": "Relieve"
+      },
+      "basemap": {
+        "title": "Mapa base"
+      },
+      "data": {
+        "title": "Datos"
+      },
+      "labels": {
+        "title": "Etiquetas"
+      },
+      "interactions": {
+        "title": "Interacciones"
+      }
     },
     "entries": {
       "baseBackground": "Fondo base",
@@ -253,7 +265,7 @@
       "structureError": "La expresión debe ser un arreglo que comience con un operador conocido"
     }
   },
-    "filters": {
+  "filters": {
     "title": "Filtros",
     "layerTitle": "Filtro de capa",
     "thisLayer": "esta capa",
@@ -388,6 +400,9 @@
     "copyEmbedCode": "Copiar código de inserción",
     "cannotPublish": "No se puede publicar: los conjuntos de datos {{datasets}} no son públicos",
     "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
+    "unsavedWarning": "Los cambios sin guardar solo están en la vista previa del constructor. Guarda antes de copiar enlaces o inserciones.",
+    "savingWarning": "Guardando cambios. Los enlaces e inserciones se actualizan cuando termine este guardado.",
+    "saveFailedWarning": "Error al guardar. Los enlaces e inserciones siguen mostrando el último mapa guardado hasta que reintentes correctamente.",
     "expirationLabel": "Caducidad",
     "expirationPlaceholder": "Sin caducidad",
     "expirationHint": "Dejar en blanco para un enlace sin fecha de caducidad",
@@ -471,6 +486,17 @@
     "close": "Cerrar popup"
   },
   "descriptionPlaceholder": "Agregar una descripción...",
+  "titleBar": {
+    "saved": "Guardado",
+    "retry": "Reintentar",
+    "retrySave": "Reintentar guardado",
+    "saveStatus": {
+      "saved": "Guardado",
+      "unsaved": "Cambios sin guardar",
+      "saving": "Guardando...",
+      "failed": "Error al guardar"
+    }
+  },
   "visibility": {
     "public": "Público",
     "internal": "Interno",
@@ -500,6 +526,7 @@
     "widgets": "Widgets",
     "moreActions": "Más acciones",
     "allSaved": "Todos los cambios guardados",
+    "retrySave": "Error al guardar. Reintenta guardar los cambios.",
     "toggleDock": "Toggle dock (D)",
     "closeChat": "Cerrar chat"
   },

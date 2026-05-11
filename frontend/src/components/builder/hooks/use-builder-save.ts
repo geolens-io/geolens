@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard';
@@ -225,6 +225,8 @@ export interface LayerDiffResult {
   unsupported: boolean;
 }
 
+export type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
+
 export function buildLayerDiff(
   baselineLayers: MapLayerResponse[],
   currentLayers: MapLayerResponse[],
@@ -300,6 +302,7 @@ export function useBuilderSave(state: SaveState) {
   const updateMap = useUpdateMap();
   const patchMapLayers = usePatchMapLayers();
   const duplicateMutation = useDuplicateMap();
+  const [lastSaveFailed, setLastSaveFailed] = useState(false);
   const enabledWidgetsQuery = useEnabledWidgets();
   const enabledWidgetIds = useMemo(
     () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
@@ -327,6 +330,7 @@ export function useBuilderSave(state: SaveState) {
       terrainConfig,
     } = state;
     if (!id) return;
+    setLastSaveFailed(false);
 
     // Block save if any layer's popup expression references unknown columns.
     // Server-side validation is shape-only (per CONTEXT.md / RESEARCH §4),
@@ -400,6 +404,7 @@ export function useBuilderSave(state: SaveState) {
         captureThumbnail(map, id, queryClient, localLayers);
       }
     } catch {
+      setLastSaveFailed(true);
       toast.error(t('toasts.saveFailed'));
     }
   }
@@ -498,12 +503,23 @@ export function useBuilderSave(state: SaveState) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [patchMapLayers.isPending, updateMap.isPending]);
 
+  const isSaving = updateMap.isPending || patchMapLayers.isPending;
+  const saveStatus: BuilderSaveStatus = isSaving
+    ? 'saving'
+    : lastSaveFailed
+      ? 'failed'
+      : state.hasUnsavedChanges
+        ? 'unsaved'
+        : 'saved';
+
   return {
     handleSave,
     handleExportPNG,
     handleFork,
     maybeAutoCaptureThumbnail,
-    isSaving: updateMap.isPending || patchMapLayers.isPending,
+    isSaving,
+    saveStatus,
+    isSaveRetryable: saveStatus === 'failed',
     isForkPending: duplicateMutation.isPending,
     blocker,
   };

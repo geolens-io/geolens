@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
@@ -63,10 +64,14 @@ function setup({
   enterprise = false,
   hasShareToken = true,
   hasNonPublic = false,
+  hasUnsavedChanges = false,
+  saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
   hasNonPublic?: boolean;
+  hasUnsavedChanges?: boolean;
+  saveStatus?: ComponentProps<typeof ShareDialog>['saveStatus'];
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -139,6 +144,8 @@ function setup({
       visibility="public"
       open
       onOpenChange={vi.fn()}
+      hasUnsavedChanges={hasUnsavedChanges}
+      saveStatus={saveStatus}
     />,
   );
 
@@ -188,6 +195,14 @@ describe('ShareDialog edition gates', () => {
 
     expect(screen.getByText('Expiration')).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: /restrict to domains/i })).toBeInTheDocument();
+  });
+
+  it('warns when share output is behind unsaved builder changes', () => {
+    setup({ hasUnsavedChanges: true, saveStatus: 'unsaved' });
+
+    expect(screen.getByTestId('share-output-save-state')).toHaveTextContent(
+      'Unsaved changes are only in the builder preview',
+    );
   });
 });
 

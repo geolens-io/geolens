@@ -22,12 +22,24 @@
       "description": "Fügen Sie zuerst einen Datensatz hinzu und passen Sie danach Terrain, Basiskarte, Beschriftungen und Interaktionen an."
     },
     "groups": {
-      "surface": { "title": "Oberfläche" },
-      "relief": { "title": "Relief" },
-      "basemap": { "title": "Basiskarte" },
-      "data": { "title": "Daten" },
-      "labels": { "title": "Beschriftungen" },
-      "interactions": { "title": "Interaktionen" }
+      "surface": {
+        "title": "Oberfläche"
+      },
+      "relief": {
+        "title": "Relief"
+      },
+      "basemap": {
+        "title": "Basiskarte"
+      },
+      "data": {
+        "title": "Daten"
+      },
+      "labels": {
+        "title": "Beschriftungen"
+      },
+      "interactions": {
+        "title": "Interaktionen"
+      }
     },
     "entries": {
       "baseBackground": "Basishintergrund",
@@ -409,7 +421,10 @@
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
     "domainsUpdated": "Domain-Einschränkungen aktualisiert",
-    "updateFailed": "Änderungen konnten nicht gespeichert werden"
+    "updateFailed": "Änderungen konnten nicht gespeichert werden",
+    "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
+    "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
+    "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist."
   },
   "chat": {
     "experimental": "Experimentell",
@@ -501,7 +516,8 @@
     "moreActions": "Weitere Aktionen",
     "allSaved": "Alle Änderungen gespeichert",
     "toggleDock": "Toggle dock (D)",
-    "closeChat": "Chat schließen"
+    "closeChat": "Chat schließen",
+    "retrySave": "Speichern fehlgeschlagen. Änderungen erneut speichern."
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
@@ -670,6 +686,17 @@
       "matched_other": "{{count}} matched sources",
       "skipped_one": "{{count}} skipped layer.",
       "skipped_other": "{{count}} skipped layers."
+    }
+  },
+  "titleBar": {
+    "saved": "Gespeichert",
+    "retry": "Erneut versuchen",
+    "retrySave": "Speichern erneut versuchen",
+    "saveStatus": {
+      "saved": "Gespeichert",
+      "unsaved": "Ungespeicherte Änderungen",
+      "saving": "Speichern...",
+      "failed": "Speichern fehlgeschlagen"
     }
   }
 }

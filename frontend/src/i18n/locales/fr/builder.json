@@ -22,12 +22,24 @@
       "description": "Ajoutez d'abord un jeu de données, puis ajustez le terrain, le fond de carte, les étiquettes et les interactions."
     },
     "groups": {
-      "surface": { "title": "Surface" },
-      "relief": { "title": "Relief" },
-      "basemap": { "title": "Fond de carte" },
-      "data": { "title": "Données" },
-      "labels": { "title": "Étiquettes" },
-      "interactions": { "title": "Interactions" }
+      "surface": {
+        "title": "Surface"
+      },
+      "relief": {
+        "title": "Relief"
+      },
+      "basemap": {
+        "title": "Fond de carte"
+      },
+      "data": {
+        "title": "Données"
+      },
+      "labels": {
+        "title": "Étiquettes"
+      },
+      "interactions": {
+        "title": "Interactions"
+      }
     },
     "entries": {
       "baseBackground": "Arrière-plan de base",
@@ -409,7 +421,10 @@
     "summaryUnrestricted": "Sans restriction",
     "expirationUpdated": "Expiration mise à jour",
     "domainsUpdated": "Restrictions de domaine mises à jour",
-    "updateFailed": "Échec de la sauvegarde"
+    "updateFailed": "Échec de la sauvegarde",
+    "unsavedWarning": "Les modifications non enregistrées sont uniquement dans l'aperçu du constructeur. Enregistrez avant de copier des liens ou des intégrations.",
+    "savingWarning": "Enregistrement des modifications. Les liens et intégrations se mettent à jour après cet enregistrement.",
+    "saveFailedWarning": "Échec de l'enregistrement. Les liens et intégrations affichent encore la dernière carte enregistrée jusqu'à une nouvelle tentative réussie."
   },
   "chat": {
     "experimental": "Expérimental",
@@ -501,7 +516,8 @@
     "moreActions": "Plus d'actions",
     "allSaved": "Toutes les modifications enregistrées",
     "toggleDock": "Toggle dock (D)",
-    "closeChat": "Fermer le chat"
+    "closeChat": "Fermer le chat",
+    "retrySave": "Échec de l'enregistrement. Réessayez d'enregistrer les modifications."
   },
   "toasts": {
     "mapSaved": "Carte enregistrée",
@@ -670,6 +686,17 @@
       "matched_other": "{{count}} matched sources",
       "skipped_one": "{{count}} skipped layer.",
       "skipped_other": "{{count}} skipped layers."
+    }
+  },
+  "titleBar": {
+    "saved": "Enregistré",
+    "retry": "Réessayer",
+    "retrySave": "Réessayer l'enregistrement",
+    "saveStatus": {
+      "saved": "Enregistré",
+      "unsaved": "Modifications non enregistrées",
+      "saving": "Enregistrement...",
+      "failed": "Échec de l'enregistrement"
     }
   }
 }

@@ -413,6 +413,8 @@ export function MapBuilderPage() {
         onMarkDirty={layers.markDirty}
         hasUnsavedChanges={layers.hasUnsavedChanges}
         isSaving={save.isSaving}
+        saveStatus={save.saveStatus}
+        isSaveRetryable={save.isSaveRetryable}
         onSave={save.handleSave}
         onShare={id ? () => dialogs.setShowShare(true) : undefined}
         overflow={{
@@ -610,6 +612,8 @@ export function MapBuilderPage() {
         isAdding={addLayer.isPending}
         showShare={dialogs.showShare}
         onShowShareChange={dialogs.setShowShare}
+        hasUnsavedChanges={layers.hasUnsavedChanges}
+        saveStatus={save.saveStatus}
         showInfo={dialogs.showInfo}
         onShowInfoChange={dialogs.setShowInfo}
         blockerState={save.blocker.state}

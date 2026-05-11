@@ -395,6 +395,8 @@ describe('useBuilderSave', () => {
     });
 
     expect(state.setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
+    expect(result.current.saveStatus).toBe('failed');
+    expect(result.current.isSaveRetryable).toBe(true);
   });
 
   it('omits widgets when active widgets match client defaults already saved as defaults', () => {

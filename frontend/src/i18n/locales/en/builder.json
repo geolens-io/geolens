@@ -22,12 +22,24 @@
       "description": "Add a dataset first, then tune terrain, basemap, labels, and interactions around it."
     },
     "groups": {
-      "surface": { "title": "Surface" },
-      "relief": { "title": "Relief" },
-      "basemap": { "title": "Basemap" },
-      "data": { "title": "Data" },
-      "labels": { "title": "Labels" },
-      "interactions": { "title": "Interactions" }
+      "surface": {
+        "title": "Surface"
+      },
+      "relief": {
+        "title": "Relief"
+      },
+      "basemap": {
+        "title": "Basemap"
+      },
+      "data": {
+        "title": "Data"
+      },
+      "labels": {
+        "title": "Labels"
+      },
+      "interactions": {
+        "title": "Interactions"
+      }
     },
     "entries": {
       "baseBackground": "Base background",
@@ -388,6 +400,9 @@
     "copyEmbedCode": "Copy embed code",
     "cannotPublish": "Cannot publish: datasets {{datasets}} are not public",
     "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
+    "unsavedWarning": "Unsaved changes are only in the builder preview. Save before copying links or embeds.",
+    "savingWarning": "Saving changes. Share links and embeds update after this save finishes.",
+    "saveFailedWarning": "Save failed. Share links and embeds still show the last saved map until you retry successfully.",
     "expirationLabel": "Expiration",
     "expirationPlaceholder": "No expiration",
     "expirationHint": "Leave blank for a link that never expires",
@@ -481,6 +496,17 @@
     "close": "Close popup"
   },
   "descriptionPlaceholder": "Add a description...",
+  "titleBar": {
+    "saved": "Saved",
+    "retry": "Retry",
+    "retrySave": "Retry save",
+    "saveStatus": {
+      "saved": "Saved",
+      "unsaved": "Unsaved changes",
+      "saving": "Saving...",
+      "failed": "Save failed"
+    }
+  },
   "visibility": {
     "public": "Public",
     "internal": "Internal",
@@ -510,6 +536,7 @@
     "widgets": "Widgets",
     "moreActions": "More actions",
     "allSaved": "All changes saved",
+    "retrySave": "Save failed. Retry saving changes.",
     "toggleDock": "Toggle dock (D)",
     "closeChat": "Close chat"
   },
