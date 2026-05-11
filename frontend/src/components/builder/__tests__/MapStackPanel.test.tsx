@@ -135,8 +135,8 @@ describe('MapStackPanel', () => {
     expect(screen.getByRole('heading', { name: 'Interactions' })).toBeInTheDocument();
     expect(screen.getByText('Population')).toBeInTheDocument();
     expect(screen.getAllByText('Elevation').length).toBeGreaterThan(0);
-    expect(screen.getByText('Basemap preset')).toBeInTheDocument();
-    expect(screen.getByText('Basemap labels')).toBeInTheDocument();
+    expect(screen.getAllByText('Preset').length).toBeGreaterThan(0);
+    expect(screen.getByText('Place labels')).toBeInTheDocument();
     expect(screen.getByTestId('widget-sidebar')).toBeInTheDocument();
   });
 
@@ -160,7 +160,7 @@ describe('MapStackPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hide layer' }));
     expect(onToggleVisibility).toHaveBeenCalledWith('layer-1');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open inspector' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand options' }));
     expect(onToggleExpand).toHaveBeenCalledWith('layer-1');
 
     fireEvent.click(screen.getByRole('button', { name: 'layers.addData' }));

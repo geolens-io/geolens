@@ -114,17 +114,20 @@ function translatedEntryTitle(
     });
   }
 
-  const keyByRole: Partial<Record<MapStackEntry['role'], string>> = {
-    'surface-background': 'mapStack.entries.baseBackground',
-    'surface-terrain': entry.metadata.terrain?.sourceStatus === 'missing'
-      ? 'mapStack.entries.terrainMissing'
-      : 'mapStack.entries.terrainSource',
-    'basemap-preset': 'mapStack.entries.basemapPreset',
-    'basemap-labels': 'mapStack.entries.basemapLabels',
-    'interaction-widgets': 'mapStack.entries.mapWidgets',
+  const keyByRole: Partial<Record<MapStackEntry['role'], { key: string; defaultValue: string }>> = {
+    'surface-background': { key: 'mapStack.entries.baseBackground', defaultValue: entry.title },
+    'surface-terrain': {
+      key: entry.metadata.terrain?.sourceStatus === 'missing'
+        ? 'mapStack.entries.terrainMissing'
+        : 'mapStack.entries.terrainSource',
+      defaultValue: entry.title,
+    },
+    'basemap-preset': { key: 'mapStack.entries.basemapPreset', defaultValue: 'Preset' },
+    'basemap-labels': { key: 'mapStack.entries.basemapLabels', defaultValue: 'Place labels' },
+    'interaction-widgets': { key: 'mapStack.entries.mapWidgets', defaultValue: entry.title },
   };
-  const key = keyByRole[entry.role];
-  return key ? t(key, { defaultValue: entry.title }) : entry.title;
+  const translation = keyByRole[entry.role];
+  return translation ? t(translation.key, { defaultValue: translation.defaultValue }) : entry.title;
 }
 
 function translatedSubtitle(
@@ -282,7 +285,8 @@ export const MapStackItem = memo(function MapStackItem({
   const hiddenBadgeCount = Math.max(translatedBadges.length - visibleBadges.length, 0);
   const hideLayerLabel = t('layerItem.hideLayer', { defaultValue: 'Hide layer' });
   const showLayerLabel = t('layerItem.showLayer', { defaultValue: 'Show layer' });
-  const openInspectorLabel = t('mapStack.actions.openInspector', { defaultValue: 'Open inspector' });
+  const openInspectorLabel = t('layerItem.expandOptions', { defaultValue: 'Expand options' });
+  const showOrderLabel = Boolean(primaryLayer);
   const rowLabel = [
     displayTitle,
     entry.orderLabel,
@@ -295,7 +299,7 @@ export const MapStackItem = memo(function MapStackItem({
       style={style}
       role="group"
       aria-label={rowLabel}
-      data-testid="map-stack-item"
+      data-testid={primaryLayer ? `layer-item-${primaryLayer.id}` : 'map-stack-item'}
       className={cn(
         'group/map-stack-row px-2 transition-[opacity,background-color] duration-200',
         !entry.visible && 'opacity-60',
@@ -401,9 +405,11 @@ export const MapStackItem = memo(function MapStackItem({
                   {subtitle}
                 </span>
               )}
-              <span className="shrink-0 text-[10px] uppercase tracking-normal text-muted-foreground/80">
-                {entry.orderLabel}
-              </span>
+              {showOrderLabel && (
+                <span className="shrink-0 text-[10px] uppercase tracking-normal text-muted-foreground/80">
+                  {entry.orderLabel}
+                </span>
+              )}
               {visibleBadges.map((badge) => (
                 <Badge
                   key={`${badge.label}-${badge.tone}`}
