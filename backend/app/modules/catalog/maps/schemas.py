@@ -154,6 +154,60 @@ class TerrainConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class BasemapLabelMode(str, Enum):
+    full = "full"
+    subtle = "subtle"
+    hidden = "hidden"
+
+
+class BasemapSublayerVisibility(str, Enum):
+    full = "full"
+    subtle = "subtle"
+    hidden = "hidden"
+
+
+class BasemapLandWaterTone(str, Enum):
+    default = "default"
+    muted = "muted"
+    contrast = "contrast"
+    monochrome = "monochrome"
+
+
+class BasemapReliefContrast(str, Enum):
+    soft = "soft"
+    standard = "standard"
+    strong = "strong"
+
+
+class BasemapConfig(BaseModel):
+    label_mode: BasemapLabelMode = Field(
+        default=BasemapLabelMode.full,
+        description="Basemap label prominence.",
+    )
+    road_visibility: BasemapSublayerVisibility = Field(
+        default=BasemapSublayerVisibility.full,
+        description="Road and transit sublayer visibility where supported.",
+    )
+    boundary_visibility: BasemapSublayerVisibility = Field(
+        default=BasemapSublayerVisibility.full,
+        description="Administrative boundary sublayer visibility where supported.",
+    )
+    building_visibility: bool = Field(
+        default=True,
+        description="Whether supported building/3D building basemap layers are shown.",
+    )
+    land_water_tone: BasemapLandWaterTone = Field(
+        default=BasemapLandWaterTone.default,
+        description="Land and water color treatment where supported.",
+    )
+    relief_contrast: BasemapReliefContrast | None = Field(
+        default=None,
+        description="Optional contrast hint for relief-oriented basemap styling.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class MapLayerInput(BaseModel):
     dataset_id: uuid.UUID
     sort_order: int = Field(
@@ -309,6 +363,10 @@ class MapCreate(BaseModel):
         default=None,
         description="Map-level terrain source and exaggeration preferences",
     )
+    basemap_config: BasemapConfig | None = Field(
+        default=None,
+        description="Curated map-level basemap appearance preferences",
+    )
 
     @field_validator("name", "description", "notes", mode="before")
     @classmethod
@@ -339,6 +397,10 @@ class MapUpdate(BaseModel):
         default=None, max_length=2000, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
+    basemap_config: BasemapConfig | None = Field(
+        default=None,
+        description="Curated map-level basemap appearance preferences",
+    )
     terrain_config: TerrainConfig | None = Field(
         default=None,
         description="Map-level terrain source and exaggeration preferences",
@@ -416,6 +478,7 @@ class MapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool
+    basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     visibility: MapVisibility
     thumbnail_url: str | None = None
@@ -605,6 +668,7 @@ class SharedMapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool = True
+    basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     has_non_public_layers: bool = False
     layers: list[SharedLayerResponse]

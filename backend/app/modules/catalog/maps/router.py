@@ -305,6 +305,7 @@ def _build_map_response(
         pitch=map_obj.pitch,
         basemap_style=map_obj.basemap_style,
         show_basemap_labels=map_obj.show_basemap_labels,
+        basemap_config=map_obj.basemap_config,
         terrain_config=map_obj.terrain_config,
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
@@ -338,6 +339,11 @@ async def create_map_endpoint(
         if body.terrain_config is not None
         else None
     )
+    basemap_config = (
+        body.basemap_config.model_dump(mode="json")
+        if body.basemap_config is not None
+        else None
+    )
     map_obj = await create_map(
         db,
         body.name,
@@ -345,6 +351,7 @@ async def create_map_endpoint(
         user.id,
         notes=body.notes,
         terrain_config=terrain_config,
+        basemap_config=basemap_config,
     )
     await audit_emit(
         db,
@@ -799,6 +806,7 @@ async def update_map_endpoint(
         "name": map_obj.name,
         "visibility": map_obj.visibility,
         "terrain_config": map_obj.terrain_config,
+        "basemap_config": map_obj.basemap_config,
     }
 
     # Build update kwargs from fields the client actually sent. This preserves
@@ -806,6 +814,8 @@ async def update_map_endpoint(
     kwargs = body.model_dump(exclude_unset=True)
     if "terrain_config" in kwargs and body.terrain_config is not None:
         kwargs["terrain_config"] = body.terrain_config.model_dump(mode="json")
+    if "basemap_config" in kwargs and body.basemap_config is not None:
+        kwargs["basemap_config"] = body.basemap_config.model_dump(mode="json")
     if "layers" in kwargs and body.layers is not None:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
 
@@ -890,6 +900,25 @@ async def update_map_endpoint(
                 "current": map_obj.terrain_config,
             },
         )
+    if (
+        "basemap_config" in kwargs
+        and kwargs["basemap_config"] != previous_values["basemap_config"]
+    ):
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="map.basemap_update",
+            summary="Updated basemap appearance",
+            details={
+                "field": "basemap_config",
+                "previous": previous_values["basemap_config"],
+                "current": map_obj.basemap_config,
+            },
+        )
     if "layers" in kwargs:
         await record_map_history_event(
             db,
@@ -907,6 +936,7 @@ async def update_map_endpoint(
         "name",
         "visibility",
         "terrain_config",
+        "basemap_config",
         "layers",
     }
     if config_fields:

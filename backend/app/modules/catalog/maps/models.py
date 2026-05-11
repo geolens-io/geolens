@@ -81,6 +81,9 @@ class Map(Base):
     show_basemap_labels: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
+    basemap_config: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
 
     # Active widget IDs (null = use client defaults, [] = no widgets)
     widgets: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=None)

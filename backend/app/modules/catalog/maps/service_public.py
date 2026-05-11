@@ -294,6 +294,7 @@ async def get_shared_map(
             "pitch": map_obj.pitch,
             "basemap_style": map_obj.basemap_style,
             "show_basemap_labels": map_obj.show_basemap_labels,
+            "basemap_config": map_obj.basemap_config,
             "terrain_config": map_obj.terrain_config,
             "has_non_public_layers": False,
         }
@@ -343,6 +344,7 @@ async def get_shared_map(
         "pitch": map_row.pitch,
         "basemap_style": map_row.basemap_style,
         "show_basemap_labels": map_row.show_basemap_labels,
+        "basemap_config": map_row.basemap_config,
         "terrain_config": map_row.terrain_config,
         "has_non_public_layers": has_non_public,
     }
