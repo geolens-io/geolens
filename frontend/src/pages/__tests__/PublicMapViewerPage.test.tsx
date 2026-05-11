@@ -85,12 +85,12 @@ const PUBLIC_MAP: MapResponse = {
       id: 'layer-1',
       map_id: 'map-1',
       dataset_id: 'dataset-1',
-      dataset_name: 'Canyon relief',
-      display_name: 'Canyon relief',
+      dataset_name: 'Grand Canyon DEM',
+      display_name: 'Grand Canyon DEM',
       dataset_table_name: 'canyon_relief',
-      dataset_geometry_type: 'Polygon',
+      dataset_geometry_type: null,
       dataset_column_info: null,
-      dataset_record_type: 'vector_dataset',
+      dataset_record_type: 'raster_dataset',
       dataset_feature_count: 100,
       sort_order: 1,
       visible: true,
@@ -102,9 +102,10 @@ const PUBLIC_MAP: MapResponse = {
       popup_config: null,
       style_config: null,
       show_in_legend: true,
-      layer_type: 'vector_geolens',
+      layer_type: 'raster_geolens',
       is_3d: false,
-      is_dem: false,
+      is_dem: true,
+      dem_vertical_units: 'meters',
     },
   ],
 };
@@ -145,6 +146,10 @@ describe('PublicMapViewerPage', () => {
     expect(viewerMapMock.props).toMatchObject({
       basemapConfig: PUBLIC_MAP.basemap_config,
       showBasemapLabels: false,
+    });
+    expect(viewerMapMock.props?.layers[0]).toMatchObject({
+      is_dem: true,
+      dem_vertical_units: 'meters',
     });
   });
 });
