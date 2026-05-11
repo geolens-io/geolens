@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v13.14
 milestone_name: Smoke Stabilization
 status: completed
-last_updated: "2026-05-11T14:15:00.000Z"
+last_updated: "2026-05-11T14:56:29.000Z"
 progress:
   total_phases: 1
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -17,7 +17,7 @@ progress:
 ## Current Position
 
 **Milestone:** Phase 1000 Backlog — Kepler-inspired map stack and basemap layer controls
-**Status:** Phase 1000 complete. Plans 1000-01 through 1000-05 shipped with final relief/marketing-output polish and Playwright MCP validation.
+**Status:** Phase 1000 complete. Plans 1000-01 through 1000-06 shipped, including the public-viewer basemap_config gap closure.
 
 Progress: [██████████] 100%
 
@@ -26,7 +26,7 @@ Progress: [██████████] 100%
 See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution is complete with all 5 plans shipped.
+**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution is complete with all 6 plans shipped.
 
 ## Last Shipped Milestone
 
@@ -62,13 +62,14 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 
 - Phase 1000 added: Kepler-inspired map stack and basemap layer controls.
 - Phase 1000 captures the 2026-05-10 decision to keep the GeoLens Map Builder/MapLibre architecture instead of replacing it wholesale with Kepler.gl, while refactoring layer management toward Kepler-style stack, grouping, and styling patterns.
-- Phase 1000 planned 2026-05-10 as 5 plans / 4 waves: UX blockers, pure Map Stack model, unified inspector UI, persisted basemap appearance/z-order contract, and relief/marketing-output Playwright MCP validation.
+- Phase 1000 planned 2026-05-10 as 5 plans / 4 waves, then added 1000-06 as a verification-gap closure plan: UX blockers, pure Map Stack model, unified inspector UI, persisted basemap appearance/z-order contract, relief/marketing-output Playwright MCP validation, and public-viewer basemap_config rendering.
 - Phase 1000 plan 1000-01 completed 2026-05-11: mobile layer editor reachability, collapsed basemap option hiding, readable filter rows, duplicate-layer row metadata, named label switches, and focused builder E2E coverage.
 - Phase 1000 plan 1000-02 completed 2026-05-11: pure `buildMapStack` model for Surface, Relief, Basemap, Data, Labels, and Interactions with saved-map compatibility tests and no API migration.
 - Phase 1000 plan 1000-03 completed 2026-05-11: unified `MapStackPanel` sidebar, desktop/mobile shared sidebar-local layer inspector, primary layer action preservation, and builder locale strings for stack groups and badges.
 - Phase 1000 plan 1000-04 completed 2026-05-11: persisted `basemap_config` API/storage/style JSON contract, curated Map Stack basemap controls, MapLibre basemap style transforms, explicit z-order policy, and basemap OpenAPI/SDK artifacts.
 - Phase 1000 plan 1000-05 completed 2026-05-11: relief-focused Surface/Relief affordances, builder/public-viewer terrain alignment, cleaner builder legend output, and Playwright MCP screenshots for desktop, tablet, mobile, public, and Grand Canyon relief flows.
-- Phase 1000 completed 2026-05-11: 5/5 plans shipped across 4 waves, satisfying MAPSTACK-01..07 while preserving saved-map compatibility and the existing MapLibre builder architecture.
+- Phase 1000 plan 1000-06 completed 2026-05-11: public shared-token and authenticated map viewers pass persisted `basemap_config` into `ViewerMap`, which reapplies curated basemap appearance after load, style reloads, and runtime config/label changes.
+- Phase 1000 completed 2026-05-11: 6/6 plans shipped across 5 waves, satisfying MAPSTACK-01..07 while preserving saved-map compatibility and the existing MapLibre builder architecture.
 
 ## Recent Decisions
 
@@ -83,6 +84,7 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - **Generated artifact ownership remains selective in dirty worktrees.** Phase 1000-04 committed only basemap OpenAPI/SDK hunks after `make sdks`; unrelated generated drift for dataset `tile_columns` and the map-layer route description remains for its owning work.
 - **Relief language separates surfaces from visual overlays.** Phase 1000-05 keeps DEM terrain framed as an elevation surface, with hillshade/visual relief called out separately so users do not mistake terrain for a paint layer.
 - **Visual QA can use temporary seeded maps when demo data is absent.** Phase 1000-05 used Playwright MCP plus a temporary public QA map and recorded screenshot paths/nonblank checks when local demo fixtures were not seeded.
+- **Public viewers reuse builder basemap transforms.** Phase 1000-06 applies persisted `basemap_config` in `ViewerMap` through `applyBasemapConfigToMap` with the `viewer-source-` managed-source prefix, keeping public saved maps aligned with builder-authored basemap appearance.
 
 ### Quick Tasks Completed
 
@@ -126,9 +128,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T14:15:00Z
-Stopped at: Completed Phase 1000 plan 1000-05, including focused frontend/E2E verification and Playwright MCP visual QA evidence.
+Last session: 2026-05-11T14:56:29Z
+Stopped at: Completed Phase 1000 plan 1000-06, closing the public-viewer basemap_config rendering gap with focused frontend tests and lint.
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after Phase 1000 plan 1000-05 execution*
+*Last updated: 2026-05-11 after Phase 1000 plan 1000-06 execution*
