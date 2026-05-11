@@ -14,6 +14,59 @@
     "emptyState": "Datensätze aus dem Katalog hinzufügen, um zu beginnen",
     "addData": "Daten hinzufügen"
   },
+  "mapStack": {
+    "title": "Kartenstapel",
+    "entryCount": "{{count}} Stapelelemente",
+    "groups": {
+      "surface": { "title": "Oberfläche" },
+      "relief": { "title": "Relief" },
+      "basemap": { "title": "Basiskarte" },
+      "data": { "title": "Daten" },
+      "labels": { "title": "Beschriftungen" },
+      "interactions": { "title": "Interaktionen" }
+    },
+    "entries": {
+      "baseBackground": "Basishintergrund",
+      "terrainSource": "Terrainquelle",
+      "terrainMissing": "Terrainquelle fehlt",
+      "basemapPreset": "Vorgabe",
+      "basemapLabels": "Ortsbeschriftungen",
+      "dataLabels": "{{name}}-Beschriftungen",
+      "layerPopup": "{{name}}-Popup",
+      "mapWidgets": "Karten-Widgets"
+    },
+    "subtitles": {
+      "surfaceBackground": "Grundlage",
+      "basemapLabelsVisible": "Über Datengrafik",
+      "hiddenByMap": "Durch Karteneinstellung ausgeblendet",
+      "featureClick": "Feature-Klick"
+    },
+    "badges": {
+      "background": "Hintergrund",
+      "terrain": "Terrain",
+      "fallbackSource": "Ersatzquelle",
+      "missingSource": "Quelle fehlt",
+      "hillshade": "Schummerung",
+      "heatmap": "Heatmap",
+      "symbol": "Symbol",
+      "dem": "DEM",
+      "hidden": "Ausgeblendet",
+      "legendHidden": "Legende ausgeblendet",
+      "labels": "Beschriftungen",
+      "popup": "Popup",
+      "dataLabels": "Datenbeschriftungen",
+      "hiddenLayer": "Ausgeblendeter Layer",
+      "preset": "Vorgabe",
+      "raster": "Raster",
+      "layer": "Layer",
+      "copy": "Kopie {{index}} von {{count}}",
+      "widgets": "{{count}} Widget"
+    },
+    "actions": {
+      "openInspector": "Inspektor öffnen",
+      "toggleBasemapLabels": "Basiskarten-Beschriftungen umschalten"
+    }
+  },
   "inspector": {
     "title": "Layer-Inspektor",
     "close": "Inspektor schließen",

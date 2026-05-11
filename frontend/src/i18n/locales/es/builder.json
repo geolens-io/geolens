@@ -14,6 +14,59 @@
     "emptyState": "Agregue conjuntos de datos del catálogo para comenzar",
     "addData": "Agregar datos"
   },
+  "mapStack": {
+    "title": "Pila del mapa",
+    "entryCount": "{{count}} elementos de pila",
+    "groups": {
+      "surface": { "title": "Superficie" },
+      "relief": { "title": "Relieve" },
+      "basemap": { "title": "Mapa base" },
+      "data": { "title": "Datos" },
+      "labels": { "title": "Etiquetas" },
+      "interactions": { "title": "Interacciones" }
+    },
+    "entries": {
+      "baseBackground": "Fondo base",
+      "terrainSource": "Fuente de terreno",
+      "terrainMissing": "Falta la fuente de terreno",
+      "basemapPreset": "Preajuste",
+      "basemapLabels": "Etiquetas de lugares",
+      "dataLabels": "Etiquetas de {{name}}",
+      "layerPopup": "Popup de {{name}}",
+      "mapWidgets": "Widgets del mapa"
+    },
+    "subtitles": {
+      "surfaceBackground": "Base",
+      "basemapLabelsVisible": "Sobre la geometría de datos",
+      "hiddenByMap": "Oculto por la configuración del mapa",
+      "featureClick": "Clic en entidad"
+    },
+    "badges": {
+      "background": "Fondo",
+      "terrain": "Terreno",
+      "fallbackSource": "Fuente alternativa",
+      "missingSource": "Fuente faltante",
+      "hillshade": "Sombreado",
+      "heatmap": "Mapa de calor",
+      "symbol": "Símbolo",
+      "dem": "DEM",
+      "hidden": "Oculto",
+      "legendHidden": "Leyenda oculta",
+      "labels": "Etiquetas",
+      "popup": "Popup",
+      "dataLabels": "Etiquetas de datos",
+      "hiddenLayer": "Capa oculta",
+      "preset": "Preajuste",
+      "raster": "Ráster",
+      "layer": "Capa",
+      "copy": "Copia {{index}} de {{count}}",
+      "widgets": "{{count}} widget"
+    },
+    "actions": {
+      "openInspector": "Abrir inspector",
+      "toggleBasemapLabels": "Alternar etiquetas del mapa base"
+    }
+  },
   "inspector": {
     "title": "Inspector de capa",
     "close": "Cerrar inspector",

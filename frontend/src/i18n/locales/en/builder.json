@@ -14,6 +14,59 @@
     "emptyState": "Add datasets from the catalog to get started",
     "addData": "Add Data"
   },
+  "mapStack": {
+    "title": "Map Stack",
+    "entryCount": "{{count}} stack items",
+    "groups": {
+      "surface": { "title": "Surface" },
+      "relief": { "title": "Relief" },
+      "basemap": { "title": "Basemap" },
+      "data": { "title": "Data" },
+      "labels": { "title": "Labels" },
+      "interactions": { "title": "Interactions" }
+    },
+    "entries": {
+      "baseBackground": "Base background",
+      "terrainSource": "Terrain source",
+      "terrainMissing": "Terrain source missing",
+      "basemapPreset": "Preset",
+      "basemapLabels": "Place labels",
+      "dataLabels": "{{name}} labels",
+      "layerPopup": "{{name}} popup",
+      "mapWidgets": "Map widgets"
+    },
+    "subtitles": {
+      "surfaceBackground": "Foundation",
+      "basemapLabelsVisible": "Above data geometry",
+      "hiddenByMap": "Hidden by map setting",
+      "featureClick": "Feature click"
+    },
+    "badges": {
+      "background": "Background",
+      "terrain": "Terrain",
+      "fallbackSource": "Fallback source",
+      "missingSource": "Missing source",
+      "hillshade": "Hillshade",
+      "heatmap": "Heatmap",
+      "symbol": "Symbol",
+      "dem": "DEM",
+      "hidden": "Hidden",
+      "legendHidden": "Legend hidden",
+      "labels": "Labels",
+      "popup": "Popup",
+      "dataLabels": "Data labels",
+      "hiddenLayer": "Hidden layer",
+      "preset": "Preset",
+      "raster": "Raster",
+      "layer": "Layer",
+      "copy": "Copy {{index}} of {{count}}",
+      "widgets": "{{count}} widget"
+    },
+    "actions": {
+      "openInspector": "Open inspector",
+      "toggleBasemapLabels": "Toggle basemap labels"
+    }
+  },
   "inspector": {
     "title": "Layer Inspector",
     "close": "Close inspector",

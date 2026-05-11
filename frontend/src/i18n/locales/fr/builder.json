@@ -14,6 +14,59 @@
     "emptyState": "Ajoutez des jeux de données du catalogue pour commencer",
     "addData": "Ajouter des données"
   },
+  "mapStack": {
+    "title": "Pile de carte",
+    "entryCount": "{{count}} éléments de pile",
+    "groups": {
+      "surface": { "title": "Surface" },
+      "relief": { "title": "Relief" },
+      "basemap": { "title": "Fond de carte" },
+      "data": { "title": "Données" },
+      "labels": { "title": "Étiquettes" },
+      "interactions": { "title": "Interactions" }
+    },
+    "entries": {
+      "baseBackground": "Arrière-plan de base",
+      "terrainSource": "Source de terrain",
+      "terrainMissing": "Source de terrain manquante",
+      "basemapPreset": "Préréglage",
+      "basemapLabels": "Étiquettes de lieux",
+      "dataLabels": "Étiquettes de {{name}}",
+      "layerPopup": "Popup de {{name}}",
+      "mapWidgets": "Widgets de carte"
+    },
+    "subtitles": {
+      "surfaceBackground": "Base",
+      "basemapLabelsVisible": "Au-dessus de la géométrie",
+      "hiddenByMap": "Masqué par le paramètre de carte",
+      "featureClick": "Clic sur entité"
+    },
+    "badges": {
+      "background": "Arrière-plan",
+      "terrain": "Terrain",
+      "fallbackSource": "Source de secours",
+      "missingSource": "Source manquante",
+      "hillshade": "Ombrage",
+      "heatmap": "Carte de chaleur",
+      "symbol": "Symbole",
+      "dem": "MNE",
+      "hidden": "Masqué",
+      "legendHidden": "Légende masquée",
+      "labels": "Étiquettes",
+      "popup": "Popup",
+      "dataLabels": "Étiquettes de données",
+      "hiddenLayer": "Couche masquée",
+      "preset": "Préréglage",
+      "raster": "Raster",
+      "layer": "Couche",
+      "copy": "Copie {{index}} sur {{count}}",
+      "widgets": "{{count}} widget"
+    },
+    "actions": {
+      "openInspector": "Ouvrir l'inspecteur",
+      "toggleBasemapLabels": "Basculer les étiquettes du fond"
+    }
+  },
   "inspector": {
     "title": "Inspecteur de couche",
     "close": "Fermer l'inspecteur",
