@@ -1,20 +1,18 @@
 import type { ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
 import { render, screen } from '@/test/test-utils';
-import { PublicViewerPage } from '../PublicViewerPage';
-import { useSharedMap } from '@/hooks/use-maps';
+import { PublicMapViewerPage } from '../PublicMapViewerPage';
+import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
-import { useEdition } from '@/hooks/use-edition';
-import { useBranding } from '@/hooks/use-settings';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
-import type { SharedMapResponse } from '@/types/api';
+import type { MapResponse } from '@/types/api';
 
 const viewerMapMock = vi.hoisted(() => ({
   props: null as React.ComponentProps<typeof ViewerMap> | null,
 }));
 
 vi.mock('@/hooks/use-maps', () => ({
-  useSharedMap: vi.fn(),
+  useMap: vi.fn(),
 }));
 
 vi.mock('@/components/viewer/hooks/use-viewer-layers', () => ({
@@ -23,14 +21,6 @@ vi.mock('@/components/viewer/hooks/use-viewer-layers', () => ({
 
 vi.mock('@/hooks/use-document-title', () => ({
   useDocumentTitle: vi.fn(),
-}));
-
-vi.mock('@/hooks/use-edition', () => ({
-  useEdition: vi.fn(),
-}));
-
-vi.mock('@/hooks/use-settings', () => ({
-  useBranding: vi.fn(),
 }));
 
 vi.mock('@/components/viewer/ViewerMap', () => ({
@@ -56,39 +46,52 @@ vi.mock('@/components/error', () => ({
   MapErrorBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-const mockedUseSharedMap = vi.mocked(useSharedMap);
+const mockedUseMap = vi.mocked(useMap);
 const mockedUseViewerLayers = vi.mocked(useViewerLayers);
-const mockedUseEdition = vi.mocked(useEdition);
-const mockedUseBranding = vi.mocked(useBranding);
 
-const SHARED_MAP: SharedMapResponse = {
-  name: 'Shared map',
-  description: 'Shared viewer description',
-  center_lng: -73.9857,
-  center_lat: 40.7484,
-  zoom: 10,
+const PUBLIC_MAP: MapResponse = {
+  id: 'map-1',
+  name: 'Public map',
+  description: 'Authenticated public map description',
+  notes: null,
+  center_lng: -112.14,
+  center_lat: 36.06,
+  zoom: 9,
   bearing: 0,
-  pitch: 0,
-  basemap_style: 'carto-light',
-  show_basemap_labels: true,
+  pitch: 55,
+  basemap_style: 'openfreemap-positron',
+  show_basemap_labels: false,
   basemap_config: {
-    label_mode: 'subtle',
-    road_visibility: 'hidden',
-    boundary_visibility: 'subtle',
+    label_mode: 'hidden',
+    road_visibility: 'subtle',
+    boundary_visibility: 'hidden',
     building_visibility: false,
-    land_water_tone: 'monochrome',
+    land_water_tone: 'contrast',
     relief_contrast: 'strong',
   },
   terrain_config: null,
-  has_non_public_layers: false,
+  visibility: 'public',
+  thumbnail_url: null,
+  created_by: 'user-1',
+  created_by_username: 'owner',
+  created_at: '2026-05-11T00:00:00Z',
+  updated_at: '2026-05-11T00:00:00Z',
+  layer_count: 1,
+  widgets: null,
+  forked_from_id: null,
+  forked_from_name: null,
   layers: [
     {
+      id: 'layer-1',
+      map_id: 'map-1',
       dataset_id: 'dataset-1',
-      dataset_name: 'Transit',
-      display_name: 'Transit stops',
-      table_name: 'transit_stops',
-      geometry_type: 'Point',
-      column_info: null,
+      dataset_name: 'Canyon relief',
+      display_name: 'Canyon relief',
+      dataset_table_name: 'canyon_relief',
+      dataset_geometry_type: 'Polygon',
+      dataset_column_info: null,
+      dataset_record_type: 'vector_dataset',
+      dataset_feature_count: 100,
       sort_order: 1,
       visible: true,
       opacity: 1,
@@ -100,31 +103,31 @@ const SHARED_MAP: SharedMapResponse = {
       style_config: null,
       show_in_legend: true,
       layer_type: 'vector_geolens',
-      dataset_record_type: 'vector_dataset',
-      tile_url: '',
+      is_3d: false,
+      is_dem: false,
     },
   ],
 };
 
-function renderPage(route = '/m/share-token') {
+function renderPage(route = '/maps/map-1/view') {
   return render(
     <Routes>
-      <Route path="/m/:token" element={<PublicViewerPage />} />
+      <Route path="/maps/:id/view" element={<PublicMapViewerPage />} />
     </Routes>,
     { route },
   );
 }
 
-describe('PublicViewerPage', () => {
+describe('PublicMapViewerPage', () => {
   beforeEach(() => {
     viewerMapMock.props = null;
 
-    mockedUseSharedMap.mockReturnValue({
-      data: SHARED_MAP,
+    mockedUseMap.mockReturnValue({
+      data: PUBLIC_MAP,
       isLoading: false,
       isError: false,
       error: null,
-    } as ReturnType<typeof useSharedMap>);
+    } as ReturnType<typeof useMap>);
 
     mockedUseViewerLayers.mockReturnValue({
       visibleLayers: new Set([1]),
@@ -132,35 +135,6 @@ describe('PublicViewerPage', () => {
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
-
-    mockedUseEdition.mockReturnValue({
-      edition: 'enterprise',
-      features: ['branding'],
-      isEnterprise: true,
-      isLoading: false,
-    });
-
-    mockedUseBranding.mockReturnValue({
-      data: { show_badge: false },
-    } as ReturnType<typeof useBranding>);
-  });
-
-  it('renders footer links on shared-map pages even when enterprise branding is disabled', () => {
-    renderPage();
-
-    const footer = screen.getByRole('contentinfo');
-    expect(footer).toBeInTheDocument();
-    expect(footer).not.toHaveTextContent('Powered by GeoLens');
-    expect(screen.getByRole('link', { name: /^github$/i })).toHaveAttribute(
-      'href',
-      'https://github.com/geolens-io/geolens',
-    );
-  });
-
-  it('omits the footer on embedded shared-map pages', () => {
-    renderPage('/m/share-token?embed=true');
-
-    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
   it('forwards persisted basemap appearance into the viewer map', async () => {
@@ -169,8 +143,8 @@ describe('PublicViewerPage', () => {
     await screen.findByTestId('viewer-map');
 
     expect(viewerMapMock.props).toMatchObject({
-      basemapConfig: SHARED_MAP.basemap_config,
-      showBasemapLabels: true,
+      basemapConfig: PUBLIC_MAP.basemap_config,
+      showBasemapLabels: false,
     });
   });
 });

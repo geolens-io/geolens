@@ -144,6 +144,7 @@ export function PublicViewerPage() {
           <ViewerMap
             layers={data.layers}
             basemapStyle={basemapId ?? data.basemap_style}
+            basemapConfig={data.basemap_config ?? null}
             showBasemapLabels={data.show_basemap_labels ?? true}
             terrainConfig={data.terrain_config ?? null}
             initialViewState={viewState}
