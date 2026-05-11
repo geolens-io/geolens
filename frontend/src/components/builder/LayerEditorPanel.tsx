@@ -64,7 +64,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             onClick={onBack}
             aria-label={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
             title={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
-            className="flex cursor-pointer items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronLeft className="h-4 w-4 rtl-mirror" />
           </button>
@@ -99,7 +99,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       {/* Vector: tabbed editor */}
       {!isRaster && (
         <>
-          <div className="flex gap-1 px-3.5 border-b shrink-0" role="tablist">
+          <div className="flex gap-1 overflow-x-auto px-3.5 border-b shrink-0" role="tablist">
             {(['style', 'filter', 'labels', 'popup'] as const)
               .filter((tab) => {
                 if (tab === 'filter') return caps.supportsFilterEditor;
@@ -115,7 +115,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 aria-selected={activeTab === tab}
                 aria-controls={`tabpanel-${layer.id}-${tab}`}
                 className={cn(
-                  'cursor-pointer px-2.5 py-2 text-xs font-semibold transition-colors',
+                  'h-9 shrink-0 cursor-pointer rounded-t-sm px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                   activeTab === tab
                     ? 'text-foreground border-b-2 border-primary'
                     : 'text-muted-foreground hover:text-foreground'

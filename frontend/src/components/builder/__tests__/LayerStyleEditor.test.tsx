@@ -874,4 +874,21 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
     expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'false');
   });
+
+  it('renders inspector tabs and back control with visible keyboard focus treatment', () => {
+    render(
+      <LayerEditorPanel
+        layer={makeLayer()}
+        activeTab="filter"
+        handlers={handlers}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const tablist = screen.getByRole('tablist');
+    const filterTab = within(tablist).getByRole('tab', { name: 'Filter' });
+    expect(filterTab).toHaveAttribute('aria-selected', 'true');
+    expect(filterTab.className).toContain('focus-visible:ring-2');
+    expect(screen.getByRole('button', { name: 'Back to layers' }).className).toContain('focus-visible:ring-2');
+  });
 });
