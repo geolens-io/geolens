@@ -89,7 +89,7 @@
   /* ─ Record-type colors (import, catalog badges) ─ */
   --type-vector: oklch(0.39 0.12 155);
   --type-vector-bg: oklch(0.94 0.04 155);
-  --type-raster: oklch(0.55 0.15 55);
+  --type-raster: oklch(0.48 0.15 55);
   --type-raster-bg: oklch(0.94 0.05 55);
   --type-table: oklch(0.50 0.10 200);
   --type-table-bg: oklch(0.94 0.03 200);
