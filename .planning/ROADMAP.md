@@ -67,7 +67,7 @@
 
 **Functional reference caveat:** Kepler.gl guides behavior for layer workflow, filtering, interactions, map settings, and save/export semantics, but GeoLens keeps its own visual design language and existing MapLibre architecture.
 
-- [ ] Phase 1002: kepler-guided-builder-workflow-audit-and-triage — requirements FLOW-01..06
+- [x] Phase 1002: kepler-guided-builder-workflow-audit-and-triage — requirements FLOW-01..06 (completed 2026-05-11)
 - [ ] Phase 1003: map-stack-inspector-interaction-polish — requirements STACK-01..06
 - [ ] Phase 1004: styling-and-cartography-control-polish — requirements STYLE-01..08
 - [ ] Phase 1005: preview-save-share-output-parity — requirements OUTPUT-01..06
@@ -245,7 +245,7 @@
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 6/9 plans executed
+**Plans:** 1/1 plans complete
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 **Tier:** Cloud (vendor-hosted SaaS, deferred) — **not Enterprise**. Self-hosted Enterprise is single-tenant by design (reframed 2026-04-30 — see `docs-internal/GTM/free-vs-enterprise.md` §3).
