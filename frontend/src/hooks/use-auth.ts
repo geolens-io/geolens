@@ -15,8 +15,8 @@ export function useAuth() {
   const setAuth = useAuthStore((s) => s.setAuth);
   const storeLogout = useAuthStore((s) => s.logout);
 
-  // Validate token on mount by fetching current user
-  useQuery({
+  // Validate token on mount by fetching current user.
+  const meQuery = useQuery({
     queryKey: queryKeys.auth.me,
     queryFn: getMe,
     enabled: !!token,
@@ -24,6 +24,15 @@ export function useAuth() {
     staleTime: 5 * 60 * 1000,
     meta: { skipGlobalError: true },
   });
+
+  const userRoleKey = user?.roles.join('\0') ?? '';
+  const meRoleKey = meQuery.data?.roles.join('\0') ?? '';
+
+  useEffect(() => {
+    if (!token || !meQuery.data) return;
+    if (user?.id === meQuery.data.id && userRoleKey === meRoleKey) return;
+    useAuthStore.setState({ user: meQuery.data });
+  }, [token, meQuery.data, user?.id, userRoleKey, meRoleKey]);
 
   // Proactive refresh: refresh 60 seconds before expiry
   useEffect(() => {

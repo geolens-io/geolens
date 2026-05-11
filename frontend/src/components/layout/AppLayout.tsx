@@ -7,8 +7,10 @@ import { SkipToContent } from './SkipToContent';
 import { useAuthStore } from '@/stores/auth-store';
 
 export function AppLayout() {
+  const hasAuthToken = useAuthStore((state) => !!state.token);
   const isEditor = useAuthStore((state) => state.isEditor());
-  const isMapBuilder = Boolean(useMatch('/maps/:id')) && isEditor;
+  const isMapRoute = Boolean(useMatch('/maps/:id'));
+  const isAuthenticatedMapRoute = isMapRoute && (isEditor || hasAuthToken);
   const { isEnterprise } = useEdition();
   const { data: branding } = useBranding();
   const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
@@ -20,7 +22,7 @@ export function AppLayout() {
       <main id="main-content" tabIndex={-1} className="flex-1 animate-fade-in focus:outline-none">
         <Outlet />
       </main>
-      {!isMapBuilder && <AppFooter showBranding={showFooterBranding} />}
+      {!isAuthenticatedMapRoute && <AppFooter showBranding={showFooterBranding} />}
     </div>
   );
 }

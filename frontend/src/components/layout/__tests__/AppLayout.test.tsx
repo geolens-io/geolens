@@ -91,6 +91,18 @@ describe('AppLayout', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
+  it('hides footer on authenticated map routes while user state is restoring', () => {
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: null,
+    });
+
+    renderAppLayout(['/maps/map-1']);
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
+
   it('renders footer on anonymous map viewer pages', () => {
     renderAppLayout(['/maps/map-1']);
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { renderHook, act } from '@/test/test-utils';
+import { renderHook, act, waitFor } from '@/test/test-utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse, UserResponse } from '@/types/api';
@@ -40,6 +40,7 @@ function mockUser(overrides?: Partial<UserResponse>): UserResponse {
 describe('useAuth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetMe.mockResolvedValue(mockUser());
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   });
 
@@ -129,5 +130,23 @@ describe('useAuth', () => {
 
     expect(result.current.isAdmin).toBe(false);
     expect(result.current.isEditor).toBe(true);
+  });
+
+  it('restores user state when a persisted token validates successfully', async () => {
+    const user = mockUser({ roles: ['editor'] });
+    mockGetMe.mockResolvedValueOnce(user);
+    useAuthStore.setState({
+      token: 'persisted-token',
+      refreshToken: 'persisted-refresh',
+      expiresAt: Date.now() + 900_000,
+      user: null,
+    });
+
+    renderHook(() => useAuth());
+
+    await waitFor(() => {
+      expect(useAuthStore.getState().user).toEqual(user);
+    });
+    expect(useAuthStore.getState().isEditor()).toBe(true);
   });
 });
