@@ -196,7 +196,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await layerRow.getByRole('button', { name: 'Expand options' }).click();
     await page.getByRole('tab', { name: 'Labels', exact: true }).click();
     await expect(
-      page.getByRole('tabpanel', { name: 'Labels' }).getByRole('switch'),
+      page.getByRole('tabpanel', { name: 'Labels' }).getByRole('switch', { name: 'Enable labels' }),
     ).toBeChecked();
   });
 });
