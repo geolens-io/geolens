@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1001
 milestone_name: Map Builder UI/UX Polish Sweep
 status: ready_to_plan
-last_updated: "2026-05-11T20:09:13.875Z"
-last_activity: 2026-05-11 — Phase 1002 audit and triage completed; ready to plan Phase 1003.
+last_updated: "2026-05-11T20:23:19.875Z"
+last_activity: 2026-05-11 — Phase 1003 Map Stack inspector interaction polish completed; ready to plan Phase 1004.
 progress:
   total_phases: 6
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 17
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 3
+  percent: 33
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** 1003 next — Map Stack inspector interaction polish
+**Phase:** 1004 next — Styling and cartography control polish
 **Plan:** —
-**Status:** Phase 1002 completed as an audit/triage pass. Implementation inventory is available at `.planning/phases/1002-kepler-guided-builder-workflow-audit-and-triage/1002-IMPLEMENTATION-INVENTORY.md`; ready to plan Phase 1003.
-**Last activity:** 2026-05-11 — Phase 1002 audit and triage artifacts created with Playwright baseline evidence and Kepler.gl behavior comparison.
+**Status:** Phase 1003 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1003-map-stack-inspector-interaction-polish/`; ready to plan Phase 1004.
+**Last activity:** 2026-05-11 — Phase 1003 shipped stable omitted layer ordering, a data-first empty Map Stack prompt, clearer row state badges/attributes, and inspector keyboard focus polish.
 
-Progress: [██░░░░░░░░] 17%
+Progress: [███░░░░░░░] 33%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1003 planning.
+**Current focus:** Phase 1004 planning.
 
 ## Last Shipped Milestone
 
@@ -91,6 +91,7 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 - Phase 1000 plan 1000-06 completed 2026-05-11: public shared-token and authenticated map viewers pass persisted `basemap_config` into `ViewerMap`, which reapplies curated basemap appearance after load, style reloads, and runtime config/label changes.
 - Phase 1000 completed 2026-05-11: 6/6 plans shipped across 5 waves, satisfying MAPSTACK-01..07 while preserving saved-map compatibility and the existing MapLibre builder architecture.
 - Phase 1001 completed 2026-05-11: authenticated public saved-map layer conversion now preserves `is_dem` and `dem_vertical_units`, and focused public viewer regression coverage closes MAPSTACK-02, MAPSTACK-04, MAPSTACK-07 plus `INT-PUBLIC-DEM-01` and `FLOW-AUTH-PUBLIC-DEM-01`.
+- Phase 1003 completed 2026-05-11: add-layer calls that omit `sort_order` now append to the next available layer order, empty maps present a data-first Map Stack prompt, row states expose selected/hidden/locked/disabled/unsupported/error-like signals, and inspector tabs/back controls have visible keyboard focus.
 
 ## Recent Decisions
 
@@ -150,9 +151,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T20:09:13Z
-Stopped at: Phase 1002 audit and triage complete.
-Resume file: `.planning/phases/1002-kepler-guided-builder-workflow-audit-and-triage/1002-VERIFICATION.md`
+Last session: 2026-05-11T20:23:19Z
+Stopped at: Phase 1003 complete; ready to plan Phase 1004.
+Resume file: `.planning/phases/1003-map-stack-inspector-interaction-polish/1003-VERIFICATION.md`
 
 ---
-*Last updated: 2026-05-11 after completing Phase 1002*
+*Last updated: 2026-05-11 after completing Phase 1003*
