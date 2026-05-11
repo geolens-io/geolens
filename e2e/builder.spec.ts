@@ -1,9 +1,23 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
 const AUTH_FILE = path.join(__dirname, '../playwright/.auth/user.json');
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+const TEXT_TYPES = ['character', 'text', 'varchar', 'char'];
+
+interface DatasetListItem {
+  id?: string;
+  title?: string;
+  record_type?: string;
+  column_info?: { name: string; type: string }[] | null;
+}
+
+interface JobStatusPayload {
+  status: string;
+  dataset_id: string | null;
+  error_message?: string | null;
+}
 
 /** Extract JWT token from the Playwright storage state file. */
 function getAuthToken(): string {
@@ -21,8 +35,85 @@ function getAuthToken(): string {
   throw new Error('Could not extract auth token from storage state');
 }
 
+function hasTextColumn(columns: { name: string; type: string }[] | null): boolean {
+  if (!columns) return false;
+  return columns.some((c) => TEXT_TYPES.some((t) => c.type.toLowerCase().includes(t)));
+}
+
+function extractDatasets(payload: unknown): DatasetListItem[] {
+  if (Array.isArray(payload)) return payload as DatasetListItem[];
+  if (!payload || typeof payload !== 'object') return [];
+  const response = payload as { datasets?: DatasetListItem[]; items?: DatasetListItem[] };
+  return response.datasets ?? response.items ?? [];
+}
+
+async function waitForBuilder(page: Page) {
+  await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+}
+
+async function waitForDatasetJob(jobId: string, authHeaders: Record<string, string>): Promise<string> {
+  for (let attempt = 0; attempt < 45; attempt++) {
+    const statusRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders });
+    expect(statusRes.ok).toBe(true);
+    const status = await statusRes.json() as JobStatusPayload;
+    if (status.status === 'complete' && status.dataset_id) return status.dataset_id;
+    if (status.status === 'failed') {
+      throw new Error(`Fallback dataset import failed: ${status.error_message ?? 'unknown error'}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error('Fallback dataset import did not complete in time');
+}
+
+async function createFallbackVectorDataset(authHeaders: Record<string, string>) {
+  const title = `E2E Builder Dataset ${Date.now()}`;
+  const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.geojson`;
+  const geojson = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: { name: 'Alpha', category: 'A', value: 10 }, geometry: { type: 'Point', coordinates: [-73.9857, 40.7484] } },
+      { type: 'Feature', properties: { name: 'Bravo', category: 'B', value: 20 }, geometry: { type: 'Point', coordinates: [-73.98, 40.75] } },
+    ],
+  });
+  const formData = new FormData();
+  formData.append('file', new Blob([geojson], { type: 'application/geo+json' }), filename);
+
+  const uploadRes = await fetch(`${BASE_URL}/api/ingest/upload`, {
+    method: 'POST',
+    headers: authHeaders,
+    body: formData,
+  });
+  expect(uploadRes.ok).toBe(true);
+  const upload = await uploadRes.json() as { job_id: string };
+
+  const previewRes = await fetch(`${BASE_URL}/api/ingest/preview/${upload.job_id}`, {
+    method: 'POST',
+    headers: authHeaders,
+  });
+  expect(previewRes.ok).toBe(true);
+  const preview = await previewRes.json() as { layer_name?: string; geometry_type?: string | null };
+  expect(preview.geometry_type).toBeTruthy();
+
+  const commitRes = await fetch(`${BASE_URL}/api/ingest/commit/${upload.job_id}`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      summary: 'Temporary dataset for builder E2E regression coverage',
+      visibility: 'private',
+      layer_name: preview.layer_name,
+    }),
+  });
+  expect(commitRes.ok).toBe(true);
+
+  const datasetId = await waitForDatasetJob(upload.job_id, authHeaders);
+  return { datasetId, title };
+}
+
 let mapId: string;
 let duplicatedMapId: string | null = null;
+let fallbackDatasetId: string | null = null;
+let fallbackDatasetTitle: string | null = null;
 
 test.describe.serial('Map Builder', () => {
   test.slow();
@@ -33,12 +124,23 @@ test.describe.serial('Map Builder', () => {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     };
+    const authHeaders = { Authorization: `Bearer ${token}` };
 
-    // Get a dataset ID to add as a layer
-    const dsRes = await fetch(`${BASE_URL}/api/datasets/?limit=1`, { headers });
+    // Get a vector dataset with text columns so all layer editor tabs are available.
+    const dsRes = await fetch(`${BASE_URL}/api/datasets/?limit=20`, { headers });
     expect(dsRes.ok).toBe(true);
     const dsData = await dsRes.json();
-    const datasetId = dsData.datasets?.[0]?.id ?? dsData.items?.[0]?.id ?? dsData[0]?.id;
+    const datasets = extractDatasets(dsData);
+    const suitable = datasets.find(
+      (ds) => ds.record_type === 'vector_dataset' && hasTextColumn(ds.column_info ?? null),
+    );
+    let datasetId = suitable?.id ?? datasets[0]?.id;
+    if (!datasetId) {
+      const fallback = await createFallbackVectorDataset(authHeaders);
+      datasetId = fallback.datasetId;
+      fallbackDatasetId = fallback.datasetId;
+      fallbackDatasetTitle = fallback.title;
+    }
     expect(datasetId).toBeTruthy();
 
     // Create a test map
@@ -82,17 +184,28 @@ test.describe.serial('Map Builder', () => {
         headers,
       });
     }
+    if (fallbackDatasetId && fallbackDatasetTitle) {
+      await fetch(`${BASE_URL}/api/datasets/bulk-delete/`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          datasets: [{ dataset_id: fallbackDatasetId, confirm_title: fallbackDatasetTitle }],
+        }),
+      });
+    }
   });
 
   test('loads existing map and canvas is visible', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    const canvas = page.locator('canvas.maplibregl-canvas');
-    await expect(canvas).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
   });
 
   test('sidebar collapses with inert attribute and reopens', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Find and click collapse button
     const collapseBtn = page.getByRole('button', { name: /collapse sidebar/i });
@@ -119,7 +232,7 @@ test.describe.serial('Map Builder', () => {
 
   test('opens Add Data dialog', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Click "Add Data" button in the layer panel
     const addDataBtn = page.getByRole('button', { name: /add data/i });
@@ -137,7 +250,7 @@ test.describe.serial('Map Builder', () => {
 
   test('opens Map Info dialog', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Open "More actions" dropdown (the header tray one, not per-layer)
     const moreBtn = page.getByRole('button', { name: /more actions/i }).first();
@@ -160,7 +273,7 @@ test.describe.serial('Map Builder', () => {
 
   test('share is visible as a primary action and no longer hidden in overflow', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     const shareButton = page.getByRole('button', { name: 'Share' });
     await expect(shareButton).toBeVisible();
@@ -176,7 +289,7 @@ test.describe.serial('Map Builder', () => {
 
   test('saves map without errors', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Click save button
     const saveBtn = page.getByRole('button', { name: /save/i });
@@ -197,7 +310,7 @@ test.describe.serial('Map Builder', () => {
 
   test('duplicates map and navigates to new URL', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Open "More actions" dropdown (the header tray one, not per-layer)
     const moreBtn = page.getByRole('button', { name: /more actions/i }).first();
@@ -222,12 +335,12 @@ test.describe.serial('Map Builder', () => {
     }
 
     // Canvas should be visible on the new map
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
   });
 
   test('switches basemap without losing overlay layers', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Find basemap section heading
     const basemapHeading = page.getByText('Basemap');
@@ -259,9 +372,69 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
+  test('keeps collapsed basemap options hidden from the DOM', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    const basemapToggle = page.getByRole('button', { name: /basemap:/i });
+    await expect(basemapToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('basemap-option')).toHaveCount(0);
+
+    await basemapToggle.click();
+    await expect(page.getByTestId('basemap-option').first()).toBeVisible();
+
+    await basemapToggle.click();
+    await expect(basemapToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('basemap-option')).toHaveCount(0);
+  });
+
+  test('mobile sidebar can reach layer editor tabs and return to the layer list', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    await page.getByRole('button', { name: /expand sidebar/i }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toBeVisible();
+
+    await sheet.getByRole('button', { name: /expand options/i }).first().click();
+    await expect(sheet.getByRole('button', { name: /back to layers/i })).toBeVisible();
+
+    for (const tab of ['Style', 'Filter', 'Labels', 'Popup']) {
+      await expect(sheet.getByRole('tab', { name: tab })).toBeVisible();
+    }
+
+    await sheet.getByRole('tab', { name: 'Filter' }).click();
+    await expect(sheet.getByRole('tab', { name: 'Filter' })).toHaveAttribute('aria-selected', 'true');
+
+    await sheet.getByRole('button', { name: /back to layers/i }).click();
+    await expect(sheet.getByRole('button', { name: /add data/i })).toBeVisible();
+  });
+
+  test('filter condition field remains readable in the default inspector width', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    await page.getByRole('button', { name: /expand options/i }).first().click();
+    await page.getByRole('tab', { name: 'Filter' }).click();
+    await page.getByRole('button', { name: /add filter/i }).click();
+
+    const fieldTrigger = page.getByTestId('filter-field-row').locator('[role="combobox"]').first();
+    const controlsRow = page.getByTestId('filter-value-row').first();
+    await expect(fieldTrigger).toBeVisible();
+    await expect(controlsRow).toBeVisible();
+
+    const fieldBox = await fieldTrigger.boundingBox();
+    const controlsBox = await controlsRow.boundingBox();
+    expect(fieldBox).toBeTruthy();
+    expect(controlsBox).toBeTruthy();
+    expect(fieldBox!.width).toBeGreaterThan(180);
+    expect(controlsBox!.y).toBeGreaterThan(fieldBox!.y + fieldBox!.height - 2);
+  });
+
   test('keyboard-only navigation through builder controls', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Click the body to establish a starting focus point, then use only keyboard
     await page.locator('body').click();
@@ -321,7 +494,7 @@ test.describe.serial('Map Builder', () => {
 
   test('zoom to layer changes map viewport', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Open the per-layer "More actions" menu. The first trigger belongs to the map header tray.
     const moreBtn = page.getByRole('button', { name: 'More actions' }).nth(1);
@@ -342,7 +515,7 @@ test.describe.serial('Map Builder', () => {
 
   test('sidebar drag handle resizes sidebar', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Clear persisted width
     await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-width'));
@@ -405,14 +578,14 @@ test.describe.serial('Map Builder', () => {
 
     // Reload and verify the persisted value drives the rendered width.
     await page.reload();
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
     const widthAfterReload = await sidebar.evaluate((el) => el.offsetWidth);
     expect(widthAfterReload).toBe(storedNum);
   });
 
   test('sidebar collapsed state persists across reload', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Clear stored state
     await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-collapsed'));
@@ -424,14 +597,14 @@ test.describe.serial('Map Builder', () => {
 
     // Reload — should stay collapsed
     await page.reload();
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
     await expect(page.getByRole('button', { name: /expand sidebar/i })).toBeVisible();
 
     // Expand and reload — should stay expanded
     await page.getByRole('button', { name: /expand sidebar/i }).click();
     await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
     await page.reload();
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
     await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
   });
 
@@ -442,7 +615,7 @@ test.describe.serial('Map Builder', () => {
     });
 
     await page.goto(`/maps/${mapId}`);
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
+    await waitForBuilder(page);
 
     // Wait for any tile loading to settle — networkidle resolves once outbound
     // requests are quiet for 500ms, deterministically replacing a 3s sleep.
