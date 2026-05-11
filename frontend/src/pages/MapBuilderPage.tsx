@@ -417,11 +417,24 @@ export function MapBuilderPage() {
                 {t('actions.save')}
               </Button>
             </div>
-            <SidebarContent
-              layers={layers}
-              onAddDataClick={handleAddDataClick}
-              widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
-            />
+            {editingLayer ? (
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <LazyLoadErrorBoundary>
+                  <LayerEditorPanel
+                    layer={editingLayer}
+                    activeTab={layers.activeEditorTab ?? 'style'}
+                    handlers={layerEditorHandlers}
+                    onBack={handleCloseEditor}
+                  />
+                </LazyLoadErrorBoundary>
+              </div>
+            ) : (
+              <SidebarContent
+                layers={layers}
+                onAddDataClick={handleAddDataClick}
+                widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
+              />
+            )}
           </SheetContent>
         </Sheet>
       )}
