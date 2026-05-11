@@ -10,6 +10,7 @@ import positronThumb from '@/assets/basemaps/positron.png';
 import darkThumb from '@/assets/basemaps/dark.png';
 import osmThumb from '@/assets/basemaps/osm.png';
 import brightThumb from '@/assets/basemaps/bright.png';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 
 export const LIGHT_PRESET_ID = 'openfreemap-positron';
 export const DARK_PRESET_ID = 'openfreemap-dark';
@@ -104,6 +105,8 @@ const FALLBACK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
   '<text x="80" y="136" text-anchor="middle" font-size="12" fill="#9ca3af" font-family="system-ui,sans-serif">Map</text>' +
   '</svg>'
 )}`;
+
+const MISSING_REMOTE_STYLE_IMAGES = new Set(['circle-11', 'wood-pattern']);
 
 /** Get the thumbnail URL for a basemap, with a fallback globe icon for custom basemaps */
 export function basemapThumbnail(id: string): string {
@@ -347,6 +350,51 @@ export function applyBasemapConfigToStyle(
     layers: style.layers.map((layer) =>
       applyBasemapLayerConfig(layer as StyleLayer, config) as StyleSpecification['layers'][number],
     ) as StyleSpecification['layers'],
+  };
+}
+
+function stripMissingStyleImage(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return MISSING_REMOTE_STYLE_IMAGES.has(value) ? '' : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(stripMissingStyleImage);
+  }
+  return value;
+}
+
+export function sanitizeMaplibreStyle(style: StyleSpecification): StyleSpecification {
+  return {
+    ...style,
+    layers: style.layers.map((layer) => {
+      let nextLayer = layer as StyleSpecification['layers'][number];
+      if ('paint' in nextLayer && nextLayer.paint && 'fill-pattern' in nextLayer.paint) {
+        const paint = { ...(nextLayer.paint as Record<string, unknown>) };
+        delete paint['fill-pattern'];
+        nextLayer = { ...nextLayer, paint } as StyleSpecification['layers'][number];
+      }
+
+      if ('layout' in nextLayer && nextLayer.layout && 'icon-image' in nextLayer.layout) {
+        nextLayer = {
+          ...nextLayer,
+          layout: {
+            ...nextLayer.layout,
+            'icon-image': stripMissingStyleImage(
+              (nextLayer.layout as Record<string, unknown>)['icon-image'],
+            ),
+          },
+        } as StyleSpecification['layers'][number];
+      }
+
+      if ('filter' in nextLayer && nextLayer.filter) {
+        nextLayer = {
+          ...nextLayer,
+          filter: sanitizeNullableNumericFilter(nextLayer.filter),
+        } as StyleSpecification['layers'][number];
+      }
+
+      return nextLayer;
+    }) as StyleSpecification['layers'],
   };
 }
 

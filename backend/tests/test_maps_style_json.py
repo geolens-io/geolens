@@ -165,6 +165,9 @@ def test_build_maplibre_style_exports_fill_companion_layers():
                 "outlineColor": "#112233",
                 "outlineWidth": 4,
                 "heightColumn": "height_m",
+                "heightScale": 1.6,
+                "extrusionMinZoom": 12.5,
+                "extrusionOpacity": 0.94,
             }
         },
     )
@@ -182,6 +185,9 @@ def test_build_maplibre_style_exports_fill_companion_layers():
             "outlineColor": "#112233",
             "outlineWidth": 4,
             "heightColumn": "height_m",
+            "heightScale": 1.6,
+            "extrusionMinZoom": 12.5,
+            "extrusionOpacity": 0.94,
         }
     }
     assert outline["id"] == f"{fill['id']}-outline"
@@ -195,10 +201,16 @@ def test_build_maplibre_style_exports_fill_companion_layers():
     assert extrusion["id"] == f"{fill['id']}-extrusion"
     assert extrusion["metadata"]["geolens"]["companion"] == "extrusion"
     assert extrusion["paint"]["fill-extrusion-height"] == [
-        "coalesce",
-        ["to-number", ["get", "height_m"], 0],
-        0,
+        "*",
+        [
+            "coalesce",
+            ["to-number", ["get", "height_m"], 0],
+            0,
+        ],
+        1.6,
     ]
+    assert extrusion["minzoom"] == 12.5
+    assert extrusion["paint"]["fill-extrusion-opacity"] == 0.94
     assert extrusion["paint"]["fill-extrusion-color"] == "#94a3b8"
 
 
@@ -304,6 +316,50 @@ def test_build_maplibre_style_preserves_builder_style_config_in_layer_metadata()
     assert builder["outlineWidth"] == 2
     assert builder["heightColumn"] == "h"
     assert "_private" not in builder
+
+
+def test_build_maplibre_style_canonicalizes_legacy_builder_aliases():
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#94a3b8"},
+        label_config=None,
+        style_config={
+            "builder": {
+                "outline_color": "#ffcf66",
+                "outline_width": 0.25,
+                "height_column": "height_m",
+                "height_scale": 1.8,
+                "extrusion_min_zoom": 12.5,
+                "extrusion_opacity": 0.92,
+            },
+        },
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    fill, outline, extrusion = style["layers"]
+    builder = fill["metadata"]["geolens"]["style_config"]["builder"]
+    assert builder == {
+        "outlineColor": "#ffcf66",
+        "outlineWidth": 0.25,
+        "heightColumn": "height_m",
+        "heightScale": 1.8,
+        "extrusionMinZoom": 12.5,
+        "extrusionOpacity": 0.92,
+    }
+    assert outline["paint"]["line-color"] == "#ffcf66"
+    assert outline["paint"]["line-width"] == 0.25
+    assert extrusion["minzoom"] == 12.5
+    assert extrusion["paint"]["fill-extrusion-height"] == [
+        "*",
+        [
+            "coalesce",
+            ["to-number", ["get", "height_m"], 0],
+            0,
+        ],
+        1.8,
+    ]
+    assert extrusion["paint"]["fill-extrusion-opacity"] == 0.92
 
 
 def test_build_maplibre_style_emits_line_metrics_for_line_gradient_layer():
@@ -767,6 +823,9 @@ def test_build_maplibre_style_round_trip_preserves_terrain_and_builder_state():
                 "outlineColor": "#abcdef",
                 "outlineWidth": 3,
                 "heightColumn": "h",
+                "heightScale": 1.4,
+                "extrusionMinZoom": 12.25,
+                "extrusionOpacity": 0.91,
             }
         },
     )
@@ -796,6 +855,9 @@ def test_build_maplibre_style_round_trip_preserves_terrain_and_builder_state():
     assert builder["outlineColor"] == "#abcdef"
     assert builder["outlineWidth"] == 3
     assert builder["heightColumn"] == "h"
+    assert builder["heightScale"] == 1.4
+    assert builder["extrusionMinZoom"] == 12.25
+    assert builder["extrusionOpacity"] == 0.91
 
     imported_dem = next(
         layer for layer in imported.layers if layer.dataset_id == dem_id

@@ -5,6 +5,7 @@ import type { FilterSpecification } from 'maplibre-gl';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { buildNullableSafeNumericAccessor } from '@/lib/maplibre-filter-utils';
 
 interface FilterCondition {
   id: string;
@@ -26,6 +27,8 @@ interface OperatorDef {
   labelKey?: string;
   value: string;
 }
+
+const NUMERIC_COMPARISON_OPERATORS = new Set(['==', '!=', '>', '<', '>=', '<=']);
 
 // Discriminated union returned by parseFilterExpression
 export type ParseResult =
@@ -125,7 +128,17 @@ export function buildFilterExpression(
       expressions.push(['in', cond.value.trim(), ['get', cond.field]]);
     } else {
       const coerced = coerceValue(cond.value, pgType);
-      expressions.push([cond.operator, ['get', cond.field], coerced]);
+      const isNumericComparison =
+        classifyColumnType(pgType) === 'number' &&
+        typeof coerced === 'number' &&
+        NUMERIC_COMPARISON_OPERATORS.has(cond.operator);
+      expressions.push([
+        cond.operator,
+        isNumericComparison
+          ? buildNullableSafeNumericAccessor(cond.field, cond.operator, coerced)
+          : ['get', cond.field],
+        coerced,
+      ]);
     }
   }
 
@@ -221,6 +234,21 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       return {
         id: crypto.randomUUID(),
         field: e[1][1] as string,
+        operator: e[0] as string,
+        value: String(e[2] ?? ''),
+      };
+    }
+
+    // numeric-safe standard: [op, ["to-number", ["get", field], fallback], value]
+    if (
+      Array.isArray(e[1]) &&
+      e[1][0] === 'to-number' &&
+      Array.isArray(e[1][1]) &&
+      e[1][1][0] === 'get'
+    ) {
+      return {
+        id: crypto.randomUUID(),
+        field: e[1][1][1] as string,
         operator: e[0] as string,
         value: String(e[2] ?? ''),
       };

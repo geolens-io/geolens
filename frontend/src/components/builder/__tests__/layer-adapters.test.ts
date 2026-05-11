@@ -23,11 +23,14 @@ Object.defineProperty(window, 'location', {
 });
 
 function createMockMap() {
+  const layerIds = new Set<string>();
   return {
     getSource: vi.fn(() => null),
     addSource: vi.fn(),
-    addLayer: vi.fn(),
-    getLayer: vi.fn(() => null),
+    addLayer: vi.fn((layer: { id: string }) => {
+      layerIds.add(layer.id);
+    }),
+    getLayer: vi.fn((id: string) => layerIds.has(id) ? { id } : null),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     getPaintProperty: vi.fn(),
@@ -301,6 +304,28 @@ describe('circleAdapter', () => {
     expect(call.paint).toHaveProperty('circle-stroke-width');
   });
 
+  it('addLayers ignores stale fill and line paint on circle layers', () => {
+    const input = makeInput({
+      id: 'c2b',
+      layerId: 'layer-c2b',
+      paint: {
+        'fill-color': '#ff0000',
+        'line-color': '#00ff00',
+        'line-width': 2,
+        'fill-opacity': 0.4,
+      },
+    });
+
+    circleAdapter.addLayers(map, input);
+
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.paint).toHaveProperty('circle-radius', 5);
+    expect(call.paint).not.toHaveProperty('fill-color');
+    expect(call.paint).not.toHaveProperty('line-color');
+    expect(call.paint).not.toHaveProperty('line-width');
+    expect(call.paint).not.toHaveProperty('fill-opacity');
+  });
+
   it('addLayers calls simplifyPaint when paint has expressions', () => {
     const input = makeInput({
       id: 'c3',
@@ -359,6 +384,29 @@ describe('circleAdapter', () => {
     });
     circleAdapter.syncPaint(map, input);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c4', 'circle-radius', 8);
+  });
+
+  it('syncPaint does not send stale fill and line paint to circle layers', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-c4b' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    const input = makeInput({
+      id: 'c4b',
+      layerId: 'layer-c4b',
+      paint: {
+        'circle-radius': 7,
+        'fill-color': '#ff0000',
+        'line-color': '#00ff00',
+        'line-width': 2,
+        'fill-opacity': 0.4,
+      },
+    });
+
+    circleAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-c4b', 'circle-radius', 7);
+    const invalidProps = new Set(['fill-color', 'line-color', 'line-width', 'fill-opacity']);
+    expect((map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
+      .some(([, prop]) => invalidProps.has(prop))).toBe(false);
   });
 
   it('syncPaint preserves circle radius and opacity expressions', () => {
@@ -480,6 +528,26 @@ describe('lineAdapter', () => {
       expect(layerArg).toBe('layer-l5');
       expect(value).toBe(gradient);
     }
+  });
+
+  it('addLayers ignores stale fill and circle paint on line layers', () => {
+    const input = makeInput({
+      id: 'l5-stale',
+      layerId: 'layer-l5-stale',
+      dataset_geometry_type: 'LINESTRING',
+      paint: {
+        'line-color': '#ff0000',
+        'fill-color': '#00ff00',
+        'circle-radius': 8,
+      },
+    });
+
+    lineAdapter.addLayers(map, input);
+
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.paint).toHaveProperty('line-color', '#ff0000');
+    expect(call.paint).not.toHaveProperty('fill-color');
+    expect(call.paint).not.toHaveProperty('circle-radius');
   });
 
   it('addLayers replays line width and opacity expressions without flattening saved gradients', () => {
@@ -698,6 +766,29 @@ describe('fillAdapter', () => {
     expect(fillPaint['fill-outline-color']).toBe('rgba(0,0,0,0)');
   });
 
+  it('addLayers ignores stale line, circle, and extrusion paint on fill layers', () => {
+    const input = makeInput({
+      id: 'f3b',
+      layerId: 'layer-f3b',
+      sourceId: 'source-f3b',
+      sourceLayer: 'data.test_table',
+      paint: {
+        'fill-color': '#ff0000',
+        'line-color': '#00ff00',
+        'circle-radius': 8,
+        'fill-extrusion-height': 30,
+      },
+    });
+
+    fillAdapter.addLayers(map, input);
+
+    const fillPaint = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0].paint;
+    expect(fillPaint).toHaveProperty('fill-color', '#ff0000');
+    expect(fillPaint).not.toHaveProperty('line-color');
+    expect(fillPaint).not.toHaveProperty('circle-radius');
+    expect(fillPaint).not.toHaveProperty('fill-extrusion-height');
+  });
+
   it('getLayerIds returns [layerId, outlineId] (two layers without _height_column)', () => {
     const ids = fillAdapter.getLayerIds('layer-f1');
     expect(ids).toHaveLength(3);
@@ -800,6 +891,73 @@ describe('fillAdapter', () => {
     const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
     expect(extrusionCall).toBeDefined();
     expect((extrusionCall![0] as { minzoom: number }).minzoom).toBe(14);
+  });
+
+  it('fill-extrusion honors builder height scale, minzoom, and opacity', () => {
+    const input = makeInput({
+      id: 'fe4-scaled',
+      layerId: 'layer-fe4-scaled',
+      sourceId: 'source-fe4-scaled',
+      sourceLayer: 'data.test_table',
+      opacity: 0.7,
+      paint: {},
+      style_config: {
+        builder: {
+          heightColumn: 'height',
+          heightScale: 1.8,
+          extrusionMinZoom: 12.5,
+          extrusionOpacity: 0.96,
+        },
+      },
+    } as Partial<AdapterLayerInput> & { style_config: { builder: { heightColumn: string; heightScale: number; extrusionMinZoom: number; extrusionOpacity: number } } });
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+    expect(extrusionCall).toBeDefined();
+    const extrusion = extrusionCall![0] as { minzoom: number; paint: Record<string, unknown> };
+    expect(extrusion.minzoom).toBe(12.5);
+    expect(extrusion.paint['fill-extrusion-height']).toEqual(
+      ['*', ['coalesce', ['to-number', ['get', 'height'], 0], 0], 1.8],
+    );
+    expect(extrusion.paint['fill-extrusion-opacity']).toBe(0.96);
+  });
+
+  it('normalizes snake_case builder style keys from saved API payloads', () => {
+    const input = makeInput({
+      id: 'fe4-snake',
+      layerId: 'layer-fe4-snake',
+      sourceId: 'source-fe4-snake',
+      sourceLayer: 'data.test_table',
+      opacity: 0.7,
+      paint: {},
+      style_config: {
+        builder: {
+          height_column: 'height',
+          height_scale: 1.8,
+          extrusion_min_zoom: 12.5,
+          extrusion_opacity: 0.96,
+          outline_color: '#07111f',
+          outline_width: 0.28,
+        },
+      },
+    } as unknown as Partial<AdapterLayerInput>);
+    fillAdapter.addLayers(map, input);
+    const calls = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls;
+    const outlineCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'line');
+    const extrusionCall = calls.find((c: unknown[]) => (c[0] as { type: string }).type === 'fill-extrusion');
+    expect(outlineCall).toBeDefined();
+    expect(extrusionCall).toBeDefined();
+
+    const outlinePaint = (outlineCall![0] as { paint: Record<string, unknown> }).paint;
+    expect(outlinePaint['line-color']).toBe('#07111f');
+    expect(outlinePaint['line-width']).toBe(0.28);
+
+    const extrusion = extrusionCall![0] as { minzoom: number; paint: Record<string, unknown> };
+    expect(extrusion.minzoom).toBe(12.5);
+    expect(extrusion.paint['fill-extrusion-height']).toEqual(
+      ['*', ['coalesce', ['to-number', ['get', 'height'], 0], 0], 1.8],
+    );
+    expect(extrusion.paint['fill-extrusion-opacity']).toBe(0.96);
   });
 
   it('syncVisibility toggles extrusion layer visibility when it exists', () => {

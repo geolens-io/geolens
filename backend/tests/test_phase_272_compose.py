@@ -12,6 +12,22 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
+DEMO_COMPOSE_PATH = REPO_ROOT / "docker-compose.demo.yml"
+
+
+class ComposeLoader(yaml.SafeLoader):
+    """PyYAML loader that accepts Compose's custom `!override` tag."""
+
+
+def _construct_override(loader, node):
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    return loader.construct_scalar(node)
+
+
+ComposeLoader.add_constructor("!override", _construct_override)
 
 
 @pytest.fixture(scope="module")
@@ -24,6 +40,13 @@ def compose():
 @pytest.fixture(scope="module")
 def services(compose):
     return compose["services"]
+
+
+@pytest.fixture(scope="module")
+def demo_services():
+    """Parse the production/demo overlay once per test module."""
+    with DEMO_COMPOSE_PATH.open() as f:
+        return yaml.load(f, Loader=ComposeLoader)["services"]
 
 
 def _to_mb(value) -> int:
@@ -68,13 +91,15 @@ class TestInf01ResourceLimits:
         assert "cpus" in limits, f"{service} missing cpus limit"
         assert "memory" in limits, f"{service} missing memory limit"
 
-    def test_default_profile_steady_state_within_2gb(self, services):
-        """db + api + worker + titiler + frontend memory <= 2 GB target."""
+    def test_demo_profile_steady_state_within_2gb(self, services, demo_services):
+        """db + api + worker + titiler + nginx frontend memory <= 2 GB target."""
         default_services = ["db", "api", "worker", "titiler", "frontend"]
-        total_mb = sum(
-            _to_mb(services[s]["deploy"]["resources"]["limits"]["memory"])
-            for s in default_services
-        )
+        total_mb = 0
+        for service in default_services:
+            svc = demo_services.get(service, services[service])
+            if "deploy" not in svc:
+                svc = services[service]
+            total_mb += _to_mb(svc["deploy"]["resources"]["limits"]["memory"])
         # 2 GB target with host overhead headroom; 1920 MB is the planned value.
         assert total_mb <= 2048, (
             f"steady-state {total_mb} MB exceeds 2 GB target "
@@ -162,7 +187,9 @@ class TestInf05PortBindings:
     @pytest.mark.parametrize("service,expected_count", [("minio", 2), ("valkey", 1)])
     def test_cloud_dev_ports_bind_loopback(self, services, service, expected_count):
         ports = services[service].get("ports", [])
-        assert len(ports) == expected_count, f"{service} expected {expected_count} ports"
+        assert len(ports) == expected_count, (
+            f"{service} expected {expected_count} ports"
+        )
         for p in ports:
             assert p.startswith("127.0.0.1:"), (
                 f"{service} port {p!r} should bind to 127.0.0.1"

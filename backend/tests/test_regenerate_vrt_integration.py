@@ -66,7 +66,11 @@ def source_tifs(tmp_path: Path) -> dict[str, Path]:
 
 
 @pytest.fixture
-def local_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def local_storage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    test_db_session,
+):
     """Create a real LocalStorageProvider rooted at tmp_path / "storage" and
     patch it into app.ingest.tasks.get_storage.
 
@@ -76,6 +80,11 @@ def local_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     from app.core.config import settings
     from app.platform.storage.local import LocalStorageProvider
+    from app.processing.raster import vrt as raster_vrt_module
+
+    # Force the client/test_db_session fixture to run first. It also changes
+    # upload_staging_dir, and this fixture must be the last override applied.
+    _ = test_db_session
 
     storage_root = tmp_path / "storage"
     storage_root.mkdir(parents=True, exist_ok=True)
@@ -91,6 +100,9 @@ def local_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # source asset_uris to files under our storage root. Without this override,
     # gdalbuildvrt gets production paths that do not exist and fails.
     monkeypatch.setattr(settings, "upload_staging_dir", str(storage_root))
+    monkeypatch.setattr(
+        raster_vrt_module.settings, "upload_staging_dir", str(storage_root)
+    )
 
     return provider
 

@@ -60,10 +60,25 @@ services:
     # fail with "Bind for 0.0.0.0:8080 failed: port is already allocated".
     ports: !override
       - "${FRONTEND_PORT:-8080}:8080"
-    volumes: []
+    volumes: !override []
+    healthcheck:
+      # Demo/prod frontend is nginx on 8080, not the dev Vite server on 5173.
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     depends_on:
       api:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 32M
 
   seeder:
     # Multi-stage seeder image (Plan 218-05) — bakes every Theme 1/2/3

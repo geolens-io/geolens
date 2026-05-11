@@ -142,9 +142,7 @@ def upgrade() -> None:
     legacy_count = bind.execute(
         sa.text(
             "SELECT COUNT(*) FROM catalog.map_layers WHERE paint ?| :keys"
-        ).bindparams(
-            sa.bindparam("keys", legacy_keys, type_=sa.ARRAY(sa.String()))
-        )
+        ).bindparams(sa.bindparam("keys", legacy_keys, type_=sa.ARRAY(sa.String())))
     ).scalar_one()
     if legacy_count == 0:
         return

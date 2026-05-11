@@ -24,14 +24,14 @@ export interface MapCardProps {
 export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
-  const thumbnailSrc = useMapThumbnail(map.thumbnail_url);
+  const thumbnailSrc = useMapThumbnail(map.thumbnail_url, map.updated_at);
 
   return (
     <Card className="!flex-row !gap-0 !py-0 items-stretch overflow-hidden hover:shadow-md hover:border-primary/20 hover:bg-accent/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out">
       {/* Thumbnail */}
       <Link
         to={`/maps/${map.id}`}
-        className="w-44 shrink-0 bg-muted flex items-center justify-center overflow-hidden"
+        className="w-44 h-28 shrink-0 bg-muted flex items-center justify-center overflow-hidden"
         aria-label={t('maps.card.previewAlt', { name: map.name })}
         title={t('maps.card.previewAlt', { name: map.name })}
       >

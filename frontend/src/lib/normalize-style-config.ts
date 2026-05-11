@@ -63,6 +63,21 @@ const LEGACY_BUILDER_PAINT_KEYS = new Set([
   '_height_column',
 ]);
 
+const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
+  fill_disabled: 'fillDisabled',
+  stroke_disabled: 'strokeDisabled',
+  fill_opacity_saved: 'fillOpacitySaved',
+  outline_width_saved: 'outlineWidthSaved',
+  outline_color: 'outlineColor',
+  outline_width: 'outlineWidth',
+  heatmap_ramp: 'heatmapRamp',
+  heatmap_weight_column: 'heatmapWeightColumn',
+  height_column: 'heightColumn',
+  height_scale: 'heightScale',
+  extrusion_min_zoom: 'extrusionMinZoom',
+  extrusion_opacity: 'extrusionOpacity',
+};
+
 function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(record).filter(([, value]) => value !== undefined),
@@ -81,47 +96,53 @@ function normalizeBuilderStyleConfig(
   paint: Record<string, unknown> | null | undefined,
 ): StyleConfig['builder'] | undefined {
   const rawBuilder = raw?.builder && typeof raw.builder === 'object' && !Array.isArray(raw.builder)
-    ? raw.builder as NonNullable<StyleConfig['builder']>
+    ? raw.builder as Record<string, unknown>
     : {};
+  const normalizedRawBuilder = Object.entries(rawBuilder).reduce<Record<string, unknown>>((acc, [key, value]) => {
+    const aliasKey = LEGACY_BUILDER_KEY_ALIASES[key];
+    const canonicalKey = aliasKey ?? key;
+    if (!aliasKey || acc[canonicalKey] === undefined) acc[canonicalKey] = value;
+    return acc;
+  }, {});
 
   const fillDisabled = typeof paint?.['_fill-disabled'] === 'boolean'
     ? paint['_fill-disabled'] as boolean
-    : rawBuilder.fillDisabled;
+    : normalizedRawBuilder.fillDisabled as boolean | undefined;
   const strokeDisabled = typeof paint?.['_stroke-disabled'] === 'boolean'
     ? paint['_stroke-disabled'] as boolean
-    : rawBuilder.strokeDisabled;
+    : normalizedRawBuilder.strokeDisabled as boolean | undefined;
   const fillOpacitySaved = typeof paint?.['_fill-opacity-saved'] === 'number'
     ? paint['_fill-opacity-saved'] as number
-    : rawBuilder.fillOpacitySaved;
+    : normalizedRawBuilder.fillOpacitySaved as number | undefined;
   const outlineWidthSaved = typeof paint?.['_outline-width-saved'] === 'number'
     ? paint['_outline-width-saved'] as number
-    : rawBuilder.outlineWidthSaved;
+    : normalizedRawBuilder.outlineWidthSaved as number | undefined;
   const outlineColor = typeof paint?.['_outline-color'] === 'string'
     ? paint['_outline-color'] as string
     : typeof paint?.['outline-color'] === 'string'
       ? paint['outline-color'] as string
-      : rawBuilder.outlineColor;
+      : normalizedRawBuilder.outlineColor as string | undefined;
   const outlineWidth = typeof paint?.['_outline-width'] === 'number'
     ? paint['_outline-width'] as number
     : typeof paint?.['outline-width'] === 'number'
       ? paint['outline-width'] as number
-      : rawBuilder.outlineWidth;
+      : normalizedRawBuilder.outlineWidth as number | undefined;
   const heatmapRamp = typeof paint?.['_heatmap-ramp'] === 'string'
     ? paint['_heatmap-ramp'] as string
     : typeof raw?.ramp === 'string' && raw.render_mode === 'heatmap'
       ? raw.ramp as string
-      : rawBuilder.heatmapRamp;
+      : normalizedRawBuilder.heatmapRamp as string | undefined;
   const heatmapWeightColumn = typeof paint?.['_heatmap-weight-column'] === 'string'
     ? paint['_heatmap-weight-column'] as string
     : typeof raw?.weight_column === 'string'
       ? raw.weight_column as string
-      : rawBuilder.heatmapWeightColumn;
+      : normalizedRawBuilder.heatmapWeightColumn as string | undefined;
   const heightColumn = typeof paint?.['_height_column'] === 'string'
     ? paint['_height_column'] as string
-    : rawBuilder.heightColumn;
+    : normalizedRawBuilder.heightColumn as string | undefined;
 
   const builder = compactRecord({
-    ...rawBuilder,
+    ...normalizedRawBuilder,
     fillDisabled,
     strokeDisabled,
     fillOpacitySaved,
@@ -188,7 +209,7 @@ export function normalizeStyleConfig(
           ? ({ ...(raw as unknown as StyleConfig), builder } as StyleConfig)
           : null);
   if (!normalized) return null;
-  if (builder) normalized.builder = { ...normalized.builder, ...builder };
+  if (builder) normalized.builder = builder;
 
   // Coerce JSON nulls to undefined for optional array fields
   if (normalized.breaks === null) normalized.breaks = undefined;

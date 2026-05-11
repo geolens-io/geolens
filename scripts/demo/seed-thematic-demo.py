@@ -40,6 +40,7 @@ class IngestResult(TypedDict, total=False):
     dataset_id: str | None
     error: str | None
 
+
 # Import seed-natural-earth.py primitives via importlib (file has hyphen).
 # The assertions narrow away the `ModuleSpec | None` / `Loader | None` return
 # types for mypy — at runtime the sibling file always exists, so the spec and
@@ -76,6 +77,7 @@ logger = logging.getLogger("seed-thematic-demo")
 # ------------------------------------------------------------------
 # FROZEN INGEST HELPERS — Plans 02/03/04 must not modify these
 # ------------------------------------------------------------------
+
 
 async def ingest_vector_ne_cdn_with_cache(
     client: httpx.AsyncClient,
@@ -154,9 +156,7 @@ async def _upload_commit_patch_flow(
     upload.raise_for_status()
     job_id = upload.json()["job_id"]
 
-    prev = await client.post(
-        f"{base_url}/api/ingest/preview/{job_id}", headers=headers
-    )
+    prev = await client.post(f"{base_url}/api/ingest/preview/{job_id}", headers=headers)
     prev.raise_for_status()
 
     commit = await client.post(
@@ -249,7 +249,11 @@ async def ingest_raster_local(
     stem = entry["stem"]
     path = Path(entry["local_path"])
     if not path.exists():
-        return {"stem": stem, "status": "failed", "error": f"local file missing: {path}"}
+        return {
+            "stem": stem,
+            "status": "failed",
+            "error": f"local file missing: {path}",
+        }
     if path.name in existing:
         return {"stem": stem, "status": "skipped", "dataset_id": existing[path.name]}
 
@@ -272,6 +276,31 @@ async def ingest_raster_local(
     )
 
 
+async def ensure_dataset_tile_columns(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    entry: ThemeDataset,
+    result: IngestResult,
+) -> None:
+    """Persist low-zoom vector-tile attribute allowlists for styled demo layers."""
+    tile_columns = entry.get("tile_columns")
+    dataset_id = result.get("dataset_id")
+    if tile_columns is None or not dataset_id:
+        return
+
+    resp = await client.patch(
+        f"{base_url}/api/datasets/{dataset_id}",
+        headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+        json={"tile_columns": tile_columns},
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"PATCH tile_columns for {entry['stem']} failed with "
+            f"{resp.status_code}: {resp.text[:300]}"
+        )
+
+
 async def ingest_theme(
     client: httpx.AsyncClient,
     base_url: str,
@@ -286,13 +315,22 @@ async def ingest_theme(
         t = entry["type"]
         s = entry["source"]
         if t == "vector" and s == "ne_cdn":
-            r = await ingest_vector_ne_cdn_with_cache(client, base_url, api_key, entry, existing, cache_dir)
+            r = await ingest_vector_ne_cdn_with_cache(
+                client, base_url, api_key, entry, existing, cache_dir
+            )
         elif t == "vector" and s == "local":
-            r = await ingest_vector_local_with_summary(client, base_url, api_key, entry, existing)
+            r = await ingest_vector_local_with_summary(
+                client, base_url, api_key, entry, existing
+            )
         elif t == "raster" and s == "local":
             r = await ingest_raster_local(client, base_url, api_key, entry, existing)
         else:
-            r = {"stem": entry["stem"], "status": "failed", "error": f"unknown type/source: {t}/{s}"}
+            r = {
+                "stem": entry["stem"],
+                "status": "failed",
+                "error": f"unknown type/source: {t}/{s}",
+            }
+        await ensure_dataset_tile_columns(client, base_url, api_key, entry, r)
         results.append(r)
         err = r.get("error")
         suffix = f" ({err})" if err else ""
@@ -310,12 +348,20 @@ async def assign_collection(
     """Create the theme's collection and bulk-assign all succeeded/skipped dataset IDs."""
     headers = {"X-Api-Key": api_key}
     coll_id = await create_or_get_collection(
-        client, base_url, headers, theme_module.THEME_NAME, theme_module.THEME_DESCRIPTION
+        client,
+        base_url,
+        headers,
+        theme_module.THEME_NAME,
+        theme_module.THEME_DESCRIPTION,
     )
     if not coll_id:
         print(f"  Failed to create collection {theme_module.THEME_NAME}")
         return
-    ids = [r["dataset_id"] for r in results if r.get("dataset_id") and r["status"] in ("succeeded", "skipped")]
+    ids = [
+        r["dataset_id"]
+        for r in results
+        if r.get("dataset_id") and r["status"] in ("succeeded", "skipped")
+    ]
     if ids:
         resp = await client.post(
             f"{base_url}/api/catalog/collections/{coll_id}/datasets/",
@@ -323,7 +369,9 @@ async def assign_collection(
             json={"dataset_ids": ids},
         )
         resp.raise_for_status()
-        print(f"  Collection {theme_module.THEME_NAME}: {len(ids)} datasets assigned (status {resp.status_code})")
+        print(
+            f"  Collection {theme_module.THEME_NAME}: {len(ids)} datasets assigned (status {resp.status_code})"
+        )
 
 
 async def apply_theme_fixtures(
@@ -423,11 +471,17 @@ async def main_async(args: argparse.Namespace) -> int:
             if not tm.DATASETS:
                 print(f"  (no datasets registered for {tm.THEME_NAME} yet)")
                 continue
-            results = await ingest_theme(client, args.base_url, args.api_key, tm, existing, cache_dir)
+            results = await ingest_theme(
+                client, args.base_url, args.api_key, tm, existing, cache_dir
+            )
             # Summarize ingest outcomes so the operator can correlate any later
             # resolve_fixture KeyError back to a specific upstream ingest failure.
             failed_stems = [r["stem"] for r in results if r.get("status") == "failed"]
-            succeeded_stems = [r["stem"] for r in results if r.get("status") in ("succeeded", "skipped")]
+            succeeded_stems = [
+                r["stem"]
+                for r in results
+                if r.get("status") in ("succeeded", "skipped")
+            ]
             print(f"  Summary: {len(succeeded_stems)} ok, {len(failed_stems)} failed")
             if failed_stems:
                 print(f"  Failed stems: {', '.join(failed_stems)}")
@@ -436,7 +490,9 @@ async def main_async(args: argparse.Namespace) -> int:
             # Only refetch if new datasets were successfully ingested (skipped
             # entries don't change the existing catalog state).
             if any(r.get("status") == "succeeded" for r in results):
-                existing = await fetch_existing_datasets(client, args.base_url, args.api_key)
+                existing = await fetch_existing_datasets(
+                    client, args.base_url, args.api_key
+                )
             # (Previously: Theme 1 attempted to create a VRT mosaic of the
             #  two signature rasters here. Removed 2026-04-09 because GEBCO
             #  is int16 and NE shaded relief is uint8, so the VRT backend
@@ -475,7 +531,9 @@ def main() -> None:
         for i, tm in enumerate(THEMES, 1):
             print(f"  {i}. {tm.THEME_NAME} ({len(tm.DATASETS)} datasets)")
         fixtures_dir = Path(__file__).parent / "fixtures" / "maps"
-        fixture_count = len(list(fixtures_dir.glob("*.json"))) if fixtures_dir.exists() else 0
+        fixture_count = (
+            len(list(fixtures_dir.glob("*.json"))) if fixtures_dir.exists() else 0
+        )
         print(f"Fixture maps: {fixture_count}  ({fixtures_dir})")
         print("OK")
         sys.exit(0)

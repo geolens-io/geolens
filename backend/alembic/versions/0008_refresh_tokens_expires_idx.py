@@ -30,6 +30,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "DROP INDEX IF EXISTS catalog.ix_catalog_refresh_tokens_expires_at"
-    )
+    op.execute("DROP INDEX IF EXISTS catalog.ix_catalog_refresh_tokens_expires_at")

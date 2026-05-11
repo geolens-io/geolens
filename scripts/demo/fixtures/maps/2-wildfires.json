@@ -5,6 +5,7 @@
     "theme": "When the Earth Moves",
     "snapshot_date": "2025-01-01"
   },
+  "_thumbnail": "thumbnails/2-wildfires.jpg",
   "name": "Western US Wildfires 2020-2024",
   "description": "NIFC perimeters across 10 western states, 2020-2024. Color ramps from oldest (yellow) to newest (deep red).",
   "center_lng": -118.0,
@@ -23,7 +24,7 @@
       "display_name": "Fire Perimeters by Year",
       "sort_order": 0,
       "visible": true,
-      "opacity": 0.7,
+      "opacity": 0.82,
       "paint": {
         "fill-color": [
           "match",
@@ -35,9 +36,7 @@
           2024, "#b30000",
           "#888888"
         ],
-        "fill-opacity": 0.7,
-        "_outline-color": "#1a1a2e",
-        "_outline-width": 0.3
+        "fill-opacity": 0.78
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -53,7 +52,11 @@
           {"value": "2022", "label": "2022", "color": "#fc8d59"},
           {"value": "2023", "label": "2023", "color": "#e34a33"},
           {"value": "2024", "label": "2024", "color": "#b30000"}
-        ]
+        ],
+        "builder": {
+          "outlineColor": "#ffcf66",
+          "outlineWidth": 0.25
+        }
       },
       "show_in_legend": true
     }

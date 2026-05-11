@@ -38,9 +38,7 @@ ManifestSourceUri = Annotated[
             r"https?://[^\s]+|"
             r"s3://[^\s]+|gs://[^\s]+|az://[^\s]+|abfs://[^\s]+)$"
         ),
-        description=(
-            "Relative path (no `..` traversal), HTTP(S) URL, or storage URI."
-        ),
+        description=("Relative path (no `..` traversal), HTTP(S) URL, or storage URI."),
     ),
 ]
 ManifestUrl = Annotated[

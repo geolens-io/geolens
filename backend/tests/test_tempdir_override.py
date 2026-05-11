@@ -7,6 +7,7 @@ Python's stdlib tempfile to settings.upload_staging_dir, so Starlette's
 MultiPartParser SpooledTemporaryFile rollover lands on the staging
 volume instead of /tmp tmpfs (which is sized 512m on the api service).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -27,16 +28,29 @@ def _restore_tempfile_tempdir():
     original = tempfile.tempdir
     yield
     tempfile.tempdir = original
+    _unregister_prometheus_collector("http_requests_inprogress")
     # Also reset the module cache so the next test always gets a fresh import.
     sys.modules.pop("app.api.main", None)
 
 
-def test_tempdir_override_uses_staging_dir() -> None:
+def _unregister_prometheus_collector(metric_name: str) -> None:
+    """Remove reload-sensitive collectors created by app import tests."""
+    from prometheus_client import REGISTRY
+
+    for collector, names in list(REGISTRY._collector_to_names.items()):
+        if metric_name in names:
+            REGISTRY.unregister(collector)
+
+
+def test_tempdir_override_uses_staging_dir(tmp_path, monkeypatch) -> None:
     """After importing app.api.main, tempfile.gettempdir() returns settings.upload_staging_dir."""
     # Ensure a clean import — drop any cached module so the side effect re-runs.
     sys.modules.pop("app.api.main", None)
 
     from app.core.config import settings  # noqa: WPS433 — intentional late import
+
+    staging = tmp_path / "staging"
+    monkeypatch.setattr(settings, "upload_staging_dir", str(staging))
 
     importlib.import_module("app.api.main")
 
@@ -72,6 +86,23 @@ def test_tempdir_override_does_not_crash_when_dir_missing(
     assert tempfile.gettempdir() == str(missing)
 
 
+def test_tempdir_redirect_noops_when_dir_unavailable(monkeypatch) -> None:
+    """Do not point tempfile at an unavailable staging path during local collection."""
+    from app.core.runtime import staging
+
+    original = tempfile.tempdir
+
+    def raise_permission_error(*_args, **_kwargs):
+        raise PermissionError("unavailable")
+
+    monkeypatch.setattr(staging.Path, "mkdir", raise_permission_error)
+    monkeypatch.setattr(staging.Path, "is_dir", lambda _self: False)
+
+    staging.redirect_tempfile_to_staging("/app/staging")
+
+    assert tempfile.tempdir == original
+
+
 def test_tempdir_override_no_hardcoded_path() -> None:
     """The override sources its value from settings, not a hardcoded literal."""
     # Read the source so we fail loudly if a future refactor regresses to '/app/staging'.
@@ -90,6 +121,6 @@ def test_tempdir_override_no_hardcoded_path() -> None:
     # still contain '/app/staging'.)
     forbidden = 'tempfile.tempdir = "/app/staging"'
     assert forbidden not in source, (
-        "main.py contains a hardcoded tempfile.tempdir = \"/app/staging\" "
+        'main.py contains a hardcoded tempfile.tempdir = "/app/staging" '
         "assignment; route through settings.upload_staging_dir instead."
     )

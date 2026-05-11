@@ -137,7 +137,5 @@ def test_upgrade_source_contains_early_exit_branch():
     # so the implementation has freedom; just require the marker comment + one
     # of the recognized branch shapes.
     assert (
-        "DBM-13" in src
-        or "idempotency" in src.lower()
-        or "early-exit" in src.lower()
+        "DBM-13" in src or "idempotency" in src.lower() or "early-exit" in src.lower()
     )

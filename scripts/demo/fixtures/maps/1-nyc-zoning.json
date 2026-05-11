@@ -5,13 +5,14 @@
     "theme": "When the Land Speaks",
     "snapshot_date": "2026-04-01"
   },
+  "_thumbnail": "thumbnails/1-nyc-zoning.jpg",
   "name": "NYC Zoning: Manhattan in 3D",
   "description": "PLUTO landuse codes color the buildings; height_roof extrudes them. Manhattan + Brooklyn waterfront.",
-  "center_lng": -73.985,
-  "center_lat": 40.748,
-  "zoom": 14.5,
-  "bearing": -30.0,
-  "pitch": 60.0,
+  "center_lng": -73.995,
+  "center_lat": 40.735,
+  "zoom": 15.35,
+  "bearing": -36.0,
+  "pitch": 70.0,
   "basemap_style": "dark-matter",
   "show_basemap_labels": true,
   "visibility": "public",
@@ -23,24 +24,33 @@
       "display_name": "Buildings by Land Use",
       "sort_order": 0,
       "visible": true,
-      "opacity": 0.9,
+      "opacity": 0.96,
       "paint": {
         "fill-color": [
           "match",
           ["coalesce", ["to-string", ["get", "landuse"]], "0"],
-          "01", "#e74c3c",
-          "02", "#f39c12",
-          "03", "#3498db",
-          "04", "#9b59b6",
-          "05", "#16a085",
-          "06", "#2ecc71",
-          "07", "#f1c40f",
-          "#7f8c8d"
+          "01", "#ff5a5f",
+          "02", "#ffb000",
+          "03", "#00c2ff",
+          "04", "#b06cff",
+          "05", "#35d07f",
+          "06", "#9bd64a",
+          "07", "#ffd84d",
+          "#5d6675"
         ],
-        "fill-opacity": 0.92,
-        "_outline-color": "#0f0f1a",
-        "_outline-width": 0.2,
-        "_height_column": "height"
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          13,
+          0.4,
+          15,
+          0.78,
+          16,
+          0.92
+        ],
+        "fill-antialias": true,
+        "fill-outline-color": "rgba(0,0,0,0)"
       },
       "layout": {},
       "layer_type": "vector_geolens",
@@ -51,14 +61,22 @@
         "column": "landuse",
         "target": "color",
         "categories": [
-          {"value": "01", "label": "Residential", "color": "#e74c3c"},
-          {"value": "02", "label": "Mixed Residential/Commercial", "color": "#f39c12"},
-          {"value": "03", "label": "Commercial/Office", "color": "#3498db"},
-          {"value": "04", "label": "Public Facilities", "color": "#9b59b6"},
-          {"value": "05", "label": "Open Space", "color": "#16a085"},
-          {"value": "06", "label": "Industrial", "color": "#2ecc71"},
-          {"value": "07", "label": "Transportation", "color": "#f1c40f"}
-        ]
+          {"value": "01", "label": "Residential", "color": "#ff5a5f"},
+          {"value": "02", "label": "Mixed Residential/Commercial", "color": "#ffb000"},
+          {"value": "03", "label": "Commercial/Office", "color": "#00c2ff"},
+          {"value": "04", "label": "Public Facilities", "color": "#b06cff"},
+          {"value": "05", "label": "Open Space", "color": "#35d07f"},
+          {"value": "06", "label": "Industrial", "color": "#9bd64a"},
+          {"value": "07", "label": "Transportation", "color": "#ffd84d"}
+        ],
+        "builder": {
+          "heightColumn": "height",
+          "heightScale": 1.8,
+          "extrusionMinZoom": 13.2,
+          "extrusionOpacity": 0.96,
+          "outlineColor": "#07111f",
+          "outlineWidth": 0.28
+        }
       },
       "show_in_legend": true
     }

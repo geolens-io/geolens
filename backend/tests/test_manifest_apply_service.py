@@ -173,9 +173,7 @@ class TestManifestApplyHelpers:
             # both manifest as ValidationError.
             err = str(exc_info.value)
             assert (
-                "`..`" in err
-                or ".." in err
-                or "String should match pattern" in err
+                "`..`" in err or ".." in err or "String should match pattern" in err
             ), f"unexpected error for {unsafe!r}: {err}"
 
     @pytest.mark.anyio

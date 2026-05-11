@@ -218,7 +218,9 @@ def dataset_to_ogc_record(
     if spatial_extent_geojson is not None:
         try:
             geometry = json.loads(spatial_extent_geojson)
-        except Exception:  # broad: GeoJSON string from DB may be malformed; degrade to None geometry
+        except (
+            Exception
+        ):  # broad: GeoJSON string from DB may be malformed; degrade to None geometry
             logger.warning(
                 "ogc_geometry_geojson_parse_failed",
                 extra={"record_id": str(record.id)},

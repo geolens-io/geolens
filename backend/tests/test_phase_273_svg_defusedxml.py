@@ -98,9 +98,7 @@ def test_png_unchanged_by_svg_path():
     """PNG content is returned bytewise-unchanged; the SVG re-serialization
     branch does not run."""
     png = _png_bytes()
-    slug, media_type, sanitized = validate_icon_upload(
-        "dot.png", "image/png", png
-    )
+    slug, media_type, sanitized = validate_icon_upload("dot.png", "image/png", png)
     assert media_type == "image/png"
     # PNG path returns content unchanged
     assert sanitized == png

@@ -1,4 +1,5 @@
 import uuid
+import tempfile
 
 import pytest
 import sqlalchemy
@@ -286,6 +287,10 @@ async def client(tmp_path):
     settings.upload_staging_dir = str(tmp_path / "staging")
     staging_dir = tmp_path / "staging"
     staging_dir.mkdir(parents=True, exist_ok=True)
+    original_tempdir = tempfile.tempdir
+    from app.core.runtime.staging import redirect_tempfile_to_staging
+
+    redirect_tempfile_to_staging(staging_dir)
 
     test_engine = create_async_engine(
         settings.test_database_url,
@@ -349,6 +354,7 @@ async def client(tmp_path):
     health_service_module.engine = original_health_engine
     storage_provider_module._storage = original_storage
     settings.upload_staging_dir = original_upload_staging_dir
+    tempfile.tempdir = original_tempdir
     await test_engine.dispose()
 
 

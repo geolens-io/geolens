@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const lineAdapter: LayerAdapter = {
@@ -13,7 +13,7 @@ export const lineAdapter: LayerAdapter = {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
       // line-dasharray is stored in layout JSON but is a MapLibre paint property
       const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
-      const linePaint = stripCustomProps(basePaint);
+      const linePaint = filterPaintForLayerType(basePaint, 'line');
       // line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
       // valid scalar fallback. simplifyPaint flattens arrays to scalar fallbacks (e.g.
       // `interpolate`'s value[4] color stop), which produces a plain string that MapLibre
@@ -50,7 +50,7 @@ export const lineAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
-    syncVectorPaint(map, layerId, rawPaint);
+    syncVectorPaint(map, layerId, rawPaint, 'line');
     map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
     const dasharray = input.layout?.['line-dasharray'];
     if (map.getLayer(layerId)) {

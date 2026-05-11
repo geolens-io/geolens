@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { DraggableAttributes, SyntheticListenerMap } from '@dnd-kit/core';
+import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import {
   ArrowDown,
   ArrowUp,
@@ -45,7 +45,7 @@ import type { MapLayerResponse } from '@/types/api';
 
 interface DragHandleProps {
   attributes: DraggableAttributes;
-  listeners?: SyntheticListenerMap;
+  listeners?: DraggableSyntheticListeners;
   setActivatorNodeRef?: (node: HTMLButtonElement | null) => void;
 }
 
@@ -315,11 +315,11 @@ export const MapStackItem = memo(function MapStackItem({
           <button
             ref={dragHandleProps.setActivatorNodeRef}
             type="button"
+            {...dragHandleProps.attributes}
+            {...dragHandleProps.listeners}
             className="flex h-7 w-6 cursor-grab items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
             aria-label={t('layerItem.dragToReorder')}
             aria-roledescription={t('layerItem.sortableLayer')}
-            {...dragHandleProps.attributes}
-            {...dragHandleProps.listeners}
           >
             <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
           </button>

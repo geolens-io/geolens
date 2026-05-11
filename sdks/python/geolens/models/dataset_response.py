@@ -75,6 +75,8 @@ class DatasetResponse:
         stac_assets (DatasetResponseStacAssetsType0 | None | Unset): STAC-style asset dictionary
         stac_extensions (list[str] | None | Unset):
         theme_category (list[str] | None | Unset): ISO topic category codes
+        tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null uses zoom defaults, []
+            emits geometry-only tiles, list emits those properties at any zoom.
         update_frequency (None | str | Unset): ISO maintenance frequency code
         updated_by (None | Unset | UUID):
         usage_constraints (None | str | Unset):
@@ -125,6 +127,7 @@ class DatasetResponse:
     stac_assets: DatasetResponseStacAssetsType0 | None | Unset = UNSET
     stac_extensions: list[str] | None | Unset = UNSET
     theme_category: list[str] | None | Unset = UNSET
+    tile_columns: list[str] | None | Unset = UNSET
     update_frequency: None | str | Unset = UNSET
     updated_by: None | Unset | UUID = UNSET
     usage_constraints: None | str | Unset = UNSET
@@ -379,6 +382,15 @@ class DatasetResponse:
         else:
             theme_category = self.theme_category
 
+        tile_columns: list[str] | None | Unset
+        if isinstance(self.tile_columns, Unset):
+            tile_columns = UNSET
+        elif isinstance(self.tile_columns, list):
+            tile_columns = self.tile_columns
+
+        else:
+            tile_columns = self.tile_columns
+
         update_frequency: None | str | Unset
         if isinstance(self.update_frequency, Unset):
             update_frequency = UNSET
@@ -491,6 +503,8 @@ class DatasetResponse:
             field_dict["stac_extensions"] = stac_extensions
         if theme_category is not UNSET:
             field_dict["theme_category"] = theme_category
+        if tile_columns is not UNSET:
+            field_dict["tile_columns"] = tile_columns
         if update_frequency is not UNSET:
             field_dict["update_frequency"] = update_frequency
         if updated_by is not UNSET:
@@ -947,6 +961,23 @@ class DatasetResponse:
 
         theme_category = _parse_theme_category(d.pop("theme_category", UNSET))
 
+        def _parse_tile_columns(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                tile_columns_type_0 = cast(list[str], data)
+
+                return tile_columns_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        tile_columns = _parse_tile_columns(d.pop("tile_columns", UNSET))
+
         def _parse_update_frequency(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -1044,6 +1075,7 @@ class DatasetResponse:
             stac_assets=stac_assets,
             stac_extensions=stac_extensions,
             theme_category=theme_category,
+            tile_columns=tile_columns,
             update_frequency=update_frequency,
             updated_by=updated_by,
             usage_constraints=usage_constraints,

@@ -95,4 +95,33 @@ describe('normalizeStyleConfig', () => {
     expect(config?.breaks).toEqual([10]);
     expect(config?.builder).toEqual({ outlineColor: '#111111', outlineWidth: 2 });
   });
+
+  it('canonicalizes legacy snake_case builder keys before map rendering', () => {
+    const config = normalizeStyleConfig(
+      {
+        mode: 'categorical',
+        column: 'fire_year',
+        ramp: 'Custom',
+        builder: {
+          outline_color: '#ffcf66',
+          outline_width: 0.25,
+          height_column: 'height_m',
+          height_scale: 1.8,
+          extrusion_min_zoom: 12.5,
+          extrusion_opacity: 0.92,
+        },
+      },
+      { 'fill-color': '#b30000' },
+      'Polygon',
+    );
+
+    expect(config?.builder).toEqual({
+      outlineColor: '#ffcf66',
+      outlineWidth: 0.25,
+      heightColumn: 'height_m',
+      heightScale: 1.8,
+      extrusionMinZoom: 12.5,
+      extrusionOpacity: 0.92,
+    });
+  });
 });

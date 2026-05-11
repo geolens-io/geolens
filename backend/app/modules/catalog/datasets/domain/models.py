@@ -88,9 +88,7 @@ class Record(Base):
         ),
         Index(
             "ix_records_summary_trgm",
-            text(
-                "lower(catalog.immutable_unaccent(coalesce(summary, '')))"
-            ),
+            text("lower(catalog.immutable_unaccent(coalesce(summary, '')))"),
             postgresql_using="gin",
             postgresql_ops={
                 "lower(catalog.immutable_unaccent(coalesce(summary, '')))": "gin_trgm_ops"

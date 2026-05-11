@@ -71,18 +71,14 @@ def test_readme_python_badge_widened() -> None:
     body = _read("README.md")
     # Allow either underscore-encoded badge URL or human-readable label
     assert (
-        ("3.13_backend" in body)
-        or ("3.13 backend" in body)
-        or ("backend 3.13" in body)
+        ("3.13_backend" in body) or ("3.13 backend" in body) or ("backend 3.13" in body)
     ), "README.md Python badge should reflect backend 3.13 / SDK 3.10+ split"
 
 
 def test_code_of_conduct_has_inline_pledge() -> None:
     """API-09 / L-24: CODE_OF_CONDUCT.md gains a pledge above the link."""
     body = _read("CODE_OF_CONDUCT.md")
-    assert "## Our Pledge" in body, (
-        "CODE_OF_CONDUCT.md missing '## Our Pledge' section"
-    )
+    assert "## Our Pledge" in body, "CODE_OF_CONDUCT.md missing '## Our Pledge' section"
     assert re.search(r"[Ww]e pledge", body), (
         "CODE_OF_CONDUCT.md '## Our Pledge' lacks the pledge sentence"
     )

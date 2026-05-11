@@ -429,6 +429,7 @@ async def regenerate_vrt(
     vrt_id = uuid.UUID(vrt_dataset_id)
     tmp_dir: str | None = None
     generation_id: uuid.UUID | None = None
+    vrt_asset_snapshot = None
 
     try:
         # ----------------------------------------------------------------- #
@@ -461,6 +462,7 @@ async def regenerate_vrt(
             vrt_asset_row = asset_result.scalar_one_or_none()
             if vrt_asset_row is None:
                 raise ValueError(f"VRT dataset {vrt_dataset_id} not found")
+            vrt_asset_snapshot = vrt_asset_row
 
             # 3. Load vrt_source_links ordered by position
             links_result = await session.execute(
@@ -611,6 +613,12 @@ async def regenerate_vrt(
                 vrt_asset.status = "ready"
                 vrt_asset.last_regenerated_at = datetime.now(timezone.utc)
                 vrt_asset.current_generation_id = None
+                if vrt_asset_snapshot is not None:
+                    vrt_asset_snapshot.status = vrt_asset.status
+                    vrt_asset_snapshot.last_regenerated_at = (
+                        vrt_asset.last_regenerated_at
+                    )
+                    vrt_asset_snapshot.current_generation_id = None
 
                 # 12b. Update generation record
                 generation.status = "completed"
@@ -654,6 +662,9 @@ async def regenerate_vrt(
             job_id=job_id,
             task="regenerate_vrt",
         )
+        if vrt_asset_snapshot is not None:
+            vrt_asset_snapshot.status = "failed"
+            vrt_asset_snapshot.current_generation_id = None
         # Failure handler runs via a fresh session: mark vrt asset failed,
         # mark generation failed, mark job failed.
         async with async_session() as err_session:

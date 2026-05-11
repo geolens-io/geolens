@@ -14,11 +14,14 @@ Object.defineProperty(window, 'location', {
 });
 
 function createMockMap() {
+  const layerIds = new Set<string>();
   return {
     getSource: vi.fn(() => null),
     addSource: vi.fn(),
-    addLayer: vi.fn(),
-    getLayer: vi.fn(() => null),
+    addLayer: vi.fn((layer: { id: string }) => {
+      layerIds.add(layer.id);
+    }),
+    getLayer: vi.fn((id: string) => layerIds.has(id) ? { id } : null),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     getPaintProperty: vi.fn(),

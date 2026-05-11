@@ -136,6 +136,16 @@ def _apply_simple_field_assignments(
     return mutated
 
 
+def _apply_tile_columns(dataset: Dataset, meta: "DatasetMeta") -> bool:
+    """Persist the vector-tile attribute allowlist, including explicit null clears."""
+    if "tile_columns" not in meta.model_fields_set:
+        return False
+    if dataset.tile_columns == meta.tile_columns:
+        return False
+    dataset.tile_columns = meta.tile_columns
+    return True
+
+
 async def _apply_visibility_change(
     session: AsyncSession,
     record: Any,
@@ -216,7 +226,9 @@ async def _maybe_defer_embedding(record_id: uuid.UUID, dataset_id: uuid.UUID) ->
     """Best-effort defer of embedding regeneration. Failures are logged, not raised."""
     try:
         await get_catalog_port().defer_embed_record(record_id)
-    except Exception:  # broad: defer is non-fatal — embedding will catch up on next edit or backfill
+    except (
+        Exception
+    ):  # broad: defer is non-fatal; embedding will catch up on next edit or backfill
         # Non-fatal -- embedding will catch up on next edit or backfill.
         # Log with traceback so operators can notice if this fails consistently
         # (e.g., broker down) instead of silently dropping edits from the index.
@@ -251,7 +263,10 @@ async def update_user_metadata(
 
     record = dataset.record
 
-    mutated_flags = [_apply_simple_field_assignments(record, dataset, meta)]
+    mutated_flags = [
+        _apply_simple_field_assignments(record, dataset, meta),
+        _apply_tile_columns(dataset, meta),
+    ]
 
     if meta.visibility is not None:
         mutated_flags.append(

@@ -212,6 +212,7 @@ function makeDataset(): DatasetResponse {
     source_url: 'https://example.test/world-countries',
     quality_statement: 'Validated against source metadata.',
     collections: [],
+    tile_columns: null,
     quality_detail: {
       overall: 96,
       metadata_completeness: 95,

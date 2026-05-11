@@ -37,6 +37,8 @@ class DatasetMeta:
         source_url (None | str | Unset): URL the data was originally fetched from
         summary (None | str | Unset):
         theme_category (list[str] | None | Unset): ISO topic category codes
+        tile_columns (list[str] | None | Unset): Ordered vector-tile property allowlist; null restores zoom defaults, []
+            emits geometry-only tiles, list emits those properties at any zoom.
         title (None | str | Unset):
         update_frequency (None | str | Unset): ISO maintenance frequency code
         usage_constraints (None | str | Unset):
@@ -58,6 +60,7 @@ class DatasetMeta:
     source_url: None | str | Unset = UNSET
     summary: None | str | Unset = UNSET
     theme_category: list[str] | None | Unset = UNSET
+    tile_columns: list[str] | None | Unset = UNSET
     title: None | str | Unset = UNSET
     update_frequency: None | str | Unset = UNSET
     usage_constraints: None | str | Unset = UNSET
@@ -162,6 +165,15 @@ class DatasetMeta:
         else:
             theme_category = self.theme_category
 
+        tile_columns: list[str] | None | Unset
+        if isinstance(self.tile_columns, Unset):
+            tile_columns = UNSET
+        elif isinstance(self.tile_columns, list):
+            tile_columns = self.tile_columns
+
+        else:
+            tile_columns = self.tile_columns
+
         title: None | str | Unset
         if isinstance(self.title, Unset):
             title = UNSET
@@ -221,6 +233,8 @@ class DatasetMeta:
             field_dict["summary"] = summary
         if theme_category is not UNSET:
             field_dict["theme_category"] = theme_category
+        if tile_columns is not UNSET:
+            field_dict["tile_columns"] = tile_columns
         if title is not UNSET:
             field_dict["title"] = title
         if update_frequency is not UNSET:
@@ -403,6 +417,23 @@ class DatasetMeta:
 
         theme_category = _parse_theme_category(d.pop("theme_category", UNSET))
 
+        def _parse_tile_columns(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                tile_columns_type_0 = cast(list[str], data)
+
+                return tile_columns_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        tile_columns = _parse_tile_columns(d.pop("tile_columns", UNSET))
+
         def _parse_title(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -465,6 +496,7 @@ class DatasetMeta:
             source_url=source_url,
             summary=summary,
             theme_category=theme_category,
+            tile_columns=tile_columns,
             title=title,
             update_frequency=update_frequency,
             usage_constraints=usage_constraints,

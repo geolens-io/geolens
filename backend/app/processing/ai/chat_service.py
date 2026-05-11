@@ -80,7 +80,9 @@ from app.processing.ai.schemas import (
     ChatResponse,
     history_to_dicts,
 )
-from app.processing.ai.sql_generator import generate_sql  # re-exported (test patch target)
+from app.processing.ai.sql_generator import (
+    generate_sql,
+)  # re-exported (test patch target)
 from app.processing.ai.token_usage import record_token_usage
 from app.processing.ai.tools import CHAT_TOOLS_ANTHROPIC
 

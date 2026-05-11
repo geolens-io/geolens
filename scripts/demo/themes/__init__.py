@@ -40,3 +40,4 @@ class ThemeDataset(TypedDict, total=False):
     summary: str
     snapshot_date: str
     license: str
+    tile_columns: list[str] | None

@@ -869,8 +869,7 @@ def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
             "their LOC cap. Either decompose the module (preferred — split "
             "into a facade + cohesive sub-modules per Phase 226 / Phase 238 "
             "patterns) or, if growth is intentional, raise the explicit "
-            "allowlist entry with a code review.\n"
-            + "\n".join(violations)
+            "allowlist entry with a code review.\n" + "\n".join(violations)
         )
 
 
@@ -1187,7 +1186,8 @@ def test_no_catalog_imports_processing() -> None:
         offending = [
             line
             for line in result.stdout.splitlines()
-            if (parts := line.split(":", 2)) and len(parts) == 3
+            if (parts := line.split(":", 2))
+            and len(parts) == 3
             and not parts[2].lstrip().startswith("#")
         ]
         if offending:

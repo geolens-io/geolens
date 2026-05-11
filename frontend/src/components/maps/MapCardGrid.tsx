@@ -19,7 +19,7 @@ import { VisibilityIcon } from './VisibilityIcon';
 export const MapCardGrid = memo(function MapCardGrid({ map, onDelete }: MapCardProps) {
   const { t } = useTranslation();
   const [imgError, setImgError] = useState(false);
-  const thumbnailSrc = useMapThumbnail(map.thumbnail_url);
+  const thumbnailSrc = useMapThumbnail(map.thumbnail_url, map.updated_at);
 
   return (
     <Card className="flex flex-col overflow-hidden hover:shadow-md hover:border-primary/20 hover:bg-accent/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out">

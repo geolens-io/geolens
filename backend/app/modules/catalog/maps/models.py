@@ -42,9 +42,7 @@ class Map(Base):
             "ix_maps_description_trgm",
             text("lower(coalesce(description, ''))"),
             postgresql_using="gin",
-            postgresql_ops={
-                "lower(coalesce(description, ''))": "gin_trgm_ops"
-            },
+            postgresql_ops={"lower(coalesce(description, ''))": "gin_trgm_ops"},
         ),
         # DBM-06 (Phase 271): Map.visibility composite index intentionally
         # NOT created. The RBAC list-public-maps query uses

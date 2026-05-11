@@ -48,6 +48,7 @@ import sys
 import zipfile
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import httpx
@@ -55,6 +56,7 @@ import httpx
 OUT_DIR = Path(__file__).parent / "raw" / "external"
 USER_AGENT = "GeoLens-Demo-Seeder/1.0"
 HTTP_TIMEOUT = 600.0  # large for DEM tile fetches and NIFC pagination
+PLUTO_BBL_BATCH_SIZE = 250
 
 logger = logging.getLogger("fetch-external")
 
@@ -62,6 +64,7 @@ logger = logging.getLogger("fetch-external")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def already_present(path: Path, min_bytes: int = 1024) -> bool:
     """Idempotency check matching run-seeder.sh's existing convention.
@@ -112,9 +115,62 @@ def atomic_gdal_output(cmd: list[str], output_path: Path) -> None:
         raise
 
 
+def _normalize_decimal_text(raw: object) -> str:
+    """Normalize Socrata decimal-ish identifiers without losing integer identity."""
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    try:
+        value = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return text
+    if value == value.to_integral_value():
+        return str(int(value))
+    return format(value.normalize(), "f").rstrip("0").rstrip(".")
+
+
+def _normalize_bbl_key(raw: object) -> str:
+    """Return the canonical BBL join key used by Buildings and tabular PLUTO."""
+    return _normalize_decimal_text(raw)
+
+
+def _normalize_landuse(raw: object) -> str | None:
+    """Normalize PLUTO landuse codes to the two-character style domain."""
+    text = _normalize_decimal_text(raw)
+    if not text:
+        return None
+    return text.zfill(2) if text.isdigit() and len(text) < 2 else text
+
+
+def _nyc_pluto_geojson_has_landuse(path: Path) -> bool:
+    """Return True when a cached NYC fixture has at least one styled landuse code."""
+    if not already_present(path):
+        return False
+    try:
+        fc = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    features = fc.get("features")
+    if not isinstance(features, list) or not features:
+        return False
+    return any(
+        (feat.get("properties") or {}).get("landuse") not in (None, "")
+        for feat in features
+        if isinstance(feat, dict)
+    )
+
+
+def _chunked(values: list[str], size: int) -> list[list[str]]:
+    """Split values into fixed-size batches for Socrata URL-length safety."""
+    return [values[i : i + size] for i in range(0, len(values), size)]
+
+
 # ---------------------------------------------------------------------------
 # 1. Grand Canyon DEM + hillshade (USGS 3DEP)
 # ---------------------------------------------------------------------------
+
 
 async def fetch_grand_canyon_dem(client: httpx.AsyncClient) -> None:
     """Crop the 1/3 arc-second 3DEP VRT to the Grand Canyon AOI, then derive
@@ -141,32 +197,50 @@ async def fetch_grand_canyon_dem(client: httpx.AsyncClient) -> None:
     # gdal_translate -projwin requires bounds in (ulx, uly, lrx, lry) order
     # = (west, north, east, south). For the Grand Canyon AOI:
     #   west=-113.0, north=37.0, east=-111.5, south=36.0
-    atomic_gdal_output([
-        "gdal_translate",
-        "-of", "COG",
-        "-co", "COMPRESS=DEFLATE",
-        "-projwin", "-113.0", "37.0", "-111.5", "36.0",
-        vrt,
-        str(out_dem),
-    ], out_dem)
+    atomic_gdal_output(
+        [
+            "gdal_translate",
+            "-of",
+            "COG",
+            "-co",
+            "COMPRESS=DEFLATE",
+            "-projwin",
+            "-113.0",
+            "37.0",
+            "-111.5",
+            "36.0",
+            vrt,
+            str(out_dem),
+        ],
+        out_dem,
+    )
     # Multidirectional hillshade. -s 111120 converts degree units to meters at
     # the equator (roughly correct at 36N). -z 1.5 exaggerates relief for
     # visual punch.
-    atomic_gdal_output([
-        "gdaldem", "hillshade",
-        "-z", "1.5",
-        "-s", "111120",
-        "-multidirectional",
-        "-of", "COG",
-        "-co", "COMPRESS=DEFLATE",
-        str(out_dem),
-        str(out_hs),
-    ], out_hs)
+    atomic_gdal_output(
+        [
+            "gdaldem",
+            "hillshade",
+            "-z",
+            "1.5",
+            "-s",
+            "111120",
+            "-multidirectional",
+            "-of",
+            "COG",
+            "-co",
+            "COMPRESS=DEFLATE",
+            str(out_dem),
+            str(out_hs),
+        ],
+        out_hs,
+    )
 
 
 # ---------------------------------------------------------------------------
 # 2. NYC PLUTO zoning (Building Footprints + tabular PLUTO join)
 # ---------------------------------------------------------------------------
+
 
 async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
     """Pull NYC Building Footprints (5zhs-2jue) and tabular PLUTO (64uk-42ks)
@@ -182,9 +256,13 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
     output dir but are gitignored.
     """
     out_final = OUT_DIR / "nyc_pluto_zoning.geojson"
-    if already_present(out_final):
+    if _nyc_pluto_geojson_has_landuse(out_final):
         logger.info("nyc_pluto_zoning.geojson already present, skipping")
         return
+    if already_present(out_final):
+        logger.warning(
+            "nyc_pluto_zoning.geojson exists but has no landuse values; refreshing"
+        )
 
     out_buildings = OUT_DIR / "nyc_buildings.geojson"
     out_pluto = OUT_DIR / "nyc_pluto_tabular.json"
@@ -203,46 +281,91 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
     atomic_write_text(out_buildings, json.dumps(buildings_fc))
     logger.info("  %d buildings", len(buildings_fc.get("features", [])))
 
-    # 2) Tabular PLUTO — Manhattan (MN) + Brooklyn (BK) only.
-    pluto_url = (
-        "https://data.cityofnewyork.us/resource/64uk-42ks.json"
-        "?$select=bbl,landuse,zonedist1,numfloors"
-        "&$where=borough%20IN%20('MN','BK')"
-        "&$limit=50000"
+    # 2) Tabular PLUTO — exact BBLs from the building feed. A broad borough
+    # query has 300k+ rows and Socrata's 50k page silently missed most demo
+    # buildings. Batching the actual BBL set keeps the join complete and avoids
+    # shipping null landuse values when upstream ordering changes.
+    building_bbl_set: set[str] = set()
+    for feat in buildings_fc.get("features", []):
+        props = feat.get("properties", {})
+        bbl_key = _normalize_bbl_key(props.get("mappluto_bbl") or props.get("bbl"))
+        if bbl_key and bbl_key.isdigit():
+            building_bbl_set.add(bbl_key)
+    building_bbls = sorted(building_bbl_set)
+    if not building_bbls:
+        raise RuntimeError("NYC building feed returned no usable mappluto_bbl values")
+
+    pluto_rows = []
+    pluto_base_url = "https://data.cityofnewyork.us/resource/64uk-42ks.json"
+    batches = _chunked(building_bbls, PLUTO_BBL_BATCH_SIZE)
+    logger.info(
+        "Fetching tabular PLUTO for %d unique building BBLs (%d batches)...",
+        len(building_bbls),
+        len(batches),
     )
-    logger.info("Fetching tabular PLUTO (MN+BK)...")
-    r = await client.get(pluto_url, timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-    pluto_rows = r.json()
+    for idx, batch in enumerate(batches, start=1):
+        if idx == 1 or idx % 25 == 0 or idx == len(batches):
+            logger.info("  PLUTO batch %d/%d", idx, len(batches))
+        where = "bbl in(" + ",".join(f"'{bbl}'" for bbl in batch) + ")"
+        r = await client.get(
+            pluto_base_url,
+            params={
+                "$select": "bbl,landuse,zonedist1,numfloors",
+                "$where": where,
+                "$limit": str(len(batch)),
+            },
+            timeout=HTTP_TIMEOUT,
+        )
+        r.raise_for_status()
+        pluto_rows.extend(r.json())
     atomic_write_text(out_pluto, json.dumps(pluto_rows))
     logger.info("  %d PLUTO rows", len(pluto_rows))
 
     # 3) Join in Python. mappluto_bbl is on the building feature properties;
-    # bbl is the primary key in tabular PLUTO. Both arrive as strings.
+    # bbl is the primary key in tabular PLUTO. Socrata currently serializes
+    # PLUTO BBLs as decimal strings like "1022150610.00000000", while the
+    # building feed uses "1022150610"; normalize before dict lookup.
     pluto_by_bbl: dict[str, dict] = {}
     for row in pluto_rows:
-        bbl = row.get("bbl")
+        bbl = _normalize_bbl_key(row.get("bbl"))
         if not bbl:
             continue
-        pluto_by_bbl[str(bbl)] = {
-            "landuse": row.get("landuse"),
+        pluto_by_bbl[bbl] = {
+            "landuse": _normalize_landuse(row.get("landuse")),
             "zonedist1": row.get("zonedist1"),
             "numfloors": row.get("numfloors"),
         }
+    if pluto_rows:
+        sample = pluto_rows[0]
+        logger.info(
+            "  PLUTO sample bbl=%r normalized=%s landuse=%r normalized=%s",
+            sample.get("bbl"),
+            _normalize_bbl_key(sample.get("bbl")),
+            sample.get("landuse"),
+            _normalize_landuse(sample.get("landuse")),
+        )
 
     # height_roof on the buildings feed is in feet (per NYC Open Data
     # documentation). Convert to meters for fill-extrusion-height. Some
     # records have null/missing height_roof — leave height as None and let
     # the paint expression use 0 fallback.
     joined_features = []
+    matched_pluto = 0
+    landuse_non_null = 0
     for feat in buildings_fc.get("features", []):
         props = feat.setdefault("properties", {})
         bbl_raw = props.get("mappluto_bbl") or props.get("bbl")
-        bbl_key = str(bbl_raw) if bbl_raw is not None else ""
-        joined = pluto_by_bbl.get(bbl_key, {})
+        bbl_key = _normalize_bbl_key(bbl_raw)
+        joined = pluto_by_bbl.get(bbl_key)
+        if joined is None:
+            joined = {}
+        else:
+            matched_pluto += 1
         props["landuse"] = joined.get("landuse")
         props["zonedist1"] = joined.get("zonedist1")
         props["numfloors"] = joined.get("numfloors")
+        if props["landuse"] is not None:
+            landuse_non_null += 1
 
         height_roof = props.get("height_roof")
         try:
@@ -254,6 +377,24 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
 
         joined_features.append(feat)
 
+    logger.info(
+        "  PLUTO join matched %d/%d buildings; landuse non-null %d/%d",
+        matched_pluto,
+        len(joined_features),
+        landuse_non_null,
+        len(joined_features),
+    )
+    if joined_features and matched_pluto == 0:
+        raise RuntimeError(
+            "NYC PLUTO join matched 0 building BBLs. Check Socrata BBL formats "
+            "or PLUTO filter fields before shipping demo data."
+        )
+    if joined_features and landuse_non_null == 0:
+        raise RuntimeError(
+            "NYC PLUTO join produced 0 non-null landuse values. The zoning demo "
+            "would render as catch-all gray; aborting."
+        )
+
     out_fc = {"type": "FeatureCollection", "features": joined_features}
     atomic_write_text(out_final, json.dumps(out_fc))
     logger.info("Wrote %s with %d features", out_final.name, len(joined_features))
@@ -262,6 +403,7 @@ async def fetch_nyc_pluto_zoning(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 # 3. 4-state population density tracts (TIGER + ACS)
 # ---------------------------------------------------------------------------
+
 
 async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
     """Combine TIGER cb_2024_us_tract_500k for CA+TX+NY+FL with ACS 2023
@@ -282,8 +424,7 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
     out_zip = OUT_DIR / "cb_2024_us_tract_500k.zip"
     if not already_present(out_zip):
         zip_url = (
-            "https://www2.census.gov/geo/tiger/GENZ2024/shp/"
-            "cb_2024_us_tract_500k.zip"
+            "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_tract_500k.zip"
         )
         logger.info("Downloading TIGER cb_2024_us_tract_500k.zip (~58 MB)...")
         zip_tmp = out_zip.with_suffix(".zip.partial")
@@ -300,16 +441,24 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
     if not already_present(out_tracts):
         vsizip_path = f"/vsizip/{out_zip}"
         try:
-            atomic_gdal_output([
-                "ogr2ogr",
-                "-f", "GeoJSON",
-                "-where", "STATEFP IN ('06','48','36','12')",
-                "-t_srs", "EPSG:4326",
-                str(out_tracts),
-                vsizip_path,
-            ], out_tracts)
+            atomic_gdal_output(
+                [
+                    "ogr2ogr",
+                    "-f",
+                    "GeoJSON",
+                    "-where",
+                    "STATEFP IN ('06','48','36','12')",
+                    "-t_srs",
+                    "EPSG:4326",
+                    str(out_tracts),
+                    vsizip_path,
+                ],
+                out_tracts,
+            )
         except subprocess.CalledProcessError:
-            logger.warning("ogr2ogr against /vsizip failed, falling back to extract+run")
+            logger.warning(
+                "ogr2ogr against /vsizip failed, falling back to extract+run"
+            )
             extract_dir = OUT_DIR / "cb_2024_us_tract_500k_extracted"
             extract_dir.mkdir(exist_ok=True)
             with zipfile.ZipFile(out_zip) as zf:
@@ -319,14 +468,20 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
                 raise RuntimeError(
                     f"No .shp file found in {extract_dir} after extraction"
                 )
-            atomic_gdal_output([
-                "ogr2ogr",
-                "-f", "GeoJSON",
-                "-where", "STATEFP IN ('06','48','36','12')",
-                "-t_srs", "EPSG:4326",
-                str(out_tracts),
-                str(shp_files[0]),
-            ], out_tracts)
+            atomic_gdal_output(
+                [
+                    "ogr2ogr",
+                    "-f",
+                    "GeoJSON",
+                    "-where",
+                    "STATEFP IN ('06','48','36','12')",
+                    "-t_srs",
+                    "EPSG:4326",
+                    str(out_tracts),
+                    str(shp_files[0]),
+                ],
+                out_tracts,
+            )
 
     # 3) Pull ACS rows for the 4 states.
     acs_url = (
@@ -396,13 +551,16 @@ async def fetch_pop_density_tracts(client: httpx.AsyncClient) -> None:
     atomic_write_text(out_final, json.dumps(tracts_fc))
     logger.info(
         "Wrote %s with %d features (%d with computed density)",
-        out_final.name, len(tracts_fc.get("features", [])), n_with_pop,
+        out_final.name,
+        len(tracts_fc.get("features", [])),
+        n_with_pop,
     )
 
 
 # ---------------------------------------------------------------------------
 # 4. USGS earthquakes M5+ (5-year window, hardcoded for stability)
 # ---------------------------------------------------------------------------
+
 
 async def fetch_usgs_quakes(client: httpx.AsyncClient) -> None:
     """Single-shot pull of the FDSN earthquake catalog. ~9000 features for
@@ -442,6 +600,7 @@ async def fetch_usgs_quakes(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 # 5. NIFC WFIGS Interagency Perimeters (2020-2024, 10 western states)
 # ---------------------------------------------------------------------------
+
 
 async def fetch_nifc_fires(client: httpx.AsyncClient) -> None:
     """Paginated pull from WFIGS_Interagency_Perimeters (NOT _Current — that
@@ -492,7 +651,12 @@ async def fetch_nifc_fires(client: httpx.AsyncClient) -> None:
                 r.raise_for_status()
                 fc = r.json()
                 break
-            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout, httpx.ConnectError) as exc:
+            except (
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+                httpx.ReadTimeout,
+                httpx.ConnectError,
+            ) as exc:
                 attempt += 1
                 if attempt >= max_attempts:
                     raise

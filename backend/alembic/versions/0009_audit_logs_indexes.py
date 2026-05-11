@@ -44,9 +44,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "DROP INDEX IF EXISTS catalog.ix_catalog_audit_logs_resource_id"
-    )
+    op.execute("DROP INDEX IF EXISTS catalog.ix_catalog_audit_logs_resource_id")
     op.execute(
         "DROP INDEX IF EXISTS catalog.ix_catalog_audit_logs_created_action_resource"
     )

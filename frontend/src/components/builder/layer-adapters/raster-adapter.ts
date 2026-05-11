@@ -16,6 +16,12 @@ type RasterPaintProperty = keyof typeof RASTER_PAINT_DEFAULTS;
 
 const RASTER_PAINT_PROPERTIES = Object.keys(RASTER_PAINT_DEFAULTS) as RasterPaintProperty[];
 
+function normalizeRasterBounds(bounds: number[] | null | undefined) {
+  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
+  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
+  return [bounds[0], bounds[1], bounds[2], bounds[3]] as [number, number, number, number];
+}
+
 function buildRasterPaint(input: AdapterLayerInput): Record<string, number | string> {
   return {
     ...getSupportedRasterPaint(input.paint),
@@ -51,7 +57,7 @@ export const rasterAdapter: LayerAdapter = {
   type: 'raster',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible } = input;
+    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
     if (map.getSource(sourceId)) return;
     map.addSource(sourceId, {
       type: 'raster',
@@ -59,6 +65,7 @@ export const rasterAdapter: LayerAdapter = {
       tileSize: tileSize ?? 256,
       minzoom: minzoom ?? 0,
       maxzoom: maxzoom ?? 18,
+      ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
     });
     map.addLayer({
       id: layerId,

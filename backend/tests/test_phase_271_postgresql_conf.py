@@ -6,7 +6,9 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _POSTGRESQL_CONF = _REPO_ROOT / "db" / "postgresql.conf"
-_MAP_MODEL = _REPO_ROOT / "backend" / "app" / "modules" / "catalog" / "maps" / "models.py"
+_MAP_MODEL = (
+    _REPO_ROOT / "backend" / "app" / "modules" / "catalog" / "maps" / "models.py"
+)
 _DEFERRALS_DOC = _REPO_ROOT / "docs" / "db-index-deferrals.md"
 
 

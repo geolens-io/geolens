@@ -101,10 +101,34 @@ export function stripCustomProps(paint: Record<string, unknown>): Record<string,
   return Object.fromEntries(Object.entries(paint).filter(([k]) => !CUSTOM_PAINT_PROPS.has(k)));
 }
 
+function isPaintPropertyForLayerType(prop: string, geomType: 'fill' | 'line' | 'circle') {
+  if (CUSTOM_PAINT_PROPS.has(prop)) return false;
+  if (!prop.startsWith(`${geomType}-`)) return false;
+  if (geomType === 'fill' && prop.startsWith('fill-extrusion-')) return false;
+  return !prop.endsWith('-sort-key');
+}
+
+/** Keep only MapLibre paint properties supported by the target vector layer type. */
+export function filterPaintForLayerType(
+  paint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(paint).filter(([prop, value]) =>
+      value != null && isPaintPropertyForLayerType(prop, geomType),
+    ),
+  );
+}
+
 /** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
-function replayExpressions(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
+function replayExpressions(
+  map: MaplibreMap,
+  layerId: string,
+  rawPaint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+) {
   for (const [prop, val] of Object.entries(rawPaint)) {
-    if (Array.isArray(val) && !CUSTOM_PAINT_PROPS.has(prop)) {
+    if (Array.isArray(val) && isPaintPropertyForLayerType(prop, geomType)) {
       try { map.setPaintProperty(layerId, prop, val); }
       catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
     }
@@ -121,7 +145,8 @@ export function finalizeLayer(
   filter: import('maplibre-gl').FilterSpecification | null,
   hasExpressions: boolean,
 ) {
-  if (hasExpressions) replayExpressions(map, layerId, rawPaint);
+  if (!map.getLayer(layerId)) return;
+  if (hasExpressions) replayExpressions(map, layerId, rawPaint, geomType);
   map.setPaintProperty(layerId, `${geomType}-opacity`, getExpressionSafeOpacity(rawPaint, geomType, masterOpacity));
   if (filter && Array.isArray(filter) && filter.length > 0) {
     map.setFilter(layerId, filter);
@@ -176,10 +201,15 @@ export function paintValueChanged(current: unknown, incoming: unknown): boolean 
   return JSON.stringify(current) !== JSON.stringify(incoming);
 }
 
-/** Sync paint properties for a vector layer, skipping custom props. */
-export function syncVectorPaint(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
-  for (const [prop, val] of Object.entries(rawPaint)) {
-    if (CUSTOM_PAINT_PROPS.has(prop)) continue;
+/** Sync paint properties for a vector layer, skipping custom and cross-geometry props. */
+export function syncVectorPaint(
+  map: MaplibreMap,
+  layerId: string,
+  rawPaint: Record<string, unknown>,
+  geomType?: 'fill' | 'line' | 'circle',
+) {
+  const paint = geomType ? filterPaintForLayerType(rawPaint, geomType) : stripCustomProps(rawPaint);
+  for (const [prop, val] of Object.entries(paint)) {
     try {
       const current = map.getPaintProperty(layerId, prop);
       if (paintValueChanged(current, val)) {
@@ -191,6 +221,36 @@ export function syncVectorPaint(map: MaplibreMap, layerId: string, rawPaint: Rec
   }
 }
 
+const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
+  fill_disabled: 'fillDisabled',
+  stroke_disabled: 'strokeDisabled',
+  fill_opacity_saved: 'fillOpacitySaved',
+  outline_width_saved: 'outlineWidthSaved',
+  outline_color: 'outlineColor',
+  outline_width: 'outlineWidth',
+  heatmap_ramp: 'heatmapRamp',
+  heatmap_weight_column: 'heatmapWeightColumn',
+  height_column: 'heightColumn',
+  height_scale: 'heightScale',
+  extrusion_min_zoom: 'extrusionMinZoom',
+  extrusion_opacity: 'extrusionOpacity',
+};
+
 export function getBuilderStyleConfig(input: unknown): NonNullable<StyleConfig['builder']> {
-  return ((input as { style_config?: StyleConfig | null }).style_config?.builder ?? {});
+  const builder = (input as { style_config?: StyleConfig | null }).style_config?.builder;
+  if (!builder) return {};
+
+  const normalized = Object.entries(builder as Record<string, unknown>).reduce<Record<string, unknown>>(
+    (acc, [key, value]) => {
+      const aliasKey = BUILDER_STYLE_KEY_ALIASES[key];
+      const canonicalKey = aliasKey ?? key;
+      if (!aliasKey || acc[canonicalKey] === undefined) {
+        acc[canonicalKey] = value;
+      }
+      return acc;
+    },
+    {},
+  );
+
+  return normalized as NonNullable<StyleConfig['builder']>;
 }

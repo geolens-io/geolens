@@ -46,6 +46,7 @@ DATASETS: list[ThemeDataset] = [
         ),
         "snapshot_date": "2026-04-01",
         "license": "NYC Open Data (public use with attribution)",
+        "tile_columns": ["landuse", "height", "zonedist1", "numfloors"],
     },
     {
         "stem": "pop_density_tracts",
@@ -61,5 +62,6 @@ DATASETS: list[ThemeDataset] = [
         ),
         "snapshot_date": "2024-12-01",
         "license": "Public Domain (US Census Bureau)",
+        "tile_columns": ["_mhi", "_density", "_pop"],
     },
 ]

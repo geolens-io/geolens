@@ -34,7 +34,9 @@ class TestInf12RootDockerignoreHeader:
         text = ROOT_DOCKERIGNORE.read_text()
         assert "**" in text, "root .dockerignore must retain `**` exclude pattern"
         assert "!backend/" in text, "root .dockerignore must retain `!backend/` include"
-        assert "!frontend/" in text, "root .dockerignore must retain `!frontend/` include"
+        assert "!frontend/" in text, (
+            "root .dockerignore must retain `!frontend/` include"
+        )
 
 
 # ---------------------------------------------------------------------------

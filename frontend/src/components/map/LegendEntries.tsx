@@ -80,7 +80,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
 /* ── Categorical legend ──────────────────────────── */
 
 interface CategoricalLegendProps {
-  categories: { value: string | number | null; color: string }[];
+  categories: { value: string | number | null; label?: string; color: string }[];
   geometryType?: string | null;
   style?: SwatchStyle;
 }
@@ -91,7 +91,7 @@ export const CategoricalLegend = memo(function CategoricalLegend({ categories, g
       {categories.map((cat, i) => (
         <li key={i} className="flex items-center gap-1.5">
           <GeometrySwatch geometryType={geometryType} color={cat.color} style={s} />
-          <span className="text-muted-foreground truncate">{String(cat.value ?? 'null')}</span>
+          <span className="text-muted-foreground truncate">{cat.label ?? String(cat.value ?? 'null')}</span>
         </li>
       ))}
     </ul>

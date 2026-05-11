@@ -23,8 +23,10 @@ Auth: Uses the ``X-Api-Key`` header (case-sensitive) from the ``headers`` arg.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import mimetypes
 import sys
 from pathlib import Path
 from typing import cast
@@ -66,6 +68,65 @@ async def _find_existing_map_id(
         if item.get("name") == name:
             return cast(str, item["id"])
     return None
+
+
+def _fixture_thumbnail_data_uri(
+    fixture_path: Path,
+    fixture: FixtureDict,
+) -> str | None:
+    """Return the data URI for a fixture thumbnail, or None if absent."""
+    thumbnail_ref = fixture.get("_thumbnail")
+    if not thumbnail_ref:
+        return None
+
+    fixture_dir = fixture_path.parent.resolve()
+    thumbnail_path = (fixture_dir / thumbnail_ref).resolve()
+    try:
+        thumbnail_path.relative_to(fixture_dir)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{fixture_path.name} thumbnail must stay under {fixture_dir}: "
+            f"{thumbnail_ref!r}"
+        ) from exc
+
+    if not thumbnail_path.is_file():
+        raise RuntimeError(
+            f"{fixture_path.name} references missing thumbnail: {thumbnail_ref}"
+        )
+
+    mime_type, _encoding = mimetypes.guess_type(thumbnail_path.name)
+    if mime_type is None or not mime_type.startswith("image/"):
+        raise RuntimeError(
+            f"{fixture_path.name} thumbnail must be an image file: {thumbnail_ref}"
+        )
+
+    encoded = base64.b64encode(thumbnail_path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+async def _upload_fixture_thumbnail(
+    client: httpx.AsyncClient,
+    base_url: str,
+    headers: dict[str, str],
+    map_id: str,
+    fixture_path: Path,
+    fixture: FixtureDict,
+) -> None:
+    """Upload the fixture's marketing thumbnail after map body persistence."""
+    data_uri = _fixture_thumbnail_data_uri(fixture_path, fixture)
+    if data_uri is None:
+        return
+
+    resp = await client.put(
+        f"{base_url}/api/maps/{map_id}/thumbnail/",
+        headers={**headers, "Content-Type": "application/json"},
+        json={"data_uri": data_uri},
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"PUT /api/maps/{map_id}/thumbnail/ failed with {resp.status_code}: "
+            f"{resp.text[:500]}"
+        )
 
 
 async def apply_fixture(
@@ -124,6 +185,9 @@ async def apply_fixture(
                 f"PUT /api/maps/{existing_map_id} (idempotent update) failed with "
                 f"{put_resp.status_code}: {put_resp.text[:500]}"
             )
+        await _upload_fixture_thumbnail(
+            client, base_url, headers, existing_map_id, fixture_path, fixture
+        )
         return existing_map_id
 
     # Step 3: POST /api/maps/ to create a new empty map
@@ -155,6 +219,9 @@ async def apply_fixture(
                 f"PUT /api/maps/{map_id} failed with {put_resp.status_code}: "
                 f"{put_resp.text[:500]}"
             )
+        await _upload_fixture_thumbnail(
+            client, base_url, headers, map_id, fixture_path, fixture
+        )
     except Exception:
         # Best-effort cleanup of the orphaned empty map. The DELETE endpoint
         # requires a confirm_title body matching the map's name. We surface
@@ -175,9 +242,7 @@ async def apply_fixture(
                     delete_resp.text[:200],
                 )
         except Exception as cleanup_exc:
-            logger.warning(
-                "Orphan cleanup failed for map %s: %s", map_id, cleanup_exc
-            )
+            logger.warning("Orphan cleanup failed for map %s: %s", map_id, cleanup_exc)
         raise
 
     return map_id

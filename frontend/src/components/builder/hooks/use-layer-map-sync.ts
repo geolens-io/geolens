@@ -5,6 +5,7 @@ import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 
 type LayerUpdater = (layer: MapLayerResponse) => MapLayerResponse;
 type LayerSideEffect = (map: MaplibreMap, updated: MapLayerResponse) => void;
@@ -270,28 +271,29 @@ export function useLayerMapSync(
 
   const handleFilterChange = useCallback(
     (layerId: string, expression: FilterSpecification | null) => {
+      const filter = sanitizeNullableNumericFilter(expression);
       applyLayerUpdate(
         layerId,
-        (l) => ({ ...l, filter: expression }),
+        (l) => ({ ...l, filter }),
         (map) => {
           const mapLayerId = `layer-${layerId}`;
           if (map.getLayer(mapLayerId)) {
-            map.setFilter(mapLayerId, expression);
+            map.setFilter(mapLayerId, filter);
           }
           // Also filter outline layer for polygons
           const outlineId = `layer-${layerId}-outline`;
           if (map.getLayer(outlineId)) {
-            map.setFilter(outlineId, expression);
+            map.setFilter(outlineId, filter);
           }
           // Also filter label layer
           const labelId = `layer-${layerId}-label`;
           if (map.getLayer(labelId)) {
-            map.setFilter(labelId, expression);
+            map.setFilter(labelId, filter);
           }
           // Also filter fill-extrusion companion layer
           const extrusionId = `layer-${layerId}-extrusion`;
           if (map.getLayer(extrusionId)) {
-            map.setFilter(extrusionId, expression);
+            map.setFilter(extrusionId, filter);
           }
         },
       );
@@ -343,7 +345,7 @@ export function useLayerMapSync(
 
           // Apply parent filter if any
           if (layer.filter) {
-            map.setFilter(labelLayerId, layer.filter);
+            map.setFilter(labelLayerId, sanitizeNullableNumericFilter(layer.filter));
           }
         },
       );

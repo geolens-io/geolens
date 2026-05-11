@@ -20,6 +20,7 @@ DATASETS: list[ThemeDataset] = [
         ),
         "snapshot_date": "2026-05-08",
         "license": "Public Domain (USGS)",
+        "tile_columns": ["mag", "depth_km"],
     },
     {
         "stem": "nifc_fires_2020_2024",
@@ -34,5 +35,6 @@ DATASETS: list[ThemeDataset] = [
         ),
         "snapshot_date": "2025-01-01",
         "license": "Public Domain (NIFC/WFIGS)",
+        "tile_columns": ["fire_year"],
     },
 ]

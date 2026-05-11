@@ -6,6 +6,7 @@ import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { applyBasemapConfigToStyle } from '@/lib/basemap-utils';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
@@ -21,6 +22,7 @@ export {
   getCompoundOpacity,
   getExpressionSafeOpacity,
   stripCustomProps,
+  filterPaintForLayerType,
 } from './layer-adapters/shared';
 
 export const TERRAIN_SOURCE_ID = 'terrain-dem';
@@ -372,6 +374,7 @@ function syncVectorLayer(
 
   const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
   const adapter = getAdapter(type);
+  const filter = adapterInput.filter;
 
   // GeoJSON-Z branch: 3D small datasets use GeoJSON source instead of MVT.
   // NOTE: GeoJSON sources also support a `lineMetrics` field, but Phase 255 only
@@ -440,10 +443,10 @@ function syncVectorLayer(
 
       if (!map.getLayer(labelId)) {
         map.addLayer(buildLabelLayerSpec({ labelId, sourceId, sourceLayer, lc, geomType, visibility: vis }));
-        if (layer.filter) map.setFilter(labelId, layer.filter);
+        if (filter) map.setFilter(labelId, filter);
       } else {
         syncLabelLayer(map, labelId, lc, geomType);
-        map.setFilter(labelId, layer.filter ?? null);
+        map.setFilter(labelId, filter ?? null);
       }
     } else if (map.getLayer(labelId)) {
       if (isHeatmap) {
@@ -520,7 +523,7 @@ export function syncLayersToMap(
         visible: layer.visible,
         paint: layer.paint ?? {},
         layout: layer.layout ?? {},
-        filter: layer.filter,
+        filter: sanitizeNullableNumericFilter(layer.filter),
         label_config: layer.label_config,
         is_dem: layer.is_dem,
         sourceId,

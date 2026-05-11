@@ -187,7 +187,9 @@ async def request_presigned_upload(
                     ]
                 )
             )
-        except Exception:  # broad: S3/MinIO presign-multipart can throw varied SDK errors; map to 502
+        except (
+            Exception
+        ):  # broad: S3/MinIO presign-multipart can throw varied SDK errors; map to 502
             logger.exception("presigned_multipart_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -214,7 +216,9 @@ async def request_presigned_upload(
                 s3_key,
                 request.content_type,
             )
-        except Exception:  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
+        except (
+            Exception
+        ):  # broad: S3/MinIO presign-put can throw varied SDK errors; map to 502
             logger.exception("presigned_put_failed", s3_key=s3_key)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -257,7 +261,9 @@ async def complete_presigned_upload(
                 um["upload_id"],
                 [{"ETag": p.etag, "PartNumber": p.part_number} for p in request.parts],
             )
-        except Exception:  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
+        except (
+            Exception
+        ):  # broad: S3/MinIO multipart-complete can throw varied SDK errors; map to 502
             logger.exception(
                 "multipart_upload_completion_failed",
                 job_id=str(job.id),

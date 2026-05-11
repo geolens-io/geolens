@@ -83,15 +83,16 @@ const PUBLIC_MAP: MapResponse = {
   layers: [
     {
       id: 'layer-1',
-      map_id: 'map-1',
       dataset_id: 'dataset-1',
       dataset_name: 'Grand Canyon DEM',
       display_name: 'Grand Canyon DEM',
       dataset_table_name: 'canyon_relief',
       dataset_geometry_type: null,
+      dataset_extent_bbox: null,
       dataset_column_info: null,
       dataset_record_type: 'raster_dataset',
       dataset_feature_count: 100,
+      dataset_sample_values: null,
       sort_order: 1,
       visible: true,
       opacity: 1,

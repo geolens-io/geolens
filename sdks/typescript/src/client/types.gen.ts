@@ -2178,6 +2178,12 @@ export type DatasetMeta = {
      */
     theme_category?: Array<string> | null;
     /**
+     * Tile Columns
+     *
+     * Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+     */
+    tile_columns?: Array<string> | null;
+    /**
      * Title
      */
     title?: string | null;
@@ -2477,6 +2483,12 @@ export type DatasetResponse = {
      * ISO topic category codes
      */
     theme_category?: Array<string> | null;
+    /**
+     * Tile Columns
+     *
+     * Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+     */
+    tile_columns?: Array<string> | null;
     /**
      * Title
      */

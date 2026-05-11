@@ -1,7 +1,37 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { FillExtrusionLayerSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
+
+const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
+type FillExtrusionHeight = NonNullable<FillExtrusionLayerSpecification['paint']>['fill-extrusion-height'];
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function buildHeightExpression(heightColumn: string, heightScale: number): FillExtrusionHeight {
+  const baseExpression = ['coalesce', ['to-number', ['get', heightColumn], 0], 0];
+  return (heightScale === 1 ? baseExpression : ['*', baseExpression, heightScale]) as FillExtrusionHeight;
+}
+
+function getExtrusionOptions(input: AdapterLayerInput) {
+  const builder = getBuilderStyleConfig(input);
+  const heightScale = finiteNumber(builder.heightScale) ?? 1;
+  const extrusionMinZoom = finiteNumber(builder.extrusionMinZoom) ?? DEFAULT_EXTRUSION_MIN_ZOOM;
+  const configuredOpacity = finiteNumber(builder.extrusionOpacity);
+  return {
+    heightScale,
+    extrusionMinZoom,
+    extrusionOpacity: configuredOpacity == null
+      ? Math.min(input.opacity ?? 1, 0.85)
+      : clamp(configuredOpacity, 0, 1),
+  };
+}
 
 export const fillAdapter: LayerAdapter = {
   type: 'fill',
@@ -14,7 +44,7 @@ export const fillAdapter: LayerAdapter = {
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      const fillPaint = stripCustomProps(basePaint);
+      const fillPaint = filterPaintForLayerType(basePaint, 'fill');
       const strokeDisabled = builder.strokeDisabled ?? !!(rawPaint['_stroke-disabled']);
       const effectiveFillPaint: Record<string, unknown> = Object.keys(fillPaint).length
         ? { ...fillPaint }
@@ -65,18 +95,19 @@ export const fillAdapter: LayerAdapter = {
       // Companion fill-extrusion layer: only when a builder height column is set
       if (heightColumn) {
         const extrusionId = `${layerId}-extrusion`;
+        const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
         const fillColor = (rawPaint['fill-color'] as string | undefined) ?? MAP_COLORS.default.fill;
         map.addLayer({
           id: extrusionId,
           type: 'fill-extrusion',
           source: sourceId,
           ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
-          minzoom: 14,
+          minzoom: extrusionMinZoom,
           paint: {
-            'fill-extrusion-height': ['coalesce', ['to-number', ['get', heightColumn], 0], 0],
+            'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
             'fill-extrusion-base': 0,
             'fill-extrusion-color': fillColor,
-            'fill-extrusion-opacity': Math.min(opacity ?? 1, 0.85),
+            'fill-extrusion-opacity': extrusionOpacity,
             'fill-extrusion-vertical-gradient': true,
           },
         });
@@ -94,7 +125,7 @@ export const fillAdapter: LayerAdapter = {
     const builder = getBuilderStyleConfig(input);
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
-      syncVectorPaint(map, layerId, rawPaint);
+      syncVectorPaint(map, layerId, rawPaint, 'fill');
       map.setPaintProperty(layerId, 'fill-opacity', getExpressionSafeOpacity(rawPaint, 'fill', opacity ?? 1));
       if (filter && Array.isArray(filter) && filter.length > 0) {
         map.setFilter(layerId, filter);
@@ -137,10 +168,11 @@ export const fillAdapter: LayerAdapter = {
     if (map.getLayer(extrusionId)) {
       const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
       if (heightColumn) {
+        const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
         // Update height expression when column changes
         try {
           map.setPaintProperty(extrusionId, 'fill-extrusion-height',
-            ['coalesce', ['to-number', ['get', heightColumn], 0], 0]);
+            buildHeightExpression(heightColumn, heightScale));
         } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion height:`, e); }
         const fillColor = rawPaint['fill-color'] as string | undefined;
         if (fillColor) {
@@ -148,7 +180,10 @@ export const fillAdapter: LayerAdapter = {
             map.setPaintProperty(extrusionId, 'fill-extrusion-color', fillColor);
           } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion color:`, e); }
         }
-        map.setPaintProperty(extrusionId, 'fill-extrusion-opacity', Math.min(opacity ?? 1, 0.85));
+        map.setPaintProperty(extrusionId, 'fill-extrusion-opacity', extrusionOpacity);
+        try {
+          map.setLayerZoomRange(extrusionId, extrusionMinZoom, 22);
+        } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion zoom range:`, e); }
         if (filter && Array.isArray(filter) && filter.length > 0) {
           map.setFilter(extrusionId, filter);
         } else {

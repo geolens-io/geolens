@@ -35,7 +35,8 @@ describe('usePermissions', () => {
     await waitFor(() => expect(result.current.permissions).not.toBeNull());
     expect(result.current.can('upload')).toBe(true);
     expect(result.current.can('manage_users')).toBe(false);
-    expect(result.current.can('nonexistent')).toBe(false);
+    const unknownCapability = 'nonexistent' as Parameters<typeof result.current.can>[0];
+    expect(result.current.can(unknownCapability)).toBe(false);
   });
 
   it('returns false for all capabilities on error', async () => {

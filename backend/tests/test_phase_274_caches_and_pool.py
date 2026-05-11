@@ -47,9 +47,9 @@ def test_postgresql_conf_max_connections_is_30():
         f"Expected exactly one max_connections directive; found {max_conn_lines}"
     )
     # Match `max_connections = 30` allowing trailing whitespace + inline comment.
-    assert re.match(
-        r"^max_connections\s*=\s*30(\s|$|#)", max_conn_lines[0]
-    ), f"PERF-05: expected max_connections = 30, got: {max_conn_lines[0]}"
+    assert re.match(r"^max_connections\s*=\s*30(\s|$|#)", max_conn_lines[0]), (
+        f"PERF-05: expected max_connections = 30, got: {max_conn_lines[0]}"
+    )
 
 
 def test_postgresql_conf_no_longer_says_50():
@@ -90,7 +90,9 @@ def test_readme_documents_perf_05_in_effect():
 def test_env_example_dbm04_comment_references_30():
     """PERF-05: .env.example DBM-04 comment block references max_connections=30."""
     env_example = (_REPO_ROOT / ".env.example").read_text()
-    assert "max_connections=30" in env_example or "max_connections = 30" in env_example, (
+    assert (
+        "max_connections=30" in env_example or "max_connections = 30" in env_example
+    ), (
         ".env.example DBM-04 comment must reference max_connections=30 "
         "after PERF-05 lands."
     )

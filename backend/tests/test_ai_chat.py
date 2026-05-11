@@ -222,6 +222,16 @@ async def test_generate_map_llm_unavailable(
     monkeypatch,
 ):
     """POST /ai/generate-map/ returns 503 when LLM is not configured."""
+    from app.processing.ai import router as ai_router
+
+    async def unavailable(_db):
+        raise HTTPException(
+            status_code=503,
+            detail="Selected LLM provider API key not configured",
+        )
+
+    monkeypatch.setattr(ai_router, "_check_ai_available", unavailable)
+
     resp = await client.post(
         "/ai/generate-map/",
         json={"prompt": "Show me parks in NYC"},

@@ -74,5 +74,6 @@ def redirect_tempfile_to_staging(directory: str | Path) -> None:
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
-        pass
+        if not target_dir.is_dir():
+            return
     tempfile.tempdir = str(target_dir)

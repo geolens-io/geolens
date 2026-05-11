@@ -43,8 +43,25 @@ describe('useMapThumbnail', () => {
     expect(result.current).toBeNull();
 
     await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
-    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail/');
+    expect(mockApiFetchBlob).toHaveBeenCalledWith('/api/maps/1/thumbnail/', {
+      cache: 'reload',
+    });
     expect(URL.createObjectURL).toHaveBeenCalledWith(fakeBlob);
+  });
+
+  it('adds a version query when updated_at is provided', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    renderHook(
+      () => useMapThumbnail('/api/maps/1/thumbnail/', '2026-01-02T00:00:00Z'),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalled());
+    expect(mockApiFetchBlob).toHaveBeenCalledWith(
+      '/api/maps/1/thumbnail/?v=2026-01-02T00%3A00%3A00Z',
+      { cache: 'reload' },
+    );
   });
 
   it('returns null when thumbnailUrl is null', () => {
@@ -83,5 +100,25 @@ describe('useMapThumbnail', () => {
       expect(mockApiFetchBlob).toHaveBeenCalledTimes(2);
       expect(result.current).toBe('blob:http://localhost/thumb');
     });
+  });
+
+  it('refetches when the thumbnail version changes', async () => {
+    mockApiFetchBlob.mockResolvedValue(fakeBlob);
+
+    const { rerender } = renderHook(
+      ({ version }: { version: string }) =>
+        useMapThumbnail('/api/maps/1/thumbnail/', version),
+      { initialProps: { version: '2026-01-02T00:00:00Z' }, wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(1));
+
+    rerender({ version: '2026-01-03T00:00:00Z' });
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(2));
+    expect(mockApiFetchBlob).toHaveBeenLastCalledWith(
+      '/api/maps/1/thumbnail/?v=2026-01-03T00%3A00%3A00Z',
+      { cache: 'reload' },
+    );
   });
 });

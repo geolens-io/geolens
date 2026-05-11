@@ -93,6 +93,7 @@ describe('terrain helpers', () => {
       tileSize: 512,
       minzoom: 2,
       maxzoom: 14,
+      bounds: [-113, 36, -111.5, 37],
     });
 
     expect(map.addSource).toHaveBeenCalledWith(TERRAIN_SOURCE_ID, {
@@ -101,6 +102,7 @@ describe('terrain helpers', () => {
       tileSize: 512,
       minzoom: 2,
       maxzoom: 14,
+      bounds: [-113, 36, -111.5, 37],
       encoding: 'mapbox',
     });
   });

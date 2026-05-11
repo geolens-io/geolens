@@ -563,6 +563,5 @@ async def test_ingest_upload_config_latency(
 
     assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
     assert elapsed_ms < GENERAL_THRESHOLD_MS, (
-        f"Ingest config took {elapsed_ms:.1f}ms "
-        f"(threshold: {GENERAL_THRESHOLD_MS}ms)"
+        f"Ingest config took {elapsed_ms:.1f}ms (threshold: {GENERAL_THRESHOLD_MS}ms)"
     )

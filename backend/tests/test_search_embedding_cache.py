@@ -40,9 +40,7 @@ async def test_generate_embedding_caches_result_on_second_call():
     session = _mock_session_with_model()
 
     with (
-        patch.object(
-            service_semantic, "get_catalog_port", return_value=mock_port
-        ),
+        patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
         patch.object(
             service_semantic.EMBEDDING_MODEL,
             "get",
@@ -67,9 +65,7 @@ async def test_cache_key_is_case_insensitive_and_strips_whitespace():
     session = _mock_session_with_model()
 
     with (
-        patch.object(
-            service_semantic, "get_catalog_port", return_value=mock_port
-        ),
+        patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
         patch.object(
             service_semantic.EMBEDDING_MODEL,
             "get",
@@ -93,9 +89,7 @@ async def test_cache_partitioned_by_model_name():
     mock_port.generate_embedding = AsyncMock(side_effect=[fake_v1, fake_v2])
     session = _mock_session_with_model()
 
-    with patch.object(
-        service_semantic, "get_catalog_port", return_value=mock_port
-    ):
+    with patch.object(service_semantic, "get_catalog_port", return_value=mock_port):
         with patch.object(
             service_semantic.EMBEDDING_MODEL,
             "get",
@@ -124,9 +118,7 @@ async def test_cache_expires_entries_after_ttl():
     session = _mock_session_with_model()
 
     with (
-        patch.object(
-            service_semantic, "get_catalog_port", return_value=mock_port
-        ),
+        patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
         patch.object(
             service_semantic.EMBEDDING_MODEL,
             "get",
@@ -155,9 +147,7 @@ async def test_empty_input_does_not_populate_cache():
     session = _mock_session_with_model()
 
     with (
-        patch.object(
-            service_semantic, "get_catalog_port", return_value=mock_port
-        ),
+        patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
         patch.object(
             service_semantic.EMBEDDING_MODEL,
             "get",
@@ -184,9 +174,7 @@ async def test_cache_evicts_oldest_when_over_max_size():
         session = _mock_session_with_model()
 
         with (
-            patch.object(
-                service_semantic, "get_catalog_port", return_value=mock_port
-            ),
+            patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
             patch.object(
                 service_semantic.EMBEDDING_MODEL,
                 "get",

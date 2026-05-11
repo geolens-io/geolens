@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, stripCustomProps, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const circleAdapter: LayerAdapter = {
@@ -11,7 +11,7 @@ export const circleAdapter: LayerAdapter = {
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      const circlePaint = stripCustomProps(basePaint);
+      const circlePaint = filterPaintForLayerType(basePaint, 'circle');
       map.addLayer({
         id: layerId,
         type: 'circle',
@@ -34,7 +34,7 @@ export const circleAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
-    syncVectorPaint(map, layerId, rawPaint);
+    syncVectorPaint(map, layerId, rawPaint, 'circle');
     map.setPaintProperty(layerId, 'circle-opacity', getExpressionSafeOpacity(rawPaint, 'circle', opacity ?? 1));
     if (filter && Array.isArray(filter) && filter.length > 0) {
       map.setFilter(layerId, filter);

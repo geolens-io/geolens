@@ -436,9 +436,13 @@ async def _cleanup_staging_on_failure(
     structurally identical exception handlers.
     """
     from sqlalchemy import text
+    from sqlalchemy import update as sa_update
 
     from app.processing.ingest.metadata import _qtable
 
+    job_id = job.id
+    completed_at = datetime.now(timezone.utc)
+    error_message = str(exc)
     await session.rollback()
     try:
         await session.execute(text(f"DROP TABLE IF EXISTS {_qtable(staging_table)}"))
@@ -451,15 +455,24 @@ async def _cleanup_staging_on_failure(
             original_error=str(exc),
         )
 
-    job.status = "failed"
-    job.error_message = str(exc)
-    job.completed_at = datetime.now(timezone.utc)
-    structlog.get_logger().exception(
-        "Ingest task failed",
-        job_id=str(job.id),
-        task=task_name,
+    await session.execute(
+        sa_update(type(job))
+        .where(type(job).id == job_id)
+        .values(
+            status="failed",
+            error_message=error_message,
+            completed_at=completed_at,
+        )
     )
     await session.commit()
+    job.status = "failed"
+    job.error_message = error_message
+    job.completed_at = completed_at
+    structlog.get_logger().exception(
+        "Ingest task failed",
+        job_id=str(job_id),
+        task=task_name,
+    )
 
 
 async def _ingest_vector_into_staging(

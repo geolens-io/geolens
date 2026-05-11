@@ -52,6 +52,7 @@ const mockDataset: DatasetResponse = {
   source_url: null,
   quality_statement: null,
   collections: null,
+  tile_columns: null,
   record_type: 'vrt_dataset',
   raster: {
     epsg: 4326,

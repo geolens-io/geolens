@@ -15,6 +15,12 @@ type HillshadePaintProperty = keyof typeof HILLSHADE_PAINT_DEFAULTS;
 
 const HILLSHADE_PAINT_PROPERTIES = Object.keys(HILLSHADE_PAINT_DEFAULTS) as HillshadePaintProperty[];
 
+function normalizeRasterBounds(bounds: number[] | null | undefined) {
+  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
+  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
+  return [bounds[0], bounds[1], bounds[2], bounds[3]] as [number, number, number, number];
+}
+
 function getSupportedHillshadePaint(
   paint: Record<string, unknown>,
 ): Partial<Record<HillshadePaintProperty, number | string>> {
@@ -58,7 +64,7 @@ export const hillshadeAdapter: LayerAdapter = {
   type: 'hillshade',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible } = input;
+    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
     if (!map.getSource(sourceId)) {
       map.addSource(sourceId, {
         type: 'raster-dem',
@@ -66,6 +72,7 @@ export const hillshadeAdapter: LayerAdapter = {
         tileSize: tileSize ?? 256,
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
+        ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
         encoding: 'mapbox',
       });
     }

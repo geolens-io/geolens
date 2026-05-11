@@ -68,6 +68,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw"
-    )
+    op.execute("DROP INDEX IF EXISTS catalog.ix_record_embeddings_hnsw")

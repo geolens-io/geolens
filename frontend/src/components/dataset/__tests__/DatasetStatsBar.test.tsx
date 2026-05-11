@@ -46,6 +46,7 @@ const BASE: DatasetResponse = {
   source_url: null,
   quality_statement: null,
   collections: null,
+  tile_columns: null,
   record_type: 'vector_dataset',
   raster: null,
 };

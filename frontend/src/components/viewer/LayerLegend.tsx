@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { SharedLayerResponse } from '@/types/api';
+import type { SharedLayerResponse, StyleConfig } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { getLayerColors } from '@/components/map/layer-icons';
-import { CategoricalLegend, GeometrySwatch, GraduatedColorLegend, HeatmapLegend } from '@/components/map/LegendEntries';
+import {
+  CategoricalLegend,
+  GeometrySwatch,
+  GraduatedColorLegend,
+  GraduatedRadiusLegend,
+  GraduatedWidthLegend,
+  HeatmapLegend,
+} from '@/components/map/LegendEntries';
 import type { SwatchStyle } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
+import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
+import { MAP_COLORS } from '@/lib/map-colors';
 
 interface LayerLegendProps {
   layers: SharedLayerResponse[];
@@ -26,6 +35,112 @@ function viewerSwatchStyle(layer: SharedLayerResponse): SwatchStyle {
     : gt.includes('LINE') ? layer.paint?.['line-opacity'] : layer.paint?.['fill-opacity'];
   const fillOpacity = typeof rawFillOp === 'number' ? rawFillOp : undefined;
   return { outlineColor, opacity: layer.opacity ?? 1, fillOpacity, strokeWidth };
+}
+
+function parsePaintColors(paintColorValue: unknown): { colors: string[]; breaks: number[] } | null {
+  if (typeof paintColorValue === 'string' || !paintColorValue) return null;
+  const parsed = parseStepOrInterpolate(paintColorValue);
+  if (!parsed || !parsed.values.every((v) => typeof v === 'string')) return null;
+  return { colors: parsed.values as string[], breaks: parsed.breaks };
+}
+
+function expressionColumn(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  if (value[0] === 'get' && typeof value[1] === 'string') return value[1];
+  for (const entry of value) {
+    const column = expressionColumn(entry);
+    if (column) return column;
+  }
+  return null;
+}
+
+function displayColumn(value: string | undefined): string {
+  if (!value) return 'value';
+  return value
+    .replace(/^_+/, '')
+    .replace(/_/g, ' ')
+    .replace(/\bmhi\b/i, 'income')
+    .replace(/\bkm\b/i, 'km');
+}
+
+function colorPaintKey(geometryType: string | null | undefined): string {
+  const gt = (geometryType ?? '').toUpperCase();
+  if (gt.includes('POINT')) return 'circle-color';
+  if (gt.includes('LINE')) return 'line-color';
+  return 'fill-color';
+}
+
+function GraduatedLegend({
+  layer,
+  styleConfig,
+  swatchStyle,
+}: {
+  layer: SharedLayerResponse;
+  styleConfig: StyleConfig;
+  swatchStyle: SwatchStyle;
+}) {
+  const paint = layer.paint ?? {};
+  const breaks = styleConfig.breaks ?? [];
+  const metricLabel = styleConfig.sizeLabel ?? displayColumn(styleConfig.column);
+  const rawColor = paint[colorPaintKey(layer.geometry_type)];
+  const parsedColor = parsePaintColors(rawColor);
+  const colorColumn = expressionColumn(rawColor);
+
+  if (styleConfig.target === 'radius' && styleConfig.sizes) {
+    return (
+      <div className="space-y-1">
+        <div className="text-[11px] font-medium text-muted-foreground">
+          Size: {metricLabel}
+        </div>
+        <GraduatedRadiusLegend
+          sizes={styleConfig.sizes}
+          breaks={breaks}
+          circleColor={parsedColor?.colors[0] ?? MAP_COLORS.fallback}
+          style={swatchStyle}
+        />
+        {parsedColor && colorColumn && colorColumn !== styleConfig.column && (
+          <>
+            <div className="pt-1 text-[11px] font-medium text-muted-foreground">
+              Color: {styleConfig.colorLabel ?? displayColumn(colorColumn)}
+            </div>
+            <GraduatedColorLegend
+              colors={parsedColor.colors}
+              breaks={parsedColor.breaks}
+              geometryType={layer.geometry_type}
+              style={swatchStyle}
+            />
+          </>
+        )}
+      </div>
+    );
+  }
+
+  if (styleConfig.target === 'width' && styleConfig.sizes) {
+    const rawLineColor = paint['line-color'];
+    return (
+      <div className="space-y-1">
+        <div className="text-[11px] font-medium text-muted-foreground">
+          Width: {metricLabel}
+        </div>
+        <GraduatedWidthLegend
+          sizes={styleConfig.sizes}
+          breaks={breaks}
+          lineColor={(typeof rawLineColor === 'string' ? rawLineColor : undefined) ?? MAP_COLORS.fallback}
+          style={swatchStyle}
+        />
+      </div>
+    );
+  }
+
+  if (!styleConfig.colors) return null;
+  return (
+    <GraduatedColorLegend
+      colors={styleConfig.colors}
+      breaks={breaks}
+      geometryType={layer.geometry_type}
+      style={swatchStyle}
+    />
+  );
 }
 
 export function LayerLegend({
@@ -134,8 +249,12 @@ export function LayerLegend({
                       {sc.mode === 'categorical' && sc.categories && (
                         <CategoricalLegend categories={sc.categories} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
                       )}
-                      {sc.mode === 'graduated' && sc.colors && (
-                        <GraduatedColorLegend colors={sc.colors} breaks={sc.breaks ?? []} geometryType={layer.geometry_type} style={viewerSwatchStyle(layer)} />
+                      {sc.mode === 'graduated' && (sc.colors || sc.sizes) && (
+                        <GraduatedLegend
+                          layer={layer}
+                          styleConfig={sc}
+                          swatchStyle={viewerSwatchStyle(layer)}
+                        />
                       )}
                     </div>
                   )

@@ -142,9 +142,7 @@ class InMemoryTileCacheProvider:
 
     def __init__(self, max_entries: int = 50_000) -> None:
         # Stores (data: bytes, expires_at_monotonic: float) tuples.
-        self._cache: LRUCache[str, tuple[bytes, float]] = LRUCache(
-            maxsize=max_entries
-        )
+        self._cache: LRUCache[str, tuple[bytes, float]] = LRUCache(maxsize=max_entries)
 
     async def get(self, table: str, z: int, x: int, y: int) -> bytes | None:
         """Return cached tile bytes or None on miss / TTL expiry."""

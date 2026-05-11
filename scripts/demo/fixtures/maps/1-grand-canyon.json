@@ -1,54 +1,72 @@
 {
   "_meta": {
     "name": "Grand Canyon: Land in 3D",
-    "description": "USGS 3DEP elevation data with multidirectional hillshade overlay. Tilt and rotate to walk the canyon walls.",
+    "description": "USGS 3DEP terrain draped with multidirectional shaded relief. Tilt and rotate to read the canyon walls.",
     "theme": "When the Land Speaks",
     "snapshot_date": "2025-01-01"
   },
+  "_thumbnail": "thumbnails/1-grand-canyon.jpg",
   "name": "Grand Canyon: Land in 3D",
-  "description": "USGS 3DEP elevation data with multidirectional hillshade overlay. Tilt and rotate to walk the canyon walls.",
-  "center_lng": -112.1,
-  "center_lat": 36.1,
-  "zoom": 10.5,
-  "bearing": -25.0,
-  "pitch": 60.0,
-  "basemap_style": "dark-matter",
-  "show_basemap_labels": false,
+  "description": "USGS 3DEP terrain draped with multidirectional shaded relief. Tilt and rotate to read the canyon walls.",
+  "center_lng": -112.34,
+  "center_lat": 36.2,
+  "zoom": 11.85,
+  "bearing": -48.0,
+  "pitch": 76.0,
+  "basemap_style": "openstreetmap",
+  "show_basemap_labels": true,
   "visibility": "public",
   "widgets": ["legend", "measurement"],
+  "terrain_config": {
+    "enabled": true,
+    "_source_stem": "grand_canyon_dem",
+    "_source_ext": ".tif",
+    "exaggeration": 4.6
+  },
   "layers": [
     {
       "_stem": "grand_canyon_dem",
       "_ext": ".tif",
-      "display_name": "Elevation (DEM)",
+      "display_name": "Terrain mesh",
       "sort_order": 0,
-      "visible": true,
-      "opacity": 0.85,
-      "paint": {},
+      "visible": false,
+      "opacity": 0.0,
+      "paint": {
+        "hillshade-illumination-direction": 285,
+        "hillshade-illumination-anchor": "viewport",
+        "hillshade-exaggeration": 1.0,
+        "hillshade-shadow-color": "#0c0704",
+        "hillshade-highlight-color": "#ffe0ad",
+        "hillshade-accent-color": "#d56f22"
+      },
       "layout": {},
       "layer_type": "raster_geolens",
       "filter": null,
       "label_config": null,
       "style_config": {
-        "rescale": "1500,2900",
-        "colormap": "terrain"
+        "render_mode": "hillshade"
       },
-      "show_in_legend": true
+      "show_in_legend": false
     },
     {
       "_stem": "grand_canyon_hillshade",
       "_ext": ".tif",
-      "display_name": "Hillshade",
+      "display_name": "Canyon wall relief",
       "sort_order": 1,
       "visible": true,
-      "opacity": 0.5,
-      "paint": {},
+      "opacity": 1.0,
+      "paint": {
+        "raster-contrast": 0.85,
+        "raster-saturation": -1.0,
+        "raster-brightness-min": 0.02,
+        "raster-brightness-max": 0.84
+      },
       "layout": {},
       "layer_type": "raster_geolens",
       "filter": null,
       "label_config": null,
       "style_config": {},
-      "show_in_legend": false
+      "show_in_legend": true
     }
   ]
 }

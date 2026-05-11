@@ -93,8 +93,7 @@ def test_user_fk_delete_behavior_locked():
     assert not bad_fks, (
         "Found user-FK references that would break delete_user. Either set "
         "ondelete='SET NULL' (cross-user reference) or ondelete='CASCADE' and "
-        "add to CASCADE_WHITELIST (owned-by-user data):\n  - "
-        + "\n  - ".join(bad_fks)
+        "add to CASCADE_WHITELIST (owned-by-user data):\n  - " + "\n  - ".join(bad_fks)
     )
 
 
@@ -169,10 +168,7 @@ async def test_register_emits_user_register_audit(
         .limit(20)
     )
     rows = list(result.scalars().all())
-    matching = [
-        r for r in rows
-        if r.details and r.details.get("username") == username
-    ]
+    matching = [r for r in rows if r.details and r.details.get("username") == username]
     assert matching, (
         f"No user.register audit row for username={username}. "
         f"Recent user.register rows: "

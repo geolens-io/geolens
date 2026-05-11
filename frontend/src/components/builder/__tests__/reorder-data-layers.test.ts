@@ -12,9 +12,9 @@ function createMockMap(existingLayerIds: string[] = []) {
 describe('reorderDataLayers', () => {
   it('moves layers in reverse order so first in array ends up on top', () => {
     const map = createMockMap([
-      'layer-a', 'layer-a-outline',
-      'layer-b', 'layer-b-outline',
-      'layer-c', 'layer-c-outline',
+      'layer-a', 'layer-a-extrusion', 'layer-a-outline',
+      'layer-b', 'layer-b-extrusion', 'layer-b-outline',
+      'layer-c', 'layer-c-extrusion', 'layer-c-outline',
     ]);
     const layers = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
 
@@ -23,11 +23,11 @@ describe('reorderDataLayers', () => {
     const calls = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(
       (c: string[]) => c[0],
     );
-    // Data/outline layers moved in reverse: c, b, a (so a ends up on top)
+    // Data/extrusion/outline layers moved in reverse: c, b, a (so a ends up on top)
     expect(calls).toEqual([
-      'layer-c', 'layer-c-outline',
-      'layer-b', 'layer-b-outline',
-      'layer-a', 'layer-a-outline',
+      'layer-c', 'layer-c-extrusion', 'layer-c-outline',
+      'layer-b', 'layer-b-extrusion', 'layer-b-outline',
+      'layer-a', 'layer-a-extrusion', 'layer-a-outline',
     ]);
   });
 
@@ -40,8 +40,20 @@ describe('reorderDataLayers', () => {
     const calls = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(
       (c: string[]) => c[0],
     );
-    // layer-b and all outlines/labels not on map — skipped
+    // layer-b and all companion layers not on map — skipped
     expect(calls).toEqual(['layer-c', 'layer-a']);
+  });
+
+  it('moves extrusion layers after their fill layer so 3D data renders above flat fills', () => {
+    const map = createMockMap(['layer-a', 'layer-a-extrusion']);
+    const layers = [{ id: 'a' }];
+
+    reorderDataLayers(map, layers);
+
+    const calls = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: string[]) => c[0],
+    );
+    expect(calls).toEqual(['layer-a', 'layer-a-extrusion']);
   });
 
   it('does nothing for empty layers array', () => {

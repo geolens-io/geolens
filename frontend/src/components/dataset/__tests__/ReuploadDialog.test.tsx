@@ -107,6 +107,7 @@ function makeDataset(): DatasetResponse {
     source_url: null,
     quality_statement: null,
     collections: [],
+    tile_columns: null,
     quality_detail: null,
     record_type: 'vector_dataset',
     raster: null,

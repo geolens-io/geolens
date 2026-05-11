@@ -14,6 +14,8 @@ provides the two transforms needed:
 The ``_meta`` block carries human-readable context that is stored in the
 fixture but stripped before the PUT. It also carries the ``theme`` field used
 by the orchestrator to route each fixture to the correct theme's apply loop.
+The optional ``_thumbnail`` field stores a relative image path uploaded by
+apply_fixture after the map body is created or updated.
 """
 
 from __future__ import annotations
@@ -78,6 +80,7 @@ class FixtureDict(TypedDict, total=False):
     """Top-level fixture shape as written to disk by strip_for_fixture."""
 
     _meta: FixtureMeta
+    _thumbnail: str
     name: str
     description: str
     center_lng: float
@@ -89,6 +92,7 @@ class FixtureDict(TypedDict, total=False):
     show_basemap_labels: bool
     visibility: str
     widgets: Any | None
+    terrain_config: dict[str, Any] | None
     layers: list[FixtureLayer]
 
 
@@ -127,6 +131,66 @@ STRIP_LAYER: frozenset[str] = frozenset(
         "dataset_record_type",
     }
 )
+
+
+def _source_filename(stem: str, ext: str) -> str:
+    """Return the source_filename key used by the seeder idempotency map."""
+    return f"{stem}{ext}"
+
+
+def _strip_terrain_config(
+    terrain_config: Any,
+    stem_lookup: dict[str, tuple[str, str]],
+) -> Any:
+    """Convert live terrain source UUIDs into portable fixture references."""
+    if not isinstance(terrain_config, dict):
+        return terrain_config
+
+    stripped = dict(terrain_config)
+    source_dataset_id = stripped.get("source_dataset_id")
+    if source_dataset_id is None:
+        return stripped
+
+    lookup_key = str(source_dataset_id)
+    if lookup_key not in stem_lookup:
+        return stripped
+
+    stem, ext = stem_lookup[lookup_key]
+    stripped.pop("source_dataset_id", None)
+    stripped["_source_stem"] = stem
+    stripped["_source_ext"] = ext
+    return stripped
+
+
+def _resolve_terrain_config(
+    terrain_config: Any,
+    existing: dict[str, str],
+    fixture: FixtureDict,
+) -> Any:
+    """Convert portable terrain source references into API-ready UUIDs."""
+    if not isinstance(terrain_config, dict):
+        return terrain_config
+
+    resolved = dict(terrain_config)
+    source_stem = resolved.pop("_source_stem", None)
+    source_ext = resolved.pop("_source_ext", None)
+    if source_stem is None:
+        return resolved
+
+    if source_ext is None:
+        raise KeyError(f"terrain_config missing _source_ext: {terrain_config!r}")
+
+    source_filename = _source_filename(str(source_stem), str(source_ext))
+    if source_filename not in existing:
+        theme_name = fixture.get("_meta", {}).get("theme", "unknown")
+        sample_keys = sorted(existing.keys())[:5]
+        raise KeyError(
+            f"[Theme: {theme_name}] Terrain source {source_filename!r} not in catalog. "
+            f"Sample of {len(existing)} available datasets: {sample_keys}..."
+        )
+
+    resolved["source_dataset_id"] = existing[source_filename]
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +241,10 @@ def strip_for_fixture(
     # Copy top-level fields, skipping stripped ones
     for k, v in map_response.items():
         if k not in STRIP_TOP_LEVEL and k != "layers":
-            fixture[k] = v
+            if k == "terrain_config":
+                fixture[k] = _strip_terrain_config(v, stem_lookup)
+            else:
+                fixture[k] = v
 
     # Transform layers
     fixture["layers"] = []
@@ -225,7 +292,7 @@ def resolve_fixture(
     """Convert a fixture dict into a PUT /api/maps/{id} body.
 
     This is the reverse of :func:`strip_for_fixture`. It:
-    - Strips the ``_meta`` block.
+    - Strips the ``_meta`` and ``_thumbnail`` fixture-only blocks.
     - Replaces each layer's ``_stem`` + ``_ext`` with a live ``dataset_id``
       looked up via ``existing[stem + ext]``.
 
@@ -243,9 +310,12 @@ def resolve_fixture(
     resolved: dict[str, Any] = {}
 
     for k, v in fixture.items():
-        if k in ("_meta", "layers"):
+        if k in ("_meta", "_thumbnail", "layers"):
             continue
-        resolved[k] = v
+        if k == "terrain_config":
+            resolved[k] = _resolve_terrain_config(v, existing, fixture)
+        else:
+            resolved[k] = v
 
     resolved["layers"] = []
     for layer in fixture.get("layers", []):
@@ -254,7 +324,7 @@ def resolve_fixture(
         if stem is None or ext is None:
             raise KeyError(f"Layer missing _stem or _ext: {layer!r}")
 
-        source_filename = f"{stem}{ext}"
+        source_filename = _source_filename(stem, ext)
         if source_filename not in existing:
             theme_name = fixture.get("_meta", {}).get("theme", "unknown")
             sample_keys = sorted(existing.keys())[:5]

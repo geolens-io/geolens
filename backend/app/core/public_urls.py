@@ -98,9 +98,7 @@ def _request_origin(request: Request | None) -> str | None:
 
     if candidate is None:
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-        host = request.headers.get(
-            "x-forwarded-host", request.headers.get("host", "")
-        )
+        host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
         if not host:
             return None
         candidate = f"{scheme}://{host}"

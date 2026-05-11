@@ -7,10 +7,7 @@ import pytest
 
 
 _MIGRATION_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "alembic"
-    / "versions"
-    / "0001_baseline.py"
+    Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0001_baseline.py"
 )
 _SPEC = importlib.util.spec_from_file_location(
     "migration_0001_baseline",

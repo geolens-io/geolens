@@ -210,7 +210,7 @@ export const MapStackPanel = memo(function MapStackPanel({
     ],
   );
 
-  function renderEntry(group: MapStackGroup, entry: MapStackEntry) {
+  function renderEntry(entry: MapStackEntry) {
     const layerId = entry.metadata.sourceLayerId;
     const layer = layerId ? layerById.get(layerId) : undefined;
     const isPrimary = isPrimaryLayerEntry(entry);
@@ -361,7 +361,7 @@ export const MapStackPanel = memo(function MapStackPanel({
               group={group}
               entryCount={group.entries.length}
             >
-              {group.entries.map((entry) => renderEntry(group, entry))}
+              {group.entries.map((entry) => renderEntry(entry))}
               {renderSectionExtras(group)}
             </MapStackSection>
           ))}

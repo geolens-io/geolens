@@ -170,6 +170,7 @@ def dataset_to_response(
         data_vintage_end=record.temporal_end,
         source_format=dataset.source_format,
         source_filename=dataset.source_filename,
+        tile_columns=dataset.tile_columns,
         original_srid=dataset.original_srid,
         current_version=dataset.current_version,
         source_url=dataset.source_url,

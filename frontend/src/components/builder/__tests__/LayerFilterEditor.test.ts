@@ -137,6 +137,31 @@ describe('buildFilterExpression', () => {
     expect((result as unknown[]).length).toBe(3);
   });
 
+  it('wraps numeric comparisons with a nullable-safe to-number accessor', () => {
+    const conditions = [{ id: '1', field: 'population', operator: '>', value: '100' }];
+    const result = buildFilterExpression(conditions, columns, 'all');
+    expect(result).toEqual([
+      'all',
+      ['>', ['to-number', ['get', 'population'], -1_000_000_000_000], 100],
+    ]);
+  });
+
+  it('parses nullable-safe numeric comparisons back into editable conditions', () => {
+    const expr: FilterSpecification = [
+      'all',
+      ['<=', ['to-number', ['get', 'population'], 1_000_000_000_000], 500],
+    ] as FilterSpecification;
+    const result = parseFilterExpression(expr);
+    expect(result.kind).toBe('editable');
+    if (result.kind === 'editable') {
+      expect(result.conditions[0]).toMatchObject({
+        field: 'population',
+        operator: '<=',
+        value: '500',
+      });
+    }
+  });
+
   it('returns ["any", ...] for multiple conditions with "any" combinator', () => {
     const conditions = [
       { id: '1', field: 'name', operator: '==', value: 'hello' },

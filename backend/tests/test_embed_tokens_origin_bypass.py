@@ -14,7 +14,7 @@ they do not require a database.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -83,9 +83,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
 
         # Forged Origin from a REMOTE peer.
-        request = _make_request(
-            origin="http://localhost:3000", client_host="8.8.8.8"
-        )
+        request = _make_request(origin="http://localhost:3000", client_host="8.8.8.8")
 
         result = await embed_service.validate_embed_token_access(
             raw_token="any-raw-token",
@@ -99,9 +97,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         )
 
     @pytest.mark.anyio
-    async def test_localhost_origin_from_loopback_peer_is_allowed(
-        self, monkeypatch
-    ):
+    async def test_localhost_origin_from_loopback_peer_is_allowed(self, monkeypatch):
         """Local-development scenario: same-host caller with localhost
         Origin and loopback TCP peer is allowed (preserves the original
         dev-ergonomics goal)."""
@@ -120,9 +116,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         cache.set = AsyncMock()
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
 
-        request = _make_request(
-            origin="http://localhost:3000", client_host="127.0.0.1"
-        )
+        request = _make_request(origin="http://localhost:3000", client_host="127.0.0.1")
 
         result = await embed_service.validate_embed_token_access(
             raw_token="any-raw-token",
@@ -133,9 +127,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         assert result is True
 
     @pytest.mark.anyio
-    async def test_unlisted_origin_from_loopback_peer_still_rejected(
-        self, monkeypatch
-    ):
+    async def test_unlisted_origin_from_loopback_peer_still_rejected(self, monkeypatch):
         """A loopback TCP peer with a non-localhost, non-allowlisted Origin
         is still rejected — the bypass only applies to localhost Origins."""
         cache = AsyncMock()

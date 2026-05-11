@@ -64,6 +64,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
     record_type: 'vector_dataset',
     raster: null,
     ...overrides,
+    tile_columns: overrides.tile_columns ?? null,
   };
 }
 

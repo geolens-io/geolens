@@ -136,6 +136,7 @@ export interface DatasetResponse {
   data_vintage_end: string | null;
   source_format: string | null;
   source_filename: string | null;
+  tile_columns: string[] | null;
   original_srid: number | null;
   visibility: DatasetVisibility;
   created_by: string | null;
@@ -206,6 +207,7 @@ export interface DatasetUpdateRequest {
   quality_statement?: string;
   source_url?: string;
   is_dem?: boolean | null;
+  tile_columns?: string[] | null;
 }
 
 // Record sub-resource types
@@ -745,6 +747,12 @@ export interface BuilderStyleConfig {
   heatmapRamp?: string;
   heatmapWeightColumn?: string;
   heightColumn?: string;
+  /** Multiplier applied to numeric heightColumn values for fill extrusions. */
+  heightScale?: number;
+  /** Minimum zoom at which the companion fill-extrusion layer is shown. */
+  extrusionMinZoom?: number;
+  /** Opacity for the companion fill-extrusion layer. Defaults to the layer opacity cap. */
+  extrusionOpacity?: number;
   symbol?: SymbolStyleConfig;
   /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
    *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].
@@ -777,13 +785,17 @@ export interface StyleConfig {
   ramp: string;
   classCount?: number;
   method?: 'equal_interval' | 'quantile';
-  categories?: { value: string | number | null; color: string }[];
+  categories?: { value: string | number | null; label?: string; color: string }[];
   breaks?: number[];
   colors?: string[];
   /** Styling target — defaults to 'color' when absent for backward compatibility */
   target?: 'color' | 'radius' | 'width';
   /** Per-class size values for graduated size mode (parallel to colors) */
   sizes?: number[];
+  /** Optional viewer-facing label for size-driven legends. */
+  sizeLabel?: string;
+  /** Optional viewer-facing label for color-driven legends. */
+  colorLabel?: string;
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
   /** Render mode override for specialized adapters. */

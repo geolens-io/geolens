@@ -101,7 +101,9 @@ def test_global_referrer_policy_unchanged_on_health(oauth_test_client: TestClien
     )
 
 
-def test_oauth_callback_response_has_explicit_no_referrer(oauth_test_client: TestClient):
+def test_oauth_callback_response_has_explicit_no_referrer(
+    oauth_test_client: TestClient,
+):
     """Sanity: SecurityHeadersMiddleware no longer overwrites the route-set value.
 
     Pre-SEC-13 the middleware unconditionally set `Referrer-Policy:

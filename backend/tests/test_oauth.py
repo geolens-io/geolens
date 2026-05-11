@@ -498,9 +498,7 @@ class TestFindOrCreateOAuthUser:
         }
 
         with pytest.raises(OAuthEmailUnverifiedError):
-            await find_or_create_oauth_user(
-                test_db_session, provider, userinfo, {}
-            )
+            await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
 
     async def test_email_linking_blocked_when_email_verified_missing(
         self, client, test_db_session
@@ -537,9 +535,7 @@ class TestFindOrCreateOAuthUser:
             "name": "Unknown Verification",
         }
         with pytest.raises(OAuthEmailUnverifiedError):
-            await find_or_create_oauth_user(
-                test_db_session, provider, userinfo, {}
-            )
+            await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
 
     async def test_unverified_email_no_collision_creates_user_without_email(
         self, client, test_db_session
@@ -561,9 +557,7 @@ class TestFindOrCreateOAuthUser:
             # email_verified intentionally omitted
             "name": "New User No Verification",
         }
-        user = await find_or_create_oauth_user(
-            test_db_session, provider, userinfo, {}
-        )
+        user = await find_or_create_oauth_user(test_db_session, provider, userinfo, {})
         await test_db_session.commit()
 
         assert user is not None

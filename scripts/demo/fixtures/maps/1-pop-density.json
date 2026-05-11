@@ -1,17 +1,18 @@
 {
   "_meta": {
     "name": "Density Bars: Los Angeles",
-    "description": "Los Angeles tracts extruded by population density and colored by median household income. Underlying dataset covers CA, TX, NY, and FL — zoom out to see the cross-country choropleth pattern (3D bars fade out below z14).",
+    "description": "Los Angeles tracts extruded as scaled population-density bars and colored by median household income. Underlying dataset covers CA, TX, NY, and FL — zoom out to see the cross-country choropleth pattern.",
     "theme": "When the Land Speaks",
     "snapshot_date": "2024-12-01"
   },
+  "_thumbnail": "thumbnails/1-pop-density.jpg",
   "name": "Density Bars: Los Angeles",
-  "description": "Los Angeles tracts extruded by population density and colored by median household income. Underlying dataset covers CA, TX, NY, and FL — zoom out to see the cross-country choropleth pattern (3D bars fade out below z14).",
+  "description": "Los Angeles tracts extruded as scaled population-density bars and colored by median household income. Underlying dataset covers CA, TX, NY, and FL — zoom out to see the cross-country choropleth pattern.",
   "center_lng": -118.24,
   "center_lat": 34.05,
-  "zoom": 14.0,
-  "bearing": -15.0,
-  "pitch": 50.0,
+  "zoom": 13.6,
+  "bearing": -32.0,
+  "pitch": 64.0,
   "basemap_style": "dark-matter",
   "show_basemap_labels": false,
   "visibility": "public",
@@ -23,29 +24,38 @@
       "display_name": "Density (extruded) by Income (color)",
       "sort_order": 0,
       "visible": true,
-      "opacity": 0.85,
+      "opacity": 0.9,
       "paint": {
         "fill-color": [
           "interpolate",
           ["linear"],
           ["coalesce", ["to-number", ["get", "_mhi"]], 0],
-          30000, "#440154",
-          60000, "#3b528b",
-          90000, "#21908c",
-          120000, "#5dc863",
-          150000, "#fde725"
+          25000, "#2b1a6b",
+          50000, "#135dd8",
+          80000, "#00b8a9",
+          115000, "#ffbf3f",
+          160000, "#ff4d6d"
         ],
-        "fill-opacity": 0.85,
-        "_outline-color": "#1a1a2e",
-        "_outline-width": 0.1,
-        "_height_column": "_density"
+        "fill-opacity": [
+          "interpolate",
+          ["linear"],
+          ["zoom"],
+          11,
+          0.42,
+          13,
+          0.68,
+          15,
+          0.9
+        ],
+        "fill-outline-color": "rgba(0,0,0,0)"
       },
       "layout": {},
       "layer_type": "vector_geolens",
       "filter": [
         "all",
         ["has", "_mhi"],
-        [">", ["coalesce", ["to-number", ["get", "_mhi"]], 0], 0]
+        [">", ["coalesce", ["to-number", ["get", "_mhi"]], 0], 0],
+        [">", ["coalesce", ["to-number", ["get", "_density"]], 0], 0]
       ],
       "label_config": null,
       "style_config": {
@@ -54,9 +64,17 @@
         "target": "color",
         "classCount": 5,
         "method": "manual",
-        "ramp": "Viridis",
-        "colors": ["#440154", "#3b528b", "#21908c", "#5dc863", "#fde725"],
-        "breaks": [60000, 90000, 120000, 150000]
+        "ramp": "Custom",
+        "colors": ["#2b1a6b", "#135dd8", "#00b8a9", "#ffbf3f", "#ff4d6d"],
+        "breaks": [50000, 80000, 115000, 160000],
+        "builder": {
+          "heightColumn": "_density",
+          "heightScale": 0.035,
+          "extrusionMinZoom": 12.8,
+          "extrusionOpacity": 0.92,
+          "outlineColor": "#08121d",
+          "outlineWidth": 0.18
+        }
       },
       "show_in_legend": true
     }

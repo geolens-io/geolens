@@ -9,7 +9,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-import pytest
 from httpx import AsyncClient
 
 from app.core.config import settings
@@ -57,7 +56,9 @@ async def test_session_jwt_rejected_on_download_query_param(
     # admin_auth_header is "Bearer <session_jwt>" — strip the prefix
     session_jwt = admin_auth_header["Authorization"].removeprefix("Bearer ")
     fake_dataset = uuid.uuid4()
-    resp = await client.get(f"/datasets/{fake_dataset}/download/cog?token={session_jwt}")
+    resp = await client.get(
+        f"/datasets/{fake_dataset}/download/cog?token={session_jwt}"
+    )
     assert resp.status_code == 401
     detail = resp.json()["detail"].lower()
     assert "download-scoped" in detail or "typ" in detail or "download" in detail

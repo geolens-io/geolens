@@ -7,8 +7,6 @@ pure-Python unit tests (no DB fixture, no asyncpg pool).
 
 from __future__ import annotations
 
-import pytest
-
 from app.processing.tiles.service import (
     _DEFAULT_NO_ATTR_BELOW_ZOOM,
     _build_attr_columns,

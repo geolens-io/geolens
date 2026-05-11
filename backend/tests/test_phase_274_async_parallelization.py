@@ -178,7 +178,5 @@ async def test_extract_metadata_round_trips_on_spatial_table(test_db_session):
             "column_info",
         }
     finally:
-        await session.execute(
-            text("DROP TABLE IF EXISTS data.test_perf03_round_trip")
-        )
+        await session.execute(text("DROP TABLE IF EXISTS data.test_perf03_round_trip"))
         await session.commit()

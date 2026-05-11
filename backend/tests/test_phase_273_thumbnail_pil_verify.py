@@ -102,9 +102,7 @@ async def test_valid_jpeg_thumbnail_accepted(
 
 
 @pytest.mark.anyio
-async def test_garbage_payload_rejected(
-    client: AsyncClient, admin_auth_header: dict
-):
+async def test_garbage_payload_rejected(client: AsyncClient, admin_auth_header: dict):
     """Random bytes labeled image/png → 400 with 'not a valid image' detail."""
     created = await _create_map(client, admin_auth_header)
     map_id = created["id"]
@@ -120,9 +118,7 @@ async def test_garbage_payload_rejected(
 
 
 @pytest.mark.anyio
-async def test_zeros_payload_rejected(
-    client: AsyncClient, admin_auth_header: dict
-):
+async def test_zeros_payload_rejected(client: AsyncClient, admin_auth_header: dict):
     """50KB of zeros labeled image/png → 400 (bigger garbage payload)."""
     created = await _create_map(client, admin_auth_header)
     map_id = created["id"]
@@ -136,9 +132,7 @@ async def test_zeros_payload_rejected(
 
 
 @pytest.mark.anyio
-async def test_truncated_png_rejected(
-    client: AsyncClient, admin_auth_header: dict
-):
+async def test_truncated_png_rejected(client: AsyncClient, admin_auth_header: dict):
     """A PNG header + garbage payload → 400."""
     created = await _create_map(client, admin_auth_header)
     map_id = created["id"]

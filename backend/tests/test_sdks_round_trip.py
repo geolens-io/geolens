@@ -340,7 +340,6 @@ async def test_typescript_round_trip(client, admin_auth_header) -> None:
     # `node` resolves to the path discovered at module import; node executable
     # location does not change during the test run.
     node = shutil.which("node")
-    ts_dist = _TS_DIST_PATH
 
     import uvicorn
 

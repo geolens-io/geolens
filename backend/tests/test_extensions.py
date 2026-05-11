@@ -289,8 +289,7 @@ class TestProtocolOverlayDispatch:
             )
             # Sentinel proves the fake's method runs (not the default's)
             assert (
-                ext.get_branding_defaults().get("_test_sentinel")
-                == "branding-overlay"
+                ext.get_branding_defaults().get("_test_sentinel") == "branding-overlay"
             )
         finally:
             if previous is None:

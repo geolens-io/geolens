@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import date, datetime
 from typing import Any, Literal
@@ -5,6 +6,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.text import normalize_nfc as _nfc
+
+
+_COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 SEMANTIC_ROLES = Literal[
@@ -202,6 +206,13 @@ class DatasetResponse(BaseModel):
         default=None, description="Original file format, e.g. GPKG, SHP"
     )
     source_filename: str | None
+    tile_columns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Ordered vector-tile property allowlist; null uses zoom defaults, "
+            "[] emits geometry-only tiles, list emits those properties at any zoom."
+        ),
+    )
     original_srid: int | None = Field(
         default=None, description="EPSG SRID of the uploaded source file"
     )
@@ -369,6 +380,26 @@ class DatasetMeta(BaseModel):
         default=None,
         description="Flag raster as a Digital Elevation Model for terrain rendering",
     )
+    tile_columns: list[str] | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Ordered vector-tile property allowlist; null restores zoom defaults, "
+            "[] emits geometry-only tiles, list emits those properties at any zoom."
+        ),
+    )
+
+    @field_validator("tile_columns")
+    @classmethod
+    def validate_tile_columns(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(set(v)) != len(v):
+            raise ValueError("tile_columns entries must be unique")
+        invalid = [name for name in v if not _COLUMN_NAME_RE.match(name)]
+        if invalid:
+            raise ValueError(f"Invalid tile column names: {invalid}")
+        return v
 
     @field_validator(
         "title",

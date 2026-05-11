@@ -79,6 +79,20 @@ _SYMBOL_METADATA_KEYS = {
     "categoryColumn",
     "categories",
 }
+_BUILDER_KEY_ALIASES = {
+    "fill_disabled": "fillDisabled",
+    "stroke_disabled": "strokeDisabled",
+    "fill_opacity_saved": "fillOpacitySaved",
+    "outline_width_saved": "outlineWidthSaved",
+    "outline_color": "outlineColor",
+    "outline_width": "outlineWidth",
+    "heatmap_ramp": "heatmapRamp",
+    "heatmap_weight_column": "heatmapWeightColumn",
+    "height_column": "heightColumn",
+    "height_scale": "heightScale",
+    "extrusion_min_zoom": "extrusionMinZoom",
+    "extrusion_opacity": "extrusionOpacity",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +189,10 @@ def _clean_builder_block(value: dict[str, Any]) -> dict[str, Any]:
     for sub_key, sub_value in value.items():
         if isinstance(sub_key, str) and sub_key.startswith("_"):
             continue
-        cleaned[sub_key] = sub_value
+        key = _BUILDER_KEY_ALIASES.get(sub_key, sub_key)
+        if sub_key in _BUILDER_KEY_ALIASES and key in cleaned:
+            continue
+        cleaned[key] = sub_value
     return cleaned
 
 
@@ -203,7 +220,7 @@ def _clean_style_metadata(style_config: dict[str, Any] | None) -> dict[str, Any]
 
 def _builder_style_config(style_config: dict[str, Any] | None) -> dict[str, Any]:
     builder = (style_config or {}).get("builder")
-    return dict(builder) if isinstance(builder, dict) else {}
+    return _clean_builder_block(builder) if isinstance(builder, dict) else {}
 
 
 def _clean_basemap_config(value: Any) -> dict[str, Any] | None:
@@ -215,6 +232,56 @@ def _clean_basemap_config(value: Any) -> dict[str, Any] | None:
         return BasemapConfig.model_validate(value).model_dump(mode="json")
     except ValidationError as exc:
         raise ValueError("Invalid basemap_config metadata") from exc
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _clamp_number(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
+
+
+def _extrusion_height_expression(height_column: str, height_scale: float) -> list[Any]:
+    base_expression: list[Any] = [
+        "coalesce",
+        ["to-number", ["get", height_column], 0],
+        0,
+    ]
+    if height_scale == 1:
+        return base_expression
+    return ["*", base_expression, height_scale]
+
+
+def _extrusion_column_from_expression(value: Any) -> tuple[str | None, float | None]:
+    height_scale: float | None = None
+    height_expr = value
+    if isinstance(value, list) and len(value) == 3 and value[0] == "*":
+        left, right = value[1], value[2]
+        if isinstance(right, (int, float)) and not isinstance(right, bool):
+            height_expr = left
+            height_scale = float(right)
+        elif isinstance(left, (int, float)) and not isinstance(left, bool):
+            height_expr = right
+            height_scale = float(left)
+
+    # Canonical export shape: ["coalesce", ["to-number", ["get", <column>], 0], 0]
+    if (
+        isinstance(height_expr, list)
+        and len(height_expr) >= 2
+        and height_expr[0] == "coalesce"
+        and isinstance(height_expr[1], list)
+        and len(height_expr[1]) >= 2
+        and height_expr[1][0] == "to-number"
+        and isinstance(height_expr[1][1], list)
+        and len(height_expr[1][1]) == 2
+        and height_expr[1][1][0] == "get"
+        and isinstance(height_expr[1][1][1], str)
+    ):
+        return height_expr[1][1][1], height_scale
+    return None, None
 
 
 def _layer_uses_line_gradient(layer: MapLayerResponse) -> bool:
@@ -507,6 +574,14 @@ def _fill_companion_layers(
     height_column = builder.get("heightColumn") or paint.get("_height_column")
     if isinstance(height_column, str) and height_column:
         fill_color = paint.get("fill-color", DEFAULT_FILL_COLOR)
+        height_scale = _finite_number(builder.get("heightScale")) or 1
+        extrusion_min_zoom = _finite_number(builder.get("extrusionMinZoom")) or 14
+        configured_opacity = _finite_number(builder.get("extrusionOpacity"))
+        extrusion_opacity = (
+            min(layer.opacity, 0.85)
+            if configured_opacity is None
+            else _clamp_number(configured_opacity, 0, 1)
+        )
         extrusion_layer: dict[str, Any] = {
             "id": f"{layer_id}-extrusion",
             "type": "fill-extrusion",
@@ -519,16 +594,15 @@ def _fill_companion_layers(
                 }
             },
             "layout": _companion_visibility(layer),
-            "minzoom": 14,
+            "minzoom": extrusion_min_zoom,
             "paint": {
-                "fill-extrusion-height": [
-                    "coalesce",
-                    ["to-number", ["get", height_column], 0],
-                    0,
-                ],
+                "fill-extrusion-height": _extrusion_height_expression(
+                    height_column,
+                    height_scale,
+                ),
                 "fill-extrusion-base": 0,
                 "fill-extrusion-color": fill_color,
-                "fill-extrusion-opacity": min(layer.opacity, 0.85),
+                "fill-extrusion-opacity": extrusion_opacity,
                 "fill-extrusion-vertical-gradient": True,
             },
         }
@@ -805,23 +879,19 @@ def _builder_from_extrusion_companion(
     companion: dict[str, Any], builder: dict[str, Any]
 ) -> None:
     paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
-    height_expr = paint.get("fill-extrusion-height")
-    # Canonical export shape: ["coalesce", ["to-number", ["get", <column>], 0], 0]
-    if (
-        isinstance(height_expr, list)
-        and len(height_expr) >= 2
-        and height_expr[0] == "coalesce"
-        and isinstance(height_expr[1], list)
-        and len(height_expr[1]) >= 2
-        and height_expr[1][0] == "to-number"
-        and isinstance(height_expr[1][1], list)
-        and len(height_expr[1][1]) == 2
-        and height_expr[1][1][0] == "get"
-        and isinstance(height_expr[1][1][1], str)
-    ):
-        column = height_expr[1][1][1]
-        if "heightColumn" not in builder:
-            builder["heightColumn"] = column
+    column, height_scale = _extrusion_column_from_expression(
+        paint.get("fill-extrusion-height")
+    )
+    if column and "heightColumn" not in builder:
+        builder["heightColumn"] = column
+    if height_scale is not None and "heightScale" not in builder:
+        builder["heightScale"] = height_scale
+    minzoom = _finite_number(companion.get("minzoom"))
+    if minzoom is not None and "extrusionMinZoom" not in builder:
+        builder["extrusionMinZoom"] = minzoom
+    opacity = _finite_number(paint.get("fill-extrusion-opacity"))
+    if opacity is not None and "extrusionOpacity" not in builder:
+        builder["extrusionOpacity"] = opacity
 
 
 def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:

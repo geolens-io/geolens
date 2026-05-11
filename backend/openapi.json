@@ -3658,6 +3658,22 @@
             "description": "ISO topic category codes",
             "title": "Theme Category"
           },
+          "tile_columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.",
+            "title": "Tile Columns"
+          },
           "title": {
             "anyOf": [
               {
@@ -4260,6 +4276,21 @@
             ],
             "description": "ISO topic category codes",
             "title": "Theme Category"
+          },
+          "tile_columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ordered vector-tile property allowlist; null uses zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.",
+            "title": "Tile Columns"
           },
           "title": {
             "title": "Title",
@@ -33290,7 +33321,7 @@
     },
     "/maps/{map_id}/layers": {
       "patch": {
-        "description": "Apply incremental layer additions, patches, removals, and ordering.",
+        "description": "Apply incremental layer additions, patches, removals, and ordering.\n\nv13.14 fixup: declared on both slash variants directly (mirrors the\nPhase 280 fix on POST). FastAPI's default redirect_slashes builds a\nrelative Location header that resolves against the request's Host\nheader, which would leak the in-container ``api:8000`` hostname\nthrough Vite's dev proxy on a 307 redirect. The canonical\n(OpenAPI-published) form is the no-slash sub-collection convention\nfrom ``docs/api-style.md``; the trailing-slash form is a hidden alias.",
         "operationId": "patch_map_layers_endpoint_maps__map_id__layers_patch",
         "parameters": [
           {

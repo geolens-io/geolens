@@ -5,6 +5,7 @@
     "theme": "When the Earth Moves",
     "snapshot_date": "2026-05-08"
   },
+  "_thumbnail": "thumbnails/2-earthquakes.jpg",
   "name": "Global Earthquakes M5+ (Last 5 Years)",
   "description": "Every magnitude-5-or-greater earthquake from May 2021 to May 2026. Size = magnitude. Color = depth.",
   "center_lng": 0.0,
@@ -60,7 +61,10 @@
         "method": "manual",
         "ramp": "YlOrRd",
         "colors": ["#fde725", "#f39c12", "#e74c3c", "#7d3c98"],
-        "breaks": [6, 7, 8]
+        "breaks": [6, 7, 8, 9],
+        "sizes": [4, 8, 14, 22, 30],
+        "sizeLabel": "Magnitude",
+        "colorLabel": "Depth (km)"
       },
       "show_in_legend": true
     }

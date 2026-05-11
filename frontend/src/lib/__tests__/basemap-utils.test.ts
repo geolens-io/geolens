@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { StyleSpecification } from 'maplibre-gl';
 import {
   toMaplibreStyle,
+  sanitizeMaplibreStyle,
   resolveBasemapId,
   getThemeBasemap,
   findBasemapById,
@@ -72,6 +73,108 @@ describe('toMaplibreStyle', () => {
     const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const result = toMaplibreStyle(url) as StyleSpecification;
     expect(result.glyphs).toBeDefined();
+  });
+});
+
+describe('sanitizeMaplibreStyle', () => {
+  it('removes unsupported fill-pattern references from remote styles', () => {
+    const style = {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'landcover_wood',
+          type: 'fill',
+          paint: {
+            'fill-color': '#222',
+            'fill-pattern': 'wood-pattern',
+            'fill-opacity': 0.8,
+          },
+        },
+        {
+          id: 'background',
+          type: 'background',
+          paint: { 'background-color': '#111' },
+        },
+      ],
+    } as StyleSpecification;
+
+    const result = sanitizeMaplibreStyle(style);
+
+    expect(result.layers[0]).toMatchObject({
+      id: 'landcover_wood',
+      paint: {
+        'fill-color': '#222',
+        'fill-opacity': 0.8,
+      },
+    });
+    expect(result.layers[0].paint).not.toHaveProperty('fill-pattern');
+    expect(result.layers[1]).toBe(style.layers[1]);
+  });
+
+  it('removes known missing icon-image references from remote styles', () => {
+    const style = {
+      version: 8,
+      sources: {
+        openmaptiles: {
+          type: 'vector',
+          tiles: ['https://example.com/{z}/{x}/{y}.pbf'],
+        },
+      },
+      layers: [
+        {
+          id: 'place_city',
+          type: 'symbol',
+          source: 'openmaptiles',
+          'source-layer': 'place',
+          layout: {
+            'icon-image': ['step', ['zoom'], 'circle-11', 9, ''],
+            'text-field': ['get', 'name'],
+          },
+        },
+      ],
+    } as StyleSpecification;
+
+    const result = sanitizeMaplibreStyle(style);
+
+    expect(result.layers[0]).toMatchObject({
+      id: 'place_city',
+      layout: {
+        'icon-image': ['step', ['zoom'], '', 9, ''],
+        'text-field': ['get', 'name'],
+      },
+    });
+  });
+
+  it('wraps remote style numeric filters so null feature values do not warn', () => {
+    const style = {
+      version: 8,
+      sources: {
+        openmaptiles: {
+          type: 'vector',
+          tiles: ['https://example.com/{z}/{x}/{y}.pbf'],
+        },
+      },
+      layers: [
+        {
+          id: 'boundary_3',
+          type: 'line',
+          source: 'openmaptiles',
+          'source-layer': 'boundary',
+          filter: ['all', ['>=', ['get', 'admin_level'], 3], ['<=', ['get', 'admin_level'], 6]],
+          paint: { 'line-color': '#aaa' },
+        },
+      ],
+    } as StyleSpecification;
+
+    const result = sanitizeMaplibreStyle(style);
+    const layer = result.layers[0] as StyleSpecification['layers'][number] & { filter?: unknown };
+
+    expect(layer.filter).toEqual([
+      'all',
+      ['>=', ['to-number', ['get', 'admin_level'], -1_000_000_000_000], 3],
+      ['<=', ['to-number', ['get', 'admin_level'], 1_000_000_000_000], 6],
+    ]);
   });
 });
 

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,7 @@ from app.api.router import api_router
 from app.observability.metrics import init_metrics
 from app.platform.cache import init_cache
 from app.platform.cache.provider import init_tile_cache
+
 # settings already imported above for the tempdir override — do NOT reimport
 from app.core.db import async_session, engine
 from app.core.logging_config import setup_logging

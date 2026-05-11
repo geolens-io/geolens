@@ -73,9 +73,7 @@ async def has_embeddings(session: AsyncSession) -> bool:
     # Bounded eviction: drop oldest entry by stored monotonic timestamp
     # before insert when we're at capacity.
     if len(_has_embeddings_cache) >= _HAS_EMBEDDINGS_MAX:
-        oldest = min(
-            _has_embeddings_cache, key=lambda k: _has_embeddings_cache[k][1]
-        )
+        oldest = min(_has_embeddings_cache, key=lambda k: _has_embeddings_cache[k][1])
         del _has_embeddings_cache[oldest]
     _has_embeddings_cache[model_key] = (value, now)
     return value

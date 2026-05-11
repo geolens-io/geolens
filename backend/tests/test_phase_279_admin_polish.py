@@ -33,8 +33,7 @@ def test_api_key_create_name_max_length_enforced():
     # pydantic v2 emits 'string_too_long' for max_length violations
     errors = exc_info.value.errors()
     assert any(
-        e["type"] == "string_too_long" or "max_length" in str(e).lower()
-        for e in errors
+        e["type"] == "string_too_long" or "max_length" in str(e).lower() for e in errors
     ), f"Expected max_length error, got: {errors}"
 
 

@@ -14,9 +14,7 @@ from pathlib import Path
 
 # CHANGELOG entries format the route as a single backtick-wrapped pair, e.g.
 # `POST /maps/import` — both method + path inside one pair of backticks.
-_ROUTE_RE = re.compile(
-    r"`(GET|POST|PUT|PATCH|DELETE)\s+(/[^`]+)`"
-)
+_ROUTE_RE = re.compile(r"`(GET|POST|PUT|PATCH|DELETE)\s+(/[^`]+)`")
 
 
 def _repo_root() -> Path:
@@ -40,12 +38,33 @@ def _read_unreleased() -> str:
     return text[unreleased_start:next_section]
 
 
+def _read_release(version: str) -> str:
+    """Return a specific release section by version."""
+    text = (_repo_root() / "CHANGELOG.md").read_text(encoding="utf-8")
+    section_start = text.index(f"## [{version}]")
+    try:
+        section_end = text.index("\n## [", section_start + 1)
+    except ValueError:
+        section_end = len(text)
+    return text[section_start:section_end]
+
+
 def _read_added_map_builder_block() -> str:
-    """Isolate the `### Added — Map Builder API surface` sub-section."""
-    unreleased = _read_unreleased()
-    block_start = unreleased.index("### Added — Map Builder API surface")
-    next_heading = unreleased.index("\n### ", block_start + 1)
-    return unreleased[block_start:next_heading]
+    """Isolate the `### Added — Map Builder API surface` sub-section.
+
+    The block originally lived in [Unreleased] before the 1.1.0 release was cut.
+    Keep validating it after release so the route documentation remains locked.
+    """
+    for section in (_read_unreleased(), _read_release("1.1.0")):
+        if "### Added — Map Builder API surface" not in section:
+            continue
+        block_start = section.index("### Added — Map Builder API surface")
+        try:
+            next_heading = section.index("\n### ", block_start + 1)
+        except ValueError:
+            next_heading = len(section)
+        return section[block_start:next_heading]
+    raise AssertionError("Could not find `### Added — Map Builder API surface`")
 
 
 def test_changelog_unreleased_routes_exist_in_openapi() -> None:
@@ -98,10 +117,8 @@ def test_phase_269_breaking_change_block_intact() -> None:
     Phase 269 wording verbatim so any rewrite of the breaking-change
     paragraph will fail this test.
     """
-    unreleased = _read_unreleased()
-    signature = (
-        "`PUT /maps/{id}/thumbnail/` request body changed from `text/plain`"
-    )
+    unreleased = _read_unreleased() + "\n" + _read_release("1.1.0")
+    signature = "`PUT /maps/{id}/thumbnail/` request body changed from `text/plain`"
     assert signature in unreleased, (
         "Phase 269 breaking-change paragraph for PUT /maps/{id}/thumbnail/ has "
         "been rewritten or removed from CHANGELOG [Unreleased]. Restore it."

@@ -2152,8 +2152,7 @@ class TestMapLayersTrailingSlash:
             f"No-slash form: expected 201, got {resp_no_slash.status_code}"
         )
         assert resp_with_slash.status_code == 201, (
-            f"Trailing-slash form: expected 201, "
-            f"got {resp_with_slash.status_code}"
+            f"Trailing-slash form: expected 201, got {resp_with_slash.status_code}"
         )
 
         body_no_slash = resp_no_slash.json()
@@ -2189,7 +2188,9 @@ class TestMapLayersTrailingSlash:
         clients.
         """
         admin_id = await get_user_id(test_db_session, "admin")
-        ds = await create_dataset(test_db_session, created_by=admin_id, name="PATCH Slash")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, name="PATCH Slash"
+        )
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -2213,7 +2214,12 @@ class TestMapLayersTrailingSlash:
         # Sanity — non-slash form still works (canonical, OpenAPI-listed).
         resp_no_slash = await client.patch(
             f"/maps/{map_id}/layers",
-            json={"added": [{"dataset_id": str(ds.id)}], "updated": [], "removed": [], "order": None},
+            json={
+                "added": [{"dataset_id": str(ds.id)}],
+                "updated": [],
+                "removed": [],
+                "order": None,
+            },
             headers=admin_auth_header,
             follow_redirects=False,
         )
@@ -2239,6 +2245,26 @@ class TestMapThumbnail:
             headers=admin_auth_header,
         )
         assert resp.status_code == 204
+
+    async def test_upload_thumbnail_bumps_updated_at(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Thumbnail refreshes must invalidate map-card thumbnail caches."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+        before = created["updated_at"]
+
+        resp = await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _valid_png_data_uri()},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 204
+
+        refreshed = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+
+        assert refreshed.status_code == 200
+        assert refreshed.json()["updated_at"] != before
 
     async def test_get_thumbnail_after_upload(
         self, client: AsyncClient, admin_auth_header: dict

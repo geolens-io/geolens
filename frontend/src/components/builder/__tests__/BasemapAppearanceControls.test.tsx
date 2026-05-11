@@ -3,6 +3,11 @@ import { fireEvent, render, screen } from '@/test/test-utils';
 import { BasemapAppearanceControls } from '../BasemapAppearanceControls';
 import type { MapBasemapConfig } from '@/types/api';
 
+type SelectChildProps = {
+  children?: ReactNode;
+  'aria-label'?: string;
+};
+
 vi.mock('@/components/ui/select', () => ({
   Select: ({
     value,
@@ -15,12 +20,12 @@ vi.mock('@/components/ui/select', () => ({
   }) => {
     const childArray = Children.toArray(children);
     const trigger = childArray.find(
-      (child): child is ReactElement<{ 'aria-label'?: string }> =>
-        isValidElement<{ 'aria-label'?: string }>(child) && Boolean(child.props['aria-label']),
+      (child): child is ReactElement<SelectChildProps> =>
+        isValidElement<SelectChildProps>(child) && Boolean(child.props['aria-label']),
     );
     const content = childArray.find(
-      (child): child is ReactElement<{ children?: ReactNode }> =>
-        isValidElement<{ children?: ReactNode }>(child) && !child.props['aria-label'],
+      (child): child is ReactElement<SelectChildProps> =>
+        isValidElement<SelectChildProps>(child) && !child.props['aria-label'],
     );
     return (
       <select

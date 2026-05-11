@@ -57,7 +57,7 @@ def test_admin_block_has_required_marker(env_example_text):
     for i, line in enumerate(lines):
         if line.startswith("GEOLENS_ADMIN_USERNAME="):
             # Look at the 4 lines above for "[REQUIRED]"
-            preceding = "\n".join(lines[max(0, i - 4):i])
+            preceding = "\n".join(lines[max(0, i - 4) : i])
             assert "[REQUIRED]" in preceding, (
                 f"SEC-15: comment block above GEOLENS_ADMIN_USERNAME must contain "
                 f"'[REQUIRED]' marker. Preceding 4 lines:\n{preceding}"
@@ -71,7 +71,7 @@ def test_admin_password_block_has_required_marker(env_example_text):
     lines = env_example_text.splitlines()
     for i, line in enumerate(lines):
         if line.startswith("GEOLENS_ADMIN_PASSWORD="):
-            preceding = "\n".join(lines[max(0, i - 4):i])
+            preceding = "\n".join(lines[max(0, i - 4) : i])
             assert "[REQUIRED]" in preceding, (
                 f"SEC-15: comment block above GEOLENS_ADMIN_PASSWORD must contain "
                 f"'[REQUIRED]' marker. Preceding 4 lines:\n{preceding}"

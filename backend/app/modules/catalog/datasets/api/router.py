@@ -14,11 +14,9 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
-from app.platform.cache import get_cache
-from app.platform.cache.tiles import invalidate_catalog_cache
-from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
@@ -42,6 +40,9 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetMeta,
     DatasetResponse,
 )
+from app.platform.cache import get_cache
+from app.platform.cache.provider import get_tile_cache
+from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.datasets.domain.service import (
     DependentVrtError,
@@ -304,6 +305,10 @@ async def update_dataset_metadata(
     await db.refresh(dataset)
     await db.refresh(dataset.record)
     await invalidate_catalog_cache()
+    if "tile_columns" in meta.model_fields_set:
+        tile_cache = get_tile_cache()
+        if tile_cache is not None:
+            await tile_cache.invalidate_table(dataset.table_name)
 
     actors_by_id = await _load_actor_identities(
         db,

@@ -6,9 +6,6 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.config import settings
-
-
 # ---------------------------------------------------------------------------
 # Worker health app tests
 # ---------------------------------------------------------------------------
@@ -213,6 +210,7 @@ async def test_main_uses_shutdown_graceful_timeout():
     (`settings.worker_shutdown_timeout`) instead of `os.environ.get(...)`,
     so the test patches the Settings attribute directly.
     """
+    from app.platform.jobs import worker as worker_module
     from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
@@ -232,7 +230,7 @@ async def test_main_uses_shutdown_graceful_timeout():
         ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
-        patch.object(settings, "worker_shutdown_timeout", 45),
+        patch.object(worker_module.settings, "worker_shutdown_timeout", 45),
     ):
         await main()
 
@@ -249,6 +247,7 @@ async def test_main_uses_default_shutdown_timeout():
     expectation explicit even when the host process inherits a different
     value.
     """
+    from app.platform.jobs import worker as worker_module
     from app.platform.jobs.worker import main
 
     mock_task_app = MagicMock()
@@ -268,7 +267,7 @@ async def test_main_uses_default_shutdown_timeout():
         ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
-        patch.object(settings, "worker_shutdown_timeout", 30),
+        patch.object(worker_module.settings, "worker_shutdown_timeout", 30),
     ):
         await main()
 

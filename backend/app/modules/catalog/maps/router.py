@@ -1,6 +1,7 @@
 """Maps API endpoints: CRUD, duplication, and layer management."""
 
 import uuid
+from datetime import UTC, datetime
 from typing import Literal
 
 import structlog
@@ -1482,6 +1483,7 @@ async def upload_thumbnail(
         )
 
     map_obj.thumbnail_uri = storage_key
+    map_obj.updated_at = datetime.now(UTC)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
