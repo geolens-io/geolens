@@ -155,7 +155,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     expect(await afterSwatches.first().getAttribute('title')).toBe(firstColor);
   });
 
-  test('filter icon appears when filter is configured', async ({ page }) => {
+  test('filter configuration persists after returning to the map stack', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
@@ -167,15 +167,15 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.getByRole('button', { name: 'Add filter' }).click();
     await page.getByRole('textbox', { name: 'Value' }).fill('1');
 
-    // Filter icon should appear in the layer row header
     await page.getByRole('button', { name: 'Back to layers' }).click();
     const layerRow = page.locator('[data-testid^="layer-item"]').first();
-    const filterBadge = layerRow.locator('svg.lucide-funnel');
     await expect(layerRow).toBeVisible();
-    await expect(filterBadge).toBeVisible({ timeout: 3_000 });
+    await layerRow.getByRole('button', { name: 'Expand options' }).click();
+    await page.getByRole('tab', { name: 'Filter', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Value' })).toHaveValue('1');
   });
 
-  test('labels icon appears when labels are enabled', async ({ page }) => {
+  test('label toggle persists after returning to the map stack', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
@@ -190,10 +190,13 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(labelsSwitch).toBeVisible();
     await labelsSwitch.click();
 
-    // Labels icon should appear in the layer row header
     await page.getByRole('button', { name: 'Back to layers' }).click();
     const layerRow = page.locator('[data-testid^="layer-item"]').first();
     await expect(layerRow).toBeVisible();
-    await expect(layerRow.locator('.lucide-type')).toBeVisible({ timeout: 3_000 });
+    await layerRow.getByRole('button', { name: 'Expand options' }).click();
+    await page.getByRole('tab', { name: 'Labels', exact: true }).click();
+    await expect(
+      page.getByRole('tabpanel', { name: 'Labels' }).getByRole('switch'),
+    ).toBeChecked();
   });
 });
