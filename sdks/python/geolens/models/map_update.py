@@ -13,6 +13,7 @@ from ..models.map_visibility import MapVisibility
 from typing import cast
 
 if TYPE_CHECKING:
+    from ..models.basemap_config import BasemapConfig
     from ..models.map_layer_input import MapLayerInput
     from ..models.terrain_config import TerrainConfig
 
@@ -24,6 +25,7 @@ T = TypeVar("T", bound="MapUpdate")
 class MapUpdate:
     """
     Attributes:
+        basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
         basemap_style (None | str | Unset): Basemap style ID or URL
         bearing (float | None | Unset): Map rotation in degrees
         center_lat (float | None | Unset): Map center latitude
@@ -40,6 +42,7 @@ class MapUpdate:
         zoom (float | None | Unset): Map zoom level
     """
 
+    basemap_config: BasemapConfig | None | Unset = UNSET
     basemap_style: None | str | Unset = UNSET
     bearing: float | None | Unset = UNSET
     center_lat: float | None | Unset = UNSET
@@ -57,7 +60,16 @@ class MapUpdate:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
+
+        basemap_config: dict[str, Any] | None | Unset
+        if isinstance(self.basemap_config, Unset):
+            basemap_config = UNSET
+        elif isinstance(self.basemap_config, BasemapConfig):
+            basemap_config = self.basemap_config.to_dict()
+        else:
+            basemap_config = self.basemap_config
 
         basemap_style: None | str | Unset
         if isinstance(self.basemap_style, Unset):
@@ -159,6 +171,8 @@ class MapUpdate:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if basemap_config is not UNSET:
+            field_dict["basemap_config"] = basemap_config
         if basemap_style is not UNSET:
             field_dict["basemap_style"] = basemap_style
         if bearing is not UNSET:
@@ -192,10 +206,28 @@ class MapUpdate:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.basemap_config import BasemapConfig
         from ..models.map_layer_input import MapLayerInput
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
+
+        def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                basemap_config_type_0 = BasemapConfig.from_dict(data)
+
+                return basemap_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapConfig | None | Unset, data)
+
+        basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
 
         def _parse_basemap_style(data: object) -> None | str | Unset:
             if data is None:
@@ -365,6 +397,7 @@ class MapUpdate:
         zoom = _parse_zoom(d.pop("zoom", UNSET))
 
         map_update = cls(
+            basemap_config=basemap_config,
             basemap_style=basemap_style,
             bearing=bearing,
             center_lat=center_lat,

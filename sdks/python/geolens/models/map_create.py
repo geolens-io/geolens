@@ -11,6 +11,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
+    from ..models.basemap_config import BasemapConfig
     from ..models.terrain_config import TerrainConfig
 
 
@@ -22,6 +23,7 @@ class MapCreate:
     """
     Attributes:
         name (str): Map display name Example: NYC Infrastructure.
+        basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
         description (None | str | Unset): Short description for sharing Example: Buildings, parks, and transit routes in
             Manhattan.
         notes (None | str | Unset): Private notes (not shown publicly)
@@ -29,15 +31,25 @@ class MapCreate:
     """
 
     name: str
+    basemap_config: BasemapConfig | None | Unset = UNSET
     description: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
 
         name = self.name
+
+        basemap_config: dict[str, Any] | None | Unset
+        if isinstance(self.basemap_config, Unset):
+            basemap_config = UNSET
+        elif isinstance(self.basemap_config, BasemapConfig):
+            basemap_config = self.basemap_config.to_dict()
+        else:
+            basemap_config = self.basemap_config
 
         description: None | str | Unset
         if isinstance(self.description, Unset):
@@ -66,6 +78,8 @@ class MapCreate:
                 "name": name,
             }
         )
+        if basemap_config is not UNSET:
+            field_dict["basemap_config"] = basemap_config
         if description is not UNSET:
             field_dict["description"] = description
         if notes is not UNSET:
@@ -77,10 +91,28 @@ class MapCreate:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
         name = d.pop("name")
+
+        def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                basemap_config_type_0 = BasemapConfig.from_dict(data)
+
+                return basemap_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapConfig | None | Unset, data)
+
+        basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
 
         def _parse_description(data: object) -> None | str | Unset:
             if data is None:
@@ -119,6 +151,7 @@ class MapCreate:
 
         map_create = cls(
             name=name,
+            basemap_config=basemap_config,
             description=description,
             notes=notes,
             terrain_config=terrain_config,

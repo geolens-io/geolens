@@ -11,6 +11,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
+    from ..models.basemap_config import BasemapConfig
     from ..models.shared_layer_response import SharedLayerResponse
     from ..models.terrain_config import TerrainConfig
 
@@ -31,6 +32,7 @@ class SharedMapResponse:
         name (str):
         pitch (float):
         zoom (float):
+        basemap_config (BasemapConfig | None | Unset):
         has_non_public_layers (bool | Unset):  Default: False.
         show_basemap_labels (bool | Unset):  Default: True.
         terrain_config (None | TerrainConfig | Unset):
@@ -45,12 +47,14 @@ class SharedMapResponse:
     name: str
     pitch: float
     zoom: float
+    basemap_config: BasemapConfig | None | Unset = UNSET
     has_non_public_layers: bool | Unset = False
     show_basemap_labels: bool | Unset = True
     terrain_config: None | TerrainConfig | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
 
         basemap_style = self.basemap_style
@@ -74,6 +78,14 @@ class SharedMapResponse:
         pitch = self.pitch
 
         zoom = self.zoom
+
+        basemap_config: dict[str, Any] | None | Unset
+        if isinstance(self.basemap_config, Unset):
+            basemap_config = UNSET
+        elif isinstance(self.basemap_config, BasemapConfig):
+            basemap_config = self.basemap_config.to_dict()
+        else:
+            basemap_config = self.basemap_config
 
         has_non_public_layers = self.has_non_public_layers
 
@@ -102,6 +114,8 @@ class SharedMapResponse:
                 "zoom": zoom,
             }
         )
+        if basemap_config is not UNSET:
+            field_dict["basemap_config"] = basemap_config
         if has_non_public_layers is not UNSET:
             field_dict["has_non_public_layers"] = has_non_public_layers
         if show_basemap_labels is not UNSET:
@@ -113,6 +127,7 @@ class SharedMapResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.basemap_config import BasemapConfig
         from ..models.shared_layer_response import SharedLayerResponse
         from ..models.terrain_config import TerrainConfig
 
@@ -145,6 +160,23 @@ class SharedMapResponse:
 
         zoom = d.pop("zoom")
 
+        def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                basemap_config_type_0 = BasemapConfig.from_dict(data)
+
+                return basemap_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapConfig | None | Unset, data)
+
+        basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
+
         has_non_public_layers = d.pop("has_non_public_layers", UNSET)
 
         show_basemap_labels = d.pop("show_basemap_labels", UNSET)
@@ -176,6 +208,7 @@ class SharedMapResponse:
             name=name,
             pitch=pitch,
             zoom=zoom,
+            basemap_config=basemap_config,
             has_non_public_layers=has_non_public_layers,
             show_basemap_labels=show_basemap_labels,
             terrain_config=terrain_config,

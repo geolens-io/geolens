@@ -1204,6 +1204,69 @@
         "title": "BackfillResponse",
         "type": "object"
       },
+      "BasemapConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "boundary_visibility": {
+            "$ref": "#/components/schemas/BasemapSublayerVisibility",
+            "default": "full",
+            "description": "Administrative boundary sublayer visibility where supported."
+          },
+          "building_visibility": {
+            "default": true,
+            "description": "Whether supported building/3D building basemap layers are shown.",
+            "title": "Building Visibility",
+            "type": "boolean"
+          },
+          "label_mode": {
+            "$ref": "#/components/schemas/BasemapLabelMode",
+            "default": "full",
+            "description": "Basemap label prominence."
+          },
+          "land_water_tone": {
+            "$ref": "#/components/schemas/BasemapLandWaterTone",
+            "default": "default",
+            "description": "Land and water color treatment where supported."
+          },
+          "relief_contrast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapReliefContrast"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional contrast hint for relief-oriented basemap styling."
+          },
+          "road_visibility": {
+            "$ref": "#/components/schemas/BasemapSublayerVisibility",
+            "default": "full",
+            "description": "Road and transit sublayer visibility where supported."
+          }
+        },
+        "title": "BasemapConfig",
+        "type": "object"
+      },
+      "BasemapLabelMode": {
+        "enum": [
+          "full",
+          "subtle",
+          "hidden"
+        ],
+        "title": "BasemapLabelMode",
+        "type": "string"
+      },
+      "BasemapLandWaterTone": {
+        "enum": [
+          "default",
+          "muted",
+          "contrast",
+          "monochrome"
+        ],
+        "title": "BasemapLandWaterTone",
+        "type": "string"
+      },
       "BasemapPublicResponse": {
         "description": "Public basemap response \u2014 excludes api_key.",
         "properties": {
@@ -1254,6 +1317,24 @@
         ],
         "title": "BasemapPublicResponse",
         "type": "object"
+      },
+      "BasemapReliefContrast": {
+        "enum": [
+          "soft",
+          "standard",
+          "strong"
+        ],
+        "title": "BasemapReliefContrast",
+        "type": "string"
+      },
+      "BasemapSublayerVisibility": {
+        "enum": [
+          "full",
+          "subtle",
+          "hidden"
+        ],
+        "title": "BasemapSublayerVisibility",
+        "type": "string"
       },
       "Body_login_auth_login__post": {
         "properties": {
@@ -4914,6 +4995,16 @@
       },
       "DuplicateMapResponse": {
         "properties": {
+          "basemap_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "basemap_style": {
             "title": "Basemap Style",
             "type": "string"
@@ -6804,6 +6895,17 @@
       },
       "MapCreate": {
         "properties": {
+          "basemap_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Curated map-level basemap appearance preferences"
+          },
           "description": {
             "anyOf": [
               {
@@ -7744,6 +7846,16 @@
       },
       "MapResponse": {
         "properties": {
+          "basemap_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "basemap_style": {
             "title": "Basemap Style",
             "type": "string"
@@ -8283,6 +8395,17 @@
       },
       "MapUpdate": {
         "properties": {
+          "basemap_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Curated map-level basemap appearance preferences"
+          },
           "basemap_style": {
             "anyOf": [
               {
@@ -12231,6 +12354,16 @@
       },
       "SharedMapResponse": {
         "properties": {
+          "basemap_config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BasemapConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "basemap_style": {
             "title": "Basemap Style",
             "type": "string"

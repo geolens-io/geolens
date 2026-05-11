@@ -732,6 +732,48 @@ export type BackfillResponse = {
 };
 
 /**
+ * BasemapConfig
+ */
+export type BasemapConfig = {
+    /**
+     * Administrative boundary sublayer visibility where supported.
+     */
+    boundary_visibility?: BasemapSublayerVisibility;
+    /**
+     * Building Visibility
+     *
+     * Whether supported building/3D building basemap layers are shown.
+     */
+    building_visibility?: boolean;
+    /**
+     * Basemap label prominence.
+     */
+    label_mode?: BasemapLabelMode;
+    /**
+     * Land and water color treatment where supported.
+     */
+    land_water_tone?: BasemapLandWaterTone;
+    /**
+     * Optional contrast hint for relief-oriented basemap styling.
+     */
+    relief_contrast?: BasemapReliefContrast | null;
+    /**
+     * Road and transit sublayer visibility where supported.
+     */
+    road_visibility?: BasemapSublayerVisibility;
+};
+
+/**
+ * BasemapLabelMode
+ */
+export type BasemapLabelMode = 'full' | 'subtle' | 'hidden';
+
+/**
+ * BasemapLandWaterTone
+ */
+export type BasemapLandWaterTone = 'default' | 'muted' | 'contrast' | 'monochrome';
+
+/**
  * BasemapPublicResponse
  *
  * Public basemap response — excludes api_key.
@@ -774,6 +816,16 @@ export type BasemapPublicResponse = {
      */
     url: string;
 };
+
+/**
+ * BasemapReliefContrast
+ */
+export type BasemapReliefContrast = 'soft' | 'standard' | 'strong';
+
+/**
+ * BasemapSublayerVisibility
+ */
+export type BasemapSublayerVisibility = 'full' | 'subtle' | 'hidden';
 
 /**
  * Body_login_auth_login__post
@@ -2825,6 +2877,7 @@ export type DryRunResponse = {
  * DuplicateMapResponse
  */
 export type DuplicateMapResponse = {
+    basemap_config?: BasemapConfig | null;
     /**
      * Basemap Style
      */
@@ -3976,6 +4029,10 @@ export type ManifestSource = {
  */
 export type MapCreate = {
     /**
+     * Curated map-level basemap appearance preferences
+     */
+    basemap_config?: BasemapConfig | null;
+    /**
      * Description
      *
      * Short description for sharing
@@ -4503,6 +4560,7 @@ export type MapListResponse = {
  * MapResponse
  */
 export type MapResponse = {
+    basemap_config?: BasemapConfig | null;
     /**
      * Basemap Style
      */
@@ -4781,6 +4839,10 @@ export type MapSummaryResponse = {
  * MapUpdate
  */
 export type MapUpdate = {
+    /**
+     * Curated map-level basemap appearance preferences
+     */
+    basemap_config?: BasemapConfig | null;
     /**
      * Basemap Style
      *
@@ -7109,6 +7171,7 @@ export type SharedLayerResponse = {
  * SharedMapResponse
  */
 export type SharedMapResponse = {
+    basemap_config?: BasemapConfig | null;
     /**
      * Basemap Style
      */

@@ -36,7 +36,12 @@ from .audit_log_list_response import AuditLogListResponse
 from .audit_log_response import AuditLogResponse
 from .audit_log_response_details_type_0 import AuditLogResponseDetailsType0
 from .backfill_response import BackfillResponse
+from .basemap_config import BasemapConfig
+from .basemap_label_mode import BasemapLabelMode
+from .basemap_land_water_tone import BasemapLandWaterTone
 from .basemap_public_response import BasemapPublicResponse
+from .basemap_relief_contrast import BasemapReliefContrast
+from .basemap_sublayer_visibility import BasemapSublayerVisibility
 from .body_login_auth_login_post import BodyLoginAuthLoginPost
 from .body_reupload_dataset_datasets_dataset_id_reupload_post import (
     BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
@@ -562,7 +567,12 @@ __all__ = (
     "AuditLogResponse",
     "AuditLogResponseDetailsType0",
     "BackfillResponse",
+    "BasemapConfig",
+    "BasemapLabelMode",
+    "BasemapLandWaterTone",
     "BasemapPublicResponse",
+    "BasemapReliefContrast",
+    "BasemapSublayerVisibility",
     "BodyLoginAuthLoginPost",
     "BodyReuploadDatasetDatasetsDatasetIdReuploadPost",
     "BodyUploadFileIngestUploadPost",

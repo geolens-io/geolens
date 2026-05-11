@@ -16,6 +16,7 @@ from uuid import UUID
 import datetime
 
 if TYPE_CHECKING:
+    from ..models.basemap_config import BasemapConfig
     from ..models.map_layer_response import MapLayerResponse
     from ..models.terrain_config import TerrainConfig
 
@@ -43,6 +44,7 @@ class MapResponse:
         updated_at (datetime.datetime):
         visibility (MapVisibility):
         zoom (float | None):
+        basemap_config (BasemapConfig | None | Unset):
         created_by_username (None | str | Unset):
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
         forked_from_name (None | str | Unset):
@@ -68,6 +70,7 @@ class MapResponse:
     updated_at: datetime.datetime
     visibility: MapVisibility
     zoom: float | None
+    basemap_config: BasemapConfig | None | Unset = UNSET
     created_by_username: None | str | Unset = UNSET
     forked_from_id: None | Unset | UUID = UNSET
     forked_from_name: None | str | Unset = UNSET
@@ -78,6 +81,7 @@ class MapResponse:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.basemap_config import BasemapConfig
         from ..models.terrain_config import TerrainConfig
 
         basemap_style = self.basemap_style
@@ -122,6 +126,14 @@ class MapResponse:
 
         zoom: float | None
         zoom = self.zoom
+
+        basemap_config: dict[str, Any] | None | Unset
+        if isinstance(self.basemap_config, Unset):
+            basemap_config = UNSET
+        elif isinstance(self.basemap_config, BasemapConfig):
+            basemap_config = self.basemap_config.to_dict()
+        else:
+            basemap_config = self.basemap_config
 
         created_by_username: None | str | Unset
         if isinstance(self.created_by_username, Unset):
@@ -194,6 +206,8 @@ class MapResponse:
                 "zoom": zoom,
             }
         )
+        if basemap_config is not UNSET:
+            field_dict["basemap_config"] = basemap_config
         if created_by_username is not UNSET:
             field_dict["created_by_username"] = created_by_username
         if forked_from_id is not UNSET:
@@ -213,6 +227,7 @@ class MapResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.basemap_config import BasemapConfig
         from ..models.map_layer_response import MapLayerResponse
         from ..models.terrain_config import TerrainConfig
 
@@ -286,6 +301,23 @@ class MapResponse:
             return cast(float | None, data)
 
         zoom = _parse_zoom(d.pop("zoom"))
+
+        def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                basemap_config_type_0 = BasemapConfig.from_dict(data)
+
+                return basemap_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapConfig | None | Unset, data)
+
+        basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
 
         def _parse_created_by_username(data: object) -> None | str | Unset:
             if data is None:
@@ -393,6 +425,7 @@ class MapResponse:
             updated_at=updated_at,
             visibility=visibility,
             zoom=zoom,
+            basemap_config=basemap_config,
             created_by_username=created_by_username,
             forked_from_id=forked_from_id,
             forked_from_name=forked_from_name,
