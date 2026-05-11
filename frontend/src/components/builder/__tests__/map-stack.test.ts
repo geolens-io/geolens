@@ -271,7 +271,7 @@ describe('buildMapStack', () => {
       basemap_style: 'positron',
       terrain_config: null,
       layers: [],
-    } as MapStackMapInput);
+    });
 
     expect(flattenMapStack(groups).find((entry) => entry.id === 'labels:basemap')).toMatchObject({
       visible: true,

@@ -1,7 +1,6 @@
 import type {
   LabelConfig,
   MapLayerResponse,
-  MapResponse,
   MapTerrainConfig,
   PopupConfig,
   StyleConfig,
@@ -108,10 +107,13 @@ export interface MapStackGroup {
   entries: MapStackEntry[];
 }
 
-export type MapStackMapInput = Pick<
-  MapResponse,
-  'basemap_style' | 'show_basemap_labels' | 'terrain_config' | 'layers' | 'widgets'
->;
+export interface MapStackMapInput {
+  basemap_style?: string | null;
+  show_basemap_labels?: boolean | null;
+  terrain_config?: MapTerrainConfig | null;
+  layers?: MapLayerResponse[];
+  widgets?: string[] | null;
+}
 
 interface IndexedLayer {
   layer: MapLayerResponse;
@@ -624,7 +626,7 @@ export function buildMapStack(map: MapStackMapInput): MapStackGroup[] {
   const orderedLayers = sortLayers(map.layers ?? []);
   const duplicates = duplicateIndex(orderedLayers);
 
-  makeSurfaceEntries(groups, orderedLayers, map.terrain_config);
+  makeSurfaceEntries(groups, orderedLayers, map.terrain_config ?? null);
   makeReliefEntries(groups, orderedLayers, duplicates);
   makeBasemapEntries(groups, map);
   makeDataEntries(groups, orderedLayers, duplicates);
