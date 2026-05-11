@@ -20,19 +20,28 @@ progress:
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
 **Phase:** 1007 complete — Durable builder QA gate and closeout
 **Plan:** 1007-01 complete
-**Status:** v1001 phases complete; milestone closeout/audit in progress.
+**Status:** v1001 milestone complete and archived.
 **Last activity:** 2026-05-11 — Phase 1007 added durable builder QA gates, public-output accessibility coverage, deterministic sidebar resize coverage, and refreshed builder-styling smoke selectors.
 
 Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
+See: .planning/PROJECT.md (updated 2026-05-11 after v1001 closeout)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1001 milestone closeout.
+**Current focus:** Ready for next milestone planning.
 
 ## Last Shipped Milestone
+
+**Version:** v1001 Map Builder UI/UX Polish Sweep
+**Shipped:** 2026-05-11
+**Phases:** 1002-1007 (6 phases, 8 plans)
+**Requirements:** 38/38 satisfied (FLOW-01..06, STACK-01..06, STYLE-01..08, OUTPUT-01..06, A11Y-01..06, QA-01..06)
+**Audit:** passed / GO
+**Archive:** `.planning/milestones/v1001-ROADMAP.md`, `.planning/milestones/v1001-REQUIREMENTS.md`, `.planning/milestones/v1001-MILESTONE-AUDIT.md`
+
+## Prior Shipped Milestone
 
 **Version:** v1000 Map Stack and Basemap Layer Controls
 **Shipped:** 2026-05-11
@@ -41,7 +50,7 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 **Audit:** `tech_debt` / `COMPLETE_WITH_TECH_DEBT_REVIEW` — generated SDK drift, visual QA automation, seeded demo E2E gating, and full release gates not rerun
 **Archive:** `.planning/milestones/v1000-ROADMAP.md`, `.planning/milestones/v1000-REQUIREMENTS.md`, `.planning/milestones/v1000-MILESTONE-AUDIT.md`
 
-## Prior Shipped Milestone
+## Earlier Shipped Milestone
 
 **Version:** v13.14 Smoke Stabilization
 **Shipped:** 2026-05-08
@@ -155,9 +164,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T22:12:00Z
-Stopped at: Phase 1007 complete; v1001 milestone closeout in progress.
-Resume file: `.planning/phases/1007-durable-builder-qa-gate-and-closeout/1007-VERIFICATION.md`
+Last session: 2026-05-11T22:20:00Z
+Stopped at: v1001 milestone complete and archived; ready for next milestone planning.
+Resume file: `.planning/milestones/v1001-MILESTONE-AUDIT.md`
 
 ---
-*Last updated: 2026-05-11 after completing Phase 1007*
+*Last updated: 2026-05-11 after closing v1001*

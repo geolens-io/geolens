@@ -1,4 +1,14 @@
-# Roadmap: GeoLens
+# Milestone v1001: Map Builder UI/UX Polish Sweep
+
+**Status:** SHIPPED 2026-05-11  
+**Phases:** 1002-1007  
+**Total Plans:** 8  
+**Requirements:** 38/38 satisfied  
+**Audit:** passed / GO
+
+---
+
+# Roadmap Archive
 
 ## Milestones
 
@@ -56,21 +66,97 @@
 - ✅ **v13.13 Backlog Sweep** — Phases 271-279 (shipped 2026-05-07) — see [archive](milestones/v13.13-MILESTONE-AUDIT.md)
 - ✅ **v13.14 Smoke Stabilization** — Phases 280-282 (shipped 2026-05-08) — see [archive](milestones/v13.14-ROADMAP.md)
 - ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
-- ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
+- ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11)
 
 ## Phases
 
-<details>
+<details open>
 <summary>✅ v1001 Map Builder UI/UX Polish Sweep (Phases 1002-1007) — SHIPPED 2026-05-11</summary>
 
-- [x] Phase 1002: kepler-guided-builder-workflow-audit-and-triage (1/1 plan) — completed 2026-05-11
-- [x] Phase 1003: map-stack-inspector-interaction-polish (2/2 plans) — completed 2026-05-11
-- [x] Phase 1004: styling-and-cartography-control-polish (2/2 plans) — completed 2026-05-11
-- [x] Phase 1005: preview-save-share-output-parity (1/1 plan) — completed 2026-05-11
-- [x] Phase 1006: responsive-accessibility-copy-hardening (1/1 plan) — completed 2026-05-11
-- [x] Phase 1007: durable-builder-qa-gate-and-closeout (1/1 plan) — completed 2026-05-11
+**Milestone goal:** Make the Map Builder feel coherent, efficient, and trustworthy across the full create/edit/style/preview/share workflow on desktop, tablet, and mobile.
 
-38/38 v1001 requirements satisfied. Audit: passed. Builder smoke gate now runs without the sidebar drag-handle flake; focused Vitest, accessibility, builder Playwright, and builder smoke gates passed. Full details: [milestones/v1001-ROADMAP.md](milestones/v1001-ROADMAP.md).
+**Functional reference caveat:** Kepler.gl guides behavior for layer workflow, filtering, interactions, map settings, and save/export semantics, but GeoLens keeps its own visual design language and existing MapLibre architecture.
+
+- [x] Phase 1002: kepler-guided-builder-workflow-audit-and-triage — requirements FLOW-01..06 (completed 2026-05-11)
+- [x] Phase 1003: map-stack-inspector-interaction-polish — requirements STACK-01..06 (completed 2026-05-11)
+- [x] Phase 1004: styling-and-cartography-control-polish — requirements STYLE-01..08 (completed 2026-05-11)
+- [x] Phase 1005: preview-save-share-output-parity — requirements OUTPUT-01..06 (completed 2026-05-11)
+- [x] Phase 1006: responsive-accessibility-copy-hardening — requirements A11Y-01..06 (completed 2026-05-11)
+- [x] Phase 1007: durable-builder-qa-gate-and-closeout — requirements QA-01..06 (completed 2026-05-11)
+
+**Requirements:** 38 total, 38 mapped, 0 unmapped.
+
+### Phase 1002: Kepler-guided builder workflow audit and triage
+
+**Goal:** Audit the full GeoLens builder workflow, compare behavior against Kepler.gl-style workflow semantics where relevant, and produce a prioritized implementation inventory.
+
+**Requirements:** FLOW-01, FLOW-02, FLOW-03, FLOW-04, FLOW-05, FLOW-06
+
+**Success criteria:**
+1. Audit covers create, add-data, edit-layer, style, preview, save, share, and public-viewer flows.
+2. Each finding records severity, affected viewport, affected requirement, and recommended fix path.
+3. Kepler.gl behavior is classified as adopted, adapted, or rejected without copying visual styling.
+4. Empty/loading/loaded/dirty/saved/error/read-only states are explicitly reviewed.
+
+### Phase 1003: Map Stack inspector interaction polish
+
+**Goal:** Make the Map Stack and inspector predictable, scannable, and operable across pointer, keyboard, desktop, tablet, and mobile workflows.
+
+**Requirements:** STACK-01, STACK-02, STACK-03, STACK-04, STACK-05, STACK-06
+
+**Success criteria:**
+1. Stack rows clearly distinguish selected, hidden, disabled, locked, unsupported, loading, and error states.
+2. Layer selection, visibility, rename, reorder, duplicate disambiguation, and removal flows are stable.
+3. Inspector access works across desktop, tablet, and mobile without losing context.
+4. Keyboard navigation through stack rows, inspector tabs, disclosures, menus, and dialogs is logical and visibly focused.
+
+### Phase 1004: Styling and cartography control polish
+
+**Goal:** Smooth high-friction styling controls while preserving the existing `paint` / `style_config` / MapLibre style JSON contracts.
+
+**Requirements:** STYLE-01, STYLE-02, STYLE-03, STYLE-04, STYLE-05, STYLE-06, STYLE-07, STYLE-08
+
+**Success criteria:**
+1. Point, line, polygon, raster, DEM, terrain, symbol, label, popup, basemap, and relief controls are grouped by visual intent.
+2. Categorical, graduated, heatmap, zoom-expression, line-gradient, and raster adjustment validation is understandable and recoverable.
+3. Geometry-aware swatches and map preview states reflect pending style changes before save.
+4. Builder controls, `paint`, `style_config`, import/export JSON, and public render output remain aligned.
+
+### Phase 1005: Preview, save, share, and output parity
+
+**Goal:** Ensure what users author in the builder is what they see in saved, shared-token, authenticated public, and embedded map outputs.
+
+**Requirements:** OUTPUT-01, OUTPUT-02, OUTPUT-03, OUTPUT-04, OUTPUT-05, OUTPUT-06
+
+**Success criteria:**
+1. Builder preview matches saved-map detail, shared-token view, authenticated public view, and embed output for map stack semantics.
+2. Save states clearly distinguish unsaved changes, saving, saved, failed, and retryable states.
+3. Public and embedded outputs do not expose hidden builder-only controls.
+4. Blank/no-basemap, light, dark, relief-heavy, raster-heavy, vector-heavy, and mixed maps render without presentation regressions.
+
+### Phase 1006: Responsive, accessibility, and copy hardening
+
+**Goal:** Bring touched builder surfaces up to the current GeoLens accessibility, responsive, touch-target, copy, and i18n standards.
+
+**Requirements:** A11Y-01, A11Y-02, A11Y-03, A11Y-04, A11Y-05, A11Y-06
+
+**Success criteria:**
+1. Desktop, tablet, and mobile layouts avoid off-screen controls, unreadable rows, and unstable dimensions.
+2. Hidden or collapsed content is unreachable to keyboard and screen-reader users.
+3. Dialogs, tooltips, menus, switches, icon buttons, sliders, segmented controls, and tablists have accessible names and sufficient contrast.
+4. Touched copy avoids internal jargon and remains complete across en, es, fr, and de.
+
+### Phase 1007: Durable builder QA gate and closeout
+
+**Goal:** Convert builder polish coverage into repeatable automated checks, with screenshot evidence only where visual judgment is genuinely required.
+
+**Requirements:** QA-01, QA-02, QA-03, QA-04, QA-05, QA-06
+
+**Success criteria:**
+1. Focused builder regression suite covers the polished workflow without requiring seeded demo maps by default.
+2. Known builder sidebar drag-handle flake is removed or replaced with deterministic behavior coverage.
+3. Playwright coverage asserts desktop, tablet, and mobile builder UI states instead of relying only on screenshots.
+4. Accessibility checks and focused Vitest coverage protect touched builder components, hooks, adapters, and public-output alignment.
 
 </details>
 

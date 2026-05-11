@@ -1,4 +1,10 @@
-# Requirements: GeoLens v1001 Map Builder UI/UX Polish Sweep
+# Requirements Archive: GeoLens v1001 Map Builder UI/UX Polish Sweep
+
+**Status:** SHIPPED 2026-05-11  
+**Coverage:** 38/38 requirements satisfied  
+**Audit:** `.planning/milestones/v1001-MILESTONE-AUDIT.md`
+
+---
 
 **Defined:** 2026-05-11  
 **Core Value:** Users can find any dataset in the catalog in seconds - search, see it on a map, understand what it is, and get it out in the format they need.  
