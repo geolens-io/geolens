@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v13.14
 milestone_name: Smoke Stabilization
 status: completed
-last_updated: "2026-05-11T15:01:55.000Z"
+last_updated: "2026-05-11T15:06:13.000Z"
 progress:
   total_phases: 1
   completed_phases: 1
@@ -128,9 +128,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T14:56:29Z
-Stopped at: Completed Phase 1000 plan 1000-06, closing the public-viewer basemap_config rendering gap with focused frontend tests and lint.
+Last session: 2026-05-11T15:06:13Z
+Stopped at: Phase 1000 complete and verified at 7/7; auto-advance cleared at milestone boundary.
 Resume file: none
 
 ---
-*Last updated: 2026-05-11 after Phase 1000 plan 1000-06 execution*
+*Last updated: 2026-05-11 after Phase 1000 verification and transition*
