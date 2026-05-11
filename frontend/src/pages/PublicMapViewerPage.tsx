@@ -43,6 +43,8 @@ function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
     show_in_legend: layer.show_in_legend,
     layer_type: layer.layer_type ?? undefined,
     dataset_record_type: layer.dataset_record_type ?? undefined,
+    is_dem: layer.is_dem ?? undefined,
+    dem_vertical_units: layer.dem_vertical_units ?? null,
     is_3d: layer.is_3d ?? null,
     feature_count: layer.dataset_feature_count ?? null,
     tile_url: '',
