@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button';
 const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
-import { LayerPanel } from '@/components/builder/LayerPanel';
-import { LayerEditorPanel } from '@/components/builder/LayerEditorPanel';
+import { MapStackPanel } from '@/components/builder/MapStackPanel';
+import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
@@ -33,8 +33,6 @@ import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout'
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { BasemapPicker } from '@/components/builder/BasemapPicker';
-import { TerrainControls } from '@/components/builder/TerrainControls';
 import { WidgetHost, WidgetSidebar, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
@@ -46,18 +44,46 @@ const SIDEBAR_MAX = 600;
 const SidebarContent = memo(function SidebarContent({
   layers,
   onAddDataClick,
+  editingLayer,
+  activeEditorTab,
+  layerEditorHandlers,
+  onCloseEditor,
+  widgetIds,
   widgetSidebar,
 }: {
   layers: ReturnType<typeof useBuilderLayers>;
   onAddDataClick: () => void;
+  editingLayer: ReturnType<typeof useBuilderLayers>['localLayers'][number] | null;
+  activeEditorTab: 'style' | 'filter' | 'labels' | 'popup' | null;
+  layerEditorHandlers: LayerEditorHandlers;
+  onCloseEditor: () => void;
+  widgetIds: string[];
   widgetSidebar?: React.ReactNode;
 }) {
-  const { t } = useTranslation('builder');
+  if (editingLayer) {
+    return (
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <LazyLoadErrorBoundary>
+          <LayerEditorPanel
+            layer={editingLayer}
+            activeTab={activeEditorTab ?? 'style'}
+            handlers={layerEditorHandlers}
+            onBack={onCloseEditor}
+          />
+        </LazyLoadErrorBoundary>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex-1 overflow-y-auto space-y-4 py-3">
-      <LayerPanel
+    <div className="flex-1 overflow-y-auto py-3">
+      <MapStackPanel
         layers={layers.localLayers}
         expandedLayerId={layers.expandedLayerId}
+        basemapStyle={layers.localBasemap}
+        showBasemapLabels={layers.showBasemapLabels}
+        terrainConfig={layers.localTerrainConfig}
+        widgets={widgetIds}
         onToggleExpand={layers.handleToggleExpand}
         onToggleVisibility={layers.handleToggleVisibility}
         onMoveUp={layers.handleMoveUp}
@@ -68,27 +94,14 @@ const SidebarContent = memo(function SidebarContent({
         onZoomToLayer={layers.handleZoomToLayer}
         onToggleLegend={layers.handleToggleLegend}
         onAddDataClick={onAddDataClick}
+        onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
+        onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
+        onTerrainChange={(next) => {
+          layers.setLocalTerrainConfig(next);
+          layers.markDirty();
+        }}
+        widgetSidebar={widgetSidebar}
       />
-      {widgetSidebar}
-      <div className="border-t pt-3 px-2">
-        <h2 className="text-sm font-medium mb-2">{t('basemap.title')}</h2>
-        <BasemapPicker
-          value={layers.localBasemap}
-          onChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
-          showLabels={layers.showBasemapLabels}
-          onToggleLabels={(v: boolean) => { layers.setShowBasemapLabels(v); layers.setHasUnsavedChanges(true); }}
-        />
-        <div className="mt-4 border-t pt-3">
-          <TerrainControls
-            layers={layers.localLayers}
-            value={layers.localTerrainConfig}
-            onChange={(next) => {
-              layers.setLocalTerrainConfig(next);
-              layers.markDirty();
-            }}
-          />
-        </div>
-      </div>
     </div>
   );
 });
@@ -257,6 +270,8 @@ export function MapBuilderPage() {
   );
 
   const { byAnchor, sidebar } = usePartitionedWidgets();
+  const activeWidgetSet = useWidgetStore((state) => state.activeWidgets);
+  const activeWidgetIds = useMemo(() => Array.from(activeWidgetSet), [activeWidgetSet]);
   const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
 
   const editingLayer = useMemo(
@@ -417,24 +432,16 @@ export function MapBuilderPage() {
                 {t('actions.save')}
               </Button>
             </div>
-            {editingLayer ? (
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <LazyLoadErrorBoundary>
-                  <LayerEditorPanel
-                    layer={editingLayer}
-                    activeTab={layers.activeEditorTab ?? 'style'}
-                    handlers={layerEditorHandlers}
-                    onBack={handleCloseEditor}
-                  />
-                </LazyLoadErrorBoundary>
-              </div>
-            ) : (
-              <SidebarContent
-                layers={layers}
-                onAddDataClick={handleAddDataClick}
-                widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
-              />
-            )}
+            <SidebarContent
+              layers={layers}
+              onAddDataClick={handleAddDataClick}
+              editingLayer={editingLayer}
+              activeEditorTab={layers.activeEditorTab}
+              layerEditorHandlers={layerEditorHandlers}
+              onCloseEditor={handleCloseEditor}
+              widgetIds={activeWidgetIds}
+              widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
+            />
           </SheetContent>
         </Sheet>
       )}
@@ -486,6 +493,11 @@ export function MapBuilderPage() {
         <SidebarContent
           layers={layers}
           onAddDataClick={handleAddDataClick}
+          editingLayer={editingLayer}
+          activeEditorTab={layers.activeEditorTab}
+          layerEditorHandlers={layerEditorHandlers}
+          onCloseEditor={handleCloseEditor}
+          widgetIds={activeWidgetIds}
           widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
         />
       </div>}
@@ -520,20 +532,6 @@ export function MapBuilderPage() {
             featureCount={layers.ephemeralResult.geojson.features.length}
             onDismiss={layers.handleDismissEphemeral}
           />
-        )}
-
-        {/* Layer editor flyout — extends from sidebar into map area */}
-        {editingLayer && !isMobile && (
-          <div className="absolute left-0 top-0 bottom-0 z-20 w-72 bg-background border-e shadow-md flex flex-col overflow-hidden">
-            <LazyLoadErrorBoundary>
-              <LayerEditorPanel
-                layer={editingLayer}
-                activeTab={layers.activeEditorTab ?? 'style'}
-                handlers={layerEditorHandlers}
-                onBack={handleCloseEditor}
-              />
-            </LazyLoadErrorBoundary>
-          </div>
         )}
 
         {/* Centered toolbar */}
