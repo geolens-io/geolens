@@ -98,11 +98,21 @@ async def add_layer(
             style_config = defaults.get("style_config")
 
     paint, style_config = split_legacy_builder_paint(paint, style_config)
+    sort_order = body.sort_order
+    if "sort_order" not in body.model_fields_set:
+        result = await session.execute(
+            select(MapLayer.sort_order)
+            .where(MapLayer.map_id == map_id)
+            .order_by(MapLayer.sort_order.desc())
+            .limit(1)
+        )
+        highest_sort_order = result.scalar_one_or_none()
+        sort_order = 0 if highest_sort_order is None else highest_sort_order + 1
 
     layer = MapLayer(
         map_id=map_id,
         dataset_id=body.dataset_id,
-        sort_order=body.sort_order,
+        sort_order=sort_order,
         visible=body.visible,
         opacity=body.opacity,
         paint=paint,
