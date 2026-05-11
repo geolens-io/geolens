@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1001
 milestone_name: Map Builder UI/UX Polish Sweep
 status: ready_to_plan
-last_updated: "2026-05-11T20:37:51.679Z"
-last_activity: 2026-05-11 — Phase 1004 Styling and cartography control polish completed; ready to plan Phase 1005.
+last_updated: "2026-05-11T20:51:55Z"
+last_activity: 2026-05-11 — Phase 1005 Preview, save, share, and output parity completed; ready to plan Phase 1006.
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 50
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
+  percent: 67
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** 1005 next — Preview, save, share, and output parity
+**Phase:** 1006 next — Responsive, accessibility, and copy hardening
 **Plan:** —
-**Status:** Phase 1004 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1004-styling-and-cartography-control-polish/`; ready to plan Phase 1005.
-**Last activity:** 2026-05-11 — Phase 1004 grouped style controls by visual intent, added pending-style swatches, clarified selected-layer filter scope, improved label/popup empty states, and preserved `paint` / `style_config` contracts.
+**Status:** Phase 1005 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1005-preview-save-share-output-parity/`; ready to plan Phase 1006.
+**Last activity:** 2026-05-11 — Phase 1005 stabilized public/shared/embed viewer layer identity, added shared-layer IDs to public share responses, clarified save/retry state, warned when share/embed output is behind unsaved changes, and recorded thumbnail scope as deferred OPS-01 work.
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1005 planning.
+**Current focus:** Phase 1006 planning.
 
 ## Last Shipped Milestone
 
@@ -93,6 +93,7 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 - Phase 1001 completed 2026-05-11: authenticated public saved-map layer conversion now preserves `is_dem` and `dem_vertical_units`, and focused public viewer regression coverage closes MAPSTACK-02, MAPSTACK-04, MAPSTACK-07 plus `INT-PUBLIC-DEM-01` and `FLOW-AUTH-PUBLIC-DEM-01`.
 - Phase 1003 completed 2026-05-11: add-layer calls that omit `sort_order` now append to the next available layer order, empty maps present a data-first Map Stack prompt, row states expose selected/hidden/locked/disabled/unsupported/error-like signals, and inspector tabs/back controls have visible keyboard focus.
 - Phase 1004 completed 2026-05-11: style controls are grouped by visual intent, pending geometry-aware swatches reflect in-memory style edits, data-driven/raster validation is recoverable, filters explicitly state selected-layer scope, label/popup empty states are clearer, and focused tests preserve `paint` / `style_config` / style JSON alignment.
+- Phase 1005 completed 2026-05-11: public/shared/embed viewer layer identity no longer relies on `sort_order`, shared-token API payloads include layer IDs, builder save state distinguishes saved/unsaved/saving/failed/retry, share/embed output warns about unsaved publication lag, and server-side thumbnails remain deferred to OPS-01/NEXT-04.
 
 ## Recent Decisions
 
@@ -153,8 +154,8 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 ## Session Continuity
 
 Last session: 2026-05-11T20:37:51Z
-Stopped at: Phase 1004 complete; ready to plan Phase 1005.
-Resume file: `.planning/phases/1004-styling-and-cartography-control-polish/1004-VERIFICATION.md`
+Stopped at: Phase 1005 complete; ready to plan Phase 1006.
+Resume file: `.planning/phases/1005-preview-save-share-output-parity/1005-VERIFICATION.md`
 
 ---
-*Last updated: 2026-05-11 after completing Phase 1004*
+*Last updated: 2026-05-11 after completing Phase 1005*

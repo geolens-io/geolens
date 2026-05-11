@@ -39,12 +39,12 @@
 
 ### Preview, Save, Share, and Output
 
-- [ ] **OUTPUT-01**: User can trust the builder preview to match saved map detail, shared-token view, authenticated public view, and embed output for basemap, terrain, relief, labels, popups, and layer order.
-- [ ] **OUTPUT-02**: User can identify unsaved changes, save progress, save success, save failure, and retry paths without ambiguous button states.
-- [ ] **OUTPUT-03**: User can share or publish a polished map without hidden builder-only controls leaking into public or embedded output.
-- [ ] **OUTPUT-04**: User can inspect map title, description, legend, attribution, scale/navigation controls, and optional widgets without overlap or visual clutter.
-- [ ] **OUTPUT-05**: User can work with blank/no-basemap, light basemap, dark basemap, relief-heavy, raster-heavy, vector-heavy, and mixed maps without presentation regressions.
-- [ ] **OUTPUT-06**: Reviewer can identify whether server-side thumbnails are needed for builder polish, while leaving the full OPS-01 thumbnail pipeline out of this milestone unless explicitly approved.
+- [x] **OUTPUT-01**: User can trust the builder preview to match saved map detail, shared-token view, authenticated public view, and embed output for basemap, terrain, relief, labels, popups, and layer order.
+- [x] **OUTPUT-02**: User can identify unsaved changes, save progress, save success, save failure, and retry paths without ambiguous button states.
+- [x] **OUTPUT-03**: User can share or publish a polished map without hidden builder-only controls leaking into public or embedded output.
+- [x] **OUTPUT-04**: User can inspect map title, description, legend, attribution, scale/navigation controls, and optional widgets without overlap or visual clutter.
+- [x] **OUTPUT-05**: User can work with blank/no-basemap, light basemap, dark basemap, relief-heavy, raster-heavy, vector-heavy, and mixed maps without presentation regressions.
+- [x] **OUTPUT-06**: Reviewer can identify whether server-side thumbnails are needed for builder polish, while leaving the full OPS-01 thumbnail pipeline out of this milestone unless explicitly approved.
 
 ### Responsive, Accessibility, and Copy
 
@@ -122,12 +122,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STYLE-06 | Phase 1004 | Complete |
 | STYLE-07 | Phase 1004 | Complete |
 | STYLE-08 | Phase 1004 | Complete |
-| OUTPUT-01 | Phase 1005 | Pending |
-| OUTPUT-02 | Phase 1005 | Pending |
-| OUTPUT-03 | Phase 1005 | Pending |
-| OUTPUT-04 | Phase 1005 | Pending |
-| OUTPUT-05 | Phase 1005 | Pending |
-| OUTPUT-06 | Phase 1005 | Pending |
+| OUTPUT-01 | Phase 1005 | Complete |
+| OUTPUT-02 | Phase 1005 | Complete |
+| OUTPUT-03 | Phase 1005 | Complete |
+| OUTPUT-04 | Phase 1005 | Complete |
+| OUTPUT-05 | Phase 1005 | Complete |
+| OUTPUT-06 | Phase 1005 | Complete |
 | A11Y-01 | Phase 1006 | Pending |
 | A11Y-02 | Phase 1006 | Pending |
 | A11Y-03 | Phase 1006 | Pending |
@@ -148,4 +148,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-11*
-*Last updated: 2026-05-11 after roadmap traceability mapping*
+*Last updated: 2026-05-11 after Phase 1005 verification*
