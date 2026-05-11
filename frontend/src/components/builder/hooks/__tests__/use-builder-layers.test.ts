@@ -43,6 +43,7 @@ function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
     pitch: 0,
     basemap_style: 'positron',
     show_basemap_labels: true,
+    basemap_config: null,
     terrain_config: null,
     visibility: 'private',
     thumbnail_url: null,

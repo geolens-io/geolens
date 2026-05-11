@@ -63,6 +63,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof MapStackPan
     expandedLayerId: null,
     basemapStyle: 'openfreemap-positron',
     showBasemapLabels: true,
+    basemapConfig: null,
     terrainConfig: null,
     widgets: [],
     onToggleExpand: vi.fn(),
@@ -77,6 +78,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof MapStackPan
     onAddDataClick: vi.fn(),
     onBasemapChange: vi.fn(),
     onBasemapLabelsChange: vi.fn(),
+    onBasemapConfigChange: vi.fn(),
     onTerrainChange: vi.fn(),
     ...overrides,
   } satisfies React.ComponentProps<typeof MapStackPanel>;

@@ -226,7 +226,7 @@ describe('buildMapStack', () => {
         basemap: {
           style: 'satellite',
           sublayer: 'preset',
-          futureControl: true,
+          futureControl: false,
         },
       },
     });
@@ -278,6 +278,43 @@ describe('buildMapStack', () => {
       metadata: {
         basemap: {
           labelsVisible: true,
+        },
+      },
+    });
+  });
+
+  it('reflects basemap_config metadata in preset and label entries', () => {
+    const groups = buildMapStack(makeMap({
+      basemap_config: {
+        label_mode: 'subtle',
+        road_visibility: 'hidden',
+        boundary_visibility: 'full',
+        building_visibility: false,
+        land_water_tone: 'muted',
+        relief_contrast: 'soft',
+      },
+    }));
+
+    expect(group(groups, 'basemap')?.entries[0]).toMatchObject({
+      badges: expect.arrayContaining([
+        expect.objectContaining({ label: 'muted' }),
+      ]),
+      metadata: {
+        basemap: {
+          config: expect.objectContaining({
+            label_mode: 'subtle',
+            road_visibility: 'hidden',
+          }),
+        },
+      },
+    });
+    expect(flattenMapStack(groups).find((entry) => entry.id === 'labels:basemap')).toMatchObject({
+      visible: true,
+      subtitle: 'Subtle labels',
+      metadata: {
+        basemap: {
+          labelsVisible: true,
+          config: expect.objectContaining({ label_mode: 'subtle' }),
         },
       },
     });

@@ -121,6 +121,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     localLayers: [],
     localBasemap: 'openfreemap-positron',
     showBasemapLabels: true,
+    basemapConfig: null,
     terrainConfig: null,
     localName: 'Test Map',
     localDescription: 'A test',
@@ -267,6 +268,7 @@ describe('useBuilderSave', () => {
     expect(payload.id).toBe('map-1');
     expect(payload.data.name).toBe('Test Map');
     expect(payload.data.basemap_style).toBe('openfreemap-positron');
+    expect(payload.data.basemap_config).toBeNull();
     expect(payload.data.terrain_config).toBeNull();
     expect(payload.data.center_lng).toBe(-73.9);
     expect(payload.data.center_lat).toBe(40.7);

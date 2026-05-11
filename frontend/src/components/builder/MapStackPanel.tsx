@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
+import { BasemapAppearanceControls } from '@/components/builder/BasemapAppearanceControls';
 import { TerrainControls } from '@/components/builder/TerrainControls';
 import { MapStackItem } from '@/components/builder/MapStackItem';
 import { MapStackSection } from '@/components/builder/MapStackSection';
@@ -28,13 +29,14 @@ import {
   type MapStackEntry,
   type MapStackGroup,
 } from '@/components/builder/map-stack';
-import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 interface MapStackPanelProps {
   layers: MapLayerResponse[];
   expandedLayerId: string | null;
   basemapStyle: string;
   showBasemapLabels: boolean;
+  basemapConfig: MapBasemapConfig | null;
   terrainConfig: MapTerrainConfig | null;
   widgets?: string[] | null;
   widgetSidebar?: React.ReactNode;
@@ -50,6 +52,7 @@ interface MapStackPanelProps {
   onAddDataClick: () => void;
   onBasemapChange: (key: string) => void;
   onBasemapLabelsChange: (show: boolean) => void;
+  onBasemapConfigChange: (value: MapBasemapConfig) => void;
   onTerrainChange: (value: MapTerrainConfig | null) => void;
 }
 
@@ -128,6 +131,7 @@ export const MapStackPanel = memo(function MapStackPanel({
   expandedLayerId,
   basemapStyle,
   showBasemapLabels,
+  basemapConfig,
   terrainConfig,
   widgets,
   widgetSidebar,
@@ -143,6 +147,7 @@ export const MapStackPanel = memo(function MapStackPanel({
   onAddDataClick,
   onBasemapChange,
   onBasemapLabelsChange,
+  onBasemapConfigChange,
   onTerrainChange,
 }: MapStackPanelProps) {
   const { t } = useTranslation('builder');
@@ -150,11 +155,12 @@ export const MapStackPanel = memo(function MapStackPanel({
     () => buildMapStack({
       basemap_style: basemapStyle,
       show_basemap_labels: showBasemapLabels,
+      basemap_config: basemapConfig,
       terrain_config: terrainConfig,
       layers,
       widgets,
     }),
-    [basemapStyle, layers, showBasemapLabels, terrainConfig, widgets],
+    [basemapConfig, basemapStyle, layers, showBasemapLabels, terrainConfig, widgets],
   );
   const layerById = useMemo(
     () => new Map(layers.map((layer) => [layer.id, layer])),
@@ -257,6 +263,12 @@ export const MapStackPanel = memo(function MapStackPanel({
           <BasemapPicker
             value={basemapStyle}
             onChange={onBasemapChange}
+          />
+          <BasemapAppearanceControls
+            value={basemapConfig}
+            showBasemapLabels={showBasemapLabels}
+            onChange={onBasemapConfigChange}
+            onShowBasemapLabelsChange={onBasemapLabelsChange}
           />
         </div>
       );

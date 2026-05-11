@@ -1,10 +1,12 @@
 import type {
   LabelConfig,
+  MapBasemapConfig,
   MapLayerResponse,
   MapTerrainConfig,
   PopupConfig,
   StyleConfig,
 } from '@/types/api';
+import { normalizeBasemapConfig } from '@/lib/basemap-utils';
 
 export const MAP_STACK_GROUP_ORDER = [
   'surface',
@@ -80,6 +82,7 @@ export interface MapStackEntryMetadata {
     style: string;
     sublayer: 'preset' | 'labels';
     labelsVisible?: boolean;
+    config?: MapBasemapConfig | null;
     futureControl: boolean;
   };
   widgets?: string[];
@@ -110,6 +113,7 @@ export interface MapStackGroup {
 export interface MapStackMapInput {
   basemap_style?: string | null;
   show_basemap_labels?: boolean | null;
+  basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
   layers?: MapLayerResponse[];
   widgets?: string[] | null;
@@ -451,6 +455,7 @@ function makeReliefEntries(
 function makeBasemapEntries(groups: MapStackGroup[], map: MapStackMapInput) {
   const basemap = groupFor(groups, 'basemap');
   const style = map.basemap_style || 'default';
+  const config = normalizeBasemapConfig(map.basemap_config, map.show_basemap_labels ?? true);
   basemap.entries.push({
     id: `basemap:preset:${style}`,
     groupId: 'basemap',
@@ -464,6 +469,9 @@ function makeBasemapEntries(groups: MapStackGroup[], map: MapStackMapInput) {
     badges: [
       { label: style, tone: 'neutral' },
       { label: 'Preset', tone: 'muted' },
+      ...(config.land_water_tone !== 'default'
+        ? [{ label: config.land_water_tone, tone: 'info' } as const]
+        : []),
     ],
     metadata: {
       drawOrder: GROUP_ORDER_BASE.basemap,
@@ -471,7 +479,8 @@ function makeBasemapEntries(groups: MapStackGroup[], map: MapStackMapInput) {
       basemap: {
         style,
         sublayer: 'preset',
-        futureControl: true,
+        config,
+        futureControl: false,
       },
     },
   });
@@ -514,13 +523,18 @@ function makeLabelEntries(
 ) {
   const labels = groupFor(groups, 'labels');
   const style = map.basemap_style || 'default';
-  const showBasemapLabels = map.show_basemap_labels ?? true;
+  const config = normalizeBasemapConfig(map.basemap_config, map.show_basemap_labels ?? true);
+  const showBasemapLabels = config.label_mode !== 'hidden';
   labels.entries.push({
     id: 'labels:basemap',
     groupId: 'labels',
     role: 'basemap-labels',
     title: 'Basemap labels',
-    subtitle: showBasemapLabels ? 'Draw above data geometry and below data labels.' : 'Hidden by map setting.',
+    subtitle: showBasemapLabels
+      ? config.label_mode === 'subtle'
+        ? 'Subtle labels'
+        : 'Draw above data geometry and below data labels.'
+      : 'Hidden by map setting.',
     order: GROUP_ORDER_BASE.labels,
     orderLabel: 'Labels: basemap labels',
     visible: showBasemapLabels,
@@ -536,7 +550,8 @@ function makeLabelEntries(
         style,
         sublayer: 'labels',
         labelsVisible: showBasemapLabels,
-        futureControl: true,
+        config,
+        futureControl: false,
       },
     },
   });

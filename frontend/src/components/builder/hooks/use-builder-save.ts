@@ -12,7 +12,7 @@ import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-ma
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
-import type { MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
+import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { useWidgetStore } from '@/stores/map-widget-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
@@ -282,6 +282,7 @@ interface SaveState {
   localLayers: MapLayerResponse[];
   localBasemap: string;
   showBasemapLabels: boolean;
+  basemapConfig: MapBasemapConfig | null;
   terrainConfig: MapTerrainConfig | null;
   localName: string;
   localDescription: string;
@@ -322,6 +323,7 @@ export function useBuilderSave(state: SaveState) {
       localBasemap,
       localLayers,
       showBasemapLabels,
+      basemapConfig,
       terrainConfig,
     } = state;
     if (!id) return;
@@ -352,6 +354,7 @@ export function useBuilderSave(state: SaveState) {
       notes: dockNotes.trim() || null,
       basemap_style: localBasemap,
       show_basemap_labels: showBasemapLabels,
+      basemap_config: basemapConfig,
       terrain_config: terrainConfig,
       center_lng: center?.lng ?? null,
       center_lat: center?.lat ?? null,

@@ -13,6 +13,19 @@ export interface MapTerrainConfig {
   exaggeration: number;
 }
 
+export type MapBasemapVisibilityMode = 'full' | 'subtle' | 'hidden';
+export type MapBasemapLandWaterTone = 'default' | 'muted' | 'contrast' | 'monochrome';
+export type MapBasemapReliefContrast = 'soft' | 'standard' | 'strong';
+
+export interface MapBasemapConfig {
+  label_mode: MapBasemapVisibilityMode;
+  road_visibility: MapBasemapVisibilityMode;
+  boundary_visibility: MapBasemapVisibilityMode;
+  building_visibility: boolean;
+  land_water_tone: MapBasemapLandWaterTone;
+  relief_contrast?: MapBasemapReliefContrast | null;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -841,6 +854,7 @@ export interface MapResponse {
   pitch: number;
   basemap_style: string;
   show_basemap_labels: boolean;
+  basemap_config: MapBasemapConfig | null;
   terrain_config: MapTerrainConfig | null;
   visibility: MapVisibility;
   thumbnail_url: string | null;
@@ -909,6 +923,7 @@ export interface MapBrowseParams {
 export interface MapCreateRequest {
   name: string;
   description?: string | null;
+  basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
 }
 
@@ -923,6 +938,7 @@ export interface MapUpdateRequest {
   pitch?: number | null;
   basemap_style?: string | null;
   show_basemap_labels?: boolean | null;
+  basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
   visibility?: MapVisibility | null;
   layers?: MapLayerInput[];
@@ -1045,6 +1061,7 @@ export interface SharedMapResponse {
   pitch: number;
   basemap_style: string;
   show_basemap_labels?: boolean;
+  basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
   has_non_public_layers: boolean;
   layers: SharedLayerResponse[];

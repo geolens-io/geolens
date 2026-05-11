@@ -82,6 +82,7 @@ const SidebarContent = memo(function SidebarContent({
         expandedLayerId={layers.expandedLayerId}
         basemapStyle={layers.localBasemap}
         showBasemapLabels={layers.showBasemapLabels}
+        basemapConfig={layers.basemapConfig}
         terrainConfig={layers.localTerrainConfig}
         widgets={widgetIds}
         onToggleExpand={layers.handleToggleExpand}
@@ -96,6 +97,11 @@ const SidebarContent = memo(function SidebarContent({
         onAddDataClick={onAddDataClick}
         onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
         onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
+        onBasemapConfigChange={(next) => {
+          layers.setBasemapConfig(next);
+          layers.setShowBasemapLabels(next.label_mode !== 'hidden');
+          layers.markDirty();
+        }}
         onTerrainChange={(next) => {
           layers.setLocalTerrainConfig(next);
           layers.markDirty();
@@ -247,6 +253,7 @@ export function MapBuilderPage() {
     localLayers: layers.localLayers,
     localBasemap: layers.localBasemap,
     showBasemapLabels: layers.showBasemapLabels,
+    basemapConfig: layers.basemapConfig,
     terrainConfig: layers.localTerrainConfig,
     localName: layers.localName,
     localDescription: layers.localDescription,
@@ -524,6 +531,7 @@ export function MapBuilderPage() {
               terrainConfig={layers.localTerrainConfig}
               onMapRef={handleMapRef}
               showBasemapLabels={layers.showBasemapLabels}
+              basemapConfig={layers.basemapConfig}
             />
           </Suspense>
         </MapErrorBoundary>
