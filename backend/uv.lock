@@ -852,6 +852,7 @@ dependencies = [
     { name = "sqlglot" },
     { name = "sse-starlette" },
     { name = "structlog" },
+    { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
@@ -905,6 +906,7 @@ requires-dist = [
     { name = "sqlglot", specifier = ">=29.0.0" },
     { name = "sse-starlette", specifier = ">=3.3.2" },
     { name = "structlog", specifier = ">=25.4.0" },
+    { name = "urllib3", specifier = ">=2.7.0" },
 ]
 
 [package.metadata.requires-dev]

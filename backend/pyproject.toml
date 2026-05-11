@@ -48,6 +48,9 @@ dependencies = [
     # cryptography 46.0.7 patches a buffer-overflow bug affecting
     # non-contiguous buffers passed to certain APIs (Dependabot #29).
     "cryptography>=46.0.7",
+    # urllib3 2.7.0 patches decompression-bomb bypasses in streaming reads
+    # and drain_conn handling (Dependabot #36 / CVE-2026-44432).
+    "urllib3>=2.7.0",
 ]
 
 [dependency-groups]
