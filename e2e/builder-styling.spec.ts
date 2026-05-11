@@ -163,9 +163,9 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.getByRole('button', { name: 'Expand options' }).click();
 
     // No filter icon initially
-    const layerNameArea = page.locator('[title="Double-click to rename"]');
-    const filterBadge = layerNameArea.locator('svg.lucide-funnel');
-    await expect(layerNameArea).toBeVisible();
+    const layerRow = page.locator('[data-testid^="layer-item"]').first();
+    const filterBadge = layerRow.locator('svg.lucide-funnel');
+    await expect(layerRow).toBeVisible();
     await expect(filterBadge).not.toBeVisible();
 
     // Switch to Filter tab and add a filter condition
@@ -185,9 +185,9 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.getByRole('button', { name: 'Expand options' }).click();
 
     // No labels icon initially
-    const layerNameArea = page.locator('[title="Double-click to rename"]');
-    await expect(layerNameArea).toBeVisible();
-    await expect(layerNameArea.locator('.lucide-type')).not.toBeVisible();
+    const layerRow = page.locator('[data-testid^="layer-item"]').first();
+    await expect(layerRow).toBeVisible();
+    await expect(layerRow.locator('.lucide-type')).not.toBeVisible();
 
     // Switch to Labels tab and toggle labels on
     await page.getByRole('tab', { name: 'Labels', exact: true }).click();
@@ -198,6 +198,6 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await labelsSwitch.click();
 
     // Labels icon should appear in the layer row header
-    await expect(layerNameArea.locator('.lucide-type')).toBeVisible({ timeout: 3_000 });
+    await expect(layerRow.locator('.lucide-type')).toBeVisible({ timeout: 3_000 });
   });
 });
