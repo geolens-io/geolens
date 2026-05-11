@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1001
 milestone_name: Map Builder UI/UX Polish Sweep
 status: ready_to_plan
-last_updated: "2026-05-11T20:51:55Z"
-last_activity: 2026-05-11 — Phase 1005 Preview, save, share, and output parity completed; ready to plan Phase 1006.
+last_updated: "2026-05-11T21:01:43Z"
+last_activity: 2026-05-11 — Phase 1006 hardened authenticated map-route shell state, mobile builder sheet/touch targets, and basemap recovery copy with complete builder locales.
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
-  percent: 67
+  completed_phases: 5
+  total_plans: 7
+  completed_plans: 7
+  percent: 83
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** 1006 next — Responsive, accessibility, and copy hardening
+**Phase:** 1007 next — Durable builder QA gate and closeout
 **Plan:** —
-**Status:** Phase 1005 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1005-preview-save-share-output-parity/`; ready to plan Phase 1006.
-**Last activity:** 2026-05-11 — Phase 1005 stabilized public/shared/embed viewer layer identity, added shared-layer IDs to public share responses, clarified save/retry state, warned when share/embed output is behind unsaved changes, and recorded thumbnail scope as deferred OPS-01 work.
+**Status:** Phase 1006 completed. Planning artifacts, summaries, and verification are available at `.planning/phases/1006-responsive-accessibility-copy-hardening/`; ready to plan Phase 1007.
+**Last activity:** 2026-05-11 — Phase 1006 restored authenticated user state for persisted tokens, prevented token/user-null map routes from showing editor/footer artifacts, tightened mobile builder sheets and touch targets, and added localized basemap recovery copy.
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 83%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1006 planning.
+**Current focus:** Phase 1007 planning.
 
 ## Last Shipped Milestone
 
@@ -94,6 +94,7 @@ See: .planning/PROJECT.md (updated 2026-05-11 at v1001 kickoff)
 - Phase 1003 completed 2026-05-11: add-layer calls that omit `sort_order` now append to the next available layer order, empty maps present a data-first Map Stack prompt, row states expose selected/hidden/locked/disabled/unsupported/error-like signals, and inspector tabs/back controls have visible keyboard focus.
 - Phase 1004 completed 2026-05-11: style controls are grouped by visual intent, pending geometry-aware swatches reflect in-memory style edits, data-driven/raster validation is recoverable, filters explicitly state selected-layer scope, label/popup empty states are clearer, and focused tests preserve `paint` / `style_config` / style JSON alignment.
 - Phase 1005 completed 2026-05-11: public/shared/embed viewer layer identity no longer relies on `sort_order`, shared-token API payloads include layer IDs, builder save state distinguishes saved/unsaved/saving/failed/retry, share/embed output warns about unsaved publication lag, and server-side thumbnails remain deferred to OPS-01/NEXT-04.
+- Phase 1006 completed 2026-05-11: authenticated map routes restore user state before loading editor chrome, token/user-null routes suppress footer artifacts, mobile builder sheets leave more map context with 44px touched controls, and BuilderMap surfaces localized non-blocking basemap recovery copy.
 
 ## Recent Decisions
 
@@ -153,9 +154,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T20:37:51Z
-Stopped at: Phase 1005 complete; ready to plan Phase 1006.
-Resume file: `.planning/phases/1005-preview-save-share-output-parity/1005-VERIFICATION.md`
+Last session: 2026-05-11T21:01:43Z
+Stopped at: Phase 1006 complete; ready to plan Phase 1007.
+Resume file: `.planning/phases/1006-responsive-accessibility-copy-hardening/1006-VERIFICATION.md`
 
 ---
-*Last updated: 2026-05-11 after completing Phase 1005*
+*Last updated: 2026-05-11 after completing Phase 1006*

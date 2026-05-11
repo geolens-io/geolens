@@ -71,7 +71,7 @@
 - [x] Phase 1003: map-stack-inspector-interaction-polish — requirements STACK-01..06 (completed 2026-05-11)
 - [x] Phase 1004: styling-and-cartography-control-polish — requirements STYLE-01..08 (completed 2026-05-11)
 - [x] Phase 1005: preview-save-share-output-parity — requirements OUTPUT-01..06 (completed 2026-05-11)
-- [ ] Phase 1006: responsive-accessibility-copy-hardening — requirements A11Y-01..06
+- [x] Phase 1006: responsive-accessibility-copy-hardening — requirements A11Y-01..06 (completed 2026-05-11)
 - [ ] Phase 1007: durable-builder-qa-gate-and-closeout — requirements QA-01..06
 
 **Requirements:** 38 total, 38 mapped, 0 unmapped.
@@ -245,7 +245,7 @@
 
 **Goal:** [Captured for future planning]
 **Requirements:** TBD
-**Plans:** 2/2 plans complete
+**Plans:** 1/1 plans complete
 **Source:** `docs-internal/audits/oc-separation-audit-20260426-b.md` §2 (Seam #8) / §7 P3
 **Estimated effort:** 1–2 weeks+ (architectural prerequisite)
 **Tier:** Cloud (vendor-hosted SaaS, deferred) — **not Enterprise**. Self-hosted Enterprise is single-tenant by design (reframed 2026-04-30 — see `docs-internal/GTM/free-vs-enterprise.md` §3).

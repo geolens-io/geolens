@@ -48,12 +48,12 @@
 
 ### Responsive, Accessibility, and Copy
 
-- [ ] **A11Y-01**: User can operate the builder at desktop, tablet, and mobile widths without inaccessible controls, off-screen panels, or unreadable dense rows.
-- [ ] **A11Y-02**: Screen-reader and keyboard users can operate visible builder controls without focus reaching hidden/collapsed content.
-- [ ] **A11Y-03**: Builder dialogs, tooltips, menus, switches, icon buttons, sliders, segmented controls, and tablists have accessible names, descriptions where needed, and WCAG AA contrast.
-- [ ] **A11Y-04**: User-facing builder copy uses GIS/product language instead of internal implementation terms, and explains validation issues in action-oriented language.
-- [ ] **A11Y-05**: Builder i18n keys remain complete for en, es, fr, and de for any touched copy.
-- [ ] **A11Y-06**: User can use common controls with 44px touch targets on mobile and stable dimensions that do not resize the layout on hover, focus, loading, or validation.
+- [x] **A11Y-01**: User can operate the builder at desktop, tablet, and mobile widths without inaccessible controls, off-screen panels, or unreadable dense rows.
+- [x] **A11Y-02**: Screen-reader and keyboard users can operate visible builder controls without focus reaching hidden/collapsed content.
+- [x] **A11Y-03**: Builder dialogs, tooltips, menus, switches, icon buttons, sliders, segmented controls, and tablists have accessible names, descriptions where needed, and WCAG AA contrast.
+- [x] **A11Y-04**: User-facing builder copy uses GIS/product language instead of internal implementation terms, and explains validation issues in action-oriented language.
+- [x] **A11Y-05**: Builder i18n keys remain complete for en, es, fr, and de for any touched copy.
+- [x] **A11Y-06**: User can use common controls with 44px touch targets on mobile and stable dimensions that do not resize the layout on hover, focus, loading, or validation.
 
 ### Durable QA Gate
 
@@ -128,12 +128,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OUTPUT-04 | Phase 1005 | Complete |
 | OUTPUT-05 | Phase 1005 | Complete |
 | OUTPUT-06 | Phase 1005 | Complete |
-| A11Y-01 | Phase 1006 | Pending |
-| A11Y-02 | Phase 1006 | Pending |
-| A11Y-03 | Phase 1006 | Pending |
-| A11Y-04 | Phase 1006 | Pending |
-| A11Y-05 | Phase 1006 | Pending |
-| A11Y-06 | Phase 1006 | Pending |
+| A11Y-01 | Phase 1006 | Complete |
+| A11Y-02 | Phase 1006 | Complete |
+| A11Y-03 | Phase 1006 | Complete |
+| A11Y-04 | Phase 1006 | Complete |
+| A11Y-05 | Phase 1006 | Complete |
+| A11Y-06 | Phase 1006 | Complete |
 | QA-01 | Phase 1007 | Pending |
 | QA-02 | Phase 1007 | Pending |
 | QA-03 | Phase 1007 | Pending |
@@ -148,4 +148,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-05-11*
-*Last updated: 2026-05-11 after Phase 1005 verification*
+*Last updated: 2026-05-11 after Phase 1006 verification*
