@@ -9,8 +9,11 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
+from pydantic import ValidationError
+
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import (
+    BasemapConfig,
     LEGACY_BUILDER_PAINT_KEYS,
     MapLayerInput,
     MapLayerResponse,
@@ -95,6 +98,7 @@ class ImportedStyleMap:
     layers: list[MapLayerInput] = field(default_factory=list)
     summary: MapStyleImportSummary = field(default_factory=MapStyleImportSummary)
     terrain_config: dict | None = None
+    basemap_config: dict | None = None
 
 
 def _safe_id(value: str) -> str:
@@ -200,6 +204,17 @@ def _clean_style_metadata(style_config: dict[str, Any] | None) -> dict[str, Any]
 def _builder_style_config(style_config: dict[str, Any] | None) -> dict[str, Any]:
     builder = (style_config or {}).get("builder")
     return dict(builder) if isinstance(builder, dict) else {}
+
+
+def _clean_basemap_config(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("basemap_config must be an object")
+    try:
+        return BasemapConfig.model_validate(value).model_dump(mode="json")
+    except ValidationError as exc:
+        raise ValueError("Invalid basemap_config metadata") from exc
 
 
 def _layer_uses_line_gradient(layer: MapLayerResponse) -> bool:
@@ -682,6 +697,9 @@ def build_maplibre_style(
                 "description": map_obj.description,
                 "basemap_style": map_obj.basemap_style,
                 "show_basemap_labels": map_obj.show_basemap_labels,
+                "basemap_config": _clean_basemap_config(
+                    getattr(map_obj, "basemap_config", None)
+                ),
                 "terrain_config": map_obj.terrain_config,
             }
         },
@@ -973,6 +991,7 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
                 "source_dataset_id": str(meta_terrain["source_dataset_id"]),
                 "exaggeration": exaggeration,
             }
+    basemap_config = _clean_basemap_config(geolens_meta.get("basemap_config"))
     return ImportedStyleMap(
         name=str(style.get("name") or "Imported style"),
         description=geolens_meta.get("description"),
@@ -989,4 +1008,5 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         layers=imported_layers,
         summary=summary,
         terrain_config=terrain_config,
+        basemap_config=basemap_config,
     )

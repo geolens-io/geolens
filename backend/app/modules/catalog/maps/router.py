@@ -618,6 +618,8 @@ async def import_map_style_endpoint(
         map_obj.basemap_style = imported.basemap_style
     if imported.terrain_config is not None:
         map_obj.terrain_config = imported.terrain_config
+    if imported.basemap_config is not None:
+        map_obj.basemap_config = imported.basemap_config
 
     imported_layer_ids: list[uuid.UUID] = []
     for layer in imported.layers:
