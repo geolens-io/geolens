@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v13.14
 milestone_name: Smoke Stabilization
 status: shipped
-last_updated: "2026-05-08T20:08:00.000Z"
+last_updated: "2026-05-11T12:43:40.000Z"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -26,7 +26,7 @@ Progress: [██████████] 100%
 See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v13.14 Smoke Stabilization closed. Next milestone TBD.
+**Current focus:** v13.14 Smoke Stabilization closed. Phase 1000 backlog execution has started with plans 1000-01 and 1000-02 complete.
 
 ## Last Shipped Milestone
 
@@ -58,12 +58,22 @@ See: .planning/PROJECT.md (updated 2026-05-07 at v13.13 close)
 - **Admin headline changes:** ApiKey `max_length=255` (ADMIN-01); audit-log search rewritten to `lower(unaccent(...))` form so it uses the existing pg_trgm GIN indexes from v13.12 Alembic 0010 (ADMIN-02); AdminAuditPage page-guard (ADMIN-08); server-driven enterprise-tabs registry (ADMIN-03); audit-export format dispatcher unified (ADMIN-04); `register_user` audit event (ADMIN-05); delete_user FK SET NULL behavior locked by static-analysis test (ADMIN-06); MinIO image bumped to 2025-09-07 + sha256-pinned (ADMIN-10, ADMIN-12); non-blocking license-checker CI job (ADMIN-13); stale CVE-2026-4539 carve-out removed (ADMIN-11).
 - **Test health changes:** Backend `--cov-fail-under` 58.5 → 60 (TEST-01, actual=77.02%); frontend coverage thresholds ratcheted (32/27/27/32 → 41/39/37/42, TEST-02); 6 raw `waitForTimeout` calls in E2E specs replaced with deterministic locator polling (TEST-04, TEST-05); LayerPanel + MapTitleBar new co-located tests (14 tests, TEST-03); 8 SourcesTab `it.todo` migrated to backlog file (TEST-07); H-33 dataset-detail L144 fixture stabilized via PATCH-seeded fixture, pending todo closed (TEST-10).
 
+### Roadmap Evolution
+
+- Phase 1000 added: Kepler-inspired map stack and basemap layer controls.
+- Phase 1000 captures the 2026-05-10 decision to keep the GeoLens Map Builder/MapLibre architecture instead of replacing it wholesale with Kepler.gl, while refactoring layer management toward Kepler-style stack, grouping, and styling patterns.
+- Phase 1000 planned 2026-05-10 as 5 plans / 4 waves: UX blockers, pure Map Stack model, unified inspector UI, persisted basemap appearance/z-order contract, and relief/marketing-output Playwright MCP validation.
+- Phase 1000 plan 1000-01 completed 2026-05-11: mobile layer editor reachability, collapsed basemap option hiding, readable filter rows, duplicate-layer row metadata, named label switches, and focused builder E2E coverage.
+- Phase 1000 plan 1000-02 completed 2026-05-11: pure `buildMapStack` model for Surface, Relief, Basemap, Data, Labels, and Interactions with saved-map compatibility tests and no API migration.
+
 ## Recent Decisions
 
 - **Autonomous milestone shape proven for backlog sweeps.** The same `/gsd-autonomous` orchestration that worked for v13.12's 17-audit dispatch+remediation also works for v13.13's 9-phase domain-grouped backlog sweep. Per-phase planner agent + parallel executor agents per wave; closeout inline. Reusable for any future milestone where requirements are pre-classified by domain.
 - **Per-phase plan grouping by file-overlap, not severity.** Plans within each phase are grouped by closest-file-locality (e.g., Plan 273-01 owns `sprites.py` + `router.py`; Plan 273-04 owns `public_urls.py`). This minimizes wave count (most phases are 1-2 waves) and lets up to 8 plans run in parallel.
 - **Commit attribution orphan tolerance.** ~10 commits across v13.13 ended up with attribution drift (e.g., `docs(275-08)` carrying API-11 source diff) due to parallel-agent staging races on a shared working tree. Functional state at HEAD is correct in every case. Trade-off: parallel speed vs. perfect commit attribution. Going forward: either accept the drift, or serialize per-file ownership at the orchestrator level.
 - **Closeout plan written inline by orchestrator after planner timeout.** The Phase 279 planner agent timed out on the 5th plan (closeout). Orchestrator wrote MILESTONE-AUDIT.md + STATE.md + MEMORY.md + MILESTONES.md + PROJECT.md updates inline. Pattern works as a fallback when planner can't reach the closeout step.
+- **Layer-management blocker fixes landed before deeper inspector refactor.** Phase 1000-01 kept the desktop flyout stable while enabling the same LayerEditorPanel inside the mobile sheet, unmounted collapsed basemap options, and used non-persisted row metadata for duplicate layer disambiguation.
+- **Map Stack model is migration-free.** Phase 1000-02 established a frontend-only stack builder over existing `basemap_style`, `show_basemap_labels`, `terrain_config`, `widgets`, and `layers` fields. Future inspector work should consume this model before introducing persisted basemap appearance fields.
 
 ### Quick Tasks Completed
 
@@ -105,5 +115,11 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 - `geolens-schemas` extraction (999.16) — separate distribution/packaging milestone.
 - Server-side map thumbnails (OPS-01) — separate operational milestone.
 
+## Session Continuity
+
+Last session: 2026-05-11T12:43:40Z
+Stopped at: Phase 1000 plans 1000-01 and 1000-02 completed; 1000-03 can consume the unblocked layer-management UI and `buildMapStack` for the unified inspector.
+Resume file: none
+
 ---
-*Last updated: 2026-05-08 at v13.14 milestone close*
+*Last updated: 2026-05-11 after Phase 1000 plan 1000-01 execution*

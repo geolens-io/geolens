@@ -189,6 +189,35 @@ Plans:
 
 ---
 
+### Phase 1000: Kepler-inspired map stack and basemap layer controls (BACKLOG — P1)
+
+**Goal:** Refactor the Map Builder layer-management UX around a unified Map Stack while keeping GeoLens' current MapLibre/editor architecture. Borrow Kepler.gl-style patterns where they fit: clear stack ordering, editable layer groups, styleable basemap sublayers, explicit surface/relief controls, and marketing-quality saved-map defaults.
+**Requirements:** MAPSTACK-01..07 (see plan frontmatter)
+**Depends on:** Next active map-builder milestone selection; preserve existing saved-map compatibility or define an explicit migration.
+**Source:** `docs-internal/audits/ux-review-map-layer-management-20260510.md`; 2026-05-10 Playwright MCP builder QA, layer-order review, and Kepler.gl comparison.
+**Estimated effort:** 1-2 weeks
+**Priority:** P1 — current Layers / Basemap / Terrain split is confusing for advanced styling, limits basemap refinement, and makes it harder to showcase 3D/relief maps cleanly.
+**Context:** `.planning/phases/1000-kepler-inspired-map-stack-and-basemap-layer-controls/1000-CONTEXT.md`
+**Plans:** 2/5 plans complete / 4 waves
+
+Initial scope:
+- [ ] Replace the separate Layers / Basemap / Terrain mental model with a unified Map Stack panel that groups Surface, Relief, Basemap sublayers, Data layers, Labels, and interaction/popups.
+- [ ] Treat DEM/terrain as layer-like stack items with explicit roles, while distinguishing elevation surfaces from visual relief overlays such as hillshade and contours.
+- [ ] Make basemaps styleable as collections of sublayers, including at least labels, roads, land/water, boundaries, and optional buildings where supported.
+- [ ] Define a clear stack and z-order policy for basemap, terrain, relief, labels, and user-added layers, including how a user can show relief beneath readable basemap detail.
+- [ ] Fix known layer-management UX bugs: mobile layer editing unavailable, collapsed basemap contents still visible, cramped filter controls, duplicate layer names, and unnamed switches.
+- [ ] Keep public/map-thumbnail outputs marketing-clean by excluding editor chrome and avoiding accidental legend/control overlays unless the map owner explicitly includes them.
+- [ ] Validate with Playwright MCP screenshots across desktop, tablet, and mobile builder flows plus representative public saved maps.
+
+Plans:
+- [x] 1000-01: Fix layer-management UX blockers and focused regression tests - completed 2026-05-11
+- [x] 1000-02: Add a normalized Map Stack model for surface, relief, basemap, data, and labels - completed 2026-05-11
+- [ ] 1000-03: Replace split sidebar sections with a unified Map Stack inspector
+- [ ] 1000-04: Persist basemap appearance controls and enforce explicit z-order policy
+- [ ] 1000-05: Polish relief/marketing outputs and run Playwright MCP validation
+
+---
+
 ### Phase 999.16: Extract geolens-schemas package (BACKLOG — P2)
 
 **Goal:** Extract `backend/app/standards/{stac,ogc,dcat}/` schemas + validators into a standalone `geolens-schemas` PyPI package (Apache-2.0). Embedded today; persistent OSS-surface gap per audits since v13.1 close.
