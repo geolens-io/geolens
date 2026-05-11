@@ -291,13 +291,15 @@ function duplicateIndex(orderedLayers: IndexedLayer[]): LayerDuplicateIndex {
     const datasetCount = datasetCounts.get(datasetKey) ?? 1;
     const nameCount = nameCounts.get(name) ?? 1;
     const duplicateCount = Math.max(datasetCount, nameCount);
+    const copyOccurrence = datasetCount > 1 ? datasetOccurrence : nameOccurrence;
+    const copyCount = datasetCount > 1 ? datasetCount : nameCount;
     byLayerId.set(layer.id, {
       datasetKey,
       datasetOccurrence,
       datasetCount,
       nameOccurrence,
       nameCount,
-      disambiguationLabel: duplicateCount > 1 ? `Copy ${datasetOccurrence} of ${datasetCount}` : null,
+      disambiguationLabel: duplicateCount > 1 ? `Copy ${copyOccurrence} of ${copyCount}` : null,
     });
   }
 
