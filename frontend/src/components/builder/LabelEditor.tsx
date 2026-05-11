@@ -95,7 +95,10 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
   return (
     <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
       <div className="flex items-center justify-between">
-        <Label className="text-xs font-medium">{t('labels.title')}</Label>
+        <div className="min-w-0">
+          <Label className="text-xs font-medium">{t('labels.title')}</Label>
+          <p className="text-[11px] leading-snug text-muted-foreground">{t('labels.scopeHelp')}</p>
+        </div>
         <Switch
           checked={isOn}
           onCheckedChange={handleToggle}
@@ -105,6 +108,12 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
           title={!isOn && columns.length === 0 ? t('labels.noColumns', { defaultValue: 'No columns available to label' }) : undefined}
         />
       </div>
+
+      {!isOn && columns.length === 0 && (
+        <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+          {t('labels.noColumns')}
+        </p>
+      )}
 
       {isOn && labelConfig && (
         <>

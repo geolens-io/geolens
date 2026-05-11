@@ -33,6 +33,7 @@ describe('PopupConfigEditor', () => {
 
     // The expression input is visible (editor renders even when popupConfig is null)
     expect(screen.getByPlaceholderText(/\{city\}, \{state\}/i)).toBeInTheDocument();
+    expect(screen.getByText(/Popup settings apply only when features from this layer are clicked/i)).toBeInTheDocument();
 
     // Toggling off emits an explicit disabled config
     await user.click(sw);

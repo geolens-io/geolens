@@ -82,6 +82,7 @@ describe('LabelEditor LAYER-01 — toggle no-op when no columns available', () =
     const sw = screen.getByRole('switch');
     expect(sw).toBeDisabled();
     expect(sw).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText(/no columns available for labels/i)).toBeInTheDocument();
   });
 
   it('Switch click is suppressed when disabled (no onLabelChange call)', async () => {

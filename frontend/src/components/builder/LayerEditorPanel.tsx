@@ -149,6 +149,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 <LayerFilterEditor
                   columnInfo={columns}
                   filter={layer.filter ?? null}
+                  layerName={layer.display_name ?? layer.dataset_name}
                   onFilterChange={(expr) => handlers.onFilterChange(layer.id, expr)}
                 />
               </div>

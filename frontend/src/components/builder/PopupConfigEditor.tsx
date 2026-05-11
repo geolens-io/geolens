@@ -175,12 +175,24 @@ export function PopupConfigEditor({ columns, popupConfig, onPopupChange }: Popup
   return (
     <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
       <div className="flex items-center justify-between">
-        <Label className="text-xs font-medium">{t('popup.enable')}</Label>
-        <Switch checked={isOn} onCheckedChange={handleToggle} />
+        <div className="min-w-0">
+          <Label className="text-xs font-medium">{t('popup.enable')}</Label>
+          <p className="text-[11px] leading-snug text-muted-foreground">{t('popup.scopeHelp')}</p>
+        </div>
+        <Switch
+          checked={isOn}
+          onCheckedChange={handleToggle}
+          aria-label={t('popup.enable')}
+        />
       </div>
 
       {isOn && (
         <>
+          {columns.length === 0 && mode === 'all' && (
+            <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+              {t('popup.noColumns')}
+            </p>
+          )}
           {/* Expression / template */}
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground" htmlFor="popup-expression">

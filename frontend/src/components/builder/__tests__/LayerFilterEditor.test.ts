@@ -243,6 +243,18 @@ describe('opaque roundtrip', () => {
 });
 
 describe('LayerFilterEditor layout', () => {
+  it('labels filters as selected-layer scoped', () => {
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: null,
+      layerName: 'Road segments',
+      onFilterChange: vi.fn(),
+    }));
+
+    expect(screen.getByText('Layer filter')).toBeInTheDocument();
+    expect(screen.getByText(/Applies only to Road segments/i)).toBeInTheDocument();
+  });
+
   it('keeps the field selector on its own row before operator and value controls', () => {
     render(createElement(LayerFilterEditor, {
       columnInfo: [

@@ -18,6 +18,7 @@ interface LayerFilterEditorProps {
   columnInfo: { name: string; type: string }[];
   filter: FilterSpecification | null;
   onFilterChange: (expression: FilterSpecification | null) => void;
+  layerName?: string | null;
 }
 
 type ColumnType = 'string' | 'number' | 'boolean' | 'other';
@@ -290,6 +291,7 @@ export function LayerFilterEditor({
   columnInfo,
   filter,
   onFilterChange,
+  layerName,
 }: LayerFilterEditorProps) {
   const { t } = useTranslation('builder');
   const lastEmittedFilterRef = useRef<unknown>(null);
@@ -437,10 +439,15 @@ export function LayerFilterEditor({
   }
 
   return (
-    <div className="space-y-3 p-3 bg-muted/30 rounded-md border">
+    <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       {/* Header row: title + raw toggle */}
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-medium">{t('filters.title')}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 space-y-0.5">
+          <div className="text-xs font-medium">{t('filters.layerTitle')}</div>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            {t('filters.scopeHelp', { layer: layerName ?? t('filters.thisLayer') })}
+          </p>
+        </div>
         <Button
           variant="ghost"
           size="sm"
@@ -489,6 +496,11 @@ export function LayerFilterEditor({
       ) : (
         /* Visual editing mode */
         <>
+          {columnInfo.length === 0 && (
+            <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+              {t('filters.noColumns')}
+            </p>
+          )}
           {/* Combinator select */}
           <Select value={combinator} onValueChange={handleCombinatorChange} aria-label={t('filters.combinator', { defaultValue: 'Match condition' })}>
             <SelectTrigger className="h-7 text-xs w-44" aria-label={t('filters.combinator', { defaultValue: 'Match condition' })}>
