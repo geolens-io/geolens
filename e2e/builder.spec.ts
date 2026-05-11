@@ -533,7 +533,8 @@ test.describe.serial('Map Builder', () => {
   });
 
   test('sidebar resize slider persists keyboard resizing', async ({ page }) => {
-    await page.addInitScript(() => localStorage.removeItem('geolens-builder-sidebar-width'));
+    await page.goto('/');
+    await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-width'));
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
