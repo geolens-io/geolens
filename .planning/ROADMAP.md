@@ -219,6 +219,25 @@ Plans:
 
 ---
 
+### Phase 1001: Preserve DEM metadata in authenticated public maps (GAP CLOSURE - P1)
+
+**Goal:** Close the Phase 1000 milestone-audit gap where authenticated public saved maps can lose DEM/relief semantics during `MapResponse.layers` to `ViewerMap` conversion.
+**Requirements:** MAPSTACK-02, MAPSTACK-04, MAPSTACK-07
+**Gap Closure:** Closes gaps from `.planning/milestones/v1000-MILESTONE-AUDIT.md` (`INT-PUBLIC-DEM-01`, `FLOW-AUTH-PUBLIC-DEM-01`).
+**Depends on:** Phase 1000 public-viewer basemap and terrain work.
+**Estimated effort:** 1 focused plan
+**Priority:** P1 - blocks Phase 1000 audit pass for authenticated public DEM/relief maps.
+
+Scope:
+- [ ] Preserve `is_dem` and `dem_vertical_units` in `PublicMapViewerPage.toSharedLayer`.
+- [ ] Add a DEM fixture regression test for authenticated public saved-map conversion.
+- [ ] Rerun focused public-viewer tests plus frontend lint.
+
+Plans:
+- [ ] TBD
+
+---
+
 ### Phase 999.16: Extract geolens-schemas package (BACKLOG — P2)
 
 **Goal:** Extract `backend/app/standards/{stac,ogc,dcat}/` schemas + validators into a standalone `geolens-schemas` PyPI package (Apache-2.0). Embedded today; persistent OSS-surface gap per audits since v13.1 close.
