@@ -85,6 +85,7 @@ vi.mock('@vis.gl/react-maplibre', () => ({
   Source: ({ children }: { children?: React.ReactNode }) => children ?? null,
   Layer: () => null,
   NavigationControl: () => null,
+  ScaleControl: () => null,
 }))
 
 // Mock maplibre-gl CSS import (jsdom cannot process CSS)

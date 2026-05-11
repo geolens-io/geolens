@@ -547,6 +547,13 @@
     "mapForkedExcluded": "Carte dérivée ! {{count}} couche(s) exclue(s) -- vous n'avez pas accès à ces jeux de données",
     "popupConfigInvalid": "Impossible d'enregistrer : une ou plusieurs couches ont des expressions de popup invalides"
   },
+  "builderMap": {
+    "loading": "Chargement de la carte...",
+    "authError": "La session a expire. Rechargez la page pour retablir l'acces aux tuiles.",
+    "mapError": "Erreur de tuiles de carte. Certaines couches peuvent ne pas s'afficher correctement.",
+    "basemapIssueTitle": "Probleme de connexion au fond de carte",
+    "basemapIssueDescription": "Vos couches de donnees restent modifiables. Verifiez le service de fond de carte ou choisissez un autre fond si l'arriere-plan reste vide."
+  },
   "mapCreate": {
     "title": "Créer une carte",
     "descriptionAI": "Créez une carte manuellement ou générez-en une avec l'IA.",

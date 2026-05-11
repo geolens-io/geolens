@@ -568,6 +568,13 @@
     "mapForkedExcluded": "Map forked! {{count}} layer(s) excluded -- you don't have access to those datasets",
     "popupConfigInvalid": "Cannot save: one or more layers have invalid popup expressions"
   },
+  "builderMap": {
+    "loading": "Loading map...",
+    "authError": "Session expired. Reload the page to restore tile access.",
+    "mapError": "Map tile error. Some layers may not render correctly.",
+    "basemapIssueTitle": "Basemap connection issue",
+    "basemapIssueDescription": "Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank."
+  },
   "mapCreate": {
     "title": "Create Map",
     "descriptionAI": "Create a new map manually or generate one with AI.",

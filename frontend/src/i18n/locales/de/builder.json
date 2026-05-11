@@ -547,6 +547,13 @@
     "mapForkedExcluded": "Karte abgeleitet! {{count}} Layer ausgeschlossen -- Sie haben keinen Zugriff auf diese Datensätze",
     "popupConfigInvalid": "Speichern nicht möglich: Ein oder mehrere Layer haben ungültige Popup-Ausdrücke"
   },
+  "builderMap": {
+    "loading": "Karte wird geladen...",
+    "authError": "Die Sitzung ist abgelaufen. Laden Sie die Seite neu, um den Kachelzugriff wiederherzustellen.",
+    "mapError": "Fehler bei Kartenkacheln. Einige Ebenen werden eventuell nicht richtig dargestellt.",
+    "basemapIssueTitle": "Verbindungsproblem mit der Grundkarte",
+    "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prufen Sie den Grundkartendienst oder wahlen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt."
+  },
   "mapCreate": {
     "title": "Karte erstellen",
     "descriptionAI": "Erstellen Sie eine Karte manuell oder generieren Sie eine mit KI.",

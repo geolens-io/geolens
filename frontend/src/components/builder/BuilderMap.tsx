@@ -81,6 +81,7 @@ export const BuilderMap = memo(function BuilderMap({
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
+  const [basemapNotice, setBasemapNotice] = useState<'style' | 'tiles' | null>(null);
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
   // container. Mirrors the ViewerMap hook from 6a5f0181 so the Playwright
   // demo-smoke spec can poll a deterministic signal regardless of whether
@@ -141,12 +142,18 @@ export const BuilderMap = memo(function BuilderMap({
         return response.json() as Promise<StyleSpecification>;
       })
       .then((style) => {
-        if (!cancelled) setMapStyle(sanitizeMaplibreStyle(style));
+        if (!cancelled) {
+          setMapStyle(sanitizeMaplibreStyle(style));
+          setBasemapNotice(null);
+        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (import.meta.env.DEV) console.warn('[BuilderMap] Basemap style sanitization failed:', error);
-        if (!cancelled) setMapStyle(styleValue);
+        if (!cancelled) {
+          setBasemapNotice('style');
+          setMapStyle(styleValue);
+        }
       });
 
     return () => {
@@ -293,6 +300,7 @@ export const BuilderMap = memo(function BuilderMap({
         // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
         if (!status || status >= 500) {
+          setBasemapNotice('tiles');
           toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
             id: 'builder-map-error',
           });
@@ -607,6 +615,22 @@ export const BuilderMap = memo(function BuilderMap({
     >
       {tilesLoading && (
         <div className="absolute top-0 left-0 right-0 z-10 h-0.5 bg-primary/60 animate-pulse" />
+      )}
+      {basemapNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="absolute left-3 top-3 z-20 max-w-sm rounded-md border bg-background/95 p-3 text-sm shadow-md backdrop-blur"
+        >
+          <p className="font-medium text-foreground">
+            {t('builderMap.basemapIssueTitle', { defaultValue: 'Basemap connection issue' })}
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {t('builderMap.basemapIssueDescription', {
+              defaultValue: 'Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank.',
+            })}
+          </p>
+        </div>
       )}
       <MapGL
         initialViewState={defaultView}
