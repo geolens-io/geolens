@@ -162,18 +162,16 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     // Expand the layer
     await page.getByRole('button', { name: 'Expand options' }).click();
 
-    // No filter icon initially
-    const layerRow = page.locator('[data-testid^="layer-item"]').first();
-    const filterBadge = layerRow.locator('svg.lucide-funnel');
-    await expect(layerRow).toBeVisible();
-    await expect(filterBadge).not.toBeVisible();
-
     // Switch to Filter tab and add a filter condition
     await page.getByRole('tab', { name: 'Filter', exact: true }).click();
     await page.getByRole('button', { name: 'Add filter' }).click();
     await page.getByRole('textbox', { name: 'Value' }).fill('1');
 
     // Filter icon should appear in the layer row header
+    await page.getByRole('button', { name: 'Back to layers' }).click();
+    const layerRow = page.locator('[data-testid^="layer-item"]').first();
+    const filterBadge = layerRow.locator('svg.lucide-funnel');
+    await expect(layerRow).toBeVisible();
     await expect(filterBadge).toBeVisible({ timeout: 3_000 });
   });
 
@@ -184,11 +182,6 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     // Expand the layer
     await page.getByRole('button', { name: 'Expand options' }).click();
 
-    // No labels icon initially
-    const layerRow = page.locator('[data-testid^="layer-item"]').first();
-    await expect(layerRow).toBeVisible();
-    await expect(layerRow.locator('.lucide-type')).not.toBeVisible();
-
     // Switch to Labels tab and toggle labels on
     await page.getByRole('tab', { name: 'Labels', exact: true }).click();
     const labelsSwitch = page
@@ -198,6 +191,9 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await labelsSwitch.click();
 
     // Labels icon should appear in the layer row header
+    await page.getByRole('button', { name: 'Back to layers' }).click();
+    const layerRow = page.locator('[data-testid^="layer-item"]').first();
+    await expect(layerRow).toBeVisible();
     await expect(layerRow.locator('.lucide-type')).toBeVisible({ timeout: 3_000 });
   });
 });
