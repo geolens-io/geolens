@@ -25,12 +25,17 @@ function isMeterUnit(unit: string) {
   return METER_UNITS.has(unit.trim().toLowerCase().replace(/\.$/, ''));
 }
 
+function visibleReliefLayerCount(layers: MapLayerResponse[]) {
+  return layers.filter((layer) => layer.is_dem === true && layer.visible).length;
+}
+
 export function TerrainControls({ layers, value, onChange }: TerrainControlsProps) {
   const { t } = useTranslation('builder');
   const demLayers = useMemo(
     () => layers.filter(isTerrainCapableDemLayer),
     [layers],
   );
+  const reliefCount = useMemo(() => visibleReliefLayerCount(layers), [layers]);
   const hasDemLayers = demLayers.length > 0;
   const configuredSourceId = value?.source_dataset_id ?? null;
   const selectedSourceId = configuredSourceId && demLayers.some((layer) => layer.dataset_id === configuredSourceId)
@@ -83,9 +88,16 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
   return (
     <div className="space-y-3 px-2">
       <div className="flex items-center justify-between gap-3">
-        <Label htmlFor="terrain-enabled" className="text-sm font-medium">
-          {t('terrain.title', { defaultValue: 'Terrain' })}
-        </Label>
+        <div className="min-w-0">
+          <Label htmlFor="terrain-enabled" className="text-sm font-medium">
+            {t('terrain.surfaceTitle', { defaultValue: 'Elevation surface' })}
+          </Label>
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+            {t('terrain.surfaceDescription', {
+              defaultValue: 'Terrain drapes the map surface; Relief layers provide visible shading.',
+            })}
+          </p>
+        </div>
         <Switch
           id="terrain-enabled"
           size="sm"
@@ -102,6 +114,32 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
         </p>
       ) : (
         <>
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
+            <dt className="text-muted-foreground">
+              {t('terrain.selectedDem', { defaultValue: 'Selected DEM' })}
+            </dt>
+            <dd className="max-w-32 truncate text-right font-medium text-foreground" title={selectedLayer ? displayLayerName(selectedLayer) : undefined}>
+              {selectedLayer ? displayLayerName(selectedLayer) : t('terrain.noSource', { defaultValue: 'None' })}
+            </dd>
+            <dt className="text-muted-foreground">
+              {t('terrain.surfaceExaggeration', { defaultValue: 'Surface exaggeration' })}
+            </dt>
+            <dd className="tabular-nums text-right font-medium text-foreground">
+              {formatNumber(exaggeration, { maximumFractionDigits: 1 })}x
+            </dd>
+            <dt className="text-muted-foreground">
+              {t('terrain.visualRelief', { defaultValue: 'Visual relief' })}
+            </dt>
+            <dd className="text-right font-medium text-foreground">
+              {reliefCount > 0
+                ? t('terrain.reliefLayerCount', {
+                  count: reliefCount,
+                  defaultValue: reliefCount === 1 ? '{{count}} visible DEM layer' : '{{count}} visible DEM layers',
+                })
+                : t('terrain.noReliefLayer', { defaultValue: 'No visible relief layer' })}
+            </dd>
+          </dl>
+
           <div className="space-y-1.5">
             <Label htmlFor="terrain-source" className="text-xs text-muted-foreground">
               {t('terrain.source', { defaultValue: 'DEM source' })}

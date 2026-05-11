@@ -111,6 +111,11 @@ describe('TerrainControls', () => {
       />,
     );
 
+    expect(screen.getByText('Elevation surface')).toBeInTheDocument();
+    expect(screen.getByText('Selected DEM')).toBeInTheDocument();
+    expect(screen.getAllByText('Elevation').length).toBeGreaterThan(0);
+    expect(screen.getByText('1 visible DEM layer')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('switch', { name: 'Enable terrain' }));
 
     expect(onChange).toHaveBeenCalledWith({
@@ -134,6 +139,9 @@ describe('TerrainControls', () => {
       />,
     );
 
+    expect(screen.getByText('Surface exaggeration')).toBeInTheDocument();
+    expect(screen.getAllByText('2x').length).toBeGreaterThan(0);
+    expect(screen.getByText('2 visible DEM layers')).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Roads' })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'DEM source' }), { target: { value: 'dem-2' } });

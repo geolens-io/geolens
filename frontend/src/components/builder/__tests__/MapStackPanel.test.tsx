@@ -139,6 +139,7 @@ describe('MapStackPanel', () => {
     expect(screen.getAllByText('Elevation').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Preset').length).toBeGreaterThan(0);
     expect(screen.getByText('Place labels')).toBeInTheDocument();
+    expect(screen.getByText(/visible DEM-derived relief layer\. Terrain remains a surface setting\./)).toBeInTheDocument();
     expect(screen.getByTestId('widget-sidebar')).toBeInTheDocument();
   });
 

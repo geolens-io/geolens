@@ -79,6 +79,10 @@ function isPrimaryLayerEntry(entry: MapStackEntry) {
   return entry.role === 'data-layer' || entry.role.startsWith('relief-');
 }
 
+function visibleDemReliefLayerCount(layers: MapLayerResponse[]) {
+  return layers.filter((layer) => layer.is_dem === true && layer.visible).length;
+}
+
 function SortableStackItem({
   entry,
   layer,
@@ -254,6 +258,23 @@ export const MapStackPanel = memo(function MapStackPanel({
             value={terrainConfig}
             onChange={onTerrainChange}
           />
+        </div>
+      );
+    }
+    if (group.id === 'relief') {
+      const visibleReliefCount = visibleDemReliefLayerCount(layers);
+      return (
+        <div className="px-4 pb-2 pt-1 text-xs leading-snug text-muted-foreground">
+          {visibleReliefCount > 0
+            ? t('mapStack.reliefStatus.active', {
+              count: visibleReliefCount,
+              defaultValue: visibleReliefCount === 1
+                ? '{{count}} visible DEM-derived relief layer. Terrain remains a surface setting.'
+                : '{{count}} visible DEM-derived relief layers. Terrain remains a surface setting.',
+            })
+            : t('mapStack.reliefStatus.empty', {
+              defaultValue: 'No visible DEM-derived relief layer. Add or show a DEM hillshade/raster layer for visible landform shading.',
+            })}
         </div>
       );
     }
