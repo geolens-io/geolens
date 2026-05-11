@@ -45,17 +45,31 @@ export function normalizeTerrainExaggeration(value: number | null | undefined) {
   return Math.min(Math.max(value as number, 0), 10);
 }
 
+type RasterBounds = [number, number, number, number];
+
+function normalizeRasterBounds(bounds: number[] | null | undefined): RasterBounds | undefined {
+  if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
+  if (!bounds.every((value) => Number.isFinite(value))) return undefined;
+  return [bounds[0], bounds[1], bounds[2], bounds[3]];
+}
+
 function absolutizeTileUrl(tileUrl: string) {
   if (tileUrl.startsWith('http')) return tileUrl;
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   return `${origin}${tileUrl}`;
 }
 
-function sourceTiles(source: unknown): string[] {
-  const direct = (source as { tiles?: string[] } | null)?.tiles;
-  if (Array.isArray(direct)) return direct;
-  const serialized = (source as { serialize?: () => { tiles?: string[] } } | null)?.serialize?.();
-  return Array.isArray(serialized?.tiles) ? serialized.tiles : [];
+function sourceSpec(source: unknown) {
+  return (source as { serialize?: () => { tiles?: string[]; bounds?: number[]; tileSize?: number; minzoom?: number; maxzoom?: number } } | null)
+    ?.serialize?.()
+    ?? (source as { tiles?: string[]; bounds?: number[]; tileSize?: number; minzoom?: number; maxzoom?: number } | null)
+    ?? {};
+}
+
+function sameNumberArray(left: number[] | undefined, right: number[] | undefined) {
+  if (left == null && right == null) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 export function ensureRasterDemTerrainSource(
@@ -66,14 +80,24 @@ export function ensureRasterDemTerrainSource(
     tileSize?: number | null;
     minzoom?: number | null;
     maxzoom?: number | null;
+    bounds?: number[] | null;
   } = {},
 ) {
   const sourceId = options.sourceId ?? TERRAIN_SOURCE_ID;
   const absoluteTileUrl = absolutizeTileUrl(tileUrl);
+  const bounds = normalizeRasterBounds(options.bounds);
   const existing = map.getSource(sourceId) as { type?: string } | undefined;
-  const existingTiles = existing ? sourceTiles(existing) : [];
+  const existingSpec = existing ? sourceSpec(existing) : {};
+  const existingTiles = Array.isArray(existingSpec.tiles) ? existingSpec.tiles : [];
   const shouldReplace = existing
-    && (existing.type !== 'raster-dem' || existingTiles[0] !== absoluteTileUrl);
+    && (
+      existing.type !== 'raster-dem'
+      || existingTiles[0] !== absoluteTileUrl
+      || !sameNumberArray(existingSpec.bounds, bounds)
+      || existingSpec.tileSize !== (options.tileSize ?? 256)
+      || existingSpec.minzoom !== (options.minzoom ?? 0)
+      || existingSpec.maxzoom !== (options.maxzoom ?? 18)
+    );
 
   if (shouldReplace) {
     map.setTerrain(null);
@@ -87,6 +111,7 @@ export function ensureRasterDemTerrainSource(
       tileSize: options.tileSize ?? 256,
       minzoom: options.minzoom ?? 0,
       maxzoom: options.maxzoom ?? 18,
+      ...(bounds ? { bounds } : {}),
       encoding: 'mapbox',
     });
   }
@@ -169,7 +194,6 @@ export function reorderBasemapLabels(map: MaplibreMap, show: boolean, sourcePref
   }
 }
 
-
 function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
   return style.layers.filter(
     (layer) => !('source' in layer) || !String(layer.source ?? '').startsWith(sourcePrefix),
@@ -231,12 +255,13 @@ export function applyBasemapConfigToMap(
   }
 }
 
-export function prefixed(kind: 'source' | 'layer' | 'outline' | 'label', id: string, prefix?: string) {
+export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'label', id: string, prefix?: string) {
   const p = prefix ?? '';
   switch (kind) {
     case 'source':  return `${p}source-${id}`;
     case 'layer':   return `${p}layer-${id}`;
     case 'outline': return `${p}layer-${id}-outline`;
+    case 'extrusion': return `${p}layer-${id}-extrusion`;
     case 'label':   return `${p}layer-${id}-label`;
   }
 }
@@ -304,6 +329,7 @@ function syncRasterLayer(
   adapterInput.tileSize = token.tile_size ?? 256;
   adapterInput.minzoom = token.minzoom ?? 0;
   adapterInput.maxzoom = token.maxzoom ?? 18;
+  adapterInput.bounds = token.bounds;
   const renderMode = adapterInput.style_config?.render_mode;
   const useHillshade = adapterInput.is_dem === true && renderMode === 'hillshade';
   const adapter = getAdapter(useHillshade ? 'hillshade' : 'raster');
@@ -396,6 +422,10 @@ function syncVectorLayer(
   if (map.getLayer(outlineLayerId)) {
     map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
   }
+  const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
+  if (map.getLayer(extrusionLayerId)) {
+    map.setLayerZoomRange(extrusionLayerId, layerMinzoom, layerMaxzoom);
+  }
 
   // Sync companion label layer (add/update/remove). Heatmap layers don't support
   // labels, and symbol layers consolidate icon/text in the primary symbol layer.
@@ -445,7 +475,7 @@ function removeStaleSourcesAndLayers(
     const layerId = prefixed('layer', id, prefix);
     const outlineId = prefixed('outline', id, prefix);
     const labelId = prefixed('label', id, prefix);
-    const extrusionId = `${prefix ?? ''}layer-${id}-extrusion`;
+    const extrusionId = prefixed('extrusion', id, prefix);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
     if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
     if (map.getLayer(outlineId)) map.removeLayer(outlineId);
@@ -546,7 +576,9 @@ function reorderDataGeometry(
   for (let i = layers.length - 1; i >= 0; i--) {
     const lid = prefixed('layer',layers[i].id, idPrefix);
     const oid = prefixed('outline',layers[i].id, idPrefix);
+    const eid = prefixed('extrusion', layers[i].id, idPrefix);
     if (map.getLayer(lid)) map.moveLayer(lid);
+    if (map.getLayer(eid)) map.moveLayer(eid);
     if (map.getLayer(oid)) map.moveLayer(oid);
   }
 }

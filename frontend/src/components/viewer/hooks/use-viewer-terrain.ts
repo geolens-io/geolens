@@ -7,6 +7,7 @@ import {
   TERRAIN_SOURCE_ID,
 } from '@/components/builder/map-sync';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
+import type { TileToken } from '@/api/tiles';
 
 /**
  * Applies persisted shared-map terrain configuration to the viewer map.
@@ -18,11 +19,13 @@ export function useViewerTerrain({
   mapRef,
   mapReady,
   terrainConfig,
+  tokenMap,
 }: {
   layers: SharedLayerResponse[];
   mapRef: React.RefObject<MaplibreMap | null>;
   mapReady: boolean;
   terrainConfig?: MapTerrainConfig | null;
+  tokenMap?: Map<string, TileToken>;
 }) {
   const [terrainReady, setTerrainReady] = useState(false);
 
@@ -46,33 +49,54 @@ export function useViewerTerrain({
     }
 
     const { terrainConfig: currentTerrainConfig, terrainLayer: currentTerrainLayer } = terrainStateRef.current;
-    if (!currentTerrainConfig?.enabled || !currentTerrainLayer?.tile_url) {
+    const terrainDatasetId = currentTerrainConfig?.source_dataset_id;
+    const terrainToken = terrainDatasetId ? tokenMap?.get(terrainDatasetId) : null;
+    const terrainTileUrl = terrainToken?.kind === 'raster'
+      ? terrainToken.tile_url
+      : currentTerrainLayer?.tile_url;
+    if (!currentTerrainConfig?.enabled || !terrainDatasetId || !terrainTileUrl) {
       map.setTerrain(null);
       setTerrainReady(false);
       return;
     }
 
-    ensureRasterDemTerrainSource(map, currentTerrainLayer.tile_url);
+    ensureRasterDemTerrainSource(map, terrainTileUrl, terrainToken?.kind === 'raster'
+      ? {
+        tileSize: terrainToken.tile_size,
+        minzoom: terrainToken.minzoom,
+        maxzoom: terrainToken.maxzoom,
+        bounds: terrainToken.bounds,
+      }
+      : {});
     map.setTerrain({
       source: TERRAIN_SOURCE_ID,
       exaggeration: normalizeTerrainExaggeration(currentTerrainConfig.exaggeration),
     });
     setTerrainReady(true);
-  }, [mapRef]);
+  }, [mapRef, tokenMap]);
 
   useEffect(() => {
     if (!mapReady) {
       setTerrainReady(false);
       return;
     }
+    const map = mapRef.current;
     applyTerrain();
+    if (map && !map.isStyleLoaded()) {
+      map.once('style.load', applyTerrain);
+      return () => {
+        map.off('style.load', applyTerrain);
+      };
+    }
   }, [
     applyTerrain,
+    mapRef,
     mapReady,
     terrainConfig?.enabled,
     terrainConfig?.source_dataset_id,
     terrainConfig?.exaggeration,
     terrainLayer?.tile_url,
+    tokenMap,
   ]);
 
   const reseedTerrainOnStyleLoad = useCallback(() => {

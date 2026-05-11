@@ -2,15 +2,12 @@ import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
-import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useTileConfig } from '@/hooks/use-settings';
 import {
-  getThemeBasemap,
   findBasemapById,
+  sanitizeMaplibreStyle,
   toMaplibreStyle,
   resolveBasemapId,
-  LIGHT_PRESET_ID,
-  DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
@@ -20,7 +17,7 @@ import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
-import type { MapLibreEvent, MapMouseEvent, VectorTileSource } from 'maplibre-gl';
+import type { MapLibreEvent, MapMouseEvent, StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
@@ -58,8 +55,6 @@ interface ViewerMapProps {
   embedToken?: string;
   showBasemapLabels?: boolean;
   terrainConfig?: MapTerrainConfig | null;
-  /** When true, basemapStyle was explicitly chosen by the user — skip theme auto-switching */
-  basemapOverride?: boolean;
 }
 
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
@@ -122,7 +117,6 @@ export const ViewerMap = memo(function ViewerMap({
   embedToken,
   showBasemapLabels = true,
   terrainConfig = null,
-  basemapOverride = false,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapRef = useRef<MaplibreMap | null>(null);
@@ -134,7 +128,13 @@ export const ViewerMap = memo(function ViewerMap({
   const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
 
   // Persisted terrain source and exaggeration
-  const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({ layers, mapRef, mapReady, terrainConfig });
+  const { terrainReady, reseedTerrainOnStyleLoad } = useViewerTerrain({
+    layers,
+    mapRef,
+    mapReady,
+    terrainConfig,
+    tokenMap,
+  });
 
   // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
@@ -153,23 +153,67 @@ export const ViewerMap = memo(function ViewerMap({
     features: FeatureInfo[];
   } | null>(null);
 
-  const { resolvedTheme } = useTheme();
   const { data: basemaps } = useBasemaps();
   const { data: tileConfig } = useTileConfig();
   const resolvedId = resolveBasemapId(basemapStyle);
   const isBlank = resolvedId === BLANK_BASEMAP_ID;
-  // For default basemaps (positron/dark-matter), auto-switch with theme —
-  // but only when the basemap comes from the saved map data, not a user override.
-  const isDefaultBasemap = !isBlank && !basemapOverride && (resolvedId === LIGHT_PRESET_ID || resolvedId === DARK_PRESET_ID);
   const effectiveBasemap = isBlank
     ? undefined
-    : isDefaultBasemap
-      ? getThemeBasemap(basemaps ?? [], resolvedTheme)
-      : findBasemapById(basemaps ?? [], basemapStyle);
+    : findBasemapById(basemaps ?? [], basemapStyle);
   const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-  const styleValue = isBlank
-    ? toMaplibreStyle(BLANK_BASEMAP_ID)
-    : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl);
+  const styleValue = useMemo(
+    () => (isBlank
+      ? toMaplibreStyle(BLANK_BASEMAP_ID)
+      : toMaplibreStyle(effectiveBasemap?.url ?? fallbackUrl)),
+    [effectiveBasemap?.url, fallbackUrl, isBlank],
+  );
+  const [mapStyle, setMapStyle] = useState(styleValue);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
+      setMapStyle(styleValue);
+      return () => {
+        controller.abort();
+      };
+    }
+
+    // Remote GL styles can reference sprite patterns that are unavailable in
+    // their published sprite sheet. Fetch and sanitize first so MapLibre never
+    // emits noisy missing-image warnings during demo validation.
+    setMapStyle({
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'background',
+          type: 'background',
+          paint: { 'background-color': '#111111' },
+        },
+      ],
+    });
+
+    fetch(styleValue, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Basemap style request failed: ${response.status}`);
+        return response.json() as Promise<StyleSpecification>;
+      })
+      .then((style) => {
+        if (!cancelled) setMapStyle(sanitizeMaplibreStyle(style));
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (import.meta.env.DEV) console.warn('[ViewerMap] Basemap style sanitization failed:', error);
+        if (!cancelled) setMapStyle(styleValue);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [styleValue]);
 
   // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07).
   // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
@@ -240,6 +284,12 @@ export const ViewerMap = memo(function ViewerMap({
           toast.error(t('viewer.mapError', { defaultValue: 'Map tile error — some layers may not display correctly.' }), {
             id: 'viewer-map-error',
           });
+        }
+      });
+
+      map.on('styleimagemissing', (event: { id: string }) => {
+        if (!map.hasImage(event.id)) {
+          map.addImage(event.id, { width: 1, height: 1, data: new Uint8Array(4) });
         }
       });
 
@@ -539,10 +589,11 @@ export const ViewerMap = memo(function ViewerMap({
     <div
       className={`relative h-full w-full ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
+      data-terrain-ready={terrainReady ? 'true' : 'false'}
     >
       <MapGL
         initialViewState={defaultView}
-        mapStyle={styleValue}
+        mapStyle={mapStyle}
         styleDiffing={false}
         style={{ width: '100%', height: '100%' }}
         attributionControl={false}

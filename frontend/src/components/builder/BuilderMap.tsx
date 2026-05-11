@@ -4,7 +4,7 @@ import { isWidgetIdAvailable } from '@/components/map-widgets';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { findBasemapById, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
+import { findBasemapById, sanitizeMaplibreStyle, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
-import type { VectorTileSource } from 'maplibre-gl';
+import type { StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import {
   syncLayersToMap,
   toSyncInput,
@@ -110,6 +110,50 @@ export const BuilderMap = memo(function BuilderMap({
       : toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
     [isBlank, basemapEntry?.url, basemapEntry?.attribution],
   );
+  const [mapStyle, setMapStyle] = useState(styleValue);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
+      setMapStyle(styleValue);
+      return () => {
+        controller.abort();
+      };
+    }
+
+    setMapStyle({
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'background',
+          type: 'background',
+          paint: { 'background-color': '#111111' },
+        },
+      ],
+    });
+
+    fetch(styleValue, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Basemap style request failed: ${response.status}`);
+        return response.json() as Promise<StyleSpecification>;
+      })
+      .then((style) => {
+        if (!cancelled) setMapStyle(sanitizeMaplibreStyle(style));
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (import.meta.env.DEV) console.warn('[BuilderMap] Basemap style sanitization failed:', error);
+        if (!cancelled) setMapStyle(styleValue);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [styleValue]);
 
   // Fetch tile tokens for all layers
   // Stable dataset ID list — only changes when layers are added/removed, not on paint edits
@@ -167,6 +211,7 @@ export const BuilderMap = memo(function BuilderMap({
       tileSize: token.tile_size,
       minzoom: token.minzoom,
       maxzoom: token.maxzoom,
+      bounds: token.bounds,
     });
     map.setTerrain({
       source: TERRAIN_SOURCE_ID,
@@ -565,7 +610,7 @@ export const BuilderMap = memo(function BuilderMap({
       )}
       <MapGL
         initialViewState={defaultView}
-        mapStyle={styleValue}
+        mapStyle={mapStyle}
         styleDiffing={false}
         // PERF-08 (Phase 274): preserveDrawingBuffer dropped — captures use
         // map.triggerRepaint() + synchronous toDataURL() in use-builder-save.ts

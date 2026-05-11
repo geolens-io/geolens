@@ -38,6 +38,7 @@ export interface AdapterLayerInput {
   tileSize?: number;
   minzoom?: number;
   maxzoom?: number;
+  bounds?: number[] | null;
 }
 
 export interface LayerAdapter {

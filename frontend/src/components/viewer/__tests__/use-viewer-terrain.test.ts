@@ -4,7 +4,21 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 
 function createMap() {
-  const sources = new Map<string, { type?: string; tiles?: string[]; serialize: () => { tiles?: string[] } }>();
+  const sources = new Map<string, {
+    type?: string;
+    tiles?: string[];
+    bounds?: number[];
+    tileSize?: number;
+    minzoom?: number;
+    maxzoom?: number;
+    serialize: () => {
+      tiles?: string[];
+      bounds?: number[];
+      tileSize?: number;
+      minzoom?: number;
+      maxzoom?: number;
+    };
+  }>();
   return {
     isStyleLoaded: vi.fn(() => true),
     getSource: vi.fn((id: string) => sources.get(id)),
@@ -66,6 +80,67 @@ describe('useViewerTerrain', () => {
       encoding: 'mapbox',
     }));
     expect(map.setTerrain).toHaveBeenCalledWith({ source: 'terrain-dem', exaggeration: 2.5 });
+  });
+
+  it('uses raster tile tokens for public viewer DEM terrain', async () => {
+    const map = createMap();
+    const mapRef = { current: map as unknown as MaplibreMap };
+
+    const { result } = renderHook(() => useViewerTerrain({
+      layers: [layer({ tile_url: '' })],
+      mapRef,
+      mapReady: true,
+      terrainConfig: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2.5 },
+      tokenMap: new Map([
+        ['dem-1', {
+          kind: 'raster',
+          tile_url: '/raster-tiles/token-dem/tiles/{z}/{x}/{y}.png',
+          bounds: [-113, 36, -111.5, 37],
+          minzoom: 2,
+          maxzoom: 14,
+          tile_size: 512,
+          format: 'png',
+        }],
+      ]),
+    }));
+
+    await waitFor(() => expect(result.current.terrainReady).toBe(true));
+    expect(map.addSource).toHaveBeenCalledWith('terrain-dem', expect.objectContaining({
+      type: 'raster-dem',
+      tiles: [`${window.location.origin}/raster-tiles/token-dem/tiles/{z}/{x}/{y}.png`],
+      bounds: [-113, 36, -111.5, 37],
+      minzoom: 2,
+      maxzoom: 14,
+      tileSize: 512,
+    }));
+  });
+
+  it('can seed terrain from the saved source id and token before layer metadata is complete', async () => {
+    const map = createMap();
+    const mapRef = { current: map as unknown as MaplibreMap };
+
+    const { result } = renderHook(() => useViewerTerrain({
+      layers: [],
+      mapRef,
+      mapReady: true,
+      terrainConfig: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2.5 },
+      tokenMap: new Map([
+        ['dem-1', {
+          kind: 'raster',
+          tile_url: '/raster-tiles/token-only-dem/tiles/{z}/{x}/{y}.png',
+          bounds: null,
+          minzoom: 0,
+          maxzoom: 18,
+          tile_size: 256,
+          format: 'png',
+        }],
+      ]),
+    }));
+
+    await waitFor(() => expect(result.current.terrainReady).toBe(true));
+    expect(map.addSource).toHaveBeenCalledWith('terrain-dem', expect.objectContaining({
+      tiles: [`${window.location.origin}/raster-tiles/token-only-dem/tiles/{z}/{x}/{y}.png`],
+    }));
   });
 
   it('clears terrain when the saved config is disabled or unavailable', async () => {
