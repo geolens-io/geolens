@@ -1038,6 +1038,7 @@ export interface VisibilityCheckResponse {
 
 // Shared / Public Maps
 export interface SharedLayerResponse {
+  id?: string;
   dataset_id: string;
   dataset_name: string;
   display_name: string | null;

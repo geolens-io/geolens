@@ -132,7 +132,7 @@ describe('PublicMapViewerPage', () => {
     } as ReturnType<typeof useMap>);
 
     mockedUseViewerLayers.mockReturnValue({
-      visibleLayers: new Set([1]),
+      visibleLayers: new Set(['layer-1']),
       handleToggleVisibility: vi.fn(),
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
@@ -149,6 +149,7 @@ describe('PublicMapViewerPage', () => {
       showBasemapLabels: false,
     });
     expect(viewerMapMock.props?.layers[0]).toMatchObject({
+      id: 'layer-1',
       is_dem: true,
       dem_vertical_units: 'meters',
     });

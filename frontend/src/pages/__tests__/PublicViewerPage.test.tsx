@@ -83,6 +83,7 @@ const SHARED_MAP: SharedMapResponse = {
   has_non_public_layers: false,
   layers: [
     {
+      id: 'shared-layer-1',
       dataset_id: 'dataset-1',
       dataset_name: 'Transit',
       display_name: 'Transit stops',
@@ -127,7 +128,7 @@ describe('PublicViewerPage', () => {
     } as ReturnType<typeof useSharedMap>);
 
     mockedUseViewerLayers.mockReturnValue({
-      visibleLayers: new Set([1]),
+      visibleLayers: new Set(['shared-layer-1']),
       handleToggleVisibility: vi.fn(),
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),

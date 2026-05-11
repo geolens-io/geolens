@@ -633,6 +633,7 @@ class MapHistoryListResponse(BaseModel):
 
 
 class SharedLayerResponse(BaseModel):
+    id: str
     dataset_id: str
     dataset_name: str
     display_name: str | None = None

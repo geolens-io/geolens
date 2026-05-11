@@ -25,6 +25,7 @@ import type { AdapterLayerInput } from '@/components/builder/layer-adapters/type
 import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import { fetchGeoJsonZ } from '@/api/geojson-z';
+import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -49,7 +50,7 @@ interface ViewerMapProps {
     bearing: number;
     pitch: number;
   };
-  visibleLayers: Set<number>;
+  visibleLayers: Set<string>;
   onMapReady?: (map: MaplibreMap) => void;
   apiKey?: string;
   embedToken?: string;
@@ -65,14 +66,15 @@ const VIEWER_SOURCE_PREFIX = `${VIEWER_PREFIX}source-`;
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
 function toViewerSyncInput(
   layer: SharedLayerResponse,
-  visibleLayers: Set<number>,
+  layerKey: string,
+  visibleLayers: Set<string>,
 ): SyncLayerInput {
   return {
-    id: String(layer.sort_order),
+    id: layerKey,
     dataset_table_name: layer.table_name,
     dataset_geometry_type: layer.geometry_type,
     opacity: layer.opacity ?? 1,
-    visible: visibleLayers.has(layer.sort_order),
+    visible: visibleLayers.has(layerKey),
     paint: layer.paint ?? {},
     layout: layer.layout ?? {},
     filter: layer.filter ?? null,
@@ -88,22 +90,23 @@ function toViewerSyncInput(
 /** Build an AdapterLayerInput for viewer visibility syncing (no tile URL needed). */
 function toAdapterInput(
   layer: SharedLayerResponse,
-  visibleLayers: Set<number>,
+  layerKey: string,
+  visibleLayers: Set<string>,
 ): AdapterLayerInput {
   return {
-    id: String(layer.sort_order),
+    id: layerKey,
     dataset_table_name: layer.table_name,
     dataset_geometry_type: layer.geometry_type,
     opacity: layer.opacity ?? 1,
-    visible: visibleLayers.has(layer.sort_order),
+    visible: visibleLayers.has(layerKey),
     paint: layer.paint ?? {},
     layout: layer.layout ?? {},
     filter: layer.filter ?? null,
     label_config: layer.label_config,
     style_config: layer.style_config,
     is_dem: layer.is_dem,
-    sourceId: prefixed('source', String(layer.sort_order), VIEWER_PREFIX),
-    layerId: prefixed('layer', String(layer.sort_order), VIEWER_PREFIX),
+    sourceId: prefixed('source', layerKey, VIEWER_PREFIX),
+    layerId: prefixed('layer', layerKey, VIEWER_PREFIX),
     sourceLayer: `data.${layer.table_name}`,
     tileUrl: '',
   };
@@ -126,6 +129,7 @@ export const ViewerMap = memo(function ViewerMap({
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
 
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap } = useViewerTokens({ layers, apiKey, embedToken });
@@ -142,8 +146,8 @@ export const ViewerMap = memo(function ViewerMap({
   // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const geojsonZLayers = useMemo(
-    () => layers.filter((l) => l.is_3d && l.feature_count != null && l.feature_count <= 5000),
-    [layers],
+    () => layerEntries.filter(({ layer }) => layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000),
+    [layerEntries],
   );
 
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
@@ -227,11 +231,11 @@ export const ViewerMap = memo(function ViewerMap({
     async function fetchAll() {
       const newMap = new Map<string, GeoJSON.FeatureCollection>();
       await Promise.all(
-        geojsonZLayers.map(async (layer) => {
+        geojsonZLayers.map(async ({ layer, key }) => {
           try {
             const data = await fetchGeoJsonZ(layer.dataset_id, { apiKey, embedToken });
             if (!cancelled) {
-              newMap.set(String(layer.sort_order), data as GeoJSON.FeatureCollection);
+              newMap.set(key, data as GeoJSON.FeatureCollection);
             }
           } catch (e) {
             if (import.meta.env.DEV) console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
@@ -313,11 +317,11 @@ export const ViewerMap = memo(function ViewerMap({
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
   const interactiveLayers = useMemo(
     () =>
-      layers
-        .filter((l) => visibleLayers.has(l.sort_order))
-        .filter((l) => l.style_config?.render_mode !== 'heatmap')
-        .map((l) => prefixed('layer', String(l.sort_order), VIEWER_PREFIX)),
-    [layers, visibleLayers],
+      layerEntries
+        .filter(({ key }) => visibleLayers.has(key))
+        .filter(({ layer }) => layer.style_config?.render_mode !== 'heatmap')
+        .map(({ key }) => prefixed('layer', key, VIEWER_PREFIX)),
+    [layerEntries, visibleLayers],
   );
   // Ref so event handlers always see current value without re-registration
   const interactiveLayersRef = useRef(interactiveLayers);
@@ -342,11 +346,11 @@ export const ViewerMap = memo(function ViewerMap({
   const layerByMapIdRef = useRef<Map<string, SharedLayerResponse>>(new Map());
   useEffect(() => {
     const m = new Map<string, SharedLayerResponse>();
-    for (const l of layers) {
-      m.set(prefixed('layer', String(l.sort_order), VIEWER_PREFIX), l);
+    for (const { layer, key } of layerEntries) {
+      m.set(prefixed('layer', key, VIEWER_PREFIX), layer);
     }
     layerByMapIdRef.current = m;
-  }, [layers]);
+  }, [layerEntries]);
 
   // Resolve a hit to its layer config; returns null when the layer is unknown
   // (verifies the prefix matched) or popups are explicitly disabled.
@@ -462,7 +466,9 @@ export const ViewerMap = memo(function ViewerMap({
   const runSync = useCallback((map: MaplibreMap) => {
     const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
     const tileBaseUrl = resolveTileBaseUrl(tc);
-    const syncInputs: SyncLayerInput[] = ls.map((l) => toViewerSyncInput(l, vl));
+    const syncInputs: SyncLayerInput[] = createViewerLayerEntries(ls).map(({ layer, key }) => (
+      toViewerSyncInput(layer, key, vl)
+    ));
     const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
     syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, geojsonDataRef.current, syncOpts);
     applyViewerBasemapConfig(map);
@@ -507,11 +513,11 @@ export const ViewerMap = memo(function ViewerMap({
     if (!map || !mapReady || (!embedToken && tokenMap.size === 0)) return;
     const tileBaseUrl = resolveTileBaseUrl({ cdn_base_url: cdnBaseUrl });
 
-    for (const layer of layers) {
+    for (const { layer, key } of layerEntries) {
       const token = tokenMap.get(layer.dataset_id) ?? null;
       // Skip rasters — their tile_url is stable, no refresh needed.
       if (token && token.kind !== 'vector') continue;
-      const sourceId = prefixed('source', String(layer.sort_order), VIEWER_PREFIX);
+      const sourceId = prefixed('source', key, VIEWER_PREFIX);
       const source = map.getSource(sourceId);
       // Only vector sources need query-param URL refreshes.
       if (source && source.type === 'vector') {
@@ -519,37 +525,37 @@ export const ViewerMap = memo(function ViewerMap({
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }
-  }, [tokenMap, layers, mapReady, cdnBaseUrl, embedToken]);
+  }, [tokenMap, layerEntries, mapReady, cdnBaseUrl, embedToken]);
 
   // Toggle visibility when visibleLayers set changes.
   // Note: runSync also calls syncVisibility via syncLayersToMap, but this
   // dedicated effect is needed for *visibility-only* changes where other
   // sync inputs (layers, tokenMap) haven't changed.
-  const prevVisibleRef = useRef<Set<number>>(new Set());
+  const prevVisibleRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
     const prev = prevVisibleRef.current;
-    for (const layer of layers) {
-      const wasVisible = prev.has(layer.sort_order);
-      const isVisible = visibleLayers.has(layer.sort_order);
+    for (const { layer, key } of layerEntries) {
+      const wasVisible = prev.has(key);
+      const isVisible = visibleLayers.has(key);
       if (wasVisible === isVisible) continue;
 
       const type = layer.is_dem === true && layer.style_config?.render_mode === 'hillshade'
         ? 'hillshade'
         : resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint as Record<string, unknown>);
       const adapter = getAdapter(type);
-      const adapterInput = toAdapterInput(layer, visibleLayers);
+      const adapterInput = toAdapterInput(layer, key, visibleLayers);
       adapter.syncVisibility(map, adapterInput);
 
-      const labelId = prefixed('label', String(layer.sort_order), VIEWER_PREFIX);
+      const labelId = prefixed('label', key, VIEWER_PREFIX);
       if (map.getLayer(labelId)) {
         map.setLayoutProperty(labelId, 'visibility', isVisible ? 'visible' : 'none');
       }
     }
     prevVisibleRef.current = new Set(visibleLayers);
-  }, [visibleLayers, layers, mapReady]);
+  }, [visibleLayers, layerEntries, mapReady]);
 
   // Re-add data layers after any basemap/style change.
   // <MapGL styleDiffing={false}> calls map.setStyle() when mapStyle prop changes,

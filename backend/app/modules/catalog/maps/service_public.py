@@ -192,6 +192,7 @@ def _build_shared_layer_dict(
         # alongside the dict (`not is_public` below) — leaving it bound here.
         tile_url = f"/tiles/data.{ds_table_name}/{{z}}/{{x}}/{{y}}.pbf"
     return {
+        "id": str(layer.id),
         "dataset_id": str(layer.dataset_id),
         "dataset_name": ds_name,
         "display_name": layer.display_name,

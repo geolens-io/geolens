@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LayerLegend } from '../LayerLegend';
 import type { SharedLayerResponse } from '@/types/api';
@@ -6,6 +6,7 @@ import type { SharedLayerResponse } from '@/types/api';
 function layer(overrides: Partial<SharedLayerResponse> = {}): SharedLayerResponse {
   return {
     dataset_id: 'dataset-1',
+    id: 'layer-1',
     dataset_name: 'Earthquakes',
     display_name: 'Earthquakes (M5+)',
     table_name: 'quakes',
@@ -70,7 +71,7 @@ describe('LayerLegend', () => {
     render(
       <LayerLegend
         layers={[layer()]}
-        visibleLayers={new Set([0])}
+        visibleLayers={new Set(['layer-1'])}
         onToggleVisibility={vi.fn()}
         isOpen
         onToggle={vi.fn()}
@@ -81,5 +82,25 @@ describe('LayerLegend', () => {
     expect(screen.getByText('Color: Depth (km)')).toBeInTheDocument();
     expect(screen.getByText('< 6')).toBeInTheDocument();
     expect(screen.getByText(/50.*200/)).toBeInTheDocument();
+  });
+
+  it('uses stable layer keys for duplicate sort orders', () => {
+    const onToggleVisibility = vi.fn();
+    render(
+      <LayerLegend
+        layers={[
+          layer({ id: 'layer-a', display_name: 'First copy', sort_order: 0 }),
+          layer({ id: 'layer-b', display_name: 'Second copy', sort_order: 0 }),
+        ]}
+        visibleLayers={new Set(['layer-a', 'layer-b'])}
+        onToggleVisibility={onToggleVisibility}
+        isOpen
+        onToggle={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Second copy' }));
+
+    expect(onToggleVisibility).toHaveBeenCalledWith('layer-b');
   });
 });

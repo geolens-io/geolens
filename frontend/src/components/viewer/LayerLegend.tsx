@@ -14,11 +14,12 @@ import type { SwatchStyle } from '@/components/map/LegendEntries';
 import { Eye, EyeOff, Layers, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 
 interface LayerLegendProps {
   layers: SharedLayerResponse[];
-  visibleLayers: Set<number>;
-  onToggleVisibility: (sortOrder: number) => void;
+  visibleLayers: Set<string>;
+  onToggleVisibility: (layerKey: string) => void;
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -155,9 +156,9 @@ export function LayerLegend({
 
   const sorted = useMemo(
     () =>
-      [...layers]
-        .filter((l) => l.show_in_legend !== false)
-        .sort((a, b) => a.sort_order - b.sort_order),
+      createViewerLayerEntries(layers)
+        .filter(({ layer }) => layer.show_in_legend !== false)
+        .sort((a, b) => a.layer.sort_order - b.layer.sort_order),
     [layers],
   );
 
@@ -201,8 +202,8 @@ export function LayerLegend({
           <h3 className="text-sm font-semibold text-foreground">{t('viewer.legend.title')}</h3>
         </div>
         <ul className="divide-y divide-border/50">
-          {sorted.map((layer) => {
-            const isVisible = visibleLayers.has(layer.sort_order);
+          {sorted.map(({ layer, key }) => {
+            const isVisible = visibleLayers.has(key);
             const sc = layer.style_config;
             const isHeatmap = sc?.render_mode === 'heatmap';
             const color = isHeatmap ? null : getLayerColors({
@@ -212,7 +213,7 @@ export function LayerLegend({
             })[0];
             const layerName = layer.display_name || layer.dataset_name;
             return (
-              <li key={layer.sort_order} className="px-3 py-2 hover:bg-accent/50">
+              <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
                   {color && (
                     <GeometrySwatch geometryType={layer.geometry_type} color={color} />
@@ -222,7 +223,7 @@ export function LayerLegend({
                   </span>
                   <button
                     type="button"
-                    onClick={() => onToggleVisibility(layer.sort_order)}
+                    onClick={() => onToggleVisibility(key)}
                     className="flex-shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
                     aria-label={isVisible
                       ? t('viewer.legend.hideLayer', { name: layerName })

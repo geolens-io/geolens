@@ -1477,11 +1477,21 @@ class TestShareTokenServiceGuards:
 
 class TestSharedMap:
     async def test_get_shared_map_success(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """GET /maps/shared/{token} returns map data."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
         created = await _create_map(client, admin_auth_header, "Shared Map")
         map_id = created["id"]
+
+        layer_resp = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert layer_resp.status_code == 201
+        layer_id = layer_resp.json()["id"]
 
         await client.put(
             f"/maps/{map_id}",
@@ -1499,6 +1509,7 @@ class TestSharedMap:
         data = resp.json()
         assert data["name"] == "Shared Map"
         assert "layers" in data
+        assert data["layers"][0]["id"] == layer_id
         assert "basemap_style" in data
 
     async def test_get_shared_map_includes_basemap_config(

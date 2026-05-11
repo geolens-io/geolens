@@ -25,6 +25,7 @@ import type { MapLayerResponse, SharedLayerResponse } from '@/types/api';
  */
 function toSharedLayer(layer: MapLayerResponse): SharedLayerResponse {
   return {
+    id: layer.id,
     dataset_id: layer.dataset_id,
     dataset_name: layer.dataset_name,
     display_name: layer.display_name,

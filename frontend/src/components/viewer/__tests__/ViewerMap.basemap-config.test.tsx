@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
-import { applyBasemapConfigToMap } from '@/components/builder/map-sync';
-import type { MapBasemapConfig } from '@/types/api';
+import { applyBasemapConfigToMap, syncLayersToMap } from '@/components/builder/map-sync';
+import type { MapBasemapConfig, SharedLayerResponse } from '@/types/api';
 
 type FakeMap = {
   isStyleLoaded: ReturnType<typeof vi.fn>;
@@ -11,6 +11,7 @@ type FakeMap = {
   once: ReturnType<typeof vi.fn>;
   setTransformRequest: ReturnType<typeof vi.fn>;
   getLayer: ReturnType<typeof vi.fn>;
+  getSource: ReturnType<typeof vi.fn>;
   queryRenderedFeatures: ReturnType<typeof vi.fn>;
   getCanvas: ReturnType<typeof vi.fn>;
   triggerRepaint: ReturnType<typeof vi.fn>;
@@ -40,6 +41,7 @@ const mapState = vi.hoisted(() => {
     }),
     setTransformRequest: vi.fn(),
     getLayer: vi.fn(() => false),
+    getSource: vi.fn(() => null),
     queryRenderedFeatures: vi.fn(() => []),
     getCanvas: vi.fn(() => ({ style: { cursor: '' } })),
     triggerRepaint: vi.fn(),
@@ -60,6 +62,7 @@ const mapState = vi.hoisted(() => {
       fakeMap.once.mockClear();
       fakeMap.setTransformRequest.mockClear();
       fakeMap.getLayer.mockClear();
+      fakeMap.getSource.mockClear();
       fakeMap.queryRenderedFeatures.mockClear();
       fakeMap.getCanvas.mockClear();
       fakeMap.triggerRepaint.mockClear();
@@ -115,6 +118,7 @@ vi.mock('@/components/builder/map-sync', async (importOriginal) => {
 });
 
 const applyBasemapConfigToMapMock = vi.mocked(applyBasemapConfigToMap);
+const syncLayersToMapMock = vi.mocked(syncLayersToMap);
 
 const BASEMAP_CONFIG: MapBasemapConfig = {
   label_mode: 'subtle',
@@ -149,6 +153,7 @@ describe('ViewerMap basemap config runtime', () => {
   beforeEach(() => {
     mapState.reset();
     applyBasemapConfigToMapMock.mockClear();
+    syncLayersToMapMock.mockClear();
   });
 
   it('applies representative basemap config after load, style reload, and runtime changes', async () => {
@@ -206,5 +211,74 @@ describe('ViewerMap basemap config runtime', () => {
         'viewer-source-',
       );
     });
+  });
+
+  it('syncs duplicate sort-order layers with stable viewer layer IDs', async () => {
+    const duplicateOrderLayers: SharedLayerResponse[] = [
+      {
+        id: 'layer-a',
+        dataset_id: 'dataset-a',
+        dataset_name: 'First copy',
+        display_name: 'First copy',
+        table_name: 'first_copy',
+        geometry_type: 'POINT',
+        column_info: null,
+        sort_order: 0,
+        visible: true,
+        opacity: 1,
+        paint: {},
+        layout: {},
+        filter: null,
+        label_config: null,
+        popup_config: null,
+        style_config: null,
+        tile_url: '',
+      },
+      {
+        id: 'layer-b',
+        dataset_id: 'dataset-b',
+        dataset_name: 'Second copy',
+        display_name: 'Second copy',
+        table_name: 'second_copy',
+        geometry_type: 'POINT',
+        column_info: null,
+        sort_order: 0,
+        visible: true,
+        opacity: 1,
+        paint: {},
+        layout: {},
+        filter: null,
+        label_config: null,
+        popup_config: null,
+        style_config: null,
+        tile_url: '',
+      },
+    ];
+
+    render(
+      <ViewerMap
+        layers={duplicateOrderLayers}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={null}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{
+          center_lng: 0,
+          center_lat: 0,
+          zoom: 2,
+          bearing: 0,
+          pitch: 0,
+        }}
+        visibleLayers={new Set()}
+        embedToken="embed-token"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(syncLayersToMapMock).toHaveBeenCalled();
+    });
+
+    const syncInputs = syncLayersToMapMock.mock.calls.at(-1)?.[1];
+    expect(syncInputs?.map((layer) => layer.id)).toEqual(['layer-a', 'layer-b']);
   });
 });

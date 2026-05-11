@@ -1,13 +1,17 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 
 interface LayerLike {
+  id?: string | null;
   visible: boolean;
+  dataset_id: string;
+  table_name?: string | null;
   sort_order: number;
 }
 
 interface UseViewerLayersResult {
-  visibleLayers: Set<number>;
-  handleToggleVisibility: (sortOrder: number) => void;
+  visibleLayers: Set<string>;
+  handleToggleVisibility: (layerKey: string) => void;
   isLegendOpen: boolean;
   setIsLegendOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
 }
@@ -22,28 +26,28 @@ export function useViewerLayers(
 ): UseViewerLayersResult {
   const showLegend = options?.showLegend ?? true;
 
-  const [overriddenLayers, setOverriddenLayers] = useState<Set<number> | null>(null);
+  const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
+  const [overriddenLayers, setOverriddenLayers] = useState<Set<string> | null>(null);
 
   const visibleLayers = useMemo(() => {
     if (overriddenLayers !== null) return overriddenLayers;
-    if (!layers) return new Set<number>();
-    return new Set(layers.filter((l) => l.visible).map((l) => l.sort_order));
-  }, [overriddenLayers, layers]);
+    return new Set(layerEntries.filter(({ layer }) => layer.visible).map(({ key }) => key));
+  }, [overriddenLayers, layerEntries]);
 
-  const handleToggleVisibility = useCallback((sortOrder: number) => {
+  const handleToggleVisibility = useCallback((layerKey: string) => {
     setOverriddenLayers((prev) => {
       const current = prev ?? new Set(
-        (layers ?? []).filter((l) => l.visible).map((l) => l.sort_order),
+        layerEntries.filter(({ layer }) => layer.visible).map(({ key }) => key),
       );
       const next = new Set(current);
-      if (next.has(sortOrder)) {
-        next.delete(sortOrder);
+      if (next.has(layerKey)) {
+        next.delete(layerKey);
       } else {
-        next.add(sortOrder);
+        next.add(layerKey);
       }
       return next;
     });
-  }, [layers]);
+  }, [layerEntries]);
 
   const [isLegendOpen, setIsLegendOpenRaw] = useState(() => {
     if (!showLegend) return false;
