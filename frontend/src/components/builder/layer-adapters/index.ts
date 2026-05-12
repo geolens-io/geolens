@@ -8,3 +8,4 @@ export { symbolAdapter } from './symbol-adapter';
 export { rasterAdapter } from './raster-adapter';
 export { hillshadeAdapter } from './hillshade-adapter';
 export { heatmapAdapter } from './heatmap-adapter';
+export { clusterAdapter, clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './cluster-adapter';

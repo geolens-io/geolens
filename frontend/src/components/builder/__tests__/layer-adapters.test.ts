@@ -9,6 +9,7 @@ import {
   rasterAdapter,
   hillshadeAdapter,
   heatmapAdapter,
+  clusterAdapter,
 } from '@/components/builder/layer-adapters';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 
@@ -104,6 +105,10 @@ describe('getAdapter', () => {
     expect(getAdapter('symbol')).toBe(symbolAdapter);
   });
 
+  it('returns clusterAdapter for "cluster"', () => {
+    expect(getAdapter('cluster')).toBe(clusterAdapter);
+  });
+
   it('falls back to circleAdapter for unknown type', () => {
     expect(getAdapter('unknown')).toBe(circleAdapter);
   });
@@ -117,6 +122,10 @@ describe('resolveAdapterType', () => {
 
   it('returns heatmap when render_mode is heatmap and geometry is null', () => {
     expect(resolveAdapterType(null, { render_mode: 'heatmap' })).toBe('heatmap');
+  });
+
+  it('returns cluster when render_mode is cluster', () => {
+    expect(resolveAdapterType('POINT', { render_mode: 'cluster' })).toBe('cluster');
   });
 
   it('returns symbol when render_mode is symbol', () => {
@@ -447,6 +456,138 @@ describe('circleAdapter', () => {
     const inputVisible = makeInput({ id: 'c6', layerId: 'layer-c6', visible: false });
     circleAdapter.syncVisibility(map, inputVisible);
     expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-c6', 'visibility', 'none');
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+describe('clusterAdapter', () => {
+  let map: ReturnType<typeof createMockMap>;
+
+  beforeEach(() => {
+    map = createMockMap();
+  });
+
+  it('addLayers creates cluster circle, count, and unclustered point layers over a GeoJSON source', () => {
+    const input = makeInput({
+      id: 'cluster-1',
+      layerId: 'layer-cluster-1',
+      sourceId: 'source-cluster-1',
+      sourceLayer: 'data.points',
+      sourceType: 'geojson',
+      dataset_geometry_type: 'POINT',
+      opacity: 0.7,
+      paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
+      filter: ['==', 'status', 'open'],
+      style_config: {
+        render_mode: 'cluster',
+        builder: {
+          clusterColor: '#fb923c',
+          clusterTextColor: '#111827',
+        },
+      },
+    });
+
+    clusterAdapter.addLayers(map, input);
+
+    expect(map.addLayer).toHaveBeenCalledTimes(3);
+    const [clusterCircle, clusterCount, unclustered] = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0]);
+    expect(clusterCircle).toEqual(expect.objectContaining({
+      id: 'layer-cluster-1-cluster',
+      type: 'circle',
+      source: 'source-cluster-1',
+      filter: ['all', ['has', 'point_count'], ['==', 'status', 'open']],
+    }));
+    expect(clusterCircle).not.toHaveProperty('source-layer');
+    expect(clusterCircle.paint).toEqual(expect.objectContaining({
+      'circle-color': '#fb923c',
+      'circle-opacity': 0.7,
+    }));
+    expect(clusterCount).toEqual(expect.objectContaining({
+      id: 'layer-cluster-1-cluster-count',
+      type: 'symbol',
+      source: 'source-cluster-1',
+      filter: ['all', ['has', 'point_count'], ['==', 'status', 'open']],
+    }));
+    expect(clusterCount.paint).toEqual(expect.objectContaining({
+      'text-color': '#111827',
+      'text-opacity': 0.7,
+    }));
+    expect(unclustered).toEqual(expect.objectContaining({
+      id: 'layer-cluster-1',
+      type: 'circle',
+      source: 'source-cluster-1',
+      filter: ['all', ['!', ['has', 'point_count']], ['==', 'status', 'open']],
+    }));
+    expect(unclustered).not.toHaveProperty('source-layer');
+    expect(unclustered.paint).toEqual(expect.objectContaining({
+      'circle-color': '#2255aa',
+      'circle-radius': 6,
+    }));
+  });
+
+  it('syncPaint updates cluster companions and the unclustered point layer', () => {
+    const input = makeInput({
+      id: 'cluster-sync',
+      layerId: 'layer-cluster-sync',
+      sourceId: 'source-cluster-sync',
+      sourceType: 'geojson',
+      dataset_geometry_type: 'POINT',
+      paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
+      style_config: { render_mode: 'cluster', builder: { clusterColor: '#fb923c' } },
+    });
+    clusterAdapter.addLayers(map, input);
+    (map.setPaintProperty as ReturnType<typeof vi.fn>).mockClear();
+    (map.setFilter as ReturnType<typeof vi.fn>).mockClear();
+
+    clusterAdapter.syncPaint(map, {
+      ...input,
+      opacity: 0.4,
+      filter: ['==', 'status', 'planned'],
+      style_config: {
+        render_mode: 'cluster',
+        builder: {
+          clusterColor: '#22c55e',
+          clusterTextColor: '#0f172a',
+        },
+      },
+    });
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync-cluster', 'circle-color', '#22c55e');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync-cluster', 'circle-opacity', 0.4);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', 'text-color', '#0f172a');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', 'text-opacity', 0.4);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-cluster-sync', 'circle-radius', 6);
+    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync-cluster', ['all', ['has', 'point_count'], ['==', 'status', 'planned']]);
+    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync-cluster-count', ['all', ['has', 'point_count'], ['==', 'status', 'planned']]);
+    expect(map.setFilter).toHaveBeenCalledWith('layer-cluster-sync', ['all', ['!', ['has', 'point_count']], ['==', 'status', 'planned']]);
+  });
+
+  it('syncVisibility toggles all cluster companion layers', () => {
+    const input = makeInput({
+      id: 'cluster-visible',
+      layerId: 'layer-cluster-visible',
+      sourceId: 'source-cluster-visible',
+      sourceType: 'geojson',
+      dataset_geometry_type: 'POINT',
+      style_config: { render_mode: 'cluster' },
+    });
+    clusterAdapter.addLayers(map, input);
+    (map.setLayoutProperty as ReturnType<typeof vi.fn>).mockClear();
+
+    clusterAdapter.syncVisibility(map, { ...input, visible: false });
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-cluster-visible-cluster', 'visibility', 'none');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-cluster-visible-cluster-count', 'visibility', 'none');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-cluster-visible', 'visibility', 'none');
+  });
+
+  it('getLayerIds includes cluster companions and parent unclustered identity', () => {
+    expect(clusterAdapter.getLayerIds('layer-c1')).toEqual([
+      'layer-c1-cluster',
+      'layer-c1-cluster-count',
+      'layer-c1',
+    ]);
   });
 });
 

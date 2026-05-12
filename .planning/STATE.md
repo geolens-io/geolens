@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1005
 milestone_name: Builder Point Cluster Foundation
 status: in_progress
-last_updated: "2026-05-12T17:21:19Z"
-last_activity: 2026-05-12 — Phase 1023 completed cluster source eligibility and bounded GeoJSON source contract with builder smoke and MCP console checks passing.
+last_updated: "2026-05-12T17:42:23Z"
+last_activity: 2026-05-12 — Phase 1024 completed native MapLibre cluster adapter/source lifecycle with focused map-sync tests, build, builder smoke, and MCP console checks passing.
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1005 — Builder Point Cluster Foundation
-**Phase:** 1024 — maplibre-point-cluster-renderer
+**Phase:** 1025 — cluster-builder-controls-and-authoring-polish
 **Plan:** —
-**Status:** Ready to plan Phase 1024
-**Last activity:** 2026-05-12 — Phase 1023 completed cluster source eligibility and bounded GeoJSON source contract with builder smoke and MCP console checks passing.
+**Status:** Ready to plan Phase 1025
+**Last activity:** 2026-05-12 — Phase 1024 completed native MapLibre cluster adapter/source lifecycle with focused map-sync tests, build, builder smoke, and MCP console checks passing.
 
-Progress: [██░░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-12 after starting v1005)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1024 planning for native MapLibre cluster source/layer rendering.
+**Current focus:** Phase 1025 planning for cluster builder controls and authoring polish.
 
 ## Active Milestone
 
@@ -38,8 +38,8 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1005)
 **Started:** 2026-05-12
 **Status:** In progress
 **Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
-**Phases:** 1023-1026 (4 phases, 20 requirements; 5 requirements complete)
-**Next phase:** 1024 maplibre-point-cluster-renderer
+**Phases:** 1023-1026 (4 phases, 20 requirements; 10 requirements complete)
+**Next phase:** 1025 cluster-builder-controls-and-authoring-polish
 
 ## Last Shipped Milestone
 
@@ -122,6 +122,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1005)
 
 ### Roadmap Evolution
 
+- Phase 1024 completed 2026-05-12: native MapLibre cluster adapter now creates clustered GeoJSON sources with cluster radius/max zoom, stable cluster circle/count/unclustered layers, parent identity preservation for popups, source-type fallback/replacement, and companion visibility/filter/opacity/zoom/reorder/stale cleanup coverage.
 - Phase 1023 completed 2026-05-12: cluster eligibility now gates Cluster to bounded vector point datasets using existing metadata, bounded GeoJSON fetching preserves JWT/API-key/embed-token contexts, authoring fallbacks warn nonblockingly, and focused Vitest/i18n/lint/build/builder smoke plus Playwright MCP console checks passed.
 - v1005 started 2026-05-12: Builder Point Cluster Foundation scopes native MapLibre clustering for eligible point datasets through a bounded GeoJSON source path, explicit fallback behavior, existing-field renderAs writes, and builder/viewer/style JSON QA.
 - Phase 1023 added: cluster source eligibility and GeoJSON contract (SRC-01..05).

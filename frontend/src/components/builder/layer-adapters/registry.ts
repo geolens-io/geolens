@@ -5,6 +5,7 @@ import { rasterAdapter } from './raster-adapter';
 import { hillshadeAdapter } from './hillshade-adapter';
 import { heatmapAdapter } from './heatmap-adapter';
 import { symbolAdapter } from './symbol-adapter';
+import { clusterAdapter } from './cluster-adapter';
 import type { LayerAdapter } from './types';
 
 const adapters: Record<string, LayerAdapter> = {
@@ -15,6 +16,7 @@ const adapters: Record<string, LayerAdapter> = {
   raster: rasterAdapter,
   hillshade: hillshadeAdapter,
   heatmap: heatmapAdapter,
+  cluster: clusterAdapter,
 };
 
 export function getAdapter(type: string): LayerAdapter {

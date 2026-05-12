@@ -69,10 +69,10 @@
 
 **Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
 
-**Requirements:** 5/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
+**Requirements:** 10/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
 
 - [x] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — completed 2026-05-12
-- [ ] **Phase 1024: maplibre-point-cluster-renderer** — pending
+- [x] **Phase 1024: maplibre-point-cluster-renderer** — completed 2026-05-12
 - [ ] **Phase 1025: cluster-builder-controls-and-authoring-polish** — pending
 - [ ] **Phase 1026: cluster-compatibility-and-qa-closeout** — pending
 
@@ -95,6 +95,7 @@ Status: completed 2026-05-12
 **Goal:** Add the native MapLibre cluster renderer and keep companion-layer lifecycle consistent with existing adapters.
 
 Requirements: CLUS-01, CLUS-02, CLUS-03, CLUS-04, CLUS-05
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Eligible point layers expose `Cluster` through the capability registry.

@@ -10,6 +10,7 @@ import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
+import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
@@ -269,6 +270,26 @@ export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'a
   }
 }
 
+function removeKnownVectorLayers(map: MaplibreMap, layerId: string, id: string, prefix: string | undefined) {
+  const labelId = prefixed('label', id, prefix);
+  const arrowId = prefixed('arrow', id, prefix);
+  const extrusionId = prefixed('extrusion', id, prefix);
+  const outlineId = prefixed('outline', id, prefix);
+  const clusterCountId = clusterCountLayerId(layerId);
+  const clusterCircleId = clusterCircleLayerId(layerId);
+
+  for (const candidate of [labelId, arrowId, extrusionId, outlineId, clusterCountId, clusterCircleId, layerId]) {
+    if (map.getLayer(candidate)) map.removeLayer(candidate);
+  }
+}
+
+function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], minzoom: number, maxzoom: number) {
+  for (const id of layerIds) {
+    if (map.getLayer(id)) {
+      map.setLayerZoomRange(id, minzoom, maxzoom);
+    }
+  }
+}
 
 export function getSourceId(layerId: string) {
   return prefixed('source', layerId);
@@ -373,20 +394,46 @@ function syncVectorLayer(
   adapterInput.tileUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
   desiredSources.add(sourceId);
 
-  const type = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
+  const resolvedType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
+  const wantsCluster = resolvedType === 'cluster';
+  const hasBoundedGeoJson = geojsonDataMap?.has(layer.id) === true;
+  const canUseCluster = wantsCluster && hasBoundedGeoJson;
+  const type = wantsCluster && !canUseCluster ? 'circle' : resolvedType;
   const adapter = getAdapter(type);
   const filter = adapterInput.filter;
 
-  // GeoJSON-Z branch: 3D small datasets use GeoJSON source instead of MVT.
+  // GeoJSON branch: 3D small datasets and eligible Cluster layers use GeoJSON
+  // sources instead of the normal vector-tile path.
   // NOTE: GeoJSON sources also support a `lineMetrics` field, but Phase 255 only
   // wires the flag on the vector tile path. GeoJSON-Z line-gradient authoring is
   // Phase 256 scope (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md).
   const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
-  if (isGeoJsonZ && geojsonDataMap?.has(layer.id)) {
+  const useGeoJsonSource = (isGeoJsonZ || canUseCluster) && hasBoundedGeoJson;
+  const desiredSourceType = useGeoJsonSource ? 'geojson' : 'vector';
+  const currentSource = map.getSource(sourceId) as { type?: string } | undefined;
+  if (currentSource && currentSource.type !== desiredSourceType) {
+    removeKnownVectorLayers(map, layerId, layer.id, prefix);
+    map.removeSource(sourceId);
+  }
+
+  const layerLayout = layer.layout ?? {};
+  const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
+  const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
+
+  if (useGeoJsonSource) {
     const geojsonData = geojsonDataMap.get(layer.id)!;
     adapterInput.sourceType = 'geojson';
     if (!map.getSource(sourceId)) {
-      map.addSource(sourceId, { type: 'geojson', data: geojsonData });
+      if (canUseCluster) {
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: geojsonData,
+          cluster: true,
+          ...getClusterSourceOptions(adapterInput),
+        });
+      } else {
+        map.addSource(sourceId, { type: 'geojson', data: geojsonData });
+      }
       adapter.addLayers(map, adapterInput);
     } else {
       const src = map.getSource(sourceId);
@@ -394,6 +441,7 @@ function syncVectorLayer(
       adapter.syncPaint(map, adapterInput);
     }
     adapter.syncVisibility(map, adapterInput);
+    syncLayerZoomRange(map, adapter.getLayerIds(layerId), layerMinzoom, layerMaxzoom);
     return;
   }
 
@@ -416,24 +464,10 @@ function syncVectorLayer(
   }
 
   // Per-layer zoom range from custom layout props (main + outline companion)
-  const layerLayout = layer.layout ?? {};
-  const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
-  const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
-  if (map.getLayer(layerId)) {
-    map.setLayerZoomRange(layerId, layerMinzoom, layerMaxzoom);
-  }
   const outlineLayerId = prefixed('outline', layer.id, prefix);
-  if (map.getLayer(outlineLayerId)) {
-    map.setLayerZoomRange(outlineLayerId, layerMinzoom, layerMaxzoom);
-  }
   const extrusionLayerId = prefixed('extrusion', layer.id, prefix);
-  if (map.getLayer(extrusionLayerId)) {
-    map.setLayerZoomRange(extrusionLayerId, layerMinzoom, layerMaxzoom);
-  }
   const arrowLayerId = prefixed('arrow', layer.id, prefix);
-  if (map.getLayer(arrowLayerId)) {
-    map.setLayerZoomRange(arrowLayerId, layerMinzoom, layerMaxzoom);
-  }
+  syncLayerZoomRange(map, [layerId, outlineLayerId, extrusionLayerId, arrowLayerId], layerMinzoom, layerMaxzoom);
 
   // Sync companion label layer (add/update/remove). Heatmap layers don't support
   // labels, and symbol layers consolidate icon/text in the primary symbol layer.
@@ -485,10 +519,14 @@ function removeStaleSourcesAndLayers(
     const labelId = prefixed('label', id, prefix);
     const extrusionId = prefixed('extrusion', id, prefix);
     const arrowId = prefixed('arrow', id, prefix);
+    const clusterCountId = clusterCountLayerId(layerId);
+    const clusterCircleId = clusterCircleLayerId(layerId);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
     if (map.getLayer(arrowId)) map.removeLayer(arrowId);
     if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
     if (map.getLayer(outlineId)) map.removeLayer(outlineId);
+    if (map.getLayer(clusterCountId)) map.removeLayer(clusterCountId);
+    if (map.getLayer(clusterCircleId)) map.removeLayer(clusterCircleId);
     if (map.getLayer(layerId)) map.removeLayer(layerId);
     if (map.getSource(sourceId)) map.removeSource(sourceId);
   }
@@ -588,6 +626,10 @@ function reorderDataGeometry(
     const oid = prefixed('outline', layers[i].id, idPrefix);
     const eid = prefixed('extrusion', layers[i].id, idPrefix);
     const aid = prefixed('arrow', layers[i].id, idPrefix);
+    const cid = clusterCircleLayerId(lid);
+    const ccid = clusterCountLayerId(lid);
+    if (map.getLayer(cid)) map.moveLayer(cid);
+    if (map.getLayer(ccid)) map.moveLayer(ccid);
     if (map.getLayer(lid)) map.moveLayer(lid);
     if (map.getLayer(aid)) map.moveLayer(aid);
     if (map.getLayer(eid)) map.moveLayer(eid);

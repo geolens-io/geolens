@@ -181,6 +181,9 @@ export function resolveAdapterType(
   if (styleConfig?.render_mode === 'arrow') {
     return 'line';
   }
+  if (styleConfig?.render_mode === 'cluster') {
+    return 'cluster';
+  }
   // Use geometry type when available
   if (geometryType) {
     return getLayerType(geometryType);
