@@ -58,9 +58,12 @@ Total: 10/10 v1007 requirements complete.
 
 ## Known Caveats
 
-- GitHub Dependabot alerts #36/#37 may remain visually open until GitHub rescans the default branch.
-- `docs/testing-and-ci.md` is referenced by the ship workflow skill but is absent from this checkout.
 - The existing Vitest `--localstorage-file` warning remains non-blocking.
+
+## Follow-up Resolved 2026-05-12
+
+- GitHub Dependabot alerts #36/#37 were dismissed as inaccurate after verifying `origin/main` resolves `urllib3==2.7.0` and `pip-audit` remains clean.
+- `docs/testing-and-ci.md` now documents the local testing and CI command map; `.github/workflows/ci.yml` remains canonical.
 
 ## Recommendation
 

@@ -66,6 +66,9 @@
   - `backend/uv.lock` contains `urllib3==2.7.0`.
   - `uv lock --upgrade-package urllib3` produced no file changes.
   - `pip-audit --strict --desc` passed.
+- Follow-up 2026-05-12:
+  - Dismissed stale GitHub alerts #36/#37 as inaccurate after confirming `origin/main` resolves `urllib3==2.7.0` and `pip-audit` remains clean.
+  - Rechecked GitHub Dependabot open alert count: `0`.
 
 ## Issues Found And Fixed
 

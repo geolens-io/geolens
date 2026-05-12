@@ -13,7 +13,7 @@
 
 **Key accomplishments:**
 
-1. **Dependency alerts reconciled** — verified Dependabot #36/#37 against `urllib3==2.7.0`, `uv lock`, and `pip-audit`; local state is scanner-clean.
+1. **Dependency alerts reconciled** — verified Dependabot #36/#37 against `urllib3==2.7.0`, `uv lock`, and `pip-audit`; dismissed both stale GitHub alerts with evidence; local and GitHub alert state are scanner-clean.
 2. **Broad gates passed** — backend ruff/format/bandit/pip-audit/full pytest coverage and frontend i18n/lint/typecheck/coverage passed.
 3. **Generated artifacts aligned** — `backend/openapi.json` and Python/TypeScript SDKs now include the v1006 cluster tile route and shared-layer `id` response field.
 4. **Compose health fixed** — frontend healthcheck now probes `127.0.0.1:5173`, making `docker compose up -d --wait` pass locally.
@@ -22,8 +22,12 @@
 
 **Known deferred items at close:**
 
-- GitHub Dependabot may still show stale `urllib3` alerts until its next default-branch rescan.
-- `docs/testing-and-ci.md` is referenced by the ship workflow skill but absent from this checkout.
+- Existing Vitest localstorage warning remains non-blocking.
+
+**Follow-up resolved 2026-05-12:**
+
+- GitHub Dependabot #36/#37 were dismissed as inaccurate after verifying `origin/main` resolves `urllib3==2.7.0` and `pip-audit` remains clean.
+- `docs/testing-and-ci.md` now documents the local testing and CI command map; `.github/workflows/ci.yml` remains canonical.
 
 **Archives:**
 

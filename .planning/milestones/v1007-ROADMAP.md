@@ -44,9 +44,12 @@ Phase 1032 verified scanner-clean `urllib3==2.7.0`, regenerated OpenAPI/SDK arti
 
 ## Known Caveats
 
-- GitHub Dependabot may need a default-branch rescan to close stale `urllib3` alerts.
-- `docs/testing-and-ci.md` is referenced by the ship workflow skill but absent from the repository.
 - Existing Vitest localstorage warning remains non-blocking.
+
+## Follow-up Resolved 2026-05-12
+
+- GitHub Dependabot alerts #36/#37 were dismissed as inaccurate after verifying `origin/main` resolves `urllib3==2.7.0` and `pip-audit` remains clean.
+- `docs/testing-and-ci.md` now documents the local testing and CI command map; `.github/workflows/ci.yml` remains canonical.
 
 ## Requirement Coverage
 

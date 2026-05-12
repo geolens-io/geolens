@@ -15,7 +15,7 @@ Phase 1032 completed the v1007 release hygiene closeout after v1006 large datase
 
 ## Requirements
 
-- REL-01 complete: Dependabot alerts were checked against manifests, lockfile, and `pip-audit`; local state is patched and scanner-clean.
+- REL-01 complete: Dependabot alerts were checked against manifests, lockfile, and `pip-audit`; local state is patched and scanner-clean. Follow-up on 2026-05-12 dismissed stale GitHub alerts #36/#37 as inaccurate with the same evidence.
 - REL-02 complete: backend ruff, format, bandit, pip-audit, and full pytest coverage gates passed.
 - REL-03 complete: frontend i18n, changed-namespace, lint, typecheck, and coverage gates passed.
 - REL-04 complete: OpenAPI and SDK generated artifacts were updated for the current API.
@@ -44,6 +44,9 @@ Phase 1032 completed the v1007 release hygiene closeout after v1006 large datase
 
 ## Caveats
 
-- GitHub Dependabot may continue to show stale open alerts until its next default-branch rescan, despite the local lockfile and scanner being clean.
 - `make sdks-check` intentionally failed before commit because it generated SDK drift; after the generated artifacts were committed, it passed.
-- `docs/testing-and-ci.md` is referenced by the ship workflow skill but is not present in this checkout; CI source of truth came from `.github/workflows/ci.yml`, Makefile, `backend/pyproject.toml`, and `frontend/package.json`.
+
+## Follow-up Resolved 2026-05-12
+
+- GitHub Dependabot alerts #36/#37 were dismissed as inaccurate after verifying `origin/main` resolves `urllib3==2.7.0` and `pip-audit` remains clean.
+- `docs/testing-and-ci.md` now documents the local testing and CI command map; `.github/workflows/ci.yml` remains canonical.
