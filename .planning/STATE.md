@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1006
 milestone_name: Large Dataset Cluster Scaling
 status: in_progress
-last_updated: "2026-05-12T19:10:11Z"
-last_activity: 2026-05-12 — v1006 started for server-side clustering of large point datasets, source routing, cluster interactions, compatibility, and QA closeout.
+last_updated: "2026-05-12T20:02:52Z"
+last_activity: 2026-05-12 — Phase 1027 completed with authenticated server-side cluster tile route, bounded PostGIS MVT SQL, cache-key separation, and backend tile/auth coverage.
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 20
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1006 — Large Dataset Cluster Scaling
-**Phase:** 1027 — server-cluster-tile-contract
+**Phase:** 1028 — cluster-source-routing-and-authoring-parity
 **Plan:** —
-**Status:** Requirements and roadmap defined; ready to plan Phase 1027
-**Last activity:** 2026-05-12 — v1006 started for server-side clustering of large point datasets, source routing, cluster interactions, compatibility, and QA closeout.
+**Status:** Phase 1027 complete; ready to route Cluster layers to bounded GeoJSON or server-side cluster tiles.
+**Last activity:** 2026-05-12 — Phase 1027 completed with authenticated server-side cluster tile route, bounded PostGIS MVT SQL, cache-key separation, and backend tile/auth coverage.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1027 server cluster tile contract.
+**Current focus:** Phase 1028 cluster source routing and authoring parity.
 
 ## Active Milestone
 
@@ -38,8 +38,8 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 **Started:** 2026-05-12
 **Status:** In progress
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving the existing saved-map shape and renderer controls, and adding the expected cluster exploration interactions without regressing normal vector tiles.
-**Phases:** 1027-1031 (5 phases, 25 requirements; 0 requirements complete)
-**Next phase:** 1027 server-cluster-tile-contract
+**Phases:** 1027-1031 (5 phases, 25 requirements; 5 requirements complete)
+**Next phase:** 1028 cluster-source-routing-and-authoring-parity
 
 ## Last Shipped Milestone
 
@@ -133,6 +133,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 
 ### Roadmap Evolution
 
+- Phase 1027 completed 2026-05-12: added authenticated `GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf`, shared vector-tile auth helpers, point-only validation, bounded cluster MVT SQL, cluster-specific cache keys, and backend coverage for success, rejection, cache keys, private auth, embed-token access, and SQL property shape.
 - v1006 started 2026-05-12: Large Dataset Cluster Scaling scopes server-side clustered tiles for large point datasets, shared source routing across builder/public/shared/embed viewers, cluster exploration interactions, saved-map/style JSON compatibility, and performance/browser QA.
 - Phase 1027 added: server cluster tile contract (SCL-01..05).
 - Phase 1028 added: cluster source routing and authoring parity (REND-01..05).

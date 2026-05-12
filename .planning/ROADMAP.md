@@ -70,9 +70,9 @@
 
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
 
-**Requirements:** 0/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+**Requirements:** 5/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
 
-- [ ] **Phase 1027: server-cluster-tile-contract** — pending
+- [x] **Phase 1027: server-cluster-tile-contract** — completed 2026-05-12
 - [ ] **Phase 1028: cluster-source-routing-and-authoring-parity** — pending
 - [ ] **Phase 1029: cluster-exploration-interactions** — pending
 - [ ] **Phase 1030: cluster-compatibility-and-style-json-interop** — pending
@@ -83,7 +83,7 @@
 **Goal:** Add the backend contract for clustered point tiles without changing persisted map/layer schemas or normal vector tile behavior.
 
 Requirements: SCL-01, SCL-02, SCL-03, SCL-04, SCL-05
-Status: pending
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Backend exposes a server-side cluster tile/source contract for large vector point datasets.
@@ -91,6 +91,8 @@ Status: pending
 3. Cluster and unclustered features emit stable properties needed by MapLibre rendering and interaction.
 4. Cluster SQL is bounded by tile envelope, zoom, limits, validated identifiers, and controlled empty/error responses.
 5. Tile cache keys separate normal vector tiles from cluster tiles and include cluster-relevant options.
+
+Phase 1027 landed `GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf`, shared vector-tile auth helpers, bounded cluster MVT SQL, cluster-specific cache keys, and backend coverage for route success, point-only validation, private auth, embed-token access, cache separation, and emitted cluster properties.
 
 ### Phase 1028: cluster-source-routing-and-authoring-parity
 

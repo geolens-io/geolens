@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from geoalchemy2.shape import to_shape
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +24,7 @@ from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
 from app.platform.extensions import get_processing_port
 from app.processing.tiles.pool import get_tile_pool
-from app.processing.tiles.service import get_tile
+from app.processing.tiles.service import get_cluster_tile, get_tile
 from app.modules.auth.router import limiter
 from app.processing.tiles.schemas import (
     RasterTileToken,
@@ -66,6 +66,8 @@ class _DatasetMeta(NamedTuple):
     record_id: uuid.UUID
     table_name: str
     visibility: str
+    record_type: str
+    geometry_type: str | None
     column_info: list
     tile_cache_ttl: int | None
     # Phase 269 H-23: tile column allowlist (None / [] / list[str]).
@@ -571,6 +573,286 @@ async def get_tile_tokens_batch(
     return TileTokenBatchResponse(tokens=tokens)
 
 
+def _parse_vector_tile_table(table_path: str) -> str:
+    """Extract and validate the data-table name from a tile route path."""
+    if not table_path.startswith("data."):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Table path must start with 'data.'",
+        )
+
+    table_name = table_path[5:]  # Strip "data." prefix
+    if not table_name:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Table name is required"
+        )
+    if not _TABLE_NAME_RE.match(table_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid table name"
+        )
+    return table_name
+
+
+def _validate_tile_coordinates(z: int, x: int, y: int) -> None:
+    if z < 0 or z > 22:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Zoom level must be 0-22"
+        )
+
+    max_tile = (1 << z) - 1  # 2^z - 1
+    if x < 0 or x > max_tile or y < 0 or y > max_tile:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tile coordinates out of range",
+        )
+
+
+async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMeta:
+    """Look up dataset metadata with a short in-memory cache."""
+    now = time.monotonic()
+    with _dataset_cache_lock:
+        cached_entry = _dataset_cache.get(table_name)
+        if cached_entry is not None:
+            ts, cached_meta = cached_entry
+            if now - ts < _DATASET_CACHE_TTL:
+                return cached_meta
+
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
+    result = await db.execute(
+        select(DatasetORM)
+        .options(joinedload(DatasetORM.record))
+        .where(DatasetORM.table_name == table_name)
+    )
+    dataset = result.scalar_one_or_none()
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
+    meta = _DatasetMeta(
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        table_name=dataset.table_name,
+        visibility=dataset.record.visibility,
+        record_type=dataset.record.record_type,
+        geometry_type=dataset.geometry_type,
+        column_info=dataset.column_info or [],
+        tile_cache_ttl=dataset.tile_cache_ttl,
+        tile_columns=dataset.tile_columns,
+    )
+    with _dataset_cache_lock:
+        _dataset_cache[table_name] = (now, meta)
+    return meta
+
+
+async def _authorize_vector_tile_request(
+    request: Request,
+    meta: _DatasetMeta,
+    db: AsyncSession,
+    *,
+    sig: str | None,
+    exp: int | None,
+    scope: str | None,
+) -> str:
+    """Authorize direct vector-tile access and return cache scope."""
+    embed_token_header = request.headers.get("X-Embed-Token")
+    if embed_token_header:
+        is_valid = await validate_embed_token_access(
+            embed_token_header, meta.dataset_id, db, request
+        )
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or expired embed token, or dataset not in scope",
+            )
+        return "private"
+
+    if meta.visibility != "public":
+        if not sig or not exp or not scope:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Signature required for non-public tiles",
+            )
+        if scope != meta.table_name:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
+            )
+        if not verify_tile_signature(scope, exp, sig):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or expired signature",
+            )
+
+    return "public"
+
+
+def _is_point_geometry(geometry_type: str | None) -> bool:
+    return "POINT" in (geometry_type or "").upper()
+
+
+def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
+    if meta.record_type != "vector_dataset" or not _is_point_geometry(
+        meta.geometry_type
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cluster tiles require a vector point dataset",
+        )
+
+
+def _cluster_cache_table_key(
+    table_name: str, *, cluster_radius: int, cluster_max_zoom: int
+) -> str:
+    return f"{table_name}:cluster:r{cluster_radius}:z{cluster_max_zoom}"
+
+
+def _tile_headers(cache_scope: str, cache_ttl: int) -> dict[str, str]:
+    return {
+        "Content-Encoding": "gzip",
+        "Cache-Control": f"{cache_scope}, max-age={cache_ttl}",
+        "Access-Control-Allow-Origin": "*",
+    }
+
+
+@router.get(
+    "/clusters/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf",
+    response_class=Response,
+)
+@limiter.exempt
+async def cluster_tile_endpoint(
+    request: Request,
+    table_path: str,
+    z: int,
+    x: int,
+    y: int,
+    sig: str | None = None,
+    exp: int | None = None,
+    scope: str | None = None,
+    cluster_radius: int = Query(48, ge=1, le=256),
+    cluster_max_zoom: int = Query(14, ge=0, le=22),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve a server-side clustered vector tile for point datasets.
+
+    URL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf
+
+    This route deliberately reuses the normal vector tile auth model:
+    public datasets are readable directly, non-public datasets require either
+    valid HMAC tile params or a valid embed token scoped to the dataset.
+    """
+    table_name = _parse_vector_tile_table(table_path)
+    _validate_tile_coordinates(z, x, y)
+    meta = await _resolve_dataset_meta(table_name, db)
+    _ensure_clusterable_dataset(meta)
+    cache_scope = await _authorize_vector_tile_request(
+        request,
+        meta,
+        db,
+        sig=sig,
+        exp=exp,
+        scope=scope,
+    )
+
+    cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
+    cluster_cache_key = _cluster_cache_table_key(
+        table_name,
+        cluster_radius=cluster_radius,
+        cluster_max_zoom=cluster_max_zoom,
+    )
+
+    tile_cache = get_tile_cache()
+    if tile_cache is not None:
+        cached = await tile_cache.get(cluster_cache_key, z, x, y)
+        if cached is not None:
+            if len(cached) == 0:
+                return Response(status_code=status.HTTP_204_NO_CONTENT)
+            return Response(
+                content=cached,
+                media_type="application/vnd.mapbox-vector-tile",
+                headers=_tile_headers(cache_scope, cache_ttl),
+            )
+
+    try:
+        pool = get_tile_pool()
+    except RuntimeError as exc:
+        logger.warning(
+            "Tile pool unavailable",
+            table_name=table_name,
+            mode="cluster",
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tile service unavailable",
+        )
+
+    try:
+        tile_data = await get_cluster_tile(
+            pool,
+            table_name,
+            z,
+            x,
+            y,
+            cluster_radius=cluster_radius,
+            cluster_max_zoom=cluster_max_zoom,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Cluster tile pool acquire timeout",
+            table_name=table_name,
+            z=z,
+            x=x,
+            y=y,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Tile service busy, please retry",
+            headers={"Retry-After": "2"},
+        )
+    except Exception as exc:  # broad: cluster tile SQL/PostGIS errors are varied; callers get controlled 503
+        logger.exception(
+            "Cluster tile query failed",
+            table_name=table_name,
+            z=z,
+            x=x,
+            y=y,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tile service unavailable",
+        )
+
+    if tile_data is None:
+        if tile_cache is not None:
+            await tile_cache.set(cluster_cache_key, z, x, y, b"", ttl=cache_ttl)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    logger.debug(
+        "cluster_tile_access",
+        dataset_id=str(meta.record_id),
+        table_name=table_name,
+        z=z,
+        x=x,
+        y=y,
+        cluster_radius=cluster_radius,
+        cluster_max_zoom=cluster_max_zoom,
+        scope=scope or cache_scope,
+    )
+
+    compressed = gzip.compress(tile_data, compresslevel=6)
+    if tile_cache is not None:
+        await tile_cache.set(cluster_cache_key, z, x, y, compressed, ttl=cache_ttl)
+
+    return Response(
+        content=compressed,
+        media_type="application/vnd.mapbox-vector-tile",
+        headers=_tile_headers(cache_scope, cache_ttl),
+    )
+
+
 @router.get("/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf", response_class=Response)
 @limiter.exempt
 async def tile_endpoint(
@@ -591,112 +873,23 @@ async def tile_endpoint(
     Non-public datasets require valid HMAC signature params (sig, exp, scope).
     Public datasets can be accessed without any signature.
     """
-    # Parse table_path: must start with "data."
-    if not table_path.startswith("data."):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Table path must start with 'data.'",
-        )
-
-    table_name = table_path[5:]  # Strip "data." prefix
-
-    if not table_name:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table name is required"
-        )
-
-    # Validate table name against SQL injection
-    if not _TABLE_NAME_RE.match(table_name):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid table name"
-        )
-
-    # Validate zoom level
-    if z < 0 or z > 22:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Zoom level must be 0-22"
-        )
-
-    # Validate x/y bounds for the zoom level
-    max_tile = (1 << z) - 1  # 2^z - 1
-    if x < 0 or x > max_tile or y < 0 or y > max_tile:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tile coordinates out of range",
-        )
-
-    # Look up dataset metadata — use in-memory cache to avoid DB hit per tile
-    now = time.monotonic()
-    meta: _DatasetMeta | None = None
-    with _dataset_cache_lock:
-        cached_entry = _dataset_cache.get(table_name)
-        if cached_entry is not None:
-            ts, cached_meta = cached_entry
-            if now - ts < _DATASET_CACHE_TTL:
-                meta = cached_meta
-
-    if meta is None:
-        from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
-
-        result = await db.execute(
-            select(DatasetORM)
-            .options(joinedload(DatasetORM.record))
-            .where(DatasetORM.table_name == table_name)
-        )
-        dataset = result.scalar_one_or_none()
-
-        if dataset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-            )
-
-        meta = _DatasetMeta(
-            dataset_id=dataset.id,
-            record_id=dataset.record_id,
-            table_name=dataset.table_name,
-            visibility=dataset.record.visibility,
-            column_info=dataset.column_info or [],
-            tile_cache_ttl=dataset.tile_cache_ttl,
-            tile_columns=dataset.tile_columns,
-        )
-        with _dataset_cache_lock:
-            _dataset_cache[table_name] = (now, meta)
-
-    # Embed token auth (check before HMAC)
-    embed_token_header = request.headers.get("X-Embed-Token")
-    if embed_token_header:
-        is_valid = await validate_embed_token_access(
-            embed_token_header, meta.dataset_id, db, request
-        )
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or expired embed token, or dataset not in scope",
-            )
-        # Valid embed token -- skip HMAC check, proceed to tile serving
-    elif meta.visibility != "public":
-        # Existing HMAC signature check (unchanged)
-        if not sig or not exp or not scope:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Signature required for non-public tiles",
-            )
-        if scope != table_name:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
-            )
-        if not verify_tile_signature(scope, exp, sig):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or expired signature",
-            )
+    table_name = _parse_vector_tile_table(table_path)
+    _validate_tile_coordinates(z, x, y)
+    meta = await _resolve_dataset_meta(table_name, db)
+    cache_scope = await _authorize_vector_tile_request(
+        request,
+        meta,
+        db,
+        sig=sig,
+        exp=exp,
+        scope=scope,
+    )
 
     # Get column info for attribute selection
     columns = meta.column_info
 
     # Use per-dataset cache TTL when set, else global default
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
-    cache_scope = "private" if embed_token_header else "public"
 
     # Check tile cache before hitting PostGIS
     tile_cache = get_tile_cache()
@@ -709,11 +902,7 @@ async def tile_endpoint(
             return Response(
                 content=cached,
                 media_type="application/vnd.mapbox-vector-tile",
-                headers={
-                    "Content-Encoding": "gzip",
-                    "Cache-Control": f"{cache_scope}, max-age={cache_ttl}",
-                    "Access-Control-Allow-Origin": "*",
-                },
+                headers=_tile_headers(cache_scope, cache_ttl),
             )
 
     # Get tile from PostGIS.
@@ -798,9 +987,5 @@ async def tile_endpoint(
     return Response(
         content=compressed,
         media_type="application/vnd.mapbox-vector-tile",
-        headers={
-            "Content-Encoding": "gzip",
-            "Cache-Control": f"{cache_scope}, max-age={cache_ttl}",
-            "Access-Control-Allow-Origin": "*",
-        },
+        headers=_tile_headers(cache_scope, cache_ttl),
     )

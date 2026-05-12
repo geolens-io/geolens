@@ -465,6 +465,37 @@ class TestTileEmbedTokenAccess:
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 
+    async def test_cluster_tile_access_with_valid_embed_token(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Valid embed token grants cluster tile access for scoped point datasets."""
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        table_name = f"embed_cluster_{uuid.uuid4().hex[:8]}"
+        dataset = await _create_private_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        map_obj, _ = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            create_resp = await client.post(
+                f"/maps/{map_obj.id}/embed-tokens/",
+                json={},
+                headers=admin_auth_header,
+            )
+            assert create_resp.status_code == 201
+            raw_token = create_resp.json()["raw_token"]
+
+            tile_resp = await client.get(
+                f"/tiles/clusters/data.{table_name}/0/0/0.pbf",
+                headers={"X-Embed-Token": raw_token},
+            )
+            assert tile_resp.status_code in (200, 204)
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
     async def test_tile_access_unscoped_dataset(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

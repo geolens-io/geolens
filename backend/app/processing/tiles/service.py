@@ -32,6 +32,11 @@ _DEFAULT_NO_ATTR_BELOW_ZOOM = 10
 # even when ST_AsMVTGeom would otherwise walk the full table.
 _TILE_FEATURE_LIMIT = 50000
 
+# v1006 server-side clusters: cap the number of candidate features considered
+# inside one tile. This keeps cluster tiles bounded even for dense low-zoom
+# datasets while still allowing many more points than client-side GeoJSON.
+_CLUSTER_INPUT_LIMIT = 100000
+
 
 def _validate_tile_table_name(table_name: str) -> None:
     """Validate table name to prevent SQL injection."""
@@ -144,6 +149,125 @@ FROM mvtgeom
 """
 
 
+def _build_cluster_tile_query(table_name: str) -> str:
+    """Build a bounded server-side cluster MVT query for point datasets.
+
+    Parameters at execution time:
+    $1=z, $2=x, $3=y, $4=source layer name, $5=cluster max zoom,
+    $6=cluster radius in tile pixels.
+
+    Cluster output follows the MapLibre client-side cluster property shape:
+    clustered features carry ``point_count`` and ``point_count_abbreviated``;
+    unclustered features omit those properties and carry ``source_gid``.
+    """
+    _validate_tile_table_name(table_name)
+
+    return f"""
+WITH
+_env AS (
+    SELECT ST_TileEnvelope($1::integer, $2::integer, $3::integer) AS geom
+),
+bounds AS (
+    SELECT
+        _env.geom,
+        ST_Transform(_env.geom, 4326) AS geom_4326,
+        ST_XMin(_env.geom) AS minx,
+        ST_YMin(_env.geom) AS miny,
+        GREATEST(ST_XMax(_env.geom) - ST_XMin(_env.geom), 1.0) AS width,
+        GREATEST(ST_YMax(_env.geom) - ST_YMin(_env.geom), 1.0) AS height
+    FROM _env
+),
+candidates AS (
+    SELECT
+        t.gid,
+        ST_Transform(t.geom_4326, 3857) AS geom_3857
+    FROM data.{table_name} t, bounds
+    WHERE t.geom_4326 && bounds.geom_4326
+    LIMIT {_CLUSTER_INPUT_LIMIT}
+),
+bucketed AS (
+    SELECT
+        candidates.gid,
+        candidates.geom_3857,
+        CASE
+            WHEN $1::integer <= $5::integer THEN floor(
+                (ST_X(candidates.geom_3857) - bounds.minx)
+                / GREATEST(bounds.width * $6::float8 / 4096.0, 1.0)
+            )::integer
+            ELSE candidates.gid
+        END AS bucket_x,
+        CASE
+            WHEN $1::integer <= $5::integer THEN floor(
+                (ST_Y(candidates.geom_3857) - bounds.miny)
+                / GREATEST(bounds.height * $6::float8 / 4096.0, 1.0)
+            )::integer
+            ELSE candidates.gid
+        END AS bucket_y
+    FROM candidates, bounds
+),
+grouped AS (
+    SELECT
+        bucket_x,
+        bucket_y,
+        count(*)::integer AS raw_point_count,
+        min(gid)::bigint AS source_gid,
+        ST_Centroid(ST_Collect(geom_3857)) AS geom_3857
+    FROM bucketed
+    GROUP BY bucket_x, bucket_y
+    LIMIT {_TILE_FEATURE_LIMIT}
+),
+features AS (
+    SELECT
+        CASE
+            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN -row_number() OVER (ORDER BY bucket_x, bucket_y)::bigint
+            ELSE source_gid
+        END AS gid,
+        CASE
+            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN true
+            ELSE NULL
+        END AS cluster,
+        CASE
+            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN raw_point_count
+            ELSE NULL
+        END AS point_count,
+        CASE
+            WHEN raw_point_count > 1 AND $1::integer <= $5::integer THEN
+                CASE
+                    WHEN raw_point_count >= 1000000 THEN floor(raw_point_count / 1000000)::text || 'M'
+                    WHEN raw_point_count >= 1000 THEN floor(raw_point_count / 1000)::text || 'k'
+                    ELSE raw_point_count::text
+                END
+            ELSE NULL
+        END AS point_count_abbreviated,
+        CASE
+            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN md5($1::text || ':' || $2::text || ':' || $3::text || ':' || bucket_x::text || ':' || bucket_y::text)
+            ELSE NULL
+        END AS cluster_id,
+        CASE
+            WHEN raw_point_count > 1 AND $1::integer <= $5::integer
+                THEN LEAST($5::integer + 1, 22)
+            ELSE NULL
+        END AS expansion_zoom,
+        source_gid,
+        ST_AsMVTGeom(
+            geom_3857,
+            bounds.geom::box2d,
+            4096,
+            256,
+            true
+        ) AS geom
+    FROM grouped, bounds
+)
+SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
+FROM features
+WHERE geom IS NOT NULL
+"""
+
+
 async def get_tile(
     pool: asyncpg.Pool,
     table_name: str,
@@ -175,6 +299,43 @@ async def get_tile(
     layer_name = f"data.{table_name}"
 
     result = await pool.fetchval(query, z, x, y, layer_name)
+
+    if result is None or len(result) == 0:
+        return None
+
+    return result
+
+
+async def get_cluster_tile(
+    pool: asyncpg.Pool,
+    table_name: str,
+    z: int,
+    x: int,
+    y: int,
+    *,
+    cluster_radius: int = 48,
+    cluster_max_zoom: int = 14,
+) -> bytes | None:
+    """Execute a server-side point-cluster MVT query.
+
+    The query emits MapLibre-compatible cluster properties while keeping the
+    source as an authenticated vector tile, which avoids loading large datasets
+    as full-table GeoJSON in the browser.
+    """
+    _validate_tile_table_name(table_name)
+
+    query = _build_cluster_tile_query(table_name)
+    layer_name = f"data.{table_name}"
+
+    result = await pool.fetchval(
+        query,
+        z,
+        x,
+        y,
+        layer_name,
+        cluster_max_zoom,
+        cluster_radius,
+    )
 
     if result is None or len(result) == 0:
         return None

@@ -20,11 +20,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 ### Server-Side Cluster Tile Contract
 
-- [ ] **SCL-01**: Backend exposes a cluster tile/source contract for vector point datasets above the bounded GeoJSON limit without adding new top-level map or layer fields.
-- [ ] **SCL-02**: Cluster tile access uses the existing vector tile authorization model, including public datasets, signed private tiles, API-key access, and embed-token access.
-- [ ] **SCL-03**: Cluster tiles emit predictable feature properties for cluster and unclustered features, including count labels and stable identifiers needed for interaction.
-- [ ] **SCL-04**: Cluster tile SQL is bounded by tile envelope, zoom, feature budgets, and validated table/column names, and returns controlled empty/error responses instead of raw failures.
-- [ ] **SCL-05**: Tile caching separates normal vector tiles from cluster tiles and includes cluster-relevant options in the cache key.
+- [x] **SCL-01**: Backend exposes a cluster tile/source contract for vector point datasets above the bounded GeoJSON limit without adding new top-level map or layer fields.
+- [x] **SCL-02**: Cluster tile access uses the existing vector tile authorization model, including public datasets, signed private tiles, API-key access, and embed-token access.
+- [x] **SCL-03**: Cluster tiles emit predictable feature properties for cluster and unclustered features, including count labels and stable identifiers needed for interaction.
+- [x] **SCL-04**: Cluster tile SQL is bounded by tile envelope, zoom, feature budgets, and validated table/column names, and returns controlled empty/error responses instead of raw failures.
+- [x] **SCL-05**: Tile caching separates normal vector tiles from cluster tiles and includes cluster-relevant options in the cache key.
 
 ### Renderer Routing And Authoring
 
@@ -81,11 +81,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 | Requirement | Phase | Status |
 |---|---|---|
-| SCL-01 | Phase 1027 | Pending |
-| SCL-02 | Phase 1027 | Pending |
-| SCL-03 | Phase 1027 | Pending |
-| SCL-04 | Phase 1027 | Pending |
-| SCL-05 | Phase 1027 | Pending |
+| SCL-01 | Phase 1027 | Complete |
+| SCL-02 | Phase 1027 | Complete |
+| SCL-03 | Phase 1027 | Complete |
+| SCL-04 | Phase 1027 | Complete |
+| SCL-05 | Phase 1027 | Complete |
 | REND-01 | Phase 1028 | Pending |
 | REND-02 | Phase 1028 | Pending |
 | REND-03 | Phase 1028 | Pending |
@@ -109,11 +109,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 **Coverage:**
 - v1006 requirements: 25 total
-- Complete: 0
-- Pending: 25
+- Complete: 5
+- Pending: 20
 - Mapped to phases: 25
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 during v1006 milestone initialization*
+*Last updated: 2026-05-12 after Phase 1027 completion*

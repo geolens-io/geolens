@@ -8,6 +8,8 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import gzip
+import time
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -174,6 +176,68 @@ class TestTileEndpoint:
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 
+    async def test_cluster_tile_endpoint_returns_mvt(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf returns MVT bytes."""
+        table_name = f"cluster_tile_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            resp = await client.get(f"/tiles/clusters/data.{table_name}/0/0/0.pbf")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+            assert resp.headers["content-encoding"] == "gzip"
+            assert len(resp.content) > 0
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+    async def test_cluster_tile_rejects_non_point_dataset(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Cluster tiles fail before PostGIS for non-point vector datasets."""
+        table_name = f"cluster_poly_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset = await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        dataset.geometry_type = "Polygon"
+        await test_db_session.commit()
+
+        resp = await client.get(f"/tiles/clusters/data.{table_name}/0/0/0.pbf")
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Cluster tiles require a vector point dataset"
+
+    async def test_cluster_tile_cache_key_includes_options(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Cluster tile cache keys are separate from normal vector tile keys."""
+        table_name = f"cluster_cache_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        mock_cache = AsyncMock()
+        mock_cache.get.return_value = gzip.compress(b"cached-cluster-tile")
+
+        with patch(
+            "app.processing.tiles.router.get_tile_cache", return_value=mock_cache
+        ):
+            resp = await client.get(
+                f"/tiles/clusters/data.{table_name}/0/0/0.pbf",
+                params={"cluster_radius": 64, "cluster_max_zoom": 12},
+            )
+
+        assert resp.status_code == 200
+        mock_cache.get.assert_awaited_once_with(
+            f"{table_name}:cluster:r64:z12", 0, 0, 0
+        )
+
     async def test_empty_tile_returns_204(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
@@ -312,6 +376,79 @@ class TestVectorTileAuth:
         finally:
             await _cleanup_data_table(test_db_session, table_name)
 
+    async def test_private_cluster_tile_requires_signature(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Private cluster tile requests reuse vector tile HMAC auth rules."""
+        table_name = f"cluster_priv_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        record = Record(
+            title="Private cluster dataset",
+            visibility="private",
+            record_status="published",
+            created_by=user_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=table_name,
+            srid=4326,
+            geometry_type="Point",
+            feature_count=0,
+            source_format="geojson",
+            column_info=[{"name": "gid", "type": "integer"}],
+        )
+        test_db_session.add(dataset)
+        await test_db_session.commit()
+
+        resp = await client.get(f"/tiles/clusters/data.{table_name}/0/0/0.pbf")
+
+        assert resp.status_code == 403
+        assert "Signature required" in resp.json()["detail"]
+
+    async def test_private_cluster_tile_with_valid_signature(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Private cluster tiles accept the normal vector tile HMAC signature."""
+        from app.processing.tiles.signing import generate_tile_signature
+
+        table_name = f"cluster_signed_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        record = Record(
+            title="Signed private cluster dataset",
+            visibility="private",
+            record_status="published",
+            created_by=user_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=table_name,
+            srid=4326,
+            geometry_type="Point",
+            feature_count=1,
+            source_format="geojson",
+            column_info=[{"name": "gid", "type": "integer"}],
+        )
+        test_db_session.add(dataset)
+        await test_db_session.commit()
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            exp = int(time.time()) + 300
+            sig = generate_tile_signature(table_name, exp)
+            resp = await client.get(
+                f"/tiles/clusters/data.{table_name}/0/0/0.pbf",
+                params={"sig": sig, "exp": exp, "scope": table_name},
+            )
+
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
 
 class TestTileQueryStructure:
     """Test tile query SQL structure and column selection."""
@@ -370,6 +507,22 @@ class TestTileQueryStructure:
         # The layer name is passed as a parameter ($4), but we verify the query
         # structure expects it
         assert "$4" in query  # layer name parameter
+
+    def test_cluster_tile_query_emits_cluster_properties(self):
+        """Cluster tile query emits MapLibre-compatible cluster properties."""
+        from app.processing.tiles.service import _build_cluster_tile_query
+
+        query = _build_cluster_tile_query("cluster_dataset")
+
+        assert "data.cluster_dataset" in query
+        assert "point_count" in query
+        assert "point_count_abbreviated" in query
+        assert "cluster_id" in query
+        assert "source_gid" in query
+        assert "ST_AsMVTGeom" in query
+        assert "ST_AsMVT" in query
+        assert "$5::integer" in query  # cluster max zoom
+        assert "$6::float8" in query  # cluster radius
 
 
 class TestTilePool:
