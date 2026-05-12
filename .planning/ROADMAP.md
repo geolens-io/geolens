@@ -77,7 +77,7 @@
 
 ### Phase Details
 
-**Phase 1008: sidebar-view-model-and-renderas-foundation**
+### Phase 1008: Sidebar view-model and renderAs foundation
 
 Goal: Establish the no-migration frontend model and renderAs utility so later UI work has a stable, tested contract.
 
@@ -89,7 +89,7 @@ Success criteria:
 3. Tests prove unsupported v1 punted renderers are not exposed.
 4. Components continue using existing GeoLens UI primitives and lucide icons.
 
-**Phase 1009: layer-row-and-dataset-rendering-sidebar**
+### Phase 1009: Layer row and dataset-rendering sidebar
 
 Goal: Replace the current row presentation with the scoped v1 row anatomy and dataset-rendering grouping inside `data`.
 
@@ -101,7 +101,7 @@ Success criteria:
 3. Dataset-rendering headers appear only when two or more layers share `dataset_id`.
 4. Visibility-at-zoom writes only `layout._minzoom` and `layout._maxzoom`.
 
-**Phase 1010: renderas-actions-and-duplicate-renderings**
+### Phase 1010: RenderAs actions and duplicate renderings
 
 Goal: Wire user-facing renderAs changes and duplicate rendering actions over the existing `MapLayer` patch/diff behavior.
 
@@ -113,7 +113,7 @@ Success criteria:
 3. Polygon 3D extrusion uses existing builder/extrusion fields and never writes `is_3d`.
 4. Duplicate rendering creates a sibling layer with the same dataset and independent style/order.
 
-**Phase 1011: basemap-and-terrain-inline-rows**
+### Phase 1011: Basemap and terrain inline rows
 
 Goal: Surface basemap and terrain as inline stack rows backed by existing map-level fields.
 
@@ -125,7 +125,7 @@ Success criteria:
 3. Basemap swap uses the existing enabled `BasemapEntry` registry.
 4. Terrain controls and `Use as terrain` write only `terrain_config`.
 
-**Phase 1012: add-dataset-modal-redesign**
+### Phase 1012: Add Dataset modal redesign
 
 Goal: Rewrite the Add Dataset modal around search-first catalog browsing, supported filters, basemap swap states, and duplicate-rendering affordances.
 
@@ -137,7 +137,7 @@ Success criteria:
 3. Data and basemap row states perform the correct existing writes and update the sidebar immediately.
 4. Expanded rows reuse current dataset/search metadata, and `Import data...` routes to `ImportPage`.
 
-**Phase 1013: builder-sidebar-modal-qa-closeout**
+### Phase 1013: Builder sidebar/modal QA closeout
 
 Goal: Convert the milestone's schema, behavior, accessibility, and responsive guarantees into focused repeatable checks.
 
