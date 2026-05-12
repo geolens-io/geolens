@@ -66,6 +66,7 @@
       "heatmap": "Heatmap",
       "symbol": "Symbol",
       "arrow": "Pfeil",
+      "cluster": "Cluster",
       "dem": "DEM",
       "hidden": "Ausgeblendet",
       "legendHidden": "Legende ausgeblendet",
@@ -559,7 +560,10 @@
     "authError": "Die Sitzung ist abgelaufen. Laden Sie die Seite neu, um den Kachelzugriff wiederherzustellen.",
     "mapError": "Fehler bei Kartenkacheln. Einige Ebenen werden eventuell nicht richtig dargestellt.",
     "basemapIssueTitle": "Verbindungsproblem mit der Grundkarte",
-    "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prufen Sie den Grundkartendienst oder wahlen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt."
+    "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prufen Sie den Grundkartendienst oder wahlen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt.",
+    "clusterFallback": "{{name}} wird als Punkte dargestellt: {{reason}}",
+    "clusterTruncated": "die Cluster-Quelle hat das begrenzte GeoJSON-Limit ueberschritten",
+    "clusterLoadError": "{{name}} wird als Punkte dargestellt, weil die Cluster-Daten nicht geladen werden konnten."
   },
   "mapCreate": {
     "title": "Karte erstellen",

@@ -1,9 +1,11 @@
 import type { MapLayerResponse, MapLayerType, StyleConfig } from '@/types/api';
+import { getClusterSourceEligibility } from './cluster-source';
 
 export type RenderAsId =
   | 'point'
   | 'symbol'
   | 'heatmap'
+  | 'cluster'
   | 'line'
   | 'arrow'
   | 'fill'
@@ -47,6 +49,7 @@ export interface RendererCapability {
   viewerSupport: 'native' | 'fallback' | 'unsupported';
   styleJsonSupport: 'native' | 'fallback' | 'unsupported';
   enabled: boolean;
+  requiresBoundedGeoJson?: boolean;
 }
 
 export type RenderAsAdapterType = 'circle' | 'symbol' | 'heatmap' | 'line' | 'fill' | 'raster' | 'hillshade';
@@ -66,6 +69,7 @@ export interface RenderAsMutation {
 type RenderAsLayer = Pick<
   MapLayerResponse,
   | 'dataset_column_info'
+  | 'dataset_feature_count'
   | 'dataset_geometry_type'
   | 'dataset_record_type'
   | 'is_dem'
@@ -77,7 +81,6 @@ type RenderAsLayer = Pick<
 export const RENDER_AS_WRITABLE_FIELDS = ['layer_type', 'style_config', 'paint', 'layout'] as const;
 
 export const UNSUPPORTED_V1002_RENDERERS = [
-  'cluster',
   'hexbin',
   'h3',
   'animated-path',
@@ -92,7 +95,7 @@ function capability(
   id: RenderAsId,
   label: string,
   source: Exclude<RenderAsSource, 'unsupported'>,
-  options: Pick<RendererCapability, 'backend' | 'sourceRequirement' | 'companionLayers' | 'viewerSupport' | 'styleJsonSupport'>,
+  options: Pick<RendererCapability, 'backend' | 'sourceRequirement' | 'companionLayers' | 'viewerSupport' | 'styleJsonSupport' | 'requiresBoundedGeoJson'>,
 ): RendererCapability {
   return {
     id,
@@ -125,6 +128,14 @@ export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
     companionLayers: [],
     viewerSupport: 'native',
     styleJsonSupport: 'native',
+  }),
+  capability('cluster', 'Cluster', 'vector-point', {
+    backend: 'maplibre',
+    sourceRequirement: 'geojson',
+    companionLayers: ['cluster', 'cluster-count', 'unclustered'],
+    viewerSupport: 'native',
+    styleJsonSupport: 'fallback',
+    requiresBoundedGeoJson: true,
   }),
   capability('line', 'Line', 'vector-line', {
     backend: 'maplibre',
@@ -190,20 +201,6 @@ export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
     styleJsonSupport: 'native',
   }),
 ];
-
-const OPTIONS_BY_SOURCE = RENDERER_CAPABILITIES.reduce(
-  (acc, capabilityEntry) => {
-    const options = acc[capabilityEntry.source] ?? [];
-    options.push({
-      id: capabilityEntry.id,
-      label: capabilityEntry.label,
-      source: capabilityEntry.source,
-    });
-    acc[capabilityEntry.source] = options;
-    return acc;
-  },
-  {} as Record<Exclude<RenderAsSource, 'unsupported'>, RenderAsOption[]>,
-);
 
 const DEFAULT_CIRCLE_PAINT = {
   'circle-color': '#3b82f6',
@@ -343,15 +340,21 @@ export function getRenderAsSource(layer: RenderAsLayer): RenderAsSource {
 }
 
 export function getRenderAsOptions(layer: RenderAsLayer): RenderAsOption[] {
-  const source = getRenderAsSource(layer);
-  if (source === 'unsupported') return [];
-  return OPTIONS_BY_SOURCE[source];
+  return getRendererCapabilities(layer).map((capabilityEntry) => ({
+    id: capabilityEntry.id,
+    label: capabilityEntry.label,
+    source: capabilityEntry.source,
+  }));
 }
 
 export function getRendererCapabilities(layer: RenderAsLayer): RendererCapability[] {
   const source = getRenderAsSource(layer);
   if (source === 'unsupported') return [];
-  return RENDERER_CAPABILITIES.filter((entry) => entry.enabled && entry.source === source);
+  return RENDERER_CAPABILITIES.filter((entry) => {
+    if (!entry.enabled || entry.source !== source) return false;
+    if (entry.requiresBoundedGeoJson) return getClusterSourceEligibility(layer).eligible;
+    return true;
+  });
 }
 
 export function getRendererCapability(id: RenderAsId, layer?: RenderAsLayer): RendererCapability | null {
@@ -372,6 +375,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   }
 
   if (source === 'vector-point') {
+    if (renderMode === 'cluster' && getClusterSourceEligibility(layer).eligible) return 'cluster';
     if (renderMode === 'heatmap') return 'heatmap';
     if (renderMode === 'symbol') return 'symbol';
     return 'point';
@@ -398,9 +402,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
 }
 
 export function isSupportedRenderAsId(value: string): value is RenderAsId {
-  return Object.values(OPTIONS_BY_SOURCE).some((options) => (
-    options.some((option) => option.id === value)
-  ));
+  return RENDERER_CAPABILITIES.some((entry) => entry.enabled && entry.id === value);
 }
 
 export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): RenderAsMutation | null {
@@ -464,6 +466,27 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
             heatmapRamp: layer.style_config?.builder?.heatmapRamp ?? 'YlOrRd',
           }),
         }) as unknown as StyleConfig,
+      },
+    };
+  }
+
+  if (renderAs === 'cluster') {
+    const circlePaint = { ...(layer.paint ?? DEFAULT_CIRCLE_PAINT) };
+    const clusterColor = typeof circlePaint['circle-color'] === 'string'
+      ? circlePaint['circle-color']
+      : DEFAULT_CIRCLE_PAINT['circle-color'];
+    return {
+      adapterType: 'circle',
+      patch: {
+        layer_type: vectorLayerType(layer),
+        paint: circlePaint,
+        style_config: styleWithBuilder(layer, {
+          ...builderRecord(layer),
+          clusterRadius: layer.style_config?.builder?.clusterRadius ?? 48,
+          clusterMaxZoom: layer.style_config?.builder?.clusterMaxZoom ?? 14,
+          clusterColor: layer.style_config?.builder?.clusterColor ?? clusterColor,
+          clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? '#ffffff',
+        }, { render_mode: 'cluster' }),
       },
     };
   }

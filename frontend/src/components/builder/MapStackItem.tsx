@@ -221,6 +221,7 @@ function translateBadgeLabel(
     'missing source': 'missingSource',
     hillshade: 'hillshade',
     heatmap: 'heatmap',
+    cluster: 'cluster',
     symbol: 'symbol',
     arrow: 'arrow',
     dem: 'dem',

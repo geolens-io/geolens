@@ -66,6 +66,7 @@
       "heatmap": "Carte de chaleur",
       "symbol": "Symbole",
       "arrow": "Flèche",
+      "cluster": "Agrégat",
       "dem": "MNE",
       "hidden": "Masqué",
       "legendHidden": "Légende masquée",
@@ -559,7 +560,10 @@
     "authError": "La session a expire. Rechargez la page pour retablir l'acces aux tuiles.",
     "mapError": "Erreur de tuiles de carte. Certaines couches peuvent ne pas s'afficher correctement.",
     "basemapIssueTitle": "Probleme de connexion au fond de carte",
-    "basemapIssueDescription": "Vos couches de donnees restent modifiables. Verifiez le service de fond de carte ou choisissez un autre fond si l'arriere-plan reste vide."
+    "basemapIssueDescription": "Vos couches de donnees restent modifiables. Verifiez le service de fond de carte ou choisissez un autre fond si l'arriere-plan reste vide.",
+    "clusterFallback": "{{name}} s'affiche sous forme de points : {{reason}}",
+    "clusterTruncated": "la source d'agrégats dépasse la limite GeoJSON bornée",
+    "clusterLoadError": "{{name}} s'affiche sous forme de points, car les données d'agrégats n'ont pas pu être chargées."
   },
   "mapCreate": {
     "title": "Créer une carte",

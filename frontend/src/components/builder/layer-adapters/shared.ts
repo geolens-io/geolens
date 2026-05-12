@@ -240,6 +240,10 @@ const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   arrow_color: 'arrowColor',
   arrow_size: 'arrowSize',
   arrow_spacing: 'arrowSpacing',
+  cluster_radius: 'clusterRadius',
+  cluster_max_zoom: 'clusterMaxZoom',
+  cluster_color: 'clusterColor',
+  cluster_text_color: 'clusterTextColor',
 };
 
 export function getBuilderStyleConfig(input: unknown): NonNullable<StyleConfig['builder']> {

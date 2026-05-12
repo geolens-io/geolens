@@ -759,6 +759,14 @@ export interface BuilderStyleConfig {
   arrowSize?: number;
   /** Distance between repeated arrow glyphs for line arrow render mode. */
   arrowSpacing?: number;
+  /** Point cluster radius in screen pixels for cluster render mode. */
+  clusterRadius?: number;
+  /** Max zoom at which points are clustered for cluster render mode. */
+  clusterMaxZoom?: number;
+  /** Cluster circle color for point cluster render mode. */
+  clusterColor?: string;
+  /** Cluster count label color for point cluster render mode. */
+  clusterTextColor?: string;
   symbol?: SymbolStyleConfig;
   /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
    *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].
@@ -805,7 +813,7 @@ export interface StyleConfig {
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
   /** Render mode override for specialized adapters. */
-  render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow';
+  render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster';
   /** Symbol/icon layer config for point datasets. */
   symbol?: SymbolStyleConfig;
   /** Heatmap paint config */

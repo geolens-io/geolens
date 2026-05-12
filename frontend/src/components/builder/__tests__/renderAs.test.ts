@@ -57,6 +57,20 @@ describe('renderAs view model', () => {
     expect(getCurrentRenderAs(point)).toBe('point');
   });
 
+  it('offers cluster only for bounded point vector layers with feature count metadata', () => {
+    const boundedPoint = layer({
+      dataset_geometry_type: 'MULTIPOINT',
+      dataset_feature_count: 250,
+    });
+    const largePoint = layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 5001,
+    });
+
+    expect(optionIds(boundedPoint)).toEqual(['point', 'symbol', 'heatmap', 'cluster']);
+    expect(optionIds(largePoint)).toEqual(['point', 'symbol', 'heatmap']);
+  });
+
   it('detects point symbol and heatmap render modes from style_config', () => {
     expect(getCurrentRenderAs(layer({
       style_config: { render_mode: 'symbol' } as StyleConfig,
@@ -64,6 +78,14 @@ describe('renderAs view model', () => {
     expect(getCurrentRenderAs(layer({
       style_config: { render_mode: 'heatmap' } as StyleConfig,
     }))).toBe('heatmap');
+    expect(getCurrentRenderAs(layer({
+      dataset_feature_count: 25,
+      style_config: { render_mode: 'cluster' } as StyleConfig,
+    }))).toBe('cluster');
+    expect(getCurrentRenderAs(layer({
+      dataset_feature_count: 10_000,
+      style_config: { render_mode: 'cluster' } as StyleConfig,
+    }))).toBe('point');
   });
 
   it('offers line and arrow for line layers', () => {
@@ -90,6 +112,23 @@ describe('renderAs view model', () => {
       styleJsonSupport: 'native',
     });
     expect(arrow?.writableFields).toEqual(RENDER_AS_WRITABLE_FIELDS);
+  });
+
+  it('documents point cluster as a bounded GeoJSON renderer capability', () => {
+    const point = layer({ dataset_geometry_type: 'POINT', dataset_feature_count: 100 });
+    const cluster = getRendererCapability('cluster', point);
+
+    expect(getRendererCapabilities(point).map((entry) => entry.id)).toEqual(['point', 'symbol', 'heatmap', 'cluster']);
+    expect(cluster).toMatchObject({
+      id: 'cluster',
+      backend: 'maplibre',
+      sourceRequirement: 'geojson',
+      companionLayers: ['cluster', 'cluster-count', 'unclustered'],
+      viewerSupport: 'native',
+      styleJsonSupport: 'fallback',
+      requiresBoundedGeoJson: true,
+    });
+    expect(cluster?.writableFields).toEqual(RENDER_AS_WRITABLE_FIELDS);
   });
 
   it('detects line arrow render mode from style_config', () => {
@@ -165,6 +204,7 @@ describe('renderAs view model', () => {
     for (const renderer of UNSUPPORTED_V1002_RENDERERS) {
       expect(isSupportedRenderAsId(renderer)).toBe(false);
     }
+    expect(isSupportedRenderAsId('cluster')).toBe(true);
 
     const allOptionIds = [
       ...optionIds(layer({ dataset_geometry_type: 'POINT' })),
@@ -196,6 +236,34 @@ describe('renderAs view model', () => {
       expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
     }
     expect(JSON.stringify(mutation?.patch)).not.toContain('is_3d');
+  });
+
+  it('builds cluster patches using only existing writable fields for eligible point layers', () => {
+    const mutation = buildRenderAsPatch(layer({
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 100,
+      paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
+    }), 'cluster');
+
+    expect(mutation?.adapterType).toBe('circle');
+    expect(mutation?.patch).toEqual(expect.objectContaining({
+      layer_type: 'vector_geolens',
+      paint: expect.objectContaining({ 'circle-color': '#2255aa' }),
+      style_config: expect.objectContaining({
+        render_mode: 'cluster',
+        builder: expect.objectContaining({
+          clusterRadius: 48,
+          clusterMaxZoom: 14,
+          clusterColor: '#2255aa',
+          clusterTextColor: '#ffffff',
+        }),
+      }),
+    }));
+    for (const key of Object.keys(mutation?.patch ?? {})) {
+      expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
+    }
+    expect(JSON.stringify(mutation?.patch)).not.toContain('is_3d');
+    expect(buildRenderAsPatch(layer({ dataset_geometry_type: 'POINT', dataset_feature_count: 6000 }), 'cluster')).toBeNull();
   });
 
   it('builds polygon fill, stroke, and 3D extrusion patches without is_3d', () => {

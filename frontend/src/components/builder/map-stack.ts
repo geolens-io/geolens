@@ -228,6 +228,7 @@ function typeBadge(layer: MapLayerResponse): MapStackBadge {
   const mode = renderMode(layer.style_config);
   if (mode === 'hillshade') return { label: 'Hillshade', tone: 'info' };
   if (mode === 'heatmap') return { label: 'Heatmap', tone: 'info' };
+  if (mode === 'cluster') return { label: 'Cluster', tone: 'info' };
   if (mode === 'symbol') return { label: 'Symbol', tone: 'info' };
   if (mode === 'arrow') return { label: 'Arrow', tone: 'info' };
   if (layer.is_dem) return { label: 'DEM', tone: 'info' };

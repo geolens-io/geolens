@@ -11,9 +11,11 @@ import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useTranslation } from 'react-i18next';
+import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
+import { clusterFallbackMessage, getClusterSourceEligibility, isClusterRenderMode } from './cluster-source';
 import type { StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import {
   syncLayersToMap,
@@ -178,6 +180,87 @@ export const BuilderMap = memo(function BuilderMap({
     [tokenQueries],
   );
 
+  const clusterGeoJsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
+  const clusterFallbackNotifiedRef = useRef<Set<string>>(new Set());
+  const [clusterGeoJsonVersion, setClusterGeoJsonVersion] = useState(0);
+  const clusterSourceLayers = useMemo(
+    () => layers.filter((layer) => isClusterRenderMode(layer)),
+    [layers],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (clusterSourceLayers.length === 0) {
+      if (clusterGeoJsonDataRef.current.size > 0) {
+        clusterGeoJsonDataRef.current = new Map();
+        setClusterGeoJsonVersion((version) => version + 1);
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    async function fetchClusterSources() {
+      const next = new Map<string, GeoJSON.FeatureCollection>();
+      await Promise.all(clusterSourceLayers.map(async (layer) => {
+        const eligibility = getClusterSourceEligibility(layer);
+        const layerName = layer.display_name || layer.dataset_name || layer.dataset_table_name;
+        if (!eligibility.eligible) {
+          const message = clusterFallbackMessage(eligibility.status);
+          const key = `${layer.id}:${eligibility.status}:${eligibility.featureCount ?? 'unknown'}`;
+          if (message && !clusterFallbackNotifiedRef.current.has(key)) {
+            clusterFallbackNotifiedRef.current.add(key);
+            toast.warning(t('builderMap.clusterFallback', {
+              defaultValue: '{{name}} is rendering as points: {{reason}}',
+              name: layerName,
+              reason: message,
+            }));
+          }
+          return;
+        }
+        try {
+          const response = await fetchBoundedGeoJson(layer.dataset_id);
+          if (response.truncated || response.total_count > eligibility.limit) {
+            const key = `${layer.id}:truncated:${response.total_count}`;
+            if (!clusterFallbackNotifiedRef.current.has(key)) {
+              clusterFallbackNotifiedRef.current.add(key);
+              toast.warning(t('builderMap.clusterFallback', {
+                defaultValue: '{{name}} is rendering as points: {{reason}}',
+                name: layerName,
+                reason: t('builderMap.clusterTruncated', {
+                  defaultValue: 'cluster source exceeded the bounded GeoJSON limit',
+                }),
+              }));
+            }
+            return;
+          }
+          next.set(layer.id, asFeatureCollection(response));
+        } catch (error) {
+          if (import.meta.env.DEV) console.warn(`[BuilderMap] Cluster GeoJSON fetch failed for ${layer.dataset_id}:`, error);
+          const key = `${layer.id}:fetch-error`;
+          if (!clusterFallbackNotifiedRef.current.has(key)) {
+            clusterFallbackNotifiedRef.current.add(key);
+            toast.warning(t('builderMap.clusterLoadError', {
+              defaultValue: '{{name}} is rendering as points because cluster data could not load.',
+              name: layerName,
+            }));
+          }
+        }
+      }));
+      if (!cancelled) {
+        clusterGeoJsonDataRef.current = next;
+        setClusterGeoJsonVersion((version) => version + 1);
+      }
+    }
+
+    fetchClusterSources().catch(() => {
+      // Individual layer errors are handled above.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clusterSourceLayers, t]);
+
   // Build a lookup map from dataset_id -> TileToken, memoized by sig values
   const tokenMap = useMemo(() => {
     const map = new Map<string, TileToken>();
@@ -326,7 +409,7 @@ export const BuilderMap = memo(function BuilderMap({
       managedSourcesRef.current = new Set();
       lastOrderKeyRef.current = '';
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels: sbl });
+      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl });
       applyBasemapConfigToMap(map, bc, sbl);
       applyTerrainConfig();
       refreshQueryLayerIds();
@@ -488,11 +571,11 @@ export const BuilderMap = memo(function BuilderMap({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-    syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, undefined, { showBasemapLabels });
+    syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels });
     applyTerrainConfig();
     refreshQueryLayerIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tokenMap handled by separate token-refresh effect (P-05)
-  }, [structuralKey, mapReady, tileConfig?.cdn_base_url]);
+  }, [structuralKey, mapReady, tileConfig?.cdn_base_url, clusterGeoJsonVersion]);
 
   useEffect(() => {
     applyTerrainConfig();

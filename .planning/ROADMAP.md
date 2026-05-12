@@ -69,9 +69,9 @@
 
 **Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
 
-**Requirements:** 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
+**Requirements:** 5/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
 
-- [ ] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — pending
+- [x] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — completed 2026-05-12
 - [ ] **Phase 1024: maplibre-point-cluster-renderer** — pending
 - [ ] **Phase 1025: cluster-builder-controls-and-authoring-polish** — pending
 - [ ] **Phase 1026: cluster-compatibility-and-qa-closeout** — pending
@@ -81,6 +81,7 @@
 **Goal:** Prove when Cluster can be safely offered and wire a bounded GeoJSON source path without changing persisted schemas.
 
 Requirements: SRC-01, SRC-02, SRC-03, SRC-04, SRC-05
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Cluster capability visibility is derived from the renderer registry plus point geometry and feature-count/source eligibility.

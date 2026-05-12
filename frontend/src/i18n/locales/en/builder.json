@@ -66,6 +66,7 @@
       "heatmap": "Heatmap",
       "symbol": "Symbol",
       "arrow": "Arrow",
+      "cluster": "Cluster",
       "dem": "DEM",
       "hidden": "Hidden",
       "legendHidden": "Legend hidden",
@@ -580,7 +581,10 @@
     "authError": "Session expired. Reload the page to restore tile access.",
     "mapError": "Map tile error. Some layers may not render correctly.",
     "basemapIssueTitle": "Basemap connection issue",
-    "basemapIssueDescription": "Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank."
+    "basemapIssueDescription": "Your data layers are still editable. Check the basemap service or choose another basemap if the background stays blank.",
+    "clusterFallback": "{{name}} is rendering as points: {{reason}}",
+    "clusterTruncated": "cluster source exceeded the bounded GeoJSON limit",
+    "clusterLoadError": "{{name}} is rendering as points because cluster data could not load."
   },
   "mapCreate": {
     "title": "Create Map",

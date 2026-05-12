@@ -20,11 +20,11 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 
 ### Cluster Source Eligibility
 
-- [ ] **SRC-01**: Builder code exposes `Cluster` only for vector point layers whose dataset metadata advertises a safe bounded GeoJSON source path.
-- [ ] **SRC-02**: Cluster eligibility uses existing dataset metadata, including `dataset_geometry_type` and `dataset_feature_count`, without adding backend schema fields.
-- [ ] **SRC-03**: Cluster source loading fetches bounded GeoJSON only for cluster layers and never for ordinary Point, Symbol, or Heatmap renderers.
-- [ ] **SRC-04**: Builder, public, shared, and embed viewers pass the same auth/API-key/embed-token context used by existing GeoJSON-Z fetching.
-- [ ] **SRC-05**: Oversized, truncated, failed, or unsupported cluster source loads degrade to the normal Point renderer with a visible nonblocking warning in authoring contexts.
+- [x] **SRC-01**: Builder code exposes `Cluster` only for vector point layers whose dataset metadata advertises a safe bounded GeoJSON source path.
+- [x] **SRC-02**: Cluster eligibility uses existing dataset metadata, including `dataset_geometry_type` and `dataset_feature_count`, without adding backend schema fields.
+- [x] **SRC-03**: Cluster source loading fetches bounded GeoJSON only for cluster layers and never for ordinary Point, Symbol, or Heatmap renderers.
+- [x] **SRC-04**: Builder, public, shared, and embed viewers pass the same auth/API-key/embed-token context used by existing GeoJSON-Z fetching.
+- [x] **SRC-05**: Oversized, truncated, failed, or unsupported cluster source loads degrade to the normal Point renderer with a visible nonblocking warning in authoring contexts.
 
 ### Cluster RenderAs And MapLibre Rendering
 
@@ -77,11 +77,11 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 
 | Requirement | Phase | Status |
 |---|---|---|
-| SRC-01 | Phase 1023 | Pending |
-| SRC-02 | Phase 1023 | Pending |
-| SRC-03 | Phase 1023 | Pending |
-| SRC-04 | Phase 1023 | Pending |
-| SRC-05 | Phase 1023 | Pending |
+| SRC-01 | Phase 1023 | Complete |
+| SRC-02 | Phase 1023 | Complete |
+| SRC-03 | Phase 1023 | Complete |
+| SRC-04 | Phase 1023 | Complete |
+| SRC-05 | Phase 1023 | Complete |
 | CLUS-01 | Phase 1024 | Pending |
 | CLUS-02 | Phase 1024 | Pending |
 | CLUS-03 | Phase 1024 | Pending |
@@ -100,11 +100,11 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 
 **Coverage:**
 - v1005 requirements: 20 total
-- Complete: 0
-- Pending: 20
+- Complete: 5
+- Pending: 15
 - Mapped to phases: 20
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after v1005 milestone definition*
+*Last updated: 2026-05-12 after Phase 1023 completion*

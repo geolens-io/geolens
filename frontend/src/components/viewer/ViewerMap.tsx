@@ -24,8 +24,9 @@ import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
-import { fetchGeoJsonZ } from '@/api/geojson-z';
+import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { getClusterSourceEligibility, isClusterRenderMode } from '@/components/builder/cluster-source';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -143,10 +144,13 @@ export const ViewerMap = memo(function ViewerMap({
     tokenMap,
   });
 
-  // GeoJSON-Z data for small 3D datasets (auto-switch from MVT)
+  // Bounded GeoJSON data for small 3D datasets and eligible cluster layers.
   const geojsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
-  const geojsonZLayers = useMemo(
-    () => layerEntries.filter(({ layer }) => layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000),
+  const boundedGeoJsonLayers = useMemo(
+    () => layerEntries.filter(({ layer }) => (
+      (layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000)
+      || (isClusterRenderMode(layer) && getClusterSourceEligibility(layer).eligible)
+    )),
     [layerEntries],
   );
 
@@ -222,24 +226,35 @@ export const ViewerMap = memo(function ViewerMap({
     };
   }, [styleValue]);
 
-  // Fetch GeoJSON-Z data for small 3D datasets (auto-switch from MVT per D-07).
+  // Fetch bounded GeoJSON data for small 3D datasets (auto-switch from MVT per D-07)
+  // and for eligible point cluster layers.
   // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
   const [geojsonVersion, setGeojsonVersion] = useState(0);
   useEffect(() => {
-    if (geojsonZLayers.length === 0) return;
+    if (boundedGeoJsonLayers.length === 0) {
+      if (geojsonDataRef.current.size > 0) {
+        geojsonDataRef.current = new Map();
+        setGeojsonVersion((v) => v + 1);
+      }
+      return;
+    }
     let cancelled = false;
     async function fetchAll() {
       const newMap = new Map<string, GeoJSON.FeatureCollection>();
       await Promise.all(
-        geojsonZLayers.map(async ({ layer, key }) => {
+        boundedGeoJsonLayers.map(async ({ layer, key }) => {
           try {
-            const data = await fetchGeoJsonZ(layer.dataset_id, { apiKey, embedToken });
+            const data = await fetchBoundedGeoJson(layer.dataset_id, { apiKey, embedToken });
             if (!cancelled) {
-              newMap.set(key, data as GeoJSON.FeatureCollection);
+              const eligibility = getClusterSourceEligibility(layer);
+              const isClusterLayer = isClusterRenderMode(layer);
+              if (!isClusterLayer || (!data.truncated && data.total_count <= eligibility.limit)) {
+                newMap.set(key, asFeatureCollection(data));
+              }
             }
           } catch (e) {
-            if (import.meta.env.DEV) console.warn(`[ViewerMap] GeoJSON-Z fetch failed for ${layer.dataset_id}:`, e);
-            toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load 3D layer data' }), { id: `geojson-z-error-${layer.dataset_id}` });
+            if (import.meta.env.DEV) console.warn(`[ViewerMap] Bounded GeoJSON fetch failed for ${layer.dataset_id}:`, e);
+            toast.error(t('viewer.geoJsonLoadError', { defaultValue: 'Failed to load layer data' }), { id: `geojson-z-error-${layer.dataset_id}` });
           }
         }),
       );
@@ -252,7 +267,7 @@ export const ViewerMap = memo(function ViewerMap({
       // Individual layer errors are already toasted above; this only fires on unexpected scaffolding failure
     });
     return () => { cancelled = true; };
-  }, [geojsonZLayers, apiKey, embedToken, t]);
+  }, [boundedGeoJsonLayers, apiKey, embedToken, t]);
 
   // Trigger repaint when GeoJSON-Z data arrives and map is ready
   useEffect(() => {

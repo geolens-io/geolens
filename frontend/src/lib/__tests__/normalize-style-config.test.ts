@@ -112,6 +112,10 @@ describe('normalizeStyleConfig', () => {
           arrow_color: '#112233',
           arrow_size: 16,
           arrow_spacing: 96,
+          cluster_radius: 44,
+          cluster_max_zoom: 13,
+          cluster_color: '#1d4ed8',
+          cluster_text_color: '#ffffff',
         },
       },
       { 'fill-color': '#b30000' },
@@ -128,6 +132,10 @@ describe('normalizeStyleConfig', () => {
       arrowColor: '#112233',
       arrowSize: 16,
       arrowSpacing: 96,
+      clusterRadius: 44,
+      clusterMaxZoom: 13,
+      clusterColor: '#1d4ed8',
+      clusterTextColor: '#ffffff',
     });
   });
 });
