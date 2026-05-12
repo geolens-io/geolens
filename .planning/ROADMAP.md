@@ -69,6 +69,12 @@
 
 **Requirements:** 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
 
+- [ ] Phase 1014: browser-baseline-and-responsive-shell (0/1 plan)
+- [ ] Phase 1015: duplicate-rendering-and-renderas-hardening (0/1 plan)
+- [ ] Phase 1016: basemap-and-terrain-integration-hardening (0/1 plan)
+- [ ] Phase 1017: add-dataset-modal-state-hardening (0/1 plan)
+- [ ] Phase 1018: saved-map-roundtrip-and-closeout (0/1 plan)
+
 **Phase 1014: browser-baseline-and-responsive-shell**
 
 Goal: Establish the real-browser baseline for the redesigned builder shell and close responsive/accessibility regressions.
