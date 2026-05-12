@@ -318,6 +318,36 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
+  test('Add Dataset data rows expose supported filters, expansion, and import routing', async ({ page }) => {
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    await page.getByRole('button', { name: /add data/i }).first().click();
+    const dialog = page.getByRole('dialog', { name: /add dataset/i });
+    await expect(dialog).toBeVisible();
+
+    for (const tab of ['All', 'Vector', 'Raster', 'Basemap']) {
+      await expect(dialog.getByRole('radio', { name: tab })).toBeVisible();
+    }
+    await expect(dialog.getByRole('radio', { name: 'DEM' })).toHaveCount(0);
+    for (const unsupportedScope of ['Curated', 'Your imports', 'Public']) {
+      await expect(dialog.getByRole('button', { name: unsupportedScope })).toHaveCount(0);
+    }
+
+    const firstExpand = dialog.getByRole('button', { name: /^Expand / }).first();
+    await expect(firstExpand).toBeVisible({ timeout: 10_000 });
+    await firstExpand.focus();
+    await expect(firstExpand).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(dialog.getByText('Type').first()).toBeVisible();
+    await expect(dialog.getByRole('img', { name: /preview/i }).first()).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Add to map|another rendering/i }).first()).toBeVisible();
+
+    await dialog.getByRole('link', { name: /import data/i }).click();
+    await expect(page).toHaveURL(/\/import$/);
+  });
+
   test('duplicates dataset renderings from row overflow and Add Dataset modal', async ({ page }) => {
     const token = getAuthToken();
     const headers = { Authorization: `Bearer ${token}` };
