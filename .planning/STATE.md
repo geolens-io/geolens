@@ -1,36 +1,45 @@
 ---
 gsd_state_version: 1.0
-milestone: v1004
-milestone_name: Builder Renderer Expansion
-status: archived
-last_updated: "2026-05-12T20:25:00Z"
-last_activity: 2026-05-12 — v1004 Builder Renderer Expansion shipped with 20/20 requirements satisfied and all closeout gates passed.
+milestone: v1005
+milestone_name: Builder Point Cluster Foundation
+status: roadmapped
+last_updated: "2026-05-12T20:45:00Z"
+last_activity: 2026-05-12 — v1005 Builder Point Cluster Foundation started with phases 1023-1026 and 20/20 requirements mapped.
 progress:
   total_phases: 4
-  completed_phases: 4
+  completed_phases: 0
   total_plans: 4
-  completed_plans: 4
-  percent: 100
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-**Milestone:** v1004 — Builder Renderer Expansion
-**Phase:** Complete
-**Plan:** Complete
-**Status:** Archived; ready for `$gsd-new-milestone`
-**Last activity:** 2026-05-12 — v1004 Builder Renderer Expansion shipped with 20/20 requirements satisfied and all closeout gates passed.
+**Milestone:** v1005 — Builder Point Cluster Foundation
+**Phase:** 1023 — cluster-source-eligibility-and-geojson-contract
+**Plan:** —
+**Status:** Ready to plan Phase 1023
+**Last activity:** 2026-05-12 — v1005 Builder Point Cluster Foundation started with phases 1023-1026 and 20/20 requirements mapped.
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1004)
+See: .planning/PROJECT.md (updated 2026-05-12 after starting v1005)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Ready to scope the next milestone.
+**Current focus:** Phase 1023 planning for cluster source eligibility and bounded GeoJSON source behavior.
+
+## Active Milestone
+
+**Version:** v1005 Builder Point Cluster Foundation
+**Started:** 2026-05-12
+**Status:** Roadmapped
+**Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
+**Phases:** 1023-1026 (4 phases, 20 requirements; 0 requirements complete)
+**Next phase:** 1023 cluster-source-eligibility-and-geojson-contract
 
 ## Last Shipped Milestone
 
@@ -113,6 +122,11 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1004)
 
 ### Roadmap Evolution
 
+- v1005 started 2026-05-12: Builder Point Cluster Foundation scopes native MapLibre clustering for eligible point datasets through a bounded GeoJSON source path, explicit fallback behavior, existing-field renderAs writes, and builder/viewer/style JSON QA.
+- Phase 1023 added: cluster source eligibility and GeoJSON contract (SRC-01..05).
+- Phase 1024 added: MapLibre point cluster renderer (CLUS-01..05).
+- Phase 1025 added: cluster builder controls and authoring polish (CLUS-06).
+- Phase 1026 added: cluster compatibility and QA closeout (COMP-01..04, QA-01..05).
 - Phase 1022 completed 2026-05-12: renderer compatibility closeout passed focused Vitest, backend style JSON/sprite tests, i18n, lint, build, ruff, Playwright MCP live builder verification, and builder smoke; only the pre-existing large `map-vendor` build warning remains.
 - Phase 1021 completed 2026-05-12: advanced renderer ADRs explicitly deferred Hexbin, H3, Animated path, and Point 3D extrusion until their data-shape, dependency, viewer, and saved-map contracts are explicit.
 - Phase 1020 completed 2026-05-12: vector line layers now support Arrow renderAs through existing fields, an icon-backed MapLibre companion symbol layer, builder appearance controls, map-sync lifecycle handling, and style JSON export/import.

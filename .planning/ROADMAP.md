@@ -60,8 +60,74 @@
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
 - ✅ **v1003 Builder v1 Hardening** — Phases 1014-1018 (shipped 2026-05-12) — see [archive](milestones/v1003-ROADMAP.md)
 - ✅ **v1004 Builder Renderer Expansion** — Phases 1019-1022 (shipped 2026-05-12) — see [archive](milestones/v1004-ROADMAP.md)
+- 🚧 **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (active)
 
 ## Phases
+
+<details open>
+<summary>🚧 v1005 Builder Point Cluster Foundation (Phases 1023-1026) — ACTIVE</summary>
+
+**Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
+
+**Requirements:** 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
+
+- [ ] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — pending
+- [ ] **Phase 1024: maplibre-point-cluster-renderer** — pending
+- [ ] **Phase 1025: cluster-builder-controls-and-authoring-polish** — pending
+- [ ] **Phase 1026: cluster-compatibility-and-qa-closeout** — pending
+
+### Phase 1023: cluster-source-eligibility-and-geojson-contract
+
+**Goal:** Prove when Cluster can be safely offered and wire a bounded GeoJSON source path without changing persisted schemas.
+
+Requirements: SRC-01, SRC-02, SRC-03, SRC-04, SRC-05
+
+**Success Criteria:**
+1. Cluster capability visibility is derived from the renderer registry plus point geometry and feature-count/source eligibility.
+2. Cluster source loading is limited to cluster layers and reuses the existing authenticated GeoJSON feature delivery path where possible.
+3. Builder and viewer fetch paths preserve JWT/API-key/embed-token context.
+4. Oversized, truncated, failed, or unsupported cluster sources produce a Point fallback rather than a broken map.
+5. Eligibility and fallback behavior are covered by focused frontend tests.
+
+### Phase 1024: maplibre-point-cluster-renderer
+
+**Goal:** Add the native MapLibre cluster renderer and keep companion-layer lifecycle consistent with existing adapters.
+
+Requirements: CLUS-01, CLUS-02, CLUS-03, CLUS-04, CLUS-05
+
+**Success Criteria:**
+1. Eligible point layers expose `Cluster` through the capability registry.
+2. Switching to Cluster patches only existing writable fields and stores intent under `style_config.render_mode` / `style_config.builder`.
+3. Map sync creates a GeoJSON source with MapLibre clustering options and stable cluster/unclustered/count layers.
+4. Visibility, filter, opacity, zoom range, reorder, removal, and stale cleanup apply to all cluster companion layers.
+5. Existing Point, Symbol, Heatmap, and Arrow behavior remains unchanged.
+
+### Phase 1025: cluster-builder-controls-and-authoring-polish
+
+**Goal:** Surface the cluster renderer as a usable authoring mode without introducing new UI primitives or model fields.
+
+Requirements: CLUS-06
+
+**Success Criteria:**
+1. Cluster authoring controls cover radius, max zoom, color, opacity, and count-label appearance using existing UI primitives.
+2. Controls write only `style_config.builder`, `paint`, or `layout` fields already accepted by map-layer patching.
+3. Cluster rows, badges, menu labels, and warnings are translated in all builder locales.
+4. Authoring copy distinguishes eligible bounded clustering from future large-dataset server-side clustering.
+
+### Phase 1026: cluster-compatibility-and-qa-closeout
+
+**Goal:** Prove Cluster does not regress saved maps, style JSON, viewers, or prior renderer behavior.
+
+Requirements: COMP-01, COMP-02, COMP-03, COMP-04, QA-01, QA-02, QA-03, QA-04, QA-05
+
+**Success Criteria:**
+1. Saved maps with Cluster intent reload in builder and eligible viewers without schema drift.
+2. Public/shared/embed viewers render eligible Cluster layers or degrade to Point without noisy console loops.
+3. Style JSON export/import preserves Cluster intent or emits a documented Point fallback where standalone authenticated GeoJSON is not representable.
+4. Focused Vitest, backend pytest, i18n checks, frontend lint, frontend build, ruff, builder smoke, and Playwright MCP browser inspection pass.
+5. Any remaining server-side clustered tile endpoint work is documented as a future requirement, not hidden as implicit scope.
+
+</details>
 
 <details>
 <summary>✅ v1004 Builder Renderer Expansion (Phases 1019-1022) — SHIPPED 2026-05-12</summary>

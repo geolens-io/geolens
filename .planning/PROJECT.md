@@ -12,6 +12,18 @@ Milestones are delivered through v1004 Builder Renderer Expansion (shipped 2026-
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1005 Builder Point Cluster Foundation
+
+**Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
+
+**Target features:**
+- Eligibility rules that expose Cluster only for point datasets whose feature count and source path can be handled safely.
+- A bounded GeoJSON cluster source path that works in builder, public, shared, and embed viewer contexts without replacing the vector-tile default.
+- MapLibre-native cluster layers with count labels, unclustered points, opacity/visibility/filter/zoom/reorder/stale-cleanup lifecycle parity, and basic builder controls.
+- Existing-field renderAs writes under `style_config.render_mode` / `style_config.builder`, with no schema migration and no `is_3d` writes.
+- Style JSON export/import policy that preserves cluster intent or uses a documented point-rendering fallback when authenticated GeoJSON data cannot be embedded.
+- Browser and automated QA proving cluster save/reload, fallback, and viewer behavior.
+
 ## Recent Shipped Milestone: v1004 Builder Renderer Expansion
 
 **Shipped:** 2026-05-12
