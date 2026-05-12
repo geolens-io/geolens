@@ -4,9 +4,9 @@ milestone: v1003
 milestone_name: Builder v1 Hardening
 status: defining_requirements
 last_updated: "2026-05-12T12:55:00Z"
-last_activity: 2026-05-12 — Started v1003 Builder v1 Hardening to turn v1002 sidebar/Add Dataset behavior into durable browser, accessibility, and round-trip coverage.
+last_activity: 2026-05-12 — v1003 roadmap created with five phases for browser baseline, duplicate renderings, basemap/terrain, Add Dataset states, and saved-map round-trip closeout.
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,10 +18,10 @@ progress:
 ## Current Position
 
 **Milestone:** v1003 — Builder v1 Hardening
-**Phase:** Not started — defining requirements
+**Phase:** Phase 1014 ready — Browser baseline and responsive shell
 **Plan:** —
-**Status:** Defining requirements
-**Last activity:** 2026-05-12 — v1003 started after Playwright MCP verified the v1002 implementation and exposed one tablet persisted-sidebar regression, fixed in `003a03ea`.
+**Status:** Roadmap ready; next step is phase discussion/planning for Phase 1014.
+**Last activity:** 2026-05-12 — v1003 roadmap created across Phases 1014-1018.
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -36,8 +36,9 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 
 **Version:** v1003 Builder v1 Hardening
 **Started:** 2026-05-12
-**Status:** Defining requirements
+**Status:** Roadmap ready
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
+**Phases:** 1014-1018 (5 phases, 24 requirements)
 
 ## Last Shipped Milestone
 
