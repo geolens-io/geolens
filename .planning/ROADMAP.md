@@ -59,73 +59,19 @@
 - ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
 - ✅ **v1003 Builder v1 Hardening** — Phases 1014-1018 (shipped 2026-05-12) — see [archive](milestones/v1003-ROADMAP.md)
-- 🚧 **v1004 Builder Renderer Expansion** — Phases 1019-1022 (active)
+- ✅ **v1004 Builder Renderer Expansion** — Phases 1019-1022 (shipped 2026-05-12) — see [archive](milestones/v1004-ROADMAP.md)
 
 ## Phases
 
-<details open>
-<summary>🚧 v1004 Builder Renderer Expansion (Phases 1019-1022) — ACTIVE</summary>
+<details>
+<summary>✅ v1004 Builder Renderer Expansion (Phases 1019-1022) — SHIPPED 2026-05-12</summary>
 
-**Goal:** Add the next Map Builder render modes through a deliberate renderer capability layer, shipping MapLibre-native wins first and making any deck.gl/H3/trips dependency decision explicit before implementation.
+- [x] Phase 1019: renderer-capability-architecture-and-cluster-feasibility (1/1 plan) — completed 2026-05-12.
+- [x] Phase 1020: maplibre-line-arrow-renderer (1/1 plan) — completed 2026-05-12.
+- [x] Phase 1021: advanced-renderer-adrs (1/1 plan) — completed 2026-05-12.
+- [x] Phase 1022: renderer-compatibility-and-qa-closeout (1/1 plan) — completed 2026-05-12.
 
-**Requirements:** 20/20 mapped (ARCH-01..05, ARROW-01..05, DECIDE-01..05, QA-01..05)
-
-- [ ] **Phase 1019: renderer-capability-architecture-and-cluster-feasibility** — requirements and architecture plan pending
-- [ ] **Phase 1020: maplibre-line-arrow-renderer** — pending
-- [ ] **Phase 1021: advanced-renderer-adrs** — pending
-- [ ] **Phase 1022: renderer-compatibility-and-qa-closeout** — pending
-
-### Phase 1019: renderer-capability-architecture-and-cluster-feasibility
-
-**Goal:** Establish the renderer capability contract and decide whether Point Cluster can safely ship in v1004.
-
-Requirements: ARCH-01, ARCH-02, ARCH-03, ARCH-04, ARCH-05, DECIDE-01
-
-**Success Criteria:**
-1. Renderer options are driven by a capability registry instead of hardcoded UI lists.
-2. Capability entries describe geometry, record type, backend, source requirement, write shape, companion layers, viewer support, and style JSON support.
-3. Sidebar and Add Dataset renderAs menus hide unsupported renderers based on current layer metadata and source delivery.
-4. Adapter metadata supports companion cleanup IDs without breaking existing MapLibre adapters.
-5. Point Cluster has a documented go/no-go decision with proof for vector-tile, GeoJSON, or server-side clustered source paths.
-
-### Phase 1020: maplibre-line-arrow-renderer
-
-**Goal:** Ship Line → Arrow as the first MapLibre-native renderer expansion.
-
-Requirements: ARROW-01, ARROW-02, ARROW-03, ARROW-04, ARROW-05
-
-**Success Criteria:**
-1. Eligible line layers expose `Arrow` as a renderAs option through the capability registry.
-2. Switching to Arrow patches only existing fields and stores intent under `style_config.render_mode` / `style_config.builder`.
-3. Map sync renders a stable companion symbol layer along the parent line while preserving the primary line layer.
-4. Visibility, filter, opacity, zoom range, reorder, removal, and stale cleanup apply to the line and arrow companion together.
-5. Basic arrow appearance is configurable through existing UI primitives and remains keyboard-accessible.
-
-### Phase 1021: advanced-renderer-adrs
-
-**Goal:** Resolve the future renderer backlog without adding a new rendering stack prematurely.
-
-Requirements: DECIDE-02, DECIDE-03, DECIDE-04, DECIDE-05
-
-**Success Criteria:**
-1. Hexbin ADR compares deck.gl HexagonLayer with server-side aggregation and records data, bundle, viewer, and saved-map implications.
-2. H3 ADR records required H3 column detection, dependency choices, and fallback behavior.
-3. Animated path ADR records path/timestamp requirements, timeline coupling, and v1004 inclusion/exclusion decision.
-4. Point 3D extrusion ADR records MapLibre-only versus deck.gl ColumnLayer-style feasibility and inclusion/exclusion decision.
-5. Future requirements and out-of-scope sections remain aligned with the ADR outcomes.
-
-### Phase 1022: renderer-compatibility-and-qa-closeout
-
-**Goal:** Prove the renderer expansion does not regress existing builder, saved-map, style JSON, or viewer behavior.
-
-Requirements: QA-01, QA-02, QA-03, QA-04, QA-05
-
-**Success Criteria:**
-1. Existing v1002-v1003 renderAs tests still pass and still prove writable-field discipline.
-2. New visible renderer state round-trips through builder save/reload without schema drift.
-3. Public and shared viewers render visible renderer state correctly or use documented fallbacks.
-4. Style JSON export/import preserves visible renderer intent or documents deliberate fallback behavior.
-5. Focused Vitest, builder smoke, Playwright MCP browser inspection, frontend lint, and frontend build pass at closeout.
+20/20 v1004 requirements satisfied. Audit: passed / GO. Shipped the renderer capability registry, MapLibre-native Line → Arrow rendering with icon-backed companion layers, builder arrow controls, style JSON export/import round-trip, advanced renderer ADRs, focused Vitest/backend/i18n/lint/build/ruff checks, Playwright MCP browser verification, and builder smoke. Full details: [milestones/v1004-ROADMAP.md](milestones/v1004-ROADMAP.md).
 
 </details>
 

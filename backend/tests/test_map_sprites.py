@@ -129,10 +129,10 @@ async def test_list_icons_includes_builtins_and_uploaded_assets():
 
     icons = await list_icons(session)
 
-    assert [icon.slug for icon in icons[:2]] == ["marker", "circle-dot"]
+    assert [icon.slug for icon in icons[:3]] == ["marker", "circle-dot", "arrow-right"]
     assert icons[0].builtin is True
-    assert icons[2].slug == "bus"
-    assert icons[2].url.startswith("/maps/icons/")
+    assert icons[3].slug == "bus"
+    assert icons[3].url.startswith("/maps/icons/")
 
 
 @pytest.mark.anyio
@@ -191,9 +191,10 @@ async def test_sprite_index_and_png_are_stable(monkeypatch):
     index = await build_sprite_index(session)
     png = await build_sprite_png(session)
 
-    assert list(index) == ["marker", "circle-dot", "bus"]
+    assert list(index) == ["marker", "circle-dot", "arrow-right", "bus"]
+    assert index["arrow-right"]["sdf"] is True
     assert index["bus"] == {
-        "x": 48,
+        "x": 72,
         "y": 0,
         "width": 24,
         "height": 24,

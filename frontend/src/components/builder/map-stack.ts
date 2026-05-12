@@ -229,6 +229,7 @@ function typeBadge(layer: MapLayerResponse): MapStackBadge {
   if (mode === 'hillshade') return { label: 'Hillshade', tone: 'info' };
   if (mode === 'heatmap') return { label: 'Heatmap', tone: 'info' };
   if (mode === 'symbol') return { label: 'Symbol', tone: 'info' };
+  if (mode === 'arrow') return { label: 'Arrow', tone: 'info' };
   if (layer.is_dem) return { label: 'DEM', tone: 'info' };
   if (layer.layer_type !== 'raster_geolens' && !layer.dataset_geometry_type) {
     return { label: 'Unsupported', tone: 'warning' };

@@ -50,7 +50,7 @@ class BuiltinIcon:
     content: bytes
 
 
-SpriteIndex = dict[str, dict[str, int | float]]
+SpriteIndex = dict[str, dict[str, int | float | bool]]
 SpriteSignature = tuple[tuple[str, str, str, int | None], ...]
 
 
@@ -78,6 +78,12 @@ DEFAULT_ICONS = (
         name="Circle dot",
         media_type="image/svg+xml",
         content=b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle fill="#0f766e" cx="12" cy="12" r="8"/><circle fill="#fff" cx="12" cy="12" r="3"/></svg>',
+    ),
+    BuiltinIcon(
+        slug="arrow-right",
+        name="Arrow right",
+        media_type="image/svg+xml",
+        content=b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#111827" d="M4 9h10V5l7 7-7 7v-4H4z"/></svg>',
     ),
 )
 
@@ -538,7 +544,7 @@ def _render_icon(content: bytes, media_type: str, seed: str) -> Image.Image:
 
 async def build_sprite_index(
     session: AsyncSession,
-) -> dict[str, dict[str, int | float]]:
+) -> SpriteIndex:
     global _sprite_index_cache
 
     icons = await list_icons(session)
@@ -561,16 +567,19 @@ async def build_sprite_index(
 
 
 def _build_sprite_index(icons: list[MapIconResponse]) -> SpriteIndex:
-    return {
-        icon.sprite_id: {
-            "x": index * SPRITE_CELL_SIZE,
+    index: SpriteIndex = {}
+    for offset, icon in enumerate(icons):
+        entry: dict[str, int | float | bool] = {
+            "x": offset * SPRITE_CELL_SIZE,
             "y": 0,
             "width": SPRITE_CELL_SIZE,
             "height": SPRITE_CELL_SIZE,
             "pixelRatio": 1,
         }
-        for index, icon in enumerate(icons)
-    }
+        if icon.builtin and icon.sprite_id == "arrow-right":
+            entry["sdf"] = True
+        index[icon.sprite_id] = entry
+    return index
 
 
 async def build_sprite_png(session: AsyncSession) -> bytes:

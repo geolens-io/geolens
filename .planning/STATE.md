@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1004
 milestone_name: Builder Renderer Expansion
-status: roadmapped
-last_updated: "2026-05-12T14:58:37Z"
-last_activity: 2026-05-12 — v1004 Builder Renderer Expansion roadmap created with phases 1019-1022 and 20/20 requirements mapped.
+status: archived
+last_updated: "2026-05-12T20:25:00Z"
+last_activity: 2026-05-12 — v1004 Builder Renderer Expansion shipped with 20/20 requirements satisfied and all closeout gates passed.
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 4
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 4
+  percent: 100
 ---
 
 # State
@@ -18,30 +18,32 @@ progress:
 ## Current Position
 
 **Milestone:** v1004 — Builder Renderer Expansion
-**Phase:** 1019 — renderer-capability-architecture-and-cluster-feasibility
-**Plan:** —
-**Status:** Ready to plan Phase 1019
-**Last activity:** 2026-05-12 — v1004 Builder Renderer Expansion roadmap created with phases 1019-1022 and 20/20 requirements mapped.
+**Phase:** Complete
+**Plan:** Complete
+**Status:** Archived; ready for `$gsd-new-milestone`
+**Last activity:** 2026-05-12 — v1004 Builder Renderer Expansion shipped with 20/20 requirements satisfied and all closeout gates passed.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after starting v1004)
+See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1004)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1019 planning for renderer capability architecture and cluster feasibility.
+**Current focus:** Ready to scope the next milestone.
 
-## Active Milestone
+## Last Shipped Milestone
 
 **Version:** v1004 Builder Renderer Expansion
 **Started:** 2026-05-12
-**Status:** Roadmapped
+**Shipped:** 2026-05-12
+**Status:** Archived
 **Goal:** Add the next Map Builder render modes through a deliberate renderer capability layer, shipping MapLibre-native wins first and making any deck.gl/H3/trips dependency decision explicit before implementation.
-**Phases:** 1019-1022 (4 phases, 20 requirements; 0 requirements complete)
-**Next phase:** 1019 renderer-capability-architecture-and-cluster-feasibility
+**Phases:** 1019-1022 (4 phases, 20 requirements; 20 requirements complete)
+**Audit:** passed / GO
+**Archive:** `.planning/milestones/v1004-ROADMAP.md`, `.planning/milestones/v1004-REQUIREMENTS.md`, `.planning/milestones/v1004-MILESTONE-AUDIT.md`
 
-## Last Shipped Milestone
+## Prior Shipped Milestone
 
 **Version:** v1003 Builder v1 Hardening
 **Started:** 2026-05-12
@@ -111,6 +113,10 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1004)
 
 ### Roadmap Evolution
 
+- Phase 1022 completed 2026-05-12: renderer compatibility closeout passed focused Vitest, backend style JSON/sprite tests, i18n, lint, build, ruff, Playwright MCP live builder verification, and builder smoke; only the pre-existing large `map-vendor` build warning remains.
+- Phase 1021 completed 2026-05-12: advanced renderer ADRs explicitly deferred Hexbin, H3, Animated path, and Point 3D extrusion until their data-shape, dependency, viewer, and saved-map contracts are explicit.
+- Phase 1020 completed 2026-05-12: vector line layers now support Arrow renderAs through existing fields, an icon-backed MapLibre companion symbol layer, builder appearance controls, map-sync lifecycle handling, and style JSON export/import.
+- Phase 1019 completed 2026-05-12: renderer capability registry now drives renderAs visibility and records backend/source/write/viewer/style-JSON policy; Cluster is deferred because current catalog delivery is vector-tile-first while MapLibre clustering requires GeoJSON or server-side clustered tiles.
 - Phase 1013 completed 2026-05-12: focused renderAs/sidebar/modal Vitest coverage passes in a single-worker run, frontend lint/build pass, builder and accessibility Playwright specs now target the redesigned Add Dataset modal and inline basemap popover, and local browser smoke is blocked by the unavailable full stack/Docker runtime.
 - Phase 1012 completed 2026-05-12: Add Dataset modal now has All/Vector/Raster/Basemap tabs, existing search-param filter chips, expandable data/basemap rows, Add/added/another-rendering states, basemap swap/in-use states, and `/import` routing.
 - Phase 1011 completed 2026-05-12: basemap row displays the current `BasemapEntry.label`, inline swap/reset/appearance writes stay on map-level basemap fields, terrain is surfaced in Relief, and raster DEM rows can set `terrain_config` via Use as terrain.

@@ -222,6 +222,7 @@ function translateBadgeLabel(
     hillshade: 'hillshade',
     heatmap: 'heatmap',
     symbol: 'symbol',
+    arrow: 'arrow',
     dem: 'dem',
     hidden: 'hidden',
     'legend hidden': 'legendHidden',

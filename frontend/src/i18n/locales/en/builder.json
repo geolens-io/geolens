@@ -65,6 +65,7 @@
       "hillshade": "Hillshade",
       "heatmap": "Heatmap",
       "symbol": "Symbol",
+      "arrow": "Arrow",
       "dem": "DEM",
       "hidden": "Hidden",
       "legendHidden": "Legend hidden",
@@ -207,6 +208,12 @@
       "offsetY": "Offset Y",
       "categoryMapping": "Icons by value",
       "categoryIcon": "Icon for {{value}}"
+    },
+    "arrow": {
+      "title": "Arrow direction",
+      "color": "Arrow color",
+      "size": "Arrow size",
+      "spacing": "Spacing"
     },
     "heatmap": {
       "weight": "Weight column",

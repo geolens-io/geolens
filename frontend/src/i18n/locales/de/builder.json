@@ -65,6 +65,7 @@
       "hillshade": "Schummerung",
       "heatmap": "Heatmap",
       "symbol": "Symbol",
+      "arrow": "Pfeil",
       "dem": "DEM",
       "hidden": "Ausgeblendet",
       "legendHidden": "Legende ausgeblendet",
@@ -214,6 +215,12 @@
       "offsetY": "Versatz Y",
       "categoryMapping": "Symbole nach Wert",
       "categoryIcon": "Symbol für {{value}}"
+    },
+    "arrow": {
+      "title": "Pfeilrichtung",
+      "color": "Pfeilfarbe",
+      "size": "Pfeilgröße",
+      "spacing": "Abstand"
     },
     "raster": {
       "title": "Raster",

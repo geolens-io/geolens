@@ -753,6 +753,12 @@ export interface BuilderStyleConfig {
   extrusionMinZoom?: number;
   /** Opacity for the companion fill-extrusion layer. Defaults to the layer opacity cap. */
   extrusionOpacity?: number;
+  /** Arrow glyph color for line arrow render mode. */
+  arrowColor?: string;
+  /** Arrow glyph size for line arrow render mode. */
+  arrowSize?: number;
+  /** Distance between repeated arrow glyphs for line arrow render mode. */
+  arrowSpacing?: number;
   symbol?: SymbolStyleConfig;
   /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
    *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].
@@ -799,7 +805,7 @@ export interface StyleConfig {
   /** [min, max] size range selected by the user (for UI state restoration) */
   sizeRange?: [number, number];
   /** Render mode override for specialized adapters. */
-  render_mode?: 'heatmap' | 'hillshade' | 'symbol';
+  render_mode?: 'heatmap' | 'hillshade' | 'symbol' | 'arrow';
   /** Symbol/icon layer config for point datasets. */
   symbol?: SymbolStyleConfig;
   /** Heatmap paint config */

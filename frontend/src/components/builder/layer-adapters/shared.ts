@@ -178,6 +178,9 @@ export function resolveAdapterType(
   if (styleConfig?.render_mode === 'symbol') {
     return 'symbol';
   }
+  if (styleConfig?.render_mode === 'arrow') {
+    return 'line';
+  }
   // Use geometry type when available
   if (geometryType) {
     return getLayerType(geometryType);
@@ -234,6 +237,9 @@ const BUILDER_STYLE_KEY_ALIASES: Record<string, string> = {
   height_scale: 'heightScale',
   extrusion_min_zoom: 'extrusionMinZoom',
   extrusion_opacity: 'extrusionOpacity',
+  arrow_color: 'arrowColor',
+  arrow_size: 'arrowSize',
+  arrow_spacing: 'arrowSpacing',
 };
 
 export function getBuilderStyleConfig(input: unknown): NonNullable<StyleConfig['builder']> {

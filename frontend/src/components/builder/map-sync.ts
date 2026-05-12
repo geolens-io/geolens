@@ -257,13 +257,14 @@ export function applyBasemapConfigToMap(
   }
 }
 
-export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'label', id: string, prefix?: string) {
+export function prefixed(kind: 'source' | 'layer' | 'outline' | 'extrusion' | 'arrow' | 'label', id: string, prefix?: string) {
   const p = prefix ?? '';
   switch (kind) {
     case 'source':  return `${p}source-${id}`;
     case 'layer':   return `${p}layer-${id}`;
     case 'outline': return `${p}layer-${id}-outline`;
     case 'extrusion': return `${p}layer-${id}-extrusion`;
+    case 'arrow': return `${p}layer-${id}-arrow`;
     case 'label':   return `${p}layer-${id}-label`;
   }
 }
@@ -429,6 +430,10 @@ function syncVectorLayer(
   if (map.getLayer(extrusionLayerId)) {
     map.setLayerZoomRange(extrusionLayerId, layerMinzoom, layerMaxzoom);
   }
+  const arrowLayerId = prefixed('arrow', layer.id, prefix);
+  if (map.getLayer(arrowLayerId)) {
+    map.setLayerZoomRange(arrowLayerId, layerMinzoom, layerMaxzoom);
+  }
 
   // Sync companion label layer (add/update/remove). Heatmap layers don't support
   // labels, and symbol layers consolidate icon/text in the primary symbol layer.
@@ -479,7 +484,9 @@ function removeStaleSourcesAndLayers(
     const outlineId = prefixed('outline', id, prefix);
     const labelId = prefixed('label', id, prefix);
     const extrusionId = prefixed('extrusion', id, prefix);
+    const arrowId = prefixed('arrow', id, prefix);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
+    if (map.getLayer(arrowId)) map.removeLayer(arrowId);
     if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
     if (map.getLayer(outlineId)) map.removeLayer(outlineId);
     if (map.getLayer(layerId)) map.removeLayer(layerId);
@@ -577,10 +584,12 @@ function reorderDataGeometry(
   idPrefix?: string,
 ) {
   for (let i = layers.length - 1; i >= 0; i--) {
-    const lid = prefixed('layer',layers[i].id, idPrefix);
-    const oid = prefixed('outline',layers[i].id, idPrefix);
+    const lid = prefixed('layer', layers[i].id, idPrefix);
+    const oid = prefixed('outline', layers[i].id, idPrefix);
     const eid = prefixed('extrusion', layers[i].id, idPrefix);
+    const aid = prefixed('arrow', layers[i].id, idPrefix);
     if (map.getLayer(lid)) map.moveLayer(lid);
+    if (map.getLayer(aid)) map.moveLayer(aid);
     if (map.getLayer(eid)) map.moveLayer(eid);
     if (map.getLayer(oid)) map.moveLayer(oid);
   }
@@ -593,7 +602,7 @@ function reorderDataLabels(
   idPrefix?: string,
 ) {
   for (let i = layers.length - 1; i >= 0; i--) {
-    const labelId = prefixed('label',layers[i].id, idPrefix);
+    const labelId = prefixed('label', layers[i].id, idPrefix);
     if (map.getLayer(labelId)) map.moveLayer(labelId);
   }
 }

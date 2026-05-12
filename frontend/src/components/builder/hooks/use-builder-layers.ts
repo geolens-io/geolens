@@ -276,6 +276,7 @@ export function useBuilderLayers(
       const ids = [
         `layer-${layerId}`, `layer-${layerId}-outline`,
         `layer-${layerId}-label`, `layer-${layerId}-extrusion`,
+        `layer-${layerId}-arrow`,
       ];
       for (const id of ids) {
         if (map.getLayer(id)) map.removeLayer(id);
@@ -319,6 +320,10 @@ export function useBuilderLayers(
     const extrusionId = `layer-${layer.id}-extrusion`;
     if (map.getLayer(extrusionId)) {
       map.removeLayer(extrusionId);
+    }
+    const arrowId = `layer-${layer.id}-arrow`;
+    if (map.getLayer(arrowId)) {
+      map.removeLayer(arrowId);
     }
     if ((adapterType === 'raster' || adapterType === 'hillshade') && map.getSource(sourceId)) {
       map.removeSource(sourceId);

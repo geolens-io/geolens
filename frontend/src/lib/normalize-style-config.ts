@@ -76,6 +76,9 @@ const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
   height_scale: 'heightScale',
   extrusion_min_zoom: 'extrusionMinZoom',
   extrusion_opacity: 'extrusionOpacity',
+  arrow_color: 'arrowColor',
+  arrow_size: 'arrowSize',
+  arrow_spacing: 'arrowSpacing',
 };
 
 function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {

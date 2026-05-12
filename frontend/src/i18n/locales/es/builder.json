@@ -65,6 +65,7 @@
       "hillshade": "Sombreado",
       "heatmap": "Mapa de calor",
       "symbol": "Símbolo",
+      "arrow": "Flecha",
       "dem": "DEM",
       "hidden": "Oculto",
       "legendHidden": "Leyenda oculta",
@@ -214,6 +215,12 @@
       "offsetY": "Desplazamiento Y",
       "categoryMapping": "Iconos por valor",
       "categoryIcon": "Icono para {{value}}"
+    },
+    "arrow": {
+      "title": "Dirección de flecha",
+      "color": "Color de flecha",
+      "size": "Tamaño de flecha",
+      "spacing": "Espaciado"
     },
     "raster": {
       "title": "Ráster",

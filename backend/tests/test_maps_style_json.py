@@ -422,6 +422,58 @@ def test_build_maplibre_style_emits_line_metrics_for_builder_intent_only():
     assert "line-gradient" not in primary["paint"]
 
 
+def test_build_maplibre_style_emits_line_arrow_companion_layer():
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="LINESTRING",
+        dataset_table_name="routes",
+        paint={"line-color": "#2255aa", "line-width": 3},
+        label_config=None,
+        style_config={
+            "render_mode": "arrow",
+            "builder": {
+                "arrowColor": "#fb923c",
+                "arrowSize": 18,
+                "arrowSpacing": 120,
+            },
+        },
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    assert [entry["type"] for entry in style["layers"]] == ["line", "symbol"]
+    primary, arrow = style["layers"]
+    assert primary["source"] == f"geolens-{dataset_id}"
+    assert primary["metadata"]["geolens"]["style_config"] == {
+        "render_mode": "arrow",
+        "builder": {
+            "arrowColor": "#fb923c",
+            "arrowSize": 18,
+            "arrowSpacing": 120,
+        },
+    }
+    assert arrow["id"] == f"{primary['id']}-arrow"
+    assert arrow["metadata"]["geolens"] == {
+        "companion": "arrow",
+        "parent_layer_id": str(layer.id),
+    }
+    assert arrow["layout"] == {
+        "symbol-placement": "line",
+        "symbol-spacing": 120,
+        "icon-image": "geolens:arrow-right",
+        "icon-size": 18 / 14,
+        "icon-allow-overlap": True,
+        "icon-ignore-placement": True,
+        "icon-rotation-alignment": "map",
+    }
+    assert arrow["paint"] == {
+        "icon-color": "#fb923c",
+        "icon-opacity": 0.9,
+    }
+    assert arrow["filter"] == ["==", "status", "open"]
+
+
 def test_build_maplibre_style_rejects_array_shaped_builder_line_gradient_intent():
     """Locked contract per CONTEXT D-01: builder.lineGradient must be a non-empty plain dict.
 
@@ -805,6 +857,61 @@ def test_parse_maplibre_style_import_restores_outline_and_extrusion_companions()
         "outlineColor": "#112233",
         "outlineWidth": 4,
         "heightColumn": "height_m",
+    }
+
+
+def test_parse_maplibre_style_import_restores_line_arrow_companion():
+    dataset_id = uuid.uuid4()
+    style = {
+        "version": 8,
+        "name": "Arrow routes",
+        "sources": {
+            "src": {
+                "type": "vector",
+                "tiles": ["/tiles/data.routes/{z}/{x}/{y}.pbf"],
+                "metadata": {"geolens": {"dataset_id": str(dataset_id)}},
+            }
+        },
+        "layers": [
+            {
+                "id": "routes",
+                "type": "line",
+                "source": "src",
+                "source-layer": "routes",
+                "paint": {"line-color": "#2255aa", "line-width": 3},
+                "metadata": {"geolens": {"layer_id": "layer-1"}},
+            },
+            {
+                "id": "routes-arrow",
+                "type": "symbol",
+                "source": "src",
+                "source-layer": "routes",
+                "layout": {
+                    "symbol-placement": "line",
+                    "symbol-spacing": 120,
+                    "icon-image": "geolens:arrow-right",
+                    "icon-size": 18 / 14,
+                },
+                "paint": {"icon-color": "#fb923c", "icon-opacity": 0.9},
+                "metadata": {
+                    "geolens": {"companion": "arrow", "parent_layer_id": "layer-1"}
+                },
+            },
+        ],
+    }
+
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.summary.layers_imported == 1
+    layer = imported.layers[0]
+    assert layer.dataset_id == dataset_id
+    assert layer.style_config == {
+        "render_mode": "arrow",
+        "builder": {
+            "arrowColor": "#fb923c",
+            "arrowSize": 18,
+            "arrowSpacing": 120,
+        },
     }
 
 

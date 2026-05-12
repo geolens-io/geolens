@@ -37,12 +37,16 @@ function createMockMap() {
     getLayoutProperty: vi.fn(),
     getFilter: vi.fn().mockReturnValue(null),
     setFilter: vi.fn(),
-    removeLayer: vi.fn(),
+    removeLayer: vi.fn((id: string) => {
+      layerIds.delete(id);
+    }),
     removeSource: vi.fn(),
     isStyleLoaded: vi.fn(() => true),
     getStyle: vi.fn(() => ({ layers: [] })),
     getSprite: vi.fn(() => []),
     addSprite: vi.fn(),
+    hasImage: vi.fn(() => false),
+    addImage: vi.fn(),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
   } as unknown as import('maplibre-gl').Map;
@@ -117,6 +121,11 @@ describe('resolveAdapterType', () => {
 
   it('returns symbol when render_mode is symbol', () => {
     expect(resolveAdapterType('POINT', { render_mode: 'symbol' })).toBe('symbol');
+  });
+
+  it('returns line when render_mode is arrow', () => {
+    expect(resolveAdapterType('LINESTRING', { render_mode: 'arrow' })).toBe('line');
+    expect(resolveAdapterType(null, { render_mode: 'arrow' })).toBe('line');
   });
 
   it('returns circle for POINT geometry without render_mode', () => {
@@ -482,8 +491,8 @@ describe('lineAdapter', () => {
     expect(call.paint).toHaveProperty('line-width', 2);
   });
 
-  it('getLayerIds returns [layerId] (single layer)', () => {
-    expect(lineAdapter.getLayerIds('layer-l1')).toEqual(['layer-l1']);
+  it('getLayerIds includes the arrow companion cleanup id', () => {
+    expect(lineAdapter.getLayerIds('layer-l1')).toEqual(['layer-l1', 'layer-l1-arrow']);
   });
 
   it('addLayers creates line layer type', () => {
@@ -713,6 +722,135 @@ describe('lineAdapter', () => {
       // Identity (===), not just equality. Engine-foundation guarantee for Phase 256.
       expect(value).toBe(gradient);
     }
+  });
+
+  it('addLayers creates an arrow companion symbol layer for arrow render mode', () => {
+    const input = makeInput({
+      id: 'l-arrow',
+      layerId: 'layer-l-arrow',
+      sourceId: 'source-l-arrow',
+      sourceLayer: 'data.routes',
+      dataset_geometry_type: 'LINESTRING',
+      paint: { 'line-color': '#2255aa', 'line-width': 3 },
+      filter: ['==', 'status', 'open'],
+      style_config: {
+        render_mode: 'arrow',
+        builder: {
+          arrowColor: '#fb923c',
+          arrowSize: 18,
+          arrowSpacing: 120,
+        },
+      },
+    });
+
+    lineAdapter.addLayers(map, input);
+
+    expect(map.addLayer).toHaveBeenCalledTimes(2);
+    const lineCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const arrowCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    expect(lineCall).toEqual(expect.objectContaining({
+      id: 'layer-l-arrow',
+      type: 'line',
+    }));
+    expect(arrowCall).toEqual(expect.objectContaining({
+      id: 'layer-l-arrow-arrow',
+      type: 'symbol',
+      source: 'source-l-arrow',
+      'source-layer': 'data.routes',
+      filter: ['==', 'status', 'open'],
+    }));
+    expect(arrowCall.layout).toEqual(expect.objectContaining({
+      'symbol-placement': 'line',
+      'symbol-spacing': 120,
+      'icon-image': 'geolens-line-arrow',
+      'icon-size': 18 / 14,
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'icon-rotation-alignment': 'map',
+      visibility: 'visible',
+    }));
+    expect(arrowCall.paint).toEqual({
+      'icon-color': '#fb923c',
+      'icon-opacity': 1,
+    });
+    expect(map.addImage).toHaveBeenCalledWith(
+      'geolens-line-arrow',
+      expect.objectContaining({ width: 24, height: 24 }),
+      { sdf: true, pixelRatio: 1 },
+    );
+  });
+
+  it('syncPaint updates arrow companion appearance, opacity, visibility, and filter', () => {
+    const input = makeInput({
+      id: 'l-arrow-sync',
+      layerId: 'layer-l-arrow-sync',
+      sourceId: 'source-l-arrow-sync',
+      sourceLayer: 'data.routes',
+      dataset_geometry_type: 'LINESTRING',
+      paint: { 'line-color': '#2255aa', 'line-width': 3 },
+      style_config: { render_mode: 'arrow', builder: { arrowColor: '#fb923c' } },
+    });
+    lineAdapter.addLayers(map, input);
+    (map.setLayoutProperty as ReturnType<typeof vi.fn>).mockClear();
+    (map.setPaintProperty as ReturnType<typeof vi.fn>).mockClear();
+    (map.setFilter as ReturnType<typeof vi.fn>).mockClear();
+
+    lineAdapter.syncPaint(map, {
+      ...input,
+      opacity: 0.45,
+      visible: false,
+      filter: ['==', 'status', 'planned'],
+      style_config: {
+        render_mode: 'arrow',
+        builder: {
+          arrowColor: '#22c55e',
+          arrowSize: 22,
+          arrowSpacing: 144,
+        },
+      },
+    });
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-l-arrow-sync-arrow', 'symbol-spacing', 144);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-l-arrow-sync-arrow', 'icon-size', 22 / 14);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-l-arrow-sync-arrow', 'visibility', 'none');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l-arrow-sync-arrow', 'icon-color', '#22c55e');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l-arrow-sync-arrow', 'icon-opacity', 0.45);
+    expect(map.setFilter).toHaveBeenCalledWith('layer-l-arrow-sync-arrow', ['==', 'status', 'planned']);
+  });
+
+  it('syncPaint removes stale arrow companion when render mode returns to line', () => {
+    const input = makeInput({
+      id: 'l-arrow-remove',
+      layerId: 'layer-l-arrow-remove',
+      sourceId: 'source-l-arrow-remove',
+      sourceLayer: 'data.routes',
+      dataset_geometry_type: 'LINESTRING',
+      style_config: { render_mode: 'arrow', builder: { arrowColor: '#fb923c' } },
+    });
+    lineAdapter.addLayers(map, input);
+    (map.removeLayer as ReturnType<typeof vi.fn>).mockClear();
+
+    lineAdapter.syncPaint(map, { ...input, style_config: null });
+
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-l-arrow-remove-arrow');
+  });
+
+  it('syncVisibility toggles line and arrow companion visibility together', () => {
+    const input = makeInput({
+      id: 'l-arrow-visible',
+      layerId: 'layer-l-arrow-visible',
+      sourceId: 'source-l-arrow-visible',
+      sourceLayer: 'data.routes',
+      dataset_geometry_type: 'LINESTRING',
+      style_config: { render_mode: 'arrow', builder: { arrowColor: '#fb923c' } },
+    });
+    lineAdapter.addLayers(map, input);
+    (map.setLayoutProperty as ReturnType<typeof vi.fn>).mockClear();
+
+    lineAdapter.syncVisibility(map, { ...input, visible: false });
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-l-arrow-visible', 'visibility', 'none');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-l-arrow-visible-arrow', 'visibility', 'none');
   });
 });
 

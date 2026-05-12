@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   RENDER_AS_WRITABLE_FIELDS,
+  RENDERER_CAPABILITIES,
   UNSUPPORTED_V1002_RENDERERS,
   buildRenderAsPatch,
   getCurrentRenderAs,
   getRenderAsOptions,
+  getRendererCapabilities,
+  getRendererCapability,
   getRenderAsSource,
   isSupportedRenderAsId,
 } from '../renderAs';
@@ -63,12 +66,37 @@ describe('renderAs view model', () => {
     }))).toBe('heatmap');
   });
 
-  it('offers only line for line layers', () => {
+  it('offers line and arrow for line layers', () => {
     const line = layer({ dataset_geometry_type: 'MULTILINESTRING' });
 
     expect(getRenderAsSource(line)).toBe('vector-line');
-    expect(optionIds(line)).toEqual(['line']);
+    expect(optionIds(line)).toEqual(['line', 'arrow']);
     expect(getCurrentRenderAs(line)).toBe('line');
+  });
+
+  it('documents line arrow as a MapLibre companion renderer capability', () => {
+    const line = layer({ dataset_geometry_type: 'MULTILINESTRING' });
+    const capabilities = getRendererCapabilities(line);
+    const arrow = getRendererCapability('arrow', line);
+
+    expect(RENDERER_CAPABILITIES.length).toBeGreaterThan(0);
+    expect(capabilities.map((entry) => entry.id)).toEqual(['line', 'arrow']);
+    expect(arrow).toMatchObject({
+      id: 'arrow',
+      backend: 'maplibre',
+      sourceRequirement: 'vector-tile',
+      companionLayers: ['arrow'],
+      viewerSupport: 'native',
+      styleJsonSupport: 'native',
+    });
+    expect(arrow?.writableFields).toEqual(RENDER_AS_WRITABLE_FIELDS);
+  });
+
+  it('detects line arrow render mode from style_config', () => {
+    expect(getCurrentRenderAs(layer({
+      dataset_geometry_type: 'LINESTRING',
+      style_config: { render_mode: 'arrow' } as StyleConfig,
+    }))).toBe('arrow');
   });
 
   it('offers existing polygon fill, stroke, fill-stroke, and extrusion renderings', () => {
@@ -192,6 +220,53 @@ describe('renderAs view model', () => {
       extrusionOpacity: 0.85,
     }));
     expect(JSON.stringify(extrusion?.patch)).not.toContain('is_3d');
+  });
+
+  it('builds line arrow patches using only existing writable fields', () => {
+    const line = layer({
+      dataset_geometry_type: 'LINESTRING',
+      paint: { 'line-color': '#2255aa', 'line-width': 3 },
+    });
+
+    const mutation = buildRenderAsPatch(line, 'arrow');
+
+    expect(mutation?.adapterType).toBe('line');
+    expect(mutation?.patch).toEqual(expect.objectContaining({
+      layer_type: 'vector_geolens',
+      style_config: expect.objectContaining({
+        render_mode: 'arrow',
+        builder: expect.objectContaining({
+          arrowColor: '#2255aa',
+          arrowSize: 14,
+          arrowSpacing: 80,
+        }),
+      }),
+    }));
+    for (const key of Object.keys(mutation?.patch ?? {})) {
+      expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
+    }
+    expect(JSON.stringify(mutation?.patch)).not.toContain('is_3d');
+  });
+
+  it('clears line arrow builder state when switching back to plain line', () => {
+    const mutation = buildRenderAsPatch(layer({
+      dataset_geometry_type: 'LINESTRING',
+      style_config: {
+        render_mode: 'arrow',
+        builder: {
+          arrowColor: '#2255aa',
+          arrowSize: 18,
+          arrowSpacing: 120,
+          lineGradient: { stops: [] },
+        },
+      } as unknown as StyleConfig,
+    }), 'line');
+
+    expect(mutation?.adapterType).toBe('line');
+    expect(mutation?.patch.style_config?.render_mode).toBeUndefined();
+    expect(mutation?.patch.style_config?.builder).toEqual({
+      lineGradient: { stops: [] },
+    });
   });
 
   it('builds raster DEM image and hillshade patches', () => {

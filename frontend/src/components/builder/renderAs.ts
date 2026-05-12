@@ -5,6 +5,7 @@ export type RenderAsId =
   | 'symbol'
   | 'heatmap'
   | 'line'
+  | 'arrow'
   | 'fill'
   | 'stroke'
   | 'fill-stroke'
@@ -24,6 +25,28 @@ export interface RenderAsOption {
   id: RenderAsId;
   label: string;
   source: RenderAsSource;
+}
+
+export type RendererBackend = 'maplibre' | 'deckgl-future';
+export type RendererSourceRequirement =
+  | 'vector-tile'
+  | 'geojson'
+  | 'raster'
+  | 'raster-dem'
+  | 'h3-column'
+  | 'path-timestamp';
+
+export interface RendererCapability {
+  id: RenderAsId;
+  label: string;
+  source: Exclude<RenderAsSource, 'unsupported'>;
+  backend: RendererBackend;
+  sourceRequirement: RendererSourceRequirement;
+  writableFields: readonly (typeof RENDER_AS_WRITABLE_FIELDS)[number][];
+  companionLayers: readonly string[];
+  viewerSupport: 'native' | 'fallback' | 'unsupported';
+  styleJsonSupport: 'native' | 'fallback' | 'unsupported';
+  enabled: boolean;
 }
 
 export type RenderAsAdapterType = 'circle' | 'symbol' | 'heatmap' | 'line' | 'fill' | 'raster' | 'hillshade';
@@ -57,7 +80,6 @@ export const UNSUPPORTED_V1002_RENDERERS = [
   'cluster',
   'hexbin',
   'h3',
-  'arrow',
   'animated-path',
   'point-extrusion-3d',
   'timeline',
@@ -66,29 +88,122 @@ export const UNSUPPORTED_V1002_RENDERERS = [
   'blend-mode',
 ] as const;
 
-const OPTIONS_BY_SOURCE: Record<Exclude<RenderAsSource, 'unsupported'>, RenderAsOption[]> = {
-  'vector-point': [
-    { id: 'point', label: 'Point', source: 'vector-point' },
-    { id: 'symbol', label: 'Symbol', source: 'vector-point' },
-    { id: 'heatmap', label: 'Heatmap', source: 'vector-point' },
-  ],
-  'vector-line': [
-    { id: 'line', label: 'Line', source: 'vector-line' },
-  ],
-  'vector-polygon': [
-    { id: 'fill', label: 'Fill', source: 'vector-polygon' },
-    { id: 'stroke', label: 'Stroke', source: 'vector-polygon' },
-    { id: 'fill-stroke', label: 'Fill + Stroke', source: 'vector-polygon' },
-    { id: 'extrusion-3d', label: '3D extrusion', source: 'vector-polygon' },
-  ],
-  raster: [
-    { id: 'image', label: 'Image', source: 'raster' },
-  ],
-  'raster-dem': [
-    { id: 'image', label: 'Image', source: 'raster-dem' },
-    { id: 'hillshade', label: 'Hillshade', source: 'raster-dem' },
-  ],
-};
+function capability(
+  id: RenderAsId,
+  label: string,
+  source: Exclude<RenderAsSource, 'unsupported'>,
+  options: Pick<RendererCapability, 'backend' | 'sourceRequirement' | 'companionLayers' | 'viewerSupport' | 'styleJsonSupport'>,
+): RendererCapability {
+  return {
+    id,
+    label,
+    source,
+    writableFields: RENDER_AS_WRITABLE_FIELDS,
+    enabled: true,
+    ...options,
+  };
+}
+
+export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
+  capability('point', 'Point', 'vector-point', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('symbol', 'Symbol', 'vector-point', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('heatmap', 'Heatmap', 'vector-point', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('line', 'Line', 'vector-line', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('arrow', 'Arrow', 'vector-line', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: ['arrow'],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('fill', 'Fill', 'vector-polygon', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: ['outline'],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('stroke', 'Stroke', 'vector-polygon', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: ['outline'],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('fill-stroke', 'Fill + Stroke', 'vector-polygon', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: ['outline'],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('extrusion-3d', '3D extrusion', 'vector-polygon', {
+    backend: 'maplibre',
+    sourceRequirement: 'vector-tile',
+    companionLayers: ['outline', 'extrusion'],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('image', 'Image', 'raster', {
+    backend: 'maplibre',
+    sourceRequirement: 'raster',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('image', 'Image', 'raster-dem', {
+    backend: 'maplibre',
+    sourceRequirement: 'raster-dem',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+  capability('hillshade', 'Hillshade', 'raster-dem', {
+    backend: 'maplibre',
+    sourceRequirement: 'raster-dem',
+    companionLayers: [],
+    viewerSupport: 'native',
+    styleJsonSupport: 'native',
+  }),
+];
+
+const OPTIONS_BY_SOURCE = RENDERER_CAPABILITIES.reduce(
+  (acc, capabilityEntry) => {
+    const options = acc[capabilityEntry.source] ?? [];
+    options.push({
+      id: capabilityEntry.id,
+      label: capabilityEntry.label,
+      source: capabilityEntry.source,
+    });
+    acc[capabilityEntry.source] = options;
+    return acc;
+  },
+  {} as Record<Exclude<RenderAsSource, 'unsupported'>, RenderAsOption[]>,
+);
 
 const DEFAULT_CIRCLE_PAINT = {
   'circle-color': '#3b82f6',
@@ -177,6 +292,22 @@ function styleWithoutRenderMode(layer: RenderAsLayer, extra: Record<string, unkn
   return compactRecord({ ...style, ...extra }) as unknown as StyleConfig;
 }
 
+function styleWithoutRenderModeAndBuilderKeys(layer: RenderAsLayer, builderKeys: string[]) {
+  const style = styleRecord(layer);
+  delete style.render_mode;
+  const builder = builderRecord(layer);
+  for (const key of builderKeys) {
+    delete builder[key];
+  }
+  const compactBuilderValue = compactRecord(builder);
+  if (Object.keys(compactBuilderValue).length > 0) {
+    style.builder = compactBuilderValue;
+  } else {
+    delete style.builder;
+  }
+  return compactRecord(style) as unknown as StyleConfig;
+}
+
 function numericHeightColumn(layer: RenderAsLayer) {
   const existing = builderHeightColumn(layer);
   if (existing) return existing;
@@ -217,6 +348,17 @@ export function getRenderAsOptions(layer: RenderAsLayer): RenderAsOption[] {
   return OPTIONS_BY_SOURCE[source];
 }
 
+export function getRendererCapabilities(layer: RenderAsLayer): RendererCapability[] {
+  const source = getRenderAsSource(layer);
+  if (source === 'unsupported') return [];
+  return RENDERER_CAPABILITIES.filter((entry) => entry.enabled && entry.source === source);
+}
+
+export function getRendererCapability(id: RenderAsId, layer?: RenderAsLayer): RendererCapability | null {
+  const entries = layer ? getRendererCapabilities(layer) : RENDERER_CAPABILITIES.filter((entry) => entry.enabled);
+  return entries.find((entry) => entry.id === id) ?? null;
+}
+
 export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   const source = getRenderAsSource(layer);
   const renderMode = layer.style_config?.render_mode;
@@ -236,6 +378,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   }
 
   if (source === 'vector-line') {
+    if (renderMode === 'arrow') return 'arrow';
     return 'line';
   }
 
@@ -330,7 +473,25 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
       adapterType: 'line',
       patch: {
         layer_type: vectorLayerType(layer),
-        style_config: styleWithoutRenderMode(layer),
+        style_config: styleWithoutRenderModeAndBuilderKeys(layer, ['arrowColor', 'arrowSize', 'arrowSpacing']),
+      },
+    };
+  }
+
+  if (renderAs === 'arrow') {
+    const lineColor = typeof layer.paint?.['line-color'] === 'string'
+      ? layer.paint['line-color']
+      : '#3b82f6';
+    return {
+      adapterType: 'line',
+      patch: {
+        layer_type: vectorLayerType(layer),
+        style_config: styleWithBuilder(layer, {
+          ...builderRecord(layer),
+          arrowColor: layer.style_config?.builder?.arrowColor ?? lineColor,
+          arrowSize: layer.style_config?.builder?.arrowSize ?? 14,
+          arrowSpacing: layer.style_config?.builder?.arrowSpacing ?? 80,
+        }, { render_mode: 'arrow' }),
       },
     };
   }

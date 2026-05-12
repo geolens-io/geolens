@@ -1,5 +1,41 @@
 # Milestones
 
+## v1004 Builder Renderer Expansion (Shipped: 2026-05-12)
+
+**Delivered:** A schema-preserving renderer expansion that adds a renderer capability registry, ships MapLibre-native Line → Arrow rendering, and records explicit ADRs before introducing deck.gl/H3/trips-style renderers.
+
+**Stats:**
+
+- **Phases:** 4 (1019-1022)
+- **Plans:** 4 / 4 complete
+- **Requirements:** 20/20 satisfied (ARCH-01..05, ARROW-01..05, DECIDE-01..05, QA-01..05)
+- **Audit:** passed / GO
+
+**Key accomplishments:**
+
+1. **Renderer capability registry shipped** — renderAs visibility is now driven by capability metadata for source family, backend, source requirement, writable fields, companion layers, viewer support, and style JSON support.
+2. **Line Arrow renderer shipped** — vector line layers expose `Arrow`, storing intent in existing `style_config.render_mode` and `style_config.builder` fields only.
+3. **Arrow companion lifecycle hardened** — icon-backed MapLibre symbol companions follow parent visibility, filter, opacity, zoom range, reorder, removal, and stale cleanup.
+4. **Builder controls added** — arrow color, size, and spacing use existing GeoLens UI primitives and locale coverage.
+5. **Style JSON round-trip preserved** — exported styles include the arrow companion and built-in sprite support; import restores arrow render intent.
+6. **Advanced renderer decisions recorded** — Cluster, Hexbin, H3, Animated path, and Point 3D extrusion remain deferred until their data-shape, dependency, viewer, and saved-map contracts are explicit.
+
+**Known deferred items at close:**
+
+- Cluster/Hexbin/H3/Animated path/Point 3D extrusion remain out of scope by ADR.
+- Full backend pytest, SDK/OpenAPI drift checks, CLI tests, and release packaging gates were not rerun because v1004 was scoped to builder renderer compatibility.
+- Frontend production build still emits the pre-existing large `map-vendor` chunk-size warning.
+
+**Archives:**
+
+- `.planning/milestones/v1004-ROADMAP.md`
+- `.planning/milestones/v1004-REQUIREMENTS.md`
+- `.planning/milestones/v1004-MILESTONE-AUDIT.md`
+
+**Tag:** `v1004`
+
+---
+
 ## v1003 Builder v1 Hardening (Shipped: 2026-05-12)
 
 **Delivered:** Browser-backed hardening for the v1002 Map Builder sidebar and Add Dataset redesign, proving duplicate renderings, basemap/terrain map-level writes, modal state, accessibility, responsive behavior, and saved-map/viewer round trips without schema or renderer changes.

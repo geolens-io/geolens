@@ -28,6 +28,8 @@ SPRITE_URL = "/maps/sprites/geolens"
 GLYPHS_URL = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf"
 DEFAULT_FILL_COLOR = "#3b82f6"
 DEFAULT_STROKE_COLOR = "#1d4ed8"
+DEFAULT_ARROW_ICON = "arrow-right"
+DEFAULT_ARROW_BASE_SIZE = 14
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _LABEL_METADATA_KEYS = {
@@ -92,6 +94,9 @@ _BUILDER_KEY_ALIASES = {
     "height_scale": "heightScale",
     "extrusion_min_zoom": "extrusionMinZoom",
     "extrusion_opacity": "extrusionOpacity",
+    "arrow_color": "arrowColor",
+    "arrow_size": "arrowSize",
+    "arrow_spacing": "arrowSpacing",
 }
 
 logger = logging.getLogger(__name__)
@@ -340,6 +345,8 @@ def _geometry_layer_type(
         return "heatmap"
     if render_mode == "symbol":
         return "symbol"
+    if render_mode == "arrow":
+        return "line"
     if layer_type == "raster_geolens":
         return "raster"
     gt = (geometry_type or "").upper()
@@ -612,6 +619,51 @@ def _fill_companion_layers(
     return companions
 
 
+def _line_arrow_companion_layer(
+    layer: MapLayerResponse,
+    source_id: str,
+    layer_id: str,
+    style_config: dict,
+    paint: dict,
+) -> dict[str, Any] | None:
+    if style_config.get("render_mode") != "arrow":
+        return None
+    builder = _builder_style_config(style_config)
+    line_color = paint.get("line-color", DEFAULT_STROKE_COLOR)
+    arrow_color = builder.get("arrowColor") or line_color
+    arrow_size = _finite_number(builder.get("arrowSize")) or 14
+    arrow_spacing = _finite_number(builder.get("arrowSpacing")) or 80
+    arrow_layer: dict[str, Any] = {
+        "id": f"{layer_id}-arrow",
+        "type": "symbol",
+        "source": source_id,
+        "source-layer": layer.dataset_table_name,
+        "metadata": {
+            "geolens": {
+                "companion": "arrow",
+                "parent_layer_id": str(layer.id),
+            }
+        },
+        "layout": {
+            "symbol-placement": "line",
+            "symbol-spacing": arrow_spacing,
+            "icon-image": _sprite_icon_id(DEFAULT_ARROW_ICON),
+            "icon-size": arrow_size / DEFAULT_ARROW_BASE_SIZE,
+            "icon-allow-overlap": True,
+            "icon-ignore-placement": True,
+            "icon-rotation-alignment": "map",
+            **_companion_visibility(layer),
+        },
+        "paint": {
+            "icon-color": arrow_color,
+            "icon-opacity": layer.opacity,
+        },
+    }
+    if layer.filter:
+        arrow_layer["filter"] = layer.filter
+    return arrow_layer
+
+
 def _style_layer_for_map_layer(
     layer: MapLayerResponse,
     source_id: str,
@@ -668,6 +720,16 @@ def _style_layer_for_map_layer(
         if builder.get("strokeDisabled") or (layer.paint or {}).get("_stroke-disabled"):
             base["paint"] = {**base["paint"], "fill-outline-color": "rgba(0,0,0,0)"}
         companion_layers.extend(_fill_companion_layers(layer, source_id, layer_id))
+    elif layer_type == "line":
+        arrow_layer = _line_arrow_companion_layer(
+            layer,
+            source_id,
+            layer_id,
+            style_config,
+            paint,
+        )
+        if arrow_layer:
+            companion_layers.append(arrow_layer)
 
     if layer_type == "symbol":
         base["layout"] = _symbol_layout_from_style(
@@ -894,6 +956,29 @@ def _builder_from_extrusion_companion(
         builder["extrusionOpacity"] = opacity
 
 
+def _builder_from_arrow_companion(
+    companion: dict[str, Any], builder: dict[str, Any]
+) -> None:
+    layout = (
+        companion.get("layout") if isinstance(companion.get("layout"), dict) else {}
+    )
+    paint = companion.get("paint") if isinstance(companion.get("paint"), dict) else {}
+    arrow_color = paint.get("icon-color") or paint.get("text-color")
+    if isinstance(arrow_color, str) and "arrowColor" not in builder:
+        builder["arrowColor"] = arrow_color
+    icon_size = _finite_number(layout.get("icon-size"))
+    arrow_size = (
+        icon_size * DEFAULT_ARROW_BASE_SIZE
+        if icon_size is not None
+        else _finite_number(layout.get("text-size"))
+    )
+    if arrow_size is not None and "arrowSize" not in builder:
+        builder["arrowSize"] = arrow_size
+    arrow_spacing = _finite_number(layout.get("symbol-spacing"))
+    if arrow_spacing is not None and "arrowSpacing" not in builder:
+        builder["arrowSpacing"] = arrow_spacing
+
+
 def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
     """Normalize a MapLibre style document into GeoLens map/layer inputs."""
 
@@ -927,6 +1012,7 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
     companion_labels: dict[str, dict[str, Any]] = {}
     companion_outlines: dict[str, dict[str, Any]] = {}
     companion_extrusions: dict[str, dict[str, Any]] = {}
+    companion_arrows: dict[str, dict[str, Any]] = {}
     primary_layers: list[dict[str, Any]] = []
     for style_layer in raw_layers:
         if not isinstance(style_layer, dict):
@@ -942,6 +1028,8 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
                 companion_outlines[key] = style_layer
             elif companion == "extrusion":
                 companion_extrusions[key] = style_layer
+            elif companion == "arrow":
+                companion_arrows[key] = style_layer
             continue
         primary_layers.append(style_layer)
 
@@ -975,7 +1063,8 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
         extrusion_companion = (
             companion_extrusions.get(str(parent_id)) if parent_id else None
         )
-        if outline_companion or extrusion_companion:
+        arrow_companion = companion_arrows.get(str(parent_id)) if parent_id else None
+        if outline_companion or extrusion_companion or arrow_companion:
             style_config = dict(style_config) if isinstance(style_config, dict) else {}
             builder = (
                 dict(style_config.get("builder"))
@@ -986,6 +1075,9 @@ def parse_maplibre_style_import(style: dict[str, Any]) -> ImportedStyleMap:
                 _builder_from_outline_companion(outline_companion, builder)
             if extrusion_companion:
                 _builder_from_extrusion_companion(extrusion_companion, builder)
+            if arrow_companion:
+                style_config["render_mode"] = "arrow"
+                _builder_from_arrow_companion(arrow_companion, builder)
             if builder:
                 style_config["builder"] = builder
             if not style_config:

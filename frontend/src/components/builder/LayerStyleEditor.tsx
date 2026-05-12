@@ -636,6 +636,10 @@ interface LineControlsProps extends GeomControlProps {
 
 function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange, onBuilderChange, styleConfig, t }: LineControlsProps) {
   const isWidthDataDriven = isDataDriven && layer.style_config?.target === 'width';
+  const builder = styleConfig?.builder ?? {};
+  const isArrow = styleConfig?.render_mode === 'arrow';
+  const arrowColor = builder.arrowColor
+    ?? (typeof paint['line-color'] === 'string' ? paint['line-color'] as string : LINE_DEFAULTS['line-color']);
 
   return (
     <>
@@ -686,6 +690,28 @@ function LineControls({ layer, paint, isDataDriven, onPaintProp, onLayoutChange,
         min={-20} max={20} step={0.25} format="px"
         onChange={(val) => onPaintProp('line-offset', val)}
       />
+      {isArrow && (
+        <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-2">
+          <div className="text-xs font-medium">{t('style.arrow.title')}</div>
+          <StyleColorPicker
+            label={t('style.arrow.color')}
+            color={arrowColor}
+            onChange={(hex) => onBuilderChange({ arrowColor: hex })}
+          />
+          <SliderRow
+            label={t('style.arrow.size')}
+            value={builder.arrowSize ?? 14}
+            min={8} max={28} step={1} format="px"
+            onChange={(val) => onBuilderChange({ arrowSize: val })}
+          />
+          <SliderRow
+            label={t('style.arrow.spacing')}
+            value={builder.arrowSpacing ?? 80}
+            min={24} max={240} step={4} format="px"
+            onChange={(val) => onBuilderChange({ arrowSpacing: val })}
+          />
+        </div>
+      )}
       <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
       <div className="flex gap-1">
         {LINE_DASH_PRESETS.map((preset, idx) => {

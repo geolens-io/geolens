@@ -65,6 +65,7 @@
       "hillshade": "Ombrage",
       "heatmap": "Carte de chaleur",
       "symbol": "Symbole",
+      "arrow": "Flèche",
       "dem": "MNE",
       "hidden": "Masqué",
       "legendHidden": "Légende masquée",
@@ -214,6 +215,12 @@
       "offsetY": "Décalage Y",
       "categoryMapping": "Icônes par valeur",
       "categoryIcon": "Icône pour {{value}}"
+    },
+    "arrow": {
+      "title": "Direction des flèches",
+      "color": "Couleur des flèches",
+      "size": "Taille des flèches",
+      "spacing": "Espacement"
     },
     "raster": {
       "title": "Raster",

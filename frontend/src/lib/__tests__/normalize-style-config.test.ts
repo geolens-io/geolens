@@ -109,6 +109,9 @@ describe('normalizeStyleConfig', () => {
           height_scale: 1.8,
           extrusion_min_zoom: 12.5,
           extrusion_opacity: 0.92,
+          arrow_color: '#112233',
+          arrow_size: 16,
+          arrow_spacing: 96,
         },
       },
       { 'fill-color': '#b30000' },
@@ -122,6 +125,9 @@ describe('normalizeStyleConfig', () => {
       heightScale: 1.8,
       extrusionMinZoom: 12.5,
       extrusionOpacity: 0.92,
+      arrowColor: '#112233',
+      arrowSize: 16,
+      arrowSpacing: 96,
     });
   });
 });
