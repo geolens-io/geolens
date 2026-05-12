@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1003
 milestone_name: Builder v1 Hardening
-status: roadmap_ready
+status: in_progress
 last_updated: "2026-05-12T12:55:00Z"
-last_activity: 2026-05-12 — v1003 roadmap created with five phases for browser baseline, duplicate renderings, basemap/terrain, Add Dataset states, and saved-map round-trip closeout.
+last_activity: 2026-05-12 — Phase 1014 browser baseline completed: focused Vitest, builder smoke, builder accessibility, lint, build, and Playwright MCP tablet/modal checks passed.
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 20
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1003 — Builder v1 Hardening
-**Phase:** Phase 1014 ready — Browser baseline and responsive shell
+**Phase:** Phase 1015 ready — Duplicate rendering and renderAs hardening
 **Plan:** —
-**Status:** Roadmap ready; next step is phase discussion/planning for Phase 1014.
-**Last activity:** 2026-05-12 — v1003 roadmap created across Phases 1014-1018.
+**Status:** Phase 1014 complete; next step is phase discussion/planning for Phase 1015.
+**Last activity:** 2026-05-12 — Phase 1014 verified the browser baseline and responsive shell with Playwright MCP evidence.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Project Reference
 
@@ -36,9 +36,9 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 
 **Version:** v1003 Builder v1 Hardening
 **Started:** 2026-05-12
-**Status:** Roadmap ready
+**Status:** In progress
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
-**Phases:** 1014-1018 (5 phases, 24 requirements)
+**Phases:** 1014-1018 (5 phases, 24 requirements; 5 requirements complete)
 
 ## Last Shipped Milestone
 

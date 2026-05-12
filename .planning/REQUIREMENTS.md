@@ -20,11 +20,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 ### Browser Baseline And Responsive Shell
 
-- [ ] **BQA-01**: Builder smoke tests cover the redesigned sidebar and Add Dataset modal on desktop and tablet widths using the real app stack.
-- [ ] **BQA-02**: Playwright MCP manual verification records the Map Stack, Add Dataset modal, basemap states, and tablet layout with no browser console errors or warnings beyond expected development-only messages.
-- [ ] **BQA-03**: Persisted desktop sidebar widths are capped on tablet/narrow desktop viewports so at least 320px of map canvas remains visible, while the stored desktop preference is preserved.
-- [ ] **BQA-04**: Builder accessibility checks pass for the map builder page and Add Dataset dialog, including keyboard-reachable controls and no axe violations in the scoped flows.
-- [ ] **BQA-05**: Focused frontend lint, build, and relevant Vitest suites pass before milestone close.
+- [x] **BQA-01**: Builder smoke tests cover the redesigned sidebar and Add Dataset modal on desktop and tablet widths using the real app stack.
+- [x] **BQA-02**: Playwright MCP manual verification records the Map Stack, Add Dataset modal, basemap states, and tablet layout with no browser console errors or warnings beyond expected development-only messages.
+- [x] **BQA-03**: Persisted desktop sidebar widths are capped on tablet/narrow desktop viewports so at least 320px of map canvas remains visible, while the stored desktop preference is preserved.
+- [x] **BQA-04**: Builder accessibility checks pass for the map builder page and Add Dataset dialog, including keyboard-reachable controls and no axe violations in the scoped flows.
+- [x] **BQA-05**: Focused frontend lint, build, and relevant Vitest suites pass before milestone close.
 
 ### Duplicate Rendering And RenderAs Behavior
 
@@ -84,11 +84,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 | Requirement | Phase | Status |
 |---|---|---|
-| BQA-01 | Phase 1014 | Pending |
-| BQA-02 | Phase 1014 | Pending |
-| BQA-03 | Phase 1014 | Pending |
-| BQA-04 | Phase 1014 | Pending |
-| BQA-05 | Phase 1014 | Pending |
+| BQA-01 | Phase 1014 | Complete |
+| BQA-02 | Phase 1014 | Complete |
+| BQA-03 | Phase 1014 | Complete |
+| BQA-04 | Phase 1014 | Complete |
+| BQA-05 | Phase 1014 | Complete |
 | DUP-01 | Phase 1015 | Pending |
 | DUP-02 | Phase 1015 | Pending |
 | DUP-03 | Phase 1015 | Pending |
@@ -111,9 +111,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 **Coverage:**
 - v1003 requirements: 24 total
+- Complete: 5
+- Pending: 19
 - Mapped to phases: 24
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after v1003 requirement definition*
+*Last updated: 2026-05-12 after Phase 1014 verification*

@@ -58,7 +58,7 @@
 - ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
 - ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
-- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; planned 2026-05-12)
+- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; 1/5 phases complete)
 
 ## Phases
 
@@ -67,9 +67,9 @@
 
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
 
-**Requirements:** 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
+**Requirements:** 5/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
 
-- [ ] **Phase 1014: browser-baseline-and-responsive-shell** (0/1 plan)
+- [x] **Phase 1014: browser-baseline-and-responsive-shell** (1/1 plan) — completed 2026-05-12
 - [ ] **Phase 1015: duplicate-rendering-and-renderas-hardening** (0/1 plan)
 - [ ] **Phase 1016: basemap-and-terrain-integration-hardening** (0/1 plan)
 - [ ] **Phase 1017: add-dataset-modal-state-hardening** (0/1 plan)
@@ -86,6 +86,8 @@ Requirements: BQA-01, BQA-02, BQA-03, BQA-04, BQA-05
 2. Playwright MCP verifies Map Stack, Add Dataset, basemap states, and tablet layout with no unexpected console warnings/errors.
 3. Persisted 600px sidebar widths render capped on tablet/narrow desktop while preserving the stored desktop preference.
 4. Focused builder accessibility, lint, build, and relevant Vitest gates pass.
+
+Status: complete — see `.planning/phases/1014-browser-baseline-and-responsive-shell/1014-VERIFICATION.md`.
 
 ### Phase 1015: duplicate-rendering-and-renderas-hardening
 
