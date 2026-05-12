@@ -77,11 +77,11 @@
 
 ### Phase 1014: browser-baseline-and-responsive-shell
 
-Goal: Establish the real-browser baseline for the redesigned builder shell and close responsive/accessibility regressions.
+**Goal:** Establish the real-browser baseline for the redesigned builder shell and close responsive/accessibility regressions.
 
 Requirements: BQA-01, BQA-02, BQA-03, BQA-04, BQA-05
 
-Success criteria:
+**Success Criteria:**
 1. Builder smoke passes against the real app stack at desktop and tablet widths.
 2. Playwright MCP verifies Map Stack, Add Dataset, basemap states, and tablet layout with no unexpected console warnings/errors.
 3. Persisted 600px sidebar widths render capped on tablet/narrow desktop while preserving the stored desktop preference.
@@ -89,11 +89,11 @@ Success criteria:
 
 ### Phase 1015: duplicate-rendering-and-renderas-hardening
 
-Goal: Prove duplicate renderings and v1 renderAs behavior from both sidebar and modal entry points.
+**Goal:** Prove duplicate renderings and v1 renderAs behavior from both sidebar and modal entry points.
 
 Requirements: DUP-01, DUP-02, DUP-03, DUP-04, DUP-05
 
-Success criteria:
+**Success Criteria:**
 1. Row overflow duplicate rendering creates a sibling layer with shared dataset identity and independent style fields.
 2. Add Dataset `another rendering` creates the same sibling-layer result.
 3. Dataset-rendering headers show accurate counts and support independent row actions.
@@ -102,11 +102,11 @@ Success criteria:
 
 ### Phase 1016: basemap-and-terrain-integration-hardening
 
-Goal: Prove basemap and terrain controls remain map-level writes and survive MapLibre style reload/save flows.
+**Goal:** Prove basemap and terrain controls remain map-level writes and survive MapLibre style reload/save flows.
 
 Requirements: MAPCTL-01, MAPCTL-02, MAPCTL-03, MAPCTL-04, MAPCTL-05
 
-Success criteria:
+**Success Criteria:**
 1. Basemap swap/reset writes only current map-level basemap fields and preserves overlay layers.
 2. Sidebar and Add Dataset basemap states stay synchronized after swap.
 3. Terrain enabled/exaggeration/source changes write only `terrain_config`.
@@ -115,11 +115,11 @@ Success criteria:
 
 ### Phase 1017: add-dataset-modal-state-hardening
 
-Goal: Prove Add Dataset modal state transitions, filters, row expansion, import routing, and keyboard behavior.
+**Goal:** Prove Add Dataset modal state transitions, filters, row expansion, import routing, and keyboard behavior.
 
 Requirements: ADDH-01, ADDH-02, ADDH-03, ADDH-04, ADDH-05
 
-Success criteria:
+**Success Criteria:**
 1. Modal tabs remain All/Vector/Raster/Basemap with DEM represented under Raster.
 2. Modal filter chips use only current API-supported filters.
 3. Data rows transition among Add/added/another-rendering states without a full page reload.
@@ -128,11 +128,11 @@ Success criteria:
 
 ### Phase 1018: saved-map-roundtrip-and-closeout
 
-Goal: Prove saved-map/public-viewer compatibility and close v1003 with exact verification evidence.
+**Goal:** Prove saved-map/public-viewer compatibility and close v1003 with exact verification evidence.
 
 Requirements: ROUND-01, ROUND-02, ROUND-03, ROUND-04
 
-Success criteria:
+**Success Criteria:**
 1. Existing saved maps load/save without persisted schema drift.
 2. Duplicate renderings, basemap config, terrain config, and zoom-range settings round-trip through builder save/reload unchanged.
 3. Public/shared viewer behavior remains compatible with builder-authored basemap and terrain settings.
