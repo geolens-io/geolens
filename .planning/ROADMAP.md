@@ -58,22 +58,22 @@
 - ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
 - ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
-- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; 4/5 phases complete)
+- ✅ **v1003 Builder v1 Hardening** — Phases 1014-1018 (complete 2026-05-12; ready for archive)
 
 ## Phases
 
 <details open>
-<summary>🟡 v1003 Builder v1 Hardening (Phases 1014-1018) — ACTIVE</summary>
+<summary>✅ v1003 Builder v1 Hardening (Phases 1014-1018) — COMPLETE</summary>
 
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
 
-**Requirements:** 20/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
+**Requirements:** 24/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
 
 - [x] **Phase 1014: browser-baseline-and-responsive-shell** (1/1 plan) — completed 2026-05-12
 - [x] **Phase 1015: duplicate-rendering-and-renderas-hardening** (1/1 plan) — completed 2026-05-12
 - [x] **Phase 1016: basemap-and-terrain-integration-hardening** (1/1 plan) — completed 2026-05-12
 - [x] **Phase 1017: add-dataset-modal-state-hardening** (1/1 plan) — completed 2026-05-12
-- [ ] **Phase 1018: saved-map-roundtrip-and-closeout** (0/1 plan)
+- [x] **Phase 1018: saved-map-roundtrip-and-closeout** (1/1 plan) — completed 2026-05-12
 
 ### Phase 1014: browser-baseline-and-responsive-shell
 
@@ -145,6 +145,8 @@ Requirements: ROUND-01, ROUND-02, ROUND-03, ROUND-04
 2. Duplicate renderings, basemap config, terrain config, and zoom-range settings round-trip through builder save/reload unchanged.
 3. Public/shared viewer behavior remains compatible with builder-authored basemap and terrain settings.
 4. Closeout records verification commands, Playwright MCP observations, and any unrelated residual gaps.
+
+Status: complete — see `.planning/phases/1018-saved-map-roundtrip-and-closeout/1018-VERIFICATION.md` and `.planning/milestones/v1003-MILESTONE-AUDIT.md`.
 
 </details>
 

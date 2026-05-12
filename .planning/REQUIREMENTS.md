@@ -52,10 +52,10 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 ### Saved-Map Round Trip And Closeout
 
-- [ ] **ROUND-01**: Existing saved maps load and save without adding, removing, or renaming persisted `Map`, `MapLayer`, `Dataset`, or `Record` fields.
-- [ ] **ROUND-02**: Saved maps containing duplicate renderings, basemap appearance config, terrain config, and zoom-range layout settings round-trip through builder save/reload unchanged.
-- [ ] **ROUND-03**: Public/shared viewer behavior remains compatible with builder-authored basemap and terrain settings.
-- [ ] **ROUND-04**: v1003 closeout documents exact verification commands, Playwright MCP findings, screenshots/snapshot notes where relevant, and any residual unrelated gaps.
+- [x] **ROUND-01**: Existing saved maps load and save without adding, removing, or renaming persisted `Map`, `MapLayer`, `Dataset`, or `Record` fields.
+- [x] **ROUND-02**: Saved maps containing duplicate renderings, basemap appearance config, terrain config, and zoom-range layout settings round-trip through builder save/reload unchanged.
+- [x] **ROUND-03**: Public/shared viewer behavior remains compatible with builder-authored basemap and terrain settings.
+- [x] **ROUND-04**: v1003 closeout documents exact verification commands, Playwright MCP findings, screenshots/snapshot notes where relevant, and any residual unrelated gaps.
 
 ## Future Requirements
 
@@ -104,18 +104,18 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 | ADDH-03 | Phase 1017 | Complete |
 | ADDH-04 | Phase 1017 | Complete |
 | ADDH-05 | Phase 1017 | Complete |
-| ROUND-01 | Phase 1018 | Pending |
-| ROUND-02 | Phase 1018 | Pending |
-| ROUND-03 | Phase 1018 | Pending |
-| ROUND-04 | Phase 1018 | Pending |
+| ROUND-01 | Phase 1018 | Complete |
+| ROUND-02 | Phase 1018 | Complete |
+| ROUND-03 | Phase 1018 | Complete |
+| ROUND-04 | Phase 1018 | Complete |
 
 **Coverage:**
 - v1003 requirements: 24 total
-- Complete: 20
-- Pending: 4
+- Complete: 24
+- Pending: 0
 - Mapped to phases: 24
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1017 verification*
+*Last updated: 2026-05-12 after Phase 1018 verification*

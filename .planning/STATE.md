@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1003
 milestone_name: Builder v1 Hardening
-status: in_progress
-last_updated: "2026-05-12T13:55:49Z"
-last_activity: 2026-05-12 — Phase 1017 Add Dataset modal hardening completed: modal expansion, import routing, supported filter contract, and state transitions are covered.
+status: complete
+last_updated: "2026-05-12T14:07:01Z"
+last_activity: 2026-05-12 — v1003 Builder v1 Hardening completed: 24/24 requirements passed with builder smoke, focused tests, lint, build, and Playwright MCP evidence.
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 80
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # State
@@ -18,27 +18,27 @@ progress:
 ## Current Position
 
 **Milestone:** v1003 — Builder v1 Hardening
-**Phase:** Phase 1018 ready — Saved-map roundtrip and closeout
+**Phase:** v1003 complete — Builder v1 Hardening
 **Plan:** —
-**Status:** Phase 1017 complete; next step is phase discussion/planning for Phase 1018.
-**Last activity:** 2026-05-12 — Phase 1017 added browser proof for Add Dataset modal expansion/import routing and kept modal focused tests green.
+**Status:** v1003 complete and ready for user review/archive.
+**Last activity:** 2026-05-12 — Phase 1018 added saved-map round-trip and public/shared viewer compatibility coverage; milestone audit passed with recommendation GO.
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1003 Builder v1 Hardening — browser-backed QA, accessibility, saved-map round trips, and interaction hardening for the v1002 sidebar/Add Dataset redesign.
+**Current focus:** v1003 Builder v1 Hardening complete — ready for archive/tag or next milestone planning.
 
 ## Active Milestone
 
 **Version:** v1003 Builder v1 Hardening
 **Started:** 2026-05-12
-**Status:** In progress
+**Status:** Complete
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
-**Phases:** 1014-1018 (5 phases, 24 requirements; 20 requirements complete)
+**Phases:** 1014-1018 (5 phases, 24 requirements; 24 requirements complete)
 
 ## Last Shipped Milestone
 
