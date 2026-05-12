@@ -153,6 +153,8 @@
       "heatmapDescription": "Dichte, Radius, Intensität und Farbverlauf anpassen.",
       "symbol": "Symbol-Darstellung",
       "symbolDescription": "Wählen Sie Symbole, Größe, Drehung und wertbezogene Symbole.",
+      "cluster": "Cluster-Darstellung",
+      "clusterDescription": "Passen Sie Radius, maximalen Zoom und Zählerbeschriftungen an.",
       "advanced": "Erweitertes Stil-JSON",
       "advancedDescription": "Bearbeiten Sie MapLibre paint und layout bei Bedarf direkt."
     },
@@ -180,12 +182,20 @@
     "renderAs": "Darstellung",
     "renderPoints": "Punkte",
     "renderHeatmap": "Heatmap",
+    "renderCluster": "Cluster",
     "heatmap": {
       "weight": "Gewichtsspalte",
       "weightNone": "Keine (gleiche Gewichtung)",
       "colorRamp": "Farbverlauf",
       "radius": "Radius",
       "intensity": "Intensität"
+    },
+    "cluster": {
+      "radius": "Cluster-Radius",
+      "maxZoom": "Max. Cluster-Zoom",
+      "color": "Cluster-Farbe",
+      "countColor": "Zählerfarbe",
+      "countSize": "Zählergröße"
     },
     "gapWidth": "Gap",
     "blur": "Blur",

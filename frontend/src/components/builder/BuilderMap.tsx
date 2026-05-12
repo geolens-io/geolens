@@ -549,7 +549,13 @@ export const BuilderMap = memo(function BuilderMap({
   // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).
   // Also drives popup clearing on visibility changes (P-17: single key replaces separate visibilityKey).
   const structuralKey = useMemo(
-    () => layers.map((l) => `${l.id}:${l.visible}:${l.dataset_id}`).join(','),
+    () => layers.map((l) => {
+      const builder = l.style_config?.builder;
+      const clusterKey = l.style_config?.render_mode === 'cluster'
+        ? `:${builder?.clusterRadius ?? ''}:${builder?.clusterMaxZoom ?? ''}`
+        : '';
+      return `${l.id}:${l.visible}:${l.dataset_id}${clusterKey}`;
+    }).join(','),
     [layers],
   );
 

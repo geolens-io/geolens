@@ -19,9 +19,10 @@ import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { cn } from '@/lib/utils';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
 import { getLayerColors } from '@/components/map/layer-icons';
+import { getRenderAsOptions } from './renderAs';
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
 
-type PointRenderMode = 'points' | 'heatmap' | 'symbol';
+type PointRenderMode = 'points' | 'heatmap' | 'symbol' | 'cluster';
 
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
@@ -255,7 +256,9 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     ? 'heatmap'
     : layer.style_config?.render_mode === 'symbol'
       ? 'symbol'
-      : 'points';
+      : layer.style_config?.render_mode === 'cluster'
+        ? 'cluster'
+        : 'points';
   const builderConfig = useMemo(
     () => layer.style_config?.builder ?? {},
     [layer.style_config?.builder],
@@ -277,6 +280,10 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer.dataset_column_info],
   );
   const currentHeightCol = builderConfig.heightColumn ?? (layer.paint?.['_height_column'] as string) ?? '';
+  const clusterAvailable = useMemo(
+    () => renderMode === 'cluster' || getRenderAsOptions(layer).some((option) => option.id === 'cluster'),
+    [layer, renderMode],
+  );
 
   const controlPaint = useMemo(() => ({
     ...paint,
@@ -414,6 +421,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
               <SelectItem value="points">{t('style.renderPoints')}</SelectItem>
               <SelectItem value="symbol">{t('style.renderSymbol')}</SelectItem>
               <SelectItem value="heatmap">{t('style.renderHeatmap')}</SelectItem>
+              {clusterAvailable && <SelectItem value="cluster">{t('style.renderCluster')}</SelectItem>}
             </SelectContent>
           </Select>
         </StyleControlSection>
@@ -440,8 +448,19 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
         </StyleControlSection>
       )}
 
+      {geomType === 'circle' && renderMode === 'cluster' && (
+        <StyleControlSection title={t('style.sections.cluster')} description={t('style.sections.clusterDescription')}>
+          <ClusterControls
+            layer={layer}
+            builder={builderConfig}
+            onBuilderChange={updateBuilderConfig}
+            t={t}
+          />
+        </StyleControlSection>
+      )}
+
       {/* Data-driven style editor — hidden when in heatmap mode */}
-      {renderMode !== 'heatmap' && renderMode !== 'symbol' && (
+      {renderMode !== 'heatmap' && renderMode !== 'symbol' && renderMode !== 'cluster' && (
         <StyleControlSection title={t('style.sections.dataDriven')} description={t('style.sections.dataDrivenDescription')}>
           <LazyLoadErrorBoundary>
             <Suspense fallback={null}>
@@ -745,11 +764,67 @@ interface CircleControlsProps extends GeomControlProps {
   onToggleStroke: () => void;
 }
 
+interface ClusterControlsProps {
+  layer: MapLayerResponse;
+  builder: BuilderStyleConfig;
+  onBuilderChange: (patch: BuilderStyleConfig, nextPaint?: Record<string, unknown>) => void;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}
+
 interface SymbolControlsProps {
   layer: MapLayerResponse;
   config: SymbolStyleConfig;
   onChange: (patch: SymbolStyleConfig) => void;
   t: (key: string, opts?: Record<string, unknown>) => string;
+}
+
+function ClusterControls({ layer, builder, onBuilderChange, t }: ClusterControlsProps) {
+  const paint = layer.paint ?? {};
+  const clusterColor = builder.clusterColor
+    ?? (typeof paint['circle-color'] === 'string' ? paint['circle-color'] as string : CIRCLE_DEFAULTS['circle-color']);
+  const clusterTextColor = builder.clusterTextColor ?? '#ffffff';
+
+  return (
+    <div className="space-y-3">
+      <SliderRow
+        label={t('style.cluster.radius')}
+        value={builder.clusterRadius ?? 48}
+        min={1}
+        max={120}
+        step={1}
+        format="px"
+        onChange={(val) => onBuilderChange({ clusterRadius: val })}
+      />
+      <SliderRow
+        label={t('style.cluster.maxZoom')}
+        value={builder.clusterMaxZoom ?? 14}
+        min={0}
+        max={22}
+        step={1}
+        format="zoom"
+        onChange={(val) => onBuilderChange({ clusterMaxZoom: val })}
+      />
+      <StyleColorPicker
+        label={t('style.cluster.color')}
+        color={clusterColor}
+        onChange={(hex) => onBuilderChange({ clusterColor: hex })}
+      />
+      <StyleColorPicker
+        label={t('style.cluster.countColor')}
+        color={clusterTextColor}
+        onChange={(hex) => onBuilderChange({ clusterTextColor: hex })}
+      />
+      <SliderRow
+        label={t('style.cluster.countSize')}
+        value={builder.clusterTextSize ?? 12}
+        min={8}
+        max={24}
+        step={1}
+        format="px"
+        onChange={(val) => onBuilderChange({ clusterTextSize: val })}
+      />
+    </div>
+  );
 }
 
 function SymbolControls({ layer, config, onChange, t }: SymbolControlsProps) {

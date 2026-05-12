@@ -116,6 +116,7 @@ describe('normalizeStyleConfig', () => {
           cluster_max_zoom: 13,
           cluster_color: '#1d4ed8',
           cluster_text_color: '#ffffff',
+          cluster_text_size: 13,
         },
       },
       { 'fill-color': '#b30000' },
@@ -136,6 +137,7 @@ describe('normalizeStyleConfig', () => {
       clusterMaxZoom: 13,
       clusterColor: '#1d4ed8',
       clusterTextColor: '#ffffff',
+      clusterTextSize: 13,
     });
   });
 });

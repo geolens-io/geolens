@@ -172,6 +172,51 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(map.moveLayer).toHaveBeenCalledWith('layer-cluster-1');
   });
 
+  it('rebuilds the clustered source when source-level cluster options change', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      style_config: {
+        render_mode: 'cluster',
+        builder: { clusterRadius: 48, clusterMaxZoom: 14 },
+      } as SyncLayerInput['style_config'],
+    });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' }, geojsonData);
+    (map.removeSource as ReturnType<typeof vi.fn>).mockClear();
+    (map.removeLayer as ReturnType<typeof vi.fn>).mockClear();
+    (map.addSource as ReturnType<typeof vi.fn>).mockClear();
+
+    syncLayersToMap(
+      map,
+      [
+        makeLayer({
+          style_config: {
+            render_mode: 'cluster',
+            builder: { clusterRadius: 80, clusterMaxZoom: 12 },
+          } as SyncLayerInput['style_config'],
+        }),
+      ],
+      tokenMap(layer),
+      undefined,
+      { current: new Set(['source-cluster-1']) },
+      { current: '' },
+      geojsonData,
+    );
+
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-cluster-1-cluster-count');
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-cluster-1-cluster');
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-cluster-1');
+    expect(map.removeSource).toHaveBeenCalledWith('source-cluster-1');
+    expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', {
+      type: 'geojson',
+      data: featureCollection,
+      cluster: true,
+      clusterRadius: 80,
+      clusterMaxZoom: 12,
+    });
+  });
+
   it('removes stale cluster companion layers before removing the source', () => {
     const map = makeMockMap({
       sources: { 'source-old': { type: 'geojson' } },

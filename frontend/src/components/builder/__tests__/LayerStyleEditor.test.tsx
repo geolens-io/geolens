@@ -737,6 +737,79 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
     expect(screen.queryByLabelText('Toggle stroke visibility')).not.toBeInTheDocument();
   });
 
+  it('offers cluster as a render mode for eligible point layers', async () => {
+    const onRenderModeChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          dataset_feature_count: 100,
+          paint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={onRenderModeChange}
+      />,
+    );
+
+    await user.click(screen.getAllByRole('combobox')[0]);
+    await user.click(screen.getByRole('option', { name: 'Cluster' }));
+
+    expect(onRenderModeChange).toHaveBeenCalledWith('layer-1', 'cluster');
+  });
+
+  it('shows cluster authoring controls and writes builder config only', () => {
+    const onStyleConfigChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          dataset_feature_count: 100,
+          paint: { 'circle-color': '#ff0000', 'circle-radius': 5 },
+          style_config: {
+            render_mode: 'cluster',
+            builder: {
+              clusterRadius: 36,
+              clusterMaxZoom: 12,
+              clusterColor: '#3b82f6',
+              clusterTextColor: '#ffffff',
+              clusterTextSize: 13,
+            },
+          } as import('@/types/api').StyleConfig,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={onStyleConfigChange}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Cluster appearance')).toBeInTheDocument();
+    expect(screen.getByText('Tune cluster radius, expansion zoom, and count labels.')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Cluster radius' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Max cluster zoom' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cluster color' })).toHaveAttribute('title', '#3b82f6');
+    expect(screen.getByRole('button', { name: 'Count color' })).toHaveAttribute('title', '#ffffff');
+    expect(screen.getByRole('slider', { name: 'Count size' })).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Cluster radius' }), { key: 'ArrowRight' });
+
+    expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', expect.objectContaining({
+      render_mode: 'cluster',
+      builder: expect.objectContaining({
+        clusterRadius: 37,
+        clusterMaxZoom: 12,
+        clusterTextSize: 13,
+      }),
+    }), { 'circle-color': '#ff0000', 'circle-radius': 5 });
+  });
+
   it('writes symbol icon settings into style_config and keeps paint clean', () => {
     const onStyleConfigChange = vi.fn();
 

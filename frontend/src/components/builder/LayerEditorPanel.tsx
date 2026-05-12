@@ -22,7 +22,7 @@ export interface LayerEditorHandlers {
   onPopupChange: (layerId: string, config: PopupConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap' | 'symbol') => void;
+  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap' | 'symbol' | 'cluster') => void;
 }
 
 interface LayerEditorPanelProps {

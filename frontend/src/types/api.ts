@@ -767,6 +767,8 @@ export interface BuilderStyleConfig {
   clusterColor?: string;
   /** Cluster count label color for point cluster render mode. */
   clusterTextColor?: string;
+  /** Cluster count label text size for point cluster render mode. */
+  clusterTextSize?: number;
   symbol?: SymbolStyleConfig;
   /** Phase 256 — line-gradient builder intent. Stops authored in the UI; serialized
    *  to a canonical interpolate-linear-line-progress expression for paint['line-gradient'].

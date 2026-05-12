@@ -153,6 +153,8 @@
       "heatmapDescription": "Ajustez densité, rayon, intensité et palette.",
       "symbol": "Apparence des symboles",
       "symbolDescription": "Choisissez icônes, taille, rotation et symboles par valeur.",
+      "cluster": "Apparence des agrégats",
+      "clusterDescription": "Ajustez le rayon, le zoom maximal et les libellés de nombre.",
       "advanced": "JSON de style avancé",
       "advancedDescription": "Modifiez directement paint et layout MapLibre si nécessaire."
     },
@@ -180,12 +182,20 @@
     "renderAs": "Afficher comme",
     "renderPoints": "Points",
     "renderHeatmap": "Carte de chaleur",
+    "renderCluster": "Agrégat",
     "heatmap": {
       "weight": "Colonne de poids",
       "weightNone": "Aucun (poids égal)",
       "colorRamp": "Palette de couleurs",
       "radius": "Rayon",
       "intensity": "Intensité"
+    },
+    "cluster": {
+      "radius": "Rayon d'agrégat",
+      "maxZoom": "Zoom max d'agrégat",
+      "color": "Couleur d'agrégat",
+      "countColor": "Couleur du nombre",
+      "countSize": "Taille du nombre"
     },
     "gapWidth": "Gap",
     "blur": "Blur",

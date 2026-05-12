@@ -291,6 +291,22 @@ function syncLayerZoomRange(map: MaplibreMap, layerIds: string[], minzoom: numbe
   }
 }
 
+const clusterSourceSignatures = new WeakMap<MaplibreMap, Map<string, string>>();
+
+function clusterSourceSignature(input: AdapterLayerInput) {
+  const options = getClusterSourceOptions(input);
+  return `${options.clusterRadius}:${options.clusterMaxZoom}`;
+}
+
+function signatureStore(map: MaplibreMap) {
+  let store = clusterSourceSignatures.get(map);
+  if (!store) {
+    store = new Map<string, string>();
+    clusterSourceSignatures.set(map, store);
+  }
+  return store;
+}
+
 export function getSourceId(layerId: string) {
   return prefixed('source', layerId);
 }
@@ -411,9 +427,16 @@ function syncVectorLayer(
   const useGeoJsonSource = (isGeoJsonZ || canUseCluster) && hasBoundedGeoJson;
   const desiredSourceType = useGeoJsonSource ? 'geojson' : 'vector';
   const currentSource = map.getSource(sourceId) as { type?: string } | undefined;
-  if (currentSource && currentSource.type !== desiredSourceType) {
+  const signatureMap = signatureStore(map);
+  const desiredClusterSignature = canUseCluster ? clusterSourceSignature(adapterInput) : null;
+  const currentClusterSignature = signatureMap.get(sourceId);
+  const clusterSourceOptionsChanged = canUseCluster
+    && currentSource?.type === 'geojson'
+    && currentClusterSignature !== desiredClusterSignature;
+  if (currentSource && (currentSource.type !== desiredSourceType || clusterSourceOptionsChanged)) {
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
     map.removeSource(sourceId);
+    signatureMap.delete(sourceId);
   }
 
   const layerLayout = layer.layout ?? {};
@@ -425,14 +448,17 @@ function syncVectorLayer(
     adapterInput.sourceType = 'geojson';
     if (!map.getSource(sourceId)) {
       if (canUseCluster) {
+        const clusterOptions = getClusterSourceOptions(adapterInput);
         map.addSource(sourceId, {
           type: 'geojson',
           data: geojsonData,
           cluster: true,
-          ...getClusterSourceOptions(adapterInput),
+          ...clusterOptions,
         });
+        signatureMap.set(sourceId, `${clusterOptions.clusterRadius}:${clusterOptions.clusterMaxZoom}`);
       } else {
         map.addSource(sourceId, { type: 'geojson', data: geojsonData });
+        signatureMap.delete(sourceId);
       }
       adapter.addLayers(map, adapterInput);
     } else {
@@ -458,6 +484,7 @@ function syncVectorLayer(
       ...(needsLineMetrics && { lineMetrics: true }),
     };
     map.addSource(sourceId, sourceSpec);
+    signatureMap.delete(sourceId);
     adapter.addLayers(map, adapterInput);
   } else {
     adapter.syncPaint(map, adapterInput);

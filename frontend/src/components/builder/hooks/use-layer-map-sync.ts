@@ -73,10 +73,14 @@ export function useLayerMapSync(
           const outlineId = `layer-${layerId}-outline`;
           const labelId = `layer-${layerId}-label`;
           const extrusionId = `layer-${layerId}-extrusion`;
+          const clusterId = `layer-${layerId}-cluster`;
+          const clusterCountId = `layer-${layerId}-cluster-count`;
           if (map.getLayer(mapLayerId)) map.setLayoutProperty(mapLayerId, 'visibility', newVis);
           if (map.getLayer(outlineId)) map.setLayoutProperty(outlineId, 'visibility', newVis);
           if (map.getLayer(labelId)) map.setLayoutProperty(labelId, 'visibility', newVis);
           if (map.getLayer(extrusionId)) map.setLayoutProperty(extrusionId, 'visibility', newVis);
+          if (map.getLayer(clusterId)) map.setLayoutProperty(clusterId, 'visibility', newVis);
+          if (map.getLayer(clusterCountId)) map.setLayoutProperty(clusterCountId, 'visibility', newVis);
         },
       );
     },
@@ -197,6 +201,24 @@ export function useLayerMapSync(
               const storedHeatmapOpacity = (layer.paint?.['heatmap-opacity'] as number) ?? 0.8;
               map.setPaintProperty(mapLayerId, 'heatmap-opacity', newOpacity * storedHeatmapOpacity);
             }
+          } else if (adapterType === 'cluster') {
+            const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+              id: layer.id,
+              dataset_table_name: layer.dataset_table_name,
+              dataset_geometry_type: layer.dataset_geometry_type,
+              opacity: newOpacity,
+              visible: layer.visible,
+              paint: layer.paint ?? {},
+              layout: layer.layout ?? {},
+              filter: layer.filter ?? null,
+              sourceId: `source-${layerId}`,
+              layerId: mapLayerId,
+              sourceLayer: `data.${layer.dataset_table_name}`,
+              tileUrl: '',
+              style_config: layer.style_config ?? null,
+              is_dem: layer.is_dem,
+            };
+            getAdapter('cluster').syncPaint(map, input);
           } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
             if (map.getLayer(mapLayerId)) {
               map.setPaintProperty(
@@ -232,6 +254,14 @@ export function useLayerMapSync(
           const outlineLayerId = `${mapLayerId}-outline`;
           if (map.getLayer(outlineLayerId)) {
             map.setLayerZoomRange(outlineLayerId, minzoom, maxzoom);
+          }
+          const clusterLayerId = `${mapLayerId}-cluster`;
+          const clusterCountLayerId = `${mapLayerId}-cluster-count`;
+          if (map.getLayer(clusterLayerId)) {
+            map.setLayerZoomRange(clusterLayerId, minzoom, maxzoom);
+          }
+          if (map.getLayer(clusterCountLayerId)) {
+            map.setLayerZoomRange(clusterCountLayerId, minzoom, maxzoom);
           }
 
           for (const [prop, value] of Object.entries(newLayout)) {
@@ -277,8 +307,18 @@ export function useLayerMapSync(
         (l) => ({ ...l, filter }),
         (map) => {
           const mapLayerId = `layer-${layerId}`;
+          const clusterId = `${mapLayerId}-cluster`;
+          const clusterCountId = `${mapLayerId}-cluster-count`;
+          const clusterFilter = filter ? ['all', ['has', 'point_count'], filter] as FilterSpecification : ['has', 'point_count'] as FilterSpecification;
+          const unclusteredFilter = filter ? ['all', ['!', ['has', 'point_count']], filter] as FilterSpecification : ['!', ['has', 'point_count']] as FilterSpecification;
           if (map.getLayer(mapLayerId)) {
-            map.setFilter(mapLayerId, filter);
+            map.setFilter(mapLayerId, map.getLayer(clusterId) ? unclusteredFilter : filter);
+          }
+          if (map.getLayer(clusterId)) {
+            map.setFilter(clusterId, clusterFilter);
+          }
+          if (map.getLayer(clusterCountId)) {
+            map.setFilter(clusterCountId, clusterFilter);
           }
           // Also filter outline layer for polygons
           const outlineId = `layer-${layerId}-outline`;

@@ -69,11 +69,11 @@
 
 **Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
 
-**Requirements:** 10/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
+**Requirements:** 11/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
 
 - [x] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — completed 2026-05-12
 - [x] **Phase 1024: maplibre-point-cluster-renderer** — completed 2026-05-12
-- [ ] **Phase 1025: cluster-builder-controls-and-authoring-polish** — pending
+- [x] **Phase 1025: cluster-builder-controls-and-authoring-polish** — completed 2026-05-12
 - [ ] **Phase 1026: cluster-compatibility-and-qa-closeout** — pending
 
 ### Phase 1023: cluster-source-eligibility-and-geojson-contract
@@ -109,6 +109,7 @@ Status: completed 2026-05-12
 **Goal:** Surface the cluster renderer as a usable authoring mode without introducing new UI primitives or model fields.
 
 Requirements: CLUS-06
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Cluster authoring controls cover radius, max zoom, color, opacity, and count-label appearance using existing UI primitives.

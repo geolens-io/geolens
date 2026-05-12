@@ -486,6 +486,7 @@ export function buildRenderAsPatch(layer: RenderAsLayer, renderAs: RenderAsId): 
           clusterMaxZoom: layer.style_config?.builder?.clusterMaxZoom ?? 14,
           clusterColor: layer.style_config?.builder?.clusterColor ?? clusterColor,
           clusterTextColor: layer.style_config?.builder?.clusterTextColor ?? '#ffffff',
+          clusterTextSize: layer.style_config?.builder?.clusterTextSize ?? 12,
         }, { render_mode: 'cluster' }),
       },
     };

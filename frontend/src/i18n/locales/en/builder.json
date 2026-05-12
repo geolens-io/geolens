@@ -156,6 +156,8 @@
       "heatmapDescription": "Tune density, radius, intensity, and ramp.",
       "symbol": "Symbol appearance",
       "symbolDescription": "Choose icons, size, rotation, and value-specific symbols.",
+      "cluster": "Cluster appearance",
+      "clusterDescription": "Tune cluster radius, expansion zoom, and count labels.",
       "advanced": "Advanced style JSON",
       "advancedDescription": "Edit MapLibre paint and layout directly when needed."
     },
@@ -197,6 +199,7 @@
     "renderPoints": "Points",
     "renderSymbol": "Symbol",
     "renderHeatmap": "Heatmap",
+    "renderCluster": "Cluster",
     "none": "None",
     "symbol": {
       "title": "Symbol",
@@ -222,6 +225,13 @@
       "colorRamp": "Color ramp",
       "radius": "Radius",
       "intensity": "Intensity"
+    },
+    "cluster": {
+      "radius": "Cluster radius",
+      "maxZoom": "Max cluster zoom",
+      "color": "Cluster color",
+      "countColor": "Count color",
+      "countSize": "Count size"
     },
     "raster": {
       "title": "Raster",

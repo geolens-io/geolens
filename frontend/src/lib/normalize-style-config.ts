@@ -83,6 +83,7 @@ const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
   cluster_max_zoom: 'clusterMaxZoom',
   cluster_color: 'clusterColor',
   cluster_text_color: 'clusterTextColor',
+  cluster_text_size: 'clusterTextSize',
 };
 
 function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {

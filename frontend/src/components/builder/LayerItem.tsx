@@ -76,6 +76,7 @@ function getLayerKindBadge(layer: MapLayerResponse, t: (key: string, opts?: Reco
   if (renderMode === 'heatmap') return t('layerItem.heatmapBadge', { defaultValue: 'Heatmap' });
   if (renderMode === 'hillshade') return t('layerItem.hillshadeBadge', { defaultValue: 'Hillshade' });
   if (renderMode === 'symbol') return t('layerItem.symbolBadge', { defaultValue: 'Symbol' });
+  if (renderMode === 'cluster') return t('layerItem.clusterBadge', { defaultValue: 'Cluster' });
   return humanizeLayerKind(layer.dataset_geometry_type) ?? t('layerItem.layerBadge', { defaultValue: 'Layer' });
 }
 

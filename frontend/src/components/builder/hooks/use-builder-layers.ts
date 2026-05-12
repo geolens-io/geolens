@@ -405,9 +405,14 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, [swapLayerOnMap]);
 
-  const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap' | 'symbol') => {
+  const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap' | 'symbol' | 'cluster') => {
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
+
+    if (mode === 'cluster') {
+      handleRenderAsChange(layerId, 'cluster');
+      return;
+    }
 
     const currentStyleConfig: Partial<StyleConfig> = layer.style_config ?? {};
     let updatedPaint = { ...layer.paint };
@@ -478,7 +483,7 @@ export function useBuilderLayers(
     }
 
     setHasUnsavedChanges(true);
-  }, [swapLayerOnMap]);
+  }, [handleRenderAsChange, swapLayerOnMap]);
 
   const handleDuplicateRendering = useCallback((layerId: string) => {
     if (!mapId) return;

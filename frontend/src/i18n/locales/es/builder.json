@@ -153,6 +153,8 @@
       "heatmapDescription": "Ajuste densidad, radio, intensidad y rampa.",
       "symbol": "Apariencia de símbolo",
       "symbolDescription": "Elija iconos, tamaño, rotación y símbolos por valor.",
+      "cluster": "Apariencia de agrupación",
+      "clusterDescription": "Ajuste el radio, zoom de expansión y etiquetas de conteo.",
       "advanced": "JSON de estilo avanzado",
       "advancedDescription": "Edite paint y layout de MapLibre directamente cuando sea necesario."
     },
@@ -180,12 +182,20 @@
     "renderAs": "Renderizar como",
     "renderPoints": "Puntos",
     "renderHeatmap": "Mapa de calor",
+    "renderCluster": "Agrupación",
     "heatmap": {
       "weight": "Columna de peso",
       "weightNone": "Ninguno (peso igual)",
       "colorRamp": "Rampa de color",
       "radius": "Radio",
       "intensity": "Intensidad"
+    },
+    "cluster": {
+      "radius": "Radio de agrupación",
+      "maxZoom": "Zoom máximo de agrupación",
+      "color": "Color de agrupación",
+      "countColor": "Color del conteo",
+      "countSize": "Tamaño del conteo"
     },
     "gapWidth": "Gap",
     "blur": "Blur",

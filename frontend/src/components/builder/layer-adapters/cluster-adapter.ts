@@ -59,7 +59,8 @@ function clusterStyle(input: AdapterLayerInput) {
   const textColor = typeof builder.clusterTextColor === 'string'
     ? builder.clusterTextColor
     : '#ffffff';
-  return { clusterColor, textColor };
+  const textSize = numericBuilderValue(builder.clusterTextSize, 12, 8, 24);
+  return { clusterColor, textColor, textSize };
 }
 
 function unclusteredPointPaint(input: AdapterLayerInput) {
@@ -101,7 +102,7 @@ function addClusterCircleLayer(map: MaplibreMap, input: AdapterLayerInput) {
 function addClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
   const id = clusterCountLayerId(input.layerId);
   if (map.getLayer(id)) return;
-  const { textColor } = clusterStyle(input);
+  const { textColor, textSize } = clusterStyle(input);
 
   map.addLayer({
     id,
@@ -110,7 +111,7 @@ function addClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
     filter: clusterFilter(input),
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
-      'text-size': 12,
+      'text-size': textSize,
       'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
       'text-allow-overlap': true,
       'text-ignore-placement': true,
@@ -156,7 +157,8 @@ function syncClusterCircleLayer(map: MaplibreMap, input: AdapterLayerInput) {
 function syncClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
   const id = clusterCountLayerId(input.layerId);
   if (!map.getLayer(id)) return;
-  const { textColor } = clusterStyle(input);
+  const { textColor, textSize } = clusterStyle(input);
+  map.setLayoutProperty(id, 'text-size', textSize);
   map.setPaintProperty(id, 'text-color', textColor);
   map.setPaintProperty(id, 'text-opacity', input.opacity ?? 1);
   map.setFilter(id, clusterFilter(input));

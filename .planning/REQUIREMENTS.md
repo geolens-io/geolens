@@ -33,7 +33,7 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 - [x] **CLUS-03**: Cluster rendering uses a MapLibre GeoJSON source with `cluster`, `clusterRadius`, and `clusterMaxZoom` options rather than a new renderer dependency.
 - [x] **CLUS-04**: Cluster rendering emits stable cluster circle, cluster count, and unclustered point layers while preserving the parent layer identity for map-stack and popup workflows.
 - [x] **CLUS-05**: Cluster layers follow parent visibility, filter, opacity, zoom range, reorder, removal, and stale-cleanup behavior.
-- [ ] **CLUS-06**: Users can configure basic cluster radius, max zoom, color, and count-label appearance using existing builder controls and i18n keys.
+- [x] **CLUS-06**: Users can configure basic cluster radius, max zoom, color, and count-label appearance using existing builder controls and i18n keys.
 
 ### Compatibility And Interop
 
@@ -87,7 +87,7 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 | CLUS-03 | Phase 1024 | Complete |
 | CLUS-04 | Phase 1024 | Complete |
 | CLUS-05 | Phase 1024 | Complete |
-| CLUS-06 | Phase 1025 | Pending |
+| CLUS-06 | Phase 1025 | Complete |
 | COMP-01 | Phase 1026 | Pending |
 | COMP-02 | Phase 1026 | Pending |
 | COMP-03 | Phase 1026 | Pending |
@@ -100,11 +100,11 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 
 **Coverage:**
 - v1005 requirements: 20 total
-- Complete: 10
-- Pending: 10
+- Complete: 11
+- Pending: 9
 - Mapped to phases: 20
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1024 completion*
+*Last updated: 2026-05-12 after Phase 1025 completion*

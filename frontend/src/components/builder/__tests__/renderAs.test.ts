@@ -256,6 +256,7 @@ describe('renderAs view model', () => {
           clusterMaxZoom: 14,
           clusterColor: '#2255aa',
           clusterTextColor: '#ffffff',
+          clusterTextSize: 12,
         }),
       }),
     }));
