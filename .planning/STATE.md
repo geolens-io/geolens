@@ -1,36 +1,44 @@
 ---
 gsd_state_version: 1.0
-milestone: v1003
-milestone_name: Builder v1 Hardening
-status: archived
-last_updated: "2026-05-12T14:33:03Z"
-last_activity: 2026-05-12 — v1003 Builder v1 Hardening archived after passing 24/24 requirements with builder smoke, focused tests, lint, build, and Playwright MCP evidence.
+milestone: v1004
+milestone_name: Builder Renderer Expansion
+status: defining_requirements
+last_updated: "2026-05-12T14:58:37Z"
+last_activity: 2026-05-12 — v1004 Builder Renderer Expansion started after publishing v1003; defining renderer capability requirements and roadmap.
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-**Milestone:** v1003 — Builder v1 Hardening
-**Phase:** v1003 archived — ready for next milestone planning
+**Milestone:** v1004 — Builder Renderer Expansion
+**Phase:** Not started — defining requirements
 **Plan:** —
-**Status:** v1003 complete, audited, and archived.
-**Last activity:** 2026-05-12 — v1003 Builder v1 Hardening archived after passing 24/24 requirements with builder smoke, focused tests, lint, build, and Playwright MCP evidence.
+**Status:** Defining requirements
+**Last activity:** 2026-05-12 — v1004 Builder Renderer Expansion started after publishing v1003; defining renderer capability requirements and roadmap.
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after archiving v1003)
+See: .planning/PROJECT.md (updated 2026-05-12 after starting v1004)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Planning next milestone after v1003 Builder v1 Hardening closeout.
+**Current focus:** v1004 Builder Renderer Expansion requirements and roadmap.
+
+## Active Milestone
+
+**Version:** v1004 Builder Renderer Expansion
+**Started:** 2026-05-12
+**Status:** Defining requirements
+**Goal:** Add the next Map Builder render modes through a deliberate renderer capability layer, shipping MapLibre-native wins first and making any deck.gl/H3/trips dependency decision explicit before implementation.
+**Expected first phase:** Renderer architecture and capability contract
 
 ## Last Shipped Milestone
 
@@ -197,9 +205,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-12T14:33:03Z
-Stopped at: v1003 milestone complete, audited, archived, and ready for next milestone planning.
-Resume file: `.planning/milestones/v1003-MILESTONE-AUDIT.md`
+Last session: 2026-05-12T14:58:37Z
+Stopped at: v1004 Builder Renderer Expansion started; requirements and roadmap in progress.
+Resume file: `.planning/REQUIREMENTS.md`
 
 ---
-*Last updated: 2026-05-12 after archiving v1003*
+*Last updated: 2026-05-12 after starting v1004*

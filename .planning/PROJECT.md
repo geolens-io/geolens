@@ -8,9 +8,20 @@ Shipped 50 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-Milestones are delivered through v1003 Builder v1 Hardening (shipped 2026-05-12), which converted the v1002 sidebar/Add Dataset rewrite into browser-proven behavior across duplicate renderings, basemap/terrain writes, Add Dataset states, saved-map round trips, accessibility, and responsive regressions. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring + style JSON round-trip plus the schema-preserving sidebar/Add Dataset redesign hardened in v1002-v1003.
+Milestones are delivered through v1003 Builder v1 Hardening (shipped 2026-05-12), which converted the v1002 sidebar/Add Dataset rewrite into browser-proven behavior across duplicate renderings, basemap/terrain writes, Add Dataset states, saved-map round trips, accessibility, and responsive regressions. v1004 Builder Renderer Expansion is active to move the next render modes out of the punt list without destabilizing schema, saved-map compatibility, or the MapLibre-first renderer stack. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring + style JSON round-trip plus the schema-preserving sidebar/Add Dataset redesign hardened in v1002-v1003.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
+
+## Current Milestone: v1004 Builder Renderer Expansion
+
+**Goal:** Add the next Map Builder render modes through a deliberate renderer capability layer, shipping MapLibre-native wins first and making any deck.gl/H3/trips dependency decision explicit before implementation.
+
+**Target features:**
+- Renderer capability architecture that separates MapLibre-native render modes from future deck.gl-backed modes.
+- Point clustering as the first new point render mode only if the data-source path is compatible with GeoLens vector/GeoJSON layer delivery.
+- Line arrow direction rendering using MapLibre-native layers and existing style fields where feasible.
+- Explicit feasibility decisions for Hexbin, H3, Animated path, and Point 3D extrusion, with requirements only for modes that can ship safely in this milestone.
+- Browser, saved-map, style JSON, and performance gates that prevent renderer additions from regressing the v1002-v1003 sidebar/modal contracts.
 
 ## Recent Shipped Milestone: v1003 Builder v1 Hardening
 
@@ -583,7 +594,10 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-No active milestone. Next milestone planning is pending.
+- [ ] v1004 renderer capability architecture: users see only render modes that the current dataset and renderer stack can actually support.
+- [ ] v1004 MapLibre-native renderer expansion: users can use safe new renderer modes without schema drift or a new rendering dependency.
+- [ ] v1004 deck.gl/H3/trips decision: future non-MapLibre renderers have an explicit adapter, data, interaction, z-order, and bundle-size decision before implementation.
+- [ ] v1004 renderer QA closeout: focused tests, builder smoke, Playwright MCP, saved-map round-trip, and style JSON gates prove new render modes do not regress existing builder flows.
 
 ### Out of Scope
 
@@ -629,7 +643,7 @@ No active milestone. Next milestone planning is pending.
 
 ## Context
 
-- **Current state**: v1003 is shipped after hardening the schema-preserving Map Builder sidebar/Add Dataset redesign from v1002. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, declarative `geolens.yaml` manifests, CLI init/validate/apply automation, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, catalog/processing boundaries, maps/search service facades, and manifest adoption workflows.
+- **Current state**: v1004 is active after v1003 hardened the schema-preserving Map Builder sidebar/Add Dataset redesign. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, declarative `geolens.yaml` manifests, CLI init/validate/apply automation, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, catalog/processing boundaries, maps/search service facades, and manifest adoption workflows.
 - **Architecture**: Database-first. PostgreSQL 17 + PostGIS 3.5 is the system of record. FastAPI serves vector tiles (ST_AsMVT with signed URL tokens), raster tiles (via Titiler with RBAC-gated token endpoint), features (paginated GeoJSON with bbox/property filtering), catalog metadata, search, auth, OGC discovery, and job orchestration. Background worker runs Procrastinate ingestion tasks. Titiler serves XYZ raster tiles from COG files. Frontend is a static SPA served by nginx with reverse proxy to the API.
 - **OGC Compliance**: OGC API Common Core, OGC API Records Core, OGC API Features Part 3 (Filtering/CQL2). Conformance classes declared at `/api/conformance`.
 - **Users**: Mix of GIS analysts (power users), data engineers (API consumers), and non-technical staff (browsing/downloading). Search-first UI serves all three. Machine clients (QGIS, GDAL, scripts) can now consume the catalog programmatically.
@@ -853,4 +867,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after archiving v1003 Builder v1 Hardening*
+*Last updated: 2026-05-12 after starting v1004 Builder Renderer Expansion*
