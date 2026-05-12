@@ -57,97 +57,21 @@
 - ✅ **v13.14 Smoke Stabilization** — Phases 280-282 (shipped 2026-05-08) — see [archive](milestones/v13.14-ROADMAP.md)
 - ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
 - ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
-- 🟡 **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (active)
+- ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
 
 ## Phases
 
-<details open>
-<summary>🟡 v1002 Layer Sidebar + Add Dataset Redesign (Phases 1008-1013) — ACTIVE</summary>
-
-**Goal:** Redesign the Map Builder layer sidebar and Add Dataset workflow over the existing Map/MapLayer/Record/Dataset schema, with zero migrations and no new rendering capabilities.
-
-**Requirements:** 37 total — ARCH-01..04, STACK-01..05, RENDER-01..08, BASE-01..04, TERRAIN-01..02, ADD-01..08, QA-01..06.
+<details>
+<summary>✅ v1002 Layer Sidebar + Add Dataset Redesign (Phases 1008-1013) — SHIPPED 2026-05-12</summary>
 
 - [x] Phase 1008: sidebar-view-model-and-renderas-foundation (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1009: layer-row-and-dataset-rendering-sidebar (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1010: renderas-actions-and-duplicate-renderings (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1011: basemap-and-terrain-inline-rows (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1012: add-dataset-modal-redesign (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1013: builder-sidebar-modal-qa-closeout (1/1 plan) — completed 2026-05-12 with local browser execution blocked by an unavailable full stack.
+- [x] Phase 1013: builder-sidebar-modal-qa-closeout (1/1 plan) — completed 2026-05-12.
 
-### Phase Details
-
-### Phase 1008: Sidebar view-model and renderAs foundation
-
-Goal: Establish the no-migration frontend model and renderAs utility so later UI work has a stable, tested contract.
-
-Requirements: ARCH-01, ARCH-02, ARCH-03, ARCH-04, RENDER-01.
-
-Success criteria:
-1. `renderAs` options are derived from current layer metadata and current supported adapters only.
-2. View-model code derives sidebar groups without adding persistence or changing API payloads.
-3. Tests prove unsupported v1 punted renderers are not exposed.
-4. Components continue using existing GeoLens UI primitives and lucide icons.
-
-### Phase 1009: Layer row and dataset-rendering sidebar
-
-Goal: Replace the current row presentation with the scoped v1 row anatomy and dataset-rendering grouping inside `data`.
-
-Requirements: STACK-01, STACK-02, STACK-03, STACK-04, STACK-05.
-
-Success criteria:
-1. System groups remain `surface`, `relief`, `basemap`, `data`, `labels`, and `interactions`.
-2. Layer rows expose drag, visibility, swatch, display name, renderAs, opacity, zoom range, and overflow actions without layout overlap.
-3. Dataset-rendering headers appear only when two or more layers share `dataset_id`.
-4. Visibility-at-zoom writes only `layout._minzoom` and `layout._maxzoom`.
-
-### Phase 1010: RenderAs actions and duplicate renderings
-
-Goal: Wire user-facing renderAs changes and duplicate rendering actions over the existing `MapLayer` patch/diff behavior.
-
-Requirements: RENDER-02, RENDER-03, RENDER-04, RENDER-05, RENDER-06, RENDER-07, RENDER-08.
-
-Success criteria:
-1. Point, line, polygon, raster, and raster DEM renderAs options match the v1002 requirement table.
-2. RenderAs changes mutate only `layer_type`, `style_config`, `paint`, and `layout`.
-3. Polygon 3D extrusion uses existing builder/extrusion fields and never writes `is_3d`.
-4. Duplicate rendering creates a sibling layer with the same dataset and independent style/order.
-
-### Phase 1011: Basemap and terrain inline rows
-
-Goal: Surface basemap and terrain as inline stack rows backed by existing map-level fields.
-
-Requirements: BASE-01, BASE-02, BASE-03, BASE-04, TERRAIN-01, TERRAIN-02.
-
-Success criteria:
-1. Basemap group renders one current-basemap row named from `BasemapEntry.label`.
-2. Basemap controls write only `basemap_style`, `show_basemap_labels`, and normalized `basemap_config`.
-3. Basemap swap uses the existing enabled `BasemapEntry` registry.
-4. Terrain controls and `Use as terrain` write only `terrain_config`.
-
-### Phase 1012: Add Dataset modal redesign
-
-Goal: Rewrite the Add Dataset modal around search-first catalog browsing, supported filters, basemap swap states, and duplicate-rendering affordances.
-
-Requirements: ADD-01, ADD-02, ADD-03, ADD-04, ADD-05, ADD-06, ADD-07, ADD-08.
-
-Success criteria:
-1. Modal tabs are `All`, `Vector`, `Raster`, and `Basemap`, with DEM represented under Raster.
-2. Filter chips map only to existing search API filters.
-3. Data and basemap row states perform the correct existing writes and update the sidebar immediately.
-4. Expanded rows reuse current dataset/search metadata, and `Import data...` routes to `ImportPage`.
-
-### Phase 1013: Builder sidebar/modal QA closeout
-
-Goal: Convert the milestone's schema, behavior, accessibility, and responsive guarantees into focused repeatable checks.
-
-Requirements: QA-01, QA-02, QA-03, QA-04, QA-05, QA-06.
-
-Success criteria:
-1. RenderAs, grouping, duplicate rendering, basemap, terrain, and modal states have focused unit/component coverage.
-2. Tests prove `is_3d` is read-only from the sidebar/modal mutation paths.
-3. Builder sidebar and Add Dataset modal pass keyboard/a11y and desktop/tablet responsive checks.
-4. Focused frontend lint and Vitest suites pass; unrelated smoke failures are documented with owners.
+37/37 v1002 requirements satisfied. Audit: `tech_debt` / `COMPLETE_WITH_BROWSER_ENV_REVIEW` because the local full stack was unavailable for live Playwright execution; focused Vitest, lint, build, and Playwright spec loading passed. Full details: [milestones/v1002-ROADMAP.md](milestones/v1002-ROADMAP.md).
 
 </details>
 

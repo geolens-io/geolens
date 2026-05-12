@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1002
 milestone_name: Layer Sidebar + Add Dataset Redesign
-status: audit_ready
-last_updated: "2026-05-12T03:30:00Z"
-last_activity: 2026-05-12 — Phase 1013 closed focused sidebar/modal QA; unit, lint, build, and Playwright spec loading pass, with live browser execution blocked by the local stack.
+status: completed
+last_updated: "2026-05-12T11:55:00Z"
+last_activity: 2026-05-12 — Focused sidebar/modal tests, lint, and build pass; Playwright specs now cover the redesigned sidebar/modal, but live browser execution is blocked by the unavailable local stack.
 progress:
   total_phases: 6
   completed_phases: 6
@@ -20,27 +20,32 @@ progress:
 **Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
 **Phase:** Phase 1013 complete — Builder sidebar/modal QA closeout
 **Plan:** 1013-01 complete
-**Status:** Ready for milestone audit/archive.
+**Status:** v1002 milestone complete; no active milestone is currently planned.
 **Last activity:** 2026-05-12 — Focused sidebar/modal tests, lint, and build pass; Playwright specs now cover the redesigned sidebar/modal, but live browser execution is blocked by the unavailable local stack.
 
 Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
+See: .planning/PROJECT.md (updated 2026-05-12 after v1002 closeout)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1002 builder sidebar and Add Dataset redesign over the existing schema.
+**Current focus:** No active milestone. v1002 is archived; next scope should start with fresh requirements.
 
 ## Active Milestone
 
-**Version:** v1002 Layer Sidebar + Add Dataset Redesign
-**Started:** 2026-05-12
-**Phases:** 1008-1013 (6 phases)
-**Requirements:** 37 total (ARCH-01..04, STACK-01..05, RENDER-01..08, BASE-01..04, TERRAIN-01..02, ADD-01..08, QA-01..06)
-**Scope:** zero migrations, no new renderers, no persisted groups, no Kepler implementation adoption.
+None. v1002 is archived; start the next milestone with `$gsd-new-milestone` when scope is ready.
 
 ## Last Shipped Milestone
+
+**Version:** v1002 Layer Sidebar + Add Dataset Redesign
+**Shipped:** 2026-05-12
+**Phases:** 1008-1013 (6 phases, 6 plans)
+**Requirements:** 37/37 satisfied (ARCH-01..04, STACK-01..05, RENDER-01..08, BASE-01..04, TERRAIN-01..02, ADD-01..08, QA-01..06)
+**Audit:** `tech_debt` / `COMPLETE_WITH_BROWSER_ENV_REVIEW`
+**Archive:** `.planning/milestones/v1002-ROADMAP.md`, `.planning/milestones/v1002-REQUIREMENTS.md`, `.planning/milestones/v1002-MILESTONE-AUDIT.md`
+
+## Prior Shipped Milestone
 
 **Version:** v1001 Map Builder UI/UX Polish Sweep
 **Shipped:** 2026-05-11
@@ -49,7 +54,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 **Audit:** passed / GO
 **Archive:** `.planning/milestones/v1001-ROADMAP.md`, `.planning/milestones/v1001-REQUIREMENTS.md`, `.planning/milestones/v1001-MILESTONE-AUDIT.md`
 
-## Prior Shipped Milestone
+## Earlier Shipped Milestone
 
 **Version:** v1000 Map Stack and Basemap Layer Controls
 **Shipped:** 2026-05-11

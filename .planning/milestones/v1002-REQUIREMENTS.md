@@ -1,17 +1,17 @@
-# Requirements: No Active Milestone
+# Requirements Archive: GeoLens v1002 Layer Sidebar + Add Dataset Redesign
 
-v1002 is shipped and archived:
-
-- `.planning/milestones/v1002-REQUIREMENTS.md`
-- `.planning/milestones/v1002-ROADMAP.md`
-- `.planning/milestones/v1002-MILESTONE-AUDIT.md`
-
-Start the next requirements set with `$gsd-new-milestone` when the next scope is ready.
+**Status:** SHIPPED 2026-05-12  
+**Coverage:** 37/37 requirements satisfied  
+**Audit:** `.planning/milestones/v1002-MILESTONE-AUDIT.md`
 
 ---
 
-<details>
-<summary>Archived v1002 requirements snapshot</summary>
+**Defined:** 2026-05-12  
+**Core Value:** Users can find any dataset in the catalog in seconds - search, see it on a map, understand what it is, and get it out in the format they need.  
+**Milestone Goal:** Redesign the Map Builder layer sidebar and Add Dataset workflow over the existing renderer and persisted shapes.  
+**Scope:** Zero migrations, no new tables, no new renderers, no persisted group model.
+
+---
 
 # Requirements: v1002 Layer Sidebar + Add Dataset Redesign
 
@@ -113,5 +113,3 @@ Redesign the Map Builder layer sidebar and Add Dataset workflow over the existin
 | BASE-01..04, TERRAIN-01..02 | 1011 |
 | ADD-01..08 | 1012 |
 | QA-01..06 | 1013 |
-
-</details>

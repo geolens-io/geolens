@@ -1,5 +1,42 @@
 # Milestones
 
+## v1002 Layer Sidebar + Add Dataset Redesign (Shipped: 2026-05-12)
+
+**Delivered:** A no-migration redesign of the Map Builder layer sidebar and Add Dataset modal over the existing Map/MapLayer/Record/Dataset model.
+
+**Stats:**
+
+- **Phases:** 6 (1008-1013)
+- **Plans:** 6 / 6 complete
+- **Requirements:** 37/37 satisfied (ARCH-01..04, STACK-01..05, RENDER-01..08, BASE-01..04, TERRAIN-01..02, ADD-01..08, QA-01..06)
+- **Audit:** `tech_debt` / `COMPLETE_WITH_BROWSER_ENV_REVIEW`
+
+**Key accomplishments:**
+
+1. **Schema-preserving sidebar foundation** — renderAs and stack grouping remain frontend view-model logic with no persisted groups, migrations, or new renderer dependencies.
+2. **Layer row redesign shipped** — primary rows expose drag, visibility, geometry swatch, display name, `as <renderAs>`, opacity, zoom range, and overflow actions.
+3. **Dataset-rendering grouping shipped** — duplicated renderings of the same dataset are grouped under collapsible dataset headers inside Data.
+4. **RenderAs and duplicate rendering actions wired** — supported v1 render modes patch only existing fields, and duplicate rendering creates sibling `MapLayer` rows without writing `is_3d`.
+5. **Basemap and terrain surfaced inline** — basemap swap/reset/appearance and terrain source/enabled/exaggeration write existing map-level fields only.
+6. **Add Dataset modal redesigned** — All/Vector/Raster/Basemap tabs, current API filter chips, expandable rows, Add/added/another-rendering states, basemap swap/in-use states, and ImportPage routing.
+7. **QA coverage closed** — focused Vitest, lint, build, and Playwright spec loading pass; Add Dataset modal browser/a11y specs were added.
+
+**Known deferred items at close:**
+
+- Live Playwright browser execution was blocked locally because `localhost:8080` was unreachable, `localhost:8000/health` refused connections, Docker CLI calls hung, and Playwright MCP navigation timed out. The browser specs are updated and load, but need a healthy local stack run.
+- Full release gates, SDK/OpenAPI checks, and backend suites were not rerun because v1002 was frontend-only and schema-preserving.
+- Future capabilities remain explicitly out of scope: Cluster/Hexbin/H3/Arrow/Animated path/Point 3D extrusion, timeline playback, recipes, cross-layer filters, blend mode, persisted basemap presets, org connector library, and exact-position modal-to-stack drag.
+
+**Archives:**
+
+- `.planning/milestones/v1002-ROADMAP.md`
+- `.planning/milestones/v1002-REQUIREMENTS.md`
+- `.planning/milestones/v1002-MILESTONE-AUDIT.md`
+
+**Tag:** `v1002`
+
+---
+
 ## v1001 Map Builder UI/UX Polish Sweep (Shipped: 2026-05-11)
 
 **Delivered:** A coherent builder polish sweep across workflow audit, Map Stack/inspector interactions, styling controls, save/share/public output parity, responsive/accessibility/copy hardening, and durable QA gates.

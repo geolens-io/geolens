@@ -8,11 +8,27 @@ Shipped 50 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-51 milestones delivered (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8.0-v8.2, v9.0-v9.1, v10.0-v13.9; plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13). v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring + style JSON round-trip. Latest v13.9 milestone closed v13.8 inherited tech debt (architecture-guard regressions, Nyquist VALIDATION.md backfill, openapi-python-client warning) and shipped first-class line-gradient authoring deferred from Phase 247 — 19/19 requirements satisfied, audit passed.
+Milestones are delivered through v1002 Layer Sidebar + Add Dataset Redesign (shipped 2026-05-12), plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring + style JSON round-trip plus the v1002 schema-preserving sidebar/Add Dataset redesign.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Recent Shipped Milestone: v1001 Map Builder UI/UX Polish Sweep
+## Recent Shipped Milestone: v1002 Layer Sidebar + Add Dataset Redesign
+
+**Shipped:** 2026-05-12
+
+**Goal delivered:** Redesign the Map Builder layer sidebar and Add Dataset workflow over the existing Map/MapLayer/Record/Dataset schema, with zero migrations and no new rendering capabilities.
+
+**Delivered:**
+- Frontend-only renderAs and stack view-model foundation with no persisted group model.
+- Layer row redesign with drag, visibility, geometry swatch, display name, `as <renderAs>`, opacity, zoom range, overflow actions, and dataset-rendering headers.
+- RenderAs mutation paths and duplicate-rendering actions over existing `layer_type`, `style_config`, `paint`, `layout`, and add-layer handlers; `is_3d` remains read-only.
+- Inline basemap and terrain rows that write only `basemap_style`, `show_basemap_labels`, `basemap_config`, and `terrain_config`.
+- Add Dataset modal rewrite with All/Vector/Raster/Basemap tabs, existing API filters, row expansion, Add/added/another-rendering states, basemap swap/in-use states, and ImportPage routing.
+- Focused QA coverage for renderAs, grouping, duplicate renderings, basemap/terrain writes, modal states, and Playwright spec coverage for sidebar/modal browser checks.
+
+**Milestone close:** 37/37 requirements satisfied across Phases 1008-1013. Audit: `tech_debt` because live Playwright execution was blocked by an unavailable local stack/Docker runtime. See `.planning/milestones/v1002-ROADMAP.md` and `.planning/milestones/v1002-MILESTONE-AUDIT.md`.
+
+## Prior Shipped Milestone: v1001 Map Builder UI/UX Polish Sweep
 
 **Shipped:** 2026-05-11
 
@@ -38,22 +54,9 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - `PublicMapViewerPage.toSharedLayer` preserves `is_dem` and `dem_vertical_units` so authenticated public saved maps keep DEM relief semantics before `ViewerMap`.
 - Focused verification passed: `PublicMapViewerPage`, `ViewerMap.basemap-config`, `map-stack`, and frontend lint.
 
-## Current Milestone: v1002 Layer Sidebar + Add Dataset Redesign
+## Next Milestone
 
-**Goal:** Redesign the Map Builder layer sidebar and Add Dataset workflow over the existing Map/MapLayer/Record/Dataset schema, with zero migrations and no new rendering capabilities.
-
-**Target features:**
-- Sidebar row rewrite over the existing Map Stack model, including dataset-rendering headers, renderAs chips, opacity, and visibility-at-zoom controls.
-- Duplicate rendering workflow so one dataset can back multiple independently styled `MapLayer` rows.
-- Consolidated basemap row and inline terrain row that write existing map-level `basemap_*` and `terrain_config` fields.
-- Add Dataset modal rewrite with current catalog/search filters, basemap swap states, added/another-rendering states, row expansion, and existing ImportPage routing.
-- Focused QA gates for schema preservation, renderAs dispatch, duplicate renderings, basemap/terrain writes, accessibility, and responsive builder behavior.
-
-**Frozen constraints:**
-- No new `Map`, `MapLayer`, `Dataset`, or `Record` fields.
-- No new tables or migrations.
-- No new renderers in v1002: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, timeline, recipes, cross-layer filters, and blend mode remain future work.
-- `is_3d` remains read-only response/dataset metadata; sidebar code must not write it.
+No active milestone is currently planned. Candidate follow-ups from v1002 remain renderer/capability scoped rather than schema cleanup: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, map timeline, recipes, cross-layer filters, blend mode, persisted basemap presets, org connector library, and exact-position modal-to-stack drag.
 
 ## Last Milestone (this repo): v13.13 Backlog Sweep (shipped 2026-05-07)
 
@@ -564,13 +567,7 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-v1002 Layer Sidebar + Add Dataset Redesign — scoped from the outside-auditor handoff. Full REQ-ID list lives in `.planning/REQUIREMENTS.md` until milestone close.
-
-- [ ] **Schema-preserving sidebar model**: Extend the existing Map Stack view model without migrations, persisted groups, or new renderer capabilities.
-- [ ] **Layer row and dataset rendering UX**: Rewrite sidebar rows, dataset-rendering headers, opacity, visibility-at-zoom, renderAs chips, and duplicate-rendering actions over current `MapLayer[]`.
-- [ ] **Basemap and terrain inline controls**: Collapse basemap controls into one row backed by `basemap_style`, `show_basemap_labels`, and `basemap_config`; surface terrain inside `relief` via `terrain_config`.
-- [ ] **Add Dataset modal redesign**: Keep search-first catalog behavior while adding Vector/Raster/Basemap tabs, supported filters only, basemap swap states, `(added)` plus another-rendering states, row expansion, and ImportPage routing.
-- [ ] **Durable QA gate**: Cover renderAs mapping, grouping, duplicate rendering, no `is_3d` writes, Add Dataset states, accessibility, responsive sidebar/modal behavior, and schema round-trip safety.
+None. v1002 is archived; start the next milestone with fresh requirements when the next scope is ready.
 
 ### Out of Scope
 
@@ -838,4 +835,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after starting v1002 Layer Sidebar + Add Dataset Redesign*
+*Last updated: 2026-05-12 after shipping v1002 Layer Sidebar + Add Dataset Redesign*
