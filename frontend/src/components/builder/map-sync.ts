@@ -4,13 +4,14 @@ import { toast } from 'sonner';
 import type { MapBasemapConfig, MapLayerResponse, LabelConfig, StyleConfig } from '@/types/api';
 import type { RasterTileToken, TileToken, VectorTileToken } from '@/api/tiles';
 import i18n from '@/i18n/i18n';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { applyBasemapConfigToStyle } from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
+import { getClusterSourceStrategy } from './cluster-source';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
 import { getLayerType, resolveAdapterType } from './layer-adapters/shared';
@@ -298,6 +299,13 @@ function clusterSourceSignature(input: AdapterLayerInput) {
   return `${options.clusterRadius}:${options.clusterMaxZoom}`;
 }
 
+function removeClusterCompanionLayers(map: MaplibreMap, layerId: string) {
+  const clusterCountId = clusterCountLayerId(layerId);
+  const clusterCircleId = clusterCircleLayerId(layerId);
+  if (map.getLayer(clusterCountId)) map.removeLayer(clusterCountId);
+  if (map.getLayer(clusterCircleId)) map.removeLayer(clusterCircleId);
+}
+
 function signatureStore(map: MaplibreMap) {
   let store = clusterSourceSignatures.get(map);
   if (!store) {
@@ -407,16 +415,22 @@ function syncVectorLayer(
   prefix: string | undefined,
 ) {
   const { sourceId, layerId, sourceLayer } = adapterInput;
-  adapterInput.tileUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
   desiredSources.add(sourceId);
 
   const resolvedType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
   const wantsCluster = resolvedType === 'cluster';
+  const clusterStrategy = getClusterSourceStrategy(layer);
   const hasBoundedGeoJson = geojsonDataMap?.has(layer.id) === true;
-  const canUseCluster = wantsCluster && hasBoundedGeoJson;
+  const canUseBoundedCluster = wantsCluster && clusterStrategy.kind === 'bounded-geojson' && hasBoundedGeoJson;
+  const canUseServerCluster = wantsCluster && clusterStrategy.kind === 'server-tile';
+  const canUseCluster = canUseBoundedCluster || canUseServerCluster;
   const type = wantsCluster && !canUseCluster ? 'circle' : resolvedType;
   const adapter = getAdapter(type);
   const filter = adapterInput.filter;
+  const clusterOptions = getClusterSourceOptions(adapterInput);
+  adapterInput.tileUrl = canUseServerCluster
+    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, clusterOptions)
+    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
 
   // GeoJSON branch: 3D small datasets and eligible Cluster layers use GeoJSON
   // sources instead of the normal vector-tile path.
@@ -424,18 +438,24 @@ function syncVectorLayer(
   // wires the flag on the vector tile path. GeoJSON-Z line-gradient authoring is
   // Phase 256 scope (see .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md).
   const isGeoJsonZ = layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000;
-  const useGeoJsonSource = (isGeoJsonZ || canUseCluster) && hasBoundedGeoJson;
+  const useGeoJsonSource = (isGeoJsonZ || canUseBoundedCluster) && hasBoundedGeoJson;
   const desiredSourceType = useGeoJsonSource ? 'geojson' : 'vector';
   const currentSource = map.getSource(sourceId) as { type?: string } | undefined;
   const signatureMap = signatureStore(map);
-  const desiredClusterSignature = canUseCluster ? clusterSourceSignature(adapterInput) : null;
+  const desiredClusterSignature = canUseCluster
+    ? `${clusterStrategy.kind}:${clusterSourceSignature(adapterInput)}:${adapterInput.tileUrl}`
+    : null;
   const currentClusterSignature = signatureMap.get(sourceId);
-  const clusterSourceOptionsChanged = canUseCluster
+  const geoJsonClusterSourceOptionsChanged = canUseBoundedCluster
     && currentSource?.type === 'geojson'
     && currentClusterSignature !== desiredClusterSignature;
-  if (currentSource && (currentSource.type !== desiredSourceType || clusterSourceOptionsChanged)) {
+  if (currentSource && (currentSource.type !== desiredSourceType || geoJsonClusterSourceOptionsChanged)) {
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
     map.removeSource(sourceId);
+    signatureMap.delete(sourceId);
+  }
+  if (!canUseCluster) {
+    removeClusterCompanionLayers(map, layerId);
     signatureMap.delete(sourceId);
   }
 
@@ -447,15 +467,14 @@ function syncVectorLayer(
     const geojsonData = geojsonDataMap.get(layer.id)!;
     adapterInput.sourceType = 'geojson';
     if (!map.getSource(sourceId)) {
-      if (canUseCluster) {
-        const clusterOptions = getClusterSourceOptions(adapterInput);
+      if (canUseBoundedCluster) {
         map.addSource(sourceId, {
           type: 'geojson',
           data: geojsonData,
           cluster: true,
           ...clusterOptions,
         });
-        signatureMap.set(sourceId, `${clusterOptions.clusterRadius}:${clusterOptions.clusterMaxZoom}`);
+        signatureMap.set(sourceId, desiredClusterSignature ?? '');
       } else {
         map.addSource(sourceId, { type: 'geojson', data: geojsonData });
         signatureMap.delete(sourceId);
@@ -484,9 +503,21 @@ function syncVectorLayer(
       ...(needsLineMetrics && { lineMetrics: true }),
     };
     map.addSource(sourceId, sourceSpec);
-    signatureMap.delete(sourceId);
+    if (canUseServerCluster && desiredClusterSignature) {
+      signatureMap.set(sourceId, desiredClusterSignature);
+    } else {
+      signatureMap.delete(sourceId);
+    }
     adapter.addLayers(map, adapterInput);
   } else {
+    adapterInput.sourceType = 'vector';
+    if (canUseServerCluster && currentClusterSignature !== desiredClusterSignature) {
+      const source = map.getSource(sourceId) as { type?: string; setTiles?: (tiles: string[]) => void } | undefined;
+      if (source?.type === 'vector' && source.setTiles) {
+        source.setTiles([adapterInput.tileUrl]);
+      }
+      if (desiredClusterSignature) signatureMap.set(sourceId, desiredClusterSignature);
+    }
     adapter.syncPaint(map, adapterInput);
   }
 

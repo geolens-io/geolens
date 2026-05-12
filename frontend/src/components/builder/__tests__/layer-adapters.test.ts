@@ -15,6 +15,7 @@ import type { AdapterLayerInput } from '@/components/builder/layer-adapters/type
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
+  buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf'),
 }));
 
 // Mock window.location.origin for raster tile URL construction
@@ -524,6 +525,26 @@ describe('clusterAdapter', () => {
       'circle-color': '#2255aa',
       'circle-radius': 6,
     }));
+  });
+
+  it('addLayers includes source-layer for server-side cluster vector sources', () => {
+    const input = makeInput({
+      id: 'cluster-vector',
+      layerId: 'layer-cluster-vector',
+      sourceId: 'source-cluster-vector',
+      sourceLayer: 'data.large_points',
+      sourceType: 'vector',
+      dataset_geometry_type: 'POINT',
+      style_config: { render_mode: 'cluster' },
+    });
+
+    clusterAdapter.addLayers(map, input);
+
+    const [clusterCircle, clusterCount, unclustered] = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0]);
+    expect(clusterCircle).toHaveProperty('source-layer', 'data.large_points');
+    expect(clusterCount).toHaveProperty('source-layer', 'data.large_points');
+    expect(unclustered).toHaveProperty('source-layer', 'data.large_points');
   });
 
   it('syncPaint updates cluster companions and the unclustered point layer', () => {

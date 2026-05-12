@@ -1,4 +1,4 @@
-import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 
 describe('buildSignedTileUrl', () => {
   const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
@@ -52,3 +52,28 @@ describe('buildSignedTileUrl', () => {
   });
 });
 
+describe('buildClusterTileUrl', () => {
+  const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
+
+  it('targets the cluster tile endpoint with cluster options and signed params', () => {
+    const url = buildClusterTileUrl('my_table', mockToken, 'https://tiles.example.com', null, {
+      clusterRadius: 64,
+      clusterMaxZoom: 12,
+    });
+
+    expect(url).toBe(
+      'https://tiles.example.com/tiles/clusters/data.my_table/{z}/{x}/{y}.pbf?sig=abc123&exp=1700000000&scope=ds_test&cluster_radius=64&cluster_max_zoom=12',
+    );
+  });
+
+  it('supports public or embed-token cluster tiles without signed params', () => {
+    const url = buildClusterTileUrl('my_table', null, 'https://tiles.example.com', 'v1', {
+      clusterRadius: 48,
+      clusterMaxZoom: 14,
+    });
+
+    expect(url).toBe(
+      'https://tiles.example.com/tiles/clusters/data.my_table/{z}/{x}/{y}.pbf?cluster_radius=48&cluster_max_zoom=14&_v=v1',
+    );
+  });
+});

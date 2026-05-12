@@ -367,4 +367,66 @@ describe('ViewerMap basemap config runtime', () => {
       });
     });
   });
+
+  it('does not fetch bounded GeoJSON for large shared cluster layers', async () => {
+    const largeClusterLayers: SharedLayerResponse[] = [
+      {
+        id: 'large-cluster-layer',
+        dataset_id: 'dataset-large-cluster',
+        dataset_name: 'Large Stops',
+        display_name: 'Large Stops',
+        table_name: 'large_stops',
+        geometry_type: 'POINT',
+        column_info: null,
+        sort_order: 0,
+        visible: true,
+        opacity: 1,
+        paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
+        layout: {},
+        filter: null,
+        label_config: null,
+        popup_config: null,
+        style_config: {
+          render_mode: 'cluster',
+          builder: {
+            clusterRadius: 64,
+            clusterMaxZoom: 12,
+          },
+        } as SharedLayerResponse['style_config'],
+        tile_url: '',
+        feature_count: 20_000,
+      },
+    ];
+
+    render(
+      <ViewerMap
+        layers={largeClusterLayers}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={null}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{
+          center_lng: 0,
+          center_lat: 0,
+          zoom: 2,
+          bearing: 0,
+          pitch: 0,
+        }}
+        visibleLayers={new Set(['large-cluster-layer'])}
+        embedToken="embed-token"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(syncLayersToMapMock).toHaveBeenCalled();
+    });
+
+    expect(fetchBoundedGeoJsonMock).not.toHaveBeenCalled();
+    const syncInputs = syncLayersToMapMock.mock.calls.at(-1)?.[1];
+    expect(syncInputs?.[0]).toMatchObject({
+      id: 'large-cluster-layer',
+      feature_count: 20_000,
+      style_config: expect.objectContaining({ render_mode: 'cluster' }),
+    });
+  });
 });

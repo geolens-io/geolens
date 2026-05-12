@@ -18,6 +18,15 @@ export interface ClusterSourceEligibility {
   limit: number;
 }
 
+export type ClusterSourceStrategyKind = 'bounded-geojson' | 'server-tile' | 'fallback';
+
+export interface ClusterSourceStrategy {
+  kind: ClusterSourceStrategyKind;
+  status: ClusterSourceStatus;
+  featureCount: number | null;
+  limit: number;
+}
+
 export interface ClusterSourceLayer {
   dataset_geometry_type?: string | null;
   geometry_type?: string | null;
@@ -74,8 +83,41 @@ export function getClusterSourceEligibility(
   return { eligible: true, status: 'eligible', featureCount: count, limit };
 }
 
+export function getClusterSourceStrategy(
+  layer: ClusterSourceLayer,
+  limit = CLUSTER_GEOJSON_FEATURE_LIMIT,
+): ClusterSourceStrategy {
+  const count = featureCount(layer);
+
+  if (!isClusterRenderMode(layer)) {
+    return { kind: 'fallback', status: 'not-cluster', featureCount: count, limit };
+  }
+  if (!isVectorLayer(layer)) {
+    return { kind: 'fallback', status: 'not-vector', featureCount: count, limit };
+  }
+  if (!isPointGeometry(layer)) {
+    return { kind: 'fallback', status: 'not-point', featureCount: count, limit };
+  }
+  if (count == null) {
+    return { kind: 'fallback', status: 'missing-count', featureCount: null, limit };
+  }
+  if (count > limit) {
+    return { kind: 'server-tile', status: 'too-many-features', featureCount: count, limit };
+  }
+  return { kind: 'bounded-geojson', status: 'eligible', featureCount: count, limit };
+}
+
+export function canUseClusterSource(layer: ClusterSourceLayer) {
+  const count = featureCount(layer);
+  return isVectorLayer(layer) && isPointGeometry(layer) && count != null;
+}
+
+export function shouldUseServerClusterTiles(layer: ClusterSourceLayer) {
+  return getClusterSourceStrategy(layer).kind === 'server-tile';
+}
+
 export function shouldFetchClusterGeoJson(layer: ClusterSourceLayer) {
-  return isClusterRenderMode(layer) && getClusterSourceEligibility(layer).eligible;
+  return getClusterSourceStrategy(layer).kind === 'bounded-geojson';
 }
 
 export function clusterFallbackMessage(status: ClusterSourceStatus) {

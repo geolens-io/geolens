@@ -5,6 +5,7 @@ import type { TileToken } from '@/api/tiles';
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
+  buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf'),
 }));
 
 Object.defineProperty(window, 'location', {

@@ -40,6 +40,10 @@ function numericBuilderValue(value: unknown, fallback: number, min: number, max:
     : fallback;
 }
 
+function sourceLayerSpec(input: AdapterLayerInput) {
+  return input.sourceType === 'geojson' ? {} : { 'source-layer': input.sourceLayer };
+}
+
 export function getClusterSourceOptions(input: AdapterLayerInput) {
   const builder = getBuilderStyleConfig(input);
   return {
@@ -84,6 +88,7 @@ function addClusterCircleLayer(map: MaplibreMap, input: AdapterLayerInput) {
     id,
     type: 'circle',
     source: input.sourceId,
+    ...sourceLayerSpec(input),
     filter: clusterFilter(input),
     paint: {
       'circle-color': clusterColor,
@@ -108,6 +113,7 @@ function addClusterCountLayer(map: MaplibreMap, input: AdapterLayerInput) {
     id,
     type: 'symbol',
     source: input.sourceId,
+    ...sourceLayerSpec(input),
     filter: clusterFilter(input),
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
@@ -134,6 +140,7 @@ function addUnclusteredPointLayer(map: MaplibreMap, input: AdapterLayerInput) {
     id: input.layerId,
     type: 'circle',
     source: input.sourceId,
+    ...sourceLayerSpec(input),
     filter: unclusteredFilter(input),
     paint: unclusteredPointPaint(input),
     layout: {

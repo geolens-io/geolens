@@ -28,11 +28,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 ### Renderer Routing And Authoring
 
-- [ ] **REND-01**: Builder eligibility exposes Cluster for large vector point datasets when the server-side cluster contract is available.
-- [ ] **REND-02**: Switching large point datasets to Cluster writes only existing fields and preserves the v1005 `style_config.render_mode` / `style_config.builder` contract.
-- [ ] **REND-03**: Map sync chooses bounded client-side GeoJSON clustering for small datasets, server-side cluster tiles for large datasets, and normal Point fallback when clustering is unsupported.
-- [ ] **REND-04**: Builder, public, shared, and embed viewers use the same source-routing policy and preserve auth/API-key/embed-token context.
-- [ ] **REND-05**: Existing cluster controls for radius, max zoom, color, count color, and count text size apply consistently to server-side and bounded client-side clusters.
+- [x] **REND-01**: Builder eligibility exposes Cluster for large vector point datasets when the server-side cluster contract is available.
+- [x] **REND-02**: Switching large point datasets to Cluster writes only existing fields and preserves the v1005 `style_config.render_mode` / `style_config.builder` contract.
+- [x] **REND-03**: Map sync chooses bounded client-side GeoJSON clustering for small datasets, server-side cluster tiles for large datasets, and normal Point fallback when clustering is unsupported.
+- [x] **REND-04**: Builder, public, shared, and embed viewers use the same source-routing policy and preserve auth/API-key/embed-token context.
+- [x] **REND-05**: Existing cluster controls for radius, max zoom, color, count color, and count text size apply consistently to server-side and bounded client-side clusters.
 
 ### Cluster Exploration UX
 
@@ -86,11 +86,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 | SCL-03 | Phase 1027 | Complete |
 | SCL-04 | Phase 1027 | Complete |
 | SCL-05 | Phase 1027 | Complete |
-| REND-01 | Phase 1028 | Pending |
-| REND-02 | Phase 1028 | Pending |
-| REND-03 | Phase 1028 | Pending |
-| REND-04 | Phase 1028 | Pending |
-| REND-05 | Phase 1028 | Pending |
+| REND-01 | Phase 1028 | Complete |
+| REND-02 | Phase 1028 | Complete |
+| REND-03 | Phase 1028 | Complete |
+| REND-04 | Phase 1028 | Complete |
+| REND-05 | Phase 1028 | Complete |
 | UX-01 | Phase 1029 | Pending |
 | UX-02 | Phase 1029 | Pending |
 | UX-03 | Phase 1029 | Pending |
@@ -109,11 +109,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 **Coverage:**
 - v1006 requirements: 25 total
-- Complete: 5
-- Pending: 20
+- Complete: 10
+- Pending: 15
 - Mapped to phases: 25
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1027 completion*
+*Last updated: 2026-05-12 after Phase 1028 completion*

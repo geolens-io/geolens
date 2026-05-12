@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { findBasemapById, sanitizeMaplibreStyle, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
-import { buildSignedTileUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
@@ -15,7 +15,7 @@ import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
-import { clusterFallbackMessage, getClusterSourceEligibility, isClusterRenderMode } from './cluster-source';
+import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
 import type { StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import {
   syncLayersToMap,
@@ -204,8 +204,12 @@ export const BuilderMap = memo(function BuilderMap({
       const next = new Map<string, GeoJSON.FeatureCollection>();
       await Promise.all(clusterSourceLayers.map(async (layer) => {
         const eligibility = getClusterSourceEligibility(layer);
+        const strategy = getClusterSourceStrategy(layer);
         const layerName = layer.display_name || layer.dataset_name || layer.dataset_table_name;
-        if (!eligibility.eligible) {
+        if (strategy.kind === 'server-tile') {
+          return;
+        }
+        if (!shouldFetchClusterGeoJson(layer)) {
           const message = clusterFallbackMessage(eligibility.status);
           const key = `${layer.id}:${eligibility.status}:${eligibility.featureCount ?? 'unknown'}`;
           if (message && !clusterFallbackNotifiedRef.current.has(key)) {
@@ -618,7 +622,14 @@ export const BuilderMap = memo(function BuilderMap({
       const sourceId = getSourceId(layer.id);
       const source = map.getSource(sourceId);
       if (source && source.type === 'vector') {
-        const newUrl = buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
+        const strategy = getClusterSourceStrategy(layer);
+        const builder = layer.style_config?.builder;
+        const newUrl = strategy.kind === 'server-tile'
+          ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, {
+              clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
+              clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
+            })
+          : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }

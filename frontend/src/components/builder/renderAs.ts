@@ -1,5 +1,5 @@
 import type { MapLayerResponse, MapLayerType, StyleConfig } from '@/types/api';
-import { getClusterSourceEligibility } from './cluster-source';
+import { canUseClusterSource } from './cluster-source';
 
 export type RenderAsId =
   | 'point'
@@ -33,6 +33,7 @@ export type RendererBackend = 'maplibre' | 'deckgl-future';
 export type RendererSourceRequirement =
   | 'vector-tile'
   | 'geojson'
+  | 'geojson-or-cluster-tile'
   | 'raster'
   | 'raster-dem'
   | 'h3-column'
@@ -49,7 +50,7 @@ export interface RendererCapability {
   viewerSupport: 'native' | 'fallback' | 'unsupported';
   styleJsonSupport: 'native' | 'fallback' | 'unsupported';
   enabled: boolean;
-  requiresBoundedGeoJson?: boolean;
+  requiresClusterSource?: boolean;
 }
 
 export type RenderAsAdapterType = 'circle' | 'symbol' | 'heatmap' | 'line' | 'fill' | 'raster' | 'hillshade';
@@ -95,7 +96,7 @@ function capability(
   id: RenderAsId,
   label: string,
   source: Exclude<RenderAsSource, 'unsupported'>,
-  options: Pick<RendererCapability, 'backend' | 'sourceRequirement' | 'companionLayers' | 'viewerSupport' | 'styleJsonSupport' | 'requiresBoundedGeoJson'>,
+  options: Pick<RendererCapability, 'backend' | 'sourceRequirement' | 'companionLayers' | 'viewerSupport' | 'styleJsonSupport' | 'requiresClusterSource'>,
 ): RendererCapability {
   return {
     id,
@@ -131,11 +132,11 @@ export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
   }),
   capability('cluster', 'Cluster', 'vector-point', {
     backend: 'maplibre',
-    sourceRequirement: 'geojson',
+    sourceRequirement: 'geojson-or-cluster-tile',
     companionLayers: ['cluster', 'cluster-count', 'unclustered'],
     viewerSupport: 'native',
     styleJsonSupport: 'fallback',
-    requiresBoundedGeoJson: true,
+    requiresClusterSource: true,
   }),
   capability('line', 'Line', 'vector-line', {
     backend: 'maplibre',
@@ -352,7 +353,7 @@ export function getRendererCapabilities(layer: RenderAsLayer): RendererCapabilit
   if (source === 'unsupported') return [];
   return RENDERER_CAPABILITIES.filter((entry) => {
     if (!entry.enabled || entry.source !== source) return false;
-    if (entry.requiresBoundedGeoJson) return getClusterSourceEligibility(layer).eligible;
+    if (entry.requiresClusterSource) return canUseClusterSource(layer);
     return true;
   });
 }
@@ -375,7 +376,7 @@ export function getCurrentRenderAs(layer: RenderAsLayer): RenderAsId | null {
   }
 
   if (source === 'vector-point') {
-    if (renderMode === 'cluster' && getClusterSourceEligibility(layer).eligible) return 'cluster';
+    if (renderMode === 'cluster' && canUseClusterSource(layer)) return 'cluster';
     if (renderMode === 'heatmap') return 'heatmap';
     if (renderMode === 'symbol') return 'symbol';
     return 'point';

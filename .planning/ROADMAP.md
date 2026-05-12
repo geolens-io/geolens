@@ -70,10 +70,10 @@
 
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
 
-**Requirements:** 5/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+**Requirements:** 10/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
 
 - [x] **Phase 1027: server-cluster-tile-contract** — completed 2026-05-12
-- [ ] **Phase 1028: cluster-source-routing-and-authoring-parity** — pending
+- [x] **Phase 1028: cluster-source-routing-and-authoring-parity** — completed 2026-05-12
 - [ ] **Phase 1029: cluster-exploration-interactions** — pending
 - [ ] **Phase 1030: cluster-compatibility-and-style-json-interop** — pending
 - [ ] **Phase 1031: cluster-performance-browser-qa-closeout** — pending
@@ -99,7 +99,7 @@ Phase 1027 landed `GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf`, shared vec
 **Goal:** Route Cluster layers to bounded GeoJSON or server-side cluster tiles based on source eligibility while keeping one authoring model.
 
 Requirements: REND-01, REND-02, REND-03, REND-04, REND-05
-Status: pending
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Builder exposes Cluster for large point datasets when the server cluster contract is available.
@@ -107,6 +107,8 @@ Status: pending
 3. Map sync chooses bounded client-side GeoJSON for small datasets, server-side cluster tiles for large datasets, and Point fallback for unsupported states.
 4. Builder, public, shared, and embed viewers share the same source-routing and auth-context policy.
 5. Cluster style controls behave consistently across bounded and server-side cluster sources.
+
+Phase 1028 added shared cluster source strategy routing, cluster tile URL construction, server-tile MapLibre source sync, authoring capability parity for large point datasets, source-layer-aware cluster companion layers, viewer token-refresh support, and focused frontend tests for eligibility, routing, style controls, and auth-context URL generation.
 
 ### Phase 1029: cluster-exploration-interactions
 

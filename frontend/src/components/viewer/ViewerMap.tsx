@@ -10,7 +10,7 @@ import {
   resolveBasemapId,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildClusterTileUrl, buildSignedTileUrl, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
@@ -26,7 +26,7 @@ import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed 
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
-import { getClusterSourceEligibility, isClusterRenderMode } from '@/components/builder/cluster-source';
+import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 /**
@@ -149,7 +149,7 @@ export const ViewerMap = memo(function ViewerMap({
   const boundedGeoJsonLayers = useMemo(
     () => layerEntries.filter(({ layer }) => (
       (layer.is_3d && layer.feature_count != null && layer.feature_count <= 5000)
-      || (isClusterRenderMode(layer) && getClusterSourceEligibility(layer).eligible)
+      || shouldFetchClusterGeoJson(layer)
     )),
     [layerEntries],
   );
@@ -536,7 +536,14 @@ export const ViewerMap = memo(function ViewerMap({
       const source = map.getSource(sourceId);
       // Only vector sources need query-param URL refreshes.
       if (source && source.type === 'vector') {
-        const newUrl = buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
+        const strategy = getClusterSourceStrategy(layer);
+        const builder = layer.style_config?.builder;
+        const newUrl = strategy.kind === 'server-tile'
+          ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {
+              clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
+              clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
+            })
+          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }

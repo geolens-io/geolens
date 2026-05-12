@@ -5,6 +5,7 @@ import type { TileToken } from '@/api/tiles';
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
+  buildClusterTileUrl: vi.fn(() => '/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'),
 }));
 
 function makeMockMap(initial?: {
@@ -140,6 +141,35 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(sourceSpec).not.toHaveProperty('cluster');
     const layerIds = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0].id);
     expect(layerIds).toEqual(['layer-cluster-1']);
+  });
+
+  it('routes large cluster layers to server-side cluster vector tiles', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      style_config: {
+        render_mode: 'cluster',
+        builder: {
+          clusterRadius: 64,
+          clusterMaxZoom: 12,
+          clusterColor: '#fb923c',
+        },
+      } as SyncLayerInput['style_config'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+      type: 'vector',
+      tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+    }));
+    const layerSpecs = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
+    expect(layerSpecs.map((spec) => spec.id)).toEqual([
+      'layer-cluster-1-cluster',
+      'layer-cluster-1-cluster-count',
+      'layer-cluster-1',
+    ]);
+    expect(layerSpecs.every((spec) => spec['source-layer'] === 'data.points')).toBe(true);
   });
 
   it('replaces an existing vector source when bounded cluster data arrives', () => {

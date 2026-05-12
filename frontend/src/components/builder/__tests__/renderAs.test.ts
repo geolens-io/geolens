@@ -57,7 +57,7 @@ describe('renderAs view model', () => {
     expect(getCurrentRenderAs(point)).toBe('point');
   });
 
-  it('offers cluster only for bounded point vector layers with feature count metadata', () => {
+  it('offers cluster for bounded and large point vector layers with feature count metadata', () => {
     const boundedPoint = layer({
       dataset_geometry_type: 'MULTIPOINT',
       dataset_feature_count: 250,
@@ -68,7 +68,7 @@ describe('renderAs view model', () => {
     });
 
     expect(optionIds(boundedPoint)).toEqual(['point', 'symbol', 'heatmap', 'cluster']);
-    expect(optionIds(largePoint)).toEqual(['point', 'symbol', 'heatmap']);
+    expect(optionIds(largePoint)).toEqual(['point', 'symbol', 'heatmap', 'cluster']);
   });
 
   it('detects point symbol and heatmap render modes from style_config', () => {
@@ -85,7 +85,7 @@ describe('renderAs view model', () => {
     expect(getCurrentRenderAs(layer({
       dataset_feature_count: 10_000,
       style_config: { render_mode: 'cluster' } as StyleConfig,
-    }))).toBe('point');
+    }))).toBe('cluster');
   });
 
   it('offers line and arrow for line layers', () => {
@@ -122,11 +122,11 @@ describe('renderAs view model', () => {
     expect(cluster).toMatchObject({
       id: 'cluster',
       backend: 'maplibre',
-      sourceRequirement: 'geojson',
+      sourceRequirement: 'geojson-or-cluster-tile',
       companionLayers: ['cluster', 'cluster-count', 'unclustered'],
       viewerSupport: 'native',
       styleJsonSupport: 'fallback',
-      requiresBoundedGeoJson: true,
+      requiresClusterSource: true,
     });
     expect(cluster?.writableFields).toEqual(RENDER_AS_WRITABLE_FIELDS);
   });
@@ -264,7 +264,13 @@ describe('renderAs view model', () => {
       expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
     }
     expect(JSON.stringify(mutation?.patch)).not.toContain('is_3d');
-    expect(buildRenderAsPatch(layer({ dataset_geometry_type: 'POINT', dataset_feature_count: 6000 }), 'cluster')).toBeNull();
+    expect(buildRenderAsPatch(layer({ dataset_geometry_type: 'POINT', dataset_feature_count: 6000 }), 'cluster')).toEqual(
+      expect.objectContaining({
+        patch: expect.objectContaining({
+          style_config: expect.objectContaining({ render_mode: 'cluster' }),
+        }),
+      }),
+    );
   });
 
   it('builds polygon fill, stroke, and 3D extrusion patches without is_3d', () => {

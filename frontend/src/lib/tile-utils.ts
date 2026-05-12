@@ -24,12 +24,42 @@ export function buildSignedTileUrl(
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
   const url = `${base}/tiles/data.${tableName}/{z}/{x}/{y}.pbf`;
+  return appendTileParams(url, tileToken, tileVersion);
+}
+
+function appendTileParams(
+  url: string,
+  tileToken: { sig: string; exp: number; scope: string } | null,
+  tileVersion?: string | null,
+  extraParams: Record<string, string | number | null | undefined> = {},
+) {
   const params: string[] = [];
   if (tileToken) {
     params.push(`sig=${tileToken.sig}`, `exp=${tileToken.exp}`, `scope=${tileToken.scope}`);
+  }
+  for (const [key, value] of Object.entries(extraParams)) {
+    if (value == null) continue;
+    params.push(`${key}=${encodeURIComponent(String(value))}`);
   }
   if (tileVersion) {
     params.push(`_v=${encodeURIComponent(tileVersion)}`);
   }
   return params.length > 0 ? `${url}?${params.join('&')}` : url;
+}
+
+export function buildClusterTileUrl(
+  tableName: string,
+  tileToken: { sig: string; exp: number; scope: string } | null,
+  tileBaseUrl?: string | null,
+  tileVersion?: string | null,
+  options: { clusterRadius?: number; clusterMaxZoom?: number } = {},
+): string {
+  const base = tileBaseUrl
+    ? tileBaseUrl.replace(/\/$/, '')
+    : `${window.location.origin}/api`;
+  const url = `${base}/tiles/clusters/data.${tableName}/{z}/{x}/{y}.pbf`;
+  return appendTileParams(url, tileToken, tileVersion, {
+    cluster_radius: options.clusterRadius,
+    cluster_max_zoom: options.clusterMaxZoom,
+  });
 }
