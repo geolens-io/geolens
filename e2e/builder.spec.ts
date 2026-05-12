@@ -13,6 +13,16 @@ interface DatasetListItem {
   column_info?: { name: string; type: string }[] | null;
 }
 
+interface MapLayerListItem {
+  id: string;
+  dataset_id: string;
+  dataset_name?: string | null;
+  sort_order?: number | null;
+  paint?: unknown;
+  layout?: unknown;
+  style_config?: unknown;
+}
+
 interface JobStatusPayload {
   status: string;
   dataset_id: string | null;
@@ -108,6 +118,13 @@ async function createFallbackVectorDataset(authHeaders: Record<string, string>) 
 
   const datasetId = await waitForDatasetJob(upload.job_id, authHeaders);
   return { datasetId, title };
+}
+
+async function getMapLayers(mapId: string, authHeaders: Record<string, string>): Promise<MapLayerListItem[]> {
+  const response = await fetch(`${BASE_URL}/api/maps/${mapId}`, { headers: authHeaders });
+  expect(response.ok).toBe(true);
+  const payload = await response.json() as { layers?: MapLayerListItem[] };
+  return payload.layers ?? [];
 }
 
 let mapId: string;
@@ -287,6 +304,69 @@ test.describe.serial('Map Builder', () => {
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
     }
+  });
+
+  test('duplicates dataset renderings from row overflow and Add Dataset modal', async ({ page }) => {
+    const token = getAuthToken();
+    const headers = { Authorization: `Bearer ${token}` };
+    const initialLayers = await getMapLayers(mapId, headers);
+    const originalLayer = initialLayers[0];
+    expect(originalLayer).toBeTruthy();
+
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    const initialDatasetCount = initialLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id).length;
+    const originalRow = page.getByTestId(`layer-item-${originalLayer.id}`);
+    await expect(originalRow).toBeVisible();
+    await originalRow.getByRole('button', { name: 'More actions' }).click();
+
+    const rowDuplicateResponse = page.waitForResponse(
+      (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'POST',
+    );
+    await page.getByRole('menuitem', { name: /duplicate rendering/i }).click();
+    expect([200, 201]).toContain((await rowDuplicateResponse).status());
+
+    let afterRowLayers: MapLayerListItem[] = [];
+    await expect.poll(async () => {
+      afterRowLayers = await getMapLayers(mapId, headers);
+      return afterRowLayers.length;
+    }).toBe(initialLayers.length + 1);
+
+    const rowDuplicate = afterRowLayers.find((layer) => !initialLayers.some((existing) => existing.id === layer.id));
+    expect(rowDuplicate?.id).not.toBe(originalLayer.id);
+    expect(rowDuplicate?.dataset_id).toBe(originalLayer.dataset_id);
+    expect(rowDuplicate?.paint ?? null).toEqual(originalLayer.paint ?? null);
+    expect(rowDuplicate?.layout ?? null).toEqual(originalLayer.layout ?? null);
+    expect(rowDuplicate?.style_config ?? null).toEqual(originalLayer.style_config ?? null);
+    expect(afterRowLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id)).toHaveLength(initialDatasetCount + 1);
+    await expect(page.getByTestId(`dataset-rendering-group-${originalLayer.dataset_id}`))
+      .toContainText(`${initialDatasetCount + 1} renderings`);
+
+    await page.getByRole('button', { name: /add data/i }).first().click();
+    const dialog = page.getByRole('dialog', { name: /add dataset/i });
+    await expect(dialog).toBeVisible();
+    if (originalLayer.dataset_name) {
+      await dialog.getByLabel(/search datasets/i).fill(originalLayer.dataset_name);
+    }
+    await expect(dialog.getByRole('button', { name: 'another rendering' }).first()).toBeVisible();
+
+    const modalDuplicateResponse = page.waitForResponse(
+      (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'POST',
+    );
+    await dialog.getByRole('button', { name: 'another rendering' }).first().click();
+    expect([200, 201]).toContain((await modalDuplicateResponse).status());
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+
+    await expect.poll(async () => {
+      const layers = await getMapLayers(mapId, headers);
+      return layers.filter((layer) => layer.dataset_id === originalLayer.dataset_id).length;
+    }).toBe(initialDatasetCount + 2);
+    await expect(page.getByTestId(`dataset-rendering-group-${originalLayer.dataset_id}`))
+      .toContainText(`${initialDatasetCount + 2} renderings`);
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
   test('opens Map Info dialog', async ({ page }) => {
