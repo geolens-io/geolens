@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1003
 milestone_name: Builder v1 Hardening
-status: complete
-last_updated: "2026-05-12T14:07:01Z"
-last_activity: 2026-05-12 — v1003 Builder v1 Hardening completed: 24/24 requirements passed with builder smoke, focused tests, lint, build, and Playwright MCP evidence.
+status: archived
+last_updated: "2026-05-12T14:33:03Z"
+last_activity: 2026-05-12 — v1003 Builder v1 Hardening archived after passing 24/24 requirements with builder smoke, focused tests, lint, build, and Playwright MCP evidence.
 progress:
   total_phases: 5
   completed_phases: 5
@@ -18,29 +18,32 @@ progress:
 ## Current Position
 
 **Milestone:** v1003 — Builder v1 Hardening
-**Phase:** v1003 complete — Builder v1 Hardening
+**Phase:** v1003 archived — ready for next milestone planning
 **Plan:** —
-**Status:** v1003 complete and ready for user review/archive.
-**Last activity:** 2026-05-12 — Phase 1018 added saved-map round-trip and public/shared viewer compatibility coverage; milestone audit passed with recommendation GO.
+**Status:** v1003 complete, audited, and archived.
+**Last activity:** 2026-05-12 — v1003 Builder v1 Hardening archived after passing 24/24 requirements with builder smoke, focused tests, lint, build, and Playwright MCP evidence.
 
 Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
+See: .planning/PROJECT.md (updated 2026-05-12 after archiving v1003)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1003 Builder v1 Hardening complete — ready for archive/tag or next milestone planning.
+**Current focus:** Planning next milestone after v1003 Builder v1 Hardening closeout.
 
-## Active Milestone
+## Last Shipped Milestone
 
 **Version:** v1003 Builder v1 Hardening
 **Started:** 2026-05-12
-**Status:** Complete
+**Shipped:** 2026-05-12
+**Status:** Archived
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
 **Phases:** 1014-1018 (5 phases, 24 requirements; 24 requirements complete)
+**Audit:** passed / GO
+**Archive:** `.planning/milestones/v1003-ROADMAP.md`, `.planning/milestones/v1003-REQUIREMENTS.md`, `.planning/milestones/v1003-MILESTONE-AUDIT.md`
 
-## Last Shipped Milestone
+## Prior Shipped Milestone
 
 **Version:** v1002 Layer Sidebar + Add Dataset Redesign
 **Shipped:** 2026-05-12
@@ -49,7 +52,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 **Audit:** `tech_debt` / `COMPLETE_WITH_BROWSER_ENV_REVIEW`
 **Archive:** `.planning/milestones/v1002-ROADMAP.md`, `.planning/milestones/v1002-REQUIREMENTS.md`, `.planning/milestones/v1002-MILESTONE-AUDIT.md`
 
-## Prior Shipped Milestone
+## Earlier Shipped Milestone
 
 **Version:** v1001 Map Builder UI/UX Polish Sweep
 **Shipped:** 2026-05-11
@@ -194,9 +197,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-11T22:20:00Z
-Stopped at: v1001 milestone complete and archived; ready for next milestone planning.
-Resume file: `.planning/milestones/v1001-MILESTONE-AUDIT.md`
+Last session: 2026-05-12T14:33:03Z
+Stopped at: v1003 milestone complete, audited, archived, and ready for next milestone planning.
+Resume file: `.planning/milestones/v1003-MILESTONE-AUDIT.md`
 
 ---
-*Last updated: 2026-05-11 after closing v1001*
+*Last updated: 2026-05-12 after archiving v1003*

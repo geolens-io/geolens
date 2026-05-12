@@ -1,5 +1,41 @@
 # Milestones
 
+## v1003 Builder v1 Hardening (Shipped: 2026-05-12)
+
+**Delivered:** Browser-backed hardening for the v1002 Map Builder sidebar and Add Dataset redesign, proving duplicate renderings, basemap/terrain map-level writes, modal state, accessibility, responsive behavior, and saved-map/viewer round trips without schema or renderer changes.
+
+**Stats:**
+
+- **Phases:** 5 (1014-1018)
+- **Plans:** 5 / 5 complete
+- **Requirements:** 24/24 satisfied (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
+- **Audit:** passed / GO
+
+**Key accomplishments:**
+
+1. **Browser baseline established** — builder smoke, scoped accessibility checks, lint, build, and Playwright MCP verification now cover the redesigned sidebar, Add Dataset modal, and tablet sidebar clamp.
+2. **Duplicate renderings hardened** — both layer-row overflow and Add Dataset modal paths create sibling `MapLayer` rows with shared dataset identity and independent style fields.
+3. **RenderAs contract locked down** — v1 supported modes patch only existing writable fields and never write `is_3d`; explicitly punted renderers remain absent.
+4. **Basemap and terrain writes proven map-level** — swap/reset/appearance, terrain enabled/exaggeration/source, and raster-dem Use as terrain flows stay on existing map fields.
+5. **Add Dataset states verified** — All/Vector/Raster/Basemap tabs, API-backed filters, Add/added/another-rendering states, row expansion, import routing, and basemap swap/in-use states are covered.
+6. **Saved-map/viewer compatibility closed** — duplicate renderings, zoom ranges, basemap config, terrain config, public viewer, and shared viewer behavior round-trip without schema drift.
+
+**Known deferred items at close:**
+
+- Backend pytest, SDK/OpenAPI drift checks, CLI tests, and release packaging gates were not rerun because v1003 was scoped to frontend builder hardening.
+- Browser DEM terrain provisioning remains covered by deterministic component/unit tests rather than a seeded DEM E2E fixture.
+- Production build still emits the pre-existing large `map-vendor` chunk-size warning.
+
+**Archives:**
+
+- `.planning/milestones/v1003-ROADMAP.md`
+- `.planning/milestones/v1003-REQUIREMENTS.md`
+- `.planning/milestones/v1003-MILESTONE-AUDIT.md`
+
+**Tag:** `v1003`
+
+---
+
 ## v1002 Layer Sidebar + Add Dataset Redesign (Shipped: 2026-05-12)
 
 **Delivered:** A no-migration redesign of the Map Builder layer sidebar and Add Dataset modal over the existing Map/MapLayer/Record/Dataset model.
