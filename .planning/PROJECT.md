@@ -8,7 +8,7 @@ Shipped 50 milestones (v1.0-v1.6, v1.8-v1.9, v2.0-v2.6, v3.0-v7.0, v7.2-v7.3, v8
 
 ## Current State
 
-Milestones are delivered through v1002 Layer Sidebar + Add Dataset Redesign (shipped 2026-05-12), plus v14.0 marketing site shipped from `getgeolens.com` repo on 2026-04-13. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring + style JSON round-trip plus the v1002 schema-preserving sidebar/Add Dataset redesign.
+Milestones are delivered through v1002 Layer Sidebar + Add Dataset Redesign (shipped 2026-05-12), with a post-archive browser QA follow-up committed as `003a03ea` that resolved the local Playwright environment caveat and capped persisted tablet sidebar widths. v1003 Builder v1 Hardening is now active to convert the v1002 UI rewrite into durable browser-proven behavior across duplicate renderings, basemap/terrain writes, Add Dataset states, saved-map round trips, accessibility, and responsive regressions. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring + style JSON round-trip plus the v1002 schema-preserving sidebar/Add Dataset redesign.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
@@ -26,7 +26,7 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - Add Dataset modal rewrite with All/Vector/Raster/Basemap tabs, existing API filters, row expansion, Add/added/another-rendering states, basemap swap/in-use states, and ImportPage routing.
 - Focused QA coverage for renderAs, grouping, duplicate renderings, basemap/terrain writes, modal states, and Playwright spec coverage for sidebar/modal browser checks.
 
-**Milestone close:** 37/37 requirements satisfied across Phases 1008-1013. Audit: `tech_debt` because live Playwright execution was blocked by an unavailable local stack/Docker runtime. See `.planning/milestones/v1002-ROADMAP.md` and `.planning/milestones/v1002-MILESTONE-AUDIT.md`.
+**Milestone close:** 37/37 requirements satisfied across Phases 1008-1013. Audit: `tech_debt` because live Playwright execution was blocked at archive time by an unavailable local stack/Docker runtime. Post-archive QA on 2026-05-12 passed builder smoke, focused accessibility, lint, build, and Playwright MCP manual checks; it also landed `003a03ea` to cap persisted tablet sidebar widths while preserving desktop preferences. See `.planning/milestones/v1002-ROADMAP.md` and `.planning/milestones/v1002-MILESTONE-AUDIT.md`.
 
 ## Prior Shipped Milestone: v1001 Map Builder UI/UX Polish Sweep
 
@@ -54,9 +54,15 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - `PublicMapViewerPage.toSharedLayer` preserves `is_dem` and `dem_vertical_units` so authenticated public saved maps keep DEM relief semantics before `ViewerMap`.
 - Focused verification passed: `PublicMapViewerPage`, `ViewerMap.basemap-config`, `map-stack`, and frontend lint.
 
-## Next Milestone
+## Current Milestone: v1003 Builder v1 Hardening
 
-No active milestone is currently planned. Candidate follow-ups from v1002 remain renderer/capability scoped rather than schema cleanup: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, map timeline, recipes, cross-layer filters, blend mode, persisted basemap presets, org connector library, and exact-position modal-to-stack drag.
+**Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
+
+**Target features:**
+- Browser-backed regression coverage for the responsive builder shell, Map Stack row anatomy, and Add Dataset modal.
+- End-to-end duplicate-rendering coverage from both layer rows and the Add Dataset modal, with independently configurable sibling layers.
+- Basemap and terrain integration hardening that proves all writes remain map-level and saved maps round-trip unchanged.
+- Add Dataset modal state hardening for add/added/another-rendering, basemap swap/in-use, existing filters, import routing, keyboard, and accessibility behavior.
 
 ## Last Milestone (this repo): v13.13 Backlog Sweep (shipped 2026-05-07)
 
@@ -567,13 +573,17 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-None. v1002 is archived; start the next milestone with fresh requirements when the next scope is ready.
+- [ ] v1003 Builder v1 Hardening: users can rely on the redesigned Map Stack and Add Dataset modal across desktop/tablet browser flows without schema drift, console errors, or inaccessible controls.
+- [ ] v1003 duplicate-rendering hardening: users can create and independently configure multiple renderings of the same dataset from either sidebar row actions or the Add Dataset modal.
+- [ ] v1003 map-level integration hardening: basemap and terrain controls write only existing `Map` fields and survive save/reload/public-viewer round trips.
+- [ ] v1003 QA closeout: focused Vitest, Playwright builder smoke, Playwright accessibility, Playwright MCP manual checks, lint, and build are documented at milestone close.
 
 ### Out of Scope
 
-- v1002 excludes new renderers: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, and any deck.gl/Kepler renderer adoption.
-- v1002 excludes persisted basemap appearance presets beyond the existing `BasemapEntry` registry; if needed later, extend `BasemapEntry` with optional default config before adding a new table.
-- v1002 excludes blend mode, map timeline/cross-layer playback, recipes editor, org connector library, cross-layer filters, promote-imports-to-org workflow, cross-surface drag from Add Dataset into exact stack position, and Curated/Your imports/Public chips until an API contract exists.
+- v1003 excludes new renderers: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, and any deck.gl/Kepler renderer adoption.
+- v1003 excludes persisted basemap appearance presets beyond the existing `BasemapEntry` registry; if needed later, extend `BasemapEntry` with optional default config before adding a new table.
+- v1003 excludes blend mode, map timeline/cross-layer playback, recipes editor, org connector library, cross-layer filters, promote-imports-to-org workflow, cross-surface drag from Add Dataset into exact stack position, and Curated/Your imports/Public chips until an API contract exists.
+- v1003 excludes any new `Map`, `MapLayer`, `Dataset`, `Record`, basemap preset, timeline, recipe, or connector schema changes.
 
 - Persistent connector registry, scheduled mirroring, encrypted credential vault, and connector UI — still Phase 999.13 / Enterprise backlog
 - Tenant scoping for the future Cloud tier — still Phase 999.6 and not needed for single-tenant self-hosted manifest apply
@@ -612,7 +622,7 @@ None. v1002 is archived; start the next milestone with fresh requirements when t
 
 ## Context
 
-- **Current state**: v13.7 shipped. 49 milestones delivered. v13.8 is active and scoped to Map Builder Advanced Styling from GitHub milestone #1 / tracker #97. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, declarative `geolens.yaml` manifests, CLI init/validate/apply automation, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, catalog/processing boundaries, maps/search service facades, and manifest adoption workflows.
+- **Current state**: v1003 is active after v1002 shipped the schema-preserving Map Builder sidebar/Add Dataset redesign. Full-featured GIS catalog supporting vector, raster, and VRT datasets with faceted search (FTS + pgvector + keyword/org/CRS facets + ranking boosts), map preview, export, collections, layer creation/editing, AI-assisted map building, related dataset discovery, STAC 1.1 export for raster/VRT interop, publication lifecycle, VRT lifecycle management, declarative `geolens.yaml` manifests, CLI init/validate/apply automation, and i18n (en/es/fr/de). Open-core extension seams now cover identity, audit, billing, AI providers, embeddings, permissions, workflows, catalog/processing boundaries, maps/search service facades, and manifest adoption workflows.
 - **Architecture**: Database-first. PostgreSQL 17 + PostGIS 3.5 is the system of record. FastAPI serves vector tiles (ST_AsMVT with signed URL tokens), raster tiles (via Titiler with RBAC-gated token endpoint), features (paginated GeoJSON with bbox/property filtering), catalog metadata, search, auth, OGC discovery, and job orchestration. Background worker runs Procrastinate ingestion tasks. Titiler serves XYZ raster tiles from COG files. Frontend is a static SPA served by nginx with reverse proxy to the API.
 - **OGC Compliance**: OGC API Common Core, OGC API Records Core, OGC API Features Part 3 (Filtering/CQL2). Conformance classes declared at `/api/conformance`.
 - **Users**: Mix of GIS analysts (power users), data engineers (API consumers), and non-technical staff (browsing/downloading). Search-first UI serves all three. Machine clients (QGIS, GDAL, scripts) can now consume the catalog programmatically.
@@ -816,6 +826,7 @@ None. v1002 is archived; start the next milestone with fresh requirements when t
 | 3 composable hooks from MapBuilderPage | useBuilderDialogs, useBuilderLayers, useBuilderSave — 1131→481 lines | ✓ Good — each hook independently testable |
 | getLayerCapabilities shared capability model | Single function returns edit/style/export capabilities per layer type | ✓ Good — eliminated 4 inline type-checking branches |
 | data-testid on interactive test targets | Explicit test selectors instead of fragile DOM structure queries | ✓ Good — basemap test no longer vacuously passes |
+| v1003 hardens the shipped v1002 builder surfaces before adding new renderer capabilities | The sidebar/modal rewrite changed high-frequency authoring workflows; durable browser evidence should precede Cluster/Hexbin/H3/timeline or catalog-contract expansion | — Pending |
 
 ## Evolution
 
@@ -835,4 +846,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after shipping v1002 Layer Sidebar + Add Dataset Redesign*
+*Last updated: 2026-05-12 after starting v1003 Builder v1 Hardening*

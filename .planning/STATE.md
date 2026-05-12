@@ -1,40 +1,43 @@
 ---
 gsd_state_version: 1.0
-milestone: v1002
-milestone_name: Layer Sidebar + Add Dataset Redesign
-status: completed
-last_updated: "2026-05-12T11:55:00Z"
-last_activity: 2026-05-12 — Focused sidebar/modal tests, lint, and build pass; Playwright specs now cover the redesigned sidebar/modal, but live browser execution is blocked by the unavailable local stack.
+milestone: v1003
+milestone_name: Builder v1 Hardening
+status: defining_requirements
+last_updated: "2026-05-12T12:55:00Z"
+last_activity: 2026-05-12 — Started v1003 Builder v1 Hardening to turn v1002 sidebar/Add Dataset behavior into durable browser, accessibility, and round-trip coverage.
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-**Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
-**Phase:** Phase 1013 complete — Builder sidebar/modal QA closeout
-**Plan:** 1013-01 complete
-**Status:** v1002 milestone complete; no active milestone is currently planned.
-**Last activity:** 2026-05-12 — Focused sidebar/modal tests, lint, and build pass; Playwright specs now cover the redesigned sidebar/modal, but live browser execution is blocked by the unavailable local stack.
+**Milestone:** v1003 — Builder v1 Hardening
+**Phase:** Not started — defining requirements
+**Plan:** —
+**Status:** Defining requirements
+**Last activity:** 2026-05-12 — v1003 started after Playwright MCP verified the v1002 implementation and exposed one tablet persisted-sidebar regression, fixed in `003a03ea`.
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after v1002 closeout)
+See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone. v1002 is archived; next scope should start with fresh requirements.
+**Current focus:** v1003 Builder v1 Hardening — browser-backed QA, accessibility, saved-map round trips, and interaction hardening for the v1002 sidebar/Add Dataset redesign.
 
 ## Active Milestone
 
-None. v1002 is archived; start the next milestone with `$gsd-new-milestone` when scope is ready.
+**Version:** v1003 Builder v1 Hardening
+**Started:** 2026-05-12
+**Status:** Defining requirements
+**Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
 
 ## Last Shipped Milestone
 
