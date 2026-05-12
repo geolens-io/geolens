@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1003
 milestone_name: Builder v1 Hardening
-status: defining_requirements
+status: roadmap_ready
 last_updated: "2026-05-12T12:55:00Z"
 last_activity: 2026-05-12 — v1003 roadmap created with five phases for browser baseline, duplicate renderings, basemap/terrain, Add Dataset states, and saved-map round-trip closeout.
 progress:
