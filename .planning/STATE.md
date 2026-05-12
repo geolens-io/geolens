@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1006
 milestone_name: Large Dataset Cluster Scaling
 status: in_progress
-last_updated: "2026-05-12T21:21:32Z"
-last_activity: 2026-05-12 — Phase 1029 completed with cluster companion hit-testing, aggregate popups, click/keyboard zoom activation, and stack/legend source-state labels.
+last_updated: "2026-05-12T21:26:27Z"
+last_activity: 2026-05-12 — Phase 1030 completed with explicit cluster strategy metadata in style JSON export while preserving point/vector standalone fallback and cluster intent round-trip.
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 60
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
+  percent: 80
 ---
 
 # State
@@ -18,19 +18,19 @@ progress:
 ## Current Position
 
 **Milestone:** v1006 — Large Dataset Cluster Scaling
-**Phase:** 1030 — cluster-compatibility-and-style-json-interop
+**Phase:** 1031 — cluster-performance-browser-qa-closeout
 **Plan:** —
-**Status:** Phase 1029 complete; ready to prove saved-map/style JSON/viewer compatibility.
-**Last activity:** 2026-05-12 — Phase 1029 completed with cluster companion hit-testing, aggregate popups, click/keyboard zoom activation, and stack/legend source-state labels.
+**Status:** Phase 1030 complete; ready for performance/browser QA closeout.
+**Last activity:** 2026-05-12 — Phase 1030 completed with explicit cluster strategy metadata in style JSON export while preserving point/vector standalone fallback and cluster intent round-trip.
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1030 cluster compatibility and style JSON interop.
+**Current focus:** Phase 1031 cluster performance, browser QA, and closeout.
 
 ## Active Milestone
 
@@ -38,8 +38,8 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 **Started:** 2026-05-12
 **Status:** In progress
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving the existing saved-map shape and renderer controls, and adding the expected cluster exploration interactions without regressing normal vector tiles.
-**Phases:** 1027-1031 (5 phases, 25 requirements; 14 requirements complete)
-**Next phase:** 1030 cluster-compatibility-and-style-json-interop
+**Phases:** 1027-1031 (5 phases, 25 requirements; 19 requirements complete)
+**Next phase:** 1031 cluster-performance-browser-qa-closeout
 
 ## Last Shipped Milestone
 
@@ -133,6 +133,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 
 ### Roadmap Evolution
 
+- Phase 1030 completed 2026-05-12: MapLibre style JSON export now documents bounded/server/fallback cluster strategy and standalone point-vector fallback in source metadata, while layer metadata continues to preserve Cluster intent for import/reload and the existing drawable style remains normal vector/point fallback for standalone consumers.
 - Phase 1029 completed 2026-05-12: cluster companion circle/count layers now participate in builder and viewer hit-testing, pointer click and canvas keyboard activation zoom clusters using MapLibre expansion or server `expansion_zoom`, aggregate popups show count/source metadata without full-table scans, and Map Stack plus viewer legend distinguish bounded, server-side, and fallback cluster states.
 - Phase 1028 completed 2026-05-12: large vector point datasets now expose Cluster through the existing renderAs capability contract, map sync routes bounded clusters to GeoJSON and large clusters to authenticated server-side MVT cluster tiles, builder/public/shared/embed viewers share the same routing policy, and cluster style controls feed both source paths without schema changes.
 - Phase 1027 completed 2026-05-12: added authenticated `GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf`, shared vector-tile auth helpers, point-only validation, bounded cluster MVT SQL, cluster-specific cache keys, and backend coverage for success, rejection, cache keys, private auth, embed-token access, and SQL property shape.

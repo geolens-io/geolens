@@ -70,12 +70,12 @@
 
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
 
-**Requirements:** 14/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+**Requirements:** 19/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
 
 - [x] **Phase 1027: server-cluster-tile-contract** — completed 2026-05-12
 - [x] **Phase 1028: cluster-source-routing-and-authoring-parity** — completed 2026-05-12
 - [x] **Phase 1029: cluster-exploration-interactions** — completed 2026-05-12
-- [ ] **Phase 1030: cluster-compatibility-and-style-json-interop** — pending
+- [x] **Phase 1030: cluster-compatibility-and-style-json-interop** — completed 2026-05-12
 - [ ] **Phase 1031: cluster-performance-browser-qa-closeout** — pending
 
 ### Phase 1027: server-cluster-tile-contract
@@ -130,7 +130,7 @@ Phase 1029 added shared cluster interaction helpers, builder/viewer companion-la
 **Goal:** Prove server-side Cluster keeps saved-map, style JSON, viewer, and previous renderer compatibility intact.
 
 Requirements: COMP-01, COMP-02, COMP-03, COMP-04, COMP-05
-Status: pending
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Normal vector tile behavior and cache semantics remain unchanged for non-cluster render modes.
@@ -138,6 +138,8 @@ Status: pending
 3. Saved maps with Cluster intent reload in builder and viewers across bounded, server-side, and Point fallback paths.
 4. Style JSON export/import preserves Cluster intent and documents standalone fallback behavior.
 5. Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, Hillshade, basemap, terrain, duplicate rendering, and Add Dataset behavior remains unchanged.
+
+Phase 1030 kept standalone style JSON drawable output on the point/vector fallback path, preserved Cluster intent through layer metadata, added source metadata that documents bounded/server/fallback cluster strategy and standalone fallback policy, and extended backend style JSON tests for server-side cluster export.
 
 ### Phase 1031: cluster-performance-browser-qa-closeout
 

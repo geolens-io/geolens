@@ -30,6 +30,7 @@ DEFAULT_FILL_COLOR = "#3b82f6"
 DEFAULT_STROKE_COLOR = "#1d4ed8"
 DEFAULT_ARROW_ICON = "arrow-right"
 DEFAULT_ARROW_BASE_SIZE = 14
+CLUSTER_GEOJSON_FEATURE_LIMIT = 5000
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _LABEL_METADATA_KEYS = {
@@ -336,6 +337,65 @@ def _drop_unsupported_line_gradient(
     return filtered
 
 
+def _cluster_feature_count(layer: MapLayerResponse) -> int | None:
+    count = layer.dataset_feature_count
+    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+        return count
+    return None
+
+
+def _is_cluster_point_vector(layer: MapLayerResponse) -> bool:
+    if (layer.style_config or {}).get("render_mode") != "cluster":
+        return False
+    if layer.is_dem is True:
+        return False
+    if layer.layer_type == "raster_geolens":
+        return False
+    if layer.dataset_record_type and layer.dataset_record_type != "vector_dataset":
+        return False
+    geometry_type = (layer.dataset_geometry_type or "").upper()
+    return "POINT" in geometry_type
+
+
+def _cluster_source_strategy(layer: MapLayerResponse) -> tuple[str, str]:
+    count = _cluster_feature_count(layer)
+    if (layer.style_config or {}).get("render_mode") != "cluster":
+        return "fallback", "not-cluster"
+    if not _is_cluster_point_vector(layer):
+        return "fallback", "unsupported-source"
+    if count is None:
+        return "fallback", "missing-count"
+    if count > CLUSTER_GEOJSON_FEATURE_LIMIT:
+        return "server-tile", "too-many-features"
+    return "bounded-geojson", "eligible"
+
+
+def _append_cluster_source_metadata(
+    source: dict[str, Any],
+    layer: MapLayerResponse,
+) -> None:
+    if (layer.style_config or {}).get("render_mode") != "cluster":
+        return
+    metadata = source.setdefault("metadata", {})
+    geolens = metadata.setdefault("geolens", {})
+    if not isinstance(geolens, dict):
+        return
+    strategy, status = _cluster_source_strategy(layer)
+    renderers = geolens.setdefault("cluster_renderers", [])
+    if not isinstance(renderers, list):
+        return
+    renderers.append(
+        {
+            "layer_id": str(layer.id),
+            "source_strategy": strategy,
+            "status": status,
+            "feature_count": _cluster_feature_count(layer),
+            "geojson_feature_limit": CLUSTER_GEOJSON_FEATURE_LIMIT,
+            "standalone_fallback": "point-vector-tile",
+        }
+    )
+
+
 def _geometry_layer_type(
     geometry_type: str | None,
     style_config: dict | None,
@@ -415,6 +475,7 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
             "record_type": layer.dataset_record_type,
         }
     }
+    _append_cluster_source_metadata(source, layer)
     return source
 
 
@@ -781,7 +842,10 @@ def build_maplibre_style(
     style_layers: list[dict[str, Any]] = []
     for layer in sorted(layers, key=lambda item: item.sort_order):
         source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
-        sources.setdefault(source_id, _source_for_layer(layer))
+        if source_id not in sources:
+            sources[source_id] = _source_for_layer(layer)
+        else:
+            _append_cluster_source_metadata(sources[source_id], layer)
         base_layer, companions = _style_layer_for_map_layer(layer, source_id)
         style_layers.append(base_layer)
         style_layers.extend(companions)

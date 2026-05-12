@@ -41,7 +41,7 @@ def _layer(**overrides):
         dataset_table_name=overrides.get("dataset_table_name", "public_stops"),
         dataset_extent_bbox=None,
         dataset_column_info=None,
-        dataset_feature_count=None,
+        dataset_feature_count=overrides.get("dataset_feature_count", None),
         dataset_sample_values=None,
         display_name=overrides.get("display_name", "Stops"),
         sort_order=overrides.get("sort_order", 0),
@@ -489,6 +489,7 @@ def test_build_maplibre_style_exports_cluster_intent_with_point_fallback():
     layer = _layer(
         dataset_id=dataset_id,
         dataset_geometry_type="POINT",
+        dataset_feature_count=120,
         paint={"circle-color": "#2255aa", "circle-radius": 6},
         label_config=None,
         style_config={
@@ -508,6 +509,16 @@ def test_build_maplibre_style_exports_cluster_intent_with_point_fallback():
     source = style["sources"][f"geolens-{dataset_id}"]
     assert source["type"] == "vector"
     assert "cluster" not in source
+    assert source["metadata"]["geolens"]["cluster_renderers"] == [
+        {
+            "layer_id": str(layer.id),
+            "source_strategy": "bounded-geojson",
+            "status": "eligible",
+            "feature_count": 120,
+            "geojson_feature_limit": 5000,
+            "standalone_fallback": "point-vector-tile",
+        }
+    ]
     assert [entry["type"] for entry in style["layers"]] == ["circle"]
     primary = style["layers"][0]
     assert primary["paint"] == {"circle-color": "#2255aa", "circle-radius": 6}
@@ -519,6 +530,47 @@ def test_build_maplibre_style_exports_cluster_intent_with_point_fallback():
             "clusterColor": "#fb923c",
             "clusterTextColor": "#111827",
             "clusterTextSize": 13,
+        },
+    }
+
+
+def test_build_maplibre_style_documents_server_cluster_standalone_fallback():
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="POINT",
+        dataset_feature_count=50_000,
+        paint={"circle-color": "#2255aa", "circle-radius": 6},
+        label_config=None,
+        style_config={
+            "render_mode": "cluster",
+            "builder": {
+                "clusterRadius": 72,
+                "clusterMaxZoom": 13,
+            },
+        },
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "vector"
+    assert source["tiles"][0].startswith("/tiles/data.public_stops/")
+    assert source["metadata"]["geolens"]["cluster_renderers"] == [
+        {
+            "layer_id": str(layer.id),
+            "source_strategy": "server-tile",
+            "status": "too-many-features",
+            "feature_count": 50_000,
+            "geojson_feature_limit": 5000,
+            "standalone_fallback": "point-vector-tile",
+        }
+    ]
+    assert style["layers"][0]["metadata"]["geolens"]["style_config"] == {
+        "render_mode": "cluster",
+        "builder": {
+            "clusterRadius": 72,
+            "clusterMaxZoom": 13,
         },
     }
 

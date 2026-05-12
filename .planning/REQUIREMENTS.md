@@ -43,11 +43,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 ### Compatibility And Interop
 
-- [ ] **COMP-01**: Existing normal vector tile behavior and cache semantics remain unchanged for non-cluster render modes.
-- [ ] **COMP-02**: Existing bounded client-side Cluster behavior remains available and unchanged for small eligible point datasets.
-- [ ] **COMP-03**: Saved maps with Cluster intent reload in builder and public/shared/embed viewers regardless of whether the source path resolves to bounded GeoJSON, server tiles, or Point fallback.
-- [ ] **COMP-04**: Style JSON export/import preserves Cluster intent and documents any standalone fallback policy for server-side cluster sources.
-- [ ] **COMP-05**: Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, Hillshade, basemap, terrain, duplicate rendering, and Add Dataset behavior remains unchanged.
+- [x] **COMP-01**: Existing normal vector tile behavior and cache semantics remain unchanged for non-cluster render modes.
+- [x] **COMP-02**: Existing bounded client-side Cluster behavior remains available and unchanged for small eligible point datasets.
+- [x] **COMP-03**: Saved maps with Cluster intent reload in builder and public/shared/embed viewers regardless of whether the source path resolves to bounded GeoJSON, server tiles, or Point fallback.
+- [x] **COMP-04**: Style JSON export/import preserves Cluster intent and documents any standalone fallback policy for server-side cluster sources.
+- [x] **COMP-05**: Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, Hillshade, basemap, terrain, duplicate rendering, and Add Dataset behavior remains unchanged.
 
 ### QA And Closeout
 
@@ -95,11 +95,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 | UX-02 | Phase 1029 | Complete |
 | UX-03 | Phase 1029 | Complete |
 | UX-04 | Phase 1029 | Complete |
-| COMP-01 | Phase 1030 | Pending |
-| COMP-02 | Phase 1030 | Pending |
-| COMP-03 | Phase 1030 | Pending |
-| COMP-04 | Phase 1030 | Pending |
-| COMP-05 | Phase 1030 | Pending |
+| COMP-01 | Phase 1030 | Complete |
+| COMP-02 | Phase 1030 | Complete |
+| COMP-03 | Phase 1030 | Complete |
+| COMP-04 | Phase 1030 | Complete |
+| COMP-05 | Phase 1030 | Complete |
 | QA-01 | Phase 1031 | Pending |
 | QA-02 | Phase 1031 | Pending |
 | QA-03 | Phase 1031 | Pending |
@@ -109,11 +109,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 **Coverage:**
 - v1006 requirements: 25 total
-- Complete: 14
-- Pending: 11
+- Complete: 19
+- Pending: 6
 - Mapped to phases: 25
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1029 completion*
+*Last updated: 2026-05-12 after Phase 1030 completion*
