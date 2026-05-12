@@ -51,14 +51,14 @@ Redesign the Map Builder layer sidebar and Add Dataset workflow over the existin
 
 ### Add Dataset Modal
 
-- [ ] **ADD-01**: The Add Dataset modal remains search-first and reuses the existing dataset search API rather than introducing a new catalog endpoint.
-- [ ] **ADD-02**: Modal tabs are `All`, `Vector`, `Raster`, and `Basemap`; DEM appears under Raster when existing metadata identifies it as DEM.
-- [ ] **ADD-03**: Modal filter chips use only current supported dataset search filters, such as `record_type`, `source_organization`, `keywords`, and `collection`.
-- [ ] **ADD-04**: Data records not on the map show `Add to map` and create a new `MapLayer` at the top of the data stack or next append position per current sort-order behavior.
-- [ ] **ADD-05**: Data records already on the map show `(added)` and `another rendering`; `another rendering` creates the same duplicate-rendering result as the row overflow action.
-- [ ] **ADD-06**: Basemap records show `swap` when inactive and `in use` when active, writing only current basemap fields.
-- [ ] **ADD-07**: Expanded modal rows show preview/metadata and primary actions using existing dataset/search response data.
-- [ ] **ADD-08**: The modal footer links to existing `ImportPage` as `Import data...`; no upload, service, or STAC import logic is reimplemented inside the modal.
+- [x] **ADD-01**: The Add Dataset modal remains search-first and reuses the existing dataset search API rather than introducing a new catalog endpoint.
+- [x] **ADD-02**: Modal tabs are `All`, `Vector`, `Raster`, and `Basemap`; DEM appears under Raster when existing metadata identifies it as DEM.
+- [x] **ADD-03**: Modal filter chips use only current supported dataset search filters, such as `record_type`, `source_organization`, `keywords`, and `collection`.
+- [x] **ADD-04**: Data records not on the map show `Add to map` and create a new `MapLayer` at the top of the data stack or next append position per current sort-order behavior.
+- [x] **ADD-05**: Data records already on the map show `(added)` and `another rendering`; `another rendering` creates the same duplicate-rendering result as the row overflow action.
+- [x] **ADD-06**: Basemap records show `swap` when inactive and `in use` when active, writing only current basemap fields.
+- [x] **ADD-07**: Expanded modal rows show preview/metadata and primary actions using existing dataset/search response data.
+- [x] **ADD-08**: The modal footer links to existing `ImportPage` as `Import data...`; no upload, service, or STAC import logic is reimplemented inside the modal.
 
 ### Quality Gates
 

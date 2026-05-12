@@ -14,7 +14,7 @@ import { ShareDialog } from '@/components/builder/SharePanel';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { formatRelativeDate } from '@/lib/format';
 import { getVisibilityLabel } from '@/i18n/labels';
-import type { MapResponse } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, MapResponse } from '@/types/api';
 
 interface BuilderDialogsProps {
   mapId?: string;
@@ -23,8 +23,15 @@ interface BuilderDialogsProps {
   showAddData: boolean;
   onShowAddDataChange: (open: boolean) => void;
   onAddDataset: (datasetId: string) => void;
-  existingDatasetIds: string[];
+  onDuplicateRendering: (layerId: string) => void;
+  layers: MapLayerResponse[];
   isAdding: boolean;
+  basemapStyle: string;
+  showBasemapLabels: boolean;
+  basemapConfig: MapBasemapConfig | null;
+  onBasemapChange: (key: string) => void;
+  onBasemapLabelsChange: (show: boolean) => void;
+  onBasemapConfigChange: (value: MapBasemapConfig) => void;
   // Share
   showShare: boolean;
   onShowShareChange: (open: boolean) => void;
@@ -45,8 +52,15 @@ export function BuilderDialogs({
   showAddData,
   onShowAddDataChange,
   onAddDataset,
-  existingDatasetIds,
+  onDuplicateRendering,
+  layers,
   isAdding,
+  basemapStyle,
+  showBasemapLabels,
+  basemapConfig,
+  onBasemapChange,
+  onBasemapLabelsChange,
+  onBasemapConfigChange,
   showShare,
   onShowShareChange,
   hasUnsavedChanges,
@@ -63,15 +77,22 @@ export function BuilderDialogs({
     <>
       {/* Add Data dialog */}
       <Dialog open={showAddData} onOpenChange={onShowAddDataChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('search.title')}</DialogTitle>
             <DialogDescription>{t('search.dialogDescription')}</DialogDescription>
           </DialogHeader>
           <DatasetSearchPanel
             onAddDataset={onAddDataset}
-            existingDatasetIds={existingDatasetIds}
+            onDuplicateRendering={onDuplicateRendering}
+            layers={layers}
             isAdding={isAdding}
+            basemapStyle={basemapStyle}
+            showBasemapLabels={showBasemapLabels}
+            basemapConfig={basemapConfig}
+            onBasemapChange={onBasemapChange}
+            onBasemapLabelsChange={onBasemapLabelsChange}
+            onBasemapConfigChange={onBasemapConfigChange}
           />
         </DialogContent>
       </Dialog>

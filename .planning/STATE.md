@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1002
 milestone_name: Layer Sidebar + Add Dataset Redesign
 status: executing
-last_updated: "2026-05-12T00:50:26Z"
-last_activity: 2026-05-12 — Phase 1011 shipped inline basemap and terrain rows over existing map-level fields.
+last_updated: "2026-05-12T01:01:19Z"
+last_activity: 2026-05-12 — Phase 1012 shipped the Add Dataset modal redesign over existing search, layer, and basemap handlers.
 progress:
   total_phases: 6
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 67
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
+  percent: 83
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
-**Phase:** Phase 1011 complete — basemap and terrain inline rows
-**Plan:** 1011-01 complete
-**Status:** Ready to plan Phase 1012.
-**Last activity:** 2026-05-12 — Consolidated basemap controls into the basemap stack row, moved terrain into Relief, and added DEM Use as terrain.
+**Phase:** Phase 1012 complete — Add Dataset modal redesign
+**Plan:** 1012-01 complete
+**Status:** Ready to plan Phase 1013.
+**Last activity:** 2026-05-12 — Reworked the Add Dataset modal with tabs, existing API filter chips, expandable rows, Add/added/another rendering states, basemap swap/in-use states, and ImportPage routing.
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 83%
 
 ## Project Reference
 
@@ -90,6 +90,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 
 ### Roadmap Evolution
 
+- Phase 1012 completed 2026-05-12: Add Dataset modal now has All/Vector/Raster/Basemap tabs, existing search-param filter chips, expandable data/basemap rows, Add/added/another-rendering states, basemap swap/in-use states, and `/import` routing.
 - Phase 1011 completed 2026-05-12: basemap row displays the current `BasemapEntry.label`, inline swap/reset/appearance writes stay on map-level basemap fields, terrain is surfaced in Relief, and raster DEM rows can set `terrain_config` via Use as terrain.
 - Phase 1010 completed 2026-05-12: renderAs changes now produce existing-field patches only, polygon 3D extrusion writes builder metadata without `is_3d`, and row overflow Duplicate rendering posts a sibling map layer input.
 - Phase 1009 completed 2026-05-12: primary layer rows now expose renderAs, opacity, and zoom-range controls; duplicated dataset renderings get collapsible data headers; focused sidebar tests, lint, and build pass.

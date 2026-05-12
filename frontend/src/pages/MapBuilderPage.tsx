@@ -283,7 +283,6 @@ export function MapBuilderPage() {
   const { byAnchor, sidebar } = usePartitionedWidgets();
   const activeWidgetSet = useWidgetStore((state) => state.activeWidgets);
   const activeWidgetIds = useMemo(() => Array.from(activeWidgetSet), [activeWidgetSet]);
-  const existingDatasetIds = useMemo(() => layers.localLayers.map((l) => l.dataset_id), [layers.localLayers]);
 
   const editingLayer = useMemo(
     () => layers.expandedLayerId ? layers.localLayers.find((l) => l.id === layers.expandedLayerId) ?? null : null,
@@ -612,8 +611,19 @@ export function MapBuilderPage() {
         showAddData={dialogs.showAddData}
         onShowAddDataChange={dialogs.setShowAddData}
         onAddDataset={layers.handleAddDataset}
-        existingDatasetIds={existingDatasetIds}
+        onDuplicateRendering={layers.handleDuplicateRendering}
+        layers={layers.localLayers}
         isAdding={addLayer.isPending}
+        basemapStyle={layers.localBasemap}
+        showBasemapLabels={layers.showBasemapLabels}
+        basemapConfig={layers.basemapConfig}
+        onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
+        onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
+        onBasemapConfigChange={(next) => {
+          layers.setBasemapConfig(next);
+          layers.setShowBasemapLabels(next.label_mode !== 'hidden');
+          layers.markDirty();
+        }}
         showShare={dialogs.showShare}
         onShowShareChange={dialogs.setShowShare}
         hasUnsavedChanges={layers.hasUnsavedChanges}
