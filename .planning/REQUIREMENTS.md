@@ -28,11 +28,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 ### Duplicate Rendering And RenderAs Behavior
 
-- [ ] **DUP-01**: A user can duplicate a dataset rendering from a layer-row overflow action, producing a sibling `MapLayer` with the same `dataset_id` and independent style fields.
-- [ ] **DUP-02**: A user can add another rendering from the Add Dataset modal when a dataset is already on the map, producing the same sibling-layer result as the row action.
-- [ ] **DUP-03**: Duplicate renderings appear under the dataset-rendering header with the correct `N renderings` count and remain individually visible, renameable, reorderable, and removable.
-- [ ] **DUP-04**: RenderAs changes for supported v1 modes patch only existing writable fields (`layer_type`, `style_config`, `paint`, `layout`) and never write `is_3d`.
-- [ ] **DUP-05**: Unsupported v1-punted renderers remain absent from the UI and tests: Cluster, Hexbin, H3, Arrow, Animated path, and Point 3D extrusion.
+- [x] **DUP-01**: A user can duplicate a dataset rendering from a layer-row overflow action, producing a sibling `MapLayer` with the same `dataset_id` and independent style fields.
+- [x] **DUP-02**: A user can add another rendering from the Add Dataset modal when a dataset is already on the map, producing the same sibling-layer result as the row action.
+- [x] **DUP-03**: Duplicate renderings appear under the dataset-rendering header with the correct `N renderings` count and remain individually visible, renameable, reorderable, and removable.
+- [x] **DUP-04**: RenderAs changes for supported v1 modes patch only existing writable fields (`layer_type`, `style_config`, `paint`, `layout`) and never write `is_3d`.
+- [x] **DUP-05**: Unsupported v1-punted renderers remain absent from the UI and tests: Cluster, Hexbin, H3, Arrow, Animated path, and Point 3D extrusion.
 
 ### Basemap And Terrain Integration
 
@@ -89,11 +89,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 | BQA-03 | Phase 1014 | Complete |
 | BQA-04 | Phase 1014 | Complete |
 | BQA-05 | Phase 1014 | Complete |
-| DUP-01 | Phase 1015 | Pending |
-| DUP-02 | Phase 1015 | Pending |
-| DUP-03 | Phase 1015 | Pending |
-| DUP-04 | Phase 1015 | Pending |
-| DUP-05 | Phase 1015 | Pending |
+| DUP-01 | Phase 1015 | Complete |
+| DUP-02 | Phase 1015 | Complete |
+| DUP-03 | Phase 1015 | Complete |
+| DUP-04 | Phase 1015 | Complete |
+| DUP-05 | Phase 1015 | Complete |
 | MAPCTL-01 | Phase 1016 | Pending |
 | MAPCTL-02 | Phase 1016 | Pending |
 | MAPCTL-03 | Phase 1016 | Pending |
@@ -111,11 +111,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 **Coverage:**
 - v1003 requirements: 24 total
-- Complete: 5
-- Pending: 19
+- Complete: 10
+- Pending: 14
 - Mapped to phases: 24
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1014 verification*
+*Last updated: 2026-05-12 after Phase 1015 verification*

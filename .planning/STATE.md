@@ -4,13 +4,13 @@ milestone: v1003
 milestone_name: Builder v1 Hardening
 status: in_progress
 last_updated: "2026-05-12T12:55:00Z"
-last_activity: 2026-05-12 — Phase 1014 browser baseline completed: focused Vitest, builder smoke, builder accessibility, lint, build, and Playwright MCP tablet/modal checks passed.
+last_activity: 2026-05-12 — Phase 1015 duplicate rendering hardening completed: row overflow and Add Dataset another-rendering browser flows now pass in builder smoke.
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 20
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 40
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1003 — Builder v1 Hardening
-**Phase:** Phase 1015 ready — Duplicate rendering and renderAs hardening
+**Phase:** Phase 1016 ready — Basemap and terrain integration hardening
 **Plan:** —
-**Status:** Phase 1014 complete; next step is phase discussion/planning for Phase 1015.
-**Last activity:** 2026-05-12 — Phase 1014 verified the browser baseline and responsive shell with Playwright MCP evidence.
+**Status:** Phase 1015 complete; next step is phase discussion/planning for Phase 1016.
+**Last activity:** 2026-05-12 — Phase 1015 added browser proof for both duplicate-rendering entry points and kept renderAs field-discipline tests green.
 
-Progress: [██░░░░░░░░] 20%
+Progress: [████░░░░░░] 40%
 
 ## Project Reference
 
@@ -38,7 +38,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 **Started:** 2026-05-12
 **Status:** In progress
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
-**Phases:** 1014-1018 (5 phases, 24 requirements; 5 requirements complete)
+**Phases:** 1014-1018 (5 phases, 24 requirements; 10 requirements complete)
 
 ## Last Shipped Milestone
 
