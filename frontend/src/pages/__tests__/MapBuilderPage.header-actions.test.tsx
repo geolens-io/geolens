@@ -16,6 +16,7 @@ const dialogsState = {
   setSidebarCollapsed: vi.fn(),
 };
 let mockIsMobile = false;
+let mockViewportWidth = 1440;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -94,10 +95,11 @@ vi.mock('@/hooks/use-document-title', () => ({
 
 vi.mock('@/hooks/use-settings', () => ({
   useEnabledWidgets: () => ({ data: null }),
+  useBasemaps: () => ({ data: [] }),
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-layout', () => ({
-  useBuilderLayout: () => ({ isMobile: mockIsMobile }),
+  useBuilderLayout: () => ({ isMobile: mockIsMobile, viewportWidth: mockViewportWidth }),
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
@@ -143,6 +145,8 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     handleZoomToLayer: vi.fn(),
     handleToggleLegend: vi.fn(),
     handleAddDataset: vi.fn(),
+    handleRenderAsChange: vi.fn(),
+    handleDuplicateRendering: vi.fn(),
     handleAiRemoveLayer: vi.fn(),
     handleQueryResult: vi.fn(),
     handleDismissEphemeral: vi.fn(),
@@ -171,6 +175,7 @@ describe('MapBuilderPage header actions', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
     mockIsMobile = false;
+    mockViewportWidth = 1440;
     dialogsState.sidebarCollapsed = false;
     dialogsState.setShowShare.mockReset();
     localStorage.clear();
@@ -215,5 +220,20 @@ describe('MapBuilderPage header actions', () => {
 
     expect(resizeHandle).toHaveAttribute('aria-valuenow', '270');
     expect(localStorage.getItem('geolens-builder-sidebar-width')).toBe('270');
+  });
+
+  it('caps a persisted wide sidebar on tablet-sized builder viewports', () => {
+    mockViewportWidth = 834;
+    localStorage.setItem('geolens-builder-sidebar-width', '600');
+
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    const sidebar = screen.getByTestId('builder-sidebar');
+    const resizeHandle = screen.getByRole('slider', { name: 'tooltips.resizeSidebar' });
+
+    expect(sidebar).toHaveStyle({ width: '470px' });
+    expect(resizeHandle).toHaveAttribute('aria-valuenow', '470');
+    expect(resizeHandle).toHaveAttribute('aria-valuemax', '470');
+    expect(localStorage.getItem('geolens-builder-sidebar-width')).toBe('600');
   });
 });

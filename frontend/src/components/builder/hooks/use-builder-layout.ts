@@ -4,6 +4,9 @@ const BUILDER_COMPACT_BREAKPOINT = 1024
 const BUILDER_MOBILE_BREAKPOINT = 768
 
 export function useBuilderLayout() {
+  const [viewportWidth, setViewportWidth] = React.useState<number>(
+    () => window.innerWidth
+  )
   const [isCompact, setIsCompact] = React.useState<boolean>(
     () => window.innerWidth < BUILDER_COMPACT_BREAKPOINT
   )
@@ -14,17 +17,23 @@ export function useBuilderLayout() {
   React.useEffect(() => {
     const compactMql = window.matchMedia(`(max-width: ${BUILDER_COMPACT_BREAKPOINT - 1}px)`)
     const mobileMql = window.matchMedia(`(max-width: ${BUILDER_MOBILE_BREAKPOINT - 1}px)`)
-    const onCompact = () => setIsCompact(compactMql.matches)
-    const onMobile = () => setIsMobile(mobileMql.matches)
+    const onResize = () => {
+      setViewportWidth(window.innerWidth)
+      setIsCompact(compactMql.matches)
+      setIsMobile(mobileMql.matches)
+    }
+    const onCompact = onResize
+    const onMobile = onResize
     compactMql.addEventListener("change", onCompact)
     mobileMql.addEventListener("change", onMobile)
-    onCompact()
-    onMobile()
+    window.addEventListener("resize", onResize)
+    onResize()
     return () => {
       compactMql.removeEventListener("change", onCompact)
       mobileMql.removeEventListener("change", onMobile)
+      window.removeEventListener("resize", onResize)
     }
   }, [])
 
-  return { isCompact, isMobile }
+  return { isCompact, isMobile, viewportWidth }
 }

@@ -219,6 +219,15 @@ test.describe.serial('Map Builder', () => {
       await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
       await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
       await expect(page.locator('[inert]')).toHaveCount(0);
+
+      if (viewport.label === 'tablet') {
+        await page.evaluate(() => localStorage.setItem('geolens-builder-sidebar-width', '600'));
+        await page.reload();
+        await waitForBuilder(page);
+
+        const sidebarWidth = await page.getByTestId('builder-sidebar').evaluate((el) => el.offsetWidth);
+        expect(sidebarWidth).toBeLessThanOrEqual(470);
+      }
     }
   });
 

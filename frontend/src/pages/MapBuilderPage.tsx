@@ -40,6 +40,8 @@ import { useWidgetStore } from '@/stores/map-widget-store';
 const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 600;
+const SIDEBAR_MIN_MAP_WIDTH = 320;
+const BUILDER_RAIL_WIDTH = 44;
 
 const SidebarContent = memo(function SidebarContent({
   layers,
@@ -130,7 +132,7 @@ export function MapBuilderPage() {
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
-  const { isMobile } = useBuilderLayout();
+  const { isMobile, viewportWidth = window.innerWidth } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   // mapInstance state duplicates the ref — needed to trigger re-renders for
@@ -167,6 +169,19 @@ export function MapBuilderPage() {
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarElRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
+  const sidebarMaxForViewport = Math.max(
+    SIDEBAR_MIN,
+    Math.min(SIDEBAR_MAX, viewportWidth - BUILDER_RAIL_WIDTH - SIDEBAR_MIN_MAP_WIDTH),
+  );
+  const renderedSidebarWidth = Math.min(sidebarWidth, sidebarMaxForViewport);
+  const renderedSidebarWidthRef = useRef(renderedSidebarWidth);
+  const sidebarMaxForViewportRef = useRef(sidebarMaxForViewport);
+
+  useEffect(() => {
+    renderedSidebarWidthRef.current = renderedSidebarWidth;
+    sidebarMaxForViewportRef.current = sidebarMaxForViewport;
+    sidebarWidthRef.current = sidebarWidth;
+  }, [renderedSidebarWidth, sidebarMaxForViewport, sidebarWidth]);
 
   const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -174,10 +189,13 @@ export function MapBuilderPage() {
     target.setPointerCapture(e.pointerId);
     isDraggingRef.current = true;
     const startX = e.clientX;
-    const startWidth = sidebarWidthRef.current;
+    const startWidth = renderedSidebarWidthRef.current;
 
     const onMove = (moveEvent: PointerEvent) => {
-      const w = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), SIDEBAR_MIN), SIDEBAR_MAX);
+      const w = Math.min(
+        Math.max(startWidth + (moveEvent.clientX - startX), SIDEBAR_MIN),
+        sidebarMaxForViewportRef.current,
+      );
       sidebarWidthRef.current = w;
       // P-12: Set DOM style directly during drag, skip React state
       if (sidebarElRef.current) {
@@ -206,7 +224,7 @@ export function MapBuilderPage() {
     const step = e.shiftKey ? 50 : 10;
     const delta = e.key === 'ArrowRight' ? step : -step;
     setSidebarWidth((prev) => {
-      const next = Math.min(Math.max(prev + delta, SIDEBAR_MIN), SIDEBAR_MAX);
+      const next = Math.min(Math.max(prev + delta, SIDEBAR_MIN), sidebarMaxForViewportRef.current);
       sidebarWidthRef.current = next;
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
       return next;
@@ -467,7 +485,7 @@ export function MapBuilderPage() {
           dialogs.sidebarCollapsed ? "w-0 border-e-0 transition-[width,border-width] duration-200 ease-out" : "",
           !dialogs.sidebarCollapsed && !isDraggingRef.current ? "transition-[width,border-width] duration-200 ease-out" : ""
         )}
-        style={dialogs.sidebarCollapsed ? undefined : { width: sidebarWidth }}
+        style={dialogs.sidebarCollapsed ? undefined : { width: renderedSidebarWidth }}
         onTransitionEnd={() => { mapInstanceRef.current?.resize(); }}
         {...(dialogs.sidebarCollapsed ? { inert: true } : {})}
       >
@@ -481,9 +499,9 @@ export function MapBuilderPage() {
             role="slider"
             aria-orientation="horizontal"
             aria-label={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
-            aria-valuenow={sidebarWidth}
+            aria-valuenow={renderedSidebarWidth}
             aria-valuemin={SIDEBAR_MIN}
-            aria-valuemax={SIDEBAR_MAX}
+            aria-valuemax={sidebarMaxForViewport}
             title={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
             className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 transition-colors hover:bg-primary/10 active:bg-primary/15"
           />
