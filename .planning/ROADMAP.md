@@ -61,8 +61,94 @@
 - ✅ **v1003 Builder v1 Hardening** — Phases 1014-1018 (shipped 2026-05-12) — see [archive](milestones/v1003-ROADMAP.md)
 - ✅ **v1004 Builder Renderer Expansion** — Phases 1019-1022 (shipped 2026-05-12) — see [archive](milestones/v1004-ROADMAP.md)
 - ✅ **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (shipped 2026-05-12) — see [archive](milestones/v1005-ROADMAP.md)
+- 🚧 **v1006 Large Dataset Cluster Scaling** — Phases 1027-1031 (active)
 
 ## Phases
+
+<details open>
+<summary>🚧 v1006 Large Dataset Cluster Scaling (Phases 1027-1031) — ACTIVE</summary>
+
+**Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
+
+**Requirements:** 0/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+
+- [ ] **Phase 1027: server-cluster-tile-contract** — pending
+- [ ] **Phase 1028: cluster-source-routing-and-authoring-parity** — pending
+- [ ] **Phase 1029: cluster-exploration-interactions** — pending
+- [ ] **Phase 1030: cluster-compatibility-and-style-json-interop** — pending
+- [ ] **Phase 1031: cluster-performance-browser-qa-closeout** — pending
+
+### Phase 1027: server-cluster-tile-contract
+
+**Goal:** Add the backend contract for clustered point tiles without changing persisted map/layer schemas or normal vector tile behavior.
+
+Requirements: SCL-01, SCL-02, SCL-03, SCL-04, SCL-05
+Status: pending
+
+**Success Criteria:**
+1. Backend exposes a server-side cluster tile/source contract for large vector point datasets.
+2. Public, private signed-tile, API-key, and embed-token access use existing tile authorization rules.
+3. Cluster and unclustered features emit stable properties needed by MapLibre rendering and interaction.
+4. Cluster SQL is bounded by tile envelope, zoom, limits, validated identifiers, and controlled empty/error responses.
+5. Tile cache keys separate normal vector tiles from cluster tiles and include cluster-relevant options.
+
+### Phase 1028: cluster-source-routing-and-authoring-parity
+
+**Goal:** Route Cluster layers to bounded GeoJSON or server-side cluster tiles based on source eligibility while keeping one authoring model.
+
+Requirements: REND-01, REND-02, REND-03, REND-04, REND-05
+Status: pending
+
+**Success Criteria:**
+1. Builder exposes Cluster for large point datasets when the server cluster contract is available.
+2. Cluster renderAs changes continue writing only existing `style_config.render_mode` / `style_config.builder` fields.
+3. Map sync chooses bounded client-side GeoJSON for small datasets, server-side cluster tiles for large datasets, and Point fallback for unsupported states.
+4. Builder, public, shared, and embed viewers share the same source-routing and auth-context policy.
+5. Cluster style controls behave consistently across bounded and server-side cluster sources.
+
+### Phase 1029: cluster-exploration-interactions
+
+**Goal:** Add the expected map exploration affordances for clustered point datasets without disrupting existing popup and label behavior.
+
+Requirements: UX-01, UX-02, UX-03, UX-04
+Status: pending
+
+**Success Criteria:**
+1. Users can pointer-click or keyboard-activate a cluster to zoom toward its contents without mutating saved map state until save.
+2. Cluster aggregate popups show count plus bounded summary/sample information without full-table scans.
+3. Legend, map stack, and row state distinguish bounded Cluster, server-side Cluster, and Point fallback.
+4. Pointer, keyboard, and touch interactions do not interfere with existing feature popups, labels, or layer visibility.
+
+### Phase 1030: cluster-compatibility-and-style-json-interop
+
+**Goal:** Prove server-side Cluster keeps saved-map, style JSON, viewer, and previous renderer compatibility intact.
+
+Requirements: COMP-01, COMP-02, COMP-03, COMP-04, COMP-05
+Status: pending
+
+**Success Criteria:**
+1. Normal vector tile behavior and cache semantics remain unchanged for non-cluster render modes.
+2. Existing bounded client-side Cluster remains available for small eligible point datasets.
+3. Saved maps with Cluster intent reload in builder and viewers across bounded, server-side, and Point fallback paths.
+4. Style JSON export/import preserves Cluster intent and documents standalone fallback behavior.
+5. Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, Hillshade, basemap, terrain, duplicate rendering, and Add Dataset behavior remains unchanged.
+
+### Phase 1031: cluster-performance-browser-qa-closeout
+
+**Goal:** Validate large-dataset cluster performance and close the milestone with automated and browser evidence.
+
+Requirements: QA-01, QA-02, QA-03, QA-04, QA-05, QA-06
+Status: pending
+
+**Success Criteria:**
+1. Backend tests cover cluster SQL/query construction, auth, cache keys, empty tiles, and controlled errors.
+2. Frontend tests cover eligibility, source routing, map sync, style controls, fallback states, and cluster lifecycle.
+3. Public/shared/embed viewer tests prove server-side Cluster works under the same access contexts as normal tiles.
+4. A seeded or synthetic large point dataset validates that cluster tiles avoid full-table GeoJSON and stay within a documented response budget.
+5. Playwright MCP verifies a live large point dataset can switch to Cluster, save, reload, interact with clusters, and remain console-clean.
+6. Focused Vitest, backend pytest, i18n, lint, build, ruff, builder smoke, and relevant Playwright specs pass.
+
+</details>
 
 <details>
 <summary>✅ v1005 Builder Point Cluster Foundation (Phases 1023-1026) — SHIPPED 2026-05-12</summary>

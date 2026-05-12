@@ -8,9 +8,21 @@ Shipped milestones through v1005, plus cross-repo marketing/docs milestones. Pro
 
 ## Current State
 
-Milestones are delivered through v1005 Builder Point Cluster Foundation (shipped 2026-05-12), which added native MapLibre point clustering for bounded eligible point datasets while preserving saved-map schemas, style JSON intent, and public/shared/embed viewer compatibility. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring, Line → Arrow rendering, bounded Point Cluster rendering, style JSON round-trip, and the schema-preserving sidebar/Add Dataset redesign hardened in v1002-v1003.
+Milestones are delivered through v1005 Builder Point Cluster Foundation (shipped 2026-05-12), and v1006 Large Dataset Cluster Scaling is active. v1005 added native MapLibre point clustering for bounded eligible point datasets while preserving saved-map schemas, style JSON intent, and public/shared/embed viewer compatibility. v1006 extends that capability to large point datasets through a server-side clustered tile/source path and cluster exploration UX. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring, Line → Arrow rendering, bounded Point Cluster rendering, style JSON round-trip, and the schema-preserving sidebar/Add Dataset redesign hardened in v1002-v1003.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
+
+## Current Milestone: v1006 Large Dataset Cluster Scaling
+
+**Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
+
+**Target features:**
+- Server-side cluster tile/source contract for large vector point datasets that reuses existing vector tile auth, embed-token, API-key, and cache patterns.
+- Builder eligibility and map-sync routing that choose bounded GeoJSON clustering for small datasets, server-side cluster tiles for large datasets, and Point fallback for unsupported states.
+- Unified Cluster authoring controls across bounded and server-side cluster sources with no new persisted map or layer fields.
+- Cluster exploration interactions: zoom/expand on cluster activation, aggregate popup/summary, accessible pointer/keyboard/touch behavior, and clear row/legend fallback states.
+- Compatibility coverage for saved maps, public/shared/embed viewers, style JSON export/import policy, and existing render modes.
+- Performance and browser QA against a seeded or synthetic large point dataset.
 
 ## Recent Shipped Milestone: v1005 Builder Point Cluster Foundation
 
@@ -891,4 +903,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after shipping v1005 Builder Point Cluster Foundation*
+*Last updated: 2026-05-12 after starting v1006 Large Dataset Cluster Scaling*
