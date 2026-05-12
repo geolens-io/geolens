@@ -6,7 +6,7 @@ const baseLayer = {
   dataset_record_type: 'vector_dataset',
   layer_type: 'vector_geolens',
   is_dem: false,
-  style_config: { render_mode: 'cluster' },
+  style_config: { render_mode: 'cluster' as const },
 };
 
 describe('cluster source strategy', () => {

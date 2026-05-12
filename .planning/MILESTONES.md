@@ -1,5 +1,44 @@
 # Milestones
 
+## v1006 Large Dataset Cluster Scaling (Shipped: 2026-05-12)
+
+**Delivered:** Server-side cluster MVT scaling for large point datasets, with shared builder/viewer routing, cluster exploration interactions, style JSON strategy metadata, and live Playwright MCP large-dataset QA.
+
+**Stats:**
+
+- **Phases:** 5 (1027-1031)
+- **Plans:** 5 / 5 complete
+- **Requirements:** 25/25 satisfied (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+- **Audit:** passed / GO
+
+**Key accomplishments:**
+
+1. **Server cluster tiles shipped** — `GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf` emits bounded authenticated MVT cluster tiles with cluster-specific cache keys.
+2. **Large-dataset routing shipped** — Cluster layers choose bounded GeoJSON for small point datasets, server-side cluster tiles for large point datasets, and Point fallback for unsupported states.
+3. **Authoring contract preserved** — Cluster still writes existing `style_config.render_mode` / `style_config.builder` fields only, with no schema migration or new renderer dependency.
+4. **Cluster exploration added** — pointer and keyboard activation hit cluster companion layers, zoom toward contents, and show aggregate popup metadata without full-table scans.
+5. **Style JSON policy locked** — export records bounded/server/fallback cluster strategy metadata while standalone styles remain drawable through point/vector fallback.
+6. **Live UAT blockers fixed** — imported `MULTIPOINT` point-family tables now cluster correctly, and private cluster tile URLs wait for HMAC token params before source creation.
+7. **QA completed** — focused frontend/backend/i18n/lint/build/ruff checks, builder smoke, and Playwright MCP large-dataset console-clean UAT passed.
+
+**Known deferred items at close:**
+
+- Hexbin and H3 aggregation renderers.
+- Animated path / Trips rendering plus map-level timeline controls.
+- Point 3D extrusion.
+- Cross-layer filters, recipes, blend mode, persisted basemap appearance presets, exact-position Add Dataset drag, and advanced aggregation controls beyond cluster count/sample summaries.
+- Frontend production build still emits the pre-existing large `map-vendor` chunk-size warning.
+
+**Archives:**
+
+- `.planning/milestones/v1006-ROADMAP.md`
+- `.planning/milestones/v1006-REQUIREMENTS.md`
+- `.planning/milestones/v1006-MILESTONE-AUDIT.md`
+
+**Tag:** `v1006`
+
+---
+
 ## v1005 Builder Point Cluster Foundation (Shipped: 2026-05-12)
 
 **Delivered:** A schema-preserving native MapLibre Point Cluster foundation for bounded eligible point datasets, with builder controls, viewer compatibility, style JSON intent preservation, and live Playwright QA.

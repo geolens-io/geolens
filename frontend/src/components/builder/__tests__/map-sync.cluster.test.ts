@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { syncLayersToMap } from '../map-sync';
 import type { SyncLayerInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
+import { buildClusterTileUrl } from '@/lib/tile-utils';
 
 vi.mock('@/lib/tile-utils', () => ({
   buildSignedTileUrl: vi.fn(() => '/tiles/mock/{z}/{x}/{y}.pbf'),
@@ -159,6 +160,10 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
+    expect(buildClusterTileUrl).toHaveBeenCalledWith('points', VECTOR_TOKEN, undefined, undefined, {
+      clusterRadius: 64,
+      clusterMaxZoom: 12,
+    });
     expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
       type: 'vector',
       tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],

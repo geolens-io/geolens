@@ -180,9 +180,10 @@ bounds AS (
 candidates AS (
     SELECT
         t.gid,
-        ST_Transform(t.geom_4326, 3857) AS geom_3857
+        ST_Transform(ST_PointOnSurface(t.geom_4326), 3857) AS geom_3857
     FROM data.{table_name} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
+      AND NOT ST_IsEmpty(t.geom_4326)
     LIMIT {_CLUSTER_INPUT_LIMIT}
 ),
 bucketed AS (

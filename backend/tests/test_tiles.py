@@ -101,6 +101,37 @@ async def _create_data_table(session, table_name: str) -> None:
     await session.commit()
 
 
+async def _create_multipoint_data_table(session, table_name: str) -> None:
+    """Create a PostGIS data table with a multipoint feature."""
+    await session.execute(
+        text(
+            f"CREATE TABLE IF NOT EXISTS data.{table_name} ("
+            f"  gid SERIAL PRIMARY KEY,"
+            f"  name TEXT,"
+            f"  value INTEGER,"
+            f"  geom GEOMETRY(MultiPoint, 3857),"
+            f"  geom_4326 GEOMETRY(MultiPoint, 4326)"
+            f")"
+        )
+    )
+    await session.execute(
+        text(
+            f"CREATE INDEX IF NOT EXISTS idx_{table_name}_geom_4326 "
+            f"ON data.{table_name} USING GIST (geom_4326)"
+        )
+    )
+    await session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (name, value, geom, geom_4326) VALUES ("
+            f"  'test_multipoint', 42,"
+            f"  ST_Transform(ST_Multi(ST_SetSRID(ST_MakePoint(0, 0), 4326)), 3857),"
+            f"  ST_Multi(ST_SetSRID(ST_MakePoint(0, 0), 4326))"
+            f")"
+        )
+    )
+    await session.commit()
+
+
 async def _cleanup_data_table(session, table_name: str) -> None:
     """Drop the test data table."""
     await session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
@@ -192,6 +223,27 @@ class TestTileEndpoint:
             assert resp.status_code == 200
             assert resp.headers["content-type"] == "application/vnd.mapbox-vector-tile"
             assert resp.headers["content-encoding"] == "gzip"
+            assert len(resp.content) > 0
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+    async def test_cluster_tile_endpoint_handles_multipoint(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Point-family cluster tiles handle imported multipoint geometries."""
+        table_name = f"cluster_multi_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset = await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        dataset.geometry_type = "MultiPoint"
+        await test_db_session.commit()
+        await _create_multipoint_data_table(test_db_session, table_name)
+
+        try:
+            resp = await client.get(f"/tiles/clusters/data.{table_name}/0/0/0.pbf")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/vnd.mapbox-vector-tile"
             assert len(resp.content) > 0
         finally:
             await _cleanup_data_table(test_db_session, table_name)
@@ -521,6 +573,7 @@ class TestTileQueryStructure:
         assert "source_gid" in query
         assert "ST_AsMVTGeom" in query
         assert "ST_AsMVT" in query
+        assert "ST_PointOnSurface(t.geom_4326)" in query
         assert "$5::integer" in query  # cluster max zoom
         assert "$6::float8" in query  # cluster radius
 

@@ -481,10 +481,10 @@ export const ViewerMap = memo(function ViewerMap({
         return;
       }
       if (!canvas) return;
-      const point: [number, number] = [
-        (canvas.clientWidth || canvas.width) / 2,
-        (canvas.clientHeight || canvas.height) / 2,
-      ];
+      const point = {
+        x: (canvas.clientWidth || canvas.width) / 2,
+        y: (canvas.clientHeight || canvas.height) / 2,
+      } as MapMouseEvent['point'];
       const hits = queryInteractiveFeatures(map, point);
       if (hits === null) return;
       const clusterHit = findClusterHit(hits);
@@ -681,7 +681,11 @@ export const ViewerMap = memo(function ViewerMap({
       prevOrderKeyRef.current = '';
       // Guard: if layers haven't loaded yet, skip — the sync effect will
       // run when layers arrive via its own dependency on the layers prop.
-      if (syncInputsRef.current.layers.length > 0) {
+      // Also match the main sync effect's token gate so private vector
+      // sources are never created with transient unsigned tile URLs.
+      const hasLayers = syncInputsRef.current.layers.length > 0;
+      const hasTokens = syncInputsRef.current.tokenMap.size > 0;
+      if (hasLayers && (embedToken || hasTokens)) {
         runSync(map);
       }
       // style.load wipes all custom sources; re-seed terrain source if a DEM is present.

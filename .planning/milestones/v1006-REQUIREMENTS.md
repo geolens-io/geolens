@@ -1,22 +1,24 @@
 # Requirements: v1006 Large Dataset Cluster Scaling
 
 **Defined:** 2026-05-12
-**Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
+**Shipped:** 2026-05-12
+**Status:** 25 / 25 complete
 
 ## Milestone Goal
 
 Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving the existing saved-map shape and renderer controls, and adding the expected cluster exploration interactions without regressing normal vector tiles.
 
-## Constraints
+## Requirement Coverage
 
-- Preserve `Map`, `MapLayer`, `Dataset`, and `Record` persisted schemas unless implementation proves a narrowly justified migration is unavoidable.
-- Keep Cluster intent in existing `style_config.render_mode` / `style_config.builder` fields.
-- Do not replace the normal vector-tile path for Point, Symbol, Heatmap, Arrow, Fill/Stroke, Raster, Hillshade, or bounded client-side Cluster.
-- Reuse existing vector tile auth, public visibility, API-key, embed-token, cache, and map-sync patterns where possible.
-- Keep cluster queries bounded by tile envelope, zoom, feature limits, and cache keys; large datasets must not fall back to full-table GeoJSON.
-- Keep MapLibre-first architecture; no deck.gl/H3 dependency in this milestone.
+| Group | Requirements | Status |
+|---|---|---|
+| Server-side cluster tile contract | SCL-01..05 | 5/5 complete |
+| Renderer routing and authoring | REND-01..05 | 5/5 complete |
+| Cluster exploration UX | UX-01..04 | 4/4 complete |
+| Compatibility and interop | COMP-01..05 | 5/5 complete |
+| QA and closeout | QA-01..06 | 6/6 complete |
 
-## v1006 Requirements
+## Completed Requirements
 
 ### Server-Side Cluster Tile Contract
 
@@ -66,54 +68,3 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 - Cross-layer filters, recipes, blend mode, and persisted basemap appearance presets.
 - Exact-position drag from Add Dataset directly into the stack.
 - Full analytics-grade aggregation controls beyond cluster count/sample summaries.
-
-## Out of Scope
-
-| Feature | Reason |
-|---|---|
-| deck.gl renderer adoption | v1006 can extend MapLibre/PostGIS clustering first without a second rendering stack. |
-| H3/Hexbin implementation | These need different aggregation semantics and have ADRs from v1004. |
-| Timeline playback | Time filtering and playback state are larger than clustering and remain a separate capability milestone. |
-| Persisted cluster recipe/editor model | v1006 should keep the existing `style_config` contract and avoid new recipe tables. |
-| Full-table GeoJSON fallback for large datasets | This is the problem v1006 is avoiding; fallback must be Point/vector-tile or bounded server output. |
-
-## Traceability
-
-| Requirement | Phase | Status |
-|---|---|---|
-| SCL-01 | Phase 1027 | Complete |
-| SCL-02 | Phase 1027 | Complete |
-| SCL-03 | Phase 1027 | Complete |
-| SCL-04 | Phase 1027 | Complete |
-| SCL-05 | Phase 1027 | Complete |
-| REND-01 | Phase 1028 | Complete |
-| REND-02 | Phase 1028 | Complete |
-| REND-03 | Phase 1028 | Complete |
-| REND-04 | Phase 1028 | Complete |
-| REND-05 | Phase 1028 | Complete |
-| UX-01 | Phase 1029 | Complete |
-| UX-02 | Phase 1029 | Complete |
-| UX-03 | Phase 1029 | Complete |
-| UX-04 | Phase 1029 | Complete |
-| COMP-01 | Phase 1030 | Complete |
-| COMP-02 | Phase 1030 | Complete |
-| COMP-03 | Phase 1030 | Complete |
-| COMP-04 | Phase 1030 | Complete |
-| COMP-05 | Phase 1030 | Complete |
-| QA-01 | Phase 1031 | Complete |
-| QA-02 | Phase 1031 | Complete |
-| QA-03 | Phase 1031 | Complete |
-| QA-04 | Phase 1031 | Complete |
-| QA-05 | Phase 1031 | Complete |
-| QA-06 | Phase 1031 | Complete |
-
-**Coverage:**
-- v1006 requirements: 25 total
-- Complete: 25
-- Pending: 0
-- Mapped to phases: 25
-- Unmapped: 0
-
----
-*Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1031 completion*

@@ -61,22 +61,22 @@
 - ✅ **v1003 Builder v1 Hardening** — Phases 1014-1018 (shipped 2026-05-12) — see [archive](milestones/v1003-ROADMAP.md)
 - ✅ **v1004 Builder Renderer Expansion** — Phases 1019-1022 (shipped 2026-05-12) — see [archive](milestones/v1004-ROADMAP.md)
 - ✅ **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (shipped 2026-05-12) — see [archive](milestones/v1005-ROADMAP.md)
-- 🚧 **v1006 Large Dataset Cluster Scaling** — Phases 1027-1031 (active)
+- ✅ **v1006 Large Dataset Cluster Scaling** — Phases 1027-1031 (shipped 2026-05-12) — see [archive](milestones/v1006-ROADMAP.md)
 
 ## Phases
 
-<details open>
-<summary>🚧 v1006 Large Dataset Cluster Scaling (Phases 1027-1031) — ACTIVE</summary>
+<details>
+<summary>✅ v1006 Large Dataset Cluster Scaling (Phases 1027-1031) — SHIPPED 2026-05-12</summary>
 
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
 
-**Requirements:** 19/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+**Requirements:** 25/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
 
 - [x] **Phase 1027: server-cluster-tile-contract** — completed 2026-05-12
 - [x] **Phase 1028: cluster-source-routing-and-authoring-parity** — completed 2026-05-12
 - [x] **Phase 1029: cluster-exploration-interactions** — completed 2026-05-12
 - [x] **Phase 1030: cluster-compatibility-and-style-json-interop** — completed 2026-05-12
-- [ ] **Phase 1031: cluster-performance-browser-qa-closeout** — pending
+- [x] **Phase 1031: cluster-performance-browser-qa-closeout** — completed 2026-05-12
 
 ### Phase 1027: server-cluster-tile-contract
 
@@ -146,7 +146,7 @@ Phase 1030 kept standalone style JSON drawable output on the point/vector fallba
 **Goal:** Validate large-dataset cluster performance and close the milestone with automated and browser evidence.
 
 Requirements: QA-01, QA-02, QA-03, QA-04, QA-05, QA-06
-Status: pending
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Backend tests cover cluster SQL/query construction, auth, cache keys, empty tiles, and controlled errors.
@@ -155,6 +155,10 @@ Status: pending
 4. A seeded or synthetic large point dataset validates that cluster tiles avoid full-table GeoJSON and stay within a documented response budget.
 5. Playwright MCP verifies a live large point dataset can switch to Cluster, save, reload, interact with clusters, and remain console-clean.
 6. Focused Vitest, backend pytest, i18n, lint, build, ruff, builder smoke, and relevant Playwright specs pass.
+
+Phase 1031 ran the closeout gates, fixed Playwright-discovered multipoint cluster SQL and unsigned private cluster tile timing bugs, added a multipoint regression test plus token-dispatch coverage, and verified a 6,001-feature live large point dataset in Playwright MCP with signed server-cluster tile requests, aggregate cluster popup interaction, and zero current-page browser warnings/errors.
+
+25/25 v1006 requirements satisfied. Audit: passed / GO. Shipped authenticated server-side cluster MVT tiles for large point datasets, source routing across builder/viewers, cluster exploration interactions, style JSON strategy metadata, and live browser QA. Full details: [milestones/v1006-ROADMAP.md](milestones/v1006-ROADMAP.md).
 
 </details>
 

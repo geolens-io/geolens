@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1006
 milestone_name: Large Dataset Cluster Scaling
-status: in_progress
-last_updated: "2026-05-12T21:26:27Z"
-last_activity: 2026-05-12 — Phase 1030 completed with explicit cluster strategy metadata in style JSON export while preserving point/vector standalone fallback and cluster intent round-trip.
+status: archived
+last_updated: "2026-05-12T21:43:02Z"
+last_activity: 2026-05-12 — v1006 shipped with server-side cluster MVT tiles for large point datasets, source routing, cluster exploration, style JSON strategy metadata, and clean Playwright MCP large-dataset UAT.
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 80
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # State
@@ -18,30 +18,32 @@ progress:
 ## Current Position
 
 **Milestone:** v1006 — Large Dataset Cluster Scaling
-**Phase:** 1031 — cluster-performance-browser-qa-closeout
+**Phase:** Complete
 **Plan:** —
-**Status:** Phase 1030 complete; ready for performance/browser QA closeout.
-**Last activity:** 2026-05-12 — Phase 1030 completed with explicit cluster strategy metadata in style JSON export while preserving point/vector standalone fallback and cluster intent round-trip.
+**Status:** v1006 shipped and archived.
+**Last activity:** 2026-05-12 — v1006 shipped with server-side cluster MVT tiles for large point datasets, source routing, cluster exploration, style JSON strategy metadata, and clean Playwright MCP large-dataset UAT.
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
+See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1006)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1031 cluster performance, browser QA, and closeout.
+**Current focus:** Awaiting next milestone selection.
 
-## Active Milestone
+## Last Shipped Milestone
 
 **Version:** v1006 Large Dataset Cluster Scaling
 **Started:** 2026-05-12
-**Status:** In progress
+**Shipped:** 2026-05-12
+**Status:** Archived
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving the existing saved-map shape and renderer controls, and adding the expected cluster exploration interactions without regressing normal vector tiles.
-**Phases:** 1027-1031 (5 phases, 25 requirements; 19 requirements complete)
-**Next phase:** 1031 cluster-performance-browser-qa-closeout
+**Phases:** 1027-1031 (5 phases, 25 requirements; 25 requirements complete)
+**Audit:** passed / GO
+**Archive:** `.planning/milestones/v1006-ROADMAP.md`, `.planning/milestones/v1006-REQUIREMENTS.md`, `.planning/milestones/v1006-MILESTONE-AUDIT.md`
 
-## Last Shipped Milestone
+## Prior Shipped Milestone
 
 **Version:** v1005 Builder Point Cluster Foundation
 **Started:** 2026-05-12
@@ -133,6 +135,8 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1006)
 
 ### Roadmap Evolution
 
+- v1006 shipped 2026-05-12: authenticated server-side cluster MVT tiles now scale Cluster beyond bounded GeoJSON point datasets, builder/public/shared/embed viewers route large point Cluster layers to `/tiles/clusters/...`, cluster interaction popups and zoom activation work across companion layers, style JSON export records cluster strategy metadata with standalone point fallback, and Playwright MCP verified a 6,001-feature live map with signed tile requests and zero current-page console warnings/errors.
+- Phase 1031 completed 2026-05-12: closeout gates passed; live browser UAT found and fixed multipoint cluster SQL handling plus unsigned private cluster tile timing during style-load resync.
 - Phase 1030 completed 2026-05-12: MapLibre style JSON export now documents bounded/server/fallback cluster strategy and standalone point-vector fallback in source metadata, while layer metadata continues to preserve Cluster intent for import/reload and the existing drawable style remains normal vector/point fallback for standalone consumers.
 - Phase 1029 completed 2026-05-12: cluster companion circle/count layers now participate in builder and viewer hit-testing, pointer click and canvas keyboard activation zoom clusters using MapLibre expansion or server `expansion_zoom`, aggregate popups show count/source metadata without full-table scans, and Map Stack plus viewer legend distinguish bounded, server-side, and fallback cluster states.
 - Phase 1028 completed 2026-05-12: large vector point datasets now expose Cluster through the existing renderAs capability contract, map sync routes bounded clusters to GeoJSON and large clusters to authenticated server-side MVT cluster tiles, builder/public/shared/embed viewers share the same routing policy, and cluster style controls feed both source paths without schema changes.
