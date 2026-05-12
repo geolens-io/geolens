@@ -58,7 +58,7 @@
 - ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
 - ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
-- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; 3/5 phases complete)
+- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; 4/5 phases complete)
 
 ## Phases
 
@@ -67,12 +67,12 @@
 
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
 
-**Requirements:** 15/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
+**Requirements:** 20/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
 
 - [x] **Phase 1014: browser-baseline-and-responsive-shell** (1/1 plan) — completed 2026-05-12
 - [x] **Phase 1015: duplicate-rendering-and-renderas-hardening** (1/1 plan) — completed 2026-05-12
 - [x] **Phase 1016: basemap-and-terrain-integration-hardening** (1/1 plan) — completed 2026-05-12
-- [ ] **Phase 1017: add-dataset-modal-state-hardening** (0/1 plan)
+- [x] **Phase 1017: add-dataset-modal-state-hardening** (1/1 plan) — completed 2026-05-12
 - [ ] **Phase 1018: saved-map-roundtrip-and-closeout** (0/1 plan)
 
 ### Phase 1014: browser-baseline-and-responsive-shell
@@ -131,6 +131,8 @@ Requirements: ADDH-01, ADDH-02, ADDH-03, ADDH-04, ADDH-05
 3. Data rows transition among Add/added/another-rendering states without a full page reload.
 4. Expanded rows keep preview, metadata, and primary actions keyboard reachable.
 5. Import footer routes to existing ImportPage with no duplicated import implementation.
+
+Status: complete — see `.planning/phases/1017-add-dataset-modal-state-hardening/1017-VERIFICATION.md`.
 
 ### Phase 1018: saved-map-roundtrip-and-closeout
 

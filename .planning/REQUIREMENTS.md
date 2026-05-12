@@ -44,11 +44,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 ### Add Dataset Modal State Hardening
 
-- [ ] **ADDH-01**: Add Dataset tabs remain `All`, `Vector`, `Raster`, and `Basemap`, with DEM datasets represented under Raster when supported by existing metadata.
-- [ ] **ADDH-02**: Existing dataset search filters used by the modal match the current API contract; unsupported scope chips such as Curated/Your imports/Public remain absent.
-- [ ] **ADDH-03**: Data rows correctly transition among `Add to map`, `(added)`, and `another rendering` states without a full page reload.
-- [ ] **ADDH-04**: Expanded modal rows show preview and metadata from existing response fields and keep primary actions reachable by keyboard.
-- [ ] **ADDH-05**: The modal footer routes to the existing ImportPage as `Import data...` and no import logic is reimplemented inside the modal.
+- [x] **ADDH-01**: Add Dataset tabs remain `All`, `Vector`, `Raster`, and `Basemap`, with DEM datasets represented under Raster when supported by existing metadata.
+- [x] **ADDH-02**: Existing dataset search filters used by the modal match the current API contract; unsupported scope chips such as Curated/Your imports/Public remain absent.
+- [x] **ADDH-03**: Data rows correctly transition among `Add to map`, `(added)`, and `another rendering` states without a full page reload.
+- [x] **ADDH-04**: Expanded modal rows show preview and metadata from existing response fields and keep primary actions reachable by keyboard.
+- [x] **ADDH-05**: The modal footer routes to the existing ImportPage as `Import data...` and no import logic is reimplemented inside the modal.
 
 ### Saved-Map Round Trip And Closeout
 
@@ -99,11 +99,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 | MAPCTL-03 | Phase 1016 | Complete |
 | MAPCTL-04 | Phase 1016 | Complete |
 | MAPCTL-05 | Phase 1016 | Complete |
-| ADDH-01 | Phase 1017 | Pending |
-| ADDH-02 | Phase 1017 | Pending |
-| ADDH-03 | Phase 1017 | Pending |
-| ADDH-04 | Phase 1017 | Pending |
-| ADDH-05 | Phase 1017 | Pending |
+| ADDH-01 | Phase 1017 | Complete |
+| ADDH-02 | Phase 1017 | Complete |
+| ADDH-03 | Phase 1017 | Complete |
+| ADDH-04 | Phase 1017 | Complete |
+| ADDH-05 | Phase 1017 | Complete |
 | ROUND-01 | Phase 1018 | Pending |
 | ROUND-02 | Phase 1018 | Pending |
 | ROUND-03 | Phase 1018 | Pending |
@@ -111,11 +111,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 **Coverage:**
 - v1003 requirements: 24 total
-- Complete: 15
-- Pending: 9
+- Complete: 20
+- Pending: 4
 - Mapped to phases: 24
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1016 verification*
+*Last updated: 2026-05-12 after Phase 1017 verification*

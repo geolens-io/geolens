@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1003
 milestone_name: Builder v1 Hardening
 status: in_progress
-last_updated: "2026-05-12T13:48:02Z"
-last_activity: 2026-05-12 — Phase 1016 basemap and terrain integration hardening completed: Add Dataset basemap swap now persists through save/reload and terrain contracts remain covered.
+last_updated: "2026-05-12T13:55:49Z"
+last_activity: 2026-05-12 — Phase 1017 Add Dataset modal hardening completed: modal expansion, import routing, supported filter contract, and state transitions are covered.
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 60
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
+  percent: 80
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1003 — Builder v1 Hardening
-**Phase:** Phase 1017 ready — Add Dataset modal state hardening
+**Phase:** Phase 1018 ready — Saved-map roundtrip and closeout
 **Plan:** —
-**Status:** Phase 1016 complete; next step is phase discussion/planning for Phase 1017.
-**Last activity:** 2026-05-12 — Phase 1016 added browser proof for Add Dataset basemap swap persistence and kept basemap/terrain focused tests green.
+**Status:** Phase 1017 complete; next step is phase discussion/planning for Phase 1018.
+**Last activity:** 2026-05-12 — Phase 1017 added browser proof for Add Dataset modal expansion/import routing and kept modal focused tests green.
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Project Reference
 
@@ -38,7 +38,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1003)
 **Started:** 2026-05-12
 **Status:** In progress
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
-**Phases:** 1014-1018 (5 phases, 24 requirements; 15 requirements complete)
+**Phases:** 1014-1018 (5 phases, 24 requirements; 20 requirements complete)
 
 ## Last Shipped Milestone
 
