@@ -69,13 +69,13 @@
 
 **Requirements:** 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
 
-- [ ] Phase 1014: browser-baseline-and-responsive-shell (0/1 plan)
-- [ ] Phase 1015: duplicate-rendering-and-renderas-hardening (0/1 plan)
-- [ ] Phase 1016: basemap-and-terrain-integration-hardening (0/1 plan)
-- [ ] Phase 1017: add-dataset-modal-state-hardening (0/1 plan)
-- [ ] Phase 1018: saved-map-roundtrip-and-closeout (0/1 plan)
+- [ ] **Phase 1014: browser-baseline-and-responsive-shell** (0/1 plan)
+- [ ] **Phase 1015: duplicate-rendering-and-renderas-hardening** (0/1 plan)
+- [ ] **Phase 1016: basemap-and-terrain-integration-hardening** (0/1 plan)
+- [ ] **Phase 1017: add-dataset-modal-state-hardening** (0/1 plan)
+- [ ] **Phase 1018: saved-map-roundtrip-and-closeout** (0/1 plan)
 
-**Phase 1014: browser-baseline-and-responsive-shell**
+### Phase 1014: browser-baseline-and-responsive-shell
 
 Goal: Establish the real-browser baseline for the redesigned builder shell and close responsive/accessibility regressions.
 
@@ -87,7 +87,7 @@ Success criteria:
 3. Persisted 600px sidebar widths render capped on tablet/narrow desktop while preserving the stored desktop preference.
 4. Focused builder accessibility, lint, build, and relevant Vitest gates pass.
 
-**Phase 1015: duplicate-rendering-and-renderas-hardening**
+### Phase 1015: duplicate-rendering-and-renderas-hardening
 
 Goal: Prove duplicate renderings and v1 renderAs behavior from both sidebar and modal entry points.
 
@@ -100,7 +100,7 @@ Success criteria:
 4. Tests prove renderAs writes only existing writable fields and never patches `is_3d`.
 5. Unsupported v1-punted renderers remain absent from the UI.
 
-**Phase 1016: basemap-and-terrain-integration-hardening**
+### Phase 1016: basemap-and-terrain-integration-hardening
 
 Goal: Prove basemap and terrain controls remain map-level writes and survive MapLibre style reload/save flows.
 
@@ -113,7 +113,7 @@ Success criteria:
 4. `Use as terrain` on raster-dem rows does not mutate the layer row.
 5. Save/reload preserves basemap and terrain choices.
 
-**Phase 1017: add-dataset-modal-state-hardening**
+### Phase 1017: add-dataset-modal-state-hardening
 
 Goal: Prove Add Dataset modal state transitions, filters, row expansion, import routing, and keyboard behavior.
 
@@ -126,7 +126,7 @@ Success criteria:
 4. Expanded rows keep preview, metadata, and primary actions keyboard reachable.
 5. Import footer routes to existing ImportPage with no duplicated import implementation.
 
-**Phase 1018: saved-map-roundtrip-and-closeout**
+### Phase 1018: saved-map-roundtrip-and-closeout
 
 Goal: Prove saved-map/public-viewer compatibility and close v1003 with exact verification evidence.
 
