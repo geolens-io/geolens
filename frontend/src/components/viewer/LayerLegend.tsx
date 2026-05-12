@@ -15,6 +15,7 @@ import { Eye, EyeOff, Layers, X } from 'lucide-react';
 import { parseStepOrInterpolate } from '@/lib/normalize-style-config';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { getClusterSourceStrategy, isClusterRenderMode } from '@/components/builder/cluster-source';
 
 interface LayerLegendProps {
   layers: SharedLayerResponse[];
@@ -62,6 +63,14 @@ function displayColumn(value: string | undefined): string {
     .replace(/_/g, ' ')
     .replace(/\bmhi\b/i, 'income')
     .replace(/\bkm\b/i, 'km');
+}
+
+function clusterLegendLabel(layer: SharedLayerResponse) {
+  if (!isClusterRenderMode(layer)) return null;
+  const strategy = getClusterSourceStrategy(layer);
+  if (strategy.kind === 'server-tile') return 'Server cluster';
+  if (strategy.kind === 'bounded-geojson') return 'Bounded cluster';
+  return 'Point fallback';
 }
 
 function colorPaintKey(geometryType: string | null | undefined): string {
@@ -212,6 +221,7 @@ export function LayerLegend({
               style_config: sc,
             })[0];
             const layerName = layer.display_name || layer.dataset_name;
+            const clusterLabel = clusterLegendLabel(layer);
             return (
               <li key={key} className="px-3 py-2 hover:bg-accent/50">
                 <div className="flex items-center gap-2">
@@ -232,6 +242,11 @@ export function LayerLegend({
                     {isVisible ? <Eye className="w-4 h-4" aria-hidden="true" /> : <EyeOff className="w-4 h-4" aria-hidden="true" />}
                   </button>
                 </div>
+                {clusterLabel && (
+                  <div className="mt-1 ms-6 text-[11px] font-medium text-muted-foreground">
+                    {clusterLabel}
+                  </div>
+                )}
 
                 {/* Data-driven legend entries */}
                 {sc?.column && isVisible && (

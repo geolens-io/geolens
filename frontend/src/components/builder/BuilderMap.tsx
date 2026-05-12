@@ -10,9 +10,17 @@ import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
 import { useAuthStore } from '@/stores/auth-store';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
+import i18n from '@/i18n/i18n';
 import { useTranslation } from 'react-i18next';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
+import {
+  activateClusterFeature,
+  clusterAggregateFeatureInfo,
+  clusterFeatureCoordinates,
+  clusterInteractiveLayerIds,
+  isClusterFeature,
+} from '@/components/map/cluster-interactions';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
@@ -434,29 +442,37 @@ export const BuilderMap = memo(function BuilderMap({
     if (!map) return;
     queryLayerIdsRef.current = layers
       .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
-      .map((l) => getLayerId(l.id))
+      .flatMap((l) => {
+        const layerId = getLayerId(l.id);
+        return isClusterRenderMode(l) ? clusterInteractiveLayerIds(layerId) : [layerId];
+      })
       .filter((id) => map.getLayer(id));
   }, [layers]);
 
-  // O(1) lookup map: feature.layer.id (with `layer-` prefix) → MapLayerResponse.
+  // O(1) lookup map: feature.layer.id (with `layer-` prefix) → layer/source metadata.
   // Rebuilt only when the layers ref content changes; kept in a ref so the
   // effect below doesn't re-register on every layers change.
-  const layerByMapIdRef = useRef<Map<string, MapLayerResponse>>(new Map());
+  const layerByMapIdRef = useRef<Map<string, { layer: MapLayerResponse; sourceId: string }>>(new Map());
   useEffect(() => {
-    const m = new Map<string, MapLayerResponse>();
-    for (const l of layers) m.set(getLayerId(l.id), l);
-    layerByMapIdRef.current = m;
+    const byMapId = new Map<string, { layer: MapLayerResponse; sourceId: string }>();
+    for (const l of layers) {
+      const layerId = getLayerId(l.id);
+      const sourceId = getSourceId(l.id);
+      const ids = isClusterRenderMode(l) ? clusterInteractiveLayerIds(layerId) : [layerId];
+      for (const id of ids) byMapId.set(id, { layer: l, sourceId });
+    }
+    layerByMapIdRef.current = byMapId;
   }, [layers]);
 
   // Resolve a queryRenderedFeatures hit to its layer config, or null when
   // the layer is unknown or popups are explicitly disabled. Verifies the
   // `layer-` prefix matched before slicing — guards against any non-managed
   // layer that slipped past the queryLayerIds filter.
-  const lookupHitLayer = useCallback((featureLayerId: string): MapLayerResponse | null => {
-    const layer = layerByMapIdRef.current.get(featureLayerId);
-    if (!layer) return null;
-    if (layer.popup_config?.enabled === false) return null;
-    return layer;
+  const lookupHitLayer = useCallback((featureLayerId: string, includePopupDisabled = false) => {
+    const hit = layerByMapIdRef.current.get(featureLayerId);
+    if (!hit) return null;
+    if (!includePopupDisabled && hit.layer.popup_config?.enabled === false) return null;
+    return hit;
   }, []);
 
   // Click + mousemove handlers: popup and pointer cursor
@@ -465,6 +481,43 @@ export const BuilderMap = memo(function BuilderMap({
     if (!map) return;
 
     const fallbackName = t('common:viewer.featureFallback');
+    const buildClusterPopup = (feature: Parameters<typeof isClusterFeature>[0], hit: { layer: MapLayerResponse; sourceId: string }) => (
+      clusterAggregateFeatureInfo(feature, {
+        layerName: hit.layer.display_name || hit.layer.dataset_name || fallbackName,
+        sourceKind: getClusterSourceStrategy(hit.layer).kind,
+        locale: i18n.language,
+      })
+    );
+
+    const handleClusterHit = (
+      feature: Parameters<typeof isClusterFeature>[0],
+      hit: { layer: MapLayerResponse; sourceId: string },
+      fallbackLngLat: { lng: number; lat: number } | null,
+    ) => {
+      const coordinates = clusterFeatureCoordinates(feature);
+      if (hit.layer.popup_config?.enabled !== false) {
+        const info = buildClusterPopup(feature, hit);
+        setPopupInfo({
+          longitude: coordinates?.[0] ?? fallbackLngLat?.lng ?? 0,
+          latitude: coordinates?.[1] ?? fallbackLngLat?.lat ?? 0,
+          features: [info],
+        });
+        onFeatureSelect?.(info);
+      } else {
+        setPopupInfo(null);
+        onFeatureSelect?.(null);
+      }
+      void activateClusterFeature(map, feature, hit.sourceId);
+    };
+
+    const findClusterHit = (hits: ReturnType<MaplibreMap['queryRenderedFeatures']>) => {
+      for (const feature of hits) {
+        if (!isClusterFeature(feature)) continue;
+        const hit = lookupHitLayer(feature.layer.id, true);
+        if (hit) return { feature, hit };
+      }
+      return null;
+    };
 
     const handleClick = (e: MapMouseEvent) => {
       if (!map.isStyleLoaded()) return;
@@ -477,11 +530,18 @@ export const BuilderMap = memo(function BuilderMap({
       }
 
       const hits = map.queryRenderedFeatures(e.point, { layers: queryLayers });
+      const clusterHit = findClusterHit(hits);
+      if (clusterHit) {
+        handleClusterHit(clusterHit.feature, clusterHit.hit, e.lngLat);
+        return;
+      }
+
       const mapped: FeatureInfo[] = [];
       for (const feature of hits) {
-        const layer = lookupHitLayer(feature.layer.id);
-        if (!layer) continue;
-        const cfg = layer.popup_config;
+        const hit = lookupHitLayer(feature.layer.id);
+        if (!hit) continue;
+        const layer = hit.layer;
+        const cfg = hit.layer.popup_config;
         const props = (feature.properties ?? {}) as Record<string, unknown>;
         mapped.push({
           properties: props,
@@ -528,18 +588,53 @@ export const BuilderMap = memo(function BuilderMap({
 
         const features = map.queryRenderedFeatures(e.point, { layers: queryLayers });
         // Mirror handleClick's per-feature filter so the cursor only signals
-        // interactivity when at least one hit is on a popup-enabled layer.
-        const interactive = features.some((f) => lookupHitLayer(f.layer.id) !== null);
+        // interactivity when at least one hit is a cluster or on a popup-enabled layer.
+        const interactive = features.some((f) => {
+          const hit = lookupHitLayer(f.layer.id, true);
+          if (!hit) return false;
+          return isClusterFeature(f) || hit.layer.popup_config?.enabled !== false;
+        });
         canvas.style.cursor = interactive ? 'pointer' : '';
       });
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (measureActiveRef.current) return;
+      const queryLayers = queryLayerIdsRef.current;
+      if (queryLayers.length === 0) return;
+      let canvas: HTMLCanvasElement | null = null;
+      try {
+        canvas = map.getCanvas();
+      } catch {
+        return;
+      }
+      if (!canvas) return;
+      const point: [number, number] = [
+        (canvas.clientWidth || canvas.width) / 2,
+        (canvas.clientHeight || canvas.height) / 2,
+      ];
+      const hits = map.queryRenderedFeatures(point, { layers: queryLayers });
+      const clusterHit = findClusterHit(hits);
+      if (!clusterHit) return;
+      event.preventDefault();
+      handleClusterHit(clusterHit.feature, clusterHit.hit, null);
+    };
+
     map.on('click', handleClick);
     map.on('mousemove', handleMouseMove);
+    let canvasForKeyboard: HTMLCanvasElement | null = null;
+    try {
+      canvasForKeyboard = map.getCanvas();
+      canvasForKeyboard?.addEventListener?.('keydown', handleKeyDown);
+    } catch {
+      canvasForKeyboard = null;
+    }
     return () => {
       map.off('click', handleClick);
       cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
+      canvasForKeyboard?.removeEventListener?.('keydown', handleKeyDown);
       try {
         const canvas = map.getCanvas();
         if (canvas) canvas.style.cursor = '';

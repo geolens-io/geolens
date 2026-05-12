@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { render, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
 import { applyBasemapConfigToMap, syncLayersToMap } from '@/components/builder/map-sync';
 import { fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -15,25 +15,37 @@ type FakeMap = {
   getSource: ReturnType<typeof vi.fn>;
   queryRenderedFeatures: ReturnType<typeof vi.fn>;
   getCanvas: ReturnType<typeof vi.fn>;
+  getZoom: ReturnType<typeof vi.fn>;
+  easeTo: ReturnType<typeof vi.fn>;
+  setLayoutProperty: ReturnType<typeof vi.fn>;
   triggerRepaint: ReturnType<typeof vi.fn>;
-  emit: (event: string) => void;
+  emit: (event: string, payload?: unknown) => void;
 };
 
 const mapState = vi.hoisted(() => {
-  const handlers = new Map<string, Set<() => void>>();
+  const handlers = new Map<string, Set<(payload?: unknown) => void>>();
+  const canvas = {
+    width: 800,
+    height: 600,
+    clientWidth: 800,
+    clientHeight: 600,
+    style: { cursor: '' },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
   const fakeMap: FakeMap = {
     isStyleLoaded: vi.fn(() => true),
-    on: vi.fn((event: string, handler: () => void) => {
+    on: vi.fn((event: string, handler: (payload?: unknown) => void) => {
       const existing = handlers.get(event) ?? new Set();
       existing.add(handler);
       handlers.set(event, existing);
     }),
-    off: vi.fn((event: string, handler: () => void) => {
+    off: vi.fn((event: string, handler: (payload?: unknown) => void) => {
       handlers.get(event)?.delete(handler);
     }),
-    once: vi.fn((event: string, handler: () => void) => {
-      const wrapped = () => {
-        handler();
+    once: vi.fn((event: string, handler: (payload?: unknown) => void) => {
+      const wrapped = (payload?: unknown) => {
+        handler(payload);
         handlers.get(event)?.delete(wrapped);
       };
       const existing = handlers.get(event) ?? new Set();
@@ -44,11 +56,14 @@ const mapState = vi.hoisted(() => {
     getLayer: vi.fn(() => false),
     getSource: vi.fn(() => null),
     queryRenderedFeatures: vi.fn(() => []),
-    getCanvas: vi.fn(() => ({ style: { cursor: '' } })),
+    getCanvas: vi.fn(() => canvas),
+    getZoom: vi.fn(() => 5),
+    easeTo: vi.fn(),
+    setLayoutProperty: vi.fn(),
     triggerRepaint: vi.fn(),
-    emit: (event: string) => {
+    emit: (event: string, payload?: unknown) => {
       for (const handler of Array.from(handlers.get(event) ?? [])) {
-        handler();
+        handler(payload);
       }
     },
   };
@@ -66,7 +81,13 @@ const mapState = vi.hoisted(() => {
       fakeMap.getSource.mockClear();
       fakeMap.queryRenderedFeatures.mockClear();
       fakeMap.getCanvas.mockClear();
+      fakeMap.getZoom.mockClear();
+      fakeMap.easeTo.mockClear();
+      fakeMap.setLayoutProperty.mockClear();
       fakeMap.triggerRepaint.mockClear();
+      canvas.style.cursor = '';
+      canvas.addEventListener.mockClear();
+      canvas.removeEventListener.mockClear();
     },
   };
 });
@@ -85,6 +106,7 @@ vi.mock('@vis.gl/react-maplibre', async () => {
     FullscreenControl: () => null,
     AttributionControl: () => null,
     TerrainControl: () => null,
+    Popup: ({ children }: { children?: ReactNode }) => <div data-testid="feature-popup">{children}</div>,
   };
 });
 
@@ -428,5 +450,100 @@ describe('ViewerMap basemap config runtime', () => {
       feature_count: 20_000,
       style_config: expect.objectContaining({ render_mode: 'cluster' }),
     });
+  });
+
+  it('queries cluster companion layers and zooms from server cluster clicks', async () => {
+    const largeClusterLayers: SharedLayerResponse[] = [
+      {
+        id: 'large-cluster-layer',
+        dataset_id: 'dataset-large-cluster',
+        dataset_name: 'Large Stops',
+        display_name: 'Large Stops',
+        table_name: 'large_stops',
+        geometry_type: 'POINT',
+        column_info: null,
+        sort_order: 0,
+        visible: true,
+        opacity: 1,
+        paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
+        layout: {},
+        filter: null,
+        label_config: null,
+        popup_config: null,
+        style_config: {
+          render_mode: 'cluster',
+          builder: {
+            clusterRadius: 64,
+            clusterMaxZoom: 12,
+          },
+        } as SharedLayerResponse['style_config'],
+        tile_url: '',
+        feature_count: 20_000,
+      },
+    ];
+    const clusterFeature = {
+      layer: { id: 'viewer-layer-large-cluster-layer-cluster' },
+      properties: {
+        point_count: 20_000,
+        point_count_abbreviated: '20k',
+        expansion_zoom: 9,
+        cluster_id: '8:11:22:0',
+      },
+      geometry: { type: 'Point', coordinates: [-73.9, 40.7] },
+    };
+    mapState.fakeMap.getLayer.mockImplementation((id: string) => [
+      'viewer-layer-large-cluster-layer-cluster',
+      'viewer-layer-large-cluster-layer-cluster-count',
+      'viewer-layer-large-cluster-layer',
+    ].includes(id));
+    mapState.fakeMap.queryRenderedFeatures.mockReturnValue([clusterFeature]);
+
+    render(
+      <ViewerMap
+        layers={largeClusterLayers}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={null}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{
+          center_lng: 0,
+          center_lat: 0,
+          zoom: 2,
+          bearing: 0,
+          pitch: 0,
+        }}
+        visibleLayers={new Set(['large-cluster-layer'])}
+        embedToken="embed-token"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('click', expect.any(Function));
+    });
+
+    mapState.fakeMap.emit('click', {
+      point: { x: 100, y: 100 },
+      lngLat: { lng: -73.9, lat: 40.7 },
+    });
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.easeTo).toHaveBeenCalledWith({
+        center: [-73.9, 40.7],
+        zoom: 9,
+        duration: 500,
+      });
+    });
+    expect(mapState.fakeMap.queryRenderedFeatures).toHaveBeenCalledWith(
+      { x: 100, y: 100 },
+      {
+        layers: expect.arrayContaining([
+          'viewer-layer-large-cluster-layer-cluster',
+          'viewer-layer-large-cluster-layer-cluster-count',
+          'viewer-layer-large-cluster-layer',
+        ]),
+      },
+    );
+    expect(screen.getByText('Cluster: 20,000 features')).toBeInTheDocument();
+    expect(screen.getByText('Server-side cluster tile')).toBeInTheDocument();
   });
 });

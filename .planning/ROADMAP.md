@@ -70,11 +70,11 @@
 
 **Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
 
-**Requirements:** 10/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
+**Requirements:** 14/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
 
 - [x] **Phase 1027: server-cluster-tile-contract** — completed 2026-05-12
 - [x] **Phase 1028: cluster-source-routing-and-authoring-parity** — completed 2026-05-12
-- [ ] **Phase 1029: cluster-exploration-interactions** — pending
+- [x] **Phase 1029: cluster-exploration-interactions** — completed 2026-05-12
 - [ ] **Phase 1030: cluster-compatibility-and-style-json-interop** — pending
 - [ ] **Phase 1031: cluster-performance-browser-qa-closeout** — pending
 
@@ -115,13 +115,15 @@ Phase 1028 added shared cluster source strategy routing, cluster tile URL constr
 **Goal:** Add the expected map exploration affordances for clustered point datasets without disrupting existing popup and label behavior.
 
 Requirements: UX-01, UX-02, UX-03, UX-04
-Status: pending
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Users can pointer-click or keyboard-activate a cluster to zoom toward its contents without mutating saved map state until save.
 2. Cluster aggregate popups show count plus bounded summary/sample information without full-table scans.
 3. Legend, map stack, and row state distinguish bounded Cluster, server-side Cluster, and Point fallback.
 4. Pointer, keyboard, and touch interactions do not interfere with existing feature popups, labels, or layer visibility.
+
+Phase 1029 added shared cluster interaction helpers, builder/viewer companion-layer hit-testing, pointer and canvas-keyboard cluster activation, aggregate cluster popup metadata, MapLibre/`expansion_zoom` zoom handling, and stack/legend state labels for bounded, server-side, and fallback cluster paths.
 
 ### Phase 1030: cluster-compatibility-and-style-json-interop
 

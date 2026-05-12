@@ -7,6 +7,7 @@ import type {
   StyleConfig,
 } from '@/types/api';
 import { normalizeBasemapConfig } from '@/lib/basemap-utils';
+import { getClusterSourceStrategy, isClusterRenderMode, type ClusterSourceStrategyKind, type ClusterSourceStatus } from './cluster-source';
 
 export const MAP_STACK_GROUP_ORDER = [
   'surface',
@@ -66,6 +67,10 @@ export interface MapStackEntryMetadata {
   geometryType?: string | null;
   layerType?: string | null;
   renderMode?: string | null;
+  clusterSource?: {
+    kind: ClusterSourceStrategyKind;
+    status: ClusterSourceStatus;
+  } | null;
   layerVisible?: boolean;
   legendVisible?: boolean;
   labelColumn?: string | null;
@@ -240,8 +245,18 @@ function typeBadge(layer: MapLayerResponse): MapStackBadge {
   return { label: 'Layer', tone: 'neutral' };
 }
 
+function clusterSourceBadge(layer: MapLayerResponse): MapStackBadge | null {
+  if (!isClusterRenderMode(layer)) return null;
+  const strategy = getClusterSourceStrategy(layer);
+  if (strategy.kind === 'server-tile') return { label: 'Server cluster', tone: 'info' };
+  if (strategy.kind === 'bounded-geojson') return { label: 'Bounded cluster', tone: 'success' };
+  return { label: 'Point fallback', tone: 'warning' };
+}
+
 function layerBadges(layer: MapLayerResponse, duplicate?: MapStackDuplicateMetadata): MapStackBadge[] {
   const badges = [typeBadge(layer)];
+  const sourceBadge = clusterSourceBadge(layer);
+  if (sourceBadge) badges.push(sourceBadge);
   if (!layer.visible) badges.push({ label: 'Hidden', tone: 'muted' });
   if (layer.show_in_legend === false) badges.push({ label: 'Legend hidden', tone: 'muted' });
   if (labelColumn(layer.label_config)) badges.push({ label: 'Labels', tone: 'success' });
@@ -335,6 +350,12 @@ function layerMetadata(
     geometryType: layer.dataset_geometry_type ?? null,
     layerType: layer.layer_type ?? null,
     renderMode: renderMode(layer.style_config),
+    clusterSource: isClusterRenderMode(layer)
+      ? {
+          kind: getClusterSourceStrategy(layer).kind,
+          status: getClusterSourceStrategy(layer).status,
+        }
+      : null,
     layerVisible: layer.visible,
     legendVisible: layer.show_in_legend !== false,
     labelColumn: labelColumn(layer.label_config),

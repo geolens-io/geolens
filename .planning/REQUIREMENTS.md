@@ -36,10 +36,10 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 ### Cluster Exploration UX
 
-- [ ] **UX-01**: User can click or keyboard-activate a cluster to zoom toward the clustered features without mutating the saved map view until save.
-- [ ] **UX-02**: User can inspect a cluster aggregate popup with count and bounded summary/sample information without triggering an expensive full-table scan.
-- [ ] **UX-03**: Legend, map stack, and row states clarify whether a layer is using bounded client-side clustering, server-side clustering, or Point fallback.
-- [ ] **UX-04**: Cluster interaction affordances work with pointer, keyboard, and touch input and do not interfere with existing popup/label behavior.
+- [x] **UX-01**: User can click or keyboard-activate a cluster to zoom toward the clustered features without mutating the saved map view until save.
+- [x] **UX-02**: User can inspect a cluster aggregate popup with count and bounded summary/sample information without triggering an expensive full-table scan.
+- [x] **UX-03**: Legend, map stack, and row states clarify whether a layer is using bounded client-side clustering, server-side clustering, or Point fallback.
+- [x] **UX-04**: Cluster interaction affordances work with pointer, keyboard, and touch input and do not interfere with existing popup/label behavior.
 
 ### Compatibility And Interop
 
@@ -91,10 +91,10 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 | REND-03 | Phase 1028 | Complete |
 | REND-04 | Phase 1028 | Complete |
 | REND-05 | Phase 1028 | Complete |
-| UX-01 | Phase 1029 | Pending |
-| UX-02 | Phase 1029 | Pending |
-| UX-03 | Phase 1029 | Pending |
-| UX-04 | Phase 1029 | Pending |
+| UX-01 | Phase 1029 | Complete |
+| UX-02 | Phase 1029 | Complete |
+| UX-03 | Phase 1029 | Complete |
+| UX-04 | Phase 1029 | Complete |
 | COMP-01 | Phase 1030 | Pending |
 | COMP-02 | Phase 1030 | Pending |
 | COMP-03 | Phase 1030 | Pending |
@@ -109,11 +109,11 @@ Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large po
 
 **Coverage:**
 - v1006 requirements: 25 total
-- Complete: 10
-- Pending: 15
+- Complete: 14
+- Pending: 11
 - Mapped to phases: 25
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1028 completion*
+*Last updated: 2026-05-12 after Phase 1029 completion*

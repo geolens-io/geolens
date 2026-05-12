@@ -15,8 +15,16 @@ import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
+import {
+  activateClusterFeature,
+  clusterAggregateFeatureInfo,
+  clusterFeatureCoordinates,
+  clusterInteractiveLayerIds,
+  isClusterFeature,
+} from '@/components/map/cluster-interactions';
 import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { substitutePopupTemplate } from '@/lib/popup-template';
+import i18n from '@/i18n/i18n';
 import type { MapLibreEvent, MapMouseEvent, StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
@@ -335,7 +343,10 @@ export const ViewerMap = memo(function ViewerMap({
       layerEntries
         .filter(({ key }) => visibleLayers.has(key))
         .filter(({ layer }) => layer.style_config?.render_mode !== 'heatmap')
-        .map(({ key }) => prefixed('layer', key, VIEWER_PREFIX)),
+        .flatMap(({ layer, key }) => {
+          const layerId = prefixed('layer', key, VIEWER_PREFIX);
+          return isClusterRenderMode(layer) ? clusterInteractiveLayerIds(layerId) : [layerId];
+        }),
     [layerEntries, visibleLayers],
   );
   // Ref so event handlers always see current value without re-registration
@@ -357,23 +368,26 @@ export const ViewerMap = memo(function ViewerMap({
     [],
   );
 
-  // O(1) lookup: feature.layer.id (with `viewer-layer-` prefix) → SharedLayerResponse.
-  const layerByMapIdRef = useRef<Map<string, SharedLayerResponse>>(new Map());
+  // O(1) lookup: feature.layer.id (with `viewer-layer-` prefix) → layer/source metadata.
+  const layerByMapIdRef = useRef<Map<string, { layer: SharedLayerResponse; sourceId: string }>>(new Map());
   useEffect(() => {
-    const m = new Map<string, SharedLayerResponse>();
+    const m = new Map<string, { layer: SharedLayerResponse; sourceId: string }>();
     for (const { layer, key } of layerEntries) {
-      m.set(prefixed('layer', key, VIEWER_PREFIX), layer);
+      const layerId = prefixed('layer', key, VIEWER_PREFIX);
+      const sourceId = prefixed('source', key, VIEWER_PREFIX);
+      const ids = isClusterRenderMode(layer) ? clusterInteractiveLayerIds(layerId) : [layerId];
+      for (const id of ids) m.set(id, { layer, sourceId });
     }
     layerByMapIdRef.current = m;
   }, [layerEntries]);
 
   // Resolve a hit to its layer config; returns null when the layer is unknown
   // (verifies the prefix matched) or popups are explicitly disabled.
-  const lookupHitLayer = useCallback((featureLayerId: string): SharedLayerResponse | null => {
-    const layer = layerByMapIdRef.current.get(featureLayerId);
-    if (!layer) return null;
-    if (layer.popup_config?.enabled === false) return null;
-    return layer;
+  const lookupHitLayer = useCallback((featureLayerId: string, includePopupDisabled = false) => {
+    const hit = layerByMapIdRef.current.get(featureLayerId);
+    if (!hit) return null;
+    if (!includePopupDisabled && hit.layer.popup_config?.enabled === false) return null;
+    return hit;
   }, []);
 
   // Click handler: show popup with feature attributes
@@ -382,6 +396,41 @@ export const ViewerMap = memo(function ViewerMap({
     if (!map || !map.isStyleLoaded()) return;
 
     const fallbackName = t('viewer.featureFallback');
+    const buildClusterPopup = (feature: Parameters<typeof isClusterFeature>[0], hit: { layer: SharedLayerResponse; sourceId: string }) => (
+      clusterAggregateFeatureInfo(feature, {
+        layerName: hit.layer.display_name || hit.layer.dataset_name || fallbackName,
+        sourceKind: getClusterSourceStrategy(hit.layer).kind,
+        locale: i18n.language,
+      })
+    );
+
+    const handleClusterHit = (
+      feature: Parameters<typeof isClusterFeature>[0],
+      hit: { layer: SharedLayerResponse; sourceId: string },
+      fallbackLngLat: { lng: number; lat: number } | null,
+    ) => {
+      const coordinates = clusterFeatureCoordinates(feature);
+      if (hit.layer.popup_config?.enabled !== false) {
+        const info = buildClusterPopup(feature, hit);
+        setPopupInfo({
+          longitude: coordinates?.[0] ?? fallbackLngLat?.lng ?? 0,
+          latitude: coordinates?.[1] ?? fallbackLngLat?.lat ?? 0,
+          features: [info],
+        });
+      } else {
+        setPopupInfo(null);
+      }
+      void activateClusterFeature(map, feature, hit.sourceId);
+    };
+
+    const findClusterHit = (hits: ReturnType<MaplibreMap['queryRenderedFeatures']>) => {
+      for (const feature of hits) {
+        if (!isClusterFeature(feature)) continue;
+        const hit = lookupHitLayer(feature.layer.id, true);
+        if (hit) return { feature, hit };
+      }
+      return null;
+    };
 
     const handleClick = (e: MapMouseEvent) => {
       const hits = queryInteractiveFeatures(map, e.point);
@@ -390,11 +439,18 @@ export const ViewerMap = memo(function ViewerMap({
         return;
       }
 
+      const clusterHit = findClusterHit(hits);
+      if (clusterHit) {
+        handleClusterHit(clusterHit.feature, clusterHit.hit, e.lngLat);
+        return;
+      }
+
       const mapped: FeatureInfo[] = [];
       for (const feature of hits) {
-        const layer = lookupHitLayer(feature.layer.id);
-        if (!layer) continue;
-        const cfg = layer.popup_config;
+        const hit = lookupHitLayer(feature.layer.id);
+        if (!hit) continue;
+        const layer = hit.layer;
+        const cfg = hit.layer.popup_config;
         const props = (feature.properties ?? {}) as Record<string, unknown>;
         mapped.push({
           properties: props,
@@ -416,9 +472,38 @@ export const ViewerMap = memo(function ViewerMap({
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      let canvas: HTMLCanvasElement | null = null;
+      try {
+        canvas = map.getCanvas();
+      } catch {
+        return;
+      }
+      if (!canvas) return;
+      const point: [number, number] = [
+        (canvas.clientWidth || canvas.width) / 2,
+        (canvas.clientHeight || canvas.height) / 2,
+      ];
+      const hits = queryInteractiveFeatures(map, point);
+      if (hits === null) return;
+      const clusterHit = findClusterHit(hits);
+      if (!clusterHit) return;
+      event.preventDefault();
+      handleClusterHit(clusterHit.feature, clusterHit.hit, null);
+    };
+
     map.on('click', handleClick);
+    let canvasForKeyboard: HTMLCanvasElement | null = null;
+    try {
+      canvasForKeyboard = map.getCanvas();
+      canvasForKeyboard?.addEventListener?.('keydown', handleKeyDown);
+    } catch {
+      canvasForKeyboard = null;
+    }
     return () => {
       map.off('click', handleClick);
+      canvasForKeyboard?.removeEventListener?.('keydown', handleKeyDown);
     };
   }, [mapReady, t, queryInteractiveFeatures, lookupHitLayer]);
 
@@ -444,8 +529,12 @@ export const ViewerMap = memo(function ViewerMap({
           return;
         }
         // Mirror handleClick's per-feature filter: cursor goes pointer only
-        // when at least one hit is on a popup-enabled layer.
-        const interactive = features.some((f) => lookupHitLayer(f.layer.id) !== null);
+        // when at least one hit is a cluster or on a popup-enabled layer.
+        const interactive = features.some((f) => {
+          const hit = lookupHitLayer(f.layer.id, true);
+          if (!hit) return false;
+          return isClusterFeature(f) || hit.layer.popup_config?.enabled !== false;
+        });
         canvas.style.cursor = interactive ? 'pointer' : '';
       });
     };

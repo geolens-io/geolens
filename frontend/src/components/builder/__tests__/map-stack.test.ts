@@ -209,6 +209,44 @@ describe('buildMapStack', () => {
       .toContainEqual({ label: 'Missing source', tone: 'warning' });
   });
 
+  it('distinguishes bounded, server-side, and fallback cluster rows', () => {
+    const bounded = makeLayer({
+      id: 'bounded-cluster',
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 250,
+      style_config: { render_mode: 'cluster' } as StyleConfig,
+    });
+    const server = makeLayer({
+      id: 'server-cluster',
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: 25_000,
+      sort_order: 1,
+      style_config: { render_mode: 'cluster' } as StyleConfig,
+    });
+    const fallback = makeLayer({
+      id: 'fallback-cluster',
+      dataset_geometry_type: 'POINT',
+      dataset_feature_count: null,
+      sort_order: 2,
+      style_config: { render_mode: 'cluster' } as StyleConfig,
+    });
+
+    const entries = flattenMapStack(buildMapStack(makeMap({ layers: [bounded, server, fallback] })));
+
+    expect(entries.find((entry) => entry.id === 'data:bounded-cluster')).toMatchObject({
+      badges: expect.arrayContaining([{ label: 'Bounded cluster', tone: 'success' }]),
+      metadata: { clusterSource: { kind: 'bounded-geojson', status: 'eligible' } },
+    });
+    expect(entries.find((entry) => entry.id === 'data:server-cluster')).toMatchObject({
+      badges: expect.arrayContaining([{ label: 'Server cluster', tone: 'info' }]),
+      metadata: { clusterSource: { kind: 'server-tile', status: 'too-many-features' } },
+    });
+    expect(entries.find((entry) => entry.id === 'data:fallback-cluster')).toMatchObject({
+      badges: expect.arrayContaining([{ label: 'Point fallback', tone: 'warning' }]),
+      metadata: { clusterSource: { kind: 'fallback', status: 'missing-count' } },
+    });
+  });
+
   it('sorts copied layer inputs without mutating the persisted layer array', () => {
     const first = makeLayer({ id: 'first', sort_order: 2 });
     const second = makeLayer({ id: 'second', sort_order: 1 });
