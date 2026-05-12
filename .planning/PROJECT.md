@@ -38,6 +38,23 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - `PublicMapViewerPage.toSharedLayer` preserves `is_dem` and `dem_vertical_units` so authenticated public saved maps keep DEM relief semantics before `ViewerMap`.
 - Focused verification passed: `PublicMapViewerPage`, `ViewerMap.basemap-config`, `map-stack`, and frontend lint.
 
+## Current Milestone: v1002 Layer Sidebar + Add Dataset Redesign
+
+**Goal:** Redesign the Map Builder layer sidebar and Add Dataset workflow over the existing Map/MapLayer/Record/Dataset schema, with zero migrations and no new rendering capabilities.
+
+**Target features:**
+- Sidebar row rewrite over the existing Map Stack model, including dataset-rendering headers, renderAs chips, opacity, and visibility-at-zoom controls.
+- Duplicate rendering workflow so one dataset can back multiple independently styled `MapLayer` rows.
+- Consolidated basemap row and inline terrain row that write existing map-level `basemap_*` and `terrain_config` fields.
+- Add Dataset modal rewrite with current catalog/search filters, basemap swap states, added/another-rendering states, row expansion, and existing ImportPage routing.
+- Focused QA gates for schema preservation, renderAs dispatch, duplicate renderings, basemap/terrain writes, accessibility, and responsive builder behavior.
+
+**Frozen constraints:**
+- No new `Map`, `MapLayer`, `Dataset`, or `Record` fields.
+- No new tables or migrations.
+- No new renderers in v1002: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, timeline, recipes, cross-layer filters, and blend mode remain future work.
+- `is_3d` remains read-only response/dataset metadata; sidebar code must not write it.
+
 ## Last Milestone (this repo): v13.13 Backlog Sweep (shipped 2026-05-07)
 
 **Delivered:** 9 phases (271-279), 130/130 requirements satisfied, ~106 source-file commits — see [milestones/v13.13-ROADMAP.md](milestones/v13.13-ROADMAP.md) and [milestones/v13.13-MILESTONE-AUDIT.md](milestones/v13.13-MILESTONE-AUDIT.md).
@@ -547,15 +564,19 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-v1001 Map Builder UI/UX Polish Sweep — broad workflow sweep selected by the user. Full REQ-ID list is archived in `.planning/milestones/v1001-REQUIREMENTS.md`.
+v1002 Layer Sidebar + Add Dataset Redesign — scoped from the outside-auditor handoff. Full REQ-ID list lives in `.planning/REQUIREMENTS.md` until milestone close.
 
-- [ ] **Workflow audit and triage**: Review the builder from new map creation through adding data, editing layers, styling, previewing, saving, sharing, and public viewing; classify findings by severity and user-flow impact.
-- [ ] **Inspector and Map Stack polish**: Tighten the recently shipped Map Stack and inspector experience for density, hierarchy, selected/disabled/empty states, mobile reachability, keyboard flow, and predictable editing.
-- [ ] **Styling and data-expression polish**: Smooth high-friction layer styling surfaces, including categorical/graduated/zoom/line-gradient/raster/hillshade/symbol/label/popup controls and their validation states.
-- [ ] **Preview, save, share, and public-output polish**: Make authored maps render consistently across builder preview, saved-map detail, shared-token, authenticated public, and embed surfaces.
-- [ ] **Durable QA gate**: Convert visual, keyboard, accessibility, and smoke findings into repeatable Playwright/Vitest coverage where practical, with screenshot evidence only for the remaining genuinely visual checks.
+- [ ] **Schema-preserving sidebar model**: Extend the existing Map Stack view model without migrations, persisted groups, or new renderer capabilities.
+- [ ] **Layer row and dataset rendering UX**: Rewrite sidebar rows, dataset-rendering headers, opacity, visibility-at-zoom, renderAs chips, and duplicate-rendering actions over current `MapLayer[]`.
+- [ ] **Basemap and terrain inline controls**: Collapse basemap controls into one row backed by `basemap_style`, `show_basemap_labels`, and `basemap_config`; surface terrain inside `relief` via `terrain_config`.
+- [ ] **Add Dataset modal redesign**: Keep search-first catalog behavior while adding Vector/Raster/Basemap tabs, supported filters only, basemap swap states, `(added)` plus another-rendering states, row expansion, and ImportPage routing.
+- [ ] **Durable QA gate**: Cover renderAs mapping, grouping, duplicate rendering, no `is_3d` writes, Add Dataset states, accessibility, responsive sidebar/modal behavior, and schema round-trip safety.
 
 ### Out of Scope
+
+- v1002 excludes new renderers: Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, and any deck.gl/Kepler renderer adoption.
+- v1002 excludes persisted basemap appearance presets beyond the existing `BasemapEntry` registry; if needed later, extend `BasemapEntry` with optional default config before adding a new table.
+- v1002 excludes blend mode, map timeline/cross-layer playback, recipes editor, org connector library, cross-layer filters, promote-imports-to-org workflow, cross-surface drag from Add Dataset into exact stack position, and Curated/Your imports/Public chips until an API contract exists.
 
 - Persistent connector registry, scheduled mirroring, encrypted credential vault, and connector UI — still Phase 999.13 / Enterprise backlog
 - Tenant scoping for the future Cloud tier — still Phase 999.6 and not needed for single-tenant self-hosted manifest apply
@@ -817,4 +838,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 after closing v1001 Map Builder UI/UX Polish Sweep*
+*Last updated: 2026-05-12 after starting v1002 Layer Sidebar + Add Dataset Redesign*

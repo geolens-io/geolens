@@ -1,36 +1,44 @@
 ---
 gsd_state_version: 1.0
-milestone: v1001
-milestone_name: Map Builder UI/UX Polish Sweep
-status: completed
-last_updated: "2026-05-11T22:12:00Z"
-last_activity: 2026-05-11 — Phase 1007 converted builder polish coverage into deterministic Vitest, Playwright, accessibility, and builder-smoke QA gates, replacing the sidebar drag flake with keyboard resize coverage.
+milestone: v1002
+milestone_name: Layer Sidebar + Add Dataset Redesign
+status: planning
+last_updated: "2026-05-12T00:04:54Z"
+last_activity: 2026-05-12 — Milestone v1002 initialized from the Layer Sidebar + Add Dataset handoff with zero-migration and no-new-renderer scope.
 progress:
   total_phases: 6
-  completed_phases: 6
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-**Milestone:** v1001 — Map Builder UI/UX Polish Sweep
-**Phase:** 1007 complete — Durable builder QA gate and closeout
-**Plan:** 1007-01 complete
-**Status:** v1001 milestone complete and archived.
-**Last activity:** 2026-05-11 — Phase 1007 added durable builder QA gates, public-output accessibility coverage, deterministic sidebar resize coverage, and refreshed builder-styling smoke selectors.
+**Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
+**Phase:** Not started — requirements and roadmap initialized
+**Plan:** —
+**Status:** Ready to plan Phase 1008.
+**Last activity:** 2026-05-12 — Initialized v1002 requirements and roadmap from the scoped handoff.
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-11 after v1001 closeout)
+See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Ready for next milestone planning.
+**Current focus:** v1002 builder sidebar and Add Dataset redesign over the existing schema.
+
+## Active Milestone
+
+**Version:** v1002 Layer Sidebar + Add Dataset Redesign
+**Started:** 2026-05-12
+**Phases:** 1008-1013 (6 phases)
+**Requirements:** 37 total (ARCH-01..04, STACK-01..05, RENDER-01..08, BASE-01..04, TERRAIN-01..02, ADD-01..08, QA-01..06)
+**Scope:** zero migrations, no new renderers, no persisted groups, no Kepler implementation adoption.
 
 ## Last Shipped Milestone
 
@@ -82,6 +90,13 @@ See: .planning/PROJECT.md (updated 2026-05-11 after v1001 closeout)
 
 ### Roadmap Evolution
 
+- Phase 1008 added: sidebar view-model and renderAs foundation (ARCH-01..04, RENDER-01).
+- Phase 1009 added: layer row and dataset-rendering sidebar (STACK-01..05).
+- Phase 1010 added: renderAs actions and duplicate renderings (RENDER-02..08).
+- Phase 1011 added: basemap and terrain inline rows (BASE-01..04, TERRAIN-01..02).
+- Phase 1012 added: Add Dataset modal redesign (ADD-01..08).
+- Phase 1013 added: builder sidebar/modal QA closeout (QA-01..06).
+- v1002 started 2026-05-12 from the outside-auditor handoff with a strict no-migration, no-new-renderer, view-model-only scope.
 - Phase 1002 added: Kepler-guided builder workflow audit and triage (FLOW-01..06).
 - Phase 1003 added: Map Stack inspector interaction polish (STACK-01..06).
 - Phase 1004 added: styling and cartography control polish (STYLE-01..08).
