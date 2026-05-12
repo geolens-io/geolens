@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { render, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
 import { applyBasemapConfigToMap, syncLayersToMap } from '@/components/builder/map-sync';
+import { fetchBoundedGeoJson } from '@/api/geojson-z';
 import type { MapBasemapConfig, SharedLayerResponse } from '@/types/api';
 
 type FakeMap = {
@@ -117,8 +118,28 @@ vi.mock('@/components/builder/map-sync', async (importOriginal) => {
   };
 });
 
+vi.mock('@/api/geojson-z', () => ({
+  fetchBoundedGeoJson: vi.fn(async () => ({
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 0] },
+        properties: { name: 'A' },
+      },
+    ],
+    total_count: 1,
+    truncated: false,
+  })),
+  asFeatureCollection: (data: GeoJSON.FeatureCollection & { features: GeoJSON.Feature[] }) => ({
+    type: 'FeatureCollection',
+    features: data.features,
+  }),
+}));
+
 const applyBasemapConfigToMapMock = vi.mocked(applyBasemapConfigToMap);
 const syncLayersToMapMock = vi.mocked(syncLayersToMap);
+const fetchBoundedGeoJsonMock = vi.mocked(fetchBoundedGeoJson);
 
 const BASEMAP_CONFIG: MapBasemapConfig = {
   label_mode: 'subtle',
@@ -154,6 +175,7 @@ describe('ViewerMap basemap config runtime', () => {
     mapState.reset();
     applyBasemapConfigToMapMock.mockClear();
     syncLayersToMapMock.mockClear();
+    fetchBoundedGeoJsonMock.mockClear();
   });
 
   it('applies representative basemap config after load, style reload, and runtime changes', async () => {
@@ -280,5 +302,69 @@ describe('ViewerMap basemap config runtime', () => {
 
     const syncInputs = syncLayersToMapMock.mock.calls.at(-1)?.[1];
     expect(syncInputs?.map((layer) => layer.id)).toEqual(['layer-a', 'layer-b']);
+  });
+
+  it('syncs eligible shared cluster layers after bounded GeoJSON data arrives', async () => {
+    const clusterLayers: SharedLayerResponse[] = [
+      {
+        id: 'cluster-layer',
+        dataset_id: 'dataset-cluster',
+        dataset_name: 'Stops',
+        display_name: 'Stops',
+        table_name: 'stops',
+        geometry_type: 'POINT',
+        column_info: null,
+        sort_order: 0,
+        visible: true,
+        opacity: 1,
+        paint: { 'circle-color': '#2255aa', 'circle-radius': 6 },
+        layout: {},
+        filter: null,
+        label_config: null,
+        popup_config: null,
+        style_config: {
+          render_mode: 'cluster',
+          builder: {
+            clusterRadius: 64,
+            clusterMaxZoom: 12,
+          },
+        } as SharedLayerResponse['style_config'],
+        tile_url: '',
+        feature_count: 1,
+      },
+    ];
+
+    render(
+      <ViewerMap
+        layers={clusterLayers}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={null}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{
+          center_lng: 0,
+          center_lat: 0,
+          zoom: 2,
+          bearing: 0,
+          pitch: 0,
+        }}
+        visibleLayers={new Set(['cluster-layer'])}
+        embedToken="embed-token"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchBoundedGeoJsonMock).toHaveBeenCalledWith('dataset-cluster', {
+        apiKey: undefined,
+        embedToken: 'embed-token',
+      });
+    });
+    await waitFor(() => {
+      const geojsonDataMap = syncLayersToMapMock.mock.calls.at(-1)?.[6];
+      expect(geojsonDataMap?.get('cluster-layer')).toMatchObject({
+        type: 'FeatureCollection',
+        features: [expect.objectContaining({ type: 'Feature' })],
+      });
+    });
   });
 });

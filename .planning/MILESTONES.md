@@ -1,5 +1,44 @@
 # Milestones
 
+## v1005 Builder Point Cluster Foundation (Shipped: 2026-05-12)
+
+**Delivered:** A schema-preserving native MapLibre Point Cluster foundation for bounded eligible point datasets, with builder controls, viewer compatibility, style JSON intent preservation, and live Playwright QA.
+
+**Stats:**
+
+- **Phases:** 4 (1023-1026)
+- **Plans:** 4 / 4 complete
+- **Requirements:** 20/20 satisfied (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
+- **Audit:** passed / GO
+
+**Key accomplishments:**
+
+1. **Cluster eligibility shipped** — Cluster is exposed only for bounded vector point datasets using existing metadata and source contracts.
+2. **MapLibre cluster renderer shipped** — cluster circle, count, and unclustered point layers use native GeoJSON clustering without new renderer dependencies.
+3. **Authoring controls added** — cluster radius, max zoom, color, count color, and count text size use existing builder primitives and locale coverage.
+4. **Lifecycle parity hardened** — cluster companions follow parent visibility, filter, opacity, zoom range, reorder, removal, source-option rebuilds, and stale cleanup.
+5. **Viewer compatibility closed** — builder, public, shared, and embed viewers preserve auth/API-key/embed-token context and resync when bounded GeoJSON arrives.
+6. **Style JSON policy locked** — cluster intent round-trips through metadata while standalone style exports use an explicit Point/vector-tile fallback.
+7. **QA completed** — focused frontend/backend/i18n/lint/build/ruff checks, builder smoke, and Playwright MCP save/reload/console verification passed.
+
+**Known deferred items at close:**
+
+- Server-side clustered vector-tile endpoint for large point datasets.
+- Cluster drill-down/camera actions, aggregate popups, and cluster legends.
+- Hexbin, H3, Animated path, Point 3D extrusion, timeline playback, recipes, cross-layer filters, blend mode, basemap presets, and exact-position Add Dataset drag.
+- Frontend production build still emits the pre-existing large `map-vendor` chunk-size warning.
+- GitHub reports two high Dependabot vulnerabilities on default branch; not introduced by this milestone.
+
+**Archives:**
+
+- `.planning/milestones/v1005-ROADMAP.md`
+- `.planning/milestones/v1005-REQUIREMENTS.md`
+- `.planning/milestones/v1005-MILESTONE-AUDIT.md`
+
+**Tag:** `v1005`
+
+---
+
 ## v1004 Builder Renderer Expansion (Shipped: 2026-05-12)
 
 **Delivered:** A schema-preserving renderer expansion that adds a renderer capability registry, ships MapLibre-native Line → Arrow rendering, and records explicit ADRs before introducing deck.gl/H3/trips-style renderers.

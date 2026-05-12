@@ -503,7 +503,7 @@ export const ViewerMap = memo(function ViewerMap({
     if (!embedToken && layers.length > 0 && tokenMap.size === 0) return;
     runSync(map);
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
-  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken]);
+  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
 
   // Update tile URLs in-place when vector tokens refresh (token rotation).
   // Narrow the dep to the single primitive the effect actually reads so the

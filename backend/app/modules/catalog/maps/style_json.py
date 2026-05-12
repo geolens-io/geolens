@@ -97,6 +97,11 @@ _BUILDER_KEY_ALIASES = {
     "arrow_color": "arrowColor",
     "arrow_size": "arrowSize",
     "arrow_spacing": "arrowSpacing",
+    "cluster_radius": "clusterRadius",
+    "cluster_max_zoom": "clusterMaxZoom",
+    "cluster_color": "clusterColor",
+    "cluster_text_color": "clusterTextColor",
+    "cluster_text_size": "clusterTextSize",
 }
 
 logger = logging.getLogger(__name__)

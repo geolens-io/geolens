@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1005
 milestone_name: Builder Point Cluster Foundation
-status: in_progress
-last_updated: "2026-05-12T18:06:47Z"
-last_activity: 2026-05-12 — Phase 1025 completed cluster builder authoring controls, i18n, source-option live sync, focused tests, build, builder smoke, and MCP console checks.
+status: ready_for_next_milestone
+last_updated: "2026-05-12T18:23:51Z"
+last_activity: 2026-05-12 — v1005 shipped native MapLibre point clustering for bounded eligible point datasets, style JSON intent preservation, shared/public viewer resync, full focused gates, builder smoke, and Playwright MCP live QA.
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 4
-  completed_plans: 3
-  percent: 75
+  completed_plans: 4
+  percent: 100
 ---
 
 # State
@@ -18,30 +18,32 @@ progress:
 ## Current Position
 
 **Milestone:** v1005 — Builder Point Cluster Foundation
-**Phase:** 1026 — cluster-compatibility-and-qa-closeout
+**Phase:** —
 **Plan:** —
-**Status:** Ready to plan Phase 1026
-**Last activity:** 2026-05-12 — Phase 1025 completed cluster builder authoring controls, i18n, source-option live sync, focused tests, build, builder smoke, and MCP console checks.
+**Status:** v1005 shipped; ready for the next milestone
+**Last activity:** 2026-05-12 — v1005 shipped native MapLibre point clustering for bounded eligible point datasets, style JSON intent preservation, shared/public viewer resync, full focused gates, builder smoke, and Playwright MCP live QA.
 
-Progress: [███████░░░] 75%
+Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after starting v1005)
+See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1005)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1026 compatibility and QA closeout.
+**Current focus:** No active milestone. Next work should start with `$gsd-new-milestone` or a scoped quick task.
 
-## Active Milestone
+## Last Shipped Milestone
 
 **Version:** v1005 Builder Point Cluster Foundation
 **Started:** 2026-05-12
-**Status:** In progress
+**Shipped:** 2026-05-12
+**Status:** Archived
 **Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
-**Phases:** 1023-1026 (4 phases, 20 requirements; 11 requirements complete)
-**Next phase:** 1026 cluster-compatibility-and-qa-closeout
+**Phases:** 1023-1026 (4 phases, 20 requirements; 20 requirements complete)
+**Audit:** passed / GO
+**Archive:** `.planning/milestones/v1005-ROADMAP.md`, `.planning/milestones/v1005-REQUIREMENTS.md`, `.planning/milestones/v1005-MILESTONE-AUDIT.md`
 
-## Last Shipped Milestone
+## Prior Shipped Milestone
 
 **Version:** v1004 Builder Renderer Expansion
 **Started:** 2026-05-12
@@ -122,6 +124,8 @@ See: .planning/PROJECT.md (updated 2026-05-12 after starting v1005)
 
 ### Roadmap Evolution
 
+- v1005 shipped 2026-05-12: native MapLibre point clustering now works for bounded eligible point datasets with existing-field renderAs writes, builder controls, style JSON intent preservation, shared/public viewer resync after bounded GeoJSON arrival, focused automated gates, builder smoke, and Playwright MCP live QA.
+- Phase 1026 completed 2026-05-12: cluster compatibility closeout added style JSON cluster alias/export/import coverage, fixed `ViewerMap` cluster resync timing, passed 168 focused frontend tests, 36 backend tests, i18n, lint, build, ruff, builder smoke, and live Playwright MCP save/reload/console verification.
 - Phase 1025 completed 2026-05-12: cluster authoring controls now expose radius, max zoom, cluster color, count color, and count size through existing builder primitives and `style_config.builder`; clustered sources rebuild when source-level options change; companion layers sync live visibility/filter/opacity/zoom; focused Vitest, i18n, lint, build, builder smoke, and Playwright MCP console checks passed.
 - Phase 1024 completed 2026-05-12: native MapLibre cluster adapter now creates clustered GeoJSON sources with cluster radius/max zoom, stable cluster circle/count/unclustered layers, parent identity preservation for popups, source-type fallback/replacement, and companion visibility/filter/opacity/zoom/reorder/stale cleanup coverage.
 - Phase 1023 completed 2026-05-12: cluster eligibility now gates Cluster to bounded vector point datasets using existing metadata, bounded GeoJSON fetching preserves JWT/API-key/embed-token contexts, authoring fallbacks warn nonblockingly, and focused Vitest/i18n/lint/build/builder smoke plus Playwright MCP console checks passed.

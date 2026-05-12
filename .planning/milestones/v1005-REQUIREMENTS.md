@@ -1,11 +1,13 @@
-# Requirements: v1005 Builder Point Cluster Foundation
+# Requirements Archive: v1005 Builder Point Cluster Foundation
 
 **Defined:** 2026-05-12
+**Shipped:** 2026-05-12
+**Status:** Complete
 **Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 
 ## Milestone Goal
 
-Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported. v1005 remains MapLibre-first: no deck.gl, no H3 dependency, no schema migration, and no server-side clustered tile endpoint unless the existing feature-serving contract proves insufficient during implementation.
+Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported. v1005 remains MapLibre-first: no deck.gl, no H3 dependency, no schema migration, and no server-side clustered tile endpoint.
 
 ## Constraints
 
@@ -16,7 +18,7 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 - Do not expose Cluster for large, truncated, non-point, raster, DEM, or unsupported layers.
 - Keep v1002-v1004 sidebar, Add Dataset, duplicate rendering, basemap, terrain, Arrow, saved-map, public-viewer, and shared-viewer behavior intact.
 
-## v1005 Requirements
+## Requirements
 
 ### Cluster Source Eligibility
 
@@ -37,18 +39,18 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 
 ### Compatibility And Interop
 
-- [ ] **COMP-01**: Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, and Hillshade renderAs behavior remains unchanged.
-- [ ] **COMP-02**: Saved maps with Cluster intent reload in builder and viewers without adding, removing, or renaming persisted fields.
-- [ ] **COMP-03**: Style JSON export/import preserves Cluster renderer intent or uses an explicit Point fallback when authenticated GeoJSON data cannot be represented in a standalone style.
-- [ ] **COMP-04**: Public/shared/embed viewers render eligible Cluster layers or degrade to Point with no map crash and no noisy console error loops.
+- [x] **COMP-01**: Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, and Hillshade renderAs behavior remains unchanged.
+- [x] **COMP-02**: Saved maps with Cluster intent reload in builder and viewers without adding, removing, or renaming persisted fields.
+- [x] **COMP-03**: Style JSON export/import preserves Cluster renderer intent or uses an explicit Point fallback when authenticated GeoJSON data cannot be represented in a standalone style.
+- [x] **COMP-04**: Public/shared/embed viewers render eligible Cluster layers or degrade to Point with no map crash and no noisy console error loops.
 
 ### QA And Closeout
 
-- [ ] **QA-01**: Focused renderAs tests prove Cluster visibility, existing-field patch discipline, and unsupported renderer omissions.
-- [ ] **QA-02**: Focused map-sync/adapter tests prove cluster layer add, update, visibility, filter, opacity, zoom, reorder, and stale cleanup behavior.
-- [ ] **QA-03**: Backend style JSON tests prove Cluster export/import policy and fallback behavior.
-- [ ] **QA-04**: Playwright MCP verifies a live eligible point layer can switch to Cluster, save, reload, and render without new console warnings/errors.
-- [ ] **QA-05**: Focused Vitest, backend pytest, i18n checks, frontend lint, frontend build, ruff, and builder smoke pass before milestone close.
+- [x] **QA-01**: Focused renderAs tests prove Cluster visibility, existing-field patch discipline, and unsupported renderer omissions.
+- [x] **QA-02**: Focused map-sync/adapter tests prove cluster layer add, update, visibility, filter, opacity, zoom, reorder, and stale cleanup behavior.
+- [x] **QA-03**: Backend style JSON tests prove Cluster export/import policy and fallback behavior.
+- [x] **QA-04**: Playwright MCP verifies a live eligible point layer can switch to Cluster, save, reload, and render without new console warnings/errors.
+- [x] **QA-05**: Focused Vitest, backend pytest, i18n checks, frontend lint, frontend build, ruff, and builder smoke pass before milestone close.
 
 ## Future Requirements
 
@@ -60,18 +62,6 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 - Point 3D extrusion.
 - Cross-layer filters, recipes, blend mode, and persisted basemap appearance presets.
 - Exact-position drag from Add Dataset directly into the stack.
-
-## Out of Scope
-
-| Feature | Reason |
-|---|---|
-| Database migrations or new persisted renderer tables | v1005 should preserve the schema discipline established in v1002-v1004. |
-| Unconditional Cluster on every point layer | Large vector-tile-backed datasets need server-side clustering or another bounded source path first. |
-| Server-side clustered vector-tile endpoint | Valuable follow-up, but too large for this milestone unless the existing bounded GeoJSON path proves unusable. |
-| deck.gl adoption | Cluster can be attempted with native MapLibre GeoJSON clustering before adding a new rendering stack. |
-| Hexbin/H3/Animated path/Point 3D extrusion implementation | These have separate ADRs and require different data-shape/dependency decisions. |
-| Map timeline playback | Timeline state is larger than a renderer chip and remains a separate capability milestone. |
-| New catalog/import APIs | Cluster should rely on current dataset metadata and feature-serving contracts unless implementation proves a narrow compatibility endpoint is required. |
 
 ## Traceability
 
@@ -88,23 +78,20 @@ Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJS
 | CLUS-04 | Phase 1024 | Complete |
 | CLUS-05 | Phase 1024 | Complete |
 | CLUS-06 | Phase 1025 | Complete |
-| COMP-01 | Phase 1026 | Pending |
-| COMP-02 | Phase 1026 | Pending |
-| COMP-03 | Phase 1026 | Pending |
-| COMP-04 | Phase 1026 | Pending |
-| QA-01 | Phase 1026 | Pending |
-| QA-02 | Phase 1026 | Pending |
-| QA-03 | Phase 1026 | Pending |
-| QA-04 | Phase 1026 | Pending |
-| QA-05 | Phase 1026 | Pending |
+| COMP-01 | Phase 1026 | Complete |
+| COMP-02 | Phase 1026 | Complete |
+| COMP-03 | Phase 1026 | Complete |
+| COMP-04 | Phase 1026 | Complete |
+| QA-01 | Phase 1026 | Complete |
+| QA-02 | Phase 1026 | Complete |
+| QA-03 | Phase 1026 | Complete |
+| QA-04 | Phase 1026 | Complete |
+| QA-05 | Phase 1026 | Complete |
 
 **Coverage:**
+
 - v1005 requirements: 20 total
-- Complete: 11
-- Pending: 9
+- Complete: 20
+- Pending: 0
 - Mapped to phases: 20
 - Unmapped: 0
-
----
-*Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1025 completion*

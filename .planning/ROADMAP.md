@@ -60,21 +60,21 @@
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
 - ✅ **v1003 Builder v1 Hardening** — Phases 1014-1018 (shipped 2026-05-12) — see [archive](milestones/v1003-ROADMAP.md)
 - ✅ **v1004 Builder Renderer Expansion** — Phases 1019-1022 (shipped 2026-05-12) — see [archive](milestones/v1004-ROADMAP.md)
-- 🚧 **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (active)
+- ✅ **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (shipped 2026-05-12) — see [archive](milestones/v1005-ROADMAP.md)
 
 ## Phases
 
-<details open>
-<summary>🚧 v1005 Builder Point Cluster Foundation (Phases 1023-1026) — ACTIVE</summary>
+<details>
+<summary>✅ v1005 Builder Point Cluster Foundation (Phases 1023-1026) — SHIPPED 2026-05-12</summary>
 
 **Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
 
-**Requirements:** 11/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
+**Requirements:** 20/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
 
 - [x] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — completed 2026-05-12
 - [x] **Phase 1024: maplibre-point-cluster-renderer** — completed 2026-05-12
 - [x] **Phase 1025: cluster-builder-controls-and-authoring-polish** — completed 2026-05-12
-- [ ] **Phase 1026: cluster-compatibility-and-qa-closeout** — pending
+- [x] **Phase 1026: cluster-compatibility-and-qa-closeout** — completed 2026-05-12
 
 ### Phase 1023: cluster-source-eligibility-and-geojson-contract
 
@@ -122,6 +122,7 @@ Status: completed 2026-05-12
 **Goal:** Prove Cluster does not regress saved maps, style JSON, viewers, or prior renderer behavior.
 
 Requirements: COMP-01, COMP-02, COMP-03, COMP-04, QA-01, QA-02, QA-03, QA-04, QA-05
+Status: completed 2026-05-12
 
 **Success Criteria:**
 1. Saved maps with Cluster intent reload in builder and eligible viewers without schema drift.
@@ -129,6 +130,8 @@ Requirements: COMP-01, COMP-02, COMP-03, COMP-04, QA-01, QA-02, QA-03, QA-04, QA
 3. Style JSON export/import preserves Cluster intent or emits a documented Point fallback where standalone authenticated GeoJSON is not representable.
 4. Focused Vitest, backend pytest, i18n checks, frontend lint, frontend build, ruff, builder smoke, and Playwright MCP browser inspection pass.
 5. Any remaining server-side clustered tile endpoint work is documented as a future requirement, not hidden as implicit scope.
+
+20/20 v1005 requirements satisfied. Audit: passed / GO. Shipped native MapLibre point clustering for bounded eligible point datasets, cluster builder controls, viewer compatibility, style JSON intent preservation with standalone Point fallback, focused automated verification, builder smoke, and Playwright MCP live QA. Full details: [milestones/v1005-ROADMAP.md](milestones/v1005-ROADMAP.md).
 
 </details>
 

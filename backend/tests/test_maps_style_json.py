@@ -331,6 +331,11 @@ def test_build_maplibre_style_canonicalizes_legacy_builder_aliases():
                 "height_scale": 1.8,
                 "extrusion_min_zoom": 12.5,
                 "extrusion_opacity": 0.92,
+                "cluster_radius": 72,
+                "cluster_max_zoom": 13,
+                "cluster_color": "#0ea5e9",
+                "cluster_text_color": "#f8fafc",
+                "cluster_text_size": 14,
             },
         },
     )
@@ -346,6 +351,11 @@ def test_build_maplibre_style_canonicalizes_legacy_builder_aliases():
         "heightScale": 1.8,
         "extrusionMinZoom": 12.5,
         "extrusionOpacity": 0.92,
+        "clusterRadius": 72,
+        "clusterMaxZoom": 13,
+        "clusterColor": "#0ea5e9",
+        "clusterTextColor": "#f8fafc",
+        "clusterTextSize": 14,
     }
     assert outline["paint"]["line-color"] == "#ffcf66"
     assert outline["paint"]["line-width"] == 0.25
@@ -472,6 +482,88 @@ def test_build_maplibre_style_emits_line_arrow_companion_layer():
         "icon-opacity": 0.9,
     }
     assert arrow["filter"] == ["==", "status", "open"]
+
+
+def test_build_maplibre_style_exports_cluster_intent_with_point_fallback():
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type="POINT",
+        paint={"circle-color": "#2255aa", "circle-radius": 6},
+        label_config=None,
+        style_config={
+            "render_mode": "cluster",
+            "builder": {
+                "clusterRadius": 64,
+                "clusterMaxZoom": 12,
+                "clusterColor": "#fb923c",
+                "clusterTextColor": "#111827",
+                "clusterTextSize": 13,
+            },
+        },
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    source = style["sources"][f"geolens-{dataset_id}"]
+    assert source["type"] == "vector"
+    assert "cluster" not in source
+    assert [entry["type"] for entry in style["layers"]] == ["circle"]
+    primary = style["layers"][0]
+    assert primary["paint"] == {"circle-color": "#2255aa", "circle-radius": 6}
+    assert primary["metadata"]["geolens"]["style_config"] == {
+        "render_mode": "cluster",
+        "builder": {
+            "clusterRadius": 64,
+            "clusterMaxZoom": 12,
+            "clusterColor": "#fb923c",
+            "clusterTextColor": "#111827",
+            "clusterTextSize": 13,
+        },
+    }
+
+
+def test_parse_maplibre_style_import_preserves_cluster_intent_metadata():
+    dataset_id = uuid.uuid4()
+    style = build_maplibre_style(
+        _map(),
+        [
+            _layer(
+                dataset_id=dataset_id,
+                dataset_geometry_type="POINT",
+                paint={"circle-color": "#2255aa", "circle-radius": 6},
+                label_config=None,
+                style_config={
+                    "render_mode": "cluster",
+                    "builder": {
+                        "clusterRadius": 64,
+                        "clusterMaxZoom": 12,
+                        "clusterColor": "#fb923c",
+                        "clusterTextColor": "#111827",
+                        "clusterTextSize": 13,
+                    },
+                },
+            )
+        ],
+    )
+
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.summary.layers_imported == 1
+    assert imported.summary.layers_skipped == 0
+    layer = imported.layers[0]
+    assert layer.dataset_id == dataset_id
+    assert layer.paint == {"circle-color": "#2255aa", "circle-radius": 6}
+    assert layer.style_config == {
+        "render_mode": "cluster",
+        "builder": {
+            "clusterRadius": 64,
+            "clusterMaxZoom": 12,
+            "clusterColor": "#fb923c",
+            "clusterTextColor": "#111827",
+            "clusterTextSize": 13,
+        },
+    }
 
 
 def test_build_maplibre_style_rejects_array_shaped_builder_line_gradient_intent():
