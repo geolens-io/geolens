@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1004
 milestone_name: Builder Renderer Expansion
-status: defining_requirements
+status: roadmapped
 last_updated: "2026-05-12T14:58:37Z"
-last_activity: 2026-05-12 — v1004 Builder Renderer Expansion started after publishing v1003; defining renderer capability requirements and roadmap.
+last_activity: 2026-05-12 — v1004 Builder Renderer Expansion roadmap created with phases 1019-1022 and 20/20 requirements mapped.
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 4
   completed_plans: 0
   percent: 0
 ---
@@ -18,10 +18,10 @@ progress:
 ## Current Position
 
 **Milestone:** v1004 — Builder Renderer Expansion
-**Phase:** Not started — defining requirements
+**Phase:** 1019 — renderer-capability-architecture-and-cluster-feasibility
 **Plan:** —
-**Status:** Defining requirements
-**Last activity:** 2026-05-12 — v1004 Builder Renderer Expansion started after publishing v1003; defining renderer capability requirements and roadmap.
+**Status:** Ready to plan Phase 1019
+**Last activity:** 2026-05-12 — v1004 Builder Renderer Expansion roadmap created with phases 1019-1022 and 20/20 requirements mapped.
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -30,15 +30,16 @@ Progress: [░░░░░░░░░░] 0%
 See: .planning/PROJECT.md (updated 2026-05-12 after starting v1004)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1004 Builder Renderer Expansion requirements and roadmap.
+**Current focus:** Phase 1019 planning for renderer capability architecture and cluster feasibility.
 
 ## Active Milestone
 
 **Version:** v1004 Builder Renderer Expansion
 **Started:** 2026-05-12
-**Status:** Defining requirements
+**Status:** Roadmapped
 **Goal:** Add the next Map Builder render modes through a deliberate renderer capability layer, shipping MapLibre-native wins first and making any deck.gl/H3/trips dependency decision explicit before implementation.
-**Expected first phase:** Renderer architecture and capability contract
+**Phases:** 1019-1022 (4 phases, 20 requirements; 0 requirements complete)
+**Next phase:** 1019 renderer-capability-architecture-and-cluster-feasibility
 
 ## Last Shipped Milestone
 
@@ -206,8 +207,8 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 ## Session Continuity
 
 Last session: 2026-05-12T14:58:37Z
-Stopped at: v1004 Builder Renderer Expansion started; requirements and roadmap in progress.
-Resume file: `.planning/REQUIREMENTS.md`
+Stopped at: v1004 Builder Renderer Expansion roadmapped; Phase 1019 ready to plan.
+Resume file: `.planning/ROADMAP.md`
 
 ---
-*Last updated: 2026-05-12 after starting v1004*
+*Last updated: 2026-05-12 after creating v1004 roadmap*

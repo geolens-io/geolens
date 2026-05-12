@@ -73,30 +73,30 @@ Add the next Map Builder render modes through a deliberate renderer capability l
 
 | Requirement | Phase | Status |
 |---|---|---|
-| ARCH-01 | TBD | Pending |
-| ARCH-02 | TBD | Pending |
-| ARCH-03 | TBD | Pending |
-| ARCH-04 | TBD | Pending |
-| ARCH-05 | TBD | Pending |
-| ARROW-01 | TBD | Pending |
-| ARROW-02 | TBD | Pending |
-| ARROW-03 | TBD | Pending |
-| ARROW-04 | TBD | Pending |
-| ARROW-05 | TBD | Pending |
-| DECIDE-01 | TBD | Pending |
-| DECIDE-02 | TBD | Pending |
-| DECIDE-03 | TBD | Pending |
-| DECIDE-04 | TBD | Pending |
-| DECIDE-05 | TBD | Pending |
-| QA-01 | TBD | Pending |
-| QA-02 | TBD | Pending |
-| QA-03 | TBD | Pending |
-| QA-04 | TBD | Pending |
-| QA-05 | TBD | Pending |
+| ARCH-01 | Phase 1019 | Pending |
+| ARCH-02 | Phase 1019 | Pending |
+| ARCH-03 | Phase 1019 | Pending |
+| ARCH-04 | Phase 1019 | Pending |
+| ARCH-05 | Phase 1019 | Pending |
+| ARROW-01 | Phase 1020 | Pending |
+| ARROW-02 | Phase 1020 | Pending |
+| ARROW-03 | Phase 1020 | Pending |
+| ARROW-04 | Phase 1020 | Pending |
+| ARROW-05 | Phase 1020 | Pending |
+| DECIDE-01 | Phase 1019 | Pending |
+| DECIDE-02 | Phase 1021 | Pending |
+| DECIDE-03 | Phase 1021 | Pending |
+| DECIDE-04 | Phase 1021 | Pending |
+| DECIDE-05 | Phase 1021 | Pending |
+| QA-01 | Phase 1022 | Pending |
+| QA-02 | Phase 1022 | Pending |
+| QA-03 | Phase 1022 | Pending |
+| QA-04 | Phase 1022 | Pending |
+| QA-05 | Phase 1022 | Pending |
 
 **Coverage:**
 - v1004 requirements: 20 total
 - Complete: 0
 - Pending: 20
-- Mapped to phases: 0
-- Unmapped: 20
+- Mapped to phases: 20
+- Unmapped: 0
