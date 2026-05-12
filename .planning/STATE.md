@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1002
 milestone_name: Layer Sidebar + Add Dataset Redesign
-status: planning
-last_updated: "2026-05-12T00:04:54Z"
-last_activity: 2026-05-12 — Milestone v1002 initialized from the Layer Sidebar + Add Dataset handoff with zero-migration and no-new-renderer scope.
+status: executing
+last_updated: "2026-05-12T00:13:55Z"
+last_activity: 2026-05-12 — Phase 1008 shipped the pure renderAs foundation and preserved existing map-stack view-model boundaries.
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 17
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
-**Phase:** Not started — requirements and roadmap initialized
-**Plan:** —
-**Status:** Ready to plan Phase 1008.
-**Last activity:** 2026-05-12 — Initialized v1002 requirements and roadmap from the scoped handoff.
+**Phase:** Phase 1008 complete — sidebar view-model and renderAs foundation
+**Plan:** 1008-01 complete
+**Status:** Ready to plan Phase 1009.
+**Last activity:** 2026-05-12 — Added the pure renderAs utility and focused tests while keeping schema, renderer, and view-model boundaries intact.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 17%
 
 ## Project Reference
 
@@ -90,6 +90,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 
 ### Roadmap Evolution
 
+- Phase 1008 completed 2026-05-12: pure `renderAs` utility added with supported v1 options only, unsupported renderer omissions covered by tests, `is_3d` kept read-only, and existing `buildMapStack` view-model tests verified.
 - Phase 1008 added: sidebar view-model and renderAs foundation (ARCH-01..04, RENDER-01).
 - Phase 1009 added: layer row and dataset-rendering sidebar (STACK-01..05).
 - Phase 1010 added: renderAs actions and duplicate renderings (RENDER-02..08).

@@ -1,0 +1,156 @@
+import { describe, expect, it } from 'vitest';
+import {
+  RENDER_AS_WRITABLE_FIELDS,
+  UNSUPPORTED_V1002_RENDERERS,
+  getCurrentRenderAs,
+  getRenderAsOptions,
+  getRenderAsSource,
+  isSupportedRenderAsId,
+} from '../renderAs';
+import type { MapLayerResponse, StyleConfig } from '@/types/api';
+
+function layer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+  return {
+    id: overrides.id ?? 'layer-1',
+    dataset_id: overrides.dataset_id ?? 'dataset-1',
+    dataset_name: overrides.dataset_name ?? 'Dataset',
+    dataset_geometry_type: overrides.dataset_geometry_type ?? 'POINT',
+    dataset_table_name: overrides.dataset_table_name ?? 'dataset',
+    dataset_extent_bbox: null,
+    dataset_column_info: null,
+    dataset_feature_count: null,
+    dataset_sample_values: null,
+    display_name: null,
+    sort_order: 0,
+    visible: true,
+    opacity: 1,
+    paint: overrides.paint ?? {},
+    layout: overrides.layout ?? {},
+    filter: null,
+    label_config: null,
+    popup_config: null,
+    style_config: overrides.style_config ?? null,
+    layer_type: overrides.layer_type ?? 'vector_geolens',
+    dataset_record_type: overrides.dataset_record_type ?? 'vector_dataset',
+    show_in_legend: true,
+    is_3d: overrides.is_3d ?? null,
+    is_dem: overrides.is_dem ?? false,
+    dem_vertical_units: null,
+    ...overrides,
+  };
+}
+
+function optionIds(input: MapLayerResponse) {
+  return getRenderAsOptions(input).map((option) => option.id);
+}
+
+describe('renderAs view model', () => {
+  it('offers point, symbol, and heatmap for point vector layers', () => {
+    const point = layer({ dataset_geometry_type: 'MULTIPOINT' });
+
+    expect(getRenderAsSource(point)).toBe('vector-point');
+    expect(optionIds(point)).toEqual(['point', 'symbol', 'heatmap']);
+    expect(getCurrentRenderAs(point)).toBe('point');
+  });
+
+  it('detects point symbol and heatmap render modes from style_config', () => {
+    expect(getCurrentRenderAs(layer({
+      style_config: { render_mode: 'symbol' } as StyleConfig,
+    }))).toBe('symbol');
+    expect(getCurrentRenderAs(layer({
+      style_config: { render_mode: 'heatmap' } as StyleConfig,
+    }))).toBe('heatmap');
+  });
+
+  it('offers only line for line layers', () => {
+    const line = layer({ dataset_geometry_type: 'MULTILINESTRING' });
+
+    expect(getRenderAsSource(line)).toBe('vector-line');
+    expect(optionIds(line)).toEqual(['line']);
+    expect(getCurrentRenderAs(line)).toBe('line');
+  });
+
+  it('offers existing polygon fill, stroke, fill-stroke, and extrusion renderings', () => {
+    const polygon = layer({ dataset_geometry_type: 'MULTIPOLYGON' });
+
+    expect(getRenderAsSource(polygon)).toBe('vector-polygon');
+    expect(optionIds(polygon)).toEqual(['fill', 'stroke', 'fill-stroke', 'extrusion-3d']);
+    expect(getCurrentRenderAs(polygon)).toBe('fill-stroke');
+  });
+
+  it('detects polygon stroke, fill, and extrusion from existing builder metadata', () => {
+    expect(getCurrentRenderAs(layer({
+      dataset_geometry_type: 'POLYGON',
+      style_config: { builder: { fillDisabled: true } } as StyleConfig,
+    }))).toBe('stroke');
+
+    expect(getCurrentRenderAs(layer({
+      dataset_geometry_type: 'POLYGON',
+      style_config: { builder: { strokeDisabled: true } } as StyleConfig,
+    }))).toBe('fill');
+
+    expect(getCurrentRenderAs(layer({
+      dataset_geometry_type: 'POLYGON',
+      style_config: { builder: { heightColumn: 'height_m' } } as StyleConfig,
+    }))).toBe('extrusion-3d');
+  });
+
+  it('offers image for raster layers and image plus hillshade for DEM rasters', () => {
+    const raster = layer({
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: false,
+    });
+    const dem = layer({
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+    });
+
+    expect(getRenderAsSource(raster)).toBe('raster');
+    expect(optionIds(raster)).toEqual(['image']);
+    expect(getCurrentRenderAs(raster)).toBe('image');
+
+    expect(getRenderAsSource(dem)).toBe('raster-dem');
+    expect(optionIds(dem)).toEqual(['image', 'hillshade']);
+    expect(getCurrentRenderAs({
+      ...dem,
+      style_config: { render_mode: 'hillshade' } as StyleConfig,
+    })).toBe('hillshade');
+  });
+
+  it('returns no renderAs options for unsupported non-spatial table layers', () => {
+    const table = layer({
+      dataset_geometry_type: null,
+      dataset_record_type: 'table',
+    });
+
+    expect(getRenderAsSource(table)).toBe('unsupported');
+    expect(getRenderAsOptions(table)).toEqual([]);
+    expect(getCurrentRenderAs(table)).toBeNull();
+  });
+
+  it('does not expose punted v1002 renderers', () => {
+    for (const renderer of UNSUPPORTED_V1002_RENDERERS) {
+      expect(isSupportedRenderAsId(renderer)).toBe(false);
+    }
+
+    const allOptionIds = [
+      ...optionIds(layer({ dataset_geometry_type: 'POINT' })),
+      ...optionIds(layer({ dataset_geometry_type: 'LINESTRING' })),
+      ...optionIds(layer({ dataset_geometry_type: 'POLYGON' })),
+      ...optionIds(layer({ dataset_geometry_type: null, dataset_record_type: 'raster_dataset', layer_type: 'raster_geolens' })),
+      ...optionIds(layer({ dataset_geometry_type: null, dataset_record_type: 'raster_dataset', layer_type: 'raster_geolens', is_dem: true })),
+    ];
+
+    expect(allOptionIds).not.toEqual(expect.arrayContaining([...UNSUPPORTED_V1002_RENDERERS]));
+  });
+
+  it('documents writable fields without including is_3d', () => {
+    expect(RENDER_AS_WRITABLE_FIELDS).toEqual(['layer_type', 'style_config', 'paint', 'layout']);
+    expect(RENDER_AS_WRITABLE_FIELDS).not.toContain('is_3d');
+    expect(JSON.stringify(getRenderAsOptions(layer({ is_3d: true })))).not.toContain('is_3d');
+  });
+});

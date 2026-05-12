@@ -43,6 +43,8 @@ import { cn } from '@/lib/utils';
 import type { MapStackBadgeTone, MapStackEntry } from '@/components/builder/map-stack';
 import type { MapLayerResponse } from '@/types/api';
 
+type DisplayBadge = { label: string; tone: MapStackBadgeTone };
+
 interface DragHandleProps {
   attributes: DraggableAttributes;
   listeners?: DraggableSyntheticListeners;
@@ -297,14 +299,14 @@ export const MapStackItem = memo(function MapStackItem({
     ...badge,
     label: translateBadgeLabel(badge.label, t),
   }));
-  const stateBadges = [
+  const stateBadges: Array<DisplayBadge | null> = [
     isActive ? { label: translateBadgeLabel('Selected', t), tone: 'info' as const } : null,
     entry.locked ? { label: translateBadgeLabel('Locked', t), tone: 'muted' as const } : null,
     isDisabled ? { label: translateBadgeLabel('Disabled', t), tone: 'muted' as const } : null,
     isUnsupported ? { label: translateBadgeLabel('Unsupported', t), tone: 'warning' as const } : null,
     needsAttention ? { label: translateBadgeLabel('Needs attention', t), tone: 'danger' as const } : null,
-  ].filter((badge): badge is { label: string; tone: MapStackBadgeTone } => Boolean(badge));
-  const allBadges = [...stateBadges, ...translatedBadges];
+  ];
+  const allBadges = [...stateBadges.filter((badge): badge is DisplayBadge => badge !== null), ...translatedBadges];
   const visibleBadges = allBadges.slice(0, 3);
   const hiddenBadgeCount = Math.max(allBadges.length - visibleBadges.length, 0);
   const hideLayerLabel = t('layerItem.hideLayer', { defaultValue: 'Hide layer' });
