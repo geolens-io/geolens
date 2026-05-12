@@ -58,7 +58,7 @@
 - ✅ **v1000 Map Stack and Basemap Layer Controls** — Phases 1000-1001 (shipped 2026-05-11) — see [archive](milestones/v1000-ROADMAP.md)
 - ✅ **v1001 Map Builder UI/UX Polish Sweep** — Phases 1002-1007 (shipped 2026-05-11) — see [archive](milestones/v1001-ROADMAP.md)
 - ✅ **v1002 Layer Sidebar + Add Dataset Redesign** — Phases 1008-1013 (shipped 2026-05-12) — see [archive](milestones/v1002-ROADMAP.md)
-- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; 2/5 phases complete)
+- 🟡 **v1003 Builder v1 Hardening** — Phases 1014-1018 (active; 3/5 phases complete)
 
 ## Phases
 
@@ -67,11 +67,11 @@
 
 **Goal:** Prove and harden the v1002 builder sidebar and Add Dataset redesign through durable browser, accessibility, and round-trip coverage without adding schema, renderer, or catalog capabilities.
 
-**Requirements:** 10/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
+**Requirements:** 15/24 complete, 24/24 mapped (BQA-01..05, DUP-01..05, MAPCTL-01..05, ADDH-01..05, ROUND-01..04)
 
 - [x] **Phase 1014: browser-baseline-and-responsive-shell** (1/1 plan) — completed 2026-05-12
 - [x] **Phase 1015: duplicate-rendering-and-renderas-hardening** (1/1 plan) — completed 2026-05-12
-- [ ] **Phase 1016: basemap-and-terrain-integration-hardening** (0/1 plan)
+- [x] **Phase 1016: basemap-and-terrain-integration-hardening** (1/1 plan) — completed 2026-05-12
 - [ ] **Phase 1017: add-dataset-modal-state-hardening** (0/1 plan)
 - [ ] **Phase 1018: saved-map-roundtrip-and-closeout** (0/1 plan)
 
@@ -116,6 +116,8 @@ Requirements: MAPCTL-01, MAPCTL-02, MAPCTL-03, MAPCTL-04, MAPCTL-05
 3. Terrain enabled/exaggeration/source changes write only `terrain_config`.
 4. `Use as terrain` on raster-dem rows does not mutate the layer row.
 5. Save/reload preserves basemap and terrain choices.
+
+Status: complete — see `.planning/phases/1016-basemap-and-terrain-integration-hardening/1016-VERIFICATION.md`.
 
 ### Phase 1017: add-dataset-modal-state-hardening
 

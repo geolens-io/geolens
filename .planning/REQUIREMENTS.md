@@ -36,11 +36,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 ### Basemap And Terrain Integration
 
-- [ ] **MAPCTL-01**: Basemap swap updates `basemap_style`, `show_basemap_labels`, and supported `basemap_config` keys without creating or mutating basemap `MapLayer` rows.
-- [ ] **MAPCTL-02**: Basemap reset restores normalized default appearance and keeps overlay/data layers intact after the MapLibre style reload.
-- [ ] **MAPCTL-03**: Basemap Add Dataset modal states (`swap`, `in use`) update immediately after selection and remain consistent with the sidebar row.
-- [ ] **MAPCTL-04**: Terrain enabled state, exaggeration, and source selection write only `terrain_config` and survive save/reload.
-- [ ] **MAPCTL-05**: `Use as terrain` on raster-dem rows sets `terrain_config.source_dataset_id` without changing the DEM layer's persisted fields.
+- [x] **MAPCTL-01**: Basemap swap updates `basemap_style`, `show_basemap_labels`, and supported `basemap_config` keys without creating or mutating basemap `MapLayer` rows.
+- [x] **MAPCTL-02**: Basemap reset restores normalized default appearance and keeps overlay/data layers intact after the MapLibre style reload.
+- [x] **MAPCTL-03**: Basemap Add Dataset modal states (`swap`, `in use`) update immediately after selection and remain consistent with the sidebar row.
+- [x] **MAPCTL-04**: Terrain enabled state, exaggeration, and source selection write only `terrain_config` and survive save/reload.
+- [x] **MAPCTL-05**: `Use as terrain` on raster-dem rows sets `terrain_config.source_dataset_id` without changing the DEM layer's persisted fields.
 
 ### Add Dataset Modal State Hardening
 
@@ -94,11 +94,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 | DUP-03 | Phase 1015 | Complete |
 | DUP-04 | Phase 1015 | Complete |
 | DUP-05 | Phase 1015 | Complete |
-| MAPCTL-01 | Phase 1016 | Pending |
-| MAPCTL-02 | Phase 1016 | Pending |
-| MAPCTL-03 | Phase 1016 | Pending |
-| MAPCTL-04 | Phase 1016 | Pending |
-| MAPCTL-05 | Phase 1016 | Pending |
+| MAPCTL-01 | Phase 1016 | Complete |
+| MAPCTL-02 | Phase 1016 | Complete |
+| MAPCTL-03 | Phase 1016 | Complete |
+| MAPCTL-04 | Phase 1016 | Complete |
+| MAPCTL-05 | Phase 1016 | Complete |
 | ADDH-01 | Phase 1017 | Pending |
 | ADDH-02 | Phase 1017 | Pending |
 | ADDH-03 | Phase 1017 | Pending |
@@ -111,11 +111,11 @@ Prove and harden the v1002 Map Builder layer sidebar and Add Dataset redesign th
 
 **Coverage:**
 - v1003 requirements: 24 total
-- Complete: 10
-- Pending: 14
+- Complete: 15
+- Pending: 9
 - Mapped to phases: 24
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-12*
-*Last updated: 2026-05-12 after Phase 1015 verification*
+*Last updated: 2026-05-12 after Phase 1016 verification*
