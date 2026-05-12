@@ -11,10 +11,35 @@ import type { LayerActions } from '@/components/builder/ChatPanel';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
-import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerInput, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
+import { buildRenderAsPatch } from '@/components/builder/renderAs';
+import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
+
+export function buildDuplicateRenderingInput(
+  layer: MapLayerResponse,
+  currentLayers: MapLayerResponse[],
+): MapLayerInput {
+  const nextSortOrder = currentLayers.reduce((max, candidate) => Math.max(max, candidate.sort_order), -1) + 1;
+  const baseName = layer.display_name || layer.dataset_name || layer.dataset_table_name || 'Layer';
+  return {
+    dataset_id: layer.dataset_id,
+    sort_order: nextSortOrder,
+    visible: true,
+    opacity: layer.opacity,
+    paint: { ...(layer.paint ?? {}) },
+    layout: { ...(layer.layout ?? {}) },
+    display_name: `${baseName} rendering`,
+    filter: layer.filter ?? null,
+    label_config: layer.label_config ?? null,
+    popup_config: layer.popup_config ?? null,
+    style_config: layer.style_config ? ({ ...layer.style_config } as StyleConfig) : null,
+    layer_type: layer.layer_type ?? null,
+    show_in_legend: layer.show_in_legend ?? true,
+  };
+}
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -273,7 +298,7 @@ export function useBuilderLayers(
   /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle <-> heatmap). */
   const swapLayerOnMap = useCallback((
     layer: MapLayerResponse,
-    adapterType: string,
+    adapterType: RenderAsAdapterType,
     updatedPaint: Record<string, unknown>,
   ) => {
     const map = mapInstanceRef.current;
@@ -294,6 +319,9 @@ export function useBuilderLayers(
     const extrusionId = `layer-${layer.id}-extrusion`;
     if (map.getLayer(extrusionId)) {
       map.removeLayer(extrusionId);
+    }
+    if ((adapterType === 'raster' || adapterType === 'hillshade') && map.getSource(sourceId)) {
+      map.removeSource(sourceId);
     }
 
     // Get tile URL from existing source
@@ -316,6 +344,7 @@ export function useBuilderLayers(
       sourceLayer,
       tileUrl,
       style_config: layer.style_config ?? null,
+      is_dem: layer.is_dem ?? null,
     };
 
     try {
@@ -347,6 +376,29 @@ export function useBuilderLayers(
       }
     }
   }, [mapInstanceRef, t]);
+
+  const handleRenderAsChange = useCallback((layerId: string, renderAs: RenderAsId) => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
+    if (!layer) return;
+
+    const mutation = buildRenderAsPatch(layer, renderAs);
+    if (!mutation) return;
+
+    const updatedLayer: MapLayerResponse = {
+      ...layer,
+      ...mutation.patch,
+      paint: mutation.patch.paint ?? layer.paint,
+      layout: mutation.patch.layout ?? layer.layout,
+      style_config: mutation.patch.style_config ?? layer.style_config,
+      layer_type: mutation.patch.layer_type ?? layer.layer_type,
+    };
+
+    setLocalLayers((prev) =>
+      prev.map((candidate) => (candidate.id === layerId ? updatedLayer : candidate)),
+    );
+    swapLayerOnMap(updatedLayer, mutation.adapterType, updatedLayer.paint ?? {});
+    setHasUnsavedChanges(true);
+  }, [swapLayerOnMap]);
 
   const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap' | 'symbol') => {
     const layer = layersRef.current.find((l) => l.id === layerId);
@@ -423,6 +475,41 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, [swapLayerOnMap]);
 
+  const handleDuplicateRendering = useCallback((layerId: string) => {
+    if (!mapId) return;
+    const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+    if (!layer) return;
+
+    const currentLayers = layersRef.current;
+    const data = buildDuplicateRenderingInput(layer, currentLayers);
+    const nextSortOrder = data.sort_order ?? currentLayers.length;
+
+    addLayerMutation.mutate(
+      { mapId, data },
+      {
+        onSuccess: (createdLayer) => {
+          setLocalLayers((prev) => {
+            if (prev.some((candidate) => candidate.id === createdLayer.id)) return prev;
+            const next = [...prev, createdLayer].map((candidate, index) => ({
+              ...candidate,
+              sort_order: candidate.id === createdLayer.id ? nextSortOrder : candidate.sort_order ?? index,
+            }));
+            layersRef.current = next;
+            return next;
+          });
+          savedLayerBaselineRef.current = [
+            ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
+            createdLayer,
+          ];
+          toast.success(t('toasts.layerAdded'));
+        },
+        onError: () => {
+          toast.error(t('toasts.layerAddFailed'));
+        },
+      },
+    );
+  }, [addLayerMutation, mapId, t]);
+
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
   const chatLayerActions: LayerActions = useMemo(() => ({
@@ -467,11 +554,13 @@ export function useBuilderLayers(
     handleStyleConfigChange,
     handlePaintChange,
     handleOpacityChange,
+    handleRenderAsChange,
     handleRenderModeChange,
     handleLayoutChange,
     handleZoomToLayer,
     handleRemove,
     handleAddDataset,
+    handleDuplicateRendering,
     handleAiRemoveLayer,
     handleQueryResult,
     handleToggleLegend,

@@ -96,6 +96,8 @@ const SidebarContent = memo(function SidebarContent({
         onToggleLegend={layers.handleToggleLegend}
         onOpacityChange={layers.handleOpacityChange}
         onLayoutChange={layers.handleLayoutChange}
+        onRenderAsChange={layers.handleRenderAsChange}
+        onDuplicateRendering={layers.handleDuplicateRendering}
         onAddDataClick={onAddDataClick}
         onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
         onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   RENDER_AS_WRITABLE_FIELDS,
   UNSUPPORTED_V1002_RENDERERS,
+  buildRenderAsPatch,
   getCurrentRenderAs,
   getRenderAsOptions,
   getRenderAsSource,
@@ -152,5 +153,72 @@ describe('renderAs view model', () => {
     expect(RENDER_AS_WRITABLE_FIELDS).toEqual(['layer_type', 'style_config', 'paint', 'layout']);
     expect(RENDER_AS_WRITABLE_FIELDS).not.toContain('is_3d');
     expect(JSON.stringify(getRenderAsOptions(layer({ is_3d: true })))).not.toContain('is_3d');
+  });
+
+  it('builds point renderAs patches using only existing writable fields', () => {
+    const mutation = buildRenderAsPatch(layer({ dataset_geometry_type: 'POINT' }), 'heatmap');
+
+    expect(mutation?.adapterType).toBe('heatmap');
+    expect(mutation?.patch).toEqual(expect.objectContaining({
+      layer_type: 'vector_geolens',
+      paint: expect.objectContaining({ 'heatmap-opacity': 0.8 }),
+      style_config: expect.objectContaining({ render_mode: 'heatmap' }),
+    }));
+    for (const key of Object.keys(mutation?.patch ?? {})) {
+      expect(RENDER_AS_WRITABLE_FIELDS).toContain(key);
+    }
+    expect(JSON.stringify(mutation?.patch)).not.toContain('is_3d');
+  });
+
+  it('builds polygon fill, stroke, and 3D extrusion patches without is_3d', () => {
+    const polygon = layer({
+      dataset_geometry_type: 'POLYGON',
+      dataset_column_info: [{ name: 'height_m', type: 'double precision' }],
+    });
+
+    expect(buildRenderAsPatch(polygon, 'stroke')?.patch.style_config?.builder).toEqual(expect.objectContaining({
+      fillDisabled: true,
+      strokeDisabled: false,
+    }));
+
+    const extrusion = buildRenderAsPatch(polygon, 'extrusion-3d');
+    expect(extrusion?.adapterType).toBe('fill');
+    expect(extrusion?.patch.style_config?.builder).toEqual(expect.objectContaining({
+      fillDisabled: false,
+      strokeDisabled: false,
+      heightColumn: 'height_m',
+      heightScale: 1,
+      extrusionMinZoom: 14,
+      extrusionOpacity: 0.85,
+    }));
+    expect(JSON.stringify(extrusion?.patch)).not.toContain('is_3d');
+  });
+
+  it('builds raster DEM image and hillshade patches', () => {
+    const dem = layer({
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+    });
+
+    expect(buildRenderAsPatch(dem, 'image')).toMatchObject({
+      adapterType: 'raster',
+      patch: {
+        layer_type: 'raster_geolens',
+      },
+    });
+    expect(buildRenderAsPatch(dem, 'hillshade')).toMatchObject({
+      adapterType: 'hillshade',
+      patch: {
+        layer_type: 'raster_geolens',
+        style_config: { render_mode: 'hillshade' },
+      },
+    });
+  });
+
+  it('rejects unsupported renderAs mutations for a source', () => {
+    expect(buildRenderAsPatch(layer({ dataset_geometry_type: 'LINESTRING' }), 'heatmap')).toBeNull();
+    expect(buildRenderAsPatch(layer({ dataset_geometry_type: null, dataset_record_type: 'table' }), 'fill')).toBeNull();
   });
 });

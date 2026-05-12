@@ -77,6 +77,8 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof MapStackPan
     onToggleLegend: vi.fn(),
     onOpacityChange: vi.fn(),
     onLayoutChange: vi.fn(),
+    onRenderAsChange: vi.fn(),
+    onDuplicateRendering: vi.fn(),
     onAddDataClick: vi.fn(),
     onBasemapChange: vi.fn(),
     onBasemapLabelsChange: vi.fn(),
@@ -237,6 +239,37 @@ describe('MapStackPanel', () => {
       _maxzoom: 14,
       'line-dasharray': [2, 4],
     });
+  });
+
+  it('routes renderAs and duplicate-rendering row actions', () => {
+    const onRenderAsChange = vi.fn();
+    const onDuplicateRendering = vi.fn();
+    const layer = makeLayer({
+      id: 'layer-1',
+      dataset_name: 'Incidents',
+      dataset_geometry_type: 'POINT',
+    });
+
+    render(
+      <MapStackPanel
+        {...defaultProps({
+          layers: [layer],
+          onRenderAsChange,
+          onDuplicateRendering,
+        })}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'layerItem.moreActions' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate rendering' }));
+    expect(onDuplicateRendering).toHaveBeenCalledWith('layer-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Render as Point' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Heatmap' }));
+    expect(onRenderAsChange).toHaveBeenCalledWith('layer-1', 'heatmap');
   });
 
   it('renders collapsible dataset-rendering headers only for duplicated dataset renderings', () => {

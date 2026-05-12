@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
-import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
+import {
+  buildDuplicateRenderingInput,
+  useBuilderLayers,
+} from '@/components/builder/hooks/use-builder-layers';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 function makeMockLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
@@ -221,6 +224,58 @@ describe('useBuilderLayers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  it('handleRenderAsChange applies existing-field patches without writing is_3d', () => {
+    const layer = makeMockLayer({
+      dataset_geometry_type: 'POLYGON',
+      dataset_column_info: [{ name: 'height_m', type: 'double' }],
+      paint: { 'fill-color': '#2255aa' },
+    });
+    const mapData = makeMapData([layer]);
+    const { result } = renderBuilderLayers(mapData);
+
+    act(() => {
+      result.current.handleRenderAsChange('layer-1', 'extrusion-3d');
+    });
+
+    const updated = result.current.localLayers[0];
+    expect(updated.layer_type).toBe('vector_geolens');
+    expect(updated.style_config?.builder).toEqual(expect.objectContaining({
+      heightColumn: 'height_m',
+      heightScale: 1,
+      extrusionMinZoom: 14,
+      extrusionOpacity: 0.85,
+    }));
+    expect(JSON.stringify(updated)).not.toContain('is_3d');
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('buildDuplicateRenderingInput creates a sibling layer with copied style fields and next sort order', () => {
+    const layer = makeMockLayer({
+      id: 'layer-1',
+      dataset_id: 'ds-1',
+      display_name: 'Population fill',
+      sort_order: 1,
+      opacity: 0.7,
+      paint: { 'fill-color': '#2255aa' },
+      layout: { _minzoom: 4 },
+      style_config: { builder: { strokeDisabled: true } } as MapLayerResponse['style_config'],
+      show_in_legend: false,
+    });
+
+    expect(buildDuplicateRenderingInput(layer, [makeMockLayer({ id: 'lower', sort_order: 0 }), layer]))
+      .toEqual(expect.objectContaining({
+        dataset_id: 'ds-1',
+        sort_order: 2,
+        display_name: 'Population fill rendering',
+        opacity: 0.7,
+        paint: { 'fill-color': '#2255aa' },
+        layout: { _minzoom: 4 },
+        style_config: { builder: { strokeDisabled: true } },
+        layer_type: 'vector_geolens',
+        show_in_legend: false,
+      }));
+  });
+
   it('handleToggleExpand sets expandedLayerId and defaults to style tab', () => {
     const layer = makeMockLayer();
     const mapData = makeMapData([layer]);
@@ -363,6 +418,8 @@ describe('useBuilderLayers', () => {
         handleAiRemoveLayer: result.current.handleAiRemoveLayer,
         handleToggleLegend: result.current.handleToggleLegend,
         handleRenderModeChange: result.current.handleRenderModeChange,
+        handleRenderAsChange: result.current.handleRenderAsChange,
+        handleDuplicateRendering: result.current.handleDuplicateRendering,
       };
 
       // Trigger a state mutation that would invalidate non-memoized closures.

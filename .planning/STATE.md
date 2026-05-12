@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1002
 milestone_name: Layer Sidebar + Add Dataset Redesign
 status: executing
-last_updated: "2026-05-12T00:24:54Z"
-last_activity: 2026-05-12 — Phase 1009 shipped v1 layer rows, dataset-rendering headers, opacity controls, and zoom-range controls.
+last_updated: "2026-05-12T00:41:18Z"
+last_activity: 2026-05-12 — Phase 1010 shipped renderAs mutations and row duplicate-rendering actions over existing layer fields.
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
-  percent: 33
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
+  percent: 50
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
-**Phase:** Phase 1009 complete — layer row and dataset-rendering sidebar
-**Plan:** 1009-01 complete
-**Status:** Ready to plan Phase 1010.
-**Last activity:** 2026-05-12 — Added v1 row controls and duplicated-dataset headers over the existing Map Stack model.
+**Phase:** Phase 1010 complete — renderAs actions and duplicate renderings
+**Plan:** 1010-01 complete
+**Status:** Ready to plan Phase 1011.
+**Last activity:** 2026-05-12 — Wired supported renderAs mutations and Duplicate rendering through existing layer fields and add-layer APIs.
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Project Reference
 
@@ -90,6 +90,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 
 ### Roadmap Evolution
 
+- Phase 1010 completed 2026-05-12: renderAs changes now produce existing-field patches only, polygon 3D extrusion writes builder metadata without `is_3d`, and row overflow Duplicate rendering posts a sibling map layer input.
 - Phase 1009 completed 2026-05-12: primary layer rows now expose renderAs, opacity, and zoom-range controls; duplicated dataset renderings get collapsible data headers; focused sidebar tests, lint, and build pass.
 - Phase 1008 completed 2026-05-12: pure `renderAs` utility added with supported v1 options only, unsupported renderer omissions covered by tests, `is_3d` kept read-only, and existing `buildMapStack` view-model tests verified.
 - Phase 1008 added: sidebar view-model and renderAs foundation (ARCH-01..04, RENDER-01).

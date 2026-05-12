@@ -8,6 +8,7 @@ import {
   Box,
   ChevronDown,
   ChevronRight,
+  Copy,
   ExternalLink,
   Eye,
   EyeOff,
@@ -51,6 +52,7 @@ import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapStackBadgeTone, MapStackEntry } from '@/components/builder/map-stack';
 import { getCurrentRenderAs, getRenderAsOptions } from '@/components/builder/renderAs';
+import type { RenderAsId } from '@/components/builder/renderAs';
 import type { MapLayerResponse } from '@/types/api';
 
 type DisplayBadge = { label: string; tone: MapStackBadgeTone };
@@ -79,6 +81,8 @@ interface MapStackItemProps {
   onOpenInspector: (id: string) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  onRenderAsChange: (layerId: string, renderAs: RenderAsId) => void;
+  onDuplicateRendering: (layerId: string) => void;
   onToggleBasemapLabels?: (show: boolean) => void;
 }
 
@@ -274,7 +278,14 @@ function RoleIcon({
   return <Layers className={iconClass} aria-hidden="true" />;
 }
 
-function LayerRenderAsControl({ layer }: { layer: MapLayerResponse }) {
+function LayerRenderAsControl({
+  layer,
+  onRenderAsChange,
+}: {
+  layer: MapLayerResponse;
+  onRenderAsChange: (layerId: string, renderAs: RenderAsId) => void;
+}) {
+  const current = getCurrentRenderAs(layer);
   const currentLabel = renderAsLabel(layer);
   const options = getRenderAsOptions(layer);
 
@@ -298,10 +309,11 @@ function LayerRenderAsControl({ layer }: { layer: MapLayerResponse }) {
           <Button
             key={option.id}
             type="button"
-            variant={option.label === currentLabel ? 'secondary' : 'ghost'}
+            variant={option.id === current ? 'secondary' : 'ghost'}
             size="sm"
             className="h-7 w-full justify-start rounded px-2 text-xs"
-            disabled={option.label !== currentLabel}
+            disabled={option.id === current}
+            onClick={() => onRenderAsChange(layer.id, option.id)}
           >
             {option.label}
           </Button>
@@ -457,6 +469,8 @@ export const MapStackItem = memo(function MapStackItem({
   onOpenInspector,
   onOpacityChange,
   onLayoutChange,
+  onRenderAsChange,
+  onDuplicateRendering,
   onToggleBasemapLabels,
 }: MapStackItemProps) {
   const { t } = useTranslation('builder');
@@ -674,7 +688,10 @@ export const MapStackItem = memo(function MapStackItem({
             </div>
             {primaryLayer && (
               <div className="mt-1 flex h-7 min-w-0 items-center gap-1.5 overflow-hidden">
-                <LayerRenderAsControl layer={primaryLayer} />
+                <LayerRenderAsControl
+                  layer={primaryLayer}
+                  onRenderAsChange={onRenderAsChange}
+                />
                 <LayerOpacityControl
                   layer={primaryLayer}
                   displayTitle={displayTitle}
@@ -749,6 +766,11 @@ export const MapStackItem = memo(function MapStackItem({
                 >
                   <ArrowDown className="me-2 h-3.5 w-3.5" aria-hidden="true" />
                   {t('layerItem.moveDown')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onDuplicateRendering(primaryLayer.id)}>
+                  <Copy className="me-2 h-3.5 w-3.5" aria-hidden="true" />
+                  {t('layerItem.duplicateRendering', { defaultValue: 'Duplicate rendering' })}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onToggleLegend(primaryLayer.id)}>

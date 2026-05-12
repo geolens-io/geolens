@@ -35,6 +35,7 @@ import {
   type MapStackEntry,
   type MapStackGroup,
 } from '@/components/builder/map-stack';
+import type { RenderAsId } from '@/components/builder/renderAs';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 interface MapStackPanelProps {
@@ -57,6 +58,8 @@ interface MapStackPanelProps {
   onToggleLegend: (id: string) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+  onRenderAsChange: (layerId: string, renderAs: RenderAsId) => void;
+  onDuplicateRendering: (layerId: string) => void;
   onAddDataClick: () => void;
   onBasemapChange: (key: string) => void;
   onBasemapLabelsChange: (show: boolean) => void;
@@ -82,6 +85,8 @@ interface SortableStackItemProps {
     | 'onToggleExpand'
     | 'onOpacityChange'
     | 'onLayoutChange'
+    | 'onRenderAsChange'
+    | 'onDuplicateRendering'
   >;
 }
 
@@ -149,6 +154,8 @@ function SortableStackItem({
         onToggleLegend={actions.onToggleLegend}
         onOpacityChange={actions.onOpacityChange}
         onLayoutChange={actions.onLayoutChange}
+        onRenderAsChange={actions.onRenderAsChange}
+        onDuplicateRendering={actions.onDuplicateRendering}
         onOpenInspector={actions.onToggleExpand}
       />
     </div>
@@ -286,6 +293,8 @@ export const MapStackPanel = memo(function MapStackPanel({
   onToggleLegend,
   onOpacityChange,
   onLayoutChange,
+  onRenderAsChange,
+  onDuplicateRendering,
   onAddDataClick,
   onBasemapChange,
   onBasemapLabelsChange,
@@ -337,8 +346,11 @@ export const MapStackPanel = memo(function MapStackPanel({
       onToggleExpand,
       onOpacityChange,
       onLayoutChange,
+      onRenderAsChange,
+      onDuplicateRendering,
     }),
     [
+      onDuplicateRendering,
       onLayoutChange,
       onMoveDown,
       onMoveUp,
@@ -348,6 +360,7 @@ export const MapStackPanel = memo(function MapStackPanel({
       onToggleExpand,
       onToggleLegend,
       onToggleVisibility,
+      onRenderAsChange,
       onZoomToLayer,
     ],
   );
@@ -387,6 +400,8 @@ export const MapStackPanel = memo(function MapStackPanel({
         onToggleLegend={onToggleLegend}
         onOpacityChange={onOpacityChange}
         onLayoutChange={onLayoutChange}
+        onRenderAsChange={onRenderAsChange}
+        onDuplicateRendering={onDuplicateRendering}
         onOpenInspector={onToggleExpand}
         onToggleBasemapLabels={entry.role === 'basemap-labels' ? onBasemapLabelsChange : undefined}
       />
