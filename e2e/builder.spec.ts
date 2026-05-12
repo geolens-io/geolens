@@ -23,6 +23,14 @@ interface MapLayerListItem {
   style_config?: unknown;
 }
 
+interface MapDetails {
+  basemap_style?: string | null;
+  show_basemap_labels?: boolean | null;
+  basemap_config?: unknown;
+  terrain_config?: unknown;
+  layers?: MapLayerListItem[];
+}
+
 interface JobStatusPayload {
   status: string;
   dataset_id: string | null;
@@ -120,10 +128,14 @@ async function createFallbackVectorDataset(authHeaders: Record<string, string>) 
   return { datasetId, title };
 }
 
-async function getMapLayers(mapId: string, authHeaders: Record<string, string>): Promise<MapLayerListItem[]> {
+async function getMapDetails(mapId: string, authHeaders: Record<string, string>): Promise<MapDetails> {
   const response = await fetch(`${BASE_URL}/api/maps/${mapId}`, { headers: authHeaders });
   expect(response.ok).toBe(true);
-  const payload = await response.json() as { layers?: MapLayerListItem[] };
+  return await response.json() as MapDetails;
+}
+
+async function getMapLayers(mapId: string, authHeaders: Record<string, string>): Promise<MapLayerListItem[]> {
+  const payload = await getMapDetails(mapId, authHeaders);
   return payload.layers ?? [];
 }
 
@@ -366,6 +378,55 @@ test.describe.serial('Map Builder', () => {
     }).toBe(initialDatasetCount + 2);
     await expect(page.getByTestId(`dataset-rendering-group-${originalLayer.dataset_id}`))
       .toContainText(`${initialDatasetCount + 2} renderings`);
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+  });
+
+  test('swaps basemap from Add Dataset modal and persists after save', async ({ page }) => {
+    const token = getAuthToken();
+    const headers = { Authorization: `Bearer ${token}` };
+    const before = await getMapDetails(mapId, headers);
+    const beforeLayerIdentity = (before.layers ?? []).map((layer) => `${layer.id}:${layer.dataset_id}`);
+
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    await page.getByRole('button', { name: /add data/i }).first().click();
+    const dialog = page.getByRole('dialog', { name: /add dataset/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('radio', { name: 'Basemap' }).click();
+
+    const darkExpand = dialog.getByRole('button', { name: 'Expand OpenFreeMap Dark' });
+    await expect(darkExpand).toBeVisible();
+    const darkRow = darkExpand.locator('xpath=ancestor::div[contains(@class,"rounded-md")][1]');
+
+    await darkRow.getByRole('button', { name: 'swap' }).click();
+    await expect(darkRow.getByRole('button', { name: 'in use' })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+
+    const basemapSection = page.getByRole('heading', { name: 'Basemap' }).locator('xpath=ancestor::section[1]');
+    await expect(basemapSection).toContainText('OpenFreeMap Dark');
+    await expect(page.locator('[data-testid^="layer-item"]')).toHaveCount(beforeLayerIdentity.length);
+
+    const saveResponsePromise = page.waitForResponse(
+      (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+    );
+    await page.getByRole('button', { name: /save/i }).first().click();
+    expect((await saveResponsePromise).status()).toBe(200);
+
+    let persisted: MapDetails = {};
+    await expect.poll(async () => {
+      persisted = await getMapDetails(mapId, headers);
+      return persisted.basemap_style;
+    }).toBe('openfreemap-dark');
+    expect((persisted.layers ?? []).map((layer) => `${layer.id}:${layer.dataset_id}`)).toEqual(beforeLayerIdentity);
+
+    await page.reload();
+    await waitForBuilder(page);
+    await expect(page.getByRole('heading', { name: 'Basemap' }).locator('xpath=ancestor::section[1]'))
+      .toContainText('OpenFreeMap Dark');
+    await expect(page.locator('[data-testid^="layer-item"]')).toHaveCount(beforeLayerIdentity.length);
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
