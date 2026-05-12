@@ -113,6 +113,7 @@ export interface MapStackGroup {
 
 export interface MapStackMapInput {
   basemap_style?: string | null;
+  basemap_label?: string | null;
   show_basemap_labels?: boolean | null;
   basemap_config?: MapBasemapConfig | null;
   terrain_config?: MapTerrainConfig | null;
@@ -340,11 +341,7 @@ function layerMetadata(
   };
 }
 
-function makeSurfaceEntries(
-  groups: MapStackGroup[],
-  orderedLayers: IndexedLayer[],
-  terrainConfig: MapTerrainConfig | null,
-) {
+function makeSurfaceEntries(groups: MapStackGroup[]) {
   const surface = groupFor(groups, 'surface');
   surface.entries.push({
     id: 'surface:background',
@@ -362,7 +359,13 @@ function makeSurfaceEntries(
       source: 'derived',
     },
   });
+}
 
+function makeTerrainReliefEntry(
+  groups: MapStackGroup[],
+  orderedLayers: IndexedLayer[],
+  terrainConfig: MapTerrainConfig | null,
+) {
   const demLayers = orderedLayers
     .map(({ layer }) => layer)
     .filter(isTerrainCapableDemLayer);
@@ -393,14 +396,15 @@ function makeSurfaceEntries(
       ? `Saved source ${configuredSourceId} is unavailable`
       : 'No DEM source selected';
 
-  surface.entries.push({
-    id: 'surface:terrain',
-    groupId: 'surface',
+  const relief = groupFor(groups, 'relief');
+  relief.entries.push({
+    id: 'relief:terrain',
+    groupId: 'relief',
     role: 'surface-terrain',
     title,
     subtitle,
-    order: GROUP_ORDER_BASE.surface + 100,
-    orderLabel: 'Surface terrain',
+    order: GROUP_ORDER_BASE.relief - 100,
+    orderLabel: 'Relief terrain',
     visible: enabled,
     locked: false,
     badges: [
@@ -434,7 +438,10 @@ function makeReliefEntries(
   groups: MapStackGroup[],
   orderedLayers: IndexedLayer[],
   duplicates: LayerDuplicateIndex,
+  terrainConfig: MapTerrainConfig | null,
 ) {
+  makeTerrainReliefEntry(groups, orderedLayers, terrainConfig);
+
   const reliefLayers = orderedLayers
     .map(({ layer }) => layer)
     .filter(isDemVisualLayer);
@@ -461,12 +468,13 @@ function makeReliefEntries(
 function makeBasemapEntries(groups: MapStackGroup[], map: MapStackMapInput) {
   const basemap = groupFor(groups, 'basemap');
   const style = map.basemap_style || 'default';
+  const label = map.basemap_label?.trim() || 'Basemap';
   const config = normalizeBasemapConfig(map.basemap_config, map.show_basemap_labels ?? true);
   basemap.entries.push({
     id: `basemap:preset:${style}`,
     groupId: 'basemap',
     role: 'basemap-preset',
-    title: 'Basemap preset',
+    title: label,
     subtitle: style,
     order: GROUP_ORDER_BASE.basemap,
     orderLabel: 'Basemap foundation',
@@ -647,8 +655,8 @@ export function buildMapStack(map: MapStackMapInput): MapStackGroup[] {
   const orderedLayers = sortLayers(map.layers ?? []);
   const duplicates = duplicateIndex(orderedLayers);
 
-  makeSurfaceEntries(groups, orderedLayers, map.terrain_config ?? null);
-  makeReliefEntries(groups, orderedLayers, duplicates);
+  makeSurfaceEntries(groups);
+  makeReliefEntries(groups, orderedLayers, duplicates, map.terrain_config ?? null);
   makeBasemapEntries(groups, map);
   makeDataEntries(groups, orderedLayers, duplicates);
   makeLabelEntries(groups, orderedLayers, map, duplicates);

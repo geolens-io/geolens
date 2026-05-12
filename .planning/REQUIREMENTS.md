@@ -16,38 +16,38 @@ Redesign the Map Builder layer sidebar and Add Dataset workflow over the existin
 
 ### Schema And Architecture
 
-- [ ] **ARCH-01**: Existing saved maps round-trip through builder load/save without adding, removing, or renaming any persisted `Map`, `MapLayer`, `Dataset`, or `Record` fields.
-- [ ] **ARCH-02**: Sidebar groups remain a frontend view-model derived from `Map`, `MapLayer[]`, `basemap_*`, `terrain_config`, and `widgets`; no persisted group entity is introduced.
-- [ ] **ARCH-03**: New sidebar/modal components compose existing `frontend/src/components/ui/*` primitives and lucide icons; no Carbon dependency or new primitive library is introduced.
-- [ ] **ARCH-04**: v1002 code does not introduce renderer support for Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, timeline playback, recipes, cross-layer filters, or blend mode.
+- [x] **ARCH-01**: Existing saved maps round-trip through builder load/save without adding, removing, or renaming any persisted `Map`, `MapLayer`, `Dataset`, or `Record` fields.
+- [x] **ARCH-02**: Sidebar groups remain a frontend view-model derived from `Map`, `MapLayer[]`, `basemap_*`, `terrain_config`, and `widgets`; no persisted group entity is introduced.
+- [x] **ARCH-03**: New sidebar/modal components compose existing `frontend/src/components/ui/*` primitives and lucide icons; no Carbon dependency or new primitive library is introduced.
+- [x] **ARCH-04**: v1002 code does not introduce renderer support for Cluster, Hexbin, H3, Arrow, Animated path, Point 3D extrusion, timeline playback, recipes, cross-layer filters, or blend mode.
 
 ### Sidebar And Stack
 
-- [ ] **STACK-01**: The builder sidebar keeps the existing system groups: `surface`, `relief`, `basemap`, `data`, `labels`, and `interactions`.
-- [ ] **STACK-02**: Layer rows render the v1 anatomy: drag handle, visibility toggle, type swatch, display name, `as <renderAs>` control, opacity control, and overflow actions.
-- [ ] **STACK-03**: The `data` group renders a collapsible dataset-rendering header when two or more layers share `dataset_id`, showing dataset name, source/type metadata, feature count when available, and `N renderings`.
-- [ ] **STACK-04**: Dataset-rendering headers omit unsupported metadata such as LIVE status unless an existing API response field can support it without backend changes.
-- [ ] **STACK-05**: Per-row visibility-at-zoom controls write only `layout._minzoom` and `layout._maxzoom`, preserving existing zoom-range behavior and validation.
+- [x] **STACK-01**: The builder sidebar keeps the existing system groups: `surface`, `relief`, `basemap`, `data`, `labels`, and `interactions`.
+- [x] **STACK-02**: Layer rows render the v1 anatomy: drag handle, visibility toggle, type swatch, display name, `as <renderAs>` control, opacity control, and overflow actions.
+- [x] **STACK-03**: The `data` group renders a collapsible dataset-rendering header when two or more layers share `dataset_id`, showing dataset name, source/type metadata, feature count when available, and `N renderings`.
+- [x] **STACK-04**: Dataset-rendering headers omit unsupported metadata such as LIVE status unless an existing API response field can support it without backend changes.
+- [x] **STACK-05**: Per-row visibility-at-zoom controls write only `layout._minzoom` and `layout._maxzoom`, preserving existing zoom-range behavior and validation.
 
 ### RenderAs And Duplicate Renderings
 
-- [ ] **RENDER-01**: A pure `renderAs` mapping utility resolves supported options from existing layer metadata without side effects.
-- [ ] **RENDER-02**: Point vector/GeoJSON layers support only Point, Symbol, and Heatmap `renderAs` options.
-- [ ] **RENDER-03**: Line vector/GeoJSON layers support only Line `renderAs`.
-- [ ] **RENDER-04**: Polygon vector/GeoJSON layers support Fill, Stroke, Fill + Stroke, and 3D extrusion `renderAs`.
-- [ ] **RENDER-05**: Raster layers support Image; raster DEM layers support Image and Hillshade.
-- [ ] **RENDER-06**: Changing `renderAs` writes only existing writable fields: `layer_type`, `style_config`, `paint`, and `layout`; it never writes `is_3d`.
-- [ ] **RENDER-07**: Polygon 3D extrusion writes `style_config.builder.heightColumn`, `heightScale`, `extrusionMinZoom`, `extrusionOpacity`, and paint defaults required by the existing extrusion companion layer.
-- [ ] **RENDER-08**: Users can create a duplicate rendering from a layer row overflow action, producing a sibling `MapLayer` with the same `dataset_id`, independent style config, and correct sort order.
+- [x] **RENDER-01**: A pure `renderAs` mapping utility resolves supported options from existing layer metadata without side effects.
+- [x] **RENDER-02**: Point vector/GeoJSON layers support only Point, Symbol, and Heatmap `renderAs` options.
+- [x] **RENDER-03**: Line vector/GeoJSON layers support only Line `renderAs`.
+- [x] **RENDER-04**: Polygon vector/GeoJSON layers support Fill, Stroke, Fill + Stroke, and 3D extrusion `renderAs`.
+- [x] **RENDER-05**: Raster layers support Image; raster DEM layers support Image and Hillshade.
+- [x] **RENDER-06**: Changing `renderAs` writes only existing writable fields: `layer_type`, `style_config`, `paint`, and `layout`; it never writes `is_3d`.
+- [x] **RENDER-07**: Polygon 3D extrusion writes `style_config.builder.heightColumn`, `heightScale`, `extrusionMinZoom`, `extrusionOpacity`, and paint defaults required by the existing extrusion companion layer.
+- [x] **RENDER-08**: Users can create a duplicate rendering from a layer row overflow action, producing a sibling `MapLayer` with the same `dataset_id`, independent style config, and correct sort order.
 
 ### Basemap And Terrain
 
-- [ ] **BASE-01**: The `basemap` group renders one primary row named from the current `BasemapEntry.label`, with no basemap `MapLayer` rows created.
-- [ ] **BASE-02**: Basemap sublayer controls write existing `basemap_style`, `show_basemap_labels`, and `basemap_config` keys only.
-- [ ] **BASE-03**: Basemap swap lists enabled entries from the existing `BasemapEntry` registry and writes `basemap_style` plus normalized supported `basemap_config` keys.
-- [ ] **BASE-04**: Basemap reset restores default basemap appearance through existing basemap config normalization without adding persisted presets.
-- [ ] **TERRAIN-01**: The `relief` group surfaces map-level terrain source, enabled state, and exaggeration controls backed by `terrain_config`.
-- [ ] **TERRAIN-02**: Raster DEM layer rows expose `Use as terrain`, setting `terrain_config.source_dataset_id` to that layer's `dataset_id` without changing the layer's persisted fields.
+- [x] **BASE-01**: The `basemap` group renders one primary row named from the current `BasemapEntry.label`, with no basemap `MapLayer` rows created.
+- [x] **BASE-02**: Basemap sublayer controls write existing `basemap_style`, `show_basemap_labels`, and `basemap_config` keys only.
+- [x] **BASE-03**: Basemap swap lists enabled entries from the existing `BasemapEntry` registry and writes `basemap_style` plus normalized supported `basemap_config` keys.
+- [x] **BASE-04**: Basemap reset restores default basemap appearance through existing basemap config normalization without adding persisted presets.
+- [x] **TERRAIN-01**: The `relief` group surfaces map-level terrain source, enabled state, and exaggeration controls backed by `terrain_config`.
+- [x] **TERRAIN-02**: Raster DEM layer rows expose `Use as terrain`, setting `terrain_config.source_dataset_id` to that layer's `dataset_id` without changing the layer's persisted fields.
 
 ### Add Dataset Modal
 

@@ -83,6 +83,7 @@ interface MapStackItemProps {
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onRenderAsChange: (layerId: string, renderAs: RenderAsId) => void;
   onDuplicateRendering: (layerId: string) => void;
+  onUseAsTerrain?: (layerId: string) => void;
   onToggleBasemapLabels?: (show: boolean) => void;
 }
 
@@ -101,6 +102,12 @@ function primaryLayerTitle(layer: MapLayerResponse) {
 
 function isPrimaryLayerEntry(entry: MapStackEntry) {
   return entry.role === 'data-layer' || entry.role.startsWith('relief-');
+}
+
+function isTerrainCapableLayer(layer: MapLayerResponse) {
+  return layer.is_dem === true
+    && (layer.dataset_record_type === 'raster_dataset' || layer.dataset_record_type === 'vrt_dataset')
+    && Boolean(layer.dataset_id);
 }
 
 function canOpenInspector(entry: MapStackEntry, layer?: MapLayerResponse) {
@@ -150,6 +157,7 @@ function translatedEntryTitle(
       defaultValue: '{{name}} popup',
     });
   }
+  if (entry.role === 'basemap-preset') return entry.title;
 
   const keyByRole: Partial<Record<MapStackEntry['role'], { key: string; defaultValue: string }>> = {
     'surface-background': { key: 'mapStack.entries.baseBackground', defaultValue: entry.title },
@@ -159,7 +167,6 @@ function translatedEntryTitle(
         : 'mapStack.entries.terrainSource',
       defaultValue: entry.title,
     },
-    'basemap-preset': { key: 'mapStack.entries.basemapPreset', defaultValue: 'Preset' },
     'basemap-labels': { key: 'mapStack.entries.basemapLabels', defaultValue: 'Place labels' },
     'interaction-widgets': { key: 'mapStack.entries.mapWidgets', defaultValue: entry.title },
   };
@@ -471,6 +478,7 @@ export const MapStackItem = memo(function MapStackItem({
   onLayoutChange,
   onRenderAsChange,
   onDuplicateRendering,
+  onUseAsTerrain,
   onToggleBasemapLabels,
 }: MapStackItemProps) {
   const { t } = useTranslation('builder');
@@ -488,6 +496,7 @@ export const MapStackItem = memo(function MapStackItem({
       && !capabilities.supportsStyleEditor,
   );
   const terrainStatus = entry.metadata.terrain?.sourceStatus;
+  const canUseAsTerrain = Boolean(primaryLayer && onUseAsTerrain && isTerrainCapableLayer(primaryLayer));
   const isDisabled = terrainStatus === 'disabled';
   const needsAttention = terrainStatus === 'missing';
 
@@ -772,6 +781,12 @@ export const MapStackItem = memo(function MapStackItem({
                   <Copy className="me-2 h-3.5 w-3.5" aria-hidden="true" />
                   {t('layerItem.duplicateRendering', { defaultValue: 'Duplicate rendering' })}
                 </DropdownMenuItem>
+                {canUseAsTerrain && (
+                  <DropdownMenuItem onClick={() => onUseAsTerrain?.(primaryLayer.id)}>
+                    <Mountain className="me-2 h-3.5 w-3.5" aria-hidden="true" />
+                    {t('layerItem.useAsTerrain', { defaultValue: 'Use as terrain' })}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onToggleLegend(primaryLayer.id)}>
                   {primaryLayer.show_in_legend === false ? (

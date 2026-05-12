@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1002
 milestone_name: Layer Sidebar + Add Dataset Redesign
 status: executing
-last_updated: "2026-05-12T00:41:18Z"
-last_activity: 2026-05-12 — Phase 1010 shipped renderAs mutations and row duplicate-rendering actions over existing layer fields.
+last_updated: "2026-05-12T00:50:26Z"
+last_activity: 2026-05-12 — Phase 1011 shipped inline basemap and terrain rows over existing map-level fields.
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 50
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
+  percent: 67
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
-**Phase:** Phase 1010 complete — renderAs actions and duplicate renderings
-**Plan:** 1010-01 complete
-**Status:** Ready to plan Phase 1011.
-**Last activity:** 2026-05-12 — Wired supported renderAs mutations and Duplicate rendering through existing layer fields and add-layer APIs.
+**Phase:** Phase 1011 complete — basemap and terrain inline rows
+**Plan:** 1011-01 complete
+**Status:** Ready to plan Phase 1012.
+**Last activity:** 2026-05-12 — Consolidated basemap controls into the basemap stack row, moved terrain into Relief, and added DEM Use as terrain.
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Project Reference
 
@@ -90,6 +90,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 
 ### Roadmap Evolution
 
+- Phase 1011 completed 2026-05-12: basemap row displays the current `BasemapEntry.label`, inline swap/reset/appearance writes stay on map-level basemap fields, terrain is surfaced in Relief, and raster DEM rows can set `terrain_config` via Use as terrain.
 - Phase 1010 completed 2026-05-12: renderAs changes now produce existing-field patches only, polygon 3D extrusion writes builder metadata without `is_3d`, and row overflow Duplicate rendering posts a sibling map layer input.
 - Phase 1009 completed 2026-05-12: primary layer rows now expose renderAs, opacity, and zoom-range controls; duplicated dataset renderings get collapsible data headers; focused sidebar tests, lint, and build pass.
 - Phase 1008 completed 2026-05-12: pure `renderAs` utility added with supported v1 options only, unsupported renderer omissions covered by tests, `is_3d` kept read-only, and existing `buildMapStack` view-model tests verified.

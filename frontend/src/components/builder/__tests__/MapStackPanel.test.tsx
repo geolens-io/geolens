@@ -155,9 +155,10 @@ describe('MapStackPanel', () => {
     expect(screen.getByRole('heading', { name: 'Interactions' })).toBeInTheDocument();
     expect(screen.getByText('Population')).toBeInTheDocument();
     expect(screen.getAllByText('Elevation').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Positron').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Preset').length).toBeGreaterThan(0);
     expect(screen.getByText('Place labels')).toBeInTheDocument();
-    expect(screen.getByText(/visible DEM-derived relief layer\. Terrain remains a surface setting\./)).toBeInTheDocument();
+    expect(screen.getByText(/visible DEM-derived relief layer/)).toBeInTheDocument();
     expect(screen.getByTestId('widget-sidebar')).toBeInTheDocument();
   });
 
@@ -364,5 +365,148 @@ describe('MapStackPanel', () => {
 
     fireEvent.click(switchControl);
     expect(onBasemapLabelsChange).toHaveBeenCalledWith(true);
+  });
+
+  it('renders basemap controls inline and swaps through the enabled registry', () => {
+    const onBasemapChange = vi.fn();
+    const onBasemapLabelsChange = vi.fn();
+    const onBasemapConfigChange = vi.fn();
+
+    render(
+      <MapStackPanel
+        {...defaultProps({
+          basemapConfig: {
+            label_mode: 'subtle',
+            road_visibility: 'hidden',
+            boundary_visibility: 'full',
+            building_visibility: false,
+            land_water_tone: 'muted',
+            relief_contrast: 'soft',
+          },
+          onBasemapChange,
+          onBasemapLabelsChange,
+          onBasemapConfigChange,
+        })}
+      />,
+    );
+
+    const basemapSection = screen.getByRole('heading', { name: 'Basemap' }).closest('section');
+    expect(basemapSection).not.toBeNull();
+    expect(within(basemapSection as HTMLElement).getAllByText('Positron').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('basemap-inline-controls')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Swap basemap' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Swap to Dark' }));
+
+    expect(onBasemapChange).toHaveBeenCalledWith('openfreemap-dark');
+    expect(onBasemapLabelsChange).toHaveBeenCalledWith(true);
+    expect(onBasemapConfigChange).toHaveBeenCalledWith({
+      label_mode: 'subtle',
+      road_visibility: 'hidden',
+      boundary_visibility: 'full',
+      building_visibility: false,
+      land_water_tone: 'muted',
+      relief_contrast: 'soft',
+    });
+  });
+
+  it('resets basemap appearance through normalized map-level config', () => {
+    const onBasemapLabelsChange = vi.fn();
+    const onBasemapConfigChange = vi.fn();
+
+    render(
+      <MapStackPanel
+        {...defaultProps({
+          showBasemapLabels: false,
+          basemapConfig: {
+            label_mode: 'hidden',
+            road_visibility: 'hidden',
+            boundary_visibility: 'hidden',
+            building_visibility: false,
+            land_water_tone: 'monochrome',
+            relief_contrast: 'strong',
+          },
+          onBasemapLabelsChange,
+          onBasemapConfigChange,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset basemap appearance' }));
+
+    expect(onBasemapLabelsChange).toHaveBeenCalledWith(true);
+    expect(onBasemapConfigChange).toHaveBeenCalledWith({
+      label_mode: 'full',
+      road_visibility: 'full',
+      boundary_visibility: 'full',
+      building_visibility: true,
+      land_water_tone: 'default',
+      relief_contrast: null,
+    });
+  });
+
+  it('surfaces terrain controls in Relief instead of Surface', () => {
+    const demLayer = makeLayer({
+      id: 'dem-layer',
+      dataset_id: 'dem-dataset',
+      dataset_name: 'Elevation',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+      sort_order: 0,
+    });
+
+    render(<MapStackPanel {...defaultProps({ layers: [demLayer] })} />);
+
+    const reliefSection = screen.getByRole('heading', { name: 'Relief' }).closest('section');
+    const surfaceSection = screen.getByRole('heading', { name: 'Surface' }).closest('section');
+    expect(reliefSection).not.toBeNull();
+    expect(surfaceSection).not.toBeNull();
+    expect(within(reliefSection as HTMLElement).getByText('Elevation surface')).toBeInTheDocument();
+    expect(within(surfaceSection as HTMLElement).queryByText('Elevation surface')).not.toBeInTheDocument();
+  });
+
+  it('routes raster DEM row Use as terrain to terrain_config only', () => {
+    const onTerrainChange = vi.fn();
+    const onDuplicateRendering = vi.fn();
+    const onRenderAsChange = vi.fn();
+    const demLayer = makeLayer({
+      id: 'dem-layer',
+      dataset_id: 'dem-dataset',
+      dataset_name: 'Elevation',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+      sort_order: 0,
+    });
+
+    render(
+      <MapStackPanel
+        {...defaultProps({
+          layers: [demLayer],
+          terrainConfig: { enabled: false, source_dataset_id: null, exaggeration: 2.2 },
+          onTerrainChange,
+          onDuplicateRendering,
+          onRenderAsChange,
+        })}
+      />,
+    );
+
+    const row = screen.getByTestId('layer-item-dem-layer');
+    fireEvent.pointerDown(within(row).getByRole('button', { name: 'layerItem.moreActions' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Use as terrain' }));
+
+    expect(onTerrainChange).toHaveBeenCalledWith({
+      enabled: true,
+      source_dataset_id: 'dem-dataset',
+      exaggeration: 2.2,
+    });
+    expect(onDuplicateRendering).not.toHaveBeenCalled();
+    expect(onRenderAsChange).not.toHaveBeenCalled();
   });
 });

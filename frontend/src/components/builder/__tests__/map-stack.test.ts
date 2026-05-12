@@ -42,6 +42,7 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 function makeMap(overrides: Partial<MapStackMapInput> = {}): MapStackMapInput {
   return {
     basemap_style: overrides.basemap_style ?? 'positron',
+    basemap_label: overrides.basemap_label ?? 'Positron',
     show_basemap_labels: overrides.show_basemap_labels ?? true,
     basemap_config: overrides.basemap_config ?? null,
     terrain_config: overrides.terrain_config ?? null,
@@ -86,9 +87,9 @@ describe('buildMapStack', () => {
 
     expect(groups.map((item) => item.id)).toEqual(MAP_STACK_GROUP_ORDER);
 
-    const terrain = entries.find((entry) => entry.id === 'surface:terrain');
+    const terrain = entries.find((entry) => entry.id === 'relief:terrain');
     expect(terrain).toMatchObject({
-      groupId: 'surface',
+      groupId: 'relief',
       role: 'surface-terrain',
       title: 'Canyon DEM',
       visible: true,
@@ -111,6 +112,7 @@ describe('buildMapStack', () => {
     });
 
     expect(group(groups, 'data')?.entries.map((entry) => entry.id)).toEqual(['data:trails']);
+    expect(group(groups, 'surface')?.entries.map((entry) => entry.id)).toEqual(['surface:background']);
     expect(terrain!.order).toBeLessThan(relief!.order);
     expect(relief!.order).toBeLessThan(entries.find((entry) => entry.id === 'basemap:preset:positron')!.order);
     expect(entries.find((entry) => entry.id === 'data:trails')!.order).toBeGreaterThan(relief!.order);
@@ -203,7 +205,7 @@ describe('buildMapStack', () => {
 
     expect(entries.find((entry) => entry.id === 'data:unsupported-layer')?.badges)
       .toContainEqual({ label: 'Unsupported', tone: 'warning' });
-    expect(entries.find((entry) => entry.id === 'surface:terrain')?.badges)
+    expect(entries.find((entry) => entry.id === 'relief:terrain')?.badges)
       .toContainEqual({ label: 'Missing source', tone: 'warning' });
   });
 
@@ -226,6 +228,7 @@ describe('buildMapStack', () => {
   it('builds a complete stack from existing saved-map fields without new backend fields', () => {
     const groups = buildMapStack(makeMap({
       basemap_style: 'satellite',
+      basemap_label: 'Satellite',
       show_basemap_labels: false,
       terrain_config: null,
       layers: [
@@ -243,6 +246,7 @@ describe('buildMapStack', () => {
     expect(group(groups, 'surface')?.entries.map((entry) => entry.id)).toEqual(['surface:background']);
     expect(group(groups, 'basemap')?.entries[0]).toMatchObject({
       id: 'basemap:preset:satellite',
+      title: 'Satellite',
       metadata: {
         basemap: {
           style: 'satellite',
@@ -268,7 +272,7 @@ describe('buildMapStack', () => {
       layers: [],
     }));
 
-    const terrain = flattenMapStack(groups).find((entry) => entry.id === 'surface:terrain');
+    const terrain = flattenMapStack(groups).find((entry) => entry.id === 'relief:terrain');
     expect(terrain).toMatchObject({
       role: 'surface-terrain',
       title: 'Terrain source missing',

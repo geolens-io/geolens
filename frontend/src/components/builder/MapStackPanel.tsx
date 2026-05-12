@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, RefreshCcw, Shuffle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,7 +25,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { BasemapPicker } from '@/components/builder/BasemapPicker';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { BasemapAppearanceControls } from '@/components/builder/BasemapAppearanceControls';
 import { TerrainControls } from '@/components/builder/TerrainControls';
 import { MapStackItem } from '@/components/builder/MapStackItem';
@@ -36,6 +40,9 @@ import {
   type MapStackGroup,
 } from '@/components/builder/map-stack';
 import type { RenderAsId } from '@/components/builder/renderAs';
+import { useBasemaps } from '@/hooks/use-settings';
+import { basemapThumbnail, BLANK_BASEMAP_ID, normalizeBasemapConfig } from '@/lib/basemap-utils';
+import type { BasemapEntry } from '@/api/settings';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 interface MapStackPanelProps {
@@ -87,7 +94,9 @@ interface SortableStackItemProps {
     | 'onLayoutChange'
     | 'onRenderAsChange'
     | 'onDuplicateRendering'
-  >;
+  > & {
+    onUseAsTerrain: (layerId: string) => void;
+  };
 }
 
 interface DatasetRenderingHeaderModel {
@@ -109,6 +118,12 @@ function isPrimaryLayerEntry(entry: MapStackEntry) {
 
 function visibleDemReliefLayerCount(layers: MapLayerResponse[]) {
   return layers.filter((layer) => layer.is_dem === true && layer.visible).length;
+}
+
+function canUseLayerAsTerrain(layer: MapLayerResponse) {
+  return layer.is_dem === true
+    && (layer.dataset_record_type === 'raster_dataset' || layer.dataset_record_type === 'vrt_dataset')
+    && Boolean(layer.dataset_id);
 }
 
 function SortableStackItem({
@@ -156,6 +171,7 @@ function SortableStackItem({
         onLayoutChange={actions.onLayoutChange}
         onRenderAsChange={actions.onRenderAsChange}
         onDuplicateRendering={actions.onDuplicateRendering}
+        onUseAsTerrain={actions.onUseAsTerrain}
         onOpenInspector={actions.onToggleExpand}
       />
     </div>
@@ -273,6 +289,139 @@ function DatasetRenderingHeader({
   );
 }
 
+function makeBlankBasemap(label: string): BasemapEntry {
+  return {
+    id: BLANK_BASEMAP_ID,
+    label,
+    url: BLANK_BASEMAP_ID,
+    enabled: true,
+    is_preset: false,
+  };
+}
+
+function currentBasemapEntry(options: BasemapEntry[], basemapStyle: string) {
+  return options.find((entry) => entry.id === basemapStyle) ?? {
+    id: basemapStyle,
+    label: basemapStyle || 'Basemap',
+    url: basemapStyle,
+    enabled: true,
+    is_preset: false,
+  };
+}
+
+function BasemapInlineControls({
+  basemapStyle,
+  showBasemapLabels,
+  basemapConfig,
+  options,
+  onBasemapChange,
+  onBasemapLabelsChange,
+  onBasemapConfigChange,
+}: {
+  basemapStyle: string;
+  showBasemapLabels: boolean;
+  basemapConfig: MapBasemapConfig | null;
+  options: BasemapEntry[];
+  onBasemapChange: (key: string) => void;
+  onBasemapLabelsChange: (show: boolean) => void;
+  onBasemapConfigChange: (value: MapBasemapConfig) => void;
+}) {
+  const { t } = useTranslation('builder');
+  const current = currentBasemapEntry(options, basemapStyle);
+  const normalizedConfig = useMemo(
+    () => normalizeBasemapConfig(basemapConfig, showBasemapLabels),
+    [basemapConfig, showBasemapLabels],
+  );
+
+  function handleSwap(entry: BasemapEntry) {
+    const nextConfig = normalizeBasemapConfig(normalizedConfig, showBasemapLabels);
+    onBasemapChange(entry.id);
+    onBasemapLabelsChange(nextConfig.label_mode !== 'hidden');
+    onBasemapConfigChange(nextConfig);
+  }
+
+  function handleReset() {
+    const resetConfig = normalizeBasemapConfig(null, true);
+    onBasemapLabelsChange(true);
+    onBasemapConfigChange(resetConfig);
+  }
+
+  return (
+    <div
+      className="mx-2 mb-2 rounded-md border border-border/70 bg-muted/20 py-2"
+      data-testid="basemap-inline-controls"
+    >
+      <BasemapAppearanceControls
+        value={normalizedConfig}
+        showBasemapLabels={showBasemapLabels}
+        onChange={onBasemapConfigChange}
+        onShowBasemapLabelsChange={onBasemapLabelsChange}
+      />
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/60 px-2 pt-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <img
+            src={basemapThumbnail(current.id)}
+            alt=""
+            aria-hidden="true"
+            className="h-7 w-7 shrink-0 rounded border object-cover"
+          />
+          <span className="truncate text-xs text-muted-foreground">{current.label}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                aria-label={t('basemap.swap', { defaultValue: 'Swap basemap' })}
+              >
+                <Shuffle className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('basemap.swapShort', { defaultValue: 'Swap' })}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-2">
+              <div className="grid grid-cols-2 gap-2">
+                {options.map((entry) => (
+                  <Button
+                    key={entry.id}
+                    type="button"
+                    variant={entry.id === basemapStyle ? 'secondary' : 'ghost'}
+                    className="h-auto min-h-16 justify-start gap-2 rounded p-2 text-left"
+                    aria-label={`Swap to ${entry.label}`}
+                    disabled={entry.id === basemapStyle}
+                    onClick={() => handleSwap(entry)}
+                  >
+                    <img
+                      src={basemapThumbnail(entry.id)}
+                      alt=""
+                      aria-hidden="true"
+                      className="h-9 w-9 shrink-0 rounded border object-cover"
+                    />
+                    <span className="min-w-0 truncate text-xs">{entry.label}</span>
+                  </Button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-xs"
+            aria-label={t('basemap.resetAppearance', { defaultValue: 'Reset basemap appearance' })}
+            onClick={handleReset}
+          >
+            <RefreshCcw className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('common.reset', { defaultValue: 'Reset' })}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const MapStackPanel = memo(function MapStackPanel({
   layers,
   expandedLayerId,
@@ -302,16 +451,24 @@ export const MapStackPanel = memo(function MapStackPanel({
   onTerrainChange,
 }: MapStackPanelProps) {
   const { t } = useTranslation('builder');
+  const { data: basemaps } = useBasemaps();
+  const basemapOptions = useMemo(() => {
+    const blank = makeBlankBasemap(t('basemap.blank', { defaultValue: 'No basemap' }));
+    const enabled = (basemaps ?? []).filter((entry) => entry.enabled);
+    return [blank, ...enabled];
+  }, [basemaps, t]);
+  const basemapLabel = currentBasemapEntry(basemapOptions, basemapStyle).label;
   const stackGroups = useMemo(
     () => buildMapStack({
       basemap_style: basemapStyle,
+      basemap_label: basemapLabel,
       show_basemap_labels: showBasemapLabels,
       basemap_config: basemapConfig,
       terrain_config: terrainConfig,
       layers,
       widgets,
     }),
-    [basemapConfig, basemapStyle, layers, showBasemapLabels, terrainConfig, widgets],
+    [basemapConfig, basemapLabel, basemapStyle, layers, showBasemapLabels, terrainConfig, widgets],
   );
   const layerById = useMemo(
     () => new Map(layers.map((layer) => [layer.id, layer])),
@@ -334,6 +491,16 @@ export const MapStackPanel = memo(function MapStackPanel({
     onReorder(arrayMove(layers, oldIndex, newIndex));
   }, [layers, onReorder]);
 
+  const handleUseAsTerrain = useCallback((layerId: string) => {
+    const layer = layers.find((candidate) => candidate.id === layerId);
+    if (!layer || !canUseLayerAsTerrain(layer)) return;
+    onTerrainChange({
+      enabled: true,
+      source_dataset_id: layer.dataset_id,
+      exaggeration: terrainConfig?.exaggeration ?? 1,
+    });
+  }, [layers, onTerrainChange, terrainConfig?.exaggeration]);
+
   const actions = useMemo(
     () => ({
       onToggleVisibility,
@@ -348,8 +515,10 @@ export const MapStackPanel = memo(function MapStackPanel({
       onLayoutChange,
       onRenderAsChange,
       onDuplicateRendering,
+      onUseAsTerrain: handleUseAsTerrain,
     }),
     [
+      handleUseAsTerrain,
       onDuplicateRendering,
       onLayoutChange,
       onMoveDown,
@@ -402,6 +571,7 @@ export const MapStackPanel = memo(function MapStackPanel({
         onLayoutChange={onLayoutChange}
         onRenderAsChange={onRenderAsChange}
         onDuplicateRendering={onDuplicateRendering}
+        onUseAsTerrain={handleUseAsTerrain}
         onOpenInspector={onToggleExpand}
         onToggleBasemapLabels={entry.role === 'basemap-labels' ? onBasemapLabelsChange : undefined}
       />
@@ -409,48 +579,41 @@ export const MapStackPanel = memo(function MapStackPanel({
   }
 
   function renderSectionExtras(group: MapStackGroup) {
-    if (group.id === 'surface') {
+    if (group.id === 'relief') {
+      const visibleReliefCount = visibleDemReliefLayerCount(layers);
       return (
-        <div className="px-2 pt-1">
+        <div className="space-y-2 px-2 pb-2 pt-1">
           <TerrainControls
             layers={layers}
             value={terrainConfig}
             onChange={onTerrainChange}
           />
-        </div>
-      );
-    }
-    if (group.id === 'relief') {
-      const visibleReliefCount = visibleDemReliefLayerCount(layers);
-      return (
-        <div className="px-4 pb-2 pt-1 text-xs leading-snug text-muted-foreground">
-          {visibleReliefCount > 0
-            ? t('mapStack.reliefStatus.active', {
-              count: visibleReliefCount,
-              defaultValue: visibleReliefCount === 1
-                ? '{{count}} visible DEM-derived relief layer. Terrain remains a surface setting.'
-                : '{{count}} visible DEM-derived relief layers. Terrain remains a surface setting.',
-            })
-            : t('mapStack.reliefStatus.empty', {
-              defaultValue: 'No visible DEM-derived relief layer. Add or show a DEM hillshade/raster layer for visible landform shading.',
-            })}
+          <div className="px-2 text-xs leading-snug text-muted-foreground">
+            {visibleReliefCount > 0
+              ? t('mapStack.reliefStatus.active', {
+                count: visibleReliefCount,
+                defaultValue: visibleReliefCount === 1
+                  ? '{{count}} visible DEM-derived relief layer'
+                  : '{{count}} visible DEM-derived relief layers',
+              })
+              : t('mapStack.reliefStatus.empty', {
+                defaultValue: 'No visible DEM-derived relief layer',
+              })}
+          </div>
         </div>
       );
     }
     if (group.id === 'basemap') {
       return (
-        <div className="px-2 pt-1">
-          <BasemapPicker
-            value={basemapStyle}
-            onChange={onBasemapChange}
-          />
-          <BasemapAppearanceControls
-            value={basemapConfig}
-            showBasemapLabels={showBasemapLabels}
-            onChange={onBasemapConfigChange}
-            onShowBasemapLabelsChange={onBasemapLabelsChange}
-          />
-        </div>
+        <BasemapInlineControls
+          basemapStyle={basemapStyle}
+          showBasemapLabels={showBasemapLabels}
+          basemapConfig={basemapConfig}
+          options={basemapOptions}
+          onBasemapChange={onBasemapChange}
+          onBasemapLabelsChange={onBasemapLabelsChange}
+          onBasemapConfigChange={onBasemapConfigChange}
+        />
       );
     }
     if (group.id === 'data' && group.entries.length === 0) {

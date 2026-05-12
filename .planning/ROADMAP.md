@@ -71,7 +71,7 @@
 - [x] Phase 1008: sidebar-view-model-and-renderas-foundation (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1009: layer-row-and-dataset-rendering-sidebar (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1010: renderas-actions-and-duplicate-renderings (1/1 plan) — completed 2026-05-12.
-- [ ] Phase 1011: basemap-and-terrain-inline-rows — consolidate basemap row controls and terrain row/actions over existing map-level fields.
+- [x] Phase 1011: basemap-and-terrain-inline-rows (1/1 plan) — completed 2026-05-12.
 - [ ] Phase 1012: add-dataset-modal-redesign — ship the search-first modal redesign with tabs, supported filters, row states, row expansion, and ImportPage routing.
 - [ ] Phase 1013: builder-sidebar-modal-qa-closeout — run focused Vitest, accessibility, responsive, and Playwright-oriented verification for the milestone.
 
