@@ -69,7 +69,7 @@
 **Requirements:** 37 total — ARCH-01..04, STACK-01..05, RENDER-01..08, BASE-01..04, TERRAIN-01..02, ADD-01..08, QA-01..06.
 
 - [x] Phase 1008: sidebar-view-model-and-renderas-foundation (1/1 plan) — completed 2026-05-12.
-- [ ] Phase 1009: layer-row-and-dataset-rendering-sidebar — rewrite layer rows and dataset-rendering headers while preserving existing groups and controls.
+- [x] Phase 1009: layer-row-and-dataset-rendering-sidebar (1/1 plan) — completed 2026-05-12.
 - [ ] Phase 1010: renderas-actions-and-duplicate-renderings — wire supported renderAs mutations plus duplicate rendering from row and modal entry points.
 - [ ] Phase 1011: basemap-and-terrain-inline-rows — consolidate basemap row controls and terrain row/actions over existing map-level fields.
 - [ ] Phase 1012: add-dataset-modal-redesign — ship the search-first modal redesign with tabs, supported filters, row states, row expansion, and ImportPage routing.

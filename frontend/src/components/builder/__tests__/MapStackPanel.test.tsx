@@ -75,6 +75,8 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof MapStackPan
     onRemove: vi.fn(),
     onZoomToLayer: vi.fn(),
     onToggleLegend: vi.fn(),
+    onOpacityChange: vi.fn(),
+    onLayoutChange: vi.fn(),
     onAddDataClick: vi.fn(),
     onBasemapChange: vi.fn(),
     onBasemapLabelsChange: vi.fn(),
@@ -182,6 +184,96 @@ describe('MapStackPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'layers.addData' }));
     expect(onAddDataClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders v1 row controls for renderAs, opacity, and zoom range', () => {
+    const layer = makeLayer({
+      id: 'layer-1',
+      dataset_name: 'Population',
+      dataset_geometry_type: 'POLYGON',
+      opacity: 0.65,
+      layout: { _minzoom: 3, _maxzoom: 14 },
+    });
+
+    render(<MapStackPanel {...defaultProps({ layers: [layer] })} />);
+
+    const row = screen.getByTestId('layer-item-layer-1');
+    expect(within(row).getByRole('button', { name: 'Render as Fill + Stroke' })).toBeInTheDocument();
+    expect(within(row).getByRole('spinbutton', { name: 'Population opacity percent' })).toHaveValue(65);
+    expect(within(row).getByRole('button', { name: 'Population zoom range' })).toHaveTextContent('z3-14');
+    expect(within(row).getByRole('button', { name: 'Hide layer' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Expand options' })).toBeInTheDocument();
+  });
+
+  it('writes row opacity and zoom range through existing layer handlers', () => {
+    const onOpacityChange = vi.fn();
+    const onLayoutChange = vi.fn();
+    const layer = makeLayer({
+      id: 'layer-1',
+      dataset_name: 'Population',
+      opacity: 0.65,
+      layout: { _minzoom: 3, _maxzoom: 14, 'line-dasharray': [2, 4] },
+    });
+
+    render(
+      <MapStackPanel
+        {...defaultProps({
+          layers: [layer],
+          onOpacityChange,
+          onLayoutChange,
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Population opacity percent' }), {
+      target: { value: '42' },
+    });
+    expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 0.42);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Population zoom range' }));
+    fireEvent.change(screen.getByLabelText('Min'), { target: { value: '5' } });
+    expect(onLayoutChange).toHaveBeenCalledWith('layer-1', {
+      _minzoom: 5,
+      _maxzoom: 14,
+      'line-dasharray': [2, 4],
+    });
+  });
+
+  it('renders collapsible dataset-rendering headers only for duplicated dataset renderings', () => {
+    const layers = [
+      makeLayer({
+        id: 'population-fill',
+        dataset_id: 'population',
+        dataset_name: 'Population',
+        dataset_feature_count: 10_000,
+        sort_order: 0,
+      }),
+      makeLayer({
+        id: 'population-outline',
+        dataset_id: 'population',
+        dataset_name: 'Population',
+        dataset_feature_count: 10_000,
+        sort_order: 1,
+      }),
+      makeLayer({
+        id: 'roads',
+        dataset_id: 'roads',
+        dataset_name: 'Roads',
+        dataset_geometry_type: 'LINESTRING',
+        sort_order: 2,
+      }),
+    ];
+
+    render(<MapStackPanel {...defaultProps({ layers })} />);
+
+    const datasetGroup = screen.getByTestId('dataset-rendering-group-population');
+    expect(datasetGroup).toHaveTextContent('Population');
+    expect(datasetGroup).toHaveTextContent('Vector Dataset');
+    expect(datasetGroup).toHaveTextContent('POLYGON');
+    expect(datasetGroup).toHaveTextContent('10,000 features');
+    expect(datasetGroup).toHaveTextContent('2 renderings');
+    expect(datasetGroup).not.toHaveTextContent('LIVE');
+    expect(screen.queryByTestId('dataset-rendering-group-roads')).not.toBeInTheDocument();
   });
 
   it('exposes selected, hidden, locked, and unsupported row states', () => {

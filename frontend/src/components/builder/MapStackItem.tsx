@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   Box,
+  ChevronDown,
   ChevronRight,
   ExternalLink,
   Eye,
@@ -24,6 +25,14 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
@@ -41,6 +50,7 @@ import { ColorizedGeometryIcon, extractStyleHints, getLayerColors } from '@/comp
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapStackBadgeTone, MapStackEntry } from '@/components/builder/map-stack';
+import { getCurrentRenderAs, getRenderAsOptions } from '@/components/builder/renderAs';
 import type { MapLayerResponse } from '@/types/api';
 
 type DisplayBadge = { label: string; tone: MapStackBadgeTone };
@@ -67,6 +77,8 @@ interface MapStackItemProps {
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
   onOpenInspector: (id: string) => void;
+  onOpacityChange: (layerId: string, opacity: number) => void;
+  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onToggleBasemapLabels?: (show: boolean) => void;
 }
 
@@ -96,6 +108,24 @@ function canOpenInspector(entry: MapStackEntry, layer?: MapLayerResponse) {
         || entry.role === 'interaction-popups'
       ),
   );
+}
+
+function layerLayout(layer: MapLayerResponse) {
+  return (layer.layout ?? {}) as Record<string, unknown>;
+}
+
+function zoomValue(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function clampZoom(value: number) {
+  return Math.max(0, Math.min(22, Math.round(value)));
+}
+
+function renderAsLabel(layer: MapLayerResponse) {
+  const current = getCurrentRenderAs(layer);
+  const option = getRenderAsOptions(layer).find((candidate) => candidate.id === current);
+  return option?.label ?? 'Layer';
 }
 
 function translatedEntryTitle(
@@ -244,6 +274,171 @@ function RoleIcon({
   return <Layers className={iconClass} aria-hidden="true" />;
 }
 
+function LayerRenderAsControl({ layer }: { layer: MapLayerResponse }) {
+  const currentLabel = renderAsLabel(layer);
+  const options = getRenderAsOptions(layer);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-6 max-w-[8.5rem] shrink-0 gap-1 rounded px-2 text-[11px] font-medium"
+          aria-label={`Render as ${currentLabel}`}
+        >
+          <span className="text-muted-foreground">as</span>
+          <span className="truncate">{currentLabel}</span>
+          <ChevronDown className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-40 p-1">
+        {options.length > 0 ? options.map((option) => (
+          <Button
+            key={option.id}
+            type="button"
+            variant={option.label === currentLabel ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 w-full justify-start rounded px-2 text-xs"
+            disabled={option.label !== currentLabel}
+          >
+            {option.label}
+          </Button>
+        )) : (
+          <Badge variant="outline" className="mx-1 my-1 rounded text-xs">Unsupported</Badge>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function LayerOpacityControl({
+  layer,
+  displayTitle,
+  onOpacityChange,
+}: {
+  layer: MapLayerResponse;
+  displayTitle: string;
+  onOpacityChange: (layerId: string, opacity: number) => void;
+}) {
+  const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
+
+  return (
+    <div className="flex h-6 min-w-[7.25rem] max-w-[8rem] shrink-0 items-center gap-1.5 rounded border border-border/60 bg-background px-2">
+      <Slider
+        aria-label={`${displayTitle} opacity`}
+        value={[opacity]}
+        min={0}
+        max={1}
+        step={0.05}
+        className="w-14"
+        onValueChange={([value]) => {
+          onOpacityChange(layer.id, Number((value ?? opacity).toFixed(2)));
+        }}
+      />
+      <Input
+        aria-label={`${displayTitle} opacity percent`}
+        type="number"
+        min={0}
+        max={100}
+        value={Math.round(opacity * 100)}
+        onChange={(event) => {
+          const next = Math.max(0, Math.min(100, Number(event.target.value)));
+          onOpacityChange(layer.id, Number((next / 100).toFixed(2)));
+        }}
+        className="h-5 w-10 border-0 bg-transparent p-0 text-right text-[10px] tabular-nums shadow-none focus-visible:ring-1"
+      />
+    </div>
+  );
+}
+
+function LayerZoomRangeControl({
+  layer,
+  displayTitle,
+  onLayoutChange,
+}: {
+  layer: MapLayerResponse;
+  displayTitle: string;
+  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
+}) {
+  const layout = layerLayout(layer);
+  const minZoom = zoomValue(layout._minzoom, 0);
+  const maxZoom = zoomValue(layout._maxzoom, 22);
+
+  function updateZoomRange(nextMin: number, nextMax: number) {
+    const min = clampZoom(Math.min(nextMin, nextMax - 1));
+    const max = clampZoom(Math.max(nextMax, nextMin + 1));
+    onLayoutChange(layer.id, {
+      ...layout,
+      _minzoom: min,
+      _maxzoom: max,
+    });
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-6 shrink-0 rounded px-2 text-[11px] tabular-nums"
+          aria-label={`${displayTitle} zoom range`}
+        >
+          z{minZoom}-{maxZoom}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-3 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-foreground">Zoom range</span>
+          <span className="text-[11px] tabular-nums text-muted-foreground">z{minZoom}-{maxZoom}</span>
+        </div>
+        <Slider
+          aria-label={`${displayTitle} visibility zoom range`}
+          value={[minZoom, maxZoom]}
+          min={0}
+          max={22}
+          step={1}
+          onValueChange={([nextMin, nextMax]) => {
+            updateZoomRange(nextMin ?? minZoom, nextMax ?? maxZoom);
+          }}
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label htmlFor={`${layer.id}-minzoom`} className="text-[11px] text-muted-foreground">
+              Min
+            </Label>
+            <Input
+              id={`${layer.id}-minzoom`}
+              type="number"
+              min={0}
+              max={Math.max(0, maxZoom - 1)}
+              value={minZoom}
+              onChange={(event) => updateZoomRange(Number(event.target.value), maxZoom)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`${layer.id}-maxzoom`} className="text-[11px] text-muted-foreground">
+              Max
+            </Label>
+            <Input
+              id={`${layer.id}-maxzoom`}
+              type="number"
+              min={Math.min(22, minZoom + 1)}
+              max={22}
+              value={maxZoom}
+              onChange={(event) => updateZoomRange(minZoom, Number(event.target.value))}
+              className="h-8 text-xs"
+            />
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export const MapStackItem = memo(function MapStackItem({
   entry,
   layer,
@@ -260,6 +455,8 @@ export const MapStackItem = memo(function MapStackItem({
   onZoomToLayer,
   onToggleLegend,
   onOpenInspector,
+  onOpacityChange,
+  onLayoutChange,
   onToggleBasemapLabels,
 }: MapStackItemProps) {
   const { t } = useTranslation('builder');
@@ -475,6 +672,21 @@ export const MapStackItem = memo(function MapStackItem({
                 </Badge>
               )}
             </div>
+            {primaryLayer && (
+              <div className="mt-1 flex h-7 min-w-0 items-center gap-1.5 overflow-hidden">
+                <LayerRenderAsControl layer={primaryLayer} />
+                <LayerOpacityControl
+                  layer={primaryLayer}
+                  displayTitle={displayTitle}
+                  onOpacityChange={onOpacityChange}
+                />
+                <LayerZoomRangeControl
+                  layer={primaryLayer}
+                  displayTitle={displayTitle}
+                  onLayoutChange={onLayoutChange}
+                />
+              </div>
+            )}
           </div>
         </div>
 

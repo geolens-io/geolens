@@ -62,6 +62,7 @@ export interface MapStackEntryMetadata {
   sourceDatasetId?: string | null;
   datasetName?: string;
   datasetRecordType?: string | null;
+  datasetFeatureCount?: number | null;
   geometryType?: string | null;
   layerType?: string | null;
   renderMode?: string | null;
@@ -327,6 +328,7 @@ function layerMetadata(
     sourceDatasetId: layer.dataset_id,
     datasetName: layer.dataset_name,
     datasetRecordType: layer.dataset_record_type ?? null,
+    datasetFeatureCount: layer.dataset_feature_count ?? null,
     geometryType: layer.dataset_geometry_type ?? null,
     layerType: layer.layer_type ?? null,
     renderMode: renderMode(layer.style_config),
@@ -413,6 +415,7 @@ function makeSurfaceEntries(
       sourceDatasetId: sourceLayer?.dataset_id ?? configuredSourceId,
       datasetName: sourceLayer?.dataset_name,
       datasetRecordType: sourceLayer?.dataset_record_type ?? null,
+      datasetFeatureCount: sourceLayer?.dataset_feature_count ?? null,
       geometryType: sourceLayer?.dataset_geometry_type ?? null,
       layerType: sourceLayer?.layer_type ?? null,
       terrain: {

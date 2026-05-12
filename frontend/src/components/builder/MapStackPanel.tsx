@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import {
   closestCenter,
   DndContext,
@@ -17,8 +17,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
-import { Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { BasemapPicker } from '@/components/builder/BasemapPicker';
 import { BasemapAppearanceControls } from '@/components/builder/BasemapAppearanceControls';
 import { TerrainControls } from '@/components/builder/TerrainControls';
@@ -49,6 +55,8 @@ interface MapStackPanelProps {
   onRemove: (id: string) => void;
   onZoomToLayer: (id: string) => void;
   onToggleLegend: (id: string) => void;
+  onOpacityChange: (layerId: string, opacity: number) => void;
+  onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onAddDataClick: () => void;
   onBasemapChange: (key: string) => void;
   onBasemapLabelsChange: (show: boolean) => void;
@@ -72,8 +80,23 @@ interface SortableStackItemProps {
     | 'onZoomToLayer'
     | 'onToggleLegend'
     | 'onToggleExpand'
+    | 'onOpacityChange'
+    | 'onLayoutChange'
   >;
 }
+
+interface DatasetRenderingHeaderModel {
+  datasetId: string;
+  datasetName: string;
+  recordType: string | null;
+  geometryType: string | null;
+  featureCount: number | null;
+  entries: MapStackEntry[];
+}
+
+type DataRenderBlock =
+  | { kind: 'entry'; entry: MapStackEntry }
+  | { kind: 'dataset'; dataset: DatasetRenderingHeaderModel };
 
 function isPrimaryLayerEntry(entry: MapStackEntry) {
   return entry.role === 'data-layer' || entry.role.startsWith('relief-');
@@ -124,9 +147,122 @@ function SortableStackItem({
         onRemove={actions.onRemove}
         onZoomToLayer={actions.onZoomToLayer}
         onToggleLegend={actions.onToggleLegend}
+        onOpacityChange={actions.onOpacityChange}
+        onLayoutChange={actions.onLayoutChange}
         onOpenInspector={actions.onToggleExpand}
       />
     </div>
+  );
+}
+
+function formatRecordType(value: string | null) {
+  if (!value) return 'Dataset';
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatFeatureCount(value: number | null) {
+  if (value === null) return null;
+  return `${value.toLocaleString()} features`;
+}
+
+function buildDataRenderBlocks(entries: MapStackEntry[]): DataRenderBlock[] {
+  const byDataset = new Map<string, MapStackEntry[]>();
+  for (const entry of entries) {
+    const datasetId = entry.metadata.sourceDatasetId;
+    if (!datasetId) continue;
+    const matches = byDataset.get(datasetId) ?? [];
+    matches.push(entry);
+    byDataset.set(datasetId, matches);
+  }
+
+  const consumed = new Set<string>();
+  const blocks: DataRenderBlock[] = [];
+  for (const entry of entries) {
+    const datasetId = entry.metadata.sourceDatasetId;
+    const datasetEntries = datasetId ? byDataset.get(datasetId) ?? [] : [];
+    if (!datasetId || datasetEntries.length < 2) {
+      blocks.push({ kind: 'entry', entry });
+      continue;
+    }
+    if (consumed.has(datasetId)) continue;
+
+    consumed.add(datasetId);
+    const first = datasetEntries[0];
+    blocks.push({
+      kind: 'dataset',
+      dataset: {
+        datasetId,
+        datasetName: first.metadata.datasetName ?? first.title,
+        recordType: first.metadata.datasetRecordType ?? null,
+        geometryType: first.metadata.geometryType ?? null,
+        featureCount: first.metadata.datasetFeatureCount ?? null,
+        entries: datasetEntries,
+      },
+    });
+  }
+  return blocks;
+}
+
+function DatasetRenderingHeader({
+  dataset,
+  open,
+  onOpenChange,
+  children,
+}: {
+  dataset: DatasetRenderingHeaderModel;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  const featureCount = formatFeatureCount(dataset.featureCount);
+
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <div
+        className="mx-2 mt-1 rounded-md border border-border/70 bg-muted/30"
+        data-testid={`dataset-rendering-group-${dataset.datasetId}`}
+      >
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex min-h-10 w-full items-center gap-2 px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`${dataset.datasetName}, ${dataset.entries.length} renderings`}
+          >
+            {open ? (
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-semibold text-foreground">{dataset.datasetName}</div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden">
+                <Badge variant="outline" className="h-4 shrink-0 rounded px-1.5 text-[10px] leading-3">
+                  {formatRecordType(dataset.recordType)}
+                </Badge>
+                {dataset.geometryType && (
+                  <Badge variant="outline" className="h-4 shrink-0 rounded px-1.5 text-[10px] leading-3">
+                    {dataset.geometryType}
+                  </Badge>
+                )}
+                {featureCount && (
+                  <span className="truncate text-[10px] text-muted-foreground">{featureCount}</span>
+                )}
+              </div>
+            </div>
+            <Badge variant="secondary" className="h-5 shrink-0 rounded px-2 text-[10px]">
+              {dataset.entries.length} renderings
+            </Badge>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="border-t border-border/60 py-1">
+            {children}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   );
 }
 
@@ -148,6 +284,8 @@ export const MapStackPanel = memo(function MapStackPanel({
   onRemove,
   onZoomToLayer,
   onToggleLegend,
+  onOpacityChange,
+  onLayoutChange,
   onAddDataClick,
   onBasemapChange,
   onBasemapLabelsChange,
@@ -197,10 +335,14 @@ export const MapStackPanel = memo(function MapStackPanel({
       onZoomToLayer,
       onToggleLegend,
       onToggleExpand,
+      onOpacityChange,
+      onLayoutChange,
     }),
     [
+      onLayoutChange,
       onMoveDown,
       onMoveUp,
+      onOpacityChange,
       onRemove,
       onRename,
       onToggleExpand,
@@ -243,6 +385,8 @@ export const MapStackPanel = memo(function MapStackPanel({
         onRemove={onRemove}
         onZoomToLayer={onZoomToLayer}
         onToggleLegend={onToggleLegend}
+        onOpacityChange={onOpacityChange}
+        onLayoutChange={onLayoutChange}
         onOpenInspector={onToggleExpand}
         onToggleBasemapLabels={entry.role === 'basemap-labels' ? onBasemapLabelsChange : undefined}
       />
@@ -322,6 +466,33 @@ export const MapStackPanel = memo(function MapStackPanel({
   const totalEntries = stackGroups.reduce((sum, group) => sum + group.entries.length, 0);
   const hasUserLayers = layers.length > 0;
   const title = t('mapStack.title', { defaultValue: 'Map Stack' });
+  const [collapsedDatasets, setCollapsedDatasets] = useState<Set<string>>(() => new Set());
+
+  function renderDataGroupEntries(group: MapStackGroup) {
+    return buildDataRenderBlocks(group.entries).map((block) => {
+      if (block.kind === 'entry') return renderEntry(block.entry);
+
+      const { dataset } = block;
+      const open = !collapsedDatasets.has(dataset.datasetId);
+      return (
+        <DatasetRenderingHeader
+          key={`dataset:${dataset.datasetId}`}
+          dataset={dataset}
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setCollapsedDatasets((prev) => {
+              const next = new Set(prev);
+              if (nextOpen) next.delete(dataset.datasetId);
+              else next.add(dataset.datasetId);
+              return next;
+            });
+          }}
+        >
+          {dataset.entries.map((entry) => renderEntry(entry))}
+        </DatasetRenderingHeader>
+      );
+    });
+  }
 
   return (
     <div className="pb-3" aria-label={title}>
@@ -388,7 +559,9 @@ export const MapStackPanel = memo(function MapStackPanel({
               group={group}
               entryCount={group.entries.length}
             >
-              {group.entries.map((entry) => renderEntry(entry))}
+              {group.id === 'data'
+                ? renderDataGroupEntries(group)
+                : group.entries.map((entry) => renderEntry(entry))}
               {renderSectionExtras(group)}
             </MapStackSection>
           ))}
