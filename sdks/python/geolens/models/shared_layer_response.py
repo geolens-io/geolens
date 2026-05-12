@@ -35,6 +35,7 @@ class SharedLayerResponse:
         dataset_id (str):
         dataset_name (str):
         geometry_type (None | str):
+        id (str):
         layout (SharedLayerResponseLayout):
         opacity (float):
         paint (SharedLayerResponsePaint):
@@ -60,6 +61,7 @@ class SharedLayerResponse:
     dataset_id: str
     dataset_name: str
     geometry_type: None | str
+    id: str
     layout: SharedLayerResponseLayout
     opacity: float
     paint: SharedLayerResponsePaint
@@ -97,6 +99,8 @@ class SharedLayerResponse:
 
         geometry_type: None | str
         geometry_type = self.geometry_type
+
+        id = self.id
 
         layout = self.layout.to_dict()
 
@@ -204,6 +208,7 @@ class SharedLayerResponse:
                 "dataset_id": dataset_id,
                 "dataset_name": dataset_name,
                 "geometry_type": geometry_type,
+                "id": id,
                 "layout": layout,
                 "opacity": opacity,
                 "paint": paint,
@@ -268,6 +273,8 @@ class SharedLayerResponse:
             return cast(None | str, data)
 
         geometry_type = _parse_geometry_type(d.pop("geometry_type"))
+
+        id = d.pop("id")
 
         layout = SharedLayerResponseLayout.from_dict(d.pop("layout"))
 
@@ -455,6 +462,7 @@ class SharedLayerResponse:
             dataset_id=dataset_id,
             dataset_name=dataset_name,
             geometry_type=geometry_type,
+            id=id,
             layout=layout,
             opacity=opacity,
             paint=paint,

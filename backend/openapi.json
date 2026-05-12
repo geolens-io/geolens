@@ -39839,6 +39839,175 @@
         ]
       }
     },
+    "/tiles/clusters/{table_path}/{z}/{x}/{y}.pbf": {
+      "get": {
+        "description": "Serve a server-side clustered vector tile for point datasets.\n\nURL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf\n\nThis route deliberately reuses the normal vector tile auth model:\npublic datasets are readable directly, non-public datasets require either\nvalid HMAC tile params or a valid embed token scoped to the dataset.",
+        "operationId": "cluster_tile_endpoint_tiles_clusters__table_path___z___x___y__pbf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table_path",
+            "required": true,
+            "schema": {
+              "title": "Table Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "z",
+            "required": true,
+            "schema": {
+              "title": "Z",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "x",
+            "required": true,
+            "schema": {
+              "title": "X",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "y",
+            "required": true,
+            "schema": {
+              "title": "Y",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sig",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sig"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exp",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exp"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cluster_radius",
+            "required": false,
+            "schema": {
+              "default": 48,
+              "maximum": 256,
+              "minimum": 1,
+              "title": "Cluster Radius",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cluster_max_zoom",
+            "required": false,
+            "schema": {
+              "default": 14,
+              "maximum": 22,
+              "minimum": 0,
+              "title": "Cluster Max Zoom",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Cluster Tile Endpoint",
+        "tags": [
+          "Tiles"
+        ]
+      }
+    },
     "/tiles/raster-auth-check/": {
       "get": {
         "description": "Auth-check endpoint called by nginx auth_request for raster tile serving.\n\nValidates RBAC access to a raster dataset and returns the COG open-path\nin response headers (which nginx passes to Titiler, never the browser).\n\nReturns:\n    200 with X-GeoLens-Asset-OpenPath and X-GeoLens-Cache-Status headers\n    401 if authentication is required but missing\n    403 if embed token is invalid\n    404 if dataset not found, not a raster, or has no raster asset",

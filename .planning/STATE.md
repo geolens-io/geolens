@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1006
-milestone_name: Large Dataset Cluster Scaling
+milestone: v1007
+milestone_name: Release Hygiene
 status: archived
-last_updated: "2026-05-12T21:43:02Z"
-last_activity: 2026-05-12 — v1006 shipped with server-side cluster MVT tiles for large point datasets, source routing, cluster exploration, style JSON strategy metadata, and clean Playwright MCP large-dataset UAT.
+last_updated: "2026-05-12T23:13:11Z"
+last_activity: 2026-05-12 — v1007 release hygiene shipped with scanner-clean dependency verification, OpenAPI/SDK regeneration, compose health fix, root Playwright smoke, and Playwright MCP console-clean browser sanity.
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
   percent: 100
 ---
 
@@ -17,22 +17,33 @@ progress:
 
 ## Current Position
 
-**Milestone:** v1006 — Large Dataset Cluster Scaling
+**Milestone:** v1007 — Release Hygiene
 **Phase:** Complete
 **Plan:** —
-**Status:** v1006 shipped and archived.
-**Last activity:** 2026-05-12 — v1006 shipped with server-side cluster MVT tiles for large point datasets, source routing, cluster exploration, style JSON strategy metadata, and clean Playwright MCP large-dataset UAT.
+**Status:** v1007 shipped and archived.
+**Last activity:** 2026-05-12 — v1007 release hygiene shipped with scanner-clean dependency verification, OpenAPI/SDK regeneration, compose health fix, root Playwright smoke, and Playwright MCP console-clean browser sanity.
 
 Progress: [██████████] 100%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1006)
+See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 **Current focus:** Awaiting next milestone selection.
 
 ## Last Shipped Milestone
+
+**Version:** v1007 Release Hygiene
+**Started:** 2026-05-12
+**Shipped:** 2026-05-12
+**Status:** Archived
+**Goal:** Close release hygiene after v1006 by proving dependency/security state, generated artifacts, stack health, smoke coverage, Playwright MCP browser health, and temporary data cleanup.
+**Phases:** 1032 (1 phase, 10 requirements; 10 requirements complete)
+**Audit:** passed / GO
+**Archive:** `.planning/milestones/v1007-ROADMAP.md`, `.planning/milestones/v1007-REQUIREMENTS.md`, `.planning/milestones/v1007-MILESTONE-AUDIT.md`
+
+## Prior Shipped Milestone
 
 **Version:** v1006 Large Dataset Cluster Scaling
 **Started:** 2026-05-12
@@ -135,6 +146,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1006)
 
 ### Roadmap Evolution
 
+- v1007 shipped 2026-05-12: release hygiene verified scanner-clean `urllib3==2.7.0`, regenerated OpenAPI/SDK artifacts for the server-side cluster tile route, fixed frontend compose health, made collections smoke self-seeding, passed broad backend/frontend/security/browser gates, and confirmed a clean Playwright MCP search-page console after temporary data cleanup.
 - v1006 shipped 2026-05-12: authenticated server-side cluster MVT tiles now scale Cluster beyond bounded GeoJSON point datasets, builder/public/shared/embed viewers route large point Cluster layers to `/tiles/clusters/...`, cluster interaction popups and zoom activation work across companion layers, style JSON export records cluster strategy metadata with standalone point fallback, and Playwright MCP verified a 6,001-feature live map with signed tile requests and zero current-page console warnings/errors.
 - Phase 1031 completed 2026-05-12: closeout gates passed; live browser UAT found and fixed multipoint cluster SQL handling plus unsigned private cluster tile timing during style-load resync.
 - Phase 1030 completed 2026-05-12: MapLibre style JSON export now documents bounded/server/fallback cluster strategy and standalone point-vector fallback in source metadata, while layer metadata continues to preserve Cluster intent for import/reload and the existing drawable style remains normal vector/point fallback for standalone consumers.

@@ -7117,6 +7117,10 @@ export type SharedLayerResponse = {
      */
     geometry_type: string | null;
     /**
+     * Id
+     */
+    id: string;
+    /**
      * Is 3D
      */
     is_3d?: boolean | null;
@@ -20005,6 +20009,79 @@ export type SearchPostStacSearchPostErrors = {
 export type SearchPostStacSearchPostError = SearchPostStacSearchPostErrors[keyof SearchPostStacSearchPostErrors];
 
 export type SearchPostStacSearchPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetData = {
+    body?: never;
+    path: {
+        /**
+         * Table Path
+         */
+        table_path: string;
+        /**
+         * Z
+         */
+        z: number;
+        /**
+         * X
+         */
+        x: number;
+        /**
+         * Y
+         */
+        y: number;
+    };
+    query?: {
+        /**
+         * Sig
+         */
+        sig?: string | null;
+        /**
+         * Exp
+         */
+        exp?: number | null;
+        /**
+         * Scope
+         */
+        scope?: string | null;
+        /**
+         * Cluster Radius
+         */
+        cluster_radius?: number;
+        /**
+         * Cluster Max Zoom
+         */
+        cluster_max_zoom?: number;
+    };
+    url: '/tiles/clusters/{table_path}/{z}/{x}/{y}.pbf';
+};
+
+export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetError = ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors[keyof ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors];
+
+export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses = {
     /**
      * Successful Response
      */

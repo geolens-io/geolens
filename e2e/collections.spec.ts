@@ -1,9 +1,19 @@
 import { test, expect, type Page } from '@playwright/test';
+import { getAuthToken } from './helpers/catalog';
 
 const collectionName = `E2E Test Collection ${Date.now()}`;
 const collectionDescription = 'Automated test collection for E2E';
 const updatedDescription = 'Updated description for E2E test';
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 let createdCollectionId: string | null = null;
+let createdDatasetId: string | null = null;
+let createdDatasetTitle: string | null = null;
+
+interface JobStatusPayload {
+  status: string;
+  dataset_id: string | null;
+  error_message?: string | null;
+}
 
 async function openCollectionDetail(page: Page) {
   if (!createdCollectionId) {
@@ -14,7 +24,87 @@ async function openCollectionDetail(page: Page) {
   await expect(page.getByRole('heading', { name: collectionName })).toBeVisible();
 }
 
+async function waitForDatasetJob(jobId: string, authHeaders: Record<string, string>): Promise<string> {
+  for (let attempt = 0; attempt < 45; attempt++) {
+    const statusRes = await fetch(`${BASE_URL}/api/jobs/${jobId}`, { headers: authHeaders });
+    expect(statusRes.ok).toBe(true);
+    const status = await statusRes.json() as JobStatusPayload;
+    if (status.status === 'complete' && status.dataset_id) return status.dataset_id;
+    if (status.status === 'failed') {
+      throw new Error(`Collection fixture import failed: ${status.error_message ?? 'unknown error'}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error('Collection fixture import did not complete in time');
+}
+
+async function createCollectionDataset(): Promise<{ datasetId: string; title: string }> {
+  const token = getAuthToken();
+  const authHeaders = { Authorization: `Bearer ${token}` };
+  const title = `E2E Collection Dataset ${Date.now()}`;
+  const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.geojson`;
+  const geojson = JSON.stringify({
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: { name: 'Collection fixture', category: 'smoke' },
+        geometry: { type: 'Point', coordinates: [-73.9857, 40.7484] },
+      },
+    ],
+  });
+  const formData = new FormData();
+  formData.append('file', new Blob([geojson], { type: 'application/geo+json' }), filename);
+
+  const uploadRes = await fetch(`${BASE_URL}/api/ingest/upload`, {
+    method: 'POST',
+    headers: authHeaders,
+    body: formData,
+  });
+  expect(uploadRes.ok).toBe(true);
+  const upload = await uploadRes.json() as { job_id: string };
+
+  const previewRes = await fetch(`${BASE_URL}/api/ingest/preview/${upload.job_id}`, {
+    method: 'POST',
+    headers: authHeaders,
+  });
+  expect(previewRes.ok).toBe(true);
+  const preview = await previewRes.json() as { layer_name?: string; geometry_type?: string | null };
+  expect(preview.geometry_type).toBeTruthy();
+
+  const commitRes = await fetch(`${BASE_URL}/api/ingest/commit/${upload.job_id}`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      summary: 'Temporary dataset for collection E2E smoke coverage',
+      visibility: 'private',
+      layer_name: preview.layer_name,
+    }),
+  });
+  expect(commitRes.ok).toBe(true);
+
+  const datasetId = await waitForDatasetJob(upload.job_id, authHeaders);
+  return { datasetId, title };
+}
+
 test.describe.serial('Collections', () => {
+  test.afterAll(async () => {
+    if (!createdDatasetId || !createdDatasetTitle) return;
+
+    const token = getAuthToken();
+    await fetch(`${BASE_URL}/api/datasets/bulk-delete/`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        datasets: [{ dataset_id: createdDatasetId, confirm_title: createdDatasetTitle }],
+      }),
+    });
+  });
+
   test('browse collections page loads', async ({ page }) => {
     await page.goto('/collections');
 
@@ -89,19 +179,18 @@ test.describe.serial('Collections', () => {
   });
 
   test('add dataset to collection', async ({ page }) => {
+    test.slow();
     await openCollectionDetail(page);
 
     await expect(
       page.getByRole('heading', { name: 'Add Datasets' }),
     ).toBeVisible();
 
-    // Phase 281: search term must match the seeded thematic-demo catalog.
-    // "Coastline" returns exactly one dataset record (Coastline (10m)) from
-    // /api/search/datasets/, no collection records, so the first Add button
-    // always corresponds to a real dataset that the membership endpoint
-    // accepts. The previous "Reefs" term was zero-result against the
-    // current seed and the Add button never rendered.
-    await page.getByPlaceholder('Search datasets by name...').fill('Coastline');
+    const dataset = await createCollectionDataset();
+    createdDatasetId = dataset.datasetId;
+    createdDatasetTitle = dataset.title;
+
+    await page.getByPlaceholder('Search datasets by name...').fill(dataset.title);
     await page.getByRole('button', { name: 'Search' }).click();
 
     const addButton = page.getByRole('button', { name: 'Add' }).first();

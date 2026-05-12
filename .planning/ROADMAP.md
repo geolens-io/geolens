@@ -62,8 +62,39 @@
 - ✅ **v1004 Builder Renderer Expansion** — Phases 1019-1022 (shipped 2026-05-12) — see [archive](milestones/v1004-ROADMAP.md)
 - ✅ **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (shipped 2026-05-12) — see [archive](milestones/v1005-ROADMAP.md)
 - ✅ **v1006 Large Dataset Cluster Scaling** — Phases 1027-1031 (shipped 2026-05-12) — see [archive](milestones/v1006-ROADMAP.md)
+- ✅ **v1007 Release Hygiene** — Phase 1032 (shipped 2026-05-12) — see [archive](milestones/v1007-ROADMAP.md)
 
 ## Phases
+
+<details>
+<summary>✅ v1007 Release Hygiene (Phase 1032) — SHIPPED 2026-05-12</summary>
+
+**Goal:** Close release hygiene after v1006 by proving dependency/security state, generated artifacts, stack health, smoke coverage, Playwright MCP browser health, and temporary data cleanup.
+
+**Requirements:** 10/10 complete; 10/10 mapped (REL-01..10)
+
+- [x] **Phase 1032: release-hygiene-closeout** — completed 2026-05-12
+
+### Phase 1032: release-hygiene-closeout
+
+**Goal:** Close the post-v1006 release hygiene milestone with CI-parity evidence and local browser validation.
+
+Requirements: REL-01, REL-02, REL-03, REL-04, REL-05, REL-06, REL-07, REL-08, REL-09, REL-10
+Status: completed 2026-05-12
+
+**Success Criteria:**
+1. Dependency scanners are clean and Dependabot alert state is reconciled.
+2. Backend/frontend/security gates pass.
+3. OpenAPI and SDK generated artifacts are current.
+4. Compose `up --wait` succeeds.
+5. Playwright smoke and MCP console checks pass.
+6. Milestone artifacts document all evidence and caveats.
+
+Phase 1032 verified scanner-clean `urllib3==2.7.0`, regenerated OpenAPI/SDK artifacts for the v1006 cluster tile route, fixed the frontend compose healthcheck, made collections smoke self-seeding, ran broad CI-like gates plus root Playwright smoke, cleaned temp UAT/smoke datasets, and passed a Playwright MCP live search console check.
+
+10/10 v1007 requirements satisfied. Audit: passed / GO. Full details: [milestones/v1007-ROADMAP.md](milestones/v1007-ROADMAP.md).
+
+</details>
 
 <details>
 <summary>✅ v1006 Large Dataset Cluster Scaling (Phases 1027-1031) — SHIPPED 2026-05-12</summary>

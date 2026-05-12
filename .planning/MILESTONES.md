@@ -1,5 +1,40 @@
 # Milestones
 
+## v1007 Release Hygiene (Shipped: 2026-05-12)
+
+**Delivered:** Release hygiene closeout after v1006, including scanner-clean dependency verification, OpenAPI/SDK regeneration, compose health fix, robust root smoke, Playwright MCP console-clean browser sanity, and temporary UAT data cleanup.
+
+**Stats:**
+
+- **Phases:** 1 (1032)
+- **Plans:** 1 / 1 complete
+- **Requirements:** 10/10 satisfied (REL-01..10)
+- **Audit:** passed / GO
+
+**Key accomplishments:**
+
+1. **Dependency alerts reconciled** — verified Dependabot #36/#37 against `urllib3==2.7.0`, `uv lock`, and `pip-audit`; local state is scanner-clean.
+2. **Broad gates passed** — backend ruff/format/bandit/pip-audit/full pytest coverage and frontend i18n/lint/typecheck/coverage passed.
+3. **Generated artifacts aligned** — `backend/openapi.json` and Python/TypeScript SDKs now include the v1006 cluster tile route and shared-layer `id` response field.
+4. **Compose health fixed** — frontend healthcheck now probes `127.0.0.1:5173`, making `docker compose up -d --wait` pass locally.
+5. **Smoke reliability improved** — collections smoke self-seeds a tiny dataset through the real ingest API instead of relying on demo/Natural Earth seed data.
+6. **Browser hygiene closed** — root Playwright smoke passed and Playwright MCP verified the live search page with 0 current-page warnings/errors after temp dataset cleanup.
+
+**Known deferred items at close:**
+
+- GitHub Dependabot may still show stale `urllib3` alerts until its next default-branch rescan.
+- `docs/testing-and-ci.md` is referenced by the ship workflow skill but absent from this checkout.
+
+**Archives:**
+
+- `.planning/milestones/v1007-ROADMAP.md`
+- `.planning/milestones/v1007-REQUIREMENTS.md`
+- `.planning/milestones/v1007-MILESTONE-AUDIT.md`
+
+**Tag:** `v1007`
+
+---
+
 ## v1006 Large Dataset Cluster Scaling (Shipped: 2026-05-12)
 
 **Delivered:** Server-side cluster MVT scaling for large point datasets, with shared builder/viewer routing, cluster exploration interactions, style JSON strategy metadata, and live Playwright MCP large-dataset QA.
