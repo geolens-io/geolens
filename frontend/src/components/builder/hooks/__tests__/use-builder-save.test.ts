@@ -334,6 +334,86 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
+  it('saves duplicate renderings, basemap config, terrain config, and zoom range through existing fields', async () => {
+    const layerA = makeLayer({
+      id: 'layer-a',
+      dataset_id: 'dataset-shared',
+      display_name: 'Shared fill',
+      sort_order: 0,
+      layout: { _minzoom: 0, _maxzoom: 22 },
+    });
+    const layerB = makeLayer({
+      id: 'layer-b',
+      dataset_id: 'dataset-shared',
+      display_name: 'Shared outline',
+      sort_order: 1,
+      paint: { 'fill-outline-color': '#111111' },
+    });
+    let state = makeSaveState({ localLayers: [layerA, layerB] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+
+    state = makeSaveState({
+      localLayers: [
+        makeLayer({
+          ...layerA,
+          layout: { _minzoom: 3, _maxzoom: 17 },
+        }),
+        layerB,
+      ],
+      localBasemap: 'openfreemap-dark',
+      showBasemapLabels: false,
+      basemapConfig: {
+        label_mode: 'hidden',
+        road_visibility: 'subtle',
+        boundary_visibility: 'hidden',
+        building_visibility: false,
+        land_water_tone: 'contrast',
+        relief_contrast: 'strong',
+      },
+      terrainConfig: {
+        enabled: true,
+        source_dataset_id: 'dataset-dem',
+        exaggeration: 2.25,
+      },
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledWith({
+      id: 'map-1',
+      diff: {
+        updated: [{ id: 'layer-a', layout: { _minzoom: 3, _maxzoom: 17 } }],
+      },
+    });
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'map-1',
+        data: expect.objectContaining({
+          basemap_style: 'openfreemap-dark',
+          show_basemap_labels: false,
+          basemap_config: {
+            label_mode: 'hidden',
+            road_visibility: 'subtle',
+            boundary_visibility: 'hidden',
+            building_visibility: false,
+            land_water_tone: 'contrast',
+            relief_contrast: 'strong',
+          },
+          terrain_config: {
+            enabled: true,
+            source_dataset_id: 'dataset-dem',
+            exaggeration: 2.25,
+          },
+        }),
+      }),
+    );
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
+  });
+
   it('skips layer PATCH when the layer diff is empty', async () => {
     const layer = makeLayer();
     let state = makeSaveState({ localLayers: [layer] });

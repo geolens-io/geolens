@@ -69,7 +69,11 @@ const PUBLIC_MAP: MapResponse = {
     land_water_tone: 'contrast',
     relief_contrast: 'strong',
   },
-  terrain_config: null,
+  terrain_config: {
+    enabled: true,
+    source_dataset_id: 'dataset-1',
+    exaggeration: 1.5,
+  },
   visibility: 'public',
   thumbnail_url: null,
   created_by: 'user-1',
@@ -146,6 +150,7 @@ describe('PublicMapViewerPage', () => {
 
     expect(viewerMapMock.props).toMatchObject({
       basemapConfig: PUBLIC_MAP.basemap_config,
+      terrainConfig: PUBLIC_MAP.terrain_config,
       showBasemapLabels: false,
     });
     expect(viewerMapMock.props?.layers[0]).toMatchObject({

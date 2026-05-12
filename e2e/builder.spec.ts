@@ -139,6 +139,11 @@ async function getMapLayers(mapId: string, authHeaders: Record<string, string>):
   return payload.layers ?? [];
 }
 
+function objectKeys(value: unknown): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.keys(value).sort();
+}
+
 let mapId: string;
 let duplicatedMapId: string | null = null;
 let fallbackDatasetId: string | null = null;
@@ -457,6 +462,54 @@ test.describe.serial('Map Builder', () => {
     await expect(page.getByRole('heading', { name: 'Basemap' }).locator('xpath=ancestor::section[1]'))
       .toContainText('OpenFreeMap Dark');
     await expect(page.locator('[data-testid^="layer-item"]')).toHaveCount(beforeLayerIdentity.length);
+    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+  });
+
+  test('round-trips layer zoom range without schema drift', async ({ page }) => {
+    const token = getAuthToken();
+    const headers = { Authorization: `Bearer ${token}` };
+    const before = await getMapDetails(mapId, headers);
+    const layer = before.layers?.[0];
+    expect(layer).toBeTruthy();
+    const beforeMapKeys = objectKeys(before);
+    const beforeLayerKeys = objectKeys(layer);
+
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    const layerRow = page.getByTestId(`layer-item-${layer!.id}`);
+    await expect(layerRow).toBeVisible();
+    await layerRow.getByRole('button', { name: /zoom range/i }).click();
+    await page.getByLabel('Min').fill('2');
+    await page.getByLabel('Max').fill('18');
+    await expect(layerRow.getByRole('button', { name: /zoom range/i })).toContainText('z2-18');
+
+    const layerPatchPromise = page.waitForResponse(
+      (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'PATCH',
+    );
+    const mapSavePromise = page.waitForResponse(
+      (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
+    );
+    await page.getByRole('button', { name: /save/i }).first().click();
+    expect((await layerPatchPromise).status()).toBe(200);
+    expect((await mapSavePromise).status()).toBe(200);
+
+    let persisted: MapDetails = {};
+    await expect.poll(async () => {
+      persisted = await getMapDetails(mapId, headers);
+      const savedLayer = persisted.layers?.find((candidate) => candidate.id === layer!.id);
+      const layout = savedLayer?.layout as Record<string, unknown> | undefined;
+      return `${layout?._minzoom}-${layout?._maxzoom}`;
+    }).toBe('2-18');
+
+    const persistedLayer = persisted.layers?.find((candidate) => candidate.id === layer!.id);
+    expect(objectKeys(persisted)).toEqual(beforeMapKeys);
+    expect(objectKeys(persistedLayer)).toEqual(beforeLayerKeys);
+
+    await page.reload();
+    await waitForBuilder(page);
+    await expect(page.getByTestId(`layer-item-${layer!.id}`).getByRole('button', { name: /zoom range/i }))
+      .toContainText('z2-18');
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 

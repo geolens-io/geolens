@@ -79,7 +79,11 @@ const SHARED_MAP: SharedMapResponse = {
     land_water_tone: 'monochrome',
     relief_contrast: 'strong',
   },
-  terrain_config: null,
+  terrain_config: {
+    enabled: true,
+    source_dataset_id: 'dataset-1',
+    exaggeration: 1.25,
+  },
   has_non_public_layers: false,
   layers: [
     {
@@ -171,6 +175,7 @@ describe('PublicViewerPage', () => {
 
     expect(viewerMapMock.props).toMatchObject({
       basemapConfig: SHARED_MAP.basemap_config,
+      terrainConfig: SHARED_MAP.terrain_config,
       showBasemapLabels: true,
     });
   });
