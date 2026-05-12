@@ -62,12 +62,12 @@ Redesign the Map Builder layer sidebar and Add Dataset workflow over the existin
 
 ### Quality Gates
 
-- [ ] **QA-01**: Unit tests cover every supported `renderAs` source/option mapping and every unsupported v1 punt.
-- [ ] **QA-02**: Unit/component tests cover dataset-rendering headers, basemap row grouping, terrain row grouping, and visibility-at-zoom writes.
-- [ ] **QA-03**: Tests prove duplicate rendering works from both the sidebar row and Add Dataset modal and that `is_3d` is never written in layer patches.
-- [ ] **QA-04**: Add Dataset modal tests cover `swap`, `in use`, `Add to map`, `(added)`, and `another rendering` states.
-- [ ] **QA-05**: Playwright or equivalent UI verification covers builder sidebar and Add Dataset modal at desktop and tablet widths with keyboard/a11y checks.
-- [ ] **QA-06**: Focused frontend lint and relevant Vitest suites pass before milestone close; broader E2E smoke gaps are documented if unrelated failures remain.
+- [x] **QA-01**: Unit tests cover every supported `renderAs` source/option mapping and every unsupported v1 punt.
+- [x] **QA-02**: Unit/component tests cover dataset-rendering headers, basemap row grouping, terrain row grouping, and visibility-at-zoom writes.
+- [x] **QA-03**: Tests prove duplicate rendering works from both the sidebar row and Add Dataset modal and that `is_3d` is never written in layer patches.
+- [x] **QA-04**: Add Dataset modal tests cover `swap`, `in use`, `Add to map`, `(added)`, and `another rendering` states.
+- [x] **QA-05**: Playwright or equivalent UI verification covers builder sidebar and Add Dataset modal at desktop and tablet widths with keyboard/a11y checks.
+- [x] **QA-06**: Focused frontend lint and relevant Vitest suites pass before milestone close; broader E2E smoke gaps are documented if unrelated failures remain.
 
 ## Future Requirements
 

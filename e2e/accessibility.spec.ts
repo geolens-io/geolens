@@ -166,6 +166,25 @@ test.describe('Accessibility - WCAG 2AA', () => {
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
 
+  test('Add Dataset dialog has no accessibility violations', async ({ page }) => {
+    await page.goto(`/maps/${builderMapId}`);
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: /add data/i }).first().click();
+
+    const dialog = page.getByRole('dialog', { name: /add dataset/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('radio', { name: 'All' })).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(wcagTags)
+      .include('[role="dialog"]')
+      .analyze();
+
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
   test('admin overview page has no accessibility violations', async ({ page }) => {
     await page.goto('/admin');
     await expect(

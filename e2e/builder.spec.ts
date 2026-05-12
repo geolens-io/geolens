@@ -249,22 +249,35 @@ test.describe.serial('Map Builder', () => {
     await expect(page.locator('[inert]')).toHaveCount(0);
   });
 
-  test('opens Add Data dialog', async ({ page }) => {
-    await page.goto(`/maps/${mapId}`);
-    await waitForBuilder(page);
+  test('Add Dataset dialog exposes responsive v1 tabs and basemap states', async ({ page }) => {
+    for (const viewport of [
+      { width: 1440, height: 900, label: 'desktop' },
+      { width: 834, height: 1112, label: 'tablet' },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/maps/${mapId}`);
+      await waitForBuilder(page);
 
-    // Click "Add Data" button in the layer panel
-    const addDataBtn = page.getByRole('button', { name: /add data/i });
-    await expect(addDataBtn).toBeVisible();
-    await addDataBtn.click();
+      const addDataBtn = page.getByRole('button', { name: /add data/i }).first();
+      await expect(addDataBtn, `${viewport.label} add data trigger`).toBeVisible();
+      await addDataBtn.click();
 
-    // Dialog should be visible
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
+      const dialog = page.getByRole('dialog', { name: /add dataset/i });
+      await expect(dialog, `${viewport.label} Add Dataset dialog`).toBeVisible();
+      await expect(dialog.getByLabel(/search datasets/i)).toBeVisible();
 
-    // Close dialog via Escape
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
+      for (const tab of ['All', 'Vector', 'Raster', 'Basemap']) {
+        await expect(dialog.getByRole('radio', { name: tab })).toBeVisible();
+      }
+
+      await dialog.getByRole('radio', { name: 'Basemap' }).click();
+      await expect(dialog.getByRole('button', { name: 'in use' })).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'swap' }).first()).toBeVisible();
+      await expect(dialog.getByRole('link', { name: /import data/i })).toBeVisible();
+
+      await page.keyboard.press('Escape');
+      await expect(dialog).not.toBeVisible();
+    }
   });
 
   test('opens Map Info dialog', async ({ page }) => {
@@ -362,22 +375,27 @@ test.describe.serial('Map Builder', () => {
     await waitForBuilder(page);
 
     // Find basemap section heading
-    const basemapHeading = page.getByText('Basemap');
+    const basemapHeading = page.getByRole('heading', { name: 'Basemap' });
     await expect(basemapHeading).toBeVisible();
 
     // Count current layer items in the sidebar before switching
     const layerItemsBefore = await page.locator('[data-testid^="layer-item"]').count()
       .catch(() => 0);
 
-    // Expand the basemap picker (starts collapsed) by clicking the toggle
-    const basemapToggle = page.locator('.px-2 > button').filter({ hasText: /basemap|positron|dark|voyager|osm/i }).first();
-    await basemapToggle.click();
-
-    // Select a different basemap option
-    const basemapOptions = page.locator('[data-testid="basemap-option"]');
+    // Open the inline basemap swap popover and select the first enabled option.
+    await page.getByRole('button', { name: /swap basemap/i }).click();
+    const basemapOptions = page.getByRole('button', { name: /^Swap to / });
     await expect(basemapOptions.first()).toBeVisible({ timeout: 3_000 });
-    // Click the second option (different from current)
-    await basemapOptions.nth(1).click();
+    let swapped = false;
+    for (let i = 0; i < await basemapOptions.count(); i++) {
+      const option = basemapOptions.nth(i);
+      if (!(await option.isDisabled())) {
+        await option.click();
+        swapped = true;
+        break;
+      }
+    }
+    expect(swapped).toBe(true);
 
     // Canvas should still be visible — toBeVisible auto-retries until the
     // basemap style reload settles or the timeout fires (deterministic poll).
@@ -391,20 +409,18 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
-  test('keeps collapsed basemap options hidden from the DOM', async ({ page }) => {
+  test('keeps basemap swap options scoped to the popover', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    const basemapToggle = page.getByRole('button', { name: /basemap:/i });
-    await expect(basemapToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByTestId('basemap-option')).toHaveCount(0);
+    const basemapOptions = page.getByRole('button', { name: /^Swap to / });
+    await expect(basemapOptions).toHaveCount(0);
 
-    await basemapToggle.click();
-    await expect(page.getByTestId('basemap-option').first()).toBeVisible();
+    await page.getByRole('button', { name: /swap basemap/i }).click();
+    await expect(basemapOptions.first()).toBeVisible();
 
-    await basemapToggle.click();
-    await expect(basemapToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByTestId('basemap-option')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(basemapOptions).toHaveCount(0);
   });
 
   test('mobile sidebar can reach layer editor tabs and return to the layer list', async ({ page }) => {

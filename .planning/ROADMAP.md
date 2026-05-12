@@ -73,7 +73,7 @@
 - [x] Phase 1010: renderas-actions-and-duplicate-renderings (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1011: basemap-and-terrain-inline-rows (1/1 plan) — completed 2026-05-12.
 - [x] Phase 1012: add-dataset-modal-redesign (1/1 plan) — completed 2026-05-12.
-- [ ] Phase 1013: builder-sidebar-modal-qa-closeout — run focused Vitest, accessibility, responsive, and Playwright-oriented verification for the milestone.
+- [x] Phase 1013: builder-sidebar-modal-qa-closeout (1/1 plan) — completed 2026-05-12 with local browser execution blocked by an unavailable full stack.
 
 ### Phase Details
 

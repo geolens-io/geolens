@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1002
 milestone_name: Layer Sidebar + Add Dataset Redesign
-status: executing
-last_updated: "2026-05-12T01:01:19Z"
-last_activity: 2026-05-12 — Phase 1012 shipped the Add Dataset modal redesign over existing search, layer, and basemap handlers.
+status: audit_ready
+last_updated: "2026-05-12T03:30:00Z"
+last_activity: 2026-05-12 — Phase 1013 closed focused sidebar/modal QA; unit, lint, build, and Playwright spec loading pass, with live browser execution blocked by the local stack.
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 5
-  completed_plans: 5
-  percent: 83
+  completed_phases: 6
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # State
@@ -18,12 +18,12 @@ progress:
 ## Current Position
 
 **Milestone:** v1002 — Layer Sidebar + Add Dataset Redesign
-**Phase:** Phase 1012 complete — Add Dataset modal redesign
-**Plan:** 1012-01 complete
-**Status:** Ready to plan Phase 1013.
-**Last activity:** 2026-05-12 — Reworked the Add Dataset modal with tabs, existing API filter chips, expandable rows, Add/added/another rendering states, basemap swap/in-use states, and ImportPage routing.
+**Phase:** Phase 1013 complete — Builder sidebar/modal QA closeout
+**Plan:** 1013-01 complete
+**Status:** Ready for milestone audit/archive.
+**Last activity:** 2026-05-12 — Focused sidebar/modal tests, lint, and build pass; Playwright specs now cover the redesigned sidebar/modal, but live browser execution is blocked by the unavailable local stack.
 
-Progress: [████████░░] 83%
+Progress: [██████████] 100%
 
 ## Project Reference
 
@@ -90,6 +90,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after v1002 kickoff)
 
 ### Roadmap Evolution
 
+- Phase 1013 completed 2026-05-12: focused renderAs/sidebar/modal Vitest coverage passes in a single-worker run, frontend lint/build pass, builder and accessibility Playwright specs now target the redesigned Add Dataset modal and inline basemap popover, and local browser smoke is blocked by the unavailable full stack/Docker runtime.
 - Phase 1012 completed 2026-05-12: Add Dataset modal now has All/Vector/Raster/Basemap tabs, existing search-param filter chips, expandable data/basemap rows, Add/added/another-rendering states, basemap swap/in-use states, and `/import` routing.
 - Phase 1011 completed 2026-05-12: basemap row displays the current `BasemapEntry.label`, inline swap/reset/appearance writes stay on map-level basemap fields, terrain is surfaced in Relief, and raster DEM rows can set `terrain_config` via Use as terrain.
 - Phase 1010 completed 2026-05-12: renderAs changes now produce existing-field patches only, polygon 3D extrusion writes builder metadata without `is_3d`, and row overflow Duplicate rendering posts a sibling map layer input.
