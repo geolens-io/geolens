@@ -42,6 +42,11 @@ export type NormalizedSavedMap<TLayer = MapLayerResponse | SharedLayerResponse> 
   layers: TLayer[];
   /** Widget list; defaults to null when input has undefined widgets. */
   widgets: string[] | null;
+  /**
+   * Per-group expansion state. Keys are group IDs; values carry { expanded: boolean }.
+   * Defaults to {} when absent (all groups start collapsed).
+   */
+  group_meta: Record<string, { expanded: boolean }>;
 };
 
 /**
@@ -61,6 +66,7 @@ export type SavedMapInput<TLayer = MapLayerResponse | SharedLayerResponse> =
       terrain_config: MapTerrainConfig | null;
       layers: TLayer[];
       widgets: string[] | null;
+      group_meta?: Record<string, { expanded: boolean }> | null;
     }>);
 
 /**
@@ -129,6 +135,13 @@ export function normalizeSavedMap<TLayer = MapLayerResponse | SharedLayerRespons
   const widgets: string[] | null =
     Array.isArray(rawWidgets) ? (rawWidgets as string[]) : null;
 
+  // group_meta: per-group expansion state; defaults to {} when absent or invalid shape.
+  const rawGroupMeta = (input as Record<string, unknown>).group_meta;
+  const group_meta: Record<string, { expanded: boolean }> =
+    rawGroupMeta != null && typeof rawGroupMeta === 'object' && !Array.isArray(rawGroupMeta)
+      ? (rawGroupMeta as Record<string, { expanded: boolean }>)
+      : {};
+
   return {
     basemap_style,
     basemap_label,
@@ -137,5 +150,6 @@ export function normalizeSavedMap<TLayer = MapLayerResponse | SharedLayerRespons
     terrain_config,
     layers,
     widgets,
+    group_meta,
   };
 }

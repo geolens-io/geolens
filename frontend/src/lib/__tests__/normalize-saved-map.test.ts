@@ -370,6 +370,73 @@ describe('normalizeSavedMap', () => {
     expect(result.widgets === null || Array.isArray(result.widgets)).toBe(true);
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 1035 — group_meta field tests
+  // -------------------------------------------------------------------------
+
+  it('group_meta: preserves valid record when group_meta is present', () => {
+    const result = normalizeSavedMap({ group_meta: { 'g1': { expanded: true } } });
+    expect(result.group_meta).toEqual({ 'g1': { expanded: true } });
+  });
+
+  it('group_meta: returns empty record when input has no group_meta field', () => {
+    const result = normalizeSavedMap({});
+    expect(result.group_meta).toEqual({});
+  });
+
+  it('group_meta: returns empty record when group_meta is null', () => {
+    const result = normalizeSavedMap({ group_meta: null });
+    expect(result.group_meta).toEqual({});
+  });
+
+  it('group_meta: returns empty record when group_meta is a non-object string', () => {
+    const result = normalizeSavedMap({ group_meta: 'not-an-object' });
+    expect(result.group_meta).toEqual({});
+  });
+
+  it('group_meta: returns empty record when group_meta is an array (rejected by !Array.isArray guard)', () => {
+    const result = normalizeSavedMap({ group_meta: [{ expanded: true }] });
+    expect(result.group_meta).toEqual({});
+  });
+
+  it('group_meta: existing fields still normalize unchanged when group_meta is present', () => {
+    const layer = makeMapLayer({ id: 'parcels' });
+    const input = makeMapResponse({
+      basemap_style: 'satellite',
+      show_basemap_labels: false,
+      terrain_config: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 },
+      layers: [layer],
+      widgets: ['w1'],
+    });
+    // Attach group_meta via cast
+    const inputWithGroupMeta = { ...input, group_meta: { 'g2': { expanded: false } } };
+    const result = normalizeSavedMap(inputWithGroupMeta);
+    expect(result.basemap_style).toBe('satellite');
+    expect(result.show_basemap_labels).toBe(false);
+    expect(result.terrain_config).toEqual({ enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 });
+    expect(result.layers).toHaveLength(1);
+    expect(result.widgets).toEqual(['w1']);
+    expect(result.group_meta).toEqual({ 'g2': { expanded: false } });
+  });
+
+  it('group_meta: field appears in output for all four input fixture types', () => {
+    const legacyMapResponse = makeMapResponse({ layers: [makeMapLayer()] });
+    const r1 = normalizeSavedMap({ ...legacyMapResponse, group_meta: { 'ga': { expanded: true } } });
+    expect(r1.group_meta).toEqual({ 'ga': { expanded: true } });
+
+    const sharedMapResponse = makeSharedMapResponse({ layers: [] });
+    const r2 = normalizeSavedMap({ ...sharedMapResponse, group_meta: { 'gb': { expanded: false } } });
+    expect(r2.group_meta).toEqual({ 'gb': { expanded: false } });
+
+    const minimalMap = { basemap_style: 'positron' };
+    const r3 = normalizeSavedMap(minimalMap);
+    expect(r3.group_meta).toEqual({});
+
+    const emptyMap = {};
+    const r4 = normalizeSavedMap(emptyMap);
+    expect(r4.group_meta).toEqual({});
+  });
+
   it('builds complete stack from existing saved-map fields (d2c5c99c case 1 equivalent)', () => {
     // d2c5c99c case 1: complete legacy saved-map shape passes through without schema migration
     const parcels = makeMapLayer({
