@@ -7,9 +7,6 @@ const BUILDER_RAIL_BREAKPOINT = 1100
 const BUILDER_EDITOR_HIDDEN_BREAKPOINT = 800
 
 export function useBuilderLayout() {
-  const [viewportWidth, setViewportWidth] = React.useState<number>(
-    () => window.innerWidth
-  )
   const [isRail, setIsRail] = React.useState<boolean>(
     () => window.innerWidth < BUILDER_RAIL_BREAKPOINT
   )
@@ -20,28 +17,19 @@ export function useBuilderLayout() {
   React.useEffect(() => {
     const railMql = window.matchMedia(`(max-width: ${BUILDER_RAIL_BREAKPOINT - 1}px)`)
     const editorHiddenMql = window.matchMedia(`(max-width: ${BUILDER_EDITOR_HIDDEN_BREAKPOINT - 1}px)`)
-    const onResize = () => {
-      setViewportWidth(window.innerWidth)
-      setIsRail(railMql.matches)
-      setIsEditorHidden(editorHiddenMql.matches)
-    }
-    const onRail = onResize
-    const onEditorHidden = onResize
+    const onRail = () => setIsRail(railMql.matches)
+    const onEditorHidden = () => setIsEditorHidden(editorHiddenMql.matches)
     railMql.addEventListener("change", onRail)
     editorHiddenMql.addEventListener("change", onEditorHidden)
-    window.addEventListener("resize", onResize)
-    onResize()
     return () => {
       railMql.removeEventListener("change", onRail)
       editorHiddenMql.removeEventListener("change", onEditorHidden)
-      window.removeEventListener("resize", onResize)
     }
   }, [])
 
   return {
     isRail,
     isEditorHidden,
-    viewportWidth,
     // Backward-compat aliases — deprecated; callers should migrate to isRail/isEditorHidden
     isCompact: isRail,
     isMobile: isEditorHidden,

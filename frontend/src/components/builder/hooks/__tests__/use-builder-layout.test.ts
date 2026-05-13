@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 
 /**
@@ -27,10 +27,8 @@ function makeMatchMedia(width: number) {
 }
 
 describe('useBuilderLayout', () => {
-  let removeEventListenerSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => {
-    removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
+    vi.restoreAllMocks();
   });
 
   afterEach(() => {
@@ -46,7 +44,6 @@ describe('useBuilderLayout', () => {
 
       expect(result.current.isRail).toBe(false);
       expect(result.current.isEditorHidden).toBe(false);
-      expect(result.current.viewportWidth).toBe(1200);
     });
 
     it('backward-compat: isCompact and isMobile alias to isRail and isEditorHidden', () => {
@@ -69,7 +66,6 @@ describe('useBuilderLayout', () => {
 
       expect(result.current.isRail).toBe(true);
       expect(result.current.isEditorHidden).toBe(false);
-      expect(result.current.viewportWidth).toBe(1024);
     });
   });
 
@@ -82,39 +78,29 @@ describe('useBuilderLayout', () => {
 
       expect(result.current.isRail).toBe(true);
       expect(result.current.isEditorHidden).toBe(true);
-      expect(result.current.viewportWidth).toBe(600);
-    });
-  });
-
-  describe('resize handler updates state', () => {
-    it('updates viewportWidth when window resize fires', () => {
-      Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1200 });
-      vi.stubGlobal('matchMedia', makeMatchMedia(1200));
-
-      const { result } = renderHook(() => useBuilderLayout());
-      expect(result.current.viewportWidth).toBe(1200);
-      expect(result.current.isRail).toBe(false);
-
-      // Simulate resize to 600px
-      act(() => {
-        Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 600 });
-        vi.stubGlobal('matchMedia', makeMatchMedia(600));
-        window.dispatchEvent(new Event('resize'));
-      });
-
-      expect(result.current.viewportWidth).toBe(600);
     });
   });
 
   describe('listener cleanup on unmount', () => {
-    it('calls removeEventListener for resize on unmount', () => {
+    it('removes MQL change listeners on unmount', () => {
       Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1200 });
-      vi.stubGlobal('matchMedia', makeMatchMedia(1200));
+      const mockMql = makeMatchMedia(1200);
+      const removeListeners: Array<[string, EventListenerOrEventListenerObject]> = [];
+      const trackedMql = (query: string) => {
+        const obj = mockMql(query);
+        obj.removeEventListener = vi.fn((...args) => {
+          removeListeners.push(args as [string, EventListenerOrEventListenerObject]);
+        });
+        return obj;
+      };
+      vi.stubGlobal('matchMedia', trackedMql);
 
       const { unmount } = renderHook(() => useBuilderLayout());
       unmount();
 
-      expect(removeEventListenerSpy).toHaveBeenCalledWith('resize', expect.any(Function));
+      // Two MQL listeners should be removed (rail + editorHidden)
+      expect(removeListeners.length).toBe(2);
+      expect(removeListeners.every(([event]) => event === 'change')).toBe(true);
     });
   });
 
