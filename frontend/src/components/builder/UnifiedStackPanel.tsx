@@ -112,7 +112,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const { t } = useTranslation('builder');
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // px — drag only after moving >= 8px from pointerdown origin
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
