@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
@@ -83,6 +83,7 @@ export const StackRow = memo(function StackRow({
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState<string>('');
+  const escapeRef = useRef(false);
 
   const displayName = layer.display_name ?? layer.dataset_name;
   const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
@@ -93,6 +94,10 @@ export const StackRow = memo(function StackRow({
   }
 
   function commitRename() {
+    if (escapeRef.current) {
+      escapeRef.current = false;
+      return;
+    }
     setEditing(false);
     onRename(layer.id, nameValue.trim() || null);
   }
@@ -190,6 +195,7 @@ export const StackRow = memo(function StackRow({
                 commitRename();
               }
               if (e.key === 'Escape') {
+                escapeRef.current = true;
                 setEditing(false);
                 setNameValue(displayName);
               }
