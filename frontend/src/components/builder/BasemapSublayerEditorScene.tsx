@@ -272,7 +272,13 @@ export function BasemapSublayerEditorScene({
       </section>
 
       {/* 4. Reset section — collapsed by default */}
-      <Collapsible open={resetOpen} onOpenChange={setResetOpen}>
+      <Collapsible
+        open={resetOpen}
+        onOpenChange={(open) => {
+          setResetOpen(open);
+          if (!open) setConfirmingReset(false); // restore initial state on close
+        }}
+      >
         <CollapsibleTrigger asChild>
           <button
             type="button"
