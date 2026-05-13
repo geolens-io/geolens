@@ -702,6 +702,16 @@
     "stay": "Stay",
     "leave": "Leave"
   },
+  "stackRow": {
+    "dragHandle": "Drag to reorder {{name}}",
+    "toggleVisibility": "Toggle visibility for {{name}}",
+    "opacitySlider": "Opacity for {{name}}",
+    "kebabTrigger": "Layer options for {{name}}",
+    "kebabRenameLayer": "Rename layer",
+    "kebabDuplicate": "Duplicate",
+    "kebabDeleteLayer": "Delete layer",
+    "kebabAddToGroup": "Add to group…"
+  },
   "styleJson": {
     "title": "Style JSON",
     "ariaLabel": "Style JSON",
