@@ -184,7 +184,14 @@ export function MapBuilderPage() {
   const { data: basemaps = [] } = useBasemaps();
 
   // Phase 1035: in-memory sublayer state (persistence via basemap_config is a Phase 1038 follow-up)
+  // TODO(Phase 1038): include sublayerState in the save payload via basemap_config round-trip.
   const [sublayerState, setSublayerState] = useState<Record<string, { visible: boolean; opacity: number }>>({});
+
+  // Phase 1035: in-memory master opacity for the basemap group.
+  // TODO(Phase 1038): persist masterOpacity via a dedicated basemap_config.opacity field (requires
+  // backend schema addition to MapBasemapConfig). Spreading `opacity` directly into basemapConfig
+  // bypasses the type system and the field is stripped on the next API round-trip.
+  const [masterOpacity, setMasterOpacity] = useState(1);
 
   // Phase 1035: basemap group display object derived from localBasemap + showBasemapLabels
   const basemapGroup = useMemo(() => {
@@ -201,7 +208,7 @@ export function MapBuilderPage() {
       presetName,
       providerLabel: undefined,
       visible: true,
-      opacity: layers.basemapConfig?.opacity ?? 1,
+      opacity: masterOpacity,
       sublayers: [
         {
           id: 'basemap:roads',
@@ -241,14 +248,15 @@ export function MapBuilderPage() {
         },
       ],
     };
-  }, [layers.localBasemap, layers.basemapConfig, layers.showBasemapLabels, sublayerState]);
+  }, [layers.localBasemap, layers.showBasemapLabels, sublayerState, masterOpacity]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 
   // Phase 1035: sublayer visibility/opacity handlers
   const handleToggleSublayerVisibility = useCallback((sublayerId: string) => {
     if (sublayerId === 'basemap:labels') {
-      // Labels toggled via existing persisted flag
+      // Labels toggled via the persisted showBasemapLabels flag (BSR-06) — markDirty() fires
+      // inside setShowBasemapLabels because this change IS saved.
       layers.setShowBasemapLabels(!layers.showBasemapLabels);
       return;
     }
@@ -259,7 +267,9 @@ export function MapBuilderPage() {
         opacity: prev[sublayerId]?.opacity ?? 1,
       },
     }));
-    layers.markDirty();
+    // TODO(Phase 1038): call markDirty() here once sublayerState is included in the
+    // save payload via basemap_config round-trip. Until then, omitting markDirty()
+    // prevents the unsaved-changes badge from making a false promise to the user.
   }, [layers]);
 
   const handleSublayerOpacityChange = useCallback((sublayerId: string, opacity: number) => {
@@ -267,13 +277,14 @@ export function MapBuilderPage() {
       ...prev,
       [sublayerId]: { visible: prev[sublayerId]?.visible ?? true, opacity },
     }));
-    layers.markDirty();
-  }, [layers]);
+    // TODO(Phase 1038): call markDirty() once sublayerState is persisted.
+  }, []);
 
   const handleResetBasemapAppearance = useCallback(() => {
     layers.setBasemapConfig(null);
     setSublayerState({});
-    layers.markDirty();
+    setMasterOpacity(1);
+    layers.markDirty(); // basemapConfig reset IS persisted (null → saved)
   }, [layers]);
 
   // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
@@ -409,8 +420,11 @@ export function MapBuilderPage() {
         onSublayerVisibilityChange={handleToggleSublayerVisibility}
         onSublayerOpacityChange={handleSublayerOpacityChange}
         onMasterOpacityChange={(opacity) => {
-          layers.setBasemapConfig({ ...(layers.basemapConfig ?? {}), opacity });
-          layers.markDirty();
+          setMasterOpacity(opacity);
+          // TODO(Phase 1038): persist masterOpacity via basemap_config.opacity field
+          // (requires backend MapBasemapConfig schema addition). Spreading `opacity`
+          // directly into basemapConfig bypasses the type system and is stripped on
+          // the next API round-trip, so markDirty() is omitted until persistence is wired.
         }}
       />
     );
@@ -437,20 +451,20 @@ export function MapBuilderPage() {
           opacity={sublayer.opacity}
           minZoom={0}
           maxZoom={22}
-          onDetailLevelChange={() => layers.markDirty()}
-          onStrokeColorChange={() => layers.markDirty()}
-          onStrokeWidthChange={() => layers.markDirty()}
-          onCasingColorChange={() => layers.markDirty()}
-          onCasingWidthChange={() => layers.markDirty()}
+          onDetailLevelChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+          onStrokeColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+          onStrokeWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+          onCasingColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+          onCasingWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
           onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
-          onZoomChange={() => layers.markDirty()}
+          onZoomChange={() => { /* TODO(Phase 1038): markDirty() once sublayer zoom range is persisted */ }}
           onResetSublayer={() => {
             setSublayerState((prev) => {
               const next = { ...prev };
               delete next[sublayer.id];
               return next;
             });
-            layers.markDirty();
+            // TODO(Phase 1038): markDirty() once sublayerState is persisted
           }}
         />
       );
