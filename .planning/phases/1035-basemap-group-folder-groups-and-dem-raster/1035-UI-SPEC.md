@@ -334,7 +334,7 @@ Used when the basemap GROUP ROW is selected (not a sublayer). Reuses exact Phase
 - Section label: "PRESET" (10px ALL CAPS, semibold, `--muted-foreground`, `letter-spacing: 0.08em`)
 - 2×2 card grid (`gap: 8px`, full-width):
   - Positron, Bright, Dark Matter, Satellite (or whatever the configured presets are)
-  - Each card: `border: 1px solid --border`, `border-radius: --radius-md`, `padding: 6px`
+  - Each card: `border: 1px solid --border`, `border-radius: --radius-md`, `padding: 8px`
   - Active card: `border-color: --primary`, `box-shadow: 0 0 0 1px --primary`
   - Card thumbnail: 56px height, `border-radius: --radius-sm`, actual tile preview image (real implementation uses the basemap's tile endpoint for a static preview; fallback is a hand-tuned CSS gradient matching the basemap palette)
   - Card name: 11px, 400 weight, `--foreground`
