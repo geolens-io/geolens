@@ -123,7 +123,8 @@
     "dragToReorder": "Drag to reorder",
     "sortableLayer": "sortable layer",
     "hideFromLegend": "Hide from legend",
-    "showInLegend": "Show in legend"
+    "showInLegend": "Show in legend",
+    "backToLayers": "Back to layers"
   },
   "style": {
     "fill": "Fill",
@@ -708,6 +709,9 @@
     "settings": "Settings",
     "emptyState": "No layers yet",
     "countBadge": "{{count}}"
+  },
+  "rail": {
+    "aiDisabled": "AI disabled by admin"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
