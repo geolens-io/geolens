@@ -702,6 +702,13 @@
     "stay": "Stay",
     "leave": "Leave"
   },
+  "unifiedStack": {
+    "title": "Layers",
+    "addData": "＋ Add data",
+    "settings": "Settings",
+    "emptyState": "No layers yet",
+    "countBadge": "{{count}}"
+  },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
     "toggleVisibility": "Toggle visibility for {{name}}",

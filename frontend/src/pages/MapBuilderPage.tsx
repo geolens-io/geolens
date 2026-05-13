@@ -1,16 +1,16 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Loader2, Save, Sparkles } from 'lucide-react';
+import { FileText, History, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
-import { Button } from '@/components/ui/button';
 // PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
 const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
-import { MapStackPanel } from '@/components/builder/MapStackPanel';
+import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
+import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { MapToolbar } from '@/components/builder/MapToolbar';
@@ -33,7 +33,7 @@ import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout'
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { WidgetHost, WidgetSidebar, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
+import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
 export function MapBuilderPage() {
@@ -144,9 +144,9 @@ export function MapBuilderPage() {
     [mapInstance, layers.localLayers, id],
   );
 
-  const { byAnchor, sidebar } = usePartitionedWidgets();
-  const activeWidgetSet = useWidgetStore((state) => state.activeWidgets);
-  const activeWidgetIds = useMemo(() => Array.from(activeWidgetSet), [activeWidgetSet]);
+  const { byAnchor } = usePartitionedWidgets();
+  // activeWidgetSet tracked for widget sidebar integration (Phase 1036+)
+  useWidgetStore((state) => state.activeWidgets);
 
   // selectedLayerId: the layer currently open in the flyout editor
   // Maps to existing expandedLayerId in use-builder-layers (same field, new semantic name)
@@ -233,6 +233,14 @@ export function MapBuilderPage() {
     [layers.handleFilterChange],
   );
 
+  // Adapter: UnifiedStackPanel/SidebarRail pass `string | null` (null = deselect);
+  // handleToggleExpand accepts only string ('' = toggle off).
+  const handleSelectLayer = useCallback(
+    (id: string | null) => layers.handleToggleExpand(id ?? ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handler
+    [layers.handleToggleExpand],
+  );
+
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
@@ -316,113 +324,40 @@ export function MapBuilderPage() {
 
       <div className="flex flex-1 min-h-0">
 
-      {/* Mobile sidebar as Sheet — shown when isEditorHidden (<800px) */}
-      {isEditorHidden && (
-        <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
-          <SheetContent side="left" className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col">
-            <SheetHeader className="sr-only">
-              <SheetTitle>{layers.localName || t('mapBuilder')}</SheetTitle>
-              <SheetDescription>{t('descriptionLabel')}</SheetDescription>
-            </SheetHeader>
-            <div className="p-3 border-b flex items-center justify-between">
-              <span className="text-sm font-semibold truncate">{layers.localName}</span>
-              <Button variant={layers.hasUnsavedChanges ? 'default' : 'outline'} size="sm" className="min-h-11 gap-1 shrink-0 px-3 text-xs" onClick={save.handleSave} disabled={save.isSaving}>
-                {save.isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                {t('actions.save')}
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto py-3">
-              <MapStackPanel
-                layers={layers.localLayers}
-                expandedLayerId={layers.expandedLayerId}
-                basemapStyle={layers.localBasemap}
-                showBasemapLabels={layers.showBasemapLabels}
-                basemapConfig={layers.basemapConfig}
-                terrainConfig={layers.localTerrainConfig}
-                widgets={activeWidgetIds}
-                onToggleExpand={layers.handleToggleExpand}
-                onToggleVisibility={layers.handleToggleVisibility}
-                onMoveUp={layers.handleMoveUp}
-                onMoveDown={layers.handleMoveDown}
-                onReorder={layers.handleReorder}
-                onRename={layers.handleDisplayNameChange}
-                onRemove={layers.handleRemove}
-                onZoomToLayer={layers.handleZoomToLayer}
-                onToggleLegend={layers.handleToggleLegend}
-                onOpacityChange={layers.handleOpacityChange}
-                onLayoutChange={layers.handleLayoutChange}
-                onRenderAsChange={layers.handleRenderAsChange}
-                onDuplicateRendering={layers.handleDuplicateRendering}
-                onAddDataClick={handleAddDataClick}
-                onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
-                onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
-                onBasemapConfigChange={(next) => {
-                  layers.setBasemapConfig(next);
-                  layers.setShowBasemapLabels(next.label_mode !== 'hidden');
-                  layers.markDirty();
-                }}
-                onTerrainChange={(next) => {
-                  layers.setLocalTerrainConfig(next);
-                  layers.markDirty();
-                }}
-                widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
-
       {/* Three-column builder body grid */}
       <div
         className={builderBodyGridClass}
         data-builder-editor-open={!!editingLayer}
       >
-        {/* Column 1: sidebar (340px full or 64px rail) */}
-        {/* Plan 01: still renders MapStackPanel; Plan 02 will replace with UnifiedStackPanel/rail */}
-        {!isEditorHidden && (
-          <aside
-            data-testid="builder-sidebar"
-            className="border-e bg-background flex flex-col overflow-hidden"
-          >
-            <div className="flex-1 overflow-y-auto py-3">
-              <MapStackPanel
-                layers={layers.localLayers}
-                expandedLayerId={layers.expandedLayerId}
-                basemapStyle={layers.localBasemap}
-                showBasemapLabels={layers.showBasemapLabels}
-                basemapConfig={layers.basemapConfig}
-                terrainConfig={layers.localTerrainConfig}
-                widgets={activeWidgetIds}
-                onToggleExpand={layers.handleToggleExpand}
-                onToggleVisibility={layers.handleToggleVisibility}
-                onMoveUp={layers.handleMoveUp}
-                onMoveDown={layers.handleMoveDown}
-                onReorder={layers.handleReorder}
-                onRename={layers.handleDisplayNameChange}
-                onRemove={layers.handleRemove}
-                onZoomToLayer={layers.handleZoomToLayer}
-                onToggleLegend={layers.handleToggleLegend}
-                onOpacityChange={layers.handleOpacityChange}
-                onLayoutChange={layers.handleLayoutChange}
-                onRenderAsChange={layers.handleRenderAsChange}
-                onDuplicateRendering={layers.handleDuplicateRendering}
-                onAddDataClick={handleAddDataClick}
-                onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
-                onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
-                onBasemapConfigChange={(next) => {
-                  layers.setBasemapConfig(next);
-                  layers.setShowBasemapLabels(next.label_mode !== 'hidden');
-                  layers.markDirty();
-                }}
-                onTerrainChange={(next) => {
-                  layers.setLocalTerrainConfig(next);
-                  layers.markDirty();
-                }}
-                widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
-              />
-            </div>
-          </aside>
-        )}
+        {/* Column 1: sidebar (340px full or 64px rail at <1100px) */}
+        <aside
+          data-testid="builder-sidebar"
+          className="border-e bg-background flex flex-col overflow-hidden"
+        >
+          {isRail ? (
+            <SidebarRail
+              layers={layers.localLayers}
+              selectedLayerId={layers.expandedLayerId}
+              onSelectLayer={handleSelectLayer}
+              onAddDataClick={handleAddDataClick}
+              onSettingsClick={() => { /* TODO Phase 1036: wire settings */ }}
+            />
+          ) : (
+            <UnifiedStackPanel
+              layers={layers.localLayers}
+              selectedLayerId={layers.expandedLayerId}
+              onSelectLayer={handleSelectLayer}
+              onToggleVisibility={layers.handleToggleVisibility}
+              onReorder={layers.handleReorder}
+              onOpacityChange={layers.handleOpacityChange}
+              onRemove={layers.handleRemove}
+              onRename={layers.handleDisplayNameChange}
+              onDuplicate={layers.handleDuplicateRendering}
+              onAddDataClick={handleAddDataClick}
+              onSettingsClick={() => { /* TODO Phase 1036: wire settings */ }}
+            />
+          )}
+        </aside>
 
         {/* Column 2: LayerEditorPanel flyout (380px) — only when layer selected and viewport >= 800px */}
         {editingLayer && !isEditorHidden && (

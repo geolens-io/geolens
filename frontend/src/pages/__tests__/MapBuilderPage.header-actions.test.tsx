@@ -201,15 +201,21 @@ describe('MapBuilderPage header actions', () => {
     expect(dialogsState.setShowShare).toHaveBeenCalledWith(true);
   });
 
-  it('uses 44px mobile sheet and rail targets while leaving map context visible', () => {
+  it('renders SidebarRail in column 1 and 44px rail buttons when isEditorHidden=true', () => {
     mockIsEditorHidden = true;
 
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
-    const sheet = document.body.querySelector('[data-slot="sheet-content"]');
-    expect(sheet?.className).toContain('max-w-[calc(100vw-5rem)]');
+    // The old sidebar Sheet is gone — the SidebarRail is in Column 1 of the grid
+    const sidebar = screen.getByTestId('builder-sidebar');
+    expect(sidebar).toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: 'actions.save' }).className).toContain('min-h-11');
+    // No sidebar Sheet present (sidebar Sheet was removed in Plan 1034-02)
+    // (only rail Sheet remains, but it needs railPanel != null to open)
+    const sheetContents = document.body.querySelectorAll('[data-slot="sheet-content"]');
+    expect(sheetContents.length).toBe(0);
+
+    // Rail buttons rendered as 44px targets when isEditorHidden
     const notesRailButton = document.body.querySelector('button[title="dock.notes"]');
     expect(notesRailButton?.className).toContain('h-11');
     expect(notesRailButton?.className).toContain('w-11');
