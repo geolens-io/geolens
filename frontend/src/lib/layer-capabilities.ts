@@ -2,6 +2,21 @@ import type { MapLayerResponse } from '@/types/api';
 
 export type LayerKind = 'vector' | 'raster' | 'vrt';
 
+/**
+ * Returns true when a layer represents a folder group (layer_type starts with
+ * 'group:folder'). Use this single predicate everywhere a folder-group check
+ * is needed so all callers stay consistent if new group subtypes are added.
+ *
+ * If a future phase introduces a new group subtype (e.g. 'group:cluster') and
+ * that subtype should have different render or menu behaviour, update this
+ * predicate and document the intentional split with a comment at each call site.
+ */
+export function isFolderGroupLayer(
+  layer: Pick<MapLayerResponse, 'layer_type'>,
+): boolean {
+  return ((layer.layer_type as string | null | undefined) ?? '').startsWith('group:folder');
+}
+
 export interface LayerCapabilities {
   kind: LayerKind;
   supportsStyleEditor: boolean;

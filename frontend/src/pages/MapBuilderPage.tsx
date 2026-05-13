@@ -15,6 +15,7 @@ import { BasemapGroupEditorScene, BasemapGroupEditorFooter } from '@/components/
 import { BasemapSublayerEditorScene, BasemapSublayerEditorFooter } from '@/components/builder/BasemapSublayerEditorScene';
 import { useBasemaps } from '@/hooks/use-settings';
 import { basemapThumbnail } from '@/lib/basemap-utils';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
@@ -290,7 +291,7 @@ export function MapBuilderPage() {
   // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
     return layers.localLayers
-      .filter((l) => ((l.layer_type as string | null | undefined) ?? '').startsWith('group:folder'))
+      .filter(isFolderGroupLayer)
       .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
   }, [layers.localLayers]);
 

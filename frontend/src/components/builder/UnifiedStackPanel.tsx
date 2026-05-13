@@ -24,17 +24,13 @@ import { Slider } from '@/components/ui/slider';
 import { StackRow } from '@/components/builder/StackRow';
 import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
 import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 
 // ---------------------------------------------------------------------------
 // Helper utilities
 // ---------------------------------------------------------------------------
-
-function isGroupLayer(layer: MapLayerResponse): boolean {
-  const t = (layer.layer_type as string | null | undefined) ?? '';
-  return t.startsWith('group:');
-}
 
 function getParentGroupId(layer: MapLayerResponse): string | null {
   // In-memory `parent_group_id` set by use-builder-layers folder handlers
@@ -655,7 +651,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 // Skip child rows — they render inside their group container
                 if (getParentGroupId(layer)) return null;
 
-                if (isGroupLayer(layer)) {
+                if (isFolderGroupLayer(layer)) {
                   // Folder group row with children container when expanded
                   const expanded = groupMeta[layer.id]?.expanded ?? false;
                   const children = childrenByGroup[layer.id] ?? [];
