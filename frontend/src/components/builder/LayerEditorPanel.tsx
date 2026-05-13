@@ -656,8 +656,8 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
               </Button>
             ) : (
-              <div role="alertdialog" aria-labelledby="confirm-delete-title" className="space-y-2">
-                <p id="confirm-delete-title" className="text-sm text-destructive text-center">
+              <div role="alertdialog" aria-labelledby={`confirm-delete-${layer.id}`} className="space-y-2">
+                <p id={`confirm-delete-${layer.id}`} className="text-sm text-destructive text-center">
                   {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
                 </p>
                 <div className="flex gap-2">
@@ -694,8 +694,8 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
               </Button>
             ) : (
-              <div role="alertdialog" aria-labelledby="confirm-delete-title" className="space-y-2">
-                <p id="confirm-delete-title" className="text-sm text-destructive text-center">
+              <div role="alertdialog" aria-labelledby={`confirm-delete-${layer.id}`} className="space-y-2">
+                <p id={`confirm-delete-${layer.id}`} className="text-sm text-destructive text-center">
                   {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
                 </p>
                 <div className="flex gap-2">
