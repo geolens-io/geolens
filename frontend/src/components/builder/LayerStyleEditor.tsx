@@ -27,7 +27,8 @@ type PointRenderMode = 'points' | 'heatmap' | 'symbol' | 'cluster';
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
-  onOpacityChange: (layerId: string, opacity: number) => void;
+  /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
+  onOpacityChange?: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onRenderModeChange?: (layerId: string, mode: PointRenderMode) => void;
@@ -391,7 +392,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     } else {
       onStyleConfigChange(layer.id, null, CIRCLE_DEFAULTS);
     }
-    onOpacityChange(layer.id, 1);
+    onOpacityChange?.(layer.id, 1);
   }, [geomType, layer.id, layoutObj, onLayoutChange, onOpacityChange, onStyleConfigChange]);
 
   const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
@@ -503,17 +504,21 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           />
         )}
 
-        {/* Master opacity - all geometry types */}
-        <div className="text-xs font-medium mt-2 pt-2 border-t">{t('style.opacity')}</div>
-        <SliderRow
-          label={t('style.layer')}
-          value={layer.opacity}
-          min={0}
-          max={1}
-          step={0.01}
-          format="percent"
-          onChange={(val) => onOpacityChange(layer.id, val)}
-        />
+        {/* Master opacity - all geometry types; omitted when parent owns the opacity control */}
+        {onOpacityChange && (
+          <>
+            <div className="text-xs font-medium mt-2 pt-2 border-t">{t('style.opacity')}</div>
+            <SliderRow
+              label={t('style.layer')}
+              value={layer.opacity}
+              min={0}
+              max={1}
+              step={0.01}
+              format="percent"
+              onChange={(val) => onOpacityChange(layer.id, val)}
+            />
+          </>
+        )}
 
         {/* Layer zoom range */}
         <div className="text-xs font-medium mt-2 pt-2 border-t">{t('style.zoomRange')}</div>

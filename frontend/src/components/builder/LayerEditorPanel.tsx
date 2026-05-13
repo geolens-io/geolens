@@ -242,12 +242,12 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 >
                   {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
                 </p>
+                {/* onOpacityChange intentionally omitted: opacity is owned by Visibility §3 */}
                 {isRaster ? (
                   <RasterLayerControls
                     paint={layer.paint ?? {}}
                     onPaintChange={(nextPaint) => handlers.onPaintChange(layer.id, nextPaint)}
                     opacity={layer.opacity ?? 1}
-                    onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
                     isDem={layer.is_dem}
                     styleConfig={layer.style_config}
                     onStyleConfigChange={(nextConfig, nextPaint) =>
@@ -259,7 +259,6 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     key={layer.id}
                     layer={layer}
                     onPaintChange={handlers.onPaintChange}
-                    onOpacityChange={handlers.onOpacityChange}
                     onStyleConfigChange={handlers.onStyleConfigChange}
                     onLayoutChange={handlers.onLayoutChange}
                     onRenderModeChange={handlers.onRenderModeChange}

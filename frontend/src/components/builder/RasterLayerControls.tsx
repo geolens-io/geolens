@@ -34,7 +34,8 @@ interface RasterLayerControlsProps {
   paint: Record<string, unknown>;
   onPaintChange: (paint: Record<string, unknown>) => void;
   opacity: number;
-  onOpacityChange: (value: number) => void;
+  /** Omit to hide the opacity slider (e.g. when the parent owns opacity via a separate control). */
+  onOpacityChange?: (value: number) => void;
   isDem?: boolean | null;
   styleConfig?: Partial<StyleConfig> | null;
   onStyleConfigChange?: (config: StyleConfig | null, paint: Record<string, unknown>) => void;
@@ -86,7 +87,7 @@ export function RasterLayerControls({
       delete nextPaint[key];
     }
     onPaintChange(nextPaint);
-    onOpacityChange(1);
+    onOpacityChange?.(1);
   }
 
   return (
@@ -259,15 +260,17 @@ export function RasterLayerControls({
         suffix="ms"
         onChange={(v) => setPaintValue('raster-fade-duration', v)}
       />
-      <RasterSliderRow
-        label={t('style.raster.opacity', { defaultValue: 'Opacity' })}
-        value={opacity}
-        min={0}
-        max={1}
-        step={0.01}
-        format="percent"
-        onChange={onOpacityChange}
-      />
+      {onOpacityChange && (
+        <RasterSliderRow
+          label={t('style.raster.opacity', { defaultValue: 'Opacity' })}
+          value={opacity}
+          min={0}
+          max={1}
+          step={0.01}
+          format="percent"
+          onChange={onOpacityChange}
+        />
+      )}
 
       <div className="flex items-center gap-2">
         <span className="w-28 shrink-0 text-xs text-muted-foreground">
