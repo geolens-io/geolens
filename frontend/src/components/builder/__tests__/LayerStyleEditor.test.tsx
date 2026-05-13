@@ -1012,6 +1012,7 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
         handlers={handlers}
         onClose={vi.fn()}
         isDrillDown={true}
+        enableLegacyTabs={true}
       />,
     );
 
