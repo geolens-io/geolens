@@ -60,6 +60,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState<string>('');
   const escapeRef = useRef(false);
+  const committingRef = useRef(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -88,10 +89,15 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       escapeRef.current = false;
       return;
     }
+    if (committingRef.current) return; // block blur double-fire after Enter
+    committingRef.current = true;
     setEditing(false);
     const trimmed = nameValue.trim();
     if (trimmed) onRenameGroup(groupId, trimmed);
     // else: silent revert per UI-SPEC
+    // committingRef stays true during the synchronous blur triggered by setEditing(false);
+    // reset it async so it does not block a subsequent genuine focus+blur cycle.
+    requestAnimationFrame(() => { committingRef.current = false; });
   }
 
   function handleRowClick(_e: React.MouseEvent) {

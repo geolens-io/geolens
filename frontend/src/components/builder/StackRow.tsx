@@ -108,6 +108,7 @@ export const StackRow = memo(function StackRow({
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState<string>('');
   const escapeRef = useRef(false);
+  const committingRef = useRef(false);
 
   const displayName = layer.display_name ?? layer.dataset_name;
   const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
@@ -122,8 +123,13 @@ export const StackRow = memo(function StackRow({
       escapeRef.current = false;
       return;
     }
+    if (committingRef.current) return; // block blur double-fire after Enter
+    committingRef.current = true;
     setEditing(false);
     onRename(layer.id, nameValue.trim() || null);
+    // committingRef stays true during the synchronous blur triggered by setEditing(false);
+    // reset it async so it does not block a subsequent genuine focus+blur cycle.
+    requestAnimationFrame(() => { committingRef.current = false; });
   }
 
   function handleRowClick(_e: React.MouseEvent) {
