@@ -27,6 +27,7 @@ import type {
 import { API_BASE } from '@/lib/constants';
 import { useAuthStore } from '@/stores/auth-store';
 import { normalizeLayerStyleState } from '@/lib/normalize-style-config';
+import { normalizeSavedMap } from '@/lib/normalize-saved-map';
 
 export async function listMaps(
   params: {
@@ -58,6 +59,16 @@ export async function getMap(id: string): Promise<MapResponse> {
       l.paint = normalized.paint;
     }
   }
+  // Apply map-level normalization: guarantees basemap_style is a non-empty string,
+  // show_basemap_labels is a boolean, widgets is string[]|null. Composes with
+  // the per-layer normalizeLayerStyleState loop above; does NOT reassign resp.layers
+  // because the loop already mutated those elements in place.
+  const mapNorm = normalizeSavedMap(resp);
+  resp.basemap_style = mapNorm.basemap_style;
+  resp.show_basemap_labels = mapNorm.show_basemap_labels;
+  resp.basemap_config = mapNorm.basemap_config;
+  resp.terrain_config = mapNorm.terrain_config;
+  resp.widgets = mapNorm.widgets;
   return resp;
 }
 
@@ -151,6 +162,14 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
       l.paint = normalized.paint;
     }
   }
+  // Apply map-level normalization: SharedMapResponse.show_basemap_labels is optional
+  // (older shared payloads omit it); normalizeSavedMap defaults it to true (BSR-22).
+  // Does NOT reassign resp.layers — per-layer mutations already applied above.
+  const mapNorm = normalizeSavedMap(resp);
+  resp.basemap_style = mapNorm.basemap_style;
+  resp.show_basemap_labels = mapNorm.show_basemap_labels;
+  resp.basemap_config = mapNorm.basemap_config;
+  resp.terrain_config = mapNorm.terrain_config;
   return resp;
 }
 
