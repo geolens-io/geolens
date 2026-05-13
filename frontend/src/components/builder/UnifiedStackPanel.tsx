@@ -494,14 +494,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     }),
   );
 
-  // SortableContext items: basemap group id (when present) + all layer ids
-  // Basemap sublayer ids are excluded — sublayers use useSortable({ disabled: true })
+  // SortableContext items: all layer ids only.
+  // basemapGroup is excluded: it is pinned at the top and cannot be reordered.
+  // Including it previously made the row visually draggable but the drag was a
+  // silent no-op because handleDragEnd searches only the layers array.
   const sortableIds = useMemo(() => {
     const ids: string[] = [];
-    if (basemapGroup) ids.push(basemapGroup.id);
     for (const l of layers) ids.push(l.id);
     return ids;
-  }, [basemapGroup, layers]);
+  }, [layers]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
