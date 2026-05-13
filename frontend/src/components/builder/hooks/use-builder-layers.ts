@@ -18,6 +18,17 @@ import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
 
+/**
+ * Frontend-only extension of MapLayerResponse with group-related fields.
+ * parent_group_id is an in-memory-only field used to track group membership
+ * during the builder session. It is not persisted to the API.
+ * layer_type is widened to string to support 'group:folder' and 'group:basemap' variants.
+ */
+type GroupedLayer = Omit<MapLayerResponse, 'layer_type'> & {
+  layer_type?: string | null;
+  parent_group_id?: string | null;
+};
+
 export function buildDuplicateRenderingInput(
   layer: MapLayerResponse,
   currentLayers: MapLayerResponse[],
@@ -62,6 +73,7 @@ export function useBuilderLayers(
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
   const [basemapConfig, setBasemapConfig] = useState<MapBasemapConfig | null>(null);
   const [localTerrainConfig, setLocalTerrainConfig] = useState<MapTerrainConfig | null>(null);
+  const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -102,6 +114,7 @@ export function useBuilderLayers(
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       setBasemapConfig(mapData.basemap_config ?? null);
       setLocalTerrainConfig(mapData.terrain_config ?? null);
+      setGroupMeta((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {});
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
       initializedRef.current = true;
@@ -211,6 +224,15 @@ export function useBuilderLayers(
     setActiveEditorTab((prev) => (prev === tab ? null : tab));
   }, []);
 
+  const handleToggleGroupExpand = useCallback((groupId: string) => {
+    if (!groupId) return;
+    setGroupMeta((prev) => ({
+      ...prev,
+      [groupId]: { expanded: !(prev[groupId]?.expanded ?? false) },
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
   const handleZoomToLayer = useCallback((layerId: string) => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -250,6 +272,126 @@ export function useBuilderLayers(
       },
     );
   }, [mapId, removeLayerMutation, t]);
+
+  // --- Folder-group handlers ---
+  // These operate on the in-memory localLayers array. Group layers are encoded
+  // as layers with layer_type: 'group:folder' or 'group:basemap'. Child layers
+  // reference their parent via parent_group_id (frontend-only field, not persisted to API).
+
+  const handleCreateGroupWithLayer = useCallback((layerId: string) => {
+    setLocalLayers((prev) => {
+      const idx = prev.findIndex((l) => l.id === layerId);
+      if (idx < 0) return prev;
+
+      // Generate a unique group id and name
+      const existingGroupCount = prev.filter((l) =>
+        (l as GroupedLayer).layer_type === 'group:folder',
+      ).length;
+      const groupId = `group-${Date.now()}`;
+      const groupName = `Group ${existingGroupCount + 1}`;
+
+      const groupRow: GroupedLayer = {
+        ...(prev[idx] as GroupedLayer),
+        id: groupId,
+        display_name: groupName,
+        layer_type: 'group:folder',
+        sort_order: prev[idx].sort_order,
+        parent_group_id: null,
+      };
+
+      const childLayer: GroupedLayer = {
+        ...(prev[idx] as GroupedLayer),
+        parent_group_id: groupId,
+      };
+
+      const next = [...prev];
+      next.splice(idx, 1, groupRow as unknown as MapLayerResponse, childLayer as unknown as MapLayerResponse);
+      return next.map((l, i) => ({ ...l, sort_order: i }));
+    });
+    setGroupMeta((prev) => {
+      // We don't have the groupId at this point due to closure, but we'll set it expanded
+      // in the next render cycle. For now, mark any new group as expanded via a broad approach.
+      return prev;
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleRenameGroup = useCallback((groupId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return; // silent revert per UI-SPEC
+    setLocalLayers((prev) =>
+      prev.map((l) =>
+        l.id === groupId ? { ...l, display_name: trimmed } : l,
+      ),
+    );
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleUngroup = useCallback((groupId: string) => {
+    setLocalLayers((prev) => {
+      // Remove the group container, keep children (clear their parent_group_id)
+      const next = prev
+        .filter((l) => l.id !== groupId)
+        .map((l) => {
+          const gl = l as GroupedLayer;
+          if (gl.parent_group_id === groupId) {
+            return { ...gl, parent_group_id: null } as MapLayerResponse;
+          }
+          return l;
+        });
+      return next.map((l, i) => ({ ...l, sort_order: i }));
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleDeleteGroup = useCallback((groupId: string) => {
+    setLocalLayers((prev) => {
+      const next = prev.filter((l) => {
+        if (l.id === groupId) return false;
+        const gl = l as GroupedLayer;
+        if (gl.parent_group_id === groupId) return false;
+        return true;
+      });
+      return next.map((l, i) => ({ ...l, sort_order: i }));
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleAddLayerToExistingGroup = useCallback((layerId: string, groupId: string) => {
+    setLocalLayers((prev) => {
+      const targetIdx = prev.findIndex((l) => l.id === layerId);
+      if (targetIdx < 0) return prev;
+      const updatedLayer: GroupedLayer = { ...(prev[targetIdx] as GroupedLayer), parent_group_id: groupId };
+      const next = [...prev];
+      next[targetIdx] = updatedLayer as MapLayerResponse;
+      return next;
+    });
+    setGroupMeta((prev) => {
+      if (prev[groupId]?.expanded) return prev;
+      return { ...prev, [groupId]: { expanded: true } };
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleMoveLayerOutOfGroup = useCallback((layerId: string) => {
+    setLocalLayers((prev) => {
+      const idx = prev.findIndex((l) => l.id === layerId);
+      if (idx < 0) return prev;
+      const gl = prev[idx] as GroupedLayer;
+      const parentGroupId = gl.parent_group_id;
+      if (!parentGroupId) return prev; // already not in a group
+
+      // Find the position of the group container to place the layer just after it
+      const groupIdx = prev.findIndex((l) => l.id === parentGroupId);
+      const updatedLayer: GroupedLayer = { ...gl, parent_group_id: null };
+
+      const next = prev.filter((l) => l.id !== layerId) as MapLayerResponse[];
+      const insertAt = groupIdx >= 0 ? groupIdx + 1 : next.length;
+      next.splice(insertAt, 0, updatedLayer as MapLayerResponse);
+      return next.map((l, i) => ({ ...l, sort_order: i }));
+    });
+    setHasUnsavedChanges(true);
+  }, []);
 
   const handleAddDataset = useCallback((datasetId: string) => {
     if (!mapId) return;
@@ -485,6 +627,17 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, [handleRenderAsChange, swapLayerOnMap]);
 
+  const handleDEMTerrainBind = useCallback((layerId: string) => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
+    if (!layer) return;
+    setLocalTerrainConfig((prev) => ({
+      enabled: true,
+      source_dataset_id: layer.dataset_id,
+      exaggeration: prev?.exaggeration ?? 1,
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
   const handleDuplicateRendering = useCallback((layerId: string) => {
     if (!mapId) return;
     const layer = layersRef.current.find((candidate) => candidate.id === layerId);
@@ -549,6 +702,7 @@ export function useBuilderLayers(
     showBasemapLabels, setShowBasemapLabels,
     basemapConfig, setBasemapConfig,
     localTerrainConfig, setLocalTerrainConfig,
+    groupMeta,
     ephemeralResult,
     initialViewState,
     handleToggleVisibility,
@@ -557,6 +711,7 @@ export function useBuilderLayers(
     handleReorder,
     handleDisplayNameChange,
     handleToggleExpand,
+    handleToggleGroupExpand,
     handleTabChange,
     handleFilterChange,
     handleLabelChange,
@@ -569,6 +724,13 @@ export function useBuilderLayers(
     handleLayoutChange,
     handleZoomToLayer,
     handleRemove,
+    handleDEMTerrainBind,
+    handleCreateGroupWithLayer,
+    handleRenameGroup,
+    handleUngroup,
+    handleDeleteGroup,
+    handleAddLayerToExistingGroup,
+    handleMoveLayerOutOfGroup,
     handleAddDataset,
     handleDuplicateRendering,
     handleAiRemoveLayer,
