@@ -1,0 +1,337 @@
+import { memo, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
+import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+
+interface DragHandleProps {
+  attributes: DraggableAttributes;
+  listeners?: DraggableSyntheticListeners;
+  setActivatorNodeRef: (node: HTMLButtonElement | null) => void;
+}
+
+interface FolderGroupRowProps {
+  groupId: string;
+  groupName: string;
+  visible: boolean;
+  opacity: number;
+  selected: boolean;
+  isExpanded: boolean;
+  isDragging?: boolean;
+  dragHandleProps: DragHandleProps;
+  onSelectGroup: (id: string) => void;
+  onToggleExpand: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
+  onOpacityChange: (id: string, opacity: number) => void;
+  onRenameGroup: (id: string, name: string) => void;
+  onAddLayer: (id: string) => void;
+  onUngroup: (id: string) => void;
+  onDeleteGroup: (id: string) => void;
+}
+
+export const FolderGroupRow = memo(function FolderGroupRow({
+  groupId,
+  groupName,
+  visible,
+  opacity: opacityProp,
+  selected,
+  isExpanded,
+  isDragging = false,
+  dragHandleProps,
+  onSelectGroup,
+  onToggleExpand,
+  onToggleVisibility,
+  onOpacityChange,
+  onRenameGroup,
+  onAddLayer,
+  onUngroup,
+  onDeleteGroup,
+}: FolderGroupRowProps) {
+  const { t } = useTranslation('builder');
+  const [editing, setEditing] = useState(false);
+  const [nameValue, setNameValue] = useState<string>('');
+  const escapeRef = useRef(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const opacity = typeof opacityProp === 'number' && Number.isFinite(opacityProp) ? opacityProp : 1;
+
+  // Reset state on groupId change
+  useEffect(() => {
+    setEditing(false);
+    setConfirmingDelete(false);
+  }, [groupId]);
+
+  // Auto-select input text when entering edit mode
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  function handleStartRename() {
+    setNameValue(groupName);
+    setEditing(true);
+  }
+
+  function commitRename() {
+    if (escapeRef.current) {
+      escapeRef.current = false;
+      return;
+    }
+    setEditing(false);
+    const trimmed = nameValue.trim();
+    if (trimmed) onRenameGroup(groupId, trimmed);
+    // else: silent revert per UI-SPEC
+  }
+
+  function handleRowClick(_e: React.MouseEvent) {
+    onSelectGroup(groupId);
+  }
+
+  return (
+    <div
+      id={`stack-row-${groupId}`}
+      role="option"
+      aria-selected={selected}
+      tabIndex={0}
+      onClick={handleRowClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelectGroup(groupId);
+        }
+      }}
+    >
+      {/* Row grid */}
+      <div
+        className={cn(
+          'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+          !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
+          selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
+          isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
+        )}
+      >
+        {/* Cell 1: Caret — visible and functional for group rows */}
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls={`folder-group-children-${groupId}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand(groupId);
+          }}
+          className={cn('text-xs text-muted-foreground transition-transform', isExpanded && 'rotate-90')}
+        >
+          ▸
+        </button>
+
+        {/* Cell 2: Grip handle */}
+        <button
+          ref={dragHandleProps.setActivatorNodeRef}
+          type="button"
+          {...dragHandleProps.attributes}
+          {...dragHandleProps.listeners}
+          aria-label={t('stackRow.dragHandle', {
+            defaultValue: 'Drag to reorder {{name}}',
+            name: groupName,
+          })}
+          className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+
+        {/* Cell 3: Eye visibility toggle */}
+        <button
+          type="button"
+          aria-label={t('stackRow.toggleVisibility', {
+            defaultValue: 'Toggle visibility for {{name}}',
+            name: groupName,
+          })}
+          className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleVisibility(groupId);
+          }}
+        >
+          {visible ? (
+            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+          ) : (
+            <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+        </button>
+
+        {/* Cell 4: Type icon — folder group amber variant */}
+        <span
+          className="flex items-center justify-center h-[22px] w-[22px] rounded-sm text-xs font-medium"
+          style={{ backgroundColor: 'oklch(0.93 0.03 80)', color: 'oklch(0.45 0.10 80)' }}
+          aria-hidden="true"
+        >
+          ▸
+        </span>
+
+        {/* Cell 5: Group name — toggle between input and span based on editing */}
+        <div className="min-w-0">
+          {editing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              aria-label={t('folderGroup.renameInputPlaceholder', { defaultValue: 'Group name' })}
+              placeholder={t('folderGroup.renameInputPlaceholder', { defaultValue: 'Group name' })}
+              className="h-6 w-full min-w-0 border-b border-primary bg-transparent text-sm font-semibold outline-none focus:ring-1 focus:ring-ring"
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitRename();
+                }
+                if (e.key === 'Escape') {
+                  escapeRef.current = true;
+                  setEditing(false);
+                  setNameValue(groupName);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- triggered by explicit rename action
+              autoFocus
+            />
+          ) : (
+            <span
+              className="text-sm font-semibold truncate block"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                handleStartRename();
+              }}
+            >
+              {groupName}
+            </span>
+          )}
+        </div>
+
+        {/* Cell 6: Opacity slider */}
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
+        <div
+          className="flex items-center"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Slider
+            aria-label={t('stackRow.opacitySlider', {
+              defaultValue: 'Opacity for {{name}}',
+              name: groupName,
+            })}
+            aria-valuetext={`${Math.round(opacity * 100)}%`}
+            value={[opacity]}
+            min={0}
+            max={1}
+            step={0.05}
+            className="w-[60px]"
+            onValueChange={([value]) => {
+              onOpacityChange(groupId, Number((value ?? opacity).toFixed(2)));
+            }}
+          />
+        </div>
+
+        {/* Cell 7: Kebab menu */}
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t('stackRow.kebabGroupTrigger', {
+                  defaultValue: 'Group options for {{name}}',
+                  name: groupName,
+                })}
+                className={cn(
+                  'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground',
+                  'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'hover:text-foreground hover:bg-accent',
+                  selected && 'opacity-100',
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onSelect={(_e) => {
+                  _e.preventDefault(); // keep menu open while we set editing=true
+                  handleStartRename();
+                }}
+              >
+                {t('stackRow.kebabRenameGroup', { defaultValue: 'Rename group' })}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAddLayer(groupId)}>
+                {t('stackRow.kebabAddLayer', { defaultValue: 'Add layer' })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => onUngroup(groupId)}>
+                {t('stackRow.kebabUngroup', { defaultValue: 'Ungroup' })}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={() => setConfirmingDelete(true)}
+              >
+                {t('stackRow.kebabDeleteGroup', { defaultValue: 'Delete group' })}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Inline alertdialog for delete confirmation — sibling of grid row, NOT inside DropdownMenuContent */}
+      {confirmingDelete && (
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+        <div
+          role="alertdialog"
+          aria-labelledby={`confirm-delete-${groupId}`}
+          className="mx-2 mb-2 p-3 rounded-md border bg-popover space-y-2"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p id={`confirm-delete-${groupId}`} className="text-sm text-destructive text-center">
+            {t('folderGroup.deleteConfirmMessage', { defaultValue: 'Delete this group and all its layers?' })}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              className="flex-1"
+              onClick={() => {
+                onDeleteGroup(groupId);
+                setConfirmingDelete(false);
+              }}
+            >
+              {t('folderGroup.deleteConfirmAction', { defaultValue: 'Delete all' })}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setConfirmingDelete(false)}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on safe choice per UI-SPEC accessibility
+              autoFocus
+            >
+              {t('folderGroup.deleteConfirmCancel', { defaultValue: 'Keep group' })}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
