@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
@@ -7,10 +7,12 @@ import {
   ChevronRight,
   Database,
   Image as ImageIcon,
+  Inbox,
   Loader2,
   Plus,
   Repeat2,
   Search,
+  SearchX,
   Shuffle,
   Upload,
 } from 'lucide-react';
@@ -53,6 +55,7 @@ interface DatasetSearchPanelProps {
   onBasemapChange: (key: string) => void;
   onBasemapLabelsChange: (show: boolean) => void;
   onBasemapConfigChange: (value: MapBasemapConfig) => void;
+  initialQuery?: string;
 }
 
 function makeBlankBasemap(label: string): BasemapEntry {
@@ -199,9 +202,23 @@ export function DatasetSearchPanel({
   onBasemapChange,
   onBasemapLabelsChange,
   onBasemapConfigChange,
+  initialQuery,
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState<string>(initialQuery ?? '');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-select pre-filled value on mount so the user can immediately replace it.
+  // useEffect runs once because initialQuery is captured at mount time; if the modal
+  // is reopened with a new initialQuery, the parent unmounts/remounts the dialog content
+  // (Radix Dialog default behavior), so this effect re-fires per modal-open.
+  useEffect(() => {
+    if (initialQuery && inputRef.current) {
+      inputRef.current.select();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount per modal open
+  }, []);
+
   const [activeTab, setActiveTab] = useState<DatasetSearchTab>('all');
   const [sourceOrganization, setSourceOrganization] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -227,13 +244,11 @@ export function DatasetSearchPanel({
     staleTime: 30_000,
   });
 
-  const results = useMemo(() => {
-    const features = data?.features ?? [];
-    if (activeTab === 'raster') {
-      return features.filter((record) => isRasterRecord(record.properties.record_type));
-    }
-    return features;
-  }, [activeTab, data?.features]);
+  // Per UI-SPEC §4a: the `record_type` query param at line ~215 already constrains
+  // the backend query. The previous client-side isRasterRecord filter was a bug that
+  // capped raster discovery to whatever appeared in the all-types page-20 result.
+  // isRasterRecord() is still used by typeMeta() for display purposes.
+  const results = useMemo(() => data?.features ?? [], [data?.features]);
 
   const sourceOptions = useMemo(
     () => uniqueValues((data?.features ?? []).map((record) => record.properties.source_organization), 4),
@@ -343,6 +358,7 @@ export function DatasetSearchPanel({
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
+            ref={inputRef}
             placeholder={t('search.placeholder', { defaultValue: 'Search datasets' })}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -423,20 +439,58 @@ export function DatasetSearchPanel({
         )}
       </div>
 
+      {/* State: Error */}
       {activeTab !== 'basemap' && isError && (
-        <p className="px-2 py-2 text-sm text-destructive">
-          {t('search.error', { defaultValue: 'Failed to load results' })}
-        </p>
+        <div role="alert" className="flex flex-col items-center gap-2 px-4 py-6">
+          <p className="text-sm text-destructive">
+            {t('search.error', { defaultValue: 'Failed to load datasets. Check your connection and try again.' })}
+          </p>
+        </div>
       )}
 
-      {activeTab !== 'basemap' && (isLoading || isFetching) && (
+      {/* State: Loading */}
+      {activeTab !== 'basemap' && !isError && (isLoading || isFetching) && (
         <div className="flex items-center justify-center py-3">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
       )}
 
-      {activeTab !== 'basemap' && debouncedQuery.trim().length > 0 && !isLoading && results.length === 0 && (
-        <p className="px-2 py-2 text-xs text-muted-foreground">{t('search.noResults')}</p>
+      {/* State A: Unfiltered empty — catalog is empty */}
+      {activeTab !== 'basemap' && !isLoading && !isFetching && !isError
+        && debouncedQuery.trim().length === 0 && results.length === 0 && (
+        <div role="status" className="flex flex-col items-center gap-2 px-4 py-6">
+          <Inbox className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-center text-sm font-semibold">
+            {t('search.catalogEmpty', { defaultValue: 'Your catalog is empty. Upload a dataset to get started.' })}
+          </p>
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/import">
+              {t('search.uploadCta', { defaultValue: 'Upload a file →' })}
+            </Link>
+          </Button>
+        </div>
+      )}
+
+      {/* State B: Zero-result — query entered, no matches */}
+      {activeTab !== 'basemap' && !isLoading && !isFetching && !isError
+        && debouncedQuery.trim().length > 0 && results.length === 0 && (
+        <div role="status" className="flex flex-col items-center gap-2 px-4 py-6">
+          <SearchX className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-center text-sm font-semibold">
+            {t('search.zeroResultHeading', { defaultValue: "No datasets match '{{query}}'", query: debouncedQuery.trim() })}
+          </p>
+          <p className="text-center text-xs text-muted-foreground">
+            {t('search.zeroResultBody', { defaultValue: 'Try a different search term, or browse all datasets.' })}
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={t('search.clearSearch', { defaultValue: 'Clear search and show all datasets' })}
+            onClick={() => setQuery('')}
+          >
+            {t('search.clearSearch', { defaultValue: 'Clear search' })}
+          </Button>
+        </div>
       )}
 
       <div

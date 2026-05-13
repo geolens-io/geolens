@@ -5,6 +5,7 @@ const SIDEBAR_COLLAPSED_KEY = 'geolens-builder-sidebar-collapsed';
 export function useBuilderDialogs(_aiAvailable: boolean | undefined, isMobile = false) {
   const [showChat, setShowChat] = useState(false);
   const [showAddData, setShowAddData] = useState(false);
+  const [addDataInitialQuery, setAddDataInitialQuery] = useState('');
   const [showShare, setShowShare] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsedRaw] = useState(
@@ -35,6 +36,7 @@ export function useBuilderDialogs(_aiAvailable: boolean | undefined, isMobile = 
   return {
     showChat, setShowChat,
     showAddData, setShowAddData,
+    addDataInitialQuery, setAddDataInitialQuery,
     showShare, setShowShare,
     showInfo, setShowInfo,
     sidebarCollapsed, setSidebarCollapsed,

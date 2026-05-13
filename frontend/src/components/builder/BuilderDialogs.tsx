@@ -32,6 +32,7 @@ interface BuilderDialogsProps {
   onBasemapChange: (key: string) => void;
   onBasemapLabelsChange: (show: boolean) => void;
   onBasemapConfigChange: (value: MapBasemapConfig) => void;
+  addDataInitialQuery?: string;
   // Share
   showShare: boolean;
   onShowShareChange: (open: boolean) => void;
@@ -61,6 +62,7 @@ export function BuilderDialogs({
   onBasemapChange,
   onBasemapLabelsChange,
   onBasemapConfigChange,
+  addDataInitialQuery,
   showShare,
   onShowShareChange,
   hasUnsavedChanges,
@@ -93,6 +95,7 @@ export function BuilderDialogs({
             onBasemapChange={onBasemapChange}
             onBasemapLabelsChange={onBasemapLabelsChange}
             onBasemapConfigChange={onBasemapConfigChange}
+            initialQuery={addDataInitialQuery}
           />
         </DialogContent>
       </Dialog>

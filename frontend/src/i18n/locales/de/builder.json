@@ -391,7 +391,13 @@
     "placeholder": "Datensätze suchen...",
     "noResults": "Keine Datensätze gefunden",
     "added": "(hinzugefügt)",
-    "addToMap": "Zur Karte hinzufügen"
+    "addToMap": "Zur Karte hinzufügen",
+    "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
+    "uploadCta": "Upload a file →",
+    "zeroResultHeading": "No datasets match '{{query}}'",
+    "zeroResultBody": "Try a different search term, or browse all datasets.",
+    "clearSearch": "Clear search",
+    "error": "Failed to load datasets. Check your connection and try again."
   },
   "share": {
     "title": "Teilen",

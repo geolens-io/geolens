@@ -254,4 +254,116 @@ describe('DatasetSearchPanel', () => {
     expect(screen.getAllByRole('button', { name: 'Add to map Population' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Import data...' })).toHaveAttribute('href', '/import');
   });
+
+  // =========================================================================
+  // BSR-17 / BSR-18: initialQuery, raster filter removal, three-state UX
+  // =========================================================================
+
+  it('Test 1: initialQuery pre-fills search input and fires query with q=foo', async () => {
+    render(<DatasetSearchPanel {...defaultProps({ initialQuery: 'foo' })} />);
+
+    // Input should be pre-filled with 'foo'
+    const input = screen.getByRole('textbox', { name: /search datasets/i });
+    expect((input as HTMLInputElement).value).toBe('foo');
+
+    // A search call should have been made with q=foo
+    await waitFor(() => {
+      expect(mockSearchDatasets).toHaveBeenCalledWith(expect.objectContaining({ q: 'foo' }));
+    });
+  });
+
+  it('Test 2: initialQuery non-empty causes input to be auto-selected on mount', async () => {
+    const selectSpy = vi.spyOn(HTMLInputElement.prototype, 'select');
+    render(<DatasetSearchPanel {...defaultProps({ initialQuery: 'hello' })} />);
+
+    // select() should be called because initialQuery is non-empty
+    await waitFor(() => {
+      expect(selectSpy).toHaveBeenCalled();
+    });
+    selectSpy.mockRestore();
+  });
+
+  it('Test 3: Raster tab fires backend query with record_type=raster_dataset and client filter is gone', async () => {
+    // Backend returns a mix — the old client filter would hide the vector record
+    const mixedResponse = {
+      type: 'FeatureCollection' as const,
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [
+        makeRecord({ id: 'sat-image', title: 'Satellite Image', recordType: 'raster_dataset' }),
+        makeRecord({ id: 'roads2', title: 'Roads 2', recordType: 'vector_dataset' }),
+      ],
+    };
+    mockSearchDatasets.mockResolvedValue(mixedResponse);
+
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Raster' }));
+
+    await waitFor(() => {
+      expect(mockSearchDatasets).toHaveBeenCalledWith(expect.objectContaining({
+        record_type: 'raster_dataset',
+      }));
+    });
+
+    // Both records are rendered — client-side filter is gone
+    expect(await screen.findByText('Satellite Image')).toBeInTheDocument();
+    expect(screen.getByText('Roads 2')).toBeInTheDocument();
+  });
+
+  it('Test 4: Unfiltered-empty state — catalog empty, no query — shows Inbox CTA with Upload link', async () => {
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection' as const,
+      numberMatched: 0,
+      numberReturned: 0,
+      features: [],
+    });
+
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    const statusEl = await screen.findByRole('status');
+    expect(statusEl).toBeInTheDocument();
+    expect(statusEl.textContent).toMatch(/Your catalog is empty/);
+
+    // Upload CTA link
+    const uploadLink = screen.getByRole('link', { name: /upload a file/i });
+    expect(uploadLink).toHaveAttribute('href', '/import');
+  });
+
+  it('Test 5: Zero-result state — query entered, no matches — shows SearchX and Clear search button', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection' as const,
+      numberMatched: 0,
+      numberReturned: 0,
+      features: [],
+    });
+
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    const input = screen.getByRole('textbox', { name: /search datasets/i });
+    fireEvent.change(input, { target: { value: 'foo' } });
+
+    // Advance past the 300ms debounce
+    vi.advanceTimersByTime(400);
+    vi.useRealTimers();
+
+    const statusEl = await screen.findByRole('status');
+    // i18n mock returns defaultValue without interpolation, so assert patterns separately
+    expect(statusEl.textContent).toMatch(/No datasets match/);
+
+    // Clear search button resets the query
+    const clearBtn = screen.getByRole('button', { name: /clear search/i });
+    fireEvent.click(clearBtn);
+    expect((input as HTMLInputElement).value).toBe('');
+  });
+
+  it('Test 6: Error state — renders alert with connection error copy', async () => {
+    mockSearchDatasets.mockRejectedValue(new Error('Network error'));
+
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    const alertEl = await screen.findByRole('alert');
+    expect(alertEl.textContent).toMatch(/Failed to load datasets/);
+  });
 });
