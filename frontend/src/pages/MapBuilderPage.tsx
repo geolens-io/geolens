@@ -366,7 +366,6 @@ export function MapBuilderPage() {
     layers.handleToggleExpand('');
     // Return focus to the row that opened the flyout.
     // stack-row-{id} is used by all row types (StackRow, BasemapGroupRow, FolderGroupRow).
-    // The legacy layer-expand-{id} fallback from MapStackItem is retired in Phase 1035.
     if (expandedId) {
       requestAnimationFrame(() => {
         const rowEl = document.getElementById(`stack-row-${expandedId}`);
