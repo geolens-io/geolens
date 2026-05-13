@@ -63,8 +63,109 @@
 - ✅ **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (shipped 2026-05-12) — see [archive](milestones/v1005-ROADMAP.md)
 - ✅ **v1006 Large Dataset Cluster Scaling** — Phases 1027-1031 (shipped 2026-05-12) — see [archive](milestones/v1006-ROADMAP.md)
 - ✅ **v1007 Release Hygiene** — Phase 1032 (shipped 2026-05-12) — see [archive](milestones/v1007-ROADMAP.md)
+- 🚧 **v1008 Map Builder Sidebar Redesign** — Phases 1033-1038 (in progress)
 
 ## Phases
+
+### 🚧 v1008 Map Builder Sidebar Redesign (In Progress)
+
+**Milestone Goal:** Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief / Basemap / Data / Labels / Interactions) into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
+
+**Requirements:** 0/27 complete; 27/27 mapped (BSR-01..27)
+
+- [ ] **Phase 1033: saved-map-normalizer-and-viewer-parity** — Foundational normalizer that flattens legacy six-section saved maps into the unified shape and proves viewer parity before any sidebar UI changes ship.
+- [ ] **Phase 1034: unified-stack-rows-and-layer-editor-flyout** — One drag-orderable layer list with the compact row anatomy as the entry surface, paired with the revived side-by-side LayerEditorPanel flyout.
+- [ ] **Phase 1035: basemap-group-folder-groups-and-dem-raster** — Basemap-as-group, user folder groups, and DEM-as-raster-layer with `render as: image | hillshade | terrain` property.
+- [ ] **Phase 1036: settings-affordance** — `⚙ Settings` panel for terrain, widgets, and projection, pulling those controls out of the layer stack entirely.
+- [ ] **Phase 1037: empty-state-and-add-data-alignment** — Catalog-first empty state with inline search and hand-curated suggestions, plus Add Data modal alignment to the unified stack model.
+- [ ] **Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout** — Sketch fidelity, accessibility, i18n, and Playwright MCP UAT closeout covering every new surface end-to-end.
+
+### Phase 1033: saved-map-normalizer-and-viewer-parity
+**Goal**: Land a backward-compatible saved-map loader normalizer that flattens legacy `{ surface, relief, basemap, data, labels, interactions }` into a flat layer array plus group metadata, and prove the unified shape renders identically in builder, public, shared, and embed viewers before the sidebar UI changes start.
+**Depends on**: Nothing (first v1008 phase; foundational because every downstream change must round-trip through this normalizer)
+**Requirements**: BSR-20, BSR-21, BSR-22, BSR-23
+**Success Criteria** (what must be TRUE):
+  1. User opens any legacy six-section saved map in the builder and sees it rendered correctly — no missing layers and no console errors.
+  2. User opens the same legacy saved map in public, shared, and embed viewers and sees pixel-equivalent rendering to the builder.
+  3. User saves a new map under the unified stack model, reloads it, and gets a lossless round-trip through builder → public → shared → embed.
+  4. Existing `d2c5c99c` saved-map compatibility fixtures pass against the normalized loader without schema migration.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1034: unified-stack-rows-and-layer-editor-flyout
+**Goal**: Replace the six-section `MapStackPanel` with one drag-orderable unified layer list whose compact row anatomy is the entry surface that opens a revived side-by-side LayerEditorPanel flyout for all deep styling.
+**Depends on**: Phase 1033
+**Requirements**: BSR-01, BSR-02, BSR-03, BSR-04, BSR-10, BSR-11, BSR-12, BSR-13
+**Success Criteria** (what must be TRUE):
+  1. User sees a single drag-orderable layer list with no Surface / Relief / Basemap / Data / Labels / Interactions sibling sections.
+  2. User reorders layers by dragging the grip handle and the map z-order updates immediately.
+  3. User sees each row as `drag · visibility · type-icon · name · opacity · kebab` only — no duplicate subtitle, no position tag, no type chip, no inline-expanding controls — and the kebab exposes rename, duplicate, delete, and grouping actions.
+  4. User clicks any row and gets row highlight plus a 380px LayerEditorPanel flyout that opens between the 340px sidebar and the map, with Render-as / Appearance / Visibility / collapsed Filter+Labels+Source / footer Delete sections, while the sidebar stays mounted for cross-layer comparison.
+  5. User on a narrow viewport sees the flyout degrade to a rail or drill-down variant without losing any capability.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1035: basemap-group-folder-groups-and-dem-raster
+**Goal**: Make basemap a first-class collapsible group, support user-created folder groups, and reframe DEMs as regular raster layers whose `render as: image | hillshade | terrain` property replaces the old Relief and Surface sections.
+**Depends on**: Phase 1034
+**Requirements**: BSR-05, BSR-06, BSR-07, BSR-08, BSR-09
+**Success Criteria** (what must be TRUE):
+  1. User sees the basemap as a collapsible group row with the `⊞` glyph and can expand it to see roads, labels, buildings, boundaries, and land–water sublayers.
+  2. User toggles visibility on individual basemap sublayers from inside the expanded group without leaving the unified stack.
+  3. User creates a folder group using the `▸` glyph, renames it, adds layers into it, ungroups it, and the expansion state persists per map.
+  4. User adds a DEM dataset and sees it appear as a regular raster row with a `render as: image | hillshade | terrain` property — no separate Relief section, no separate Surface section.
+  5. User switches a DEM's render mode and source binding plus paint config are preserved; terrain mode wires the map-level terrain config without resurrecting a Relief section.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1036: settings-affordance
+**Goal**: Move terrain global config, map widgets, and projection out of the layer stack and behind a dedicated `⚙ Settings` affordance so the stack contains only layers and groups.
+**Depends on**: Phase 1034
+**Requirements**: BSR-14, BSR-15
+**Success Criteria** (what must be TRUE):
+  1. User clicks a `⚙ Settings` affordance in the sidebar header and reaches a panel containing terrain global config, map widgets, and projection controls.
+  2. User scans the layer stack and finds no permanent settings fixtures — terrain global, widgets, and projection no longer appear as stack rows or sections.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1037: empty-state-and-add-data-alignment
+**Goal**: Replace the generic "Add data" prompt with a catalog-first empty state powered by inline search and hand-curated suggestions, and align the Add Data modal to the unified stack model using the companion audit findings.
+**Depends on**: Phase 1034
+**Requirements**: BSR-16, BSR-17, BSR-18, BSR-19
+**Success Criteria** (what must be TRUE):
+  1. User on a new map sees an empty-state catalog entry experience with inline search and a hand-curated suggested-datasets surface instead of a generic "Add data" prompt.
+  2. User typing into the empty-state search bar lands in the same Add Data modal as the `+ Add data` button with the query pre-filled.
+  3. User opens the Add Data modal and finds raster discovery on par with vector, post-add layers landing at a sensible z-position, the LayerEditorPanel flyout opening on add, catalog parity with `/collections`, and a real empty/zero-result UX — all audit findings resolved.
+  4. User does not see a `/api/datasets/suggested` backend dependency in v1; suggestions are hand-curated and the smart endpoint is explicitly deferred and tracked.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout
+**Goal**: Close the milestone with sketch-fidelity verification against `sketch-findings-geolens`, full keyboard accessibility, i18n coverage for new copy, and a Playwright MCP UAT that exercises every new surface end-to-end with zero console warnings or errors.
+**Depends on**: Phases 1033, 1034, 1035, 1036, 1037
+**Requirements**: BSR-24, BSR-25, BSR-26, BSR-27
+**Success Criteria** (what must be TRUE):
+  1. Implementation visually matches the `sketch-findings-geolens` skill — palette, row anatomy, group glyphs (`⊞` basemap, `▸` folder), flyout layout, and section ordering all hold against the locked reference HTML.
+  2. User navigates the unified stack, flyout sections, and settings panel entirely by keyboard, with focus correctly managed on row-select, flyout-open, and flyout-close.
+  3. i18n keys for new copy are added, existing keys are reused where possible, and the changed-namespace check passes across all builder locales.
+  4. Playwright MCP UAT exercises drag-reorder, basemap-group expand, DEM render-mode switch, flyout open/close, settings panel, empty-state entry, Add Data modal pre-fill, legacy-map open, and save/reload round-trip — and the live page console reports zero warnings and zero errors.
+**Plans**: TBD
+**UI hint**: yes
+
+## Progress
+
+**Execution Order (v1008):**
+Phases execute in numeric order: 1033 → 1034 → 1035 → 1036 → 1037 → 1038
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1033. saved-map-normalizer-and-viewer-parity | v1008 | 0/TBD | Not started | - |
+| 1034. unified-stack-rows-and-layer-editor-flyout | v1008 | 0/TBD | Not started | - |
+| 1035. basemap-group-folder-groups-and-dem-raster | v1008 | 0/TBD | Not started | - |
+| 1036. settings-affordance | v1008 | 0/TBD | Not started | - |
+| 1037. empty-state-and-add-data-alignment | v1008 | 0/TBD | Not started | - |
+| 1038. a11y-i18n-sketch-fidelity-and-uat-closeout | v1008 | 0/TBD | Not started | - |
+
 
 <details>
 <summary>✅ v1007 Release Hygiene (Phase 1032) — SHIPPED 2026-05-12</summary>

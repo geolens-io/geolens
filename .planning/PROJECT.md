@@ -12,6 +12,34 @@ Milestones are delivered through v1007 Release Hygiene (shipped 2026-05-12). v10
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1008 Map Builder Sidebar Redesign
+
+**Goal:** Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief / Basemap / Data / Labels / Interactions) into one unified, drag-orderable layer stack with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — plus the saved-map JSON migration and Add Data modal alignment needed to ship without regressing existing maps.
+
+**Target features:**
+- Unified drag-orderable layer stack replacing the `MapStackPanel` / `MapStackSection` six-section model
+- Basemap as a collapsible group row with sublayer expansion (folder semantics)
+- DEM as a regular raster layer with a `render as: image | hillshade | terrain` property (no Relief section)
+- Compact LayerItem rows (drag · visibility · type-icon · name · opacity · kebab)
+- Restored side-by-side LayerEditorPanel flyout (revive commit `1d3cdc9a`; retire commit `383e1f55` inline expansion)
+- `⚙ Settings` affordance for terrain global config, map widgets, and projection (out of the layer stack)
+- Saved-map JSON migration / normalizer: convert legacy six-section maps to flat layer array + group metadata without regressing public/shared/embed viewers
+- Empty state as catalog entry experience: shared Add Data modal component, suggested datasets (hand-curated v1, smart endpoint deferred)
+- Add Data modal alignment audit + minimal alignment work (no full redesign)
+
+**Locked context (sketch + direction artifacts):**
+- `.planning/seeds/map-builder-sidebar-redesign.md`
+- `.planning/notes/map-builder-sidebar-redesign-direction.md`
+- `.planning/sketches/WRAP-UP-SUMMARY.md` + skill `sketch-findings-geolens`
+- `.planning/todos/pending/audit-add-data-modal.md`
+
+**Non-goals (deferred):**
+- Full Add Data modal redesign
+- `/api/datasets/suggested` backend endpoint
+- Drag-from-catalog-into-stack
+- Multi-layer selection / bulk operations
+- Mobile-specific layout polish
+
 ## Recent Shipped Milestone: v1007 Release Hygiene
 
 **Shipped:** 2026-05-12
@@ -923,4 +951,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after starting v1006 Large Dataset Cluster Scaling*
+*Last updated: 2026-05-13 after starting v1008 Map Builder Sidebar Redesign*
