@@ -422,3 +422,31 @@ describe('UnifiedStackPanel — folder group rendering', () => {
     expect(container).toContainElement(screen.getByText('Child Layer'));
   });
 });
+
+describe('UnifiedStackPanel — settings cog button', () => {
+  it('cog button has aria-pressed="false" and no primary-50 background when isSettingsOpen is false (default)', () => {
+    render(<UnifiedStackPanel {...defaultProps({ isSettingsOpen: false })} />);
+
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    expect(cogBtn).toBeInTheDocument();
+    expect(cogBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(cogBtn.className).not.toMatch(/primary-50/);
+  });
+
+  it('cog button has aria-pressed="true" and primary-50 background when isSettingsOpen is true', () => {
+    render(<UnifiedStackPanel {...defaultProps({ isSettingsOpen: true })} />);
+
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    expect(cogBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(cogBtn.className).toMatch(/primary-50/);
+  });
+
+  it('clicking the cog still calls onSettingsClick when isSettingsOpen is not passed', () => {
+    const onSettingsClick = vi.fn();
+    render(<UnifiedStackPanel {...defaultProps({ onSettingsClick })} />);
+
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    fireEvent.click(cogBtn);
+    expect(onSettingsClick).toHaveBeenCalledOnce();
+  });
+});

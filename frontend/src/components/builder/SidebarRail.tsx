@@ -13,6 +13,7 @@ interface SidebarRailProps {
   onSelectLayer: (id: string | null) => void;
   onAddDataClick: () => void;
   onSettingsClick: () => void;
+  isSettingsOpen?: boolean;
 }
 
 function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
@@ -49,6 +50,7 @@ export const SidebarRail = memo(function SidebarRail({
   onSelectLayer,
   onAddDataClick,
   onSettingsClick,
+  isSettingsOpen = false,
 }: SidebarRailProps) {
   const { t } = useTranslation('builder');
 
@@ -60,7 +62,15 @@ export const SidebarRail = memo(function SidebarRail({
           <button
             type="button"
             aria-label={t('unifiedStack.settings', { defaultValue: 'Settings' })}
-            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-pressed={isSettingsOpen}
+            data-testid="settings-cog-btn"
+            className={cn(
+              'flex h-10 w-10 items-center justify-center rounded-md',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              isSettingsOpen
+                ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
             onClick={onSettingsClick}
           >
             <Settings className="h-[26px] w-[26px]" aria-hidden="true" />

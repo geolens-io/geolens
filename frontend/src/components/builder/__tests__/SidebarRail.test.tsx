@@ -108,4 +108,31 @@ describe('SidebarRail', () => {
     const hasSelectedClass = btn.className.includes('primary-50');
     expect(hasSelectedAttr || hasSelectedClass).toBe(true);
   });
+
+  it('calls onSettingsClick when Settings button is clicked', () => {
+    const onSettingsClick = vi.fn();
+    render(<SidebarRail {...defaultProps({ onSettingsClick })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Settings/i }));
+    expect(onSettingsClick).toHaveBeenCalledOnce();
+  });
+});
+
+describe('SidebarRail — settings cog button', () => {
+  it('cog button has aria-pressed="false" and no primary-50 background when isSettingsOpen is false (default)', () => {
+    render(<SidebarRail {...defaultProps({ isSettingsOpen: false })} />);
+
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    expect(cogBtn).toBeInTheDocument();
+    expect(cogBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(cogBtn.className).not.toMatch(/primary-50/);
+  });
+
+  it('cog button has aria-pressed="true" and primary-50 background when isSettingsOpen is true', () => {
+    render(<SidebarRail {...defaultProps({ isSettingsOpen: true })} />);
+
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    expect(cogBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(cogBtn.className).toMatch(/primary-50/);
+  });
 });
