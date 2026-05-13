@@ -23,7 +23,14 @@ import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig,
 export type NormalizedSavedMap<TLayer = MapLayerResponse | SharedLayerResponse> = {
   /** Canonical non-null basemap style identifier; falls back to 'default'. */
   basemap_style: string;
-  /** Basemap label; pulled from input when present, else null. */
+  /**
+   * Basemap label; pulled from input when present, else null.
+   * NOTE: MapResponse and SharedMapResponse do not carry this field — it is
+   * derived from basemap settings in the UI layer (currentBasemapEntry() in
+   * MapStackPanel.tsx). This field is always null for real API inputs and
+   * exists only to satisfy the MapStackMapInput-compatible output shape used
+   * by test fixtures and direct callers that pass Partial<MapStackMapInput>.
+   */
   basemap_label: string | null;
   /** Whether basemap labels are shown; defaults to true when absent (older shared payloads). */
   show_basemap_labels: boolean;
