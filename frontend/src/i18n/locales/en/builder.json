@@ -719,6 +719,36 @@
     "kebabDeleteLayer": "Delete layer",
     "kebabAddToGroup": "Add to group…"
   },
+  "layerEditor": {
+    "section": {
+      "renderAs": "Render as",
+      "appearance": "Appearance",
+      "visibility": "Visibility",
+      "filter": "Filter",
+      "labels": "Labels",
+      "source": "Source"
+    },
+    "filter": {
+      "noFilter": "No filter",
+      "active": "Active"
+    },
+    "labels": {
+      "off": "Off"
+    },
+    "footer": {
+      "deleteLayer": "Delete layer"
+    },
+    "confirmDelete": {
+      "message": "Are you sure? This cannot be undone.",
+      "delete": "Delete",
+      "keep": "Keep layer"
+    },
+    "visibility": {
+      "opacity": "Opacity",
+      "minZoom": "Minimum zoom",
+      "maxZoom": "Maximum zoom"
+    }
+  },
   "styleJson": {
     "title": "Style JSON",
     "ariaLabel": "Style JSON",

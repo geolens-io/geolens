@@ -1,14 +1,24 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { LayerStyleEditor } from './LayerStyleEditor';
 import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
 import { PopupConfigEditor } from './PopupConfigEditor';
 import { RasterLayerControls } from './RasterLayerControls';
 import { ColumnsReference } from './ColumnsReference';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { Slider } from '@/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { getRenderAsOptions, getCurrentRenderAs } from './renderAs';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
@@ -35,10 +45,23 @@ interface LayerEditorPanelProps {
   /** When true, shows a leading ‹ back arrow (used at <800px drill-down mode) */
   isDrillDown?: boolean;
   /**
-   * When true (default), renders the legacy tab-based body for backward compat.
-   * Plan 03 will set this to false and add section-based content.
+   * When false (Plan 03 default), renders the new section-based body.
+   * When true, renders the legacy tab-based body for backward compat.
    */
   enableLegacyTabs?: boolean;
+}
+
+function clampZoom(v: number): number {
+  return Math.max(0, Math.min(22, Math.round(v)));
+}
+
+function layerLayout(layer: MapLayerResponse): Record<string, unknown> {
+  return { ...(layer.layout ?? {}) };
+}
+
+function zoomValue(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && !Number.isNaN(value)) return clampZoom(value);
+  return fallback;
 }
 
 export const LayerEditorPanel = memo(function LayerEditorPanel({
@@ -47,7 +70,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   handlers,
   onClose,
   isDrillDown = false,
-  enableLegacyTabs = true,
+  enableLegacyTabs = false,
 }: LayerEditorPanelProps) {
   const { t } = useTranslation('builder');
   const columns = layer.dataset_column_info ?? [];
@@ -66,12 +89,51 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     [layer.paint, layer.layout, layer.dataset_geometry_type, layer.opacity, layer.style_config],
   );
 
+  const renderAsOptions = useMemo(() => getRenderAsOptions(layer), [layer]);
+  const currentRenderAs = useMemo(() => getCurrentRenderAs(layer), [layer]);
+
   const layerName = layer.display_name ?? layer.dataset_name;
   const resolvedActiveTab = activeTab ?? 'style';
 
+  // Section open/close state — Filter, Labels, Source are collapsed by default
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
+
+  // Footer delete confirm state
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Zoom range from layout
+  const layout = layerLayout(layer);
+  const minZoom = zoomValue(layout._minzoom, 0);
+  const maxZoom = zoomValue(layout._maxzoom, 22);
+
+  function handleZoomChange(nextMin: number, nextMax: number) {
+    const min = clampZoom(Math.min(nextMin, nextMax - 1));
+    const max = clampZoom(Math.max(nextMax, nextMin + 1));
+    handlers.onLayoutChange(layer.id, {
+      ...layout,
+      _minzoom: min,
+      _maxzoom: max,
+    });
+  }
+
+  // Filter hint: count of conditions or "No filter"
+  const filterHint = layer.filter == null
+    ? t('layerEditor.filter.noFilter', { defaultValue: 'No filter' })
+    : t('layerEditor.filter.active', { defaultValue: 'Active' });
+
+  // Labels hint
+  const labelsHint = layer.label_config == null
+    ? t('layerEditor.labels.off', { defaultValue: 'Off' })
+    : String(layer.label_config.column || 'On');
+
+  // Source hint: layer kind
+  const sourceHint = caps.kind;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header: back (drill-down only) | layer name | type icon | close × */}
+      {/* Header: back (drill-down only) | type icon | layer name | close × */}
       <header
         data-testid="layer-editor-header"
         className="flex items-center gap-1.5 px-2 py-2 border-b shrink-0"
@@ -117,11 +179,303 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         </button>
       </header>
 
-      {/* Scrollable body — Plan 03 replaces this with section-based content */}
+      {/* Scrollable body */}
       <div
         data-testid="layer-editor-body"
         className="flex-1 overflow-y-auto"
       >
+        {!enableLegacyTabs && (
+          <>
+            {/* 1. Render as — always expanded */}
+            <section
+              aria-labelledby={`section-renderas-${layer.id}`}
+              className="border-b"
+            >
+              <div className="px-4 py-3">
+                <p
+                  id={`section-renderas-${layer.id}`}
+                  className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                >
+                  {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
+                </p>
+                {renderAsOptions.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {renderAsOptions.map((option) => {
+                      const isActive = option.id === currentRenderAs;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          data-active={isActive ? 'true' : 'false'}
+                          onClick={() => {
+                            if (!isActive) {
+                              handlers.onRenderModeChange?.(layer.id, option.id as 'points' | 'heatmap' | 'symbol' | 'cluster');
+                            }
+                          }}
+                          className={cn(
+                            'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
+                            isActive
+                              ? 'bg-primary text-primary-foreground border-transparent'
+                              : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">—</p>
+                )}
+              </div>
+            </section>
+
+            {/* 2. Appearance — always expanded */}
+            <section
+              aria-labelledby={`section-appearance-${layer.id}`}
+              className="border-b"
+            >
+              <div className="px-4 py-3">
+                <p
+                  id={`section-appearance-${layer.id}`}
+                  className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                >
+                  {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
+                </p>
+                {isRaster ? (
+                  <RasterLayerControls
+                    paint={layer.paint ?? {}}
+                    onPaintChange={(nextPaint) => handlers.onPaintChange(layer.id, nextPaint)}
+                    opacity={layer.opacity ?? 1}
+                    onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
+                    isDem={layer.is_dem}
+                    styleConfig={layer.style_config}
+                    onStyleConfigChange={(nextConfig, nextPaint) =>
+                      handlers.onStyleConfigChange(layer.id, nextConfig, nextPaint)
+                    }
+                  />
+                ) : (
+                  <LayerStyleEditor
+                    key={layer.id}
+                    layer={layer}
+                    onPaintChange={handlers.onPaintChange}
+                    onOpacityChange={handlers.onOpacityChange}
+                    onStyleConfigChange={handlers.onStyleConfigChange}
+                    onLayoutChange={handlers.onLayoutChange}
+                    onRenderModeChange={handlers.onRenderModeChange}
+                  />
+                )}
+              </div>
+            </section>
+
+            {/* 3. Visibility — always expanded: opacity slider + zoom range */}
+            <section
+              aria-labelledby={`section-visibility-${layer.id}`}
+              className="border-b"
+            >
+              <div className="px-4 py-3">
+                <p
+                  id={`section-visibility-${layer.id}`}
+                  className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                >
+                  {t('layerEditor.section.visibility', { defaultValue: 'Visibility' })}
+                </p>
+                <div className="space-y-3">
+                  {/* Opacity slider */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">
+                      {t('layerEditor.visibility.opacity', { defaultValue: 'Opacity' })}
+                    </Label>
+                    <Slider
+                      aria-label={t('layerEditor.visibility.opacity', { defaultValue: 'Opacity' })}
+                      aria-valuetext={`${Math.round((layer.opacity ?? 1) * 100)}%`}
+                      value={[layer.opacity ?? 1]}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      className="w-full"
+                      onValueChange={([value]) => {
+                        handlers.onOpacityChange(layer.id, Number((value ?? layer.opacity ?? 1).toFixed(2)));
+                      }}
+                    />
+                  </div>
+                  {/* Zoom range */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`${layer.id}-section-minzoom`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
+                      </Label>
+                      <Input
+                        id={`${layer.id}-section-minzoom`}
+                        type="number"
+                        min={0}
+                        max={Math.max(0, maxZoom - 1)}
+                        value={minZoom}
+                        onChange={(e) => handleZoomChange(Number(e.target.value), maxZoom)}
+                        className="h-8 text-xs"
+                        aria-label={t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`${layer.id}-section-maxzoom`}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
+                      </Label>
+                      <Input
+                        id={`${layer.id}-section-maxzoom`}
+                        type="number"
+                        min={Math.min(22, minZoom + 1)}
+                        max={22}
+                        value={maxZoom}
+                        onChange={(e) => handleZoomChange(minZoom, Number(e.target.value))}
+                        className="h-8 text-xs"
+                        aria-label={t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* 4. Filter — collapsed by default, only for filterable layers */}
+            {caps.supportsFilterEditor && (
+              <Collapsible open={filterOpen} onOpenChange={setFilterOpen}>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+                  >
+                    <ChevronRight
+                      className={cn('h-4 w-4 shrink-0 transition-transform duration-150', filterOpen && 'rotate-90')}
+                      aria-hidden="true"
+                    />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      {t('layerEditor.section.filter', { defaultValue: 'Filter' })}
+                    </span>
+                    {!filterOpen && (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {filterHint}
+                      </span>
+                    )}
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="px-4 py-3 border-b">
+                    <LayerFilterEditor
+                      columnInfo={columns}
+                      filter={layer.filter ?? null}
+                      layerName={layerName}
+                      onFilterChange={(expr) => handlers.onFilterChange(layer.id, expr)}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* 5. Labels — collapsed by default, only for labelable layers (not heatmap) */}
+            {caps.supportsLabelEditor && !isHeatmap && (
+              <Collapsible open={labelsOpen} onOpenChange={setLabelsOpen}>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+                  >
+                    <ChevronRight
+                      className={cn('h-4 w-4 shrink-0 transition-transform duration-150', labelsOpen && 'rotate-90')}
+                      aria-hidden="true"
+                    />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      {t('layerEditor.section.labels', { defaultValue: 'Labels' })}
+                    </span>
+                    {!labelsOpen && (
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {labelsHint}
+                      </span>
+                    )}
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="px-4 py-3 border-b">
+                    <LabelEditor
+                      columns={columns}
+                      labelConfig={layer.label_config ?? null}
+                      onLabelChange={(config) => handlers.onLabelChange(layer.id, config)}
+                      geometryType={layer.dataset_geometry_type}
+                    />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* 6. Source — collapsed by default, always rendered */}
+            <Collapsible open={sourceOpen} onOpenChange={setSourceOpen}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+                >
+                  <ChevronRight
+                    className={cn('h-4 w-4 shrink-0 transition-transform duration-150', sourceOpen && 'rotate-90')}
+                    aria-hidden="true"
+                  />
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    {t('layerEditor.section.source', { defaultValue: 'Source' })}
+                  </span>
+                  {!sourceOpen && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {sourceHint}
+                    </span>
+                  )}
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-4 py-3 space-y-2 border-b">
+                  {layer.dataset_name && (
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Dataset</span>
+                      <p className="text-xs truncate">{layer.dataset_name}</p>
+                    </div>
+                  )}
+                  {layer.dataset_feature_count != null && (
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Features</span>
+                      <p className="text-xs">{layer.dataset_feature_count.toLocaleString()}</p>
+                    </div>
+                  )}
+                  {layer.dataset_record_type && (
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Type</span>
+                      <p className="text-xs">{layer.dataset_record_type}</p>
+                    </div>
+                  )}
+                  {layer.dataset_geometry_type && (
+                    <div>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Geometry</span>
+                      <p className="text-xs">{layer.dataset_geometry_type}</p>
+                    </div>
+                  )}
+                  {columns.length > 0 && (
+                    <ColumnsReference columns={columns} />
+                  )}
+                  {(caps.supportsFilterEditor || caps.supportsLabelEditor) && (
+                    <PopupConfigEditor
+                      columns={columns}
+                      popupConfig={layer.popup_config ?? null}
+                      onPopupChange={(config) => handlers.onPopupChange(layer.id, config)}
+                    />
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </>
+        )}
+
+        {/* Legacy tab-based body — preserved for backward compat */}
         {enableLegacyTabs && (
           <>
             {/* Raster: simple opacity control */}
@@ -224,8 +578,43 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         )}
       </div>
 
-      {/* Footer — Plan 03 wires Delete and type-specific actions here */}
-      <div data-testid="layer-editor-footer" className="shrink-0" />
+      {/* Footer — Delete button + inline confirm */}
+      <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
+        {!confirmingDelete ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
+            onClick={() => setConfirmingDelete(true)}
+          >
+            {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
+          </Button>
+        ) : (
+          <div role="alertdialog" aria-labelledby="confirm-delete-title" className="space-y-2">
+            <p id="confirm-delete-title" className="text-sm text-destructive text-center">
+              {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                onClick={() => handlers.onRemove(layer.id)}
+              >
+                {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setConfirmingDelete(false)}
+              >
+                {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
+              </Button>
+            </div>
+          </div>
+        )}
+      </footer>
     </div>
   );
 });

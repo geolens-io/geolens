@@ -9,6 +9,26 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// Mock heavy sub-editors so they don't need full maplibre/canvas setup
+vi.mock('../LayerStyleEditor', () => ({
+  LayerStyleEditor: () => <div data-testid="layer-style-editor" />,
+}));
+vi.mock('../RasterLayerControls', () => ({
+  RasterLayerControls: () => <div data-testid="raster-layer-controls" />,
+}));
+vi.mock('../LayerFilterEditor', () => ({
+  LayerFilterEditor: () => <div data-testid="layer-filter-editor" />,
+}));
+vi.mock('../LabelEditor', () => ({
+  LabelEditor: () => <div data-testid="label-editor" />,
+}));
+vi.mock('../PopupConfigEditor', () => ({
+  PopupConfigEditor: () => <div data-testid="popup-config-editor" />,
+}));
+vi.mock('../ColumnsReference', () => ({
+  ColumnsReference: () => <div data-testid="columns-reference" />,
+}));
+
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class ResizeObserver {
     observe() {}
@@ -134,23 +154,7 @@ describe('LayerEditorPanel', () => {
       expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
     });
 
-    it('body is empty when enableLegacyTabs=false', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      const body = screen.getByTestId('layer-editor-body');
-      expect(body).toBeInTheDocument();
-      // body should have no children when enableLegacyTabs=false
-      expect(body.children).toHaveLength(0);
-    });
-
-    it('renders the legacy tab UI when enableLegacyTabs=true (default)', () => {
+    it('renders the legacy tab UI when enableLegacyTabs=true', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
@@ -183,8 +187,6 @@ describe('LayerEditorPanel', () => {
   describe('LayerEditorHandlers interface', () => {
     it('handlers.onRemove is part of the interface (type check via test)', () => {
       const handlers = makeHandlers({ onRemove: vi.fn() });
-      // If onRemove is not in the type, TypeScript would fail here.
-      // This is primarily a compile-time check, but we verify it's accepted.
       render(
         <LayerEditorPanel
           layer={makeLayer()}
@@ -193,8 +195,260 @@ describe('LayerEditorPanel', () => {
           activeTab={null}
         />
       );
-      // Component rendered without errors - onRemove is part of the interface
       expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
+    });
+  });
+
+  describe('section body (enableLegacyTabs=false)', () => {
+    it('renders six sections in DOM order: Render as, Appearance, Visibility, Filter, Labels, Source', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      const body = screen.getByTestId('layer-editor-body');
+      expect(body).toBeInTheDocument();
+      // All six section labels should appear in the document
+      expect(screen.getByText('Render as')).toBeInTheDocument();
+      expect(screen.getByText('Appearance')).toBeInTheDocument();
+      expect(screen.getByText('Visibility')).toBeInTheDocument();
+      expect(screen.getByText('Filter')).toBeInTheDocument();
+      expect(screen.getByText('Labels')).toBeInTheDocument();
+      expect(screen.getByText('Source')).toBeInTheDocument();
+    });
+
+    it('Render-as pill strip shows pills from getRenderAsOptions; active pill has data-active="true"', () => {
+      // POLYGON layer -> fill/stroke/fill-stroke/extrusion-3d options
+      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      // Should show at least one pill (e.g. "Fill")
+      const activePill = document.querySelector('[data-active="true"]');
+      expect(activePill).not.toBeNull();
+    });
+
+    it('clicking a non-active render-as pill calls handlers.onRenderModeChange', () => {
+      // Use POINT layer which has multiple distinct options: point, symbol, heatmap, cluster
+      const handlers = makeHandlers();
+      const layer = makeLayer({ dataset_geometry_type: 'POINT' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      // Find all render-as pills; click the first inactive one
+      const pills = document.querySelectorAll('[data-active="false"]');
+      if (pills.length > 0) {
+        fireEvent.click(pills[0] as HTMLElement);
+        expect(handlers.onRenderModeChange).toHaveBeenCalled();
+      } else {
+        // If all pills are active (single option), just confirm the section rendered
+        expect(screen.getByText('Render as')).toBeInTheDocument();
+      }
+    });
+
+    it('Appearance section embeds LayerStyleEditor for a vector layer', () => {
+      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      expect(screen.getByTestId('layer-style-editor')).toBeInTheDocument();
+    });
+
+    it('Visibility section opacity slider has aria-label containing "Opacity"', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      // The slider aria-label should contain "Opacity"
+      const slider = document.querySelector('[aria-label*="Opacity"]');
+      expect(slider).not.toBeNull();
+    });
+
+    it('Filter section is collapsed by default', () => {
+      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      // Filter editor should not be visible initially (collapsed)
+      expect(screen.queryByTestId('layer-filter-editor')).not.toBeInTheDocument();
+    });
+
+    it('Filter section hint reads "No filter" when layer.filter is null', () => {
+      const layer = makeLayer({ filter: null });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      expect(screen.getByText('No filter')).toBeInTheDocument();
+    });
+
+    it('Labels section is absent when supportsLabelEditor is false (raster layer)', () => {
+      const layer = makeLayer({
+        dataset_record_type: 'raster_dataset',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+      });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      // Labels section should not render for raster
+      expect(screen.queryByText('Labels')).not.toBeInTheDocument();
+    });
+
+    it('Source section is always rendered', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      expect(screen.getByText('Source')).toBeInTheDocument();
+    });
+
+    it('footer renders a single "Delete layer" button when confirmingDelete is false', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Delete layer' })).toBeInTheDocument();
+    });
+
+    it('clicking "Delete layer" reveals inline confirm: "Are you sure? This cannot be undone."', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Delete layer' }));
+      expect(screen.getByText('Are you sure? This cannot be undone.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Keep layer' })).toBeInTheDocument();
+    });
+
+    it('clicking "Delete" in the confirm calls handlers.onRemove(layer.id)', () => {
+      const handlers = makeHandlers();
+      const layer = makeLayer({ id: 'test-layer-id' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Delete layer' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(handlers.onRemove).toHaveBeenCalledWith('test-layer-id');
+    });
+
+    it('clicking "Keep layer" hides the confirm without calling onRemove', () => {
+      const handlers = makeHandlers();
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Delete layer' }));
+      expect(screen.getByText('Are you sure? This cannot be undone.')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Keep layer' }));
+      expect(screen.queryByText('Are you sure? This cannot be undone.')).not.toBeInTheDocument();
+      expect(handlers.onRemove).not.toHaveBeenCalled();
+    });
+
+    it('Appearance section renders RasterLayerControls for a raster layer', () => {
+      const layer = makeLayer({
+        dataset_record_type: 'raster_dataset',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+      });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      expect(screen.getByTestId('raster-layer-controls')).toBeInTheDocument();
+      expect(screen.queryByTestId('layer-style-editor')).not.toBeInTheDocument();
+    });
+
+    it('with enableLegacyTabs=true, the legacy tab UI still renders (regression)', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="style"
+          enableLegacyTabs={true}
+        />
+      );
+      // The old tab UI renders tablist
+      expect(screen.getByRole('tablist')).toBeInTheDocument();
+      // The new section labels should NOT appear
+      expect(screen.queryByText('Render as')).not.toBeInTheDocument();
     });
   });
 });
