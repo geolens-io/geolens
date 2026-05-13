@@ -89,7 +89,9 @@
   2. User opens the same legacy saved map in public, shared, and embed viewers and sees pixel-equivalent rendering to the builder.
   3. User saves a new map under the unified stack model, reloads it, and gets a lossless round-trip through builder → public → shared → embed.
   4. Existing `d2c5c99c` saved-map compatibility fixtures pass against the normalized loader without schema migration.
-**Plans**: TBD
+**Plans**: 2 plans (1/2 complete)
+- [x] 1033-01-PLAN.md — Pure saved-map normalizer module + unit tests (BSR-21) — commits af1921f2, 39a3d54f
+- [x] 1033-02-PLAN.md — Wire normalizer into getMap/getSharedMap + viewer-parity regression tests (BSR-20, BSR-22, BSR-23)
 **UI hint**: yes
 
 ### Phase 1034: unified-stack-rows-and-layer-editor-flyout
@@ -159,7 +161,7 @@ Phases execute in numeric order: 1033 → 1034 → 1035 → 1036 → 1037 → 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1033. saved-map-normalizer-and-viewer-parity | v1008 | 0/TBD | Not started | - |
+| 1033. saved-map-normalizer-and-viewer-parity | v1008 | 2/2 | Complete   | 2026-05-13 |
 | 1034. unified-stack-rows-and-layer-editor-flyout | v1008 | 0/TBD | Not started | - |
 | 1035. basemap-group-folder-groups-and-dem-raster | v1008 | 0/TBD | Not started | - |
 | 1036. settings-affordance | v1008 | 0/TBD | Not started | - |

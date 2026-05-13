@@ -1,15 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1007
-milestone_name: Release Hygiene
-status: archived
-last_updated: "2026-05-12T23:13:11Z"
-last_activity: 2026-05-12 — v1007 release hygiene shipped with scanner-clean dependency verification, OpenAPI/SDK regeneration, compose health fix, root Playwright smoke, and Playwright MCP console-clean browser sanity.
+milestone: v1008
+milestone_name: Map Builder Sidebar Redesign
+status: Archived
+stopped_at: v1008 Map Builder Sidebar Redesign roadmapped; Phase 1033 ready to plan.
+last_updated: "2026-05-13T15:36:57.336Z"
+last_activity: 2026-05-13 — 1033-01 complete (normalize-saved-map pure function + 16 vitest tests)
 progress:
-  total_phases: 1
+  total_phases: 21
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  total_plans: 2
+  completed_plans: 2
   percent: 100
 ---
 
@@ -17,20 +18,44 @@ progress:
 
 ## Current Position
 
-**Milestone:** v1007 — Release Hygiene
-**Phase:** Complete
-**Plan:** —
-**Status:** v1007 shipped and archived.
-**Last activity:** 2026-05-12 — v1007 release hygiene shipped with scanner-clean dependency verification, OpenAPI/SDK regeneration, compose health fix, root Playwright smoke, and Playwright MCP console-clean browser sanity.
-
-Progress: [██████████] 100%
+Phase: 1033 — saved-map-normalizer-and-viewer-parity
+Plan: 1 / 2 complete
+Status: In progress — Plan 01 shipped
+Last activity: 2026-05-13 — 1033-01 complete (normalize-saved-map pure function + 16 vitest tests)
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Awaiting next milestone selection.
+**Current focus:** v1008 Map Builder Sidebar Redesign — re-architect the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack with basemap-as-group, DEM-as-raster-layer, compact rows, side-by-side LayerEditorPanel flyout, settings affordance, catalog-first empty state, and saved-map normalizer that preserves public/shared/embed viewer fidelity.
+
+## Active Milestone: v1008 Map Builder Sidebar Redesign
+
+**Started:** 2026-05-13
+**Roadmapped:** 2026-05-13
+**Phases:** 1033-1038 (6 phases)
+**Requirements:** 27 (BSR-01..27), 0/27 complete, 27/27 mapped
+
+### Phase Sequence
+
+| Phase | Name | Requirements | Status |
+|---|---|---|---|
+| 1033 | saved-map-normalizer-and-viewer-parity | BSR-20..23 | Not started |
+| 1034 | unified-stack-rows-and-layer-editor-flyout | BSR-01..04, BSR-10..13 | Not started |
+| 1035 | basemap-group-folder-groups-and-dem-raster | BSR-05..09 | Not started |
+| 1036 | settings-affordance | BSR-14..15 | Not started |
+| 1037 | empty-state-and-add-data-alignment | BSR-16..19 | Not started |
+| 1038 | a11y-i18n-sketch-fidelity-and-uat-closeout | BSR-24..27 | Not started |
+
+### Sequencing Rationale
+
+- **Phase 1033 lands first** because every downstream phase must round-trip through the saved-map normalizer; viewer parity (public/shared/embed) is a non-optional constraint.
+- **Phase 1034 ships row anatomy + LayerEditorPanel flyout together** because they are co-dependent — the compact row IS the entry surface that opens the flyout (sketch-findings-geolens locked decision).
+- **Phase 1035 follows 1034** because basemap-as-group and folder groups extend the unified stack model already established.
+- **Phase 1036 (settings affordance)** depends on the unified stack existing so config controls can move OUT of it without losing entry points.
+- **Phase 1037 (empty state + Add Data alignment)** depends on the unified stack so the empty state can route into it correctly.
+- **Phase 1038 (closeout)** is final — sketch fidelity, a11y, i18n, and Playwright MCP UAT gate the milestone.
 
 ## Last Shipped Milestone
 
@@ -134,6 +159,10 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 ## Accumulated Context
 
+- **v1008 roadmapped 2026-05-13** as a frontend-heavy milestone touching `frontend/src/components/builder/` and the saved-map JSON loader. Backend touches are minimal (loader normalizer; possibly a hand-curated suggestions surface). Sequenced foundational normalizer (Phase 1033) first because every other change must round-trip through it. Phase 1034 ships row anatomy + LayerEditorPanel flyout together as one vertical slice because they are co-dependent. Phases 1035-1037 extend the unified-stack model. Phase 1038 is sketch-fidelity + a11y + i18n + Playwright MCP UAT closeout.
+- **v1008 visual decisions are locked** by the `sketch-findings-geolens` skill — row anatomy, palette, group glyphs (`⊞` basemap, `▸` folder), 380px flyout width between 340px sidebar and map. Phases must reuse the skill, not redo the design work.
+- **v1008 reference commits to revive:** `1d3cdc9a` (LayerEditorPanel flyout), `aeac195c` (z-index fix). **Commits to retire:** `383e1f55` (inline expansion regression), `6756149c` (six-section model), `fa5856ba` (inline basemap/terrain rows).
+- **v1008 saved-map compat is non-optional:** legacy maps must continue to render in public/shared/embed viewers throughout. `d2c5c99c` compat fixtures are the regression gate.
 - **v13.13 was a 9-phase autonomous backlog sweep** of v13.12's 154 deferred M+L findings, organized into 130 REQ-IDs by domain affinity (DB → Docker → Security → Performance → API/Docs → Code Quality → i18n/Env → Tests → Admin/Close). Same hybrid orchestration shape as v13.12 (parallel `gsd-executor` agents per phase) but with finer-grained per-domain phase boundaries instead of audit-dispatch boundaries.
 - **30-agent autonomous orchestration** validated: per-phase planner agent (gsd-planner) generates 4-8 plans, then parallel executor agents (gsd-executor) ship plans wave-by-wave with file-overlap-driven sequencing. Closeout (CLOSE-01..05) handled inline by orchestrator since the planner agent timed out on the closeout plan.
 - **Frontend headline metrics:** map-vendor 1052kB chunk lazy-loaded off non-map routes (PERF-06); DatasetPage bundle 217kB → 34kB (-84%) via lazy ReuploadDialog/VrtCreateDialog/DetailPanel (CODE-06); AttributeTable virtualized via @tanstack/react-virtual for 10k+ rows (PERF-07); Builder i18n complete — 135 strings translated to es/fr/de across zoomExpression + symbol + raster + hillshade + uploadIcon blocks.
@@ -146,6 +175,13 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 ### Roadmap Evolution
 
+- v1008 roadmapped 2026-05-13: Map Builder Sidebar Redesign scopes a unified drag-orderable layer stack with basemap-as-group, DEM-as-raster-layer, compact row anatomy, side-by-side LayerEditorPanel flyout, `⚙ Settings` affordance, catalog-first empty state with hand-curated suggestions, Add Data modal alignment, and saved-map normalizer that preserves public/shared/embed viewer fidelity.
+- Phase 1033 added: saved-map-normalizer-and-viewer-parity (BSR-20..23).
+- Phase 1034 added: unified-stack-rows-and-layer-editor-flyout (BSR-01..04, BSR-10..13).
+- Phase 1035 added: basemap-group-folder-groups-and-dem-raster (BSR-05..09).
+- Phase 1036 added: settings-affordance (BSR-14..15).
+- Phase 1037 added: empty-state-and-add-data-alignment (BSR-16..19).
+- Phase 1038 added: a11y-i18n-sketch-fidelity-and-uat-closeout (BSR-24..27).
 - v1007 shipped 2026-05-12: release hygiene verified scanner-clean `urllib3==2.7.0`, dismissed stale Dependabot #36/#37 with evidence so open GitHub alerts are zero, regenerated OpenAPI/SDK artifacts for the server-side cluster tile route, fixed frontend compose health, made collections smoke self-seeding, passed broad backend/frontend/security/browser gates, and confirmed a clean Playwright MCP search-page console after temporary data cleanup.
 - v1006 shipped 2026-05-12: authenticated server-side cluster MVT tiles now scale Cluster beyond bounded GeoJSON point datasets, builder/public/shared/embed viewers route large point Cluster layers to `/tiles/clusters/...`, cluster interaction popups and zoom activation work across companion layers, style JSON export records cluster strategy metadata with standalone point fallback, and Playwright MCP verified a 6,001-feature live map with signed tile requests and zero current-page console warnings/errors.
 - Phase 1031 completed 2026-05-12: closeout gates passed; live browser UAT found and fixed multipoint cluster SQL handling plus unsigned private cluster tile timing during style-load resync.
@@ -212,6 +248,9 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 ## Recent Decisions
 
+- **v1008 sequencing puts the saved-map normalizer first.** Phase 1033 is foundational because every downstream phase (unified stack, basemap group, DEM render-mode, settings, empty state, closeout) must round-trip through the normalizer. Public/shared/embed viewer parity is the non-negotiable gate.
+- **v1008 row + flyout ship together.** Phase 1034 bundles the unified stack row anatomy (BSR-01..04) and the LayerEditorPanel flyout (BSR-10..13) into one vertical slice because the compact row IS the entry surface that opens the flyout — splitting them would ship half a feature.
+- **v1008 reuses locked design decisions.** Row anatomy, palette, group glyphs, and flyout layout are pinned in the `sketch-findings-geolens` skill. Implementation must load and reuse the skill, not redesign.
 - **Autonomous milestone shape proven for backlog sweeps.** The same `/gsd-autonomous` orchestration that worked for v13.12's 17-audit dispatch+remediation also works for v13.13's 9-phase domain-grouped backlog sweep. Per-phase planner agent + parallel executor agents per wave; closeout inline. Reusable for any future milestone where requirements are pre-classified by domain.
 - **Per-phase plan grouping by file-overlap, not severity.** Plans within each phase are grouped by closest-file-locality (e.g., Plan 273-01 owns `sprites.py` + `router.py`; Plan 273-04 owns `public_urls.py`). This minimizes wave count (most phases are 1-2 waves) and lets up to 8 plans run in parallel.
 - **Commit attribution orphan tolerance.** ~10 commits across v13.13 ended up with attribution drift (e.g., `docs(275-08)` carrying API-11 source diff) due to parallel-agent staging races on a shared working tree. Functional state at HEAD is correct in every case. Trade-off: parallel speed vs. perfect commit attribution. Going forward: either accept the drift, or serialize per-file ownership at the orchestrator level.
@@ -268,9 +307,9 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-12T14:58:37Z
-Stopped at: v1004 Builder Renderer Expansion roadmapped; Phase 1019 ready to plan.
-Resume file: `.planning/ROADMAP.md`
+Last session: 2026-05-13T15:36:57.332Z
+Stopped at: v1008 Map Builder Sidebar Redesign roadmapped; Phase 1033 ready to plan.
+Resume file: None
 
 ---
-*Last updated: 2026-05-12 after creating v1004 roadmap*
+*Last updated: 2026-05-13 after creating v1008 roadmap*

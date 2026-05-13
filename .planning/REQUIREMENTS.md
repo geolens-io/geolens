@@ -69,10 +69,10 @@ Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief /
 
 ### Saved-Map Compatibility
 
-- [ ] **BSR-20**: User opens a legacy six-section saved map and sees it rendered correctly under the unified stack.
-- [ ] **BSR-21**: Saved-map loader normalizes legacy `{ surface, relief, basemap, data, labels, interactions }` shape into a flat layer array + group metadata, without schema migration.
-- [ ] **BSR-22**: Public, shared, and embed viewers render normalized maps identically to the builder.
-- [ ] **BSR-23**: New maps saved under the unified stack round-trip through save → reload → public/shared/embed without loss; `d2c5c99c` compat fixtures pass against the normalized loader.
+- [x] **BSR-20**: User opens a legacy six-section saved map and sees it rendered correctly under the unified stack.
+- [x] **BSR-21**: Saved-map loader normalizes legacy `{ surface, relief, basemap, data, labels, interactions }` shape into a flat layer array + group metadata, without schema migration.
+- [x] **BSR-22**: Public, shared, and embed viewers render normalized maps identically to the builder.
+- [x] **BSR-23**: New maps saved under the unified stack round-trip through save → reload → public/shared/embed without loss; `d2c5c99c` compat fixtures pass against the normalized loader.
 
 ### Closeout
 
@@ -100,14 +100,52 @@ Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief /
 
 | Requirement | Phase | Status |
 |---|---|---|
-| BSR-01..27 | _to be assigned by roadmapper_ | Pending |
+| BSR-01 | Phase 1034 | Pending |
+| BSR-02 | Phase 1034 | Pending |
+| BSR-03 | Phase 1034 | Pending |
+| BSR-04 | Phase 1034 | Pending |
+| BSR-05 | Phase 1035 | Pending |
+| BSR-06 | Phase 1035 | Pending |
+| BSR-07 | Phase 1035 | Pending |
+| BSR-08 | Phase 1035 | Pending |
+| BSR-09 | Phase 1035 | Pending |
+| BSR-10 | Phase 1034 | Pending |
+| BSR-11 | Phase 1034 | Pending |
+| BSR-12 | Phase 1034 | Pending |
+| BSR-13 | Phase 1034 | Pending |
+| BSR-14 | Phase 1036 | Pending |
+| BSR-15 | Phase 1036 | Pending |
+| BSR-16 | Phase 1037 | Pending |
+| BSR-17 | Phase 1037 | Pending |
+| BSR-18 | Phase 1037 | Pending |
+| BSR-19 | Phase 1037 | Pending |
+| BSR-20 | Phase 1033 | Complete |
+| BSR-21 | Phase 1033 | Complete (1033-01) |
+| BSR-22 | Phase 1033 | Complete |
+| BSR-23 | Phase 1033 | Complete |
+| BSR-24 | Phase 1038 | Pending |
+| BSR-25 | Phase 1038 | Pending |
+| BSR-26 | Phase 1038 | Pending |
+| BSR-27 | Phase 1038 | Pending |
+
+**Phase mapping summary:**
+
+| Phase | Requirements | Count |
+|---|---|---|
+| Phase 1033: saved-map-normalizer-and-viewer-parity | BSR-20, BSR-21, BSR-22, BSR-23 | 4 |
+| Phase 1034: unified-stack-rows-and-layer-editor-flyout | BSR-01, BSR-02, BSR-03, BSR-04, BSR-10, BSR-11, BSR-12, BSR-13 | 8 |
+| Phase 1035: basemap-group-folder-groups-and-dem-raster | BSR-05, BSR-06, BSR-07, BSR-08, BSR-09 | 5 |
+| Phase 1036: settings-affordance | BSR-14, BSR-15 | 2 |
+| Phase 1037: empty-state-and-add-data-alignment | BSR-16, BSR-17, BSR-18, BSR-19 | 4 |
+| Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout | BSR-24, BSR-25, BSR-26, BSR-27 | 4 |
 
 **Coverage:**
 - v1008 requirements: 27 total
 - Complete: 0
 - Pending: 27
-- Mapped to phases: 0
-- Unmapped: 27
+- Mapped to phases: 27
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-13*
+*Phase mapping assigned: 2026-05-13*
