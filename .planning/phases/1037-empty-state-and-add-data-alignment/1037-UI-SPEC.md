@@ -121,15 +121,15 @@ Fully inherited from Phase 1034. No new tokens.
 
 | Dimension | Value | Usage |
 |-----------|-------|-------|
-| Inline search input height | 36px | Height of the `.empty-search` row (`padding: 8px 10px`) |
+| Inline search input height | 36px | Height of the `.empty-search` row (`padding: 8px 12px`) |
 | Inline search icon size | 16px | Lucide `Search` icon inside the search input |
 | Suggest-card grid | `32px 1fr 22px` | Type icon · name+meta · add button |
-| Suggest-card padding | `8px 10px` | Inner padding of each card |
+| Suggest-card padding | `8px 12px` | Inner padding of each card |
 | Suggest-card border-radius | `--radius-md` | Matches other row-level containers |
 | Suggest type-icon size | 32×32px | Larger than stack row (22px) — empty-state catalog emphasis |
 | Suggest-card add button | 22px | `＋` icon button, `--primary` color |
 | Basemap dock border | 1px solid `--border` | Separator above basemap dock footer |
-| Basemap dock label padding | `4px 6px` | "BASEMAP" eyebrow label padding |
+| Basemap dock label padding | `4px 8px` | "BASEMAP" eyebrow label padding |
 
 ---
 
@@ -235,7 +235,7 @@ Replaces the current `"No layers yet"` placeholder in `UnifiedStackPanel` when `
 
 A single hand-curated dataset entry in the empty-state suggested list.
 
-**Grid:** `32px 1fr 22px`, `gap: 10px`, `align-items: center`, `padding: 8px 10px`
+**Grid:** `32px 1fr 22px`, `gap: 8px`, `align-items: center`, `padding: 8px 12px`
 
 | Column | Content |
 |--------|---------|
@@ -409,7 +409,7 @@ The basemap dock is the always-on section at the bottom of the sidebar stack are
 both the empty state and the populated state, but behaves differently:
 
 **Empty state:**
-- "BASEMAP" eyebrow label is shown above the basemap group row: 10px ALL CAPS, `letter-spacing: 0.08em`, `--muted-foreground`, `padding: 4px 6px`
+- "BASEMAP" eyebrow label is shown above the basemap group row: 10px ALL CAPS, `letter-spacing: 0.08em`, `--muted-foreground`, `padding: 4px 8px`
 - The basemap group row renders normally (Phase 1034/1035 basemap group row)
 - `border-top: 1px solid var(--border)` separates the dock from the empty area above
 
