@@ -170,6 +170,8 @@ export async function getSharedMap(token: string, apiKey?: string): Promise<Shar
   resp.show_basemap_labels = mapNorm.show_basemap_labels;
   resp.basemap_config = mapNorm.basemap_config;
   resp.terrain_config = mapNorm.terrain_config;
+  // widgets: SharedMapResponse has no widgets field; normalization result is intentionally
+  // discarded. When SharedMapResponse gains widgets, add: resp.widgets = mapNorm.widgets;
   return resp;
 }
 
