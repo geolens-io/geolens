@@ -640,6 +640,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       </div>
 
       {/* Footer — Delete button + inline confirm (default scene) or sceneFooter (non-default) */}
+      {((!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined)) ||
+        enableLegacyTabs ||
+        (!enableLegacyTabs && editorScene && editorScene !== 'default' && !!sceneFooter)) && (
       <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
         {(!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined)) && (
           <>
@@ -719,6 +722,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         )}
         {!enableLegacyTabs && editorScene && editorScene !== 'default' && sceneFooter}
       </footer>
+      )}
     </div>
   );
 });
