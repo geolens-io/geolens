@@ -1,7 +1,7 @@
-import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Loader2, PanelLeftClose, PanelLeftOpen, Save, Sparkles } from 'lucide-react';
+import { FileText, History, Loader2, Save, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -36,88 +36,6 @@ import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
 import { WidgetHost, WidgetSidebar, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
-
-const SIDEBAR_WIDTH_KEY = 'geolens-builder-sidebar-width';
-const SIDEBAR_MIN = 200;
-const SIDEBAR_MAX = 600;
-const SIDEBAR_MIN_MAP_WIDTH = 320;
-const BUILDER_RAIL_WIDTH = 44;
-
-const SidebarContent = memo(function SidebarContent({
-  layers,
-  onAddDataClick,
-  editingLayer,
-  activeEditorTab,
-  layerEditorHandlers,
-  onCloseEditor,
-  widgetIds,
-  widgetSidebar,
-}: {
-  layers: ReturnType<typeof useBuilderLayers>;
-  onAddDataClick: () => void;
-  editingLayer: ReturnType<typeof useBuilderLayers>['localLayers'][number] | null;
-  activeEditorTab: 'style' | 'filter' | 'labels' | 'popup' | null;
-  layerEditorHandlers: LayerEditorHandlers;
-  onCloseEditor: () => void;
-  widgetIds: string[];
-  widgetSidebar?: React.ReactNode;
-}) {
-  if (editingLayer) {
-    return (
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <LazyLoadErrorBoundary>
-          <LayerEditorPanel
-            layer={editingLayer}
-            activeTab={activeEditorTab ?? 'style'}
-            handlers={layerEditorHandlers}
-            onBack={onCloseEditor}
-          />
-        </LazyLoadErrorBoundary>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto py-3">
-      <MapStackPanel
-        layers={layers.localLayers}
-        expandedLayerId={layers.expandedLayerId}
-        basemapStyle={layers.localBasemap}
-        showBasemapLabels={layers.showBasemapLabels}
-        basemapConfig={layers.basemapConfig}
-        terrainConfig={layers.localTerrainConfig}
-        widgets={widgetIds}
-        onToggleExpand={layers.handleToggleExpand}
-        onToggleVisibility={layers.handleToggleVisibility}
-        onMoveUp={layers.handleMoveUp}
-        onMoveDown={layers.handleMoveDown}
-        onReorder={layers.handleReorder}
-        onRename={layers.handleDisplayNameChange}
-        onRemove={layers.handleRemove}
-        onZoomToLayer={layers.handleZoomToLayer}
-        onToggleLegend={layers.handleToggleLegend}
-        onOpacityChange={layers.handleOpacityChange}
-        onLayoutChange={layers.handleLayoutChange}
-        onRenderAsChange={layers.handleRenderAsChange}
-        onDuplicateRendering={layers.handleDuplicateRendering}
-        onAddDataClick={onAddDataClick}
-        onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
-        onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
-        onBasemapConfigChange={(next) => {
-          layers.setBasemapConfig(next);
-          layers.setShowBasemapLabels(next.label_mode !== 'hidden');
-          layers.markDirty();
-        }}
-        onTerrainChange={(next) => {
-          layers.setLocalTerrainConfig(next);
-          layers.markDirty();
-        }}
-        widgetSidebar={widgetSidebar}
-      />
-    </div>
-  );
-});
-
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
@@ -132,7 +50,9 @@ export function MapBuilderPage() {
 
   const { isAIAvailable: aiAvailable } = useAIAvailability();
   useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
-  const { isMobile, viewportWidth = window.innerWidth } = useBuilderLayout();
+
+  // Three-column layout: isRail (sidebar→64px at <1100px), isEditorHidden (flyout hidden at <800px)
+  const { isRail, isEditorHidden } = useBuilderLayout();
 
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   // mapInstance state duplicates the ref — needed to trigger re-renders for
@@ -157,82 +77,8 @@ export function MapBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
   }, [mapData?.notes, id]);
 
-  // Resizable sidebar state (persisted to localStorage)
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    if (stored) {
-      const parsed = Number(stored);
-      if (Number.isFinite(parsed) && parsed >= SIDEBAR_MIN && parsed <= SIDEBAR_MAX) return parsed;
-    }
-    return 260;
-  });
-  const sidebarWidthRef = useRef(sidebarWidth);
-  const sidebarElRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef(false);
-  const sidebarMaxForViewport = Math.max(
-    SIDEBAR_MIN,
-    Math.min(SIDEBAR_MAX, viewportWidth - BUILDER_RAIL_WIDTH - SIDEBAR_MIN_MAP_WIDTH),
-  );
-  const renderedSidebarWidth = Math.min(sidebarWidth, sidebarMaxForViewport);
-  const renderedSidebarWidthRef = useRef(renderedSidebarWidth);
-  const sidebarMaxForViewportRef = useRef(sidebarMaxForViewport);
-
-  useEffect(() => {
-    renderedSidebarWidthRef.current = renderedSidebarWidth;
-    sidebarMaxForViewportRef.current = sidebarMaxForViewport;
-    sidebarWidthRef.current = sidebarWidth;
-  }, [renderedSidebarWidth, sidebarMaxForViewport, sidebarWidth]);
-
-  const handleDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-    isDraggingRef.current = true;
-    const startX = e.clientX;
-    const startWidth = renderedSidebarWidthRef.current;
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const w = Math.min(
-        Math.max(startWidth + (moveEvent.clientX - startX), SIDEBAR_MIN),
-        sidebarMaxForViewportRef.current,
-      );
-      sidebarWidthRef.current = w;
-      // P-12: Set DOM style directly during drag, skip React state
-      if (sidebarElRef.current) {
-        sidebarElRef.current.style.width = `${w}px`;
-      }
-    };
-
-    const onUp = () => {
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
-      isDraggingRef.current = false;
-      // Commit final width to React state on pointerup
-      setSidebarWidth(sidebarWidthRef.current);
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
-      mapInstanceRef.current?.resize();
-    };
-
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
-  }, []);
-
-  // UX-13: Arrow-key resize on sidebar separator
-  const handleSeparatorKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    const step = e.shiftKey ? 50 : 10;
-    const delta = e.key === 'ArrowRight' ? step : -step;
-    setSidebarWidth((prev) => {
-      const next = Math.min(Math.max(prev + delta, SIDEBAR_MIN), sidebarMaxForViewportRef.current);
-      sidebarWidthRef.current = next;
-      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
-      return next;
-    });
-  }, []);
-
   // Composed hooks
-  const dialogs = useBuilderDialogs(aiAvailable, isMobile);
+  const dialogs = useBuilderDialogs(aiAvailable, isEditorHidden);
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
@@ -302,12 +148,14 @@ export function MapBuilderPage() {
   const activeWidgetSet = useWidgetStore((state) => state.activeWidgets);
   const activeWidgetIds = useMemo(() => Array.from(activeWidgetSet), [activeWidgetSet]);
 
+  // selectedLayerId: the layer currently open in the flyout editor
+  // Maps to existing expandedLayerId in use-builder-layers (same field, new semantic name)
   const editingLayer = useMemo(
     () => layers.expandedLayerId ? layers.localLayers.find((l) => l.id === layers.expandedLayerId) ?? null : null,
     [layers.expandedLayerId, layers.localLayers],
   );
 
-  const layerEditorHandlers = useMemo(() => ({
+  const layerEditorHandlers = useMemo((): LayerEditorHandlers => ({
     onTabChange: layers.handleTabChange,
     onPaintChange: layers.handlePaintChange,
     onOpacityChange: layers.handleOpacityChange,
@@ -317,7 +165,9 @@ export function MapBuilderPage() {
     onStyleConfigChange: layers.handleStyleConfigChange,
     onLayoutChange: layers.handleLayoutChange,
     onRenderModeChange: layers.handleRenderModeChange,
-  }), [layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange, layers.handleFilterChange, layers.handleLabelChange, layers.handlePopupChange, layers.handleStyleConfigChange, layers.handleLayoutChange, layers.handleRenderModeChange]);
+    // onRemove wired to handleRemove; Plan 03 will use this for the footer Delete button
+    onRemove: layers.handleRemove,
+  }), [layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange, layers.handleFilterChange, layers.handleLabelChange, layers.handlePopupChange, layers.handleStyleConfigChange, layers.handleLayoutChange, layers.handleRenderModeChange, layers.handleRemove]);
 
   const handleMarkDirty = useCallback(
     () => { layers.setHasUnsavedChanges(true); },
@@ -386,10 +236,14 @@ export function MapBuilderPage() {
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
-    // Return focus to the expand button that opened the flyout
+    // Return focus to the row that opened the flyout.
+    // Resolver covers: new Plan 02 stack-row-{id} AND legacy layer-expand-{id} from MapStackItem.
     if (expandedId) {
       requestAnimationFrame(() => {
-        document.getElementById(`layer-expand-${expandedId}`)?.focus();
+        const rowEl =
+          document.getElementById(`stack-row-${expandedId}`) ??
+          document.getElementById(`layer-expand-${expandedId}`);
+        rowEl?.focus();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable refs
@@ -423,6 +277,20 @@ export function MapBuilderPage() {
     );
   }
 
+  // Three-column grid classes for the builder body.
+  // Column 1: sidebar (340px full or 64px rail at <1100px)
+  // Column 2: LayerEditorPanel flyout (380px, only when layer selected AND viewport >= 800px)
+  // Column 3 (or 2 when no editor): map canvas (1fr)
+  const builderBodyGridClass = cn(
+    'flex-1 min-h-0 grid',
+    // Base: no editor open
+    isRail ? 'grid-cols-[64px_1fr]' : 'grid-cols-[340px_1fr]',
+    // Editor open and not hidden
+    editingLayer && !isEditorHidden && (
+      isRail ? 'grid-cols-[64px_380px_1fr]' : 'grid-cols-[340px_380px_1fr]'
+    ),
+  );
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
       {/* Breadcrumb header bar — title + save status + actions */}
@@ -447,8 +315,9 @@ export function MapBuilderPage() {
       />
 
       <div className="flex flex-1 min-h-0">
-      {/* Mobile sidebar as Sheet */}
-      {isMobile && (
+
+      {/* Mobile sidebar as Sheet — shown when isEditorHidden (<800px) */}
+      {isEditorHidden && (
         <Sheet open={!dialogs.sidebarCollapsed} onOpenChange={(open) => dialogs.setSidebarCollapsed(!open)}>
           <SheetContent side="left" className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col">
             <SheetHeader className="sr-only">
@@ -462,154 +331,186 @@ export function MapBuilderPage() {
                 {t('actions.save')}
               </Button>
             </div>
-            <SidebarContent
-              layers={layers}
-              onAddDataClick={handleAddDataClick}
-              editingLayer={editingLayer}
-              activeEditorTab={layers.activeEditorTab}
-              layerEditorHandlers={layerEditorHandlers}
-              onCloseEditor={handleCloseEditor}
-              widgetIds={activeWidgetIds}
-              widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
-            />
+            <div className="flex-1 overflow-y-auto py-3">
+              <MapStackPanel
+                layers={layers.localLayers}
+                expandedLayerId={layers.expandedLayerId}
+                basemapStyle={layers.localBasemap}
+                showBasemapLabels={layers.showBasemapLabels}
+                basemapConfig={layers.basemapConfig}
+                terrainConfig={layers.localTerrainConfig}
+                widgets={activeWidgetIds}
+                onToggleExpand={layers.handleToggleExpand}
+                onToggleVisibility={layers.handleToggleVisibility}
+                onMoveUp={layers.handleMoveUp}
+                onMoveDown={layers.handleMoveDown}
+                onReorder={layers.handleReorder}
+                onRename={layers.handleDisplayNameChange}
+                onRemove={layers.handleRemove}
+                onZoomToLayer={layers.handleZoomToLayer}
+                onToggleLegend={layers.handleToggleLegend}
+                onOpacityChange={layers.handleOpacityChange}
+                onLayoutChange={layers.handleLayoutChange}
+                onRenderAsChange={layers.handleRenderAsChange}
+                onDuplicateRendering={layers.handleDuplicateRendering}
+                onAddDataClick={handleAddDataClick}
+                onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
+                onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
+                onBasemapConfigChange={(next) => {
+                  layers.setBasemapConfig(next);
+                  layers.setShowBasemapLabels(next.label_mode !== 'hidden');
+                  layers.markDirty();
+                }}
+                onTerrainChange={(next) => {
+                  layers.setLocalTerrainConfig(next);
+                  layers.markDirty();
+                }}
+                widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
+              />
+            </div>
           </SheetContent>
         </Sheet>
       )}
 
-      {/* Desktop sidebar */}
-      {!isMobile && <div
-        ref={sidebarElRef}
-        data-testid="builder-sidebar"
-        className={cn(
-          "relative border-e bg-background flex flex-col shrink-0 overflow-hidden",
-          dialogs.sidebarCollapsed ? "w-0 border-e-0 transition-[width,border-width] duration-200 ease-out" : "",
-          !dialogs.sidebarCollapsed && !isDraggingRef.current ? "transition-[width,border-width] duration-200 ease-out" : ""
-        )}
-        style={dialogs.sidebarCollapsed ? undefined : { width: renderedSidebarWidth }}
-        onTransitionEnd={() => { mapInstanceRef.current?.resize(); }}
-        {...(dialogs.sidebarCollapsed ? { inert: true } : {})}
+      {/* Three-column builder body grid */}
+      <div
+        className={builderBodyGridClass}
+        data-builder-editor-open={!!editingLayer}
       >
-        {/* Drag handle for resize */}
-        {!dialogs.sidebarCollapsed && (
-          <div
-            onPointerDown={handleDragStart}
-            onKeyDown={handleSeparatorKeyDown}
-            tabIndex={0}
-            data-testid="builder-sidebar-resize-handle"
-            role="slider"
-            aria-orientation="horizontal"
-            aria-label={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
-            aria-valuenow={renderedSidebarWidth}
-            aria-valuemin={SIDEBAR_MIN}
-            aria-valuemax={sidebarMaxForViewport}
-            title={t('tooltips.resizeSidebar', { defaultValue: 'Drag to resize sidebar' })}
-            className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 transition-colors hover:bg-primary/10 active:bg-primary/15"
-          />
-        )}
-        {/* Edge collapse button */}
-        {!dialogs.sidebarCollapsed && (
-          <button
-            onClick={() => dialogs.setSidebarCollapsed(true)}
-            title={t('tooltips.collapseSidebar')}
-            aria-label={t('tooltips.collapseSidebar')}
-            aria-expanded={true}
-            className="absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center h-10 w-7 rounded-e-md bg-background border border-s-0 shadow-sm hover:bg-accent/50 transition-colors"
+        {/* Column 1: sidebar (340px full or 64px rail) */}
+        {/* Plan 01: still renders MapStackPanel; Plan 02 will replace with UnifiedStackPanel/rail */}
+        {!isEditorHidden && (
+          <aside
+            data-testid="builder-sidebar"
+            className="border-e bg-background flex flex-col overflow-hidden"
           >
-            <PanelLeftClose className="h-4 w-4 text-foreground/70 hover:text-foreground transition-colors" />
-          </button>
+            <div className="flex-1 overflow-y-auto py-3">
+              <MapStackPanel
+                layers={layers.localLayers}
+                expandedLayerId={layers.expandedLayerId}
+                basemapStyle={layers.localBasemap}
+                showBasemapLabels={layers.showBasemapLabels}
+                basemapConfig={layers.basemapConfig}
+                terrainConfig={layers.localTerrainConfig}
+                widgets={activeWidgetIds}
+                onToggleExpand={layers.handleToggleExpand}
+                onToggleVisibility={layers.handleToggleVisibility}
+                onMoveUp={layers.handleMoveUp}
+                onMoveDown={layers.handleMoveDown}
+                onReorder={layers.handleReorder}
+                onRename={layers.handleDisplayNameChange}
+                onRemove={layers.handleRemove}
+                onZoomToLayer={layers.handleZoomToLayer}
+                onToggleLegend={layers.handleToggleLegend}
+                onOpacityChange={layers.handleOpacityChange}
+                onLayoutChange={layers.handleLayoutChange}
+                onRenderAsChange={layers.handleRenderAsChange}
+                onDuplicateRendering={layers.handleDuplicateRendering}
+                onAddDataClick={handleAddDataClick}
+                onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
+                onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
+                onBasemapConfigChange={(next) => {
+                  layers.setBasemapConfig(next);
+                  layers.setShowBasemapLabels(next.label_mode !== 'hidden');
+                  layers.markDirty();
+                }}
+                onTerrainChange={(next) => {
+                  layers.setLocalTerrainConfig(next);
+                  layers.markDirty();
+                }}
+                widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
+              />
+            </div>
+          </aside>
         )}
 
-        {/* Scrollable content */}
-        <SidebarContent
-          layers={layers}
-          onAddDataClick={handleAddDataClick}
-          editingLayer={editingLayer}
-          activeEditorTab={layers.activeEditorTab}
-          layerEditorHandlers={layerEditorHandlers}
-          onCloseEditor={handleCloseEditor}
-          widgetIds={activeWidgetIds}
-          widgetSidebar={<WidgetSidebar widgets={sidebar} ctx={widgetCtx} />}
-        />
-      </div>}
-
-      {/* Map canvas (center) */}
-      <div className="flex-1 relative min-h-0 min-w-0">
-        {dialogs.sidebarCollapsed && (
-          <button
-            onClick={() => dialogs.setSidebarCollapsed(false)}
-            title={t('tooltips.expandSidebar')}
-            aria-label={t('tooltips.expandSidebar')}
-            aria-expanded={false}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center h-10 w-7 rounded-e-md bg-background/95 backdrop-blur-sm border border-s-0 shadow-md hover:bg-accent/50 transition-colors"
+        {/* Column 2: LayerEditorPanel flyout (380px) — only when layer selected and viewport >= 800px */}
+        {editingLayer && !isEditorHidden && (
+          <aside
+            data-testid="builder-layer-editor"
+            className="border-e bg-background flex flex-col overflow-hidden"
           >
-            <PanelLeftOpen className="h-4 w-4 text-foreground/70 hover:text-foreground transition-colors" />
-          </button>
+            <LazyLoadErrorBoundary>
+              <LayerEditorPanel
+                layer={editingLayer}
+                onClose={handleCloseEditor}
+                isDrillDown={false}
+                handlers={layerEditorHandlers}
+                activeTab={layers.activeEditorTab}
+                enableLegacyTabs={true}
+              />
+            </LazyLoadErrorBoundary>
+          </aside>
         )}
-        <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
-          <Suspense fallback={<LoadingState />}>
-            <BuilderMap
-              layers={layers.localLayers}
-              basemapStyle={layers.localBasemap}
-              initialViewState={layers.initialViewState}
-              terrainConfig={layers.localTerrainConfig}
-              onMapRef={handleMapRef}
-              showBasemapLabels={layers.showBasemapLabels}
-              basemapConfig={layers.basemapConfig}
+
+        {/* Column 3 (or 2 when no editor): map canvas */}
+        <div className="relative min-h-0 min-w-0">
+          <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
+            <Suspense fallback={<LoadingState />}>
+              <BuilderMap
+                layers={layers.localLayers}
+                basemapStyle={layers.localBasemap}
+                initialViewState={layers.initialViewState}
+                terrainConfig={layers.localTerrainConfig}
+                onMapRef={handleMapRef}
+                showBasemapLabels={layers.showBasemapLabels}
+                basemapConfig={layers.basemapConfig}
+              />
+            </Suspense>
+          </MapErrorBoundary>
+          {layers.ephemeralResult && (
+            <EphemeralBadge
+              featureCount={layers.ephemeralResult.geojson.features.length}
+              onDismiss={layers.handleDismissEphemeral}
             />
-          </Suspense>
-        </MapErrorBoundary>
-        {layers.ephemeralResult && (
-          <EphemeralBadge
-            featureCount={layers.ephemeralResult.geojson.features.length}
-            onDismiss={layers.handleDismissEphemeral}
+          )}
+
+          {/* Centered toolbar */}
+          <MapToolbar onStyleJsonClick={() => setShowStyleJson(true)} />
+          {isEditorHidden && (
+            <div className="absolute right-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
+              {mobileRailButtons.map((btn) => (
+                <button
+                  key={btn.id}
+                  type="button"
+                  onClick={btn.disabled ? undefined : () => setRailPanel(btn.id)}
+                  disabled={btn.disabled}
+                  title={btn.label}
+                  aria-label={btn.label}
+                  aria-pressed={!btn.disabled && railPanel === btn.id}
+                  className={cn(
+                    'flex h-11 w-11 items-center justify-center rounded-md transition-colors',
+                    btn.disabled
+                      ? 'cursor-not-allowed text-muted-foreground/40'
+                      : railPanel === btn.id
+                        ? 'bg-accent text-primary'
+                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  <btn.icon className="h-4 w-4" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <WidgetHost
+            byAnchor={byAnchor}
+            ctx={widgetCtx}
+            topLeftSlot={
+              <ActiveFilterChips
+                layers={layers.localLayers}
+                onClearFilter={handleClearFilter}
+              />
+            }
           />
-        )}
-
-        {/* Centered toolbar */}
-        <MapToolbar onStyleJsonClick={() => setShowStyleJson(true)} />
-        {isMobile && (
-          <div className="absolute right-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
-            {mobileRailButtons.map((btn) => (
-              <button
-                key={btn.id}
-                type="button"
-                onClick={btn.disabled ? undefined : () => setRailPanel(btn.id)}
-                disabled={btn.disabled}
-                title={btn.label}
-                aria-label={btn.label}
-                aria-pressed={!btn.disabled && railPanel === btn.id}
-                className={cn(
-                  'flex h-11 w-11 items-center justify-center rounded-md transition-colors',
-                  btn.disabled
-                    ? 'cursor-not-allowed text-muted-foreground/40'
-                    : railPanel === btn.id
-                      ? 'bg-accent text-primary'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                <btn.icon className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-        )}
-
-        <WidgetHost
-          byAnchor={byAnchor}
-          ctx={widgetCtx}
-          topLeftSlot={
-            <ActiveFilterChips
-              layers={layers.localLayers}
-              onClearFilter={handleClearFilter}
-            />
-          }
-        />
+        </div>
       </div>
 
       {/* Right rail + panel */}
-      {!isMobile && <BuilderRail {...railProps} />}
+      {!isEditorHidden && <BuilderRail {...railProps} />}
 
       {/* Mobile rail as Sheet overlay */}
-      {isMobile && railPanel && (
+      {isEditorHidden && railPanel && (
         <Sheet open={!!railPanel} onOpenChange={(open) => { if (!open) setRailPanel(null); }}>
           <SheetContent side="right" className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col">
             <SheetHeader className="sr-only">

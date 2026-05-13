@@ -1,6 +1,6 @@
 import userEvent from '@testing-library/user-event';
 import { useParams } from 'react-router';
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { render, screen } from '@/test/test-utils';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
 
 const dialogsState = {
@@ -15,8 +15,8 @@ const dialogsState = {
   sidebarCollapsed: false,
   setSidebarCollapsed: vi.fn(),
 };
-let mockIsMobile = false;
-let mockViewportWidth = 1440;
+let mockIsEditorHidden = false;
+let mockIsRail = false;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -99,7 +99,14 @@ vi.mock('@/hooks/use-settings', () => ({
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-layout', () => ({
-  useBuilderLayout: () => ({ isMobile: mockIsMobile, viewportWidth: mockViewportWidth }),
+  useBuilderLayout: () => ({
+    isRail: mockIsRail,
+    isEditorHidden: mockIsEditorHidden,
+    // Backward-compat aliases
+    isCompact: mockIsRail,
+    isMobile: mockIsEditorHidden,
+    viewportWidth: mockIsEditorHidden ? 600 : mockIsRail ? 1024 : 1440,
+  }),
 }));
 
 vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
@@ -174,8 +181,8 @@ const mockUseParams = vi.mocked(useParams);
 describe('MapBuilderPage header actions', () => {
   beforeEach(() => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
-    mockIsMobile = false;
-    mockViewportWidth = 1440;
+    mockIsEditorHidden = false;
+    mockIsRail = false;
     dialogsState.sidebarCollapsed = false;
     dialogsState.setShowShare.mockReset();
     localStorage.clear();
@@ -195,7 +202,7 @@ describe('MapBuilderPage header actions', () => {
   });
 
   it('uses 44px mobile sheet and rail targets while leaving map context visible', () => {
-    mockIsMobile = true;
+    mockIsEditorHidden = true;
 
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
@@ -208,32 +215,30 @@ describe('MapBuilderPage header actions', () => {
     expect(notesRailButton?.className).toContain('w-11');
   });
 
-  it('persists deterministic keyboard sidebar resizing through the resize slider', () => {
+  it('renders the three-column grid builder body on desktop (no resizable sidebar)', () => {
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
-    const resizeHandle = screen.getByRole('slider', { name: 'tooltips.resizeSidebar' });
-    expect(resizeHandle).toHaveAttribute('aria-valuenow', '260');
-    expect(resizeHandle).toHaveAttribute('aria-valuemin', '200');
-    expect(resizeHandle).toHaveAttribute('aria-valuemax', '600');
+    // Desktop: sidebar is present as a fixed-width grid column (no resize handle)
+    const sidebar = screen.getByTestId('builder-sidebar');
+    expect(sidebar).toBeInTheDocument();
 
-    fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' });
-
-    expect(resizeHandle).toHaveAttribute('aria-valuenow', '270');
-    expect(localStorage.getItem('geolens-builder-sidebar-width')).toBe('270');
+    // No resize handle in the new layout
+    const resizeHandle = document.body.querySelector('[data-testid="builder-sidebar-resize-handle"]');
+    expect(resizeHandle).toBeNull();
   });
 
-  it('caps a persisted wide sidebar on tablet-sized builder viewports', () => {
-    mockViewportWidth = 834;
-    localStorage.setItem('geolens-builder-sidebar-width', '600');
+  it('renders sidebar at 64px rail class when isRail=true', () => {
+    mockIsRail = true;
+    mockIsEditorHidden = false;
 
     render(<MapBuilderPage />, { route: '/maps/map-1' });
 
+    // Sidebar is still present in the grid
     const sidebar = screen.getByTestId('builder-sidebar');
-    const resizeHandle = screen.getByRole('slider', { name: 'tooltips.resizeSidebar' });
+    expect(sidebar).toBeInTheDocument();
 
-    expect(sidebar).toHaveStyle({ width: '470px' });
-    expect(resizeHandle).toHaveAttribute('aria-valuenow', '470');
-    expect(resizeHandle).toHaveAttribute('aria-valuemax', '470');
-    expect(localStorage.getItem('geolens-builder-sidebar-width')).toBe('600');
+    // The builder body grid should include the 64px rail column class
+    const builderBody = sidebar.parentElement;
+    expect(builderBody?.className).toContain('grid-cols-[64px_1fr]');
   });
 });

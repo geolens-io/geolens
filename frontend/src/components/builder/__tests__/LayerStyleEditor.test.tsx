@@ -944,6 +944,7 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
     onStyleConfigChange: vi.fn(),
     onLayoutChange: vi.fn(),
     onRenderModeChange: vi.fn(),
+    onRemove: vi.fn(),
   };
 
   it('switching from layer with no gradient to layer with gradient resets local mode to Gradient (no stale solid)', () => {
@@ -963,7 +964,7 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
     };
 
     const { rerender } = render(
-      <LayerEditorPanel layer={layerA} activeTab="style" handlers={handlers} />,
+      <LayerEditorPanel layer={layerA} activeTab="style" handlers={handlers} onClose={vi.fn()} />,
     );
     // Layer A starts in Solid mode (no gradient)
     expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'true');
@@ -972,7 +973,7 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
     // Switch to layer B (which has a canonical gradient). With key={layer.id},
     // the LayerStyleEditor remounts and LineGradientControls re-derives initialMode
     // from layer B's paint, putting the toggle into Gradient mode.
-    rerender(<LayerEditorPanel layer={layerB} activeTab="style" handlers={handlers} />);
+    rerender(<LayerEditorPanel layer={layerB} activeTab="style" handlers={handlers} onClose={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'false');
   });
@@ -994,11 +995,11 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
     };
 
     const { rerender } = render(
-      <LayerEditorPanel layer={layerA} activeTab="style" handlers={handlers} />,
+      <LayerEditorPanel layer={layerA} activeTab="style" handlers={handlers} onClose={vi.fn()} />,
     );
     expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'true');
 
-    rerender(<LayerEditorPanel layer={layerB} activeTab="style" handlers={handlers} />);
+    rerender(<LayerEditorPanel layer={layerB} activeTab="style" handlers={handlers} onClose={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Solid color' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Gradient' })).toHaveAttribute('aria-pressed', 'false');
   });
@@ -1009,7 +1010,8 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
         layer={makeLayer()}
         activeTab="filter"
         handlers={handlers}
-        onBack={vi.fn()}
+        onClose={vi.fn()}
+        isDrillDown={true}
       />,
     );
 
