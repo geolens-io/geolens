@@ -724,6 +724,7 @@
     "kebabAddToGroup": "Add to group…"
   },
   "layerEditor": {
+    "close": "Close layer editor",
     "section": {
       "renderAs": "Render as",
       "appearance": "Appearance",
