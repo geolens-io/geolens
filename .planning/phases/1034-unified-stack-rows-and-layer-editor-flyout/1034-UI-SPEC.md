@@ -45,6 +45,8 @@ This phase ships a **three-column builder layout**. All measurements are locked.
 
 The flyout is a **layout column**, not an overlay or popover. The sidebar remains fully mounted while the flyout is open; cross-layer comparison must be possible without navigating away.
 
+**Primary focal point:** the `＋ Add data` button is the dominant interactive element at rest; the selected row's left blue rail becomes the dominant focal point when editing.
+
 ### Grid definition (CSS)
 
 ```css
@@ -74,19 +76,27 @@ Declared values (multiples of 4, sourced from existing tokens):
 | Token | Value | Usage |
 |-------|-------|-------|
 | xs | 4px | Icon gaps, caret column, inline padding |
-| sm | 8px | Row padding top/bottom, section padding top/bottom, pill gaps |
-| md | 16px | Default element spacing, sidebar header padding (14px is used in sketch — treated as ~md) |
+| sm | 8px | Row padding top/bottom, section padding top/bottom, pill gaps, row grid gap |
+| md | 16px | Default element spacing, sidebar header padding (horizontal + vertical) |
 | lg | 24px | Section breaks |
 | xl | 32px | Layout gaps |
 | 2xl | 48px | Major section breaks |
-| 3xl | 64px | Rail width (exception — fixed layout value, not a spacing token) |
+| 3xl | 64px | Stack scroll padding bottom; rail width (see Fixed layout dimensions) |
 
-Exceptions:
-- Sidebar header padding: `14px 14px 10px` (sketch-locked; nearest md token)
-- Row grid gap: 6px (between row cells — sketch-locked)
-- Stack scroll padding bottom: 80px (reserved for future "drag here to ungroup" affordance)
-- Row opacity slider width: 60px (fixed, sketch-locked)
-- Type icon size: 22×22px; rail icon size: 26×26px inside 40×40px touch target
+All spacing values confirmed as multiples of 4. Non-spacing visual dimensions are listed separately below.
+
+### Fixed layout dimensions
+
+These are fixed pixel dimensions for visual components, not spacing tokens. They must not be confused with the spacing scale.
+
+| Dimension | Value | Usage |
+|-----------|-------|-------|
+| Type icon size | 22×22px | Row type icon |
+| Rail icon size | 26×26px | Icon inside 40×40px touch target on collapsed rail |
+| Rail touch target | 40×40px | Collapsed sidebar rail row button |
+| Opacity slider width | 60px | Range slider in row grid |
+| Compass widget | 90px | Sun position widget in DEM hillshade editor |
+| Preset card thumbnail height | 56px | Basemap preset card image |
 
 ---
 
@@ -94,18 +104,20 @@ Exceptions:
 
 All type tokens use the IBM Plex Sans Variable face. Sizes map to existing `--text-*` tokens in `frontend/src/index.css`.
 
+Permitted weights: **400 (regular)** and **600 (semibold)** only. No weight 500 is used anywhere in this phase.
+
 | Role | Size | Token | Weight | Line Height | Usage |
 |------|------|-------|--------|-------------|-------|
 | Row name | 14px | `--text-sm` | 400 (regular) | 1.4 | Layer name in stack rows |
-| Group name | 14px | `--text-sm` | 500 (medium) | 1.4 | Group rows only (`.row.group .name`) |
+| Group name | 14px | `--text-sm` | 600 (semibold) | 1.4 | Group rows only (`.row.group .name`) — heavier weight distinguishes group from child layers |
 | Editor heading | 14px | `--text-sm` | 600 (semibold) | 1.2 | Editor panel layer name |
-| Section label | 10px | custom (10px) | 500 (medium) | 1.2 | ALL CAPS section labels inside editor |
+| Section label | 10px | custom (10px) | 600 (semibold) | 1.2 | ALL CAPS section labels inside editor; `letter-spacing: 0.08em` compensates for small size |
 | Body / labels | 12px | `--text-xs` | 400 (regular) | 1.5 | Field labels, hints, pill text, section hints |
-| Breadcrumb | 11px | between `--text-2xs` (10px) and `--text-xs` (12px) | 400 (regular) | 1.3 | Basemap sublayer breadcrumb (`Basemap · Positron ›`) |
+| Breadcrumb | 12px | `--text-xs` | 400 (regular) | 1.3 | Basemap sublayer breadcrumb (`Basemap · Positron ›`); muted color + `letter-spacing: 0.04em` provides visual differentiation from body labels |
 | Count badge | 12px | `--text-xs` | 400 (regular) | 1 | `Layers · {N}` badge in sidebar header |
 | Mono (hex values) | 12px | `--text-xs` | 400 | 1 | Color swatch hex code in editor |
 
-Permitted weights: **400 (regular)** and **600 (semibold)**. Group name uses 500 (medium) as the only exception (sketch-locked for visual hierarchy within the list). Section labels use uppercase + letter-spacing `0.08em` to compensate for 10px size.
+Type scale: **10px / 12px / 14px** (three sizes total).
 
 ---
 
@@ -154,9 +166,10 @@ All values map directly to existing OKLCH tokens in `frontend/src/index.css`. No
 - Title: "Layers" text (semibold 14px) + count badge pill (`{N}` in `--surface-2` rounded pill)
 - Settings icon button: Lucide `Settings` (⚙), 22×22px touch area, `title="Settings"` tooltip
 - "＋ Add data" primary button: Lucide `Plus` icon + "Add data" label, `--primary` background
+- Padding: `16px 16px 8px` (top 16px, horizontal 16px, bottom 8px)
 
 ### 2. Layer stack rows
-Grid: `16px 14px 22px 22px 1fr 60px 22px` with 6px gap, 8px vertical padding.
+Grid: `16px 14px 22px 22px 1fr 60px 22px` with **8px gap**, 8px vertical padding.
 
 | Cell | Width | Element | Behavior |
 |------|-------|---------|----------|
@@ -192,9 +205,9 @@ Grid: `16px 14px 22px 22px 1fr 60px 22px` with 6px gap, 8px vertical padding.
 | Drag-over group children | `oklch(0.97 0.02 250 / 60%)` wash + `--radius-md` border-radius |
 
 **Kebab menu items:**
-- Non-group: Rename, Duplicate, Delete, Add to group…
-- User group: Rename, Add layer, Ungroup, Delete
-- Basemap group: Swap basemap, Reset appearance
+- Non-group layer: "Rename layer", "Duplicate", "Delete layer", "Add to group…"
+- User group: "Rename group", "Add layer", "Ungroup", "Delete group"
+- Basemap group: "Swap basemap", "Reset appearance"
 
 **Drag insertion line (reorder between rows):**
 ```css
@@ -234,7 +247,7 @@ box-shadow: 0 0 0 2px oklch(0.55 0.18 250 / 25%); /* 25% bloom */
 | Vector / Raster user layer | `Delete layer` (danger ghost) |
 | Basemap group | `Reset appearance` + `Remove basemap` (both secondary ghost) |
 | Basemap sublayer | `Back to basemap` (secondary ghost) |
-| User-created group | `Rename` + `Ungroup` + `Delete group` (mixed) |
+| User-created group | `Rename group` + `Ungroup` + `Delete group` (mixed) |
 
 **Pill strip (Render as):**
 - Rest: `--surface-2` background, `--foreground` text, `1px solid transparent` border
@@ -243,7 +256,7 @@ box-shadow: 0 0 0 2px oklch(0.55 0.18 250 / 25%); /* 25% bloom */
 - `--radius-full` border-radius, `5px 10px` padding, 12px font-size
 
 **Section labels (inside editor):**
-- 10px ALL CAPS, `letter-spacing: 0.08em`, `--muted-foreground` color, weight 500
+- 10px ALL CAPS, `letter-spacing: 0.08em`, `--muted-foreground` color, weight 600 (semibold)
 - `margin-bottom: 8px`
 
 **Collapsed sections:**
@@ -257,7 +270,7 @@ box-shadow: 0 0 0 2px oklch(0.55 0.18 250 / 25%); /* 25% bloom */
 - Sublayers compact list: eye toggle + type icon + name + opacity slider
 
 **Basemap sublayer editor — additional scene:**
-- Breadcrumb above title: 11px muted text `Basemap · {preset-name} ›` (clickable returns to basemap group editor)
+- Breadcrumb above title: 12px muted text `Basemap · {preset-name} ›` (clickable returns to basemap group editor); `letter-spacing: 0.04em` differentiates from 12px body labels
 - Detail level pill strip: `Off · Minimal · Default · Full`
 
 **DEM raster editor — additional scene:**
@@ -289,12 +302,14 @@ All copy is locked to these exact strings. No synonyms, no paraphrasing.
 | Row eye toggle `aria-label` | "Toggle visibility for {layer name}" | default |
 | Row drag handle `aria-label` | "Drag to reorder {layer name}" | default |
 | Kebab menu trigger `aria-label` | "Layer options for {layer name}" | default |
-| Kebab: rename | "Rename" | sketch 002A |
+| Kebab: rename (non-group) | "Rename layer" | sketch 002A |
 | Kebab: duplicate | "Duplicate" | sketch 002A |
-| Kebab: delete (non-group) | "Delete" | sketch 002A |
+| Kebab: delete (non-group) | "Delete layer" | sketch 002A |
 | Kebab: add to group | "Add to group…" | sketch 007A |
+| Kebab: rename (user group) | "Rename group" | sketch 002A |
 | Kebab: add layer (group) | "Add layer" | sketch 002A |
 | Kebab: ungroup | "Ungroup" | sketch 002A |
+| Kebab: delete (user group) | "Delete group" | sketch 002A |
 | Kebab: swap basemap | "Swap basemap" | sketch 002A |
 | Kebab: reset appearance (basemap) | "Reset appearance" | sketch 002A |
 | Editor section: render mode | "Render as" | sketch 003A |
@@ -318,8 +333,8 @@ All copy is locked to these exact strings. No synonyms, no paraphrasing.
 
 | Action | Trigger | Confirmation |
 |--------|---------|-------------|
-| Delete layer | "Delete layer" footer button | Inline confirm in footer: "Are you sure? This cannot be undone." with "Delete" (danger) + "Cancel" (secondary). No modal. |
-| Delete group | "Delete group" from kebab | Same inline confirm pattern. |
+| Delete layer | "Delete layer" footer button | Inline confirm in footer: "Are you sure? This cannot be undone." with "Delete" (danger) + "Keep layer" (secondary). No modal. |
+| Delete group | "Delete group" from kebab | Inline confirm: "Are you sure? This cannot be undone." with "Delete" (danger) + "Keep group" (secondary). No modal. |
 | Remove basemap | "Remove basemap" footer button | No confirmation required — basemap can be re-added. |
 
 ---
