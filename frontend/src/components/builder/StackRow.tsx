@@ -46,12 +46,20 @@ function TypeIcon({ layer }: { layer: MapLayerResponse }) {
   );
 
   if (caps.kind === 'raster' || caps.kind === 'vrt') {
+    const isDEM = layer.is_dem === true;
+    const renderMode = (layer.style_config as Record<string, unknown> | null | undefined)?.render_mode;
+    let glyph = '▦';
+    if (isDEM) {
+      if (renderMode === 'hillshade') glyph = '⛰';
+      else if (renderMode === 'terrain') glyph = '◬';
+      // else image → ▦ (default)
+    }
     return (
       <span
         className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-medium"
         aria-hidden="true"
       >
-        ▦
+        {glyph}
       </span>
     );
   }
