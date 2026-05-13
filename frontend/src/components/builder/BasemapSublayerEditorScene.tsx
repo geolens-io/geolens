@@ -73,9 +73,14 @@ export function BasemapSublayerEditorScene({
   const [resetOpen, setResetOpen] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
 
-  // Reset confirmingReset when sublayerId changes
+  // Reset confirmingReset and resetOpen when sublayerId changes.
+  // Without resetting resetOpen, navigating from sublayer A (with the RESET collapsible
+  // open) to sublayer B would render sublayer B pre-expanded. The LayerEditorPanel uses
+  // key={expandedLayerId} for top-level layers, but basemap sublayer navigation reuses
+  // the same component instance — so the effect is the only reset mechanism.
   useEffect(() => {
     setConfirmingReset(false);
+    setResetOpen(false);
   }, [sublayerId]);
 
   const safeOpacity = typeof opacity === 'number' && Number.isFinite(opacity) ? opacity : 1;
