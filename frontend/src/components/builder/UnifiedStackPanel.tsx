@@ -183,6 +183,8 @@ interface BasemapGroupRowWrapperProps {
   group: BasemapGroupInfo;
   selected: boolean;
   isExpanded: boolean;
+  /** When true, the eye button is rendered as aria-disabled. Pass true when the toggle is not yet wired. */
+  visibilityDisabled?: boolean;
   onSelectGroup: (id: string | null) => void;
   onToggleExpand: (id: string) => void;
   onToggleVisibility: (id: string) => void;
@@ -195,6 +197,7 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   group,
   selected,
   isExpanded,
+  visibilityDisabled = false,
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
@@ -233,6 +236,7 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         selected={selected}
         isExpanded={isExpanded}
         isDragging={isDragging}
+        visibilityDisabled={visibilityDisabled}
         dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
@@ -615,9 +619,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     group={basemapGroup}
                     selected={basemapGroup.id === selectedLayerId}
                     isExpanded={isBasemapExpanded}
+                    visibilityDisabled // basemap visibility via eye not wired in v1; disables eye button
                     onSelectGroup={onSelectLayer}
                     onToggleExpand={safeToggleGroupExpand}
-                    onToggleVisibility={() => {}} // basemap visibility via eye not wired in v1
+                    onToggleVisibility={() => {}}
                     onOpacityChange={() => {}} // opacity via master slider in Scene B editor
                     onSwapBasemap={safeSwapBasemap}
                     onResetAppearance={safeResetBasemapAppearance}

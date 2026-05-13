@@ -26,6 +26,9 @@ interface BasemapGroupRowProps {
   selected: boolean;
   isExpanded: boolean;
   isDragging?: boolean;
+  /** When true, the visibility eye button is rendered with aria-disabled and tabIndex={-1}
+   * so it does not appear interactive. Use when the toggle is not yet wired. */
+  visibilityDisabled?: boolean;
   dragHandleProps: DragHandleProps;
   onSelectGroup: (id: string) => void;
   onToggleExpand: (id: string) => void;
@@ -44,6 +47,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   selected,
   isExpanded,
   isDragging = false,
+  visibilityDisabled = false,
   dragHandleProps,
   onSelectGroup,
   onToggleExpand,
@@ -117,17 +121,22 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
 
-      {/* Cell 3: Eye visibility toggle */}
+      {/* Cell 3: Eye visibility toggle — disabled when basemap visibility is not yet wired */}
       <button
         type="button"
         aria-label={t('stackRow.toggleVisibility', {
           defaultValue: 'Toggle visibility for {{name}}',
           name: rowName,
         })}
-        className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-disabled={visibilityDisabled || undefined}
+        tabIndex={visibilityDisabled ? -1 : undefined}
+        className={cn(
+          'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          visibilityDisabled ? 'opacity-30 cursor-default' : 'hover:text-foreground',
+        )}
         onClick={(e) => {
           e.stopPropagation();
-          onToggleVisibility(groupId);
+          if (!visibilityDisabled) onToggleVisibility(groupId);
         }}
       >
         {visible ? (
