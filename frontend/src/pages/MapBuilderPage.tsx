@@ -176,7 +176,7 @@ export function MapBuilderPage() {
 
   const handleMarkDirty = useCallback(
     () => { layers.setHasUnsavedChanges(true); },
-    [layers],
+    [layers.setHasUnsavedChanges],
   );
 
   // Phase 1035: basemaps data for the BasemapGroupEditorScene preset grid
@@ -270,7 +270,7 @@ export function MapBuilderPage() {
     // TODO(Phase 1038): call markDirty() here once sublayerState is included in the
     // save payload via basemap_config round-trip. Until then, omitting markDirty()
     // prevents the unsaved-changes badge from making a false promise to the user.
-  }, [layers]);
+  }, [layers.setShowBasemapLabels, layers.showBasemapLabels]);
 
   const handleSublayerOpacityChange = useCallback((sublayerId: string, opacity: number) => {
     setSublayerState((prev) => ({
@@ -285,7 +285,7 @@ export function MapBuilderPage() {
     setSublayerState({});
     setMasterOpacity(1);
     layers.markDirty(); // basemapConfig reset IS persisted (null → saved)
-  }, [layers]);
+  }, [layers.setBasemapConfig, layers.markDirty]);
 
   // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
