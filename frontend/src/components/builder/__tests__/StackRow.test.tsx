@@ -268,3 +268,109 @@ describe('StackRow', () => {
     expect(row).toBeInTheDocument();
   });
 });
+
+describe('DEM type icon', () => {
+  // Helper: create a raster/DEM layer fixture (layer_type must be 'raster_geolens' for caps.kind=raster)
+  function makeDEMLayerFixture(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+    return makeLayer({
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      ...overrides,
+    });
+  }
+
+  // Test 1: DEM hillshade glyph
+  it('renders ⛰ glyph when is_dem=true and render_mode=hillshade', () => {
+    const layer = makeDEMLayerFixture({
+      style_config: { render_mode: 'hillshade' },
+    });
+    const { container } = render(<StackRow {...defaultProps({ layer })} />);
+
+    // Expect the ⛰ glyph to appear in the type icon span
+    const iconSpan = container.querySelector('.bg-\\[--type-raster-bg\\]');
+    expect(iconSpan).toBeTruthy();
+    expect(iconSpan?.textContent?.trim()).toBe('⛰');
+  });
+
+  // Test 2: DEM terrain glyph
+  it('renders ◬ glyph when is_dem=true and render_mode is terrain (cast value)', () => {
+    const layer = makeDEMLayerFixture({
+      // 'terrain' is cast at the boundary — style_config as any to simulate persisted value
+      style_config: { render_mode: 'terrain' } as Parameters<typeof makeLayer>[0]['style_config'],
+    });
+    const { container } = render(<StackRow {...defaultProps({ layer })} />);
+
+    const iconSpan = container.querySelector('.bg-\\[--type-raster-bg\\]');
+    expect(iconSpan).toBeTruthy();
+    expect(iconSpan?.textContent?.trim()).toBe('◬');
+  });
+
+  // Test 3: DEM image glyph (render_mode undefined/null)
+  it('renders ▦ glyph when is_dem=true and render_mode is undefined/null', () => {
+    const layer = makeDEMLayerFixture({
+      style_config: null,
+    });
+    const { container } = render(<StackRow {...defaultProps({ layer })} />);
+
+    const iconSpan = container.querySelector('.bg-\\[--type-raster-bg\\]');
+    expect(iconSpan).toBeTruthy();
+    expect(iconSpan?.textContent?.trim()).toBe('▦');
+  });
+
+  // Test 4: Non-DEM raster still renders ▦ (regression)
+  it('non-DEM raster (is_dem != true) still renders ▦ regardless of style_config', () => {
+    const layer = makeLayer({
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: false,
+      style_config: { render_mode: 'hillshade' },
+    });
+    const { container } = render(<StackRow {...defaultProps({ layer })} />);
+
+    const iconSpan = container.querySelector('.bg-\\[--type-raster-bg\\]');
+    expect(iconSpan).toBeTruthy();
+    expect(iconSpan?.textContent?.trim()).toBe('▦');
+  });
+
+  // Test 5: Vector layers still render via ColorizedGeometryIcon (regression)
+  it('vector layers still render type icon via ColorizedGeometryIcon (regression)', () => {
+    const layer = makeLayer({
+      id: 'vector-regression',
+      dataset_geometry_type: 'POLYGON',
+      dataset_record_type: 'vector_dataset',
+      layer_type: null,
+      is_dem: false,
+    });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    // The mock renders a span with data-testid="type-icon-{layerId}"
+    expect(screen.getByTestId('type-icon-vector-regression')).toBeInTheDocument();
+  });
+
+  // Test 6: DEM type icon uses raster color tokens for all three glyphs
+  it('DEM type icon uses bg-[--type-raster-bg] and text-[--type-raster] tokens for all modes', () => {
+    const modes = [
+      { style_config: null, expected: '▦' },
+      { style_config: { render_mode: 'hillshade' }, expected: '⛰' },
+      { style_config: { render_mode: 'terrain' }, expected: '◬' },
+    ] as const;
+
+    for (const { style_config, expected } of modes) {
+      const layer = makeDEMLayerFixture({
+        style_config: style_config as Parameters<typeof makeLayer>[0]['style_config'],
+      });
+      const { container, unmount } = render(<StackRow {...defaultProps({ layer })} />);
+
+      const iconSpan = container.querySelector('.bg-\\[--type-raster-bg\\]');
+      expect(iconSpan).toBeTruthy();
+      // Should have the text color class too
+      expect(iconSpan?.classList.contains('text-[--type-raster]')).toBe(true);
+      expect(iconSpan?.textContent?.trim()).toBe(expected);
+
+      unmount();
+    }
+  });
+});
