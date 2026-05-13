@@ -156,6 +156,7 @@ export function MapBuilderPage() {
   const { byAnchor } = usePartitionedWidgets();
   // activeWidgets for Settings panel widget toggles (Phase 1036)
   const activeWidgets = useWidgetStore((state) => state.activeWidgets);
+  const toggleWidget = useWidgetStore((state) => state.toggle);
 
   // selectedLayerId: the layer currently open in the flyout editor
   // Maps to existing expandedLayerId in use-builder-layers (same field, new semantic name)
@@ -537,7 +538,7 @@ export function MapBuilderPage() {
           }
         }}
         activeWidgetIds={activeWidgets}
-        onToggleWidget={(id) => useWidgetStore.getState().toggle(id)}
+        onToggleWidget={toggleWidget}
         projection={localProjection}
         onSetProjection={(proj) => {
           setLocalProjection(proj);
