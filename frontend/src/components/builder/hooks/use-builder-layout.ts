@@ -1,39 +1,49 @@
 import * as React from "react"
 
-const BUILDER_COMPACT_BREAKPOINT = 1024
-const BUILDER_MOBILE_BREAKPOINT = 768
+// Locked breakpoints from UI-SPEC §"Responsive breakpoints" (Phase 1034)
+// At < BUILDER_RAIL_BREAKPOINT: sidebar collapses to 64px icon rail
+// At < BUILDER_EDITOR_HIDDEN_BREAKPOINT: editor column hidden entirely
+const BUILDER_RAIL_BREAKPOINT = 1100
+const BUILDER_EDITOR_HIDDEN_BREAKPOINT = 800
 
 export function useBuilderLayout() {
   const [viewportWidth, setViewportWidth] = React.useState<number>(
     () => window.innerWidth
   )
-  const [isCompact, setIsCompact] = React.useState<boolean>(
-    () => window.innerWidth < BUILDER_COMPACT_BREAKPOINT
+  const [isRail, setIsRail] = React.useState<boolean>(
+    () => window.innerWidth < BUILDER_RAIL_BREAKPOINT
   )
-  const [isMobile, setIsMobile] = React.useState<boolean>(
-    () => window.innerWidth < BUILDER_MOBILE_BREAKPOINT
+  const [isEditorHidden, setIsEditorHidden] = React.useState<boolean>(
+    () => window.innerWidth < BUILDER_EDITOR_HIDDEN_BREAKPOINT
   )
 
   React.useEffect(() => {
-    const compactMql = window.matchMedia(`(max-width: ${BUILDER_COMPACT_BREAKPOINT - 1}px)`)
-    const mobileMql = window.matchMedia(`(max-width: ${BUILDER_MOBILE_BREAKPOINT - 1}px)`)
+    const railMql = window.matchMedia(`(max-width: ${BUILDER_RAIL_BREAKPOINT - 1}px)`)
+    const editorHiddenMql = window.matchMedia(`(max-width: ${BUILDER_EDITOR_HIDDEN_BREAKPOINT - 1}px)`)
     const onResize = () => {
       setViewportWidth(window.innerWidth)
-      setIsCompact(compactMql.matches)
-      setIsMobile(mobileMql.matches)
+      setIsRail(railMql.matches)
+      setIsEditorHidden(editorHiddenMql.matches)
     }
-    const onCompact = onResize
-    const onMobile = onResize
-    compactMql.addEventListener("change", onCompact)
-    mobileMql.addEventListener("change", onMobile)
+    const onRail = onResize
+    const onEditorHidden = onResize
+    railMql.addEventListener("change", onRail)
+    editorHiddenMql.addEventListener("change", onEditorHidden)
     window.addEventListener("resize", onResize)
     onResize()
     return () => {
-      compactMql.removeEventListener("change", onCompact)
-      mobileMql.removeEventListener("change", onMobile)
+      railMql.removeEventListener("change", onRail)
+      editorHiddenMql.removeEventListener("change", onEditorHidden)
       window.removeEventListener("resize", onResize)
     }
   }, [])
 
-  return { isCompact, isMobile, viewportWidth }
+  return {
+    isRail,
+    isEditorHidden,
+    viewportWidth,
+    // Backward-compat aliases — deprecated; callers should migrate to isRail/isEditorHidden
+    isCompact: isRail,
+    isMobile: isEditorHidden,
+  }
 }
