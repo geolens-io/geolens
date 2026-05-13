@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { LayerStyleEditor } from './LayerStyleEditor';
@@ -102,6 +102,18 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   // Footer delete confirm state
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Reset all local state when the layer changes. This is defensive: the
+  // production caller passes key={editingLayer.id} which remounts the panel,
+  // but any future caller that omits the key would otherwise carry over stale
+  // confirmingDelete=true from a prior layer — causing the destructive dialog
+  // to appear immediately for the newly-selected layer.
+  useEffect(() => {
+    setConfirmingDelete(false);
+    setFilterOpen(false);
+    setLabelsOpen(false);
+    setSourceOpen(false);
+  }, [layer.id]);
 
   // Zoom range from layout
   const layout = layerLayout(layer);
