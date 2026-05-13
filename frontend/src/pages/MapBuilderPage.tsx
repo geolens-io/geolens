@@ -367,6 +367,7 @@ export function MapBuilderPage() {
           >
             <LazyLoadErrorBoundary>
               <LayerEditorPanel
+                key={editingLayer.id}
                 layer={editingLayer}
                 onClose={handleCloseEditor}
                 isDrillDown={false}
