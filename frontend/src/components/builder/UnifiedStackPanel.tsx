@@ -176,7 +176,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       </div>
 
       {/* Scrollable layer list or empty state */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        role="listbox"
+        aria-label={t('unifiedStack.title', { defaultValue: 'Layers' })}
+        aria-multiselectable="false"
+      >
         {layers.length === 0 ? (
           <div className="flex items-center justify-center h-24">
             <p className="text-sm text-muted-foreground">
