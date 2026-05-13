@@ -351,7 +351,7 @@ const SublayerRow = memo(function SublayerRow({
     <div
       ref={setNodeRef}
       id={`stack-row-${sublayer.id}`}
-      role="listitem"
+      role="option"
       aria-selected={selected}
       tabIndex={0}
       className={cn(
@@ -627,7 +627,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                       id={`basemap-group-children-${basemapGroup.id}`}
                       data-testid={`basemap-group-children-${basemapGroup.id}`}
                       style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
-                      role="list"
+                      role="listbox"
+                      aria-label="Basemap sublayers"
                     >
                       {basemapGroup.sublayers.map((sub) => (
                         <SublayerRow
