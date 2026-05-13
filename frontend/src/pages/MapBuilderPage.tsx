@@ -372,7 +372,7 @@ export function MapBuilderPage() {
                 isDrillDown={false}
                 handlers={layerEditorHandlers}
                 activeTab={layers.activeEditorTab}
-                enableLegacyTabs={true}
+                enableLegacyTabs={false}
               />
             </LazyLoadErrorBoundary>
           </aside>
