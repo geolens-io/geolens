@@ -522,7 +522,7 @@ export function MapBuilderPage() {
         boundLayerName={boundLayerName}
         onExaggerationChange={(v) => {
           layers.setLocalTerrainConfig((prev) =>
-            prev ? { ...prev, exaggeration: v } : { enabled: false, source_dataset_id: '', exaggeration: v },
+            prev ? { ...prev, exaggeration: v } : { enabled: false, source_dataset_id: null, exaggeration: v },
           );
           layers.setHasUnsavedChanges(true);
           if (
