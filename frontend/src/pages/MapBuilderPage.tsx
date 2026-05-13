@@ -11,6 +11,7 @@ const BuilderMap = lazy(() =>
 );
 import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
 import { DEMEditorScene } from '@/components/builder/DEMEditorScene';
+import { SettingsEditorScene } from '@/components/builder/SettingsEditorScene';
 import { BasemapGroupEditorScene, BasemapGroupEditorFooter } from '@/components/builder/BasemapGroupEditorScene';
 import { BasemapSublayerEditorScene, BasemapSublayerEditorFooter } from '@/components/builder/BasemapSublayerEditorScene';
 import { useBasemaps } from '@/hooks/use-settings';
@@ -66,6 +67,8 @@ export function MapBuilderPage() {
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [railPanel, setRailPanel] = useState<RailPanel>(null);
   const [dockNotes, setDockNotes] = useState('');
+  // Runtime-only per Phase 1036 BSR-14 / UI-SPEC § Projection. Not persisted in v1.
+  const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
 
   // Initialize notes from server data, falling back to localStorage for migration
@@ -151,8 +154,8 @@ export function MapBuilderPage() {
   );
 
   const { byAnchor } = usePartitionedWidgets();
-  // activeWidgetSet tracked for widget sidebar integration (Phase 1036+)
-  useWidgetStore((state) => state.activeWidgets);
+  // activeWidgets for Settings panel widget toggles (Phase 1036)
+  const activeWidgets = useWidgetStore((state) => state.activeWidgets);
 
   // selectedLayerId: the layer currently open in the flyout editor
   // Maps to existing expandedLayerId in use-builder-layers (same field, new semantic name)
@@ -295,11 +298,12 @@ export function MapBuilderPage() {
       .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
   }, [layers.localLayers]);
 
-  // Phase 1035: editor scene selection based on current selection
-  type EditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer';
+  // Phase 1035+1036: editor scene selection based on current selection
+  type EditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings';
   const editorScene = useMemo<EditorScene>(() => {
     const sel = layers.expandedLayerId;
     if (!sel) return 'default';
+    if (sel === 'settings') return 'settings';
     if (sel === 'basemap-group') return 'basemap-group';
     if (sel.startsWith('basemap:')) return 'basemap-sublayer';
     if (editingLayer?.is_dem === true) return 'dem';
@@ -376,9 +380,15 @@ export function MapBuilderPage() {
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
-    // Return focus to the row that opened the flyout.
-    // stack-row-{id} is used by all row types (StackRow, BasemapGroupRow, FolderGroupRow).
-    if (expandedId) {
+    // Return focus to the element that triggered the flyout.
+    // - Settings panel: return focus to the cog button (data-testid="settings-cog-btn")
+    // - Layer editor: return focus to the row (stack-row-{id})
+    if (expandedId === 'settings') {
+      requestAnimationFrame(() => {
+        const cogEl = document.querySelector<HTMLElement>('[data-testid="settings-cog-btn"]');
+        cogEl?.focus();
+      });
+    } else if (expandedId) {
       requestAnimationFrame(() => {
         const rowEl = document.getElementById(`stack-row-${expandedId}`);
         rowEl?.focus();
@@ -397,7 +407,26 @@ export function MapBuilderPage() {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // Phase 1035: scene-specific content + footer for LayerEditorPanel
+  // Phase 1036: terrain active flag — true when any DEM layer has render_mode=terrain OR
+  // localTerrainConfig.enabled is true (fallback for initial hydration before render_mode is set).
+  const isTerrainActive = useMemo(
+    () =>
+      layers.localLayers.some(
+        (l) => l.is_dem === true && l.style_config?.render_mode === 'terrain',
+      ) || Boolean(layers.localTerrainConfig?.enabled),
+    [layers.localLayers, layers.localTerrainConfig],
+  );
+
+  // Phase 1036: name of the DEM layer currently bound as terrain source
+  const boundLayerName = useMemo(() => {
+    if (!layers.localTerrainConfig?.source_dataset_id) return undefined;
+    const bound = layers.localLayers.find(
+      (l) => l.dataset_id === layers.localTerrainConfig?.source_dataset_id,
+    );
+    return bound ? (bound.display_name ?? bound.dataset_name ?? undefined) : undefined;
+  }, [layers.localLayers, layers.localTerrainConfig]);
+
+  // Phase 1035+1036: scene-specific content + footer for LayerEditorPanel
   // Computed after handleSelectLayer and handleAddDataClick are in scope
   let sceneContent: ReactNode = null;
   let sceneFooter: ReactNode = null;
@@ -488,6 +517,43 @@ export function MapBuilderPage() {
       />
     );
     // DEMEditorScene renders its own footer (Delete layer inline confirm)
+  } else if (editorScene === 'settings') {
+    sceneContent = (
+      <SettingsEditorScene
+        terrainConfig={layers.localTerrainConfig}
+        isTerrainActive={isTerrainActive}
+        boundLayerName={boundLayerName}
+        onExaggerationChange={(v) => {
+          layers.setLocalTerrainConfig((prev) =>
+            prev ? { ...prev, exaggeration: v } : { enabled: false, source_dataset_id: '', exaggeration: v },
+          );
+          layers.setHasUnsavedChanges(true);
+          if (
+            mapInstanceRef.current &&
+            layers.localTerrainConfig?.enabled &&
+            layers.localTerrainConfig.source_dataset_id
+          ) {
+            mapInstanceRef.current.setTerrain({
+              source: `dem-${layers.localTerrainConfig.source_dataset_id}`,
+              exaggeration: v,
+            });
+          }
+        }}
+        activeWidgetIds={activeWidgets}
+        onToggleWidget={(id) => useWidgetStore.getState().toggle(id)}
+        projection={localProjection}
+        onSetProjection={(proj) => {
+          setLocalProjection(proj);
+          try {
+            mapInstanceRef.current?.setProjection?.({ type: proj });
+          } catch {
+            // setProjection may not exist in test envs / older maplibre — swallow safely
+          }
+        }}
+      />
+    );
+    sceneFooter = undefined;
+    breadcrumbPresetName = undefined;
   }
 
   if (isLoading) {
@@ -526,8 +592,8 @@ export function MapBuilderPage() {
     'flex-1 min-h-0 grid',
     // Base: no editor open
     isRail ? 'grid-cols-[64px_1fr]' : 'grid-cols-[340px_1fr]',
-    // Editor open and not hidden (also for basemap group/sublayer scenes which have no editingLayer)
-    (editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer') && !isEditorHidden && (
+    // Editor open and not hidden (also for basemap group/sublayer/settings scenes which have no editingLayer)
+    (editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer' || editorScene === 'settings') && !isEditorHidden && (
       isRail ? 'grid-cols-[64px_380px_1fr]' : 'grid-cols-[340px_380px_1fr]'
     ),
   );
@@ -573,7 +639,12 @@ export function MapBuilderPage() {
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
               onAddDataClick={handleAddDataClick}
-              onSettingsClick={() => { /* TODO Phase 1036: wire settings */ }}
+              onSettingsClick={() => {
+                layers.handleToggleExpand(
+                  layers.expandedLayerId === 'settings' ? '' : 'settings',
+                );
+              }}
+              isSettingsOpen={editorScene === 'settings'}
             />
           ) : (
             <UnifiedStackPanel
@@ -587,7 +658,12 @@ export function MapBuilderPage() {
               onRename={layers.handleDisplayNameChange}
               onDuplicate={layers.handleDuplicateRendering}
               onAddDataClick={handleAddDataClick}
-              onSettingsClick={() => { /* TODO Phase 1036: wire settings */ }}
+              onSettingsClick={() => {
+                layers.handleToggleExpand(
+                  layers.expandedLayerId === 'settings' ? '' : 'settings',
+                );
+              }}
+              isSettingsOpen={editorScene === 'settings'}
               groupMeta={layers.groupMeta}
               onToggleGroupExpand={layers.handleToggleGroupExpand}
               basemapGroup={basemapGroup}
@@ -608,8 +684,8 @@ export function MapBuilderPage() {
           )}
         </aside>
 
-        {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap scene active; viewport >= 800px */}
-        {(editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer') && !isEditorHidden && (
+        {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap/settings scene active; viewport >= 800px */}
+        {(editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer' || editorScene === 'settings') && !isEditorHidden && (
           <aside
             data-testid="builder-layer-editor"
             className="border-e bg-background flex flex-col overflow-hidden"
@@ -618,21 +694,25 @@ export function MapBuilderPage() {
               <LayerEditorPanel
                 key={layers.expandedLayerId ?? 'no-layer'}
                 layer={editingLayer ?? {
-                  // Synthetic placeholder for basemap group/sublayer scenes (no real MapLayerResponse)
-                  id: layers.expandedLayerId ?? 'basemap-group',
-                  dataset_id: 'basemap',
-                  dataset_name: editorScene === 'basemap-sublayer'
-                    ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
-                    : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+                  // Synthetic placeholder for basemap group/sublayer/settings scenes (no real MapLayerResponse)
+                  id: editorScene === 'settings' ? 'settings' : (layers.expandedLayerId ?? 'basemap-group'),
+                  dataset_id: editorScene === 'settings' ? 'settings' : 'basemap',
+                  dataset_name: editorScene === 'settings'
+                    ? 'Settings'
+                    : editorScene === 'basemap-sublayer'
+                      ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
+                      : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
                   dataset_geometry_type: null,
-                  dataset_table_name: 'basemap',
+                  dataset_table_name: editorScene === 'settings' ? 'settings' : 'basemap',
                   dataset_extent_bbox: null,
                   dataset_column_info: null,
                   dataset_feature_count: null,
                   dataset_sample_values: null,
-                  display_name: editorScene === 'basemap-sublayer'
-                    ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
-                    : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+                  display_name: editorScene === 'settings'
+                    ? 'Settings'
+                    : editorScene === 'basemap-sublayer'
+                      ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
+                      : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
                   sort_order: -1,
                   visible: true,
                   opacity: 1,
@@ -642,7 +722,7 @@ export function MapBuilderPage() {
                   label_config: null,
                   popup_config: null,
                   style_config: null,
-                  layer_type: 'basemap_group',
+                  layer_type: editorScene === 'settings' ? ('settings' as unknown as null) : 'basemap_group',
                   dataset_record_type: 'vector_dataset',
                   show_in_legend: false,
                   is_dem: false,

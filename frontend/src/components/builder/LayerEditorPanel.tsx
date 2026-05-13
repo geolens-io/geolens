@@ -56,7 +56,7 @@ interface LayerEditorPanelProps {
    * - 'basemap-group': caller supplies sceneContent rendering BasemapGroupEditorScene (Plan 02)
    * - 'basemap-sublayer': caller supplies sceneContent rendering BasemapSublayerEditorScene (Plan 02); header shows breadcrumb
    */
-  editorScene?: 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer';
+  editorScene?: 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings';
   /** Caller-supplied body content for non-default scenes (Plans 02/03/04 pass their scene component). */
   sceneContent?: React.ReactNode;
   /** Caller-supplied footer content for non-default scenes. */
@@ -115,6 +115,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   const layerName = layer.display_name ?? layer.dataset_name;
   const resolvedActiveTab = activeTab ?? 'style';
+  const isPureSettings = editorScene === 'settings';
 
   // Section open/close state — Filter, Labels, Source are collapsed by default
   const [filterOpen, setFilterOpen] = useState(false);
@@ -165,7 +166,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const sourceHint = caps.kind;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div
+      className="flex flex-col h-full overflow-hidden"
+      role={isPureSettings ? 'region' : undefined}
+      aria-label={isPureSettings ? t('settings.regionLabel', { defaultValue: 'Map settings' }) : undefined}
+    >
       {/* Header: back (drill-down only) | [breadcrumb for sublayer] | type icon | layer name | close × */}
       <header
         data-testid="layer-editor-header"
@@ -201,28 +206,32 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
           </button>
         )}
 
-        {/* Type icon */}
-        <ColorizedGeometryIcon
-          geometryType={layer.dataset_geometry_type}
-          colors={layerColors}
-          layerId={layer.id}
-          layerType={caps.kind}
-          styleHints={styleHints}
-        />
+        {/* Type icon — suppressed for settings scene */}
+        {!isPureSettings && (
+          <ColorizedGeometryIcon
+            geometryType={layer.dataset_geometry_type}
+            colors={layerColors}
+            layerId={layer.id}
+            layerType={caps.kind}
+            styleHints={styleHints}
+          />
+        )}
 
-        {/* Layer name */}
+        {/* Layer name / Settings title */}
         <span
           id="layer-editor-title"
           className="text-sm font-semibold truncate flex-1 min-w-0"
         >
-          {layerName}
+          {isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName}
         </span>
 
         {/* Close × button */}
         <button
           type="button"
           onClick={onClose}
-          aria-label={t('layerEditor.close', { defaultValue: 'Close layer editor' })}
+          aria-label={isPureSettings
+            ? t('settings.closePanel', { defaultValue: 'Close settings' })
+            : t('layerEditor.close', { defaultValue: 'Close layer editor' })}
           className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="h-4 w-4" aria-hidden="true" />

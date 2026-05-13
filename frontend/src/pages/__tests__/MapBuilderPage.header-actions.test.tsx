@@ -52,6 +52,10 @@ vi.mock('@/components/builder/BasemapPicker', () => ({
   BasemapPicker: () => <div data-testid="basemap-picker" />,
 }));
 
+vi.mock('@/components/builder/SettingsEditorScene', () => ({
+  SettingsEditorScene: () => <div data-testid="settings-editor-scene" />,
+}));
+
 vi.mock('@/components/map-widgets', () => ({
   WidgetHost: () => null,
   WidgetSidebar: () => null,
@@ -113,6 +117,9 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
   useBuilderDialogs: () => dialogsState,
 }));
 
+let mockExpandedLayerId: string | null = null;
+const mockHandleToggleExpand = vi.fn();
+
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
     localLayers: [],
@@ -124,18 +131,19 @@ vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
     showBasemapLabels: true,
     basemapConfig: null,
     localTerrainConfig: null,
+    setLocalTerrainConfig: vi.fn(),
     setLocalBasemap: vi.fn(),
     setShowBasemapLabels: vi.fn(),
     setBasemapConfig: vi.fn(),
     setHasUnsavedChanges: vi.fn(),
     hasUnsavedChanges: false,
-    expandedLayerId: null,
+    expandedLayerId: mockExpandedLayerId,
     activeEditorTab: 'style',
     initialViewState: null,
     ephemeralResult: null,
     groupMeta: {},
     markDirty: vi.fn(),
-    handleToggleExpand: vi.fn(),
+    handleToggleExpand: mockHandleToggleExpand,
     handleTabChange: vi.fn(),
     handlePaintChange: vi.fn(),
     handleOpacityChange: vi.fn(),
@@ -192,8 +200,10 @@ describe('MapBuilderPage header actions', () => {
     mockUseParams.mockReturnValue({ id: 'map-1' });
     mockIsEditorHidden = false;
     mockIsRail = false;
+    mockExpandedLayerId = null;
     dialogsState.sidebarCollapsed = false;
     dialogsState.setShowShare.mockReset();
+    mockHandleToggleExpand.mockReset();
     localStorage.clear();
   });
 
@@ -255,5 +265,16 @@ describe('MapBuilderPage header actions', () => {
     // The builder body grid should include the 64px rail column class
     const builderBody = sidebar.parentElement;
     expect(builderBody?.className).toContain('grid-cols-[64px_1fr]');
+  });
+
+  it('clicking the settings cog calls handleToggleExpand with "settings"', async () => {
+    const user = userEvent.setup();
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    const cogBtn = document.querySelector('[data-testid="settings-cog-btn"]') as HTMLButtonElement;
+    expect(cogBtn).toBeTruthy();
+    await user.click(cogBtn);
+
+    expect(mockHandleToggleExpand).toHaveBeenCalledWith('settings');
   });
 });
