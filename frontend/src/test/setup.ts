@@ -9,6 +9,16 @@ if (!i18n.isInitialized) {
   i18n.use(initReactI18next).init(getTestI18nOptions());
 }
 
+// Polyfill ResizeObserver — jsdom does not ship it, but Radix UI primitives
+// (Slider, DropdownMenu content sizing) require it at import time.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // Provide a reliable localStorage implementation for tests.
 // Node 25 ships a built-in localStorage that conflicts with jsdom's when
 // --localstorage-file is not configured, causing storage.setItem errors in

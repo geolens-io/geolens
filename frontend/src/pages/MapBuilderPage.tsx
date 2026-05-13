@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { FileText, History, Sparkles } from 'lucide-react';
@@ -10,6 +10,11 @@ const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
 import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
+import { DEMEditorScene } from '@/components/builder/DEMEditorScene';
+import { BasemapGroupEditorScene, BasemapGroupEditorFooter } from '@/components/builder/BasemapGroupEditorScene';
+import { BasemapSublayerEditorScene, BasemapSublayerEditorFooter } from '@/components/builder/BasemapSublayerEditorScene';
+import { useBasemaps } from '@/hooks/use-settings';
+import { basemapThumbnail } from '@/lib/basemap-utils';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
@@ -174,6 +179,121 @@ export function MapBuilderPage() {
     [layers],
   );
 
+  // Phase 1035: basemaps data for the BasemapGroupEditorScene preset grid
+  // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
+  const { data: basemaps = [] } = useBasemaps();
+
+  // Phase 1035: in-memory sublayer state (persistence via basemap_config is a Phase 1038 follow-up)
+  const [sublayerState, setSublayerState] = useState<Record<string, { visible: boolean; opacity: number }>>({});
+
+  // Phase 1035: basemap group display object derived from localBasemap + showBasemapLabels
+  const basemapGroup = useMemo(() => {
+    if (!layers.localBasemap) return null;
+    // Derive preset name from the basemap id (label portion after last dash, capitalized)
+    const presetId = layers.localBasemap;
+    const presetName = presetId
+      .replace(/^(openfreemap-|carto-|mapbox-|maptiler-|esri-|stamen-|stadia-)/, '')
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Basemap';
+
+    return {
+      id: 'basemap-group',
+      presetName,
+      providerLabel: undefined,
+      visible: true,
+      opacity: layers.basemapConfig?.opacity ?? 1,
+      sublayers: [
+        {
+          id: 'basemap:roads',
+          name: 'Roads',
+          visible: sublayerState['basemap:roads']?.visible ?? true,
+          opacity: sublayerState['basemap:roads']?.opacity ?? 1,
+          kind: 'vector' as const,
+        },
+        {
+          id: 'basemap:labels',
+          name: 'Labels',
+          // Labels sublayer wired to the persisted showBasemapLabels flag (BSR-06)
+          visible: layers.showBasemapLabels,
+          opacity: sublayerState['basemap:labels']?.opacity ?? 1,
+          kind: 'vector' as const,
+        },
+        {
+          id: 'basemap:buildings',
+          name: 'Buildings',
+          visible: sublayerState['basemap:buildings']?.visible ?? true,
+          opacity: sublayerState['basemap:buildings']?.opacity ?? 1,
+          kind: 'vector' as const,
+        },
+        {
+          id: 'basemap:boundaries',
+          name: 'Boundaries',
+          visible: sublayerState['basemap:boundaries']?.visible ?? true,
+          opacity: sublayerState['basemap:boundaries']?.opacity ?? 1,
+          kind: 'vector' as const,
+        },
+        {
+          id: 'basemap:land-water',
+          name: 'Land-Water',
+          visible: sublayerState['basemap:land-water']?.visible ?? true,
+          opacity: sublayerState['basemap:land-water']?.opacity ?? 1,
+          kind: 'vector' as const,
+        },
+      ],
+    };
+  }, [layers.localBasemap, layers.basemapConfig, layers.showBasemapLabels, sublayerState]);
+
+  const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
+
+  // Phase 1035: sublayer visibility/opacity handlers
+  const handleToggleSublayerVisibility = useCallback((sublayerId: string) => {
+    if (sublayerId === 'basemap:labels') {
+      // Labels toggled via existing persisted flag
+      layers.setShowBasemapLabels(!layers.showBasemapLabels);
+      return;
+    }
+    setSublayerState((prev) => ({
+      ...prev,
+      [sublayerId]: {
+        visible: !(prev[sublayerId]?.visible ?? true),
+        opacity: prev[sublayerId]?.opacity ?? 1,
+      },
+    }));
+    layers.markDirty();
+  }, [layers]);
+
+  const handleSublayerOpacityChange = useCallback((sublayerId: string, opacity: number) => {
+    setSublayerState((prev) => ({
+      ...prev,
+      [sublayerId]: { visible: prev[sublayerId]?.visible ?? true, opacity },
+    }));
+    layers.markDirty();
+  }, [layers]);
+
+  const handleResetBasemapAppearance = useCallback(() => {
+    layers.setBasemapConfig(null);
+    setSublayerState({});
+    layers.markDirty();
+  }, [layers]);
+
+  // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
+  const existingFolderGroups = useMemo(() => {
+    return layers.localLayers
+      .filter((l) => ((l.layer_type as string | null | undefined) ?? '').startsWith('group:folder'))
+      .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
+  }, [layers.localLayers]);
+
+  // Phase 1035: editor scene selection based on current selection
+  type EditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer';
+  const editorScene = useMemo<EditorScene>(() => {
+    const sel = layers.expandedLayerId;
+    if (!sel) return 'default';
+    if (sel === 'basemap-group') return 'basemap-group';
+    if (sel.startsWith('basemap:')) return 'basemap-sublayer';
+    if (editingLayer?.is_dem === true) return 'dem';
+    return 'default';
+  }, [layers.expandedLayerId, editingLayer]);
+
   const railProps = useMemo(() => ({
     activePanel: railPanel,
     onPanelChange: setRailPanel,
@@ -245,17 +365,115 @@ export function MapBuilderPage() {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
     // Return focus to the row that opened the flyout.
-    // Resolver covers: new Plan 02 stack-row-{id} AND legacy layer-expand-{id} from MapStackItem.
+    // stack-row-{id} is used by all row types (StackRow, BasemapGroupRow, FolderGroupRow).
+    // The legacy layer-expand-{id} fallback from MapStackItem is retired in Phase 1035.
     if (expandedId) {
       requestAnimationFrame(() => {
-        const rowEl =
-          document.getElementById(`stack-row-${expandedId}`) ??
-          document.getElementById(`layer-expand-${expandedId}`);
+        const rowEl = document.getElementById(`stack-row-${expandedId}`);
         rowEl?.focus();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- stable refs
   }, [layers.handleToggleExpand, layers.expandedLayerId]);
+
+  // Phase 1035: open Add Data modal for "Add layer" in folder group (Plan 1037 will pass groupId)
+  const handleAddLayerToFolderGroup = useCallback((_groupId: string) => {
+    handleAddDataClick();
+  }, [handleAddDataClick]);
+
+  // Phase 1035: breadcrumb click — navigate editor from Scene C → Scene B
+  const onBreadcrumbClick = useCallback(() => {
+    handleSelectLayer('basemap-group');
+  }, [handleSelectLayer]);
+
+  // Phase 1035: scene-specific content + footer for LayerEditorPanel
+  // Computed after handleSelectLayer and handleAddDataClick are in scope
+  let sceneContent: ReactNode = null;
+  let sceneFooter: ReactNode = null;
+  let breadcrumbPresetName: string | undefined = undefined;
+
+  if (editorScene === 'basemap-group' && basemapGroup) {
+    const presets = basemaps.map((b) => ({
+      id: b.id,
+      name: b.label,
+      provider: '',
+      thumbnailUrl: basemapThumbnail(b.id),
+    }));
+    sceneContent = (
+      <BasemapGroupEditorScene
+        activePresetId={layers.localBasemap}
+        presets={presets}
+        sublayers={basemapGroup.sublayers}
+        masterOpacity={basemapGroup.opacity}
+        onSwapBasemap={(presetId) => { layers.setLocalBasemap(presetId); layers.markDirty(); }}
+        onAddCustomBasemap={() => { /* Plan 1037 follow-up */ }}
+        onSublayerVisibilityChange={handleToggleSublayerVisibility}
+        onSublayerOpacityChange={handleSublayerOpacityChange}
+        onMasterOpacityChange={(opacity) => {
+          layers.setBasemapConfig({ ...(layers.basemapConfig ?? {}), opacity });
+          layers.markDirty();
+        }}
+      />
+    );
+    sceneFooter = (
+      <BasemapGroupEditorFooter
+        onResetAppearance={handleResetBasemapAppearance}
+        onRemoveBasemap={() => { layers.setLocalBasemap('openfreemap-positron'); layers.markDirty(); }}
+      />
+    );
+  } else if (editorScene === 'basemap-sublayer' && basemapGroup) {
+    const sublayer = basemapGroup.sublayers.find((s) => s.id === layers.expandedLayerId);
+    breadcrumbPresetName = basemapGroup.presetName;
+    if (sublayer) {
+      sceneContent = (
+        <BasemapSublayerEditorScene
+          sublayerId={sublayer.id}
+          sublayerName={sublayer.name}
+          activeDetailLevel="default"
+          isCustomized={false}
+          strokeColor="#888888"
+          strokeWidth={1}
+          casingColor="#FFFFFF"
+          casingWidth={0}
+          opacity={sublayer.opacity}
+          minZoom={0}
+          maxZoom={22}
+          onDetailLevelChange={() => layers.markDirty()}
+          onStrokeColorChange={() => layers.markDirty()}
+          onStrokeWidthChange={() => layers.markDirty()}
+          onCasingColorChange={() => layers.markDirty()}
+          onCasingWidthChange={() => layers.markDirty()}
+          onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
+          onZoomChange={() => layers.markDirty()}
+          onResetSublayer={() => {
+            setSublayerState((prev) => {
+              const next = { ...prev };
+              delete next[sublayer.id];
+              return next;
+            });
+            layers.markDirty();
+          }}
+        />
+      );
+      sceneFooter = (
+        <BasemapSublayerEditorFooter
+          onBackToBasemap={() => handleSelectLayer('basemap-group')}
+        />
+      );
+    }
+  } else if (editorScene === 'dem' && editingLayer) {
+    sceneContent = (
+      <DEMEditorScene
+        layer={editingLayer}
+        onPaintChange={(p) => layers.handlePaintChange(editingLayer.id, p)}
+        onStyleConfigChange={(cfg, paint) => layers.handleStyleConfigChange(editingLayer.id, cfg, paint)}
+        onOpacityChange={(o) => layers.handleOpacityChange(editingLayer.id, o)}
+        onZoomChange={(min, max) => layers.handleLayoutChange(editingLayer.id, { ...editingLayer.layout, _minzoom: min, _maxzoom: max })}
+        onTerrainBind={layers.handleDEMTerrainBind}
+      />
+    );
+    // Default footer (Delete layer inline confirm) — leave sceneFooter undefined
+  }
 
   if (isLoading) {
     return (
@@ -293,8 +511,8 @@ export function MapBuilderPage() {
     'flex-1 min-h-0 grid',
     // Base: no editor open
     isRail ? 'grid-cols-[64px_1fr]' : 'grid-cols-[340px_1fr]',
-    // Editor open and not hidden
-    editingLayer && !isEditorHidden && (
+    // Editor open and not hidden (also for basemap group/sublayer scenes which have no editingLayer)
+    (editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer') && !isEditorHidden && (
       isRail ? 'grid-cols-[64px_380px_1fr]' : 'grid-cols-[340px_380px_1fr]'
     ),
   );
@@ -355,25 +573,76 @@ export function MapBuilderPage() {
               onDuplicate={layers.handleDuplicateRendering}
               onAddDataClick={handleAddDataClick}
               onSettingsClick={() => { /* TODO Phase 1036: wire settings */ }}
+              groupMeta={layers.groupMeta}
+              onToggleGroupExpand={layers.handleToggleGroupExpand}
+              basemapGroup={basemapGroup}
+              isBasemapExpanded={isBasemapExpanded}
+              onToggleSublayerVisibility={handleToggleSublayerVisibility}
+              onSublayerOpacityChange={handleSublayerOpacityChange}
+              onSwapBasemap={() => dialogs.setShowAddData(true)}
+              onResetBasemapAppearance={handleResetBasemapAppearance}
+              onRenameGroup={layers.handleRenameGroup}
+              onAddLayerToGroup={handleAddLayerToFolderGroup}
+              onUngroup={layers.handleUngroup}
+              onDeleteGroup={layers.handleDeleteGroup}
+              onAddLayerToExistingGroup={layers.handleAddLayerToExistingGroup}
+              onCreateGroupWithLayer={layers.handleCreateGroupWithLayer}
+              onMoveLayerOutOfGroup={layers.handleMoveLayerOutOfGroup}
+              existingFolderGroups={existingFolderGroups}
             />
           )}
         </aside>
 
-        {/* Column 2: LayerEditorPanel flyout (380px) — only when layer selected and viewport >= 800px */}
-        {editingLayer && !isEditorHidden && (
+        {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap scene active; viewport >= 800px */}
+        {(editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer') && !isEditorHidden && (
           <aside
             data-testid="builder-layer-editor"
             className="border-e bg-background flex flex-col overflow-hidden"
           >
             <LazyLoadErrorBoundary>
               <LayerEditorPanel
-                key={editingLayer.id}
-                layer={editingLayer}
+                key={layers.expandedLayerId ?? 'no-layer'}
+                layer={editingLayer ?? {
+                  // Synthetic placeholder for basemap group/sublayer scenes (no real MapLayerResponse)
+                  id: layers.expandedLayerId ?? 'basemap-group',
+                  dataset_id: 'basemap',
+                  dataset_name: editorScene === 'basemap-sublayer'
+                    ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
+                    : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+                  dataset_geometry_type: null,
+                  dataset_table_name: 'basemap',
+                  dataset_extent_bbox: null,
+                  dataset_column_info: null,
+                  dataset_feature_count: null,
+                  dataset_sample_values: null,
+                  display_name: editorScene === 'basemap-sublayer'
+                    ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
+                    : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+                  sort_order: -1,
+                  visible: true,
+                  opacity: 1,
+                  paint: {},
+                  layout: {},
+                  filter: null,
+                  label_config: null,
+                  popup_config: null,
+                  style_config: null,
+                  layer_type: 'basemap_group',
+                  dataset_record_type: 'vector_dataset',
+                  show_in_legend: false,
+                  is_dem: false,
+                  dem_vertical_units: null,
+                }}
                 onClose={handleCloseEditor}
                 isDrillDown={false}
                 handlers={layerEditorHandlers}
                 activeTab={layers.activeEditorTab}
                 enableLegacyTabs={false}
+                editorScene={editorScene}
+                sceneContent={sceneContent ?? undefined}
+                sceneFooter={sceneFooter ?? undefined}
+                breadcrumbPresetName={breadcrumbPresetName}
+                onBreadcrumbClick={onBreadcrumbClick}
               />
             </LazyLoadErrorBoundary>
           </aside>
