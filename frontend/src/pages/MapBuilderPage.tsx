@@ -407,14 +407,11 @@ export function MapBuilderPage() {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // Phase 1036: terrain active flag — true when any DEM layer has render_mode=terrain OR
-  // localTerrainConfig.enabled is true (fallback for initial hydration before render_mode is set).
+  // Phase 1036: terrain active flag — true when localTerrainConfig.enabled is true,
+  // meaning a DEM layer has been bound as the terrain source.
   const isTerrainActive = useMemo(
-    () =>
-      layers.localLayers.some(
-        (l) => l.is_dem === true && l.style_config?.render_mode === 'terrain',
-      ) || Boolean(layers.localTerrainConfig?.enabled),
-    [layers.localLayers, layers.localTerrainConfig],
+    () => Boolean(layers.localTerrainConfig?.enabled),
+    [layers.localTerrainConfig],
   );
 
   // Phase 1036: name of the DEM layer currently bound as terrain source
@@ -722,7 +719,7 @@ export function MapBuilderPage() {
                   label_config: null,
                   popup_config: null,
                   style_config: null,
-                  layer_type: editorScene === 'settings' ? ('settings' as unknown as null) : 'basemap_group',
+                  layer_type: null,
                   dataset_record_type: 'vector_dataset',
                   show_in_legend: false,
                   is_dem: false,

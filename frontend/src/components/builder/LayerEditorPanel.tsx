@@ -181,7 +181,6 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
           <div className="w-full mb-0.5">
             <button
               type="button"
-              role="button"
               aria-label={t('basemapSublayer.breadcrumbLabel', { defaultValue: 'Back to basemap group' })}
               onClick={onBreadcrumbClick}
               style={{ fontSize: '11px', lineHeight: 1.2, letterSpacing: '0.04em' }}
