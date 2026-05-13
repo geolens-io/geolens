@@ -49,6 +49,22 @@ interface LayerEditorPanelProps {
    * When true, renders the legacy tab-based body for backward compat.
    */
   enableLegacyTabs?: boolean;
+  /**
+   * Editor scene variant. Controls which content renders in the body slot.
+   * - 'default' (or undefined): existing section-based body
+   * - 'dem': caller supplies sceneContent rendering DEMEditorScene (Plan 04)
+   * - 'basemap-group': caller supplies sceneContent rendering BasemapGroupEditorScene (Plan 02)
+   * - 'basemap-sublayer': caller supplies sceneContent rendering BasemapSublayerEditorScene (Plan 02); header shows breadcrumb
+   */
+  editorScene?: 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer';
+  /** Caller-supplied body content for non-default scenes (Plans 02/03/04 pass their scene component). */
+  sceneContent?: React.ReactNode;
+  /** Caller-supplied footer content for non-default scenes. */
+  sceneFooter?: React.ReactNode;
+  /** Display name shown in the breadcrumb when editorScene === 'basemap-sublayer'. Falls back to "Untitled". */
+  breadcrumbPresetName?: string;
+  /** Click handler for the breadcrumb element when editorScene === 'basemap-sublayer'. */
+  onBreadcrumbClick?: () => void;
 }
 
 function clampZoom(v: number): number {
@@ -71,6 +87,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   onClose,
   isDrillDown = false,
   enableLegacyTabs = false,
+  editorScene = 'default',
+  sceneContent,
+  sceneFooter,
+  breadcrumbPresetName,
+  onBreadcrumbClick,
 }: LayerEditorPanelProps) {
   const { t } = useTranslation('builder');
   const columns = layer.dataset_column_info ?? [];
@@ -113,7 +134,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     setFilterOpen(false);
     setLabelsOpen(false);
     setSourceOpen(false);
-  }, [layer.id]);
+  }, [layer.id, editorScene]);
 
   // Zoom range from layout
   const layout = layerLayout(layer);
@@ -145,11 +166,28 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header: back (drill-down only) | type icon | layer name | close × */}
+      {/* Header: back (drill-down only) | [breadcrumb for sublayer] | type icon | layer name | close × */}
       <header
         data-testid="layer-editor-header"
-        className="flex items-center gap-1.5 px-2 py-2 border-b shrink-0"
+        className="flex flex-col px-2 py-2 border-b shrink-0"
       >
+        {/* Breadcrumb: only shown when editorScene === 'basemap-sublayer' */}
+        {editorScene === 'basemap-sublayer' && (
+          <div className="w-full mb-0.5">
+            <button
+              type="button"
+              role="button"
+              aria-label={t('basemapSublayer.breadcrumbLabel', { defaultValue: 'Back to basemap group' })}
+              onClick={onBreadcrumbClick}
+              style={{ fontSize: '11px', lineHeight: 1.2, letterSpacing: '0.04em' }}
+              className="text-muted-foreground hover:text-foreground hover:underline block"
+            >
+              Basemap · {breadcrumbPresetName ?? 'Untitled'} ›
+            </button>
+          </div>
+        )}
+        {/* Title row: back (drill-down only) | type icon | layer name | close × */}
+        <div className="flex items-center gap-1.5">
         {/* Back arrow: only shown in <800px drill-down mode */}
         {isDrillDown && (
           <button
@@ -189,6 +227,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         >
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
+        </div>
       </header>
 
       {/* Scrollable body */}
@@ -196,7 +235,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         data-testid="layer-editor-body"
         className="flex-1 overflow-y-auto"
       >
-        {!enableLegacyTabs && (
+        {!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined) && (
           <>
             {/* 1. Render as — always expanded */}
             <section
@@ -486,6 +525,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
           </>
         )}
 
+        {/* Non-default scene body — Plans 02/03/04 pass their scene component via sceneContent */}
+        {!enableLegacyTabs && editorScene && editorScene !== 'default' && sceneContent}
+
         {/* Legacy tab-based body — preserved for backward compat */}
         {enableLegacyTabs && (
           <>
@@ -589,42 +631,85 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         )}
       </div>
 
-      {/* Footer — Delete button + inline confirm */}
+      {/* Footer — Delete button + inline confirm (default scene) or sceneFooter (non-default) */}
       <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
-        {!confirmingDelete ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-full text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
-            onClick={() => setConfirmingDelete(true)}
-          >
-            {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
-          </Button>
-        ) : (
-          <div role="alertdialog" aria-labelledby="confirm-delete-title" className="space-y-2">
-            <p id="confirm-delete-title" className="text-sm text-destructive text-center">
-              {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
-            </p>
-            <div className="flex gap-2">
+        {(!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined)) && (
+          <>
+            {!confirmingDelete ? (
               <Button
                 type="button"
-                variant="destructive"
-                className="flex-1"
-                onClick={() => handlers.onRemove(layer.id)}
+                variant="ghost"
+                className="w-full text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
+                onClick={() => setConfirmingDelete(true)}
               >
-                {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
+                {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
               </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                onClick={() => setConfirmingDelete(false)}
-              >
-                {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
-              </Button>
-            </div>
-          </div>
+            ) : (
+              <div role="alertdialog" aria-labelledby="confirm-delete-title" className="space-y-2">
+                <p id="confirm-delete-title" className="text-sm text-destructive text-center">
+                  {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => handlers.onRemove(layer.id)}
+                  >
+                    {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="flex-1"
+                    onClick={() => setConfirmingDelete(false)}
+                  >
+                    {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
+        {enableLegacyTabs && (
+          <>
+            {!confirmingDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
+                onClick={() => setConfirmingDelete(true)}
+              >
+                {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
+              </Button>
+            ) : (
+              <div role="alertdialog" aria-labelledby="confirm-delete-title" className="space-y-2">
+                <p id="confirm-delete-title" className="text-sm text-destructive text-center">
+                  {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => handlers.onRemove(layer.id)}
+                  >
+                    {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="flex-1"
+                    onClick={() => setConfirmingDelete(false)}
+                  >
+                    {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        {!enableLegacyTabs && editorScene && editorScene !== 'default' && sceneFooter}
       </footer>
     </div>
   );

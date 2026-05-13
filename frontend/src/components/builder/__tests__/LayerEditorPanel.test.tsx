@@ -451,4 +451,172 @@ describe('LayerEditorPanel', () => {
       expect(screen.queryByText('Render as')).not.toBeInTheDocument();
     });
   });
+
+  describe('editorScene dispatch', () => {
+    it('Test 1: editorScene=default renders existing section body (regression)', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="default"
+        />
+      );
+      expect(screen.getByText('Render as')).toBeInTheDocument();
+      expect(screen.getByText('Appearance')).toBeInTheDocument();
+    });
+
+    it('Test 1b: editorScene=undefined renders existing section body (regression)', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+        />
+      );
+      expect(screen.getByText('Render as')).toBeInTheDocument();
+    });
+
+    it('Test 2: editorScene=basemap-sublayer renders breadcrumb ABOVE layer-editor-title', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="basemap-sublayer"
+          breadcrumbPresetName="Positron"
+        />
+      );
+      // Breadcrumb should contain "Basemap · Positron ›"
+      const breadcrumb = screen.getByRole('button', { name: 'Back to basemap group' });
+      expect(breadcrumb).toBeInTheDocument();
+      expect(breadcrumb).toHaveTextContent('Basemap · Positron ›');
+    });
+
+    it('Test 3: breadcrumb has role=button, aria-label, and calls onBreadcrumbClick', () => {
+      const onBreadcrumbClick = vi.fn();
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="basemap-sublayer"
+          breadcrumbPresetName="Streets"
+          onBreadcrumbClick={onBreadcrumbClick}
+        />
+      );
+      const breadcrumb = screen.getByRole('button', { name: 'Back to basemap group' });
+      expect(breadcrumb).toHaveAttribute('aria-label', 'Back to basemap group');
+      fireEvent.click(breadcrumb);
+      expect(onBreadcrumbClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('Test 4: breadcrumb does NOT render when editorScene is default, dem, or basemap-group', () => {
+      const { rerender } = render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="default"
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'Back to basemap group' })).not.toBeInTheDocument();
+
+      rerender(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="dem"
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'Back to basemap group' })).not.toBeInTheDocument();
+
+      rerender(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="basemap-group"
+        />
+      );
+      expect(screen.queryByRole('button', { name: 'Back to basemap group' })).not.toBeInTheDocument();
+    });
+
+    it('Test 5: non-default editorScene does NOT render six-section body; renders sceneContent instead', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="dem"
+          sceneContent={<div data-testid="custom-scene">scene</div>}
+        />
+      );
+      expect(screen.queryByText('Render as')).not.toBeInTheDocument();
+      expect(screen.queryByText('Appearance')).not.toBeInTheDocument();
+      expect(screen.getByTestId('custom-scene')).toBeInTheDocument();
+    });
+
+    it('Test 6: testids layer-editor-header, layer-editor-body, layer-editor-footer preserved on all scenes', () => {
+      const { rerender } = render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="default"
+        />
+      );
+      expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
+      expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
+      expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
+
+      rerender(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="basemap-sublayer"
+        />
+      );
+      expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
+      expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
+      expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
+    });
+
+    it('Test 7: editorScene=basemap-sublayer with undefined presetName renders "Basemap · Untitled ›"', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="basemap-sublayer"
+        />
+      );
+      const breadcrumb = screen.getByRole('button', { name: 'Back to basemap group' });
+      expect(breadcrumb).toHaveTextContent('Basemap · Untitled ›');
+    });
+  });
 });
