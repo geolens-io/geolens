@@ -29,6 +29,20 @@ vi.mock('@/components/map/layer-icons', () => ({
 }));
 
 // Mock BasemapGroupRow and FolderGroupRow to simple stubs for routing logic tests
+vi.mock('../EmptyStackState', () => ({
+  EmptyStackState: ({ onOpenAddData, onAddDataset }: {
+    onOpenAddData: (query?: string) => void;
+    onAddDataset: (id: string) => void;
+  }) => (
+    <div data-testid="empty-stack-state">
+      <p>Add your first layer</p>
+      <button data-testid="empty-browse-all" onClick={() => onOpenAddData()}>Browse all datasets</button>
+      <button data-testid="empty-search-submit" onClick={() => onOpenAddData('test query')}>Search</button>
+      <button data-testid="empty-add-dataset" onClick={() => onAddDataset('dataset-id-1')}>Add dataset</button>
+    </div>
+  ),
+}));
+
 vi.mock('../BasemapGroupRow', () => ({
   BasemapGroupRow: ({ groupId, presetName, isExpanded, onToggleExpand, onSelectGroup }: {
     groupId: string;
@@ -192,10 +206,11 @@ describe('UnifiedStackPanel', () => {
     expect(screen.getByRole('button', { name: /Add data/i })).toBeInTheDocument();
   });
 
-  it('renders empty state "No layers yet" with no layers and no basemapGroup', () => {
+  it('renders EmptyStackState when no layers are present', () => {
     render(<UnifiedStackPanel {...defaultProps({ layers: [], basemapGroup: null })} />);
 
-    expect(screen.getByText('No layers yet')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-stack-state')).toBeInTheDocument();
+    expect(screen.getByText('Add your first layer')).toBeInTheDocument();
   });
 
   it('renders one StackRow per layer in array order', () => {
@@ -319,7 +334,7 @@ describe('UnifiedStackPanel — basemap group rendering', () => {
     expect(container.style.borderLeft).toBe('1px dashed var(--border)');
   });
 
-  it('does not render empty state when basemapGroup is provided and layers are empty', () => {
+  it('renders EmptyStackState and basemap dock when layers=[] and basemapGroup is provided', () => {
     render(
       <UnifiedStackPanel
         {...defaultProps({
@@ -329,8 +344,12 @@ describe('UnifiedStackPanel — basemap group rendering', () => {
       />
     );
 
-    expect(screen.queryByText('No layers yet')).not.toBeInTheDocument();
+    // EmptyStackState renders (isEmpty = layers.length === 0)
+    expect(screen.getByTestId('empty-stack-state')).toBeInTheDocument();
+    // Basemap dock still renders in empty state
     expect(screen.getByTestId('basemap-group-row-basemap-group')).toBeInTheDocument();
+    // Basemap dock container visible
+    expect(screen.getByTestId('basemap-dock')).toBeInTheDocument();
   });
 });
 

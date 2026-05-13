@@ -708,7 +708,13 @@
     "addData": "＋ Add data",
     "settings": "Settings",
     "emptyState": "No layers yet",
-    "countBadge": "{{count}}"
+    "countBadge": "{{count}}",
+    "basemapEyebrow": "BASEMAP",
+    "emptyHeading": "Add your first layer",
+    "emptyBody": "Search the catalog or pick a starter dataset below.",
+    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
+    "suggestedLabel": "SUGGESTED",
+    "browseAll": "Browse all datasets →"
   },
   "rail": {
     "aiDisabled": "AI disabled by admin"

@@ -24,6 +24,7 @@ import { Slider } from '@/components/ui/slider';
 import { StackRow } from '@/components/builder/StackRow';
 import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
 import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
+import { EmptyStackState } from '@/components/builder/EmptyStackState';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
@@ -79,7 +80,8 @@ interface UnifiedStackPanelProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
-  onAddDataClick: () => void;
+  onAddDataClick: (initialQuery?: string) => void;
+  onAddDataset?: (datasetId: string) => void;
   onSettingsClick: () => void;
   isSettingsOpen?: boolean;
   // Phase 1035 new props
@@ -471,6 +473,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onRename,
   onDuplicate,
   onAddDataClick,
+  onAddDataset,
   onSettingsClick,
   isSettingsOpen = false,
   groupMeta = {},
@@ -554,7 +557,64 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? NOOP;
   const safeToggleGroupExpand = onToggleGroupExpand ?? NOOP;
 
-  const isEmpty = layers.length === 0 && !basemapGroup;
+  const isEmpty = layers.length === 0;
+
+  // ---------------------------------------------------------------------------
+  // Basemap dock row — rendered in both empty and populated states.
+  // In empty state it sits below the EmptyStackState content with a "BASEMAP"
+  // eyebrow label for disambiguation. In populated state no eyebrow is shown.
+  // ---------------------------------------------------------------------------
+  function renderBasemapDockRow(showEyebrow: boolean) {
+    if (!basemapGroup) return null;
+    return (
+      <div
+        data-testid="basemap-dock"
+        className={cn(showEyebrow && 'border-t border-[var(--border)]')}
+      >
+        {showEyebrow && (
+          <span
+            aria-hidden="true"
+            className="block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-3 pt-1 pb-0"
+          >
+            {t('unifiedStack.basemapEyebrow', { defaultValue: 'BASEMAP' })}
+          </span>
+        )}
+        <BasemapGroupRowWrapper
+          key={`bm-${basemapGroup.id}`}
+          group={basemapGroup}
+          selected={basemapGroup.id === selectedLayerId}
+          isExpanded={isBasemapExpanded}
+          visibilityDisabled // basemap visibility via eye not wired in v1; disables eye button
+          onSelectGroup={onSelectLayer}
+          onToggleExpand={safeToggleGroupExpand}
+          onToggleVisibility={() => {}}
+          onOpacityChange={() => {}} // opacity via master slider in Scene B editor
+          onSwapBasemap={safeSwapBasemap}
+          onResetAppearance={safeResetBasemapAppearance}
+        />
+        {isBasemapExpanded && (
+          <div
+            id={`basemap-group-children-${basemapGroup.id}`}
+            data-testid={`basemap-group-children-${basemapGroup.id}`}
+            style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
+            role="listbox"
+            aria-label="Basemap sublayers"
+          >
+            {basemapGroup.sublayers.map((sub) => (
+              <SublayerRow
+                key={sub.id}
+                sublayer={sub}
+                selected={sub.id === selectedLayerId}
+                onSelectLayer={onSelectLayer}
+                onToggleSublayerVisibility={safeToggleSublayerVisibility}
+                onSublayerOpacityChange={safeSublayerOpacityChange}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -594,7 +654,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             variant="default"
             size="sm"
             className="h-7 gap-1 px-2 text-xs"
-            onClick={onAddDataClick}
+            onClick={() => onAddDataClick()}
           >
             <Plus className="h-3 w-3" aria-hidden="true" />
             {t('unifiedStack.addData', { defaultValue: '＋ Add data' })}
@@ -610,11 +670,14 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         aria-multiselectable="false"
       >
         {isEmpty ? (
-          <div className="flex items-center justify-center h-24">
-            <p className="text-sm text-muted-foreground">
-              {t('unifiedStack.emptyState', { defaultValue: 'No layers yet' })}
-            </p>
-          </div>
+          <>
+            <EmptyStackState
+              onOpenAddData={(q) => onAddDataClick(q)}
+              onAddDataset={onAddDataset ?? (() => {})}
+            />
+            {/* Basemap dock always visible; eyebrow label shown in empty state */}
+            {renderBasemapDockRow(true)}
+          </>
         ) : (
           <DndContext
             sensors={sensors}
@@ -627,43 +690,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
               strategy={verticalListSortingStrategy}
             >
               {/* 1. Basemap group (always at top when present) */}
-              {basemapGroup && (
-                <>
-                  <BasemapGroupRowWrapper
-                    key={`bm-${basemapGroup.id}`}
-                    group={basemapGroup}
-                    selected={basemapGroup.id === selectedLayerId}
-                    isExpanded={isBasemapExpanded}
-                    visibilityDisabled // basemap visibility via eye not wired in v1; disables eye button
-                    onSelectGroup={onSelectLayer}
-                    onToggleExpand={safeToggleGroupExpand}
-                    onToggleVisibility={() => {}}
-                    onOpacityChange={() => {}} // opacity via master slider in Scene B editor
-                    onSwapBasemap={safeSwapBasemap}
-                    onResetAppearance={safeResetBasemapAppearance}
-                  />
-                  {isBasemapExpanded && (
-                    <div
-                      id={`basemap-group-children-${basemapGroup.id}`}
-                      data-testid={`basemap-group-children-${basemapGroup.id}`}
-                      style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
-                      role="listbox"
-                      aria-label="Basemap sublayers"
-                    >
-                      {basemapGroup.sublayers.map((sub) => (
-                        <SublayerRow
-                          key={sub.id}
-                          sublayer={sub}
-                          selected={sub.id === selectedLayerId}
-                          onSelectLayer={onSelectLayer}
-                          onToggleSublayerVisibility={safeToggleSublayerVisibility}
-                          onSublayerOpacityChange={safeSublayerOpacityChange}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+              {renderBasemapDockRow(false)}
 
               {/* 2. User folder groups + loose layers (in saved order) */}
               {layers.map((layer) => {
