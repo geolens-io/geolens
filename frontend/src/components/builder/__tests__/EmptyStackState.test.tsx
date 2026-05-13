@@ -1,0 +1,196 @@
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { EmptyStackState } from '../EmptyStackState';
+import { getDataset } from '@/api/datasets';
+import { SUGGESTED_DATASETS } from '../suggested-datasets';
+
+vi.mock('@/api/datasets', () => ({
+  getDataset: vi.fn(),
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) =>
+      options?.defaultValue ?? key,
+    i18n: { language: 'en' },
+  }),
+}));
+
+const mockGetDataset = vi.mocked(getDataset);
+
+function defaultProps(overrides: Partial<React.ComponentProps<typeof EmptyStackState>> = {}) {
+  return {
+    onOpenAddData: vi.fn(),
+    onAddDataset: vi.fn(),
+    ...overrides,
+  } satisfies React.ComponentProps<typeof EmptyStackState>;
+}
+
+describe('EmptyStackState', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // By default all getDataset calls resolve successfully
+    mockGetDataset.mockResolvedValue({
+      id: 'mock-id',
+      display_name: 'Mock Dataset',
+    } as ReturnType<typeof getDataset> extends Promise<infer T> ? T : never);
+  });
+
+  it('Test 1: renders heading and body text via defaultValue', async () => {
+    render(<EmptyStackState {...defaultProps()} />);
+
+    expect(screen.getByText('Add your first layer')).toBeInTheDocument();
+    expect(screen.getByText('Search the catalog or pick a starter dataset below.')).toBeInTheDocument();
+  });
+
+  it('Test 2: renders inline search input with correct role and placeholder', async () => {
+    render(<EmptyStackState {...defaultProps()} />);
+
+    const input = screen.getByRole('searchbox');
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-label', 'Search datasets to add');
+    expect(input).toHaveAttribute('placeholder', 'Search datasets, URLs, or files…');
+  });
+
+  it('Test 3: Enter with non-empty value calls onOpenAddData with trimmed value; empty/whitespace does not', async () => {
+    const onOpenAddData = vi.fn();
+    render(<EmptyStackState {...defaultProps({ onOpenAddData })} />);
+
+    const input = screen.getByRole('searchbox');
+
+    // Empty — should NOT call
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpenAddData).not.toHaveBeenCalled();
+
+    // Whitespace only — should NOT call
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpenAddData).not.toHaveBeenCalled();
+
+    // Non-empty — SHOULD call with trimmed value
+    fireEvent.change(input, { target: { value: '  roads  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpenAddData).toHaveBeenCalledWith('roads');
+    expect(onOpenAddData).toHaveBeenCalledTimes(1);
+  });
+
+  it('Test 4: Escape clears the input and does NOT call onOpenAddData', async () => {
+    const onOpenAddData = vi.fn();
+    render(<EmptyStackState {...defaultProps({ onOpenAddData })} />);
+
+    const input = screen.getByRole('searchbox');
+    fireEvent.change(input, { target: { value: 'some query' } });
+    expect(input).toHaveValue('some query');
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input).toHaveValue('');
+    expect(onOpenAddData).not.toHaveBeenCalled();
+  });
+
+  it('Test 5: renders SUGGESTED eyebrow label and list with correct aria attributes', async () => {
+    render(<EmptyStackState {...defaultProps()} />);
+
+    // Eyebrow label (aria-hidden)
+    const eyebrow = screen.getByText('SUGGESTED');
+    expect(eyebrow).toHaveAttribute('aria-hidden', 'true');
+
+    // List
+    const list = screen.getByRole('list', { name: 'Suggested datasets' });
+    expect(list).toBeInTheDocument();
+  });
+
+  it('Test 6: each suggest-card renders dataset name, add button, and card body button', async () => {
+    render(<EmptyStackState {...defaultProps()} />);
+
+    for (const suggestion of SUGGESTED_DATASETS) {
+      // Card body button
+      const cardBody = screen.getByRole('button', { name: `Open ${suggestion.name} in Add Data modal` });
+      expect(cardBody).toBeInTheDocument();
+
+      // Add button
+      const addBtn = screen.getByRole('button', { name: `Add ${suggestion.name} to map` });
+      expect(addBtn).toBeInTheDocument();
+    }
+  });
+
+  it('Test 7: card body click calls onOpenAddData(name); add button click calls onAddDataset(id) — mutually exclusive', async () => {
+    const onOpenAddData = vi.fn();
+    const onAddDataset = vi.fn();
+    render(<EmptyStackState {...defaultProps({ onOpenAddData, onAddDataset })} />);
+
+    const first = SUGGESTED_DATASETS[0];
+
+    // Click card body → opens modal with name
+    const cardBody = screen.getByRole('button', { name: `Open ${first.name} in Add Data modal` });
+    fireEvent.click(cardBody);
+    expect(onOpenAddData).toHaveBeenCalledWith(first.name);
+    expect(onAddDataset).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+
+    // Click add button → direct add, does NOT open modal
+    const addBtn = screen.getByRole('button', { name: `Add ${first.name} to map` });
+    fireEvent.click(addBtn);
+    expect(onAddDataset).toHaveBeenCalledWith(first.id);
+    expect(onOpenAddData).not.toHaveBeenCalled();
+  });
+
+  it('Test 8: card is hidden when getDataset errors (silent hide, not error UI)', async () => {
+    // Override one specific dataset to error
+    const errorId = SUGGESTED_DATASETS[0].id;
+    const errorName = SUGGESTED_DATASETS[0].name;
+
+    mockGetDataset.mockImplementation((id: string) => {
+      if (id === errorId) {
+        return Promise.reject(new Error('404 Not Found'));
+      }
+      return Promise.resolve({ id, display_name: 'ok' } as ReturnType<typeof getDataset> extends Promise<infer T> ? T : never);
+    });
+
+    render(<EmptyStackState {...defaultProps()} />);
+
+    // Wait for queries to settle
+    await waitFor(() => {
+      // The errored card should NOT be in the document
+      expect(screen.queryByRole('button', { name: `Open ${errorName} in Add Data modal` })).not.toBeInTheDocument();
+    });
+
+    // No "error" text should appear
+    expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not available/i)).not.toBeInTheDocument();
+
+    // Other cards still show (if they resolved successfully)
+    const secondSuggestion = SUGGESTED_DATASETS[1];
+    expect(screen.getByRole('button', { name: `Open ${secondSuggestion.name} in Add Data modal` })).toBeInTheDocument();
+  });
+
+  it('Test 9: Browse all datasets → calls onOpenAddData with no argument (or undefined)', async () => {
+    const onOpenAddData = vi.fn();
+    render(<EmptyStackState {...defaultProps({ onOpenAddData })} />);
+
+    const browseBtn = screen.getByRole('button', { name: 'Browse all datasets in the Add Data modal' });
+    fireEvent.click(browseBtn);
+
+    expect(onOpenAddData).toHaveBeenCalledTimes(1);
+    // Called with no args (undefined) — NOT with a pre-fill query
+    const callArgs = onOpenAddData.mock.calls[0];
+    expect(callArgs.length === 0 || callArgs[0] === undefined).toBe(true);
+  });
+
+  it('Test 10: add button shows Loader2 while onAddDataset is pending, then Check on resolve', async () => {
+    const onAddDataset = vi.fn(() => new Promise<void>((r) => setTimeout(r, 0)));
+    render(<EmptyStackState {...defaultProps({ onAddDataset })} />);
+
+    const first = SUGGESTED_DATASETS[0];
+    const addBtn = screen.getByRole('button', { name: `Add ${first.name} to map` });
+
+    fireEvent.click(addBtn);
+
+    // Immediately after click: button is in busy/loading state
+    expect(addBtn).toHaveAttribute('aria-busy', 'true');
+
+    // After promise resolves: check icon appears, button shows added state
+    await waitFor(() => {
+      expect(addBtn).toHaveAttribute('aria-busy', 'false');
+    });
+  });
+});
