@@ -469,9 +469,10 @@ export function MapBuilderPage() {
         onOpacityChange={(o) => layers.handleOpacityChange(editingLayer.id, o)}
         onZoomChange={(min, max) => layers.handleLayoutChange(editingLayer.id, { ...editingLayer.layout, _minzoom: min, _maxzoom: max })}
         onTerrainBind={layers.handleDEMTerrainBind}
+        onRemove={(id) => layers.handleRemove(id)}
       />
     );
-    // Default footer (Delete layer inline confirm) — leave sceneFooter undefined
+    // DEMEditorScene renders its own footer (Delete layer inline confirm)
   }
 
   if (isLoading) {

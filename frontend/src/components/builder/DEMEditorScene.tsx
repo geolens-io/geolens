@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
@@ -27,6 +27,9 @@ export interface DEMEditorSceneProps {
   /** Called when the user switches to Terrain mode. Wires map-level terrain_config
    * via use-builder-layers handleDEMTerrainBind. */
   onTerrainBind: (layerId: string) => void;
+  /** Called after the user confirms deletion. Matches the onRemove pattern in
+   * LayerEditorHandlers — same wiring used by the default layer editor. */
+  onRemove: (layerId: string) => void;
 }
 
 function currentMode(layer: MapLayerResponse): DemRenderMode {
@@ -86,8 +89,10 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   onOpacityChange,
   onZoomChange,
   onTerrainBind,
+  onRemove,
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const mode = currentMode(layer);
   const paint = useMemo(() => layer.paint ?? {}, [layer.paint]);
 
@@ -420,15 +425,48 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         </div>
       </section>
 
-      {/* Footer — Delete layer */}
+      {/* Footer — Delete layer (inline confirmation, same pattern as FolderGroupRow) */}
       <footer className="shrink-0 border-t p-3 mt-auto">
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-        >
-          {t('layerEditor.deleteLayer', { defaultValue: 'Delete layer' })}
-        </Button>
+        {!confirmDelete ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={() => setConfirmDelete(true)}
+          >
+            {t('layerEditor.deleteLayer', { defaultValue: 'Delete layer' })}
+          </Button>
+        ) : (
+          <div role="alertdialog" aria-labelledby="dem-delete-confirm-title" className="space-y-2">
+            <p id="dem-delete-confirm-title" className="text-sm text-destructive text-center">
+              {t('layerEditor.deleteLayerConfirmMessage', { defaultValue: 'Delete this layer? This cannot be undone.' })}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                className="flex-1"
+                onClick={() => {
+                  onRemove(layer.id);
+                  setConfirmDelete(false);
+                }}
+              >
+                {t('layerEditor.deleteLayerConfirmAction', { defaultValue: 'Delete' })}
+              </Button>
+              {/* autoFocus on the safe choice */}
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                onClick={() => setConfirmDelete(false)}
+              >
+                {t('layerEditor.deleteLayerConfirmCancel', { defaultValue: 'Keep layer' })}
+              </Button>
+            </div>
+          </div>
+        )}
       </footer>
     </div>
   );
