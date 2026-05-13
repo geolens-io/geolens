@@ -136,11 +136,19 @@ export function normalizeSavedMap<TLayer = MapLayerResponse | SharedLayerRespons
     Array.isArray(rawWidgets) ? (rawWidgets as string[]) : null;
 
   // group_meta: per-group expansion state; defaults to {} when absent or invalid shape.
+  // Individual entries are sanitized: only objects with a boolean `expanded` key pass through.
+  // A malformed response like { "g1": null } or { "g1": { "expanded": "yes" } } would
+  // otherwise cause !null === true or !"yes" === false in the toggle logic.
   const rawGroupMeta = (input as Record<string, unknown>).group_meta;
-  const group_meta: Record<string, { expanded: boolean }> =
-    rawGroupMeta != null && typeof rawGroupMeta === 'object' && !Array.isArray(rawGroupMeta)
-      ? (rawGroupMeta as Record<string, { expanded: boolean }>)
-      : {};
+  const group_meta: Record<string, { expanded: boolean }> = {};
+  if (rawGroupMeta != null && typeof rawGroupMeta === 'object' && !Array.isArray(rawGroupMeta)) {
+    for (const [key, val] of Object.entries(rawGroupMeta as Record<string, unknown>)) {
+      if (val != null && typeof val === 'object' && !Array.isArray(val)) {
+        const entry = val as Record<string, unknown>;
+        group_meta[key] = { expanded: entry.expanded === true };
+      }
+    }
+  }
 
   return {
     basemap_style,
