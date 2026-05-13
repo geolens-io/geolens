@@ -29,6 +29,13 @@ import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 
 // ---------------------------------------------------------------------------
+// Stable noop — created once at module scope so optional-prop fallbacks never
+// produce new function references on each render, which would defeat memo() on
+// children (BasemapGroupRowWrapper, FolderGroupRowWrapper, SortableStackRow).
+// ---------------------------------------------------------------------------
+const NOOP = () => {};
+
+// ---------------------------------------------------------------------------
 // Helper utilities
 // ---------------------------------------------------------------------------
 
@@ -530,19 +537,20 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return map;
   }, [layers]);
 
-  // Noop fallbacks for optional handlers
-  const safeToggleSublayerVisibility = onToggleSublayerVisibility ?? (() => {});
-  const safeSublayerOpacityChange = onSublayerOpacityChange ?? (() => {});
-  const safeSwapBasemap = onSwapBasemap ?? (() => {});
-  const safeResetBasemapAppearance = onResetBasemapAppearance ?? (() => {});
-  const safeRenameGroup = onRenameGroup ?? (() => {});
-  const safeAddLayerToGroup = onAddLayerToGroup ?? (() => {});
-  const safeUngroup = onUngroup ?? (() => {});
-  const safeDeleteGroup = onDeleteGroup ?? (() => {});
-  const safeAddLayerToExistingGroup = onAddLayerToExistingGroup ?? (() => {});
-  const safeCreateGroupWithLayer = onCreateGroupWithLayer ?? (() => {});
-  const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? (() => {});
-  const safeToggleGroupExpand = onToggleGroupExpand ?? (() => {});
+  // Noop fallbacks for optional handlers — use module-level NOOP so references
+  // are stable and do not defeat memo() on children.
+  const safeToggleSublayerVisibility = onToggleSublayerVisibility ?? NOOP;
+  const safeSublayerOpacityChange = onSublayerOpacityChange ?? NOOP;
+  const safeSwapBasemap = onSwapBasemap ?? NOOP;
+  const safeResetBasemapAppearance = onResetBasemapAppearance ?? NOOP;
+  const safeRenameGroup = onRenameGroup ?? NOOP;
+  const safeAddLayerToGroup = onAddLayerToGroup ?? NOOP;
+  const safeUngroup = onUngroup ?? NOOP;
+  const safeDeleteGroup = onDeleteGroup ?? NOOP;
+  const safeAddLayerToExistingGroup = onAddLayerToExistingGroup ?? NOOP;
+  const safeCreateGroupWithLayer = onCreateGroupWithLayer ?? NOOP;
+  const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? NOOP;
+  const safeToggleGroupExpand = onToggleGroupExpand ?? NOOP;
 
   const isEmpty = layers.length === 0 && !basemapGroup;
 
