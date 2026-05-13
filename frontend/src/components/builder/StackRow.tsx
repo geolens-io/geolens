@@ -269,9 +269,6 @@ export const StackRow = memo(function StackRow({
                 _e.preventDefault(); // keep menu open while we set editing=true
                 handleStartRename();
               }}
-              onClick={() => {
-                handleStartRename();
-              }}
             >
               {t('stackRow.kebabRenameLayer', { defaultValue: 'Rename layer' })}
             </DropdownMenuItem>
