@@ -230,7 +230,8 @@ export function useBuilderLayers(
       ...prev,
       [groupId]: { expanded: !(prev[groupId]?.expanded ?? false) },
     }));
-    setHasUnsavedChanges(true);
+    // Not marking dirty — group_meta is not in MapUpdateRequest and is never persisted.
+    // Add setHasUnsavedChanges(true) here once group_meta is added to the backend schema.
   }, []);
 
   const handleZoomToLayer = useCallback((layerId: string) => {
@@ -279,15 +280,17 @@ export function useBuilderLayers(
   // reference their parent via parent_group_id (frontend-only field, not persisted to API).
 
   const handleCreateGroupWithLayer = useCallback((layerId: string) => {
+    // Generate id OUTSIDE the updater so both setters share the same value.
+    const groupId = `group-${Date.now()}`;
+
     setLocalLayers((prev) => {
       const idx = prev.findIndex((l) => l.id === layerId);
       if (idx < 0) return prev;
 
-      // Generate a unique group id and name
+      // Generate a unique group name
       const existingGroupCount = prev.filter((l) =>
         (l as GroupedLayer).layer_type === 'group:folder',
       ).length;
-      const groupId = `group-${Date.now()}`;
       const groupName = `Group ${existingGroupCount + 1}`;
 
       const groupRow: GroupedLayer = {
@@ -308,11 +311,8 @@ export function useBuilderLayers(
       next.splice(idx, 1, groupRow as unknown as MapLayerResponse, childLayer as unknown as MapLayerResponse);
       return next.map((l, i) => ({ ...l, sort_order: i }));
     });
-    setGroupMeta((prev) => {
-      // We don't have the groupId at this point due to closure, but we'll set it expanded
-      // in the next render cycle. For now, mark any new group as expanded via a broad approach.
-      return prev;
-    });
+    // groupId is now in scope — auto-expand so the child layer is visible immediately.
+    setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
     setHasUnsavedChanges(true);
   }, []);
 
