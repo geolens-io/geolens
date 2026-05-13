@@ -7,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -32,6 +33,16 @@ interface StackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  /** Existing user folder groups, used for the "Add to group…" sub-flow */
+  existingFolderGroups?: Array<{ id: string; name: string }>;
+  /** Called when user selects an existing group from the sub-list */
+  onAddToGroup?: (layerId: string, groupId: string) => void;
+  /** Called when user selects "＋ New group…" */
+  onCreateGroupWithLayer?: (layerId: string) => void;
+  /** Called when user selects "Move out of group" (layer is already in a group) */
+  onMoveLayerOutOfGroup?: (layerId: string) => void;
+  /** When non-null, the layer is inside a group — "Move out of group" replaces the sub-flow */
+  parentGroupId?: string | null;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
@@ -87,6 +98,11 @@ export const StackRow = memo(function StackRow({
   onRemove,
   onRename,
   onDuplicate,
+  existingFolderGroups = [],
+  onAddToGroup,
+  onCreateGroupWithLayer,
+  onMoveLayerOutOfGroup,
+  parentGroupId = null,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -297,12 +313,32 @@ export const StackRow = memo(function StackRow({
               {t('stackRow.kebabDeleteLayer', { defaultValue: 'Delete layer' })}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled
-              aria-disabled="true"
-            >
-              {t('stackRow.kebabAddToGroup', { defaultValue: 'Add to group…' })}
-            </DropdownMenuItem>
+            {parentGroupId ? (
+              // Layer is already inside a group: show "Move out of group"
+              <DropdownMenuItem onSelect={() => onMoveLayerOutOfGroup?.(layer.id)}>
+                {t('stackRow.kebabMoveOutOfGroup', { defaultValue: 'Move out of group' })}
+              </DropdownMenuItem>
+            ) : (
+              <>
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground px-2 py-1">
+                  {t('stackRow.kebabAddToGroup', { defaultValue: 'Add to group…' })}
+                </DropdownMenuLabel>
+                {(existingFolderGroups).map((g) => (
+                  <DropdownMenuItem
+                    key={g.id}
+                    onSelect={() => onAddToGroup?.(layer.id, g.id)}
+                  >
+                    ▸ {g.name}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuItem
+                  className="text-primary"
+                  onSelect={() => onCreateGroupWithLayer?.(layer.id)}
+                >
+                  {t('folderGroup.newGroupItem', { defaultValue: '＋ New group…' })}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

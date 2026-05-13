@@ -17,11 +17,54 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTranslation } from 'react-i18next';
-import { Plus, Settings } from 'lucide-react';
+import { Eye, EyeOff, GripVertical, Plus, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
 import { StackRow } from '@/components/builder/StackRow';
+import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
+import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
+import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
+
+// ---------------------------------------------------------------------------
+// Helper utilities
+// ---------------------------------------------------------------------------
+
+function isGroupLayer(layer: MapLayerResponse): boolean {
+  const t = (layer.layer_type as string | null | undefined) ?? '';
+  return t.startsWith('group:');
+}
+
+function getParentGroupId(layer: MapLayerResponse): string | null {
+  // In-memory `parent_group_id` set by use-builder-layers folder handlers
+  return (layer as unknown as { parent_group_id?: string | null }).parent_group_id ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-interfaces
+// ---------------------------------------------------------------------------
+
+interface BasemapSublayerInfo {
+  id: string;
+  name: string;
+  visible: boolean;
+  opacity: number;
+  kind: 'vector' | 'raster';
+}
+
+interface BasemapGroupInfo {
+  id: string;
+  presetName: string;
+  providerLabel?: string;
+  visible: boolean;
+  opacity: number;
+  sublayers: BasemapSublayerInfo[];
+}
+
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
 
 interface UnifiedStackPanelProps {
   layers: MapLayerResponse[];
@@ -34,8 +77,29 @@ interface UnifiedStackPanelProps {
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
   onAddDataClick: () => void;
-  onSettingsClick: () => void; // TODO Phase 1036: wire to settings affordance
+  onSettingsClick: () => void;
+  // Phase 1035 new props
+  groupMeta?: Record<string, { expanded: boolean }>;
+  onToggleGroupExpand?: (groupId: string) => void;
+  basemapGroup?: BasemapGroupInfo | null;
+  isBasemapExpanded?: boolean;
+  onToggleSublayerVisibility?: (sublayerId: string) => void;
+  onSublayerOpacityChange?: (sublayerId: string, opacity: number) => void;
+  onSwapBasemap?: () => void;
+  onResetBasemapAppearance?: () => void;
+  onRenameGroup?: (groupId: string, name: string) => void;
+  onAddLayerToGroup?: (groupId: string) => void;
+  onUngroup?: (groupId: string) => void;
+  onDeleteGroup?: (groupId: string) => void;
+  onAddLayerToExistingGroup?: (layerId: string, groupId: string) => void;
+  onCreateGroupWithLayer?: (layerId: string) => void;
+  onMoveLayerOutOfGroup?: (layerId: string) => void;
+  existingFolderGroups?: Array<{ id: string; name: string }>;
 }
+
+// ---------------------------------------------------------------------------
+// SortableStackRow — loose layer or folder-group child row
+// ---------------------------------------------------------------------------
 
 interface SortableStackRowProps {
   layer: MapLayerResponse;
@@ -46,6 +110,11 @@ interface SortableStackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  existingFolderGroups?: Array<{ id: string; name: string }>;
+  parentGroupId?: string | null;
+  onAddToGroup?: (layerId: string, groupId: string) => void;
+  onCreateGroupWithLayer?: (layerId: string) => void;
+  onMoveLayerOutOfGroup?: (layerId: string) => void;
 }
 
 const SortableStackRow = memo(function SortableStackRow({
@@ -57,6 +126,11 @@ const SortableStackRow = memo(function SortableStackRow({
   onRemove,
   onRename,
   onDuplicate,
+  existingFolderGroups,
+  parentGroupId,
+  onAddToGroup,
+  onCreateGroupWithLayer,
+  onMoveLayerOutOfGroup,
 }: SortableStackRowProps) {
   const {
     attributes,
@@ -91,10 +165,292 @@ const SortableStackRow = memo(function SortableStackRow({
         onRemove={onRemove}
         onRename={onRename}
         onDuplicate={onDuplicate}
+        existingFolderGroups={existingFolderGroups}
+        parentGroupId={parentGroupId}
+        onAddToGroup={onAddToGroup}
+        onCreateGroupWithLayer={onCreateGroupWithLayer}
+        onMoveLayerOutOfGroup={onMoveLayerOutOfGroup}
       />
     </div>
   );
 });
+
+// ---------------------------------------------------------------------------
+// BasemapGroupRowWrapper — sortable wrapper for the basemap group row
+// ---------------------------------------------------------------------------
+
+interface BasemapGroupRowWrapperProps {
+  group: BasemapGroupInfo;
+  selected: boolean;
+  isExpanded: boolean;
+  onSelectGroup: (id: string | null) => void;
+  onToggleExpand: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
+  onOpacityChange: (id: string, opacity: number) => void;
+  onSwapBasemap: () => void;
+  onResetAppearance: () => void;
+}
+
+const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
+  group,
+  selected,
+  isExpanded,
+  onSelectGroup,
+  onToggleExpand,
+  onToggleVisibility,
+  onOpacityChange,
+  onSwapBasemap,
+  onResetAppearance,
+}: BasemapGroupRowWrapperProps) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: group.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const handleSelectGroup = useCallback(
+    (id: string) => onSelectGroup(id),
+    [onSelectGroup],
+  );
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <BasemapGroupRow
+        groupId={group.id}
+        presetName={group.presetName}
+        providerLabel={group.providerLabel}
+        visible={group.visible}
+        opacity={group.opacity}
+        selected={selected}
+        isExpanded={isExpanded}
+        isDragging={isDragging}
+        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
+        onSelectGroup={handleSelectGroup}
+        onToggleExpand={onToggleExpand}
+        onToggleVisibility={onToggleVisibility}
+        onOpacityChange={onOpacityChange}
+        onSwapBasemap={onSwapBasemap}
+        onResetAppearance={onResetAppearance}
+      />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// FolderGroupRowWrapper — sortable wrapper for folder group rows
+// ---------------------------------------------------------------------------
+
+interface FolderGroupRowWrapperProps {
+  layer: MapLayerResponse;
+  selected: boolean;
+  isExpanded: boolean;
+  onSelectGroup: (id: string | null) => void;
+  onToggleExpand: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
+  onOpacityChange: (id: string, opacity: number) => void;
+  onRenameGroup: (id: string, name: string) => void;
+  onAddLayer: (id: string) => void;
+  onUngroup: (id: string) => void;
+  onDeleteGroup: (id: string) => void;
+}
+
+const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
+  layer,
+  selected,
+  isExpanded,
+  onSelectGroup,
+  onToggleExpand,
+  onToggleVisibility,
+  onOpacityChange,
+  onRenameGroup,
+  onAddLayer,
+  onUngroup,
+  onDeleteGroup,
+}: FolderGroupRowWrapperProps) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: layer.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const handleSelectGroup = useCallback(
+    (id: string) => onSelectGroup(id),
+    [onSelectGroup],
+  );
+
+  const displayName = layer.display_name ?? layer.dataset_name;
+  const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <FolderGroupRow
+        groupId={layer.id}
+        groupName={displayName}
+        visible={layer.visible}
+        opacity={opacity}
+        selected={selected}
+        isExpanded={isExpanded}
+        isDragging={isDragging}
+        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
+        onSelectGroup={handleSelectGroup}
+        onToggleExpand={onToggleExpand}
+        onToggleVisibility={onToggleVisibility}
+        onOpacityChange={onOpacityChange}
+        onRenameGroup={onRenameGroup}
+        onAddLayer={onAddLayer}
+        onUngroup={onUngroup}
+        onDeleteGroup={onDeleteGroup}
+      />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// SublayerRow — basemap sublayer row (useSortable disabled — cannot be dragged)
+// ---------------------------------------------------------------------------
+
+interface SublayerRowProps {
+  sublayer: BasemapSublayerInfo;
+  selected: boolean;
+  onSelectLayer: (id: string | null) => void;
+  onToggleSublayerVisibility: (sublayerId: string) => void;
+  onSublayerOpacityChange: (sublayerId: string, opacity: number) => void;
+}
+
+const SublayerRow = memo(function SublayerRow({
+  sublayer,
+  selected,
+  onSelectLayer,
+  onToggleSublayerVisibility,
+  onSublayerOpacityChange,
+}: SublayerRowProps) {
+  // Basemap sublayers CANNOT be dragged out of the group — useSortable disabled
+  const { setNodeRef } = useSortable({ id: sublayer.id, disabled: true });
+
+  const safeOpacity = typeof sublayer.opacity === 'number' && Number.isFinite(sublayer.opacity) ? sublayer.opacity : 1;
+
+  return (
+    <div
+      ref={setNodeRef}
+      id={`stack-row-${sublayer.id}`}
+      role="listitem"
+      aria-selected={selected}
+      tabIndex={0}
+      className={cn(
+        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+        !selected && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
+        selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
+      )}
+      onClick={() => onSelectLayer(sublayer.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelectLayer(sublayer.id);
+        }
+      }}
+    >
+      {/* Cell 1: Caret — hidden for sublayer rows */}
+      <span aria-hidden="true" style={{ visibility: 'hidden' }} className="text-xs" >▸</span>
+
+      {/* Cell 2: Grip — visible but not-allowed cursor; no drag */}
+      <span
+        className="flex items-center justify-center cursor-not-allowed opacity-20 text-muted-foreground"
+        aria-hidden="true"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
+
+      {/* Cell 3: Eye visibility toggle */}
+      <button
+        type="button"
+        aria-label={`Toggle visibility for ${sublayer.name}`}
+        className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSublayerVisibility(sublayer.id);
+        }}
+      >
+        {sublayer.visible ? (
+          <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+      </button>
+
+      {/* Cell 4: Type icon — raster or vector */}
+      <div className="flex items-center justify-center h-[22px] w-[22px]">
+        {sublayer.kind === 'raster' ? (
+          <span
+            className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-medium"
+            aria-hidden="true"
+          >
+            ▦
+          </span>
+        ) : (
+          <span
+            className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[var(--surface-3,theme(colors.muted.DEFAULT))] text-muted-foreground text-xs font-medium"
+            aria-hidden="true"
+          >
+            ≡
+          </span>
+        )}
+      </div>
+
+      {/* Cell 5: Sublayer name */}
+      <div className="min-w-0">
+        <span className="truncate text-sm block">{sublayer.name}</span>
+      </div>
+
+      {/* Cell 6: Opacity slider */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
+      <div
+        className="flex items-center"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Slider
+          aria-label={`Opacity for ${sublayer.name}`}
+          aria-valuetext={`${Math.round(safeOpacity * 100)}%`}
+          value={[safeOpacity]}
+          min={0}
+          max={1}
+          step={0.05}
+          className="w-[60px]"
+          onValueChange={([value]) => {
+            onSublayerOpacityChange(sublayer.id, Number((value ?? safeOpacity).toFixed(2)));
+          }}
+        />
+      </div>
+
+      {/* Cell 7: Kebab — hidden for basemap sublayers (per UI-SPEC) */}
+      <span aria-hidden="true" style={{ visibility: 'hidden' }} className="h-[22px] w-[22px]" />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Main panel
+// ---------------------------------------------------------------------------
 
 export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   layers,
@@ -108,6 +464,22 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onDuplicate,
   onAddDataClick,
   onSettingsClick,
+  groupMeta = {},
+  onToggleGroupExpand,
+  basemapGroup = null,
+  isBasemapExpanded = false,
+  onToggleSublayerVisibility,
+  onSublayerOpacityChange,
+  onSwapBasemap,
+  onResetBasemapAppearance,
+  onRenameGroup,
+  onAddLayerToGroup,
+  onUngroup,
+  onDeleteGroup,
+  onAddLayerToExistingGroup,
+  onCreateGroupWithLayer,
+  onMoveLayerOutOfGroup,
+  existingFolderGroups = [],
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
@@ -122,7 +494,14 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     }),
   );
 
-  const sortableIds = useMemo(() => layers.map((l) => l.id), [layers]);
+  // SortableContext items: basemap group id (when present) + all layer ids
+  // Basemap sublayer ids are excluded — sublayers use useSortable({ disabled: true })
+  const sortableIds = useMemo(() => {
+    const ids: string[] = [];
+    if (basemapGroup) ids.push(basemapGroup.id);
+    for (const l of layers) ids.push(l.id);
+    return ids;
+  }, [basemapGroup, layers]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
@@ -130,12 +509,41 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     const oldIndex = layers.findIndex((layer) => layer.id === active.id);
     const newIndex = layers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+    // TODO Phase 1038: handle cross-group drag and drag-from-loose-to-group
     onReorder(arrayMove(layers, oldIndex, newIndex));
   }, [layers, onReorder]);
 
   const handleDragStart = useCallback(() => {
     onSelectLayer(null);
   }, [onSelectLayer]);
+
+  // Build the render plan: group children by parent for O(N) pass
+  const childrenByGroup = useMemo(() => {
+    const map: Record<string, MapLayerResponse[]> = {};
+    for (const layer of layers) {
+      const parent = getParentGroupId(layer);
+      if (parent) {
+        (map[parent] ??= []).push(layer);
+      }
+    }
+    return map;
+  }, [layers]);
+
+  // Noop fallbacks for optional handlers
+  const safeToggleSublayerVisibility = onToggleSublayerVisibility ?? (() => {});
+  const safeSublayerOpacityChange = onSublayerOpacityChange ?? (() => {});
+  const safeSwapBasemap = onSwapBasemap ?? (() => {});
+  const safeResetBasemapAppearance = onResetBasemapAppearance ?? (() => {});
+  const safeRenameGroup = onRenameGroup ?? (() => {});
+  const safeAddLayerToGroup = onAddLayerToGroup ?? (() => {});
+  const safeUngroup = onUngroup ?? (() => {});
+  const safeDeleteGroup = onDeleteGroup ?? (() => {});
+  const safeAddLayerToExistingGroup = onAddLayerToExistingGroup ?? (() => {});
+  const safeCreateGroupWithLayer = onCreateGroupWithLayer ?? (() => {});
+  const safeMoveLayerOutOfGroup = onMoveLayerOutOfGroup ?? (() => {});
+  const safeToggleGroupExpand = onToggleGroupExpand ?? (() => {});
+
+  const isEmpty = layers.length === 0 && !basemapGroup;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -182,7 +590,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         aria-label={t('unifiedStack.title', { defaultValue: 'Layers' })}
         aria-multiselectable="false"
       >
-        {layers.length === 0 ? (
+        {isEmpty ? (
           <div className="flex items-center justify-center h-24">
             <p className="text-sm text-muted-foreground">
               {t('unifiedStack.emptyState', { defaultValue: 'No layers yet' })}
@@ -199,19 +607,118 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
               items={sortableIds}
               strategy={verticalListSortingStrategy}
             >
-              {layers.map((layer) => (
-                <SortableStackRow
-                  key={layer.id}
-                  layer={layer}
-                  selected={layer.id === selectedLayerId}
-                  onSelectLayer={onSelectLayer}
-                  onToggleVisibility={onToggleVisibility}
-                  onOpacityChange={onOpacityChange}
-                  onRemove={onRemove}
-                  onRename={onRename}
-                  onDuplicate={onDuplicate}
-                />
-              ))}
+              {/* 1. Basemap group (always at top when present) */}
+              {basemapGroup && (
+                <>
+                  <BasemapGroupRowWrapper
+                    key={`bm-${basemapGroup.id}`}
+                    group={basemapGroup}
+                    selected={basemapGroup.id === selectedLayerId}
+                    isExpanded={isBasemapExpanded}
+                    onSelectGroup={onSelectLayer}
+                    onToggleExpand={safeToggleGroupExpand}
+                    onToggleVisibility={() => {}} // basemap visibility via eye not wired in v1
+                    onOpacityChange={() => {}} // opacity via master slider in Scene B editor
+                    onSwapBasemap={safeSwapBasemap}
+                    onResetAppearance={safeResetBasemapAppearance}
+                  />
+                  {isBasemapExpanded && (
+                    <div
+                      id={`basemap-group-children-${basemapGroup.id}`}
+                      data-testid={`basemap-group-children-${basemapGroup.id}`}
+                      style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
+                      role="list"
+                    >
+                      {basemapGroup.sublayers.map((sub) => (
+                        <SublayerRow
+                          key={sub.id}
+                          sublayer={sub}
+                          selected={sub.id === selectedLayerId}
+                          onSelectLayer={onSelectLayer}
+                          onToggleSublayerVisibility={safeToggleSublayerVisibility}
+                          onSublayerOpacityChange={safeSublayerOpacityChange}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* 2. User folder groups + loose layers (in saved order) */}
+              {layers.map((layer) => {
+                // Skip child rows — they render inside their group container
+                if (getParentGroupId(layer)) return null;
+
+                if (isGroupLayer(layer)) {
+                  // Folder group row with children container when expanded
+                  const expanded = groupMeta[layer.id]?.expanded ?? false;
+                  const children = childrenByGroup[layer.id] ?? [];
+                  return (
+                    <div key={layer.id}>
+                      <FolderGroupRowWrapper
+                        layer={layer}
+                        selected={layer.id === selectedLayerId}
+                        isExpanded={expanded}
+                        onSelectGroup={onSelectLayer}
+                        onToggleExpand={safeToggleGroupExpand}
+                        onToggleVisibility={onToggleVisibility}
+                        onOpacityChange={onOpacityChange}
+                        onRenameGroup={safeRenameGroup}
+                        onAddLayer={safeAddLayerToGroup}
+                        onUngroup={safeUngroup}
+                        onDeleteGroup={safeDeleteGroup}
+                      />
+                      {expanded && (
+                        <div
+                          id={`folder-group-children-${layer.id}`}
+                          data-testid={`folder-group-children-${layer.id}`}
+                          style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
+                          role="list"
+                        >
+                          {children.map((child) => (
+                            <SortableStackRow
+                              key={child.id}
+                              layer={child}
+                              selected={child.id === selectedLayerId}
+                              onSelectLayer={onSelectLayer}
+                              onToggleVisibility={onToggleVisibility}
+                              onOpacityChange={onOpacityChange}
+                              onRemove={onRemove}
+                              onRename={onRename}
+                              onDuplicate={onDuplicate}
+                              existingFolderGroups={existingFolderGroups}
+                              parentGroupId={layer.id}
+                              onAddToGroup={safeAddLayerToExistingGroup}
+                              onCreateGroupWithLayer={safeCreateGroupWithLayer}
+                              onMoveLayerOutOfGroup={safeMoveLayerOutOfGroup}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Loose layer
+                return (
+                  <SortableStackRow
+                    key={layer.id}
+                    layer={layer}
+                    selected={layer.id === selectedLayerId}
+                    onSelectLayer={onSelectLayer}
+                    onToggleVisibility={onToggleVisibility}
+                    onOpacityChange={onOpacityChange}
+                    onRemove={onRemove}
+                    onRename={onRename}
+                    onDuplicate={onDuplicate}
+                    existingFolderGroups={existingFolderGroups}
+                    parentGroupId={getParentGroupId(layer)}
+                    onAddToGroup={safeAddLayerToExistingGroup}
+                    onCreateGroupWithLayer={safeCreateGroupWithLayer}
+                    onMoveLayerOutOfGroup={safeMoveLayerOutOfGroup}
+                  />
+                );
+              })}
             </SortableContext>
           </DndContext>
         )}

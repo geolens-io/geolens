@@ -169,7 +169,7 @@ describe('StackRow', () => {
     expect(onSelectLayer).not.toHaveBeenCalled();
   });
 
-  it('clicking the kebab trigger does NOT call onSelectLayer; opening menu shows four locked items in order', () => {
+  it('clicking the kebab trigger does NOT call onSelectLayer; opening menu shows items in order', () => {
     const onSelectLayer = vi.fn();
     const layer = makeLayer({ id: 'kebab-layer', dataset_name: 'My Layer' });
     render(<StackRow {...defaultProps({ layer, onSelectLayer })} />);
@@ -180,22 +180,21 @@ describe('StackRow', () => {
 
     expect(onSelectLayer).not.toHaveBeenCalled();
 
-    // Check four locked items in order
+    // Check core items present
     const menuItems = screen.getAllByRole('menuitem');
     const menuTexts = menuItems.map((item) => item.textContent?.trim());
     expect(menuTexts).toContain('Rename layer');
     expect(menuTexts).toContain('Duplicate');
     expect(menuTexts).toContain('Delete layer');
-    expect(menuTexts).toContain('Add to group…');
+    // "＋ New group…" always appears (no existing groups in this test)
+    expect(menuTexts).toContain('＋ New group…');
 
-    // Verify order
+    // Verify core order
     const renameIdx = menuTexts.indexOf('Rename layer');
     const dupIdx = menuTexts.indexOf('Duplicate');
     const deleteIdx = menuTexts.indexOf('Delete layer');
-    const groupIdx = menuTexts.indexOf('Add to group…');
     expect(renameIdx).toBeLessThan(dupIdx);
     expect(dupIdx).toBeLessThan(deleteIdx);
-    expect(deleteIdx).toBeLessThan(groupIdx);
   });
 
   it('clicking "Delete layer" in the kebab calls onRemove(layer.id)', () => {
@@ -222,13 +221,16 @@ describe('StackRow', () => {
     expect(onDuplicate).toHaveBeenCalledWith('dup-layer');
   });
 
-  it('"Add to group…" item is disabled', () => {
+  it('"Add to group…" label and "＋ New group…" item appear when no existing groups', () => {
     const layer = makeLayer({ id: 'group-layer' });
-    render(<StackRow {...defaultProps({ layer })} />);
+    render(<StackRow {...defaultProps({ layer, existingFolderGroups: [] })} />);
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
-    const groupItem = screen.getByRole('menuitem', { name: /Add to group/i });
-    expect(groupItem).toHaveAttribute('aria-disabled', 'true');
+
+    // The label "Add to group…" appears (DropdownMenuLabel)
+    expect(screen.getByText('Add to group…')).toBeInTheDocument();
+    // "＋ New group…" item appears as the only group option
+    expect(screen.getByRole('menuitem', { name: /New group/i })).toBeInTheDocument();
   });
 
   it('inline rename: clicking "Rename layer" (via double-click on name) shows input, Enter commits with onRename', () => {
@@ -372,5 +374,145 @@ describe('DEM type icon', () => {
 
       unmount();
     }
+  });
+});
+
+describe('Add to group sub-flow', () => {
+  function makeGroupProps() {
+    return {
+      existingFolderGroups: [
+        { id: 'g1', name: 'Hydrology' },
+        { id: 'g2', name: 'Transit' },
+      ],
+      onAddToGroup: vi.fn(),
+      onCreateGroupWithLayer: vi.fn(),
+      onMoveLayerOutOfGroup: vi.fn(),
+    };
+  }
+
+  // Test 1: empty existing groups shows only "＋ New group…"
+  it('Test 1: shows only "＋ New group…" when existingFolderGroups is empty and parentGroupId is null', () => {
+    const layer = makeLayer({ id: 'test-layer' });
+    render(
+      <StackRow
+        {...defaultProps({ layer })}
+        existingFolderGroups={[]}
+        onCreateGroupWithLayer={vi.fn()}
+        parentGroupId={null}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    // Label visible
+    expect(screen.getByText('Add to group…')).toBeInTheDocument();
+    // Only "＋ New group…" — no other group items
+    const menuItems = screen.getAllByRole('menuitem').filter((i) => i.textContent?.includes('New group'));
+    expect(menuItems).toHaveLength(1);
+    // No group names present
+    expect(screen.queryByText('▸ Hydrology')).not.toBeInTheDocument();
+  });
+
+  // Test 2: existing groups appear in sub-list
+  it('Test 2: shows existing folder groups in sub-list', () => {
+    const layer = makeLayer({ id: 'test-layer' });
+    const { onAddToGroup, onCreateGroupWithLayer, onMoveLayerOutOfGroup } = makeGroupProps();
+    render(
+      <StackRow
+        {...defaultProps({ layer })}
+        existingFolderGroups={[{ id: 'g1', name: 'Hydrology' }, { id: 'g2', name: 'Transit' }]}
+        onAddToGroup={onAddToGroup}
+        onCreateGroupWithLayer={onCreateGroupWithLayer}
+        onMoveLayerOutOfGroup={onMoveLayerOutOfGroup}
+        parentGroupId={null}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    // Both groups appear
+    expect(screen.getByText('▸ Hydrology')).toBeInTheDocument();
+    expect(screen.getByText('▸ Transit')).toBeInTheDocument();
+    // "＋ New group…" also appears
+    expect(screen.getByRole('menuitem', { name: /New group/i })).toBeInTheDocument();
+  });
+
+  // Test 3: clicking an existing group calls onAddToGroup
+  it('Test 3: clicking an existing group calls onAddToGroup(layerId, groupId)', () => {
+    const layer = makeLayer({ id: 'test-layer' });
+    const onAddToGroup = vi.fn();
+    render(
+      <StackRow
+        {...defaultProps({ layer })}
+        existingFolderGroups={[{ id: 'g1', name: 'Hydrology' }]}
+        onAddToGroup={onAddToGroup}
+        parentGroupId={null}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByText('▸ Hydrology'));
+
+    expect(onAddToGroup).toHaveBeenCalledOnce();
+    expect(onAddToGroup).toHaveBeenCalledWith('test-layer', 'g1');
+  });
+
+  // Test 4: clicking "＋ New group…" calls onCreateGroupWithLayer
+  it('Test 4: clicking "＋ New group…" calls onCreateGroupWithLayer(layerId)', () => {
+    const layer = makeLayer({ id: 'new-group-layer' });
+    const onCreateGroupWithLayer = vi.fn();
+    render(
+      <StackRow
+        {...defaultProps({ layer })}
+        existingFolderGroups={[]}
+        onCreateGroupWithLayer={onCreateGroupWithLayer}
+        parentGroupId={null}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole('menuitem', { name: /New group/i }));
+
+    expect(onCreateGroupWithLayer).toHaveBeenCalledOnce();
+    expect(onCreateGroupWithLayer).toHaveBeenCalledWith('new-group-layer');
+  });
+
+  // Test 5: layer already in a group shows "Move out of group"
+  it('Test 5: shows "Move out of group" and calls onMoveLayerOutOfGroup when parentGroupId is set', () => {
+    const layer = makeLayer({ id: 'child-layer' });
+    const onMoveLayerOutOfGroup = vi.fn();
+    render(
+      <StackRow
+        {...defaultProps({ layer })}
+        parentGroupId="some-group"
+        onMoveLayerOutOfGroup={onMoveLayerOutOfGroup}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+    // "Move out of group" appears instead of "Add to group…" sub-flow
+    const moveOutItem = screen.getByRole('menuitem', { name: /Move out of group/i });
+    expect(moveOutItem).toBeInTheDocument();
+
+    // "Add to group…" label should NOT appear
+    expect(screen.queryByText('Add to group…')).not.toBeInTheDocument();
+
+    fireEvent.click(moveOutItem);
+    expect(onMoveLayerOutOfGroup).toHaveBeenCalledOnce();
+    expect(onMoveLayerOutOfGroup).toHaveBeenCalledWith('child-layer');
+  });
+
+  // Test 6: existing tests still pass (regression)
+  it('Test 6: regression — row click still calls onSelectLayer', () => {
+    const onSelectLayer = vi.fn();
+    const layer = makeLayer({ id: 'regression-layer', dataset_name: 'Regression' });
+    render(<StackRow {...defaultProps({ layer, onSelectLayer })} />);
+
+    const name = screen.getByText('Regression');
+    fireEvent.click(name);
+
+    expect(onSelectLayer).toHaveBeenCalledOnce();
+    expect(onSelectLayer).toHaveBeenCalledWith('regression-layer');
   });
 });
