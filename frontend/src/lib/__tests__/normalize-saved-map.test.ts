@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeSavedMap, type NormalizedSavedMap } from '../normalize-saved-map';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, SharedLayerResponse, SharedMapResponse, StyleConfig } from '@/types/api';
 
@@ -94,6 +94,10 @@ function makeSharedMapResponse(overrides: Partial<SharedMapResponse> = {}): Shar
 // ---------------------------------------------------------------------------
 
 describe('normalizeSavedMap', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('preserves all six legacy MapResponse fields verbatim', () => {
     const layer = makeMapLayer({ id: 'parcels', dataset_name: 'Parcels' });
     const input = makeMapResponse({
@@ -230,12 +234,12 @@ describe('normalizeSavedMap', () => {
     expect(result.layers[2].dataset_feature_count).toBeNull();
   });
 
-  it("falls back basemap_style to 'default' and warns when input.basemap_style is missing", () => {
+  it("falls back basemap_style to 'default' and warns in DEV when input.basemap_style is missing", () => {
+    // Vitest test runs already have DEV=true; no manual mutation needed.
+    // Use vi.stubEnv for reliable env control (import.meta.env is a frozen proxy in some
+    // Vitest versions; direct assignment is a no-op and cannot be restored safely).
+    vi.stubEnv('DEV', 'true');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Simulate DEV environment for the warn guard
-    const originalDev = import.meta.env.DEV;
-    // @ts-expect-error intentionally overriding env
-    import.meta.env.DEV = true;
 
     try {
       const input = {
@@ -251,8 +255,28 @@ describe('normalizeSavedMap', () => {
       expect(result.basemap_style).toBe('default');
       expect(warnSpy).toHaveBeenCalled();
     } finally {
-      // @ts-expect-error restoring env
-      import.meta.env.DEV = originalDev;
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("does NOT warn when input.basemap_style is missing outside DEV mode", () => {
+    vi.stubEnv('DEV', '');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const input = {
+        show_basemap_labels: true,
+        basemap_config: null,
+        terrain_config: null,
+        layers: [],
+        widgets: null,
+        // basemap_style deliberately absent
+      };
+      const result = normalizeSavedMap(input);
+
+      expect(result.basemap_style).toBe('default');
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
       warnSpy.mockRestore();
     }
   });
