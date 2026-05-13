@@ -104,6 +104,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       role="option"
       aria-selected={selected}
       tabIndex={0}
+      className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       onClick={handleRowClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -116,7 +117,6 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       <div
         className={cn(
           'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
           !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
           selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
           isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
@@ -127,11 +127,16 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           type="button"
           aria-expanded={isExpanded}
           aria-controls={`folder-group-children-${groupId}`}
+          aria-label={t('folderGroup.toggleExpand', { defaultValue: 'Toggle folder group' })}
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand(groupId);
           }}
-          className={cn('text-xs text-muted-foreground transition-transform', isExpanded && 'rotate-90')}
+          className={cn(
+            'text-xs text-muted-foreground transition-transform',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
+            isExpanded && 'rotate-90',
+          )}
         >
           ▸
         </button>
