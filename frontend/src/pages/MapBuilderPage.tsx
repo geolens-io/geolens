@@ -369,27 +369,37 @@ export function MapBuilderPage() {
     lastToggleAnchor.current = null;
   }, []);
 
-  // Phase 1041-02: stub bulk handlers — Plan 03 replaces these with real implementations.
-  // The [Phase 1041 Plan 03] prefix tells reviewers exactly which plan owns the wiring.
+  // Phase 1041-03: real bulk handlers — wired to use-builder-layers bulk ops.
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
-    console.warn('[Phase 1041 Plan 03] handleBulkVisibility not wired yet:', ids);
-  }, []);
+    layers.handleBulkVisibility(ids);
+    setSelectedIds(new Set());
+  }, [layers]);
 
   const handleBulkOpacity = useCallback((ids: Set<string>, opacity: number) => {
-    console.warn('[Phase 1041 Plan 03] handleBulkOpacity not wired yet:', ids, opacity);
-  }, []);
+    // NOTE: Opacity slider fires onValueChange continuously during drag.
+    // Clearing selection on each intermediate event would break subsequent
+    // drag events (selection would be empty). Selection is preserved during
+    // drag; user dismisses via Escape or by clicking another row. This is
+    // documented in the Plan 03 SUMMARY as a deliberate UX decision.
+    layers.handleBulkOpacity(ids, opacity);
+  }, [layers]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
-    console.warn('[Phase 1041 Plan 03] handleBulkGroup not wired yet:', ids);
-  }, []);
+    layers.handleBulkGroup(ids);
+    setSelectedIds(new Set());
+  }, [layers]);
 
   const handleBulkUngroup = useCallback((ids: Set<string>) => {
-    console.warn('[Phase 1041 Plan 03] handleBulkUngroup not wired yet:', ids);
-  }, []);
+    layers.handleBulkUngroup(ids);
+    setSelectedIds(new Set());
+  }, [layers]);
 
   const handleBulkDelete = useCallback((ids: Set<string>) => {
-    console.warn('[Phase 1041 Plan 03] handleBulkDelete not wired yet:', ids);
-  }, []);
+    layers.handleBulkDelete(ids).then((ok) => {
+      if (ok) setSelectedIds(new Set());
+      // on failure: selection preserved so user can retry
+    });
+  }, [layers]);
 
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
