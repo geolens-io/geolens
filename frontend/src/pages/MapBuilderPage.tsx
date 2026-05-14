@@ -491,10 +491,14 @@ export function MapBuilderPage() {
       const targetLayer = layers.localLayers.find((l) => l.id === overId);
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
       const dropPosition = layers.localLayers.findIndex((l) => l.id === overId) + 1;
-      // Pass datasetName so the hook fires the named toast (toasts.datasetAdded). Modal stays
-      // open per POL-05 — onSuccessCb is omitted so no flyout auto-selects the new layer.
-      layers.handleAddDataset(datasetId, undefined, parentGroupId, datasetName);
-      announce(t('a11y.dragDropped', { name: datasetName, n: dropPosition > 0 ? dropPosition : 1 }));
+      const safePosition = dropPosition > 0 ? dropPosition : 1;
+      // CR-01: announce fires inside onSuccessCb — only after the async mutation resolves
+      // successfully. If the mutation errors, the hook fires toast.error and the announce
+      // is never called, avoiding contradictory screen-reader output.
+      // Modal stays open per POL-05 — onSuccessCb is not used to auto-select the layer.
+      layers.handleAddDataset(datasetId, () => {
+        announce(t('a11y.dragDropped', { name: datasetName, n: safePosition }));
+      }, parentGroupId, datasetName);
       return;
     }
 
