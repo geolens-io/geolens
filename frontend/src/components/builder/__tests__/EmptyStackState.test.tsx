@@ -1,11 +1,55 @@
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { EmptyStackState } from '../EmptyStackState';
 import { getDataset } from '@/api/datasets';
-import { SUGGESTED_DATASETS } from '../suggested-datasets';
+import type { SuggestedDataset } from '../suggested-datasets';
 
 vi.mock('@/api/datasets', () => ({
   getDataset: vi.fn(),
 }));
+
+// Test fixture overrides the empty production default so tests can verify the
+// populated-suggestions render path without depending on operator-supplied UUIDs.
+// Defined inline in the factory because vi.mock is hoisted above all top-level
+// const declarations.
+vi.mock('../suggested-datasets', async () => {
+  const actual = await vi.importActual<typeof import('../suggested-datasets')>('../suggested-datasets');
+  return {
+    ...actual,
+    SUGGESTED_DATASETS: [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'World Countries',
+        record_type: 'vector_dataset',
+        geometry_type: 'MultiPolygon',
+        feature_count: 195,
+        crs: 'EPSG:4326',
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'World Cities',
+        record_type: 'vector_dataset',
+        geometry_type: 'Point',
+        feature_count: 7343,
+        crs: 'EPSG:4326',
+      },
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        name: 'Land Cover',
+        record_type: 'raster_dataset',
+        crs: 'EPSG:4326',
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        name: 'Elevation Model',
+        record_type: 'raster_dataset',
+        crs: 'EPSG:4326',
+      },
+    ] satisfies SuggestedDataset[],
+  };
+});
+
+// Import the mocked constant after the factory is registered so tests can iterate.
+import { SUGGESTED_DATASETS } from '../suggested-datasets';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

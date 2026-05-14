@@ -43,15 +43,20 @@ interface SuggestCardProps {
   onDirectAdd: (id: string) => void;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAdd }: SuggestCardProps) {
+  const idIsRealUuid = UUID_RE.test(suggestion.id);
   const { data, isError } = useQuery({
     queryKey: queryKeys.datasets.detail(suggestion.id),
     queryFn: () => getDataset(suggestion.id),
     staleTime: 60_000,
     retry: false,
+    enabled: idIsRealUuid,
   });
 
-  // Hide cards that 404 or error silently
+  // Hide cards whose ID is a placeholder or whose fetch errored
+  if (!idIsRealUuid) return null;
   if (isError) return null;
   // While loading the first time (no data yet) we only hide if explicitly errored.
   // If data is undefined but not errored, show optimistically (availability not yet confirmed).

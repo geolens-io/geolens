@@ -86,12 +86,19 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Expand the layer panel
-    const expandBtn = page.getByRole('button', { name: 'Expand options' });
-    await expect(expandBtn).toBeVisible();
-    await expandBtn.click();
+    // Phase 1034 retired the "Expand options" button — clicking the unified
+    // stack row opens the LayerEditorPanel flyout directly. Phase 1035 inserted
+    // a basemap-group row at the top of the stack, so the actual vector layer
+    // row is at index 1 (or any row not matching the basemap-group ID).
+    const dataRow = page
+      .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+      .first();
+    await expect(dataRow).toBeVisible();
+    await dataRow.click();
+    await expect(page.getByTestId('builder-layer-editor')).toBeVisible({ timeout: 5_000 });
 
-    // Style tab is active by default — Data-Driven Style section should be visible.
+    // The Appearance section is open by default and surfaces the Data-Driven
+    // Style controls when a column supports it.
     await expect(page.getByText('Data-Driven Style')).toBeVisible();
 
     // Select the first available column in the data-driven column dropdown

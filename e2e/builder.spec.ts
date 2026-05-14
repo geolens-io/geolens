@@ -247,9 +247,18 @@ test.describe.serial('Map Builder', () => {
       await waitForBuilder(page);
 
       await expect(page.getByTestId('builder-sidebar'), `${viewport.label} sidebar`).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Map Stack' })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Data' })).toBeVisible();
-      await expect(page.locator('[data-testid^="layer-item"]').first()).toBeVisible();
+      // Phase 1034 retired the "Map Stack" / "Data" section headings. At
+      // desktop (≥1100px) the unified stack renders with an h2 "Layers"
+      // header + stack-row-* IDs. At tablet (<1100px) the sidebar collapses
+      // to a 64px rail (SidebarRail) with icon buttons but no h2 and no
+      // full-anatomy rows — assert the rail's "Add data" button instead.
+      const sidebar = page.getByTestId('builder-sidebar');
+      if (viewport.width >= 1100) {
+        await expect(sidebar.getByRole('heading', { level: 2 }).first()).toBeVisible();
+        await expect(page.locator('[id^="stack-row-"]').first()).toBeVisible();
+      } else {
+        await expect(sidebar.getByRole('button', { name: /add data/i }).first()).toBeVisible();
+      }
       await expect(page.getByRole('button', { name: 'Share' })).toBeVisible();
       await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
       await expect(page.locator('[inert]')).toHaveCount(0);
