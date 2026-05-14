@@ -98,7 +98,12 @@ function renderBuilderLayers(
 describe('useBuilderLayers — group_meta / groupMeta', () => {
 
   // Test 1: toggle expands
-  it('handleToggleGroupExpand toggles groupMeta.basemap.expanded between true/false and marks unsaved', () => {
+  // Per CR-02 (commit 116fe289), toggle-expand is treated as a UI-only
+  // affordance and does NOT mark the map as dirty — `group_meta` is not
+  // persisted to the backend schema yet, so a false "unsaved" badge on
+  // expand/collapse was misleading and was removed. Once `group_meta`
+  // joins the API payload, restore the hasUnsavedChanges assertion below.
+  it('handleToggleGroupExpand toggles groupMeta.basemap.expanded between true/false (UI-only; does NOT mark unsaved)', () => {
     const { result } = renderBuilderLayers(makeMapData());
     expect(result.current.groupMeta['basemap']).toBeUndefined();
 
@@ -106,12 +111,14 @@ describe('useBuilderLayers — group_meta / groupMeta', () => {
       result.current.handleToggleGroupExpand('basemap');
     });
     expect(result.current.groupMeta['basemap']?.expanded).toBe(true);
-    expect(result.current.hasUnsavedChanges).toBe(true);
+    // UI-only toggle — must NOT dirty the map
+    expect(result.current.hasUnsavedChanges).toBe(false);
 
     act(() => {
       result.current.handleToggleGroupExpand('basemap');
     });
     expect(result.current.groupMeta['basemap']?.expanded).toBe(false);
+    expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
   // Test 2: toggle creates new entry when key not present

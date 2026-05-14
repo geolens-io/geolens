@@ -574,7 +574,9 @@ describe('LayerEditorPanel', () => {
       expect(screen.getByTestId('custom-scene')).toBeInTheDocument();
     });
 
-    it('Test 6: testids layer-editor-header, layer-editor-body, layer-editor-footer preserved on all scenes', () => {
+    it('Test 6: testids layer-editor-header and layer-editor-body preserved on all scenes; layer-editor-footer preserved on default scene and on non-default scenes that supply sceneFooter', () => {
+      // Default scene — header + body + footer all present (the footer hosts
+      // the inline Delete-layer button + alertdialog confirm).
       const { rerender } = render(
         <LayerEditorPanel
           layer={makeLayer()}
@@ -589,6 +591,11 @@ describe('LayerEditorPanel', () => {
       expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
       expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
 
+      // Non-default scene without sceneFooter — header + body preserved, but
+      // the footer slot is intentionally omitted because the scene supplies
+      // its own controls (LayerEditorPanel.tsx lines 680-684 footer gate).
+      // The hosting scene (e.g. basemap-sublayer) renders its own controls
+      // inside `sceneContent` instead of the default footer.
       rerender(
         <LayerEditorPanel
           layer={makeLayer()}
@@ -601,7 +608,25 @@ describe('LayerEditorPanel', () => {
       );
       expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
       expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
+      expect(screen.queryByTestId('layer-editor-footer')).not.toBeInTheDocument();
+
+      // Non-default scene WITH sceneFooter — footer slot is preserved and
+      // rendered, hosting the scene-specific footer content.
+      rerender(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="basemap-sublayer"
+          sceneFooter={<button data-testid="scene-footer-action">Reset</button>}
+        />
+      );
+      expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
+      expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
       expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
+      expect(screen.getByTestId('scene-footer-action')).toBeInTheDocument();
     });
 
     it('Test 7: editorScene=basemap-sublayer with undefined presetName renders "Basemap · Untitled ›"', () => {
