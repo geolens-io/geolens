@@ -230,7 +230,6 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
   return (
     <div
       ref={setNodeRef}
-      key={record.id}
       className={cn(
         'group/row rounded-md border border-border/60 bg-background',
         isDragging && 'opacity-40 bg-[var(--surface-2)]',
@@ -321,7 +320,6 @@ const DraggableBasemapRow = memo(function DraggableBasemapRow({
   return (
     <div
       ref={setNodeRef}
-      key={entry.id}
       className={cn(
         'group/row rounded-md border border-border/60 bg-background',
         isDragging && 'opacity-40 bg-[var(--surface-2)]',
