@@ -363,6 +363,34 @@ export function MapBuilderPage() {
     handleCmdClick(id);
   }, [handleCmdClick]);
 
+  // Phase 1041-02: clear-selection handler (also used by BulkActionBar onClearSelection)
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    lastToggleAnchor.current = null;
+  }, []);
+
+  // Phase 1041-02: stub bulk handlers — Plan 03 replaces these with real implementations.
+  // The [Phase 1041 Plan 03] prefix tells reviewers exactly which plan owns the wiring.
+  const handleBulkVisibility = useCallback((ids: Set<string>) => {
+    console.warn('[Phase 1041 Plan 03] handleBulkVisibility not wired yet:', ids);
+  }, []);
+
+  const handleBulkOpacity = useCallback((ids: Set<string>, opacity: number) => {
+    console.warn('[Phase 1041 Plan 03] handleBulkOpacity not wired yet:', ids, opacity);
+  }, []);
+
+  const handleBulkGroup = useCallback((ids: Set<string>) => {
+    console.warn('[Phase 1041 Plan 03] handleBulkGroup not wired yet:', ids);
+  }, []);
+
+  const handleBulkUngroup = useCallback((ids: Set<string>) => {
+    console.warn('[Phase 1041 Plan 03] handleBulkUngroup not wired yet:', ids);
+  }, []);
+
+  const handleBulkDelete = useCallback((ids: Set<string>) => {
+    console.warn('[Phase 1041 Plan 03] handleBulkDelete not wired yet:', ids);
+  }, []);
+
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
 
@@ -949,7 +977,12 @@ export function MapBuilderPage() {
               onCmdClick={handleCmdClick}
               onShiftClick={handleShiftClick}
               onCheckboxClick={handleCheckboxClick}
-              onClearSelection={() => { setSelectedIds(new Set()); lastToggleAnchor.current = null; }}
+              onClearSelection={handleClearSelection}
+              onBulkVisibility={handleBulkVisibility}
+              onBulkOpacity={handleBulkOpacity}
+              onBulkGroup={handleBulkGroup}
+              onBulkUngroup={handleBulkUngroup}
+              onBulkDelete={handleBulkDelete}
             />
           )}
         </aside>

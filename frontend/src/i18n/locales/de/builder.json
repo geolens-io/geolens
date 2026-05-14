@@ -723,6 +723,30 @@
       "skipped_other": "{{count}} skipped layers."
     }
   },
+  "bulkActions": {
+    "selectedCount": "{{count}} selected",
+    "toolbarLabel": "Bulk actions for {{count}} selected layers",
+    "liveAnnouncement": "{{count}} layers selected.",
+    "visibility": "Visibility",
+    "visibilityAriaLabel": "Toggle visibility for {{count}} selected layers",
+    "opacity": "Opacity",
+    "opacityAriaLabel": "Set opacity for {{count}} selected layers",
+    "group": "Group",
+    "groupAriaLabel": "Group {{count}} selected layers",
+    "groupDisabledTooltip": "Select only loose layers to group",
+    "ungroup": "Ungroup",
+    "ungroupAriaLabel": "Ungroup {{count}} selected groups",
+    "ungroupDisabledTooltip": "Select only groups to ungroup",
+    "delete": "Delete",
+    "deleteAriaLabel": "Delete {{count}} selected layers",
+    "deleteConfirmLabel": "Delete {{count}} layers? This cannot be undone.",
+    "deleteConfirmAction": "Delete {{count}} layers",
+    "deleteConfirmCancel": "Cancel",
+    "errorUpdateRolledBack": "Failed to update layers — changes rolled back.",
+    "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
+    "selectRow": "Select {{name}}",
+    "selectGroup": "Select {{name}}"
+  },
   "unifiedStack": {
     "title": "Layers",
     "addData": "＋ Add data",

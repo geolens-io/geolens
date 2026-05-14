@@ -21,6 +21,7 @@ import { StackRow } from '@/components/builder/StackRow';
 import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
 import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
 import { EmptyStackState } from '@/components/builder/EmptyStackState';
+import { BulkActionBar } from '@/components/builder/BulkActionBar';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
@@ -108,6 +109,12 @@ interface UnifiedStackPanelProps {
   onCheckboxClick?: (id: string) => void;
   /** Called when outside-click or Escape should clear the multi-selection set */
   onClearSelection?: () => void;
+  // Phase 1041-02: bulk action handlers (no-op stubs in MapBuilderPage until Plan 03 wires real ops)
+  onBulkVisibility?: (ids: Set<string>) => void;
+  onBulkOpacity?: (ids: Set<string>, opacity: number) => void;
+  onBulkGroup?: (ids: Set<string>) => void;
+  onBulkUngroup?: (ids: Set<string>) => void;
+  onBulkDelete?: (ids: Set<string>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +619,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onShiftClick,
   onCheckboxClick,
   onClearSelection,
+  onBulkVisibility,
+  onBulkOpacity,
+  onBulkGroup,
+  onBulkUngroup,
+  onBulkDelete,
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
@@ -989,6 +1001,20 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           </>
         )}
       </div>
+
+      {/* Phase 1041-02: BulkActionBar — sticky footer, visible only when 2+ rows selected */}
+      {selectedIds.size >= 2 && onBulkVisibility && onBulkOpacity && onBulkGroup && onBulkUngroup && onBulkDelete && (
+        <BulkActionBar
+          selectedIds={selectedIds}
+          layers={layers}
+          onClearSelection={onClearSelection ?? (() => {})}
+          onBulkVisibility={onBulkVisibility}
+          onBulkOpacity={onBulkOpacity}
+          onBulkGroup={onBulkGroup}
+          onBulkUngroup={onBulkUngroup}
+          onBulkDelete={onBulkDelete}
+        />
+      )}
     </div>
   );
 });
