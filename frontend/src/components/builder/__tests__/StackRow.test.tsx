@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, within } from '@/test/test-utils';
 import { StackRow } from '../StackRow';
 import type { MapLayerResponse } from '@/types/api';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
@@ -204,6 +204,13 @@ describe('StackRow', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole('menuitem', { name: /Delete layer/i }));
+
+    // The kebab item now opens an inline alertdialog confirm (StackRow.tsx:357-389)
+    // — `onRemove` is invoked only when the destructive `Delete` button inside
+    // the alertdialog is clicked. Drive through the confirm step.
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Delete$/ }));
 
     expect(onRemove).toHaveBeenCalledOnce();
     expect(onRemove).toHaveBeenCalledWith('delete-layer');

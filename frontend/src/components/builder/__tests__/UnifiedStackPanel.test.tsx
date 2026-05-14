@@ -38,7 +38,10 @@ vi.mock('../EmptyStackState', () => ({
       <p>Add your first layer</p>
       <button data-testid="empty-browse-all" onClick={() => onOpenAddData()}>Browse all datasets</button>
       <button data-testid="empty-search-submit" onClick={() => onOpenAddData('test query')}>Search</button>
-      <button data-testid="empty-add-dataset" onClick={() => onAddDataset('dataset-id-1')}>Add dataset</button>
+      {/* Label deliberately avoids substring "Add data" so it does not
+          collide with the header `＋ Add data` button via getByRole regex
+          matching. Test wiring uses `data-testid="empty-add-dataset"`. */}
+      <button data-testid="empty-add-dataset" onClick={() => onAddDataset('dataset-id-1')}>Pick suggestion</button>
     </div>
   ),
 }));

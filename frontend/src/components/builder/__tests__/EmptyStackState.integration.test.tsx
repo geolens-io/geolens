@@ -22,6 +22,32 @@ import { SUGGESTED_DATASETS } from '@/components/builder/suggested-datasets';
 
 // ---- module mocks ----
 
+// Override the shipped (empty) SUGGESTED_DATASETS with a populated fixture so
+// the suggest-card flow can be exercised here. The real module ships an empty
+// array by default (per Phase 1037 commit 4a5ee284) — operators populate it
+// per deployment. The IDs MUST be valid UUID v4 (8-4-4-4-12 hex) or
+// SuggestCard's UUID_RE gate (EmptyStackState.tsx:46-59) hides the cards
+// before they reach the DOM.
+vi.mock('@/components/builder/suggested-datasets', () => {
+  const SUGGESTED_DATASETS = [
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Test Roads',
+      record_type: 'vector_dataset' as const,
+      geometry_type: 'LINESTRING',
+      feature_count: 12345,
+      crs: 'EPSG:4326',
+    },
+    {
+      id: '22222222-2222-4222-8222-222222222222',
+      name: 'Test Elevation',
+      record_type: 'raster_dataset' as const,
+      crs: 'EPSG:3857',
+    },
+  ];
+  return { SUGGESTED_DATASETS };
+});
+
 vi.mock('@/api/datasets', () => ({
   getDataset: vi.fn(),
 }));
