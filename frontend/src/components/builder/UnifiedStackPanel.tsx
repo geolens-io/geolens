@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DragOverlay,
+  useDndContext,
   useDroppable,
 } from '@dnd-kit/core';
 import type { DraggableAttributes } from '@dnd-kit/core';
@@ -287,7 +288,15 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
     transform,
     transition,
     isDragging,
+    isOver,
   } = useSortable({ id: layer.id });
+
+  // Phase 1040 POL-03: folder group is a drop target for catalog drags.
+  // data-group-drop-target activates only when a catalog drag is in flight,
+  // so intra-stack reorder visuals (insertion line) remain the affordance for
+  // intra-stack drags.
+  const { active } = useDndContext();
+  const isCatalogDragActive = (active?.data?.current as { source?: string } | undefined)?.source === 'catalog';
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -303,7 +312,11 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
   const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-group-drop-target={isOver && isCatalogDragActive ? 'true' : undefined}
+    >
       <FolderGroupRow
         groupId={layer.id}
         groupName={displayName}

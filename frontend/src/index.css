@@ -538,3 +538,9 @@ html.dragging-active {
   background: var(--primary-50, oklch(0.97 0.02 250));
   box-shadow: inset 2px 0 0 var(--primary);
 }
+
+/* Phase 1040 POL-03: folder-group drop target — primary-50 tint + left rail */
+[data-group-drop-target="true"] {
+  background: var(--primary-50, oklch(0.97 0.02 250));
+  box-shadow: inset 2px 0 0 var(--primary);
+}
