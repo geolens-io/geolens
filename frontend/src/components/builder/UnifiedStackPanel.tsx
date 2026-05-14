@@ -8,6 +8,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
 } from '@dnd-kit/core';
 import type { DraggableAttributes, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
@@ -202,6 +203,11 @@ interface BasemapGroupRowWrapperProps {
   onResetAppearance: () => void;
 }
 
+// Basemap group is a drop target only — Phase 1040 replaced the no-op useSortable
+// with useDroppable per AUD-04. Drag-out of basemap is intentionally not supported
+// (basemap is pinned). The basemap row was previously registered via useSortable but
+// excluded from sortableIds, making drag attempts a silent no-op. useDroppable gives
+// it proper drop-target semantics for catalog basemap drops in Plan 02.
 const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   group,
   selected,
@@ -214,20 +220,10 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onSwapBasemap,
   onResetAppearance,
 }: BasemapGroupRowWrapperProps) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: group.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+  const { setNodeRef, isOver } = useDroppable({
+    id: group.id,
+    data: { source: 'stack', kind: 'basemap-group' },
+  });
 
   const handleSelectGroup = useCallback(
     (id: string) => onSelectGroup(id),
@@ -235,7 +231,7 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   );
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} data-basemap-drop-target={isOver ? 'true' : undefined}>
       <BasemapGroupRow
         groupId={group.id}
         presetName={group.presetName}
@@ -244,9 +240,9 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         opacity={group.opacity}
         selected={selected}
         isExpanded={isExpanded}
-        isDragging={isDragging}
+        isDragging={false}
         visibilityDisabled={visibilityDisabled}
-        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
+        dragHandleProps={{ attributes: {} as DraggableAttributes, listeners: undefined, setActivatorNodeRef: NOOP }}
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
         onToggleVisibility={onToggleVisibility}
