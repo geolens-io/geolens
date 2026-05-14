@@ -198,3 +198,69 @@ describe('handleAddDataset (BSR-18)', () => {
     expect(() => act(() => { onSuccess({ id: 'new-layer-id' }); })).not.toThrow();
   });
 });
+
+// Phase 1040 Plan 03: extended signature tests (parentGroupId + datasetName)
+describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
+  it('Test E: parentGroupId wires created layer into group via handleAddLayerToExistingGroup', () => {
+    // Pre-populate localLayers with the group AND a child-layer so
+    // handleAddLayerToExistingGroup can find `child-layer-id` after the mutation resolves.
+    const groupLayer = makeMockLayer({ id: 'group-1', layer_type: 'folder_group' as MapLayerResponse['layer_type'] });
+    const childLayer = makeMockLayer({ id: 'child-layer-id', dataset_id: 'ds-99' });
+    const { result, mutate } = renderBuilderLayers(makeMapData([groupLayer, childLayer]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-99', undefined, 'group-1');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'child-layer-id' }); });
+
+    // handleAddLayerToExistingGroup should have set parent_group_id on child-layer-id
+    const updated = result.current.localLayers.find((l) => l.id === 'child-layer-id');
+    expect(updated).toBeDefined();
+    expect((updated as { parent_group_id?: string } | undefined)?.parent_group_id).toBe('group-1');
+  });
+
+  it('Test F: parentGroupId=null does not attempt group wiring', () => {
+    const layer = makeMockLayer();
+    const { result, mutate } = renderBuilderLayers(makeMapData([layer]));
+    const onSuccessCb = vi.fn();
+
+    act(() => {
+      result.current.handleAddDataset('ds-42', onSuccessCb, null);
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'new-layer-id' }); });
+
+    // onSuccessCb still fires — no group wiring side effects
+    expect(onSuccessCb).toHaveBeenCalledWith('new-layer-id');
+  });
+
+  it('Test G: datasetName provided causes named toast key path (no throw)', () => {
+    const layer = makeMockLayer();
+    const { result, mutate } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42', undefined, null, 'My Dataset');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    // Should not throw even with name provided
+    expect(() => act(() => { onSuccess({ id: 'new-layer-id' }); })).not.toThrow();
+  });
+
+  it('Test H: backward compat — all new params optional, existing callers unchanged', () => {
+    const layer = makeMockLayer();
+    const { result, mutate } = renderBuilderLayers(makeMapData([layer]));
+
+    // Two-arg call (existing callers with onSuccessCb)
+    act(() => {
+      result.current.handleAddDataset('ds-42', vi.fn());
+    });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [{ data }] = mutate.mock.calls[0];
+    expect(data).toMatchObject({ dataset_id: 'ds-42', sort_order: 0 });
+  });
+});
