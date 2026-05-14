@@ -520,7 +520,15 @@ export function useBuilderLayers(
     if (!mapId || selectedIds.size === 0) return false;
 
     const previousLayers = layersRef.current;
-    const idsToDelete = Array.from(selectedIds);
+    // Filter out frontend-only group container rows — they have no backend record
+    // and would always produce a 404 if sent to removeLayerFromMapApi.
+    const idsToDelete = Array.from(selectedIds).filter((id) => {
+      const layer = previousLayers.find((l) => l.id === id);
+      if (!layer) return false;
+      if ((layer as GroupedLayer).layer_type === 'group:folder') return false;
+      return true;
+    });
+    if (idsToDelete.length === 0) return false;
 
     // Clear expanded layer if it's being deleted
     setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
