@@ -26,7 +26,7 @@ The user can drag a dataset row from the Add Dataset modal directly onto the uni
 - [x] **POL-02** — Dropping onto the unified stack adds the layer at the drop position; the in-stack insertion line (already implemented in v1008 phase 1038-02) renders during the drag.
 - [ ] **POL-03** — Dropping onto a folder-group row or its expanded children adds the layer as a child of that group (assigns `parent_group_id`).
 - [ ] **POL-04** — Dropping a basemap row swaps the basemap rather than creating a new layer (matches the in-modal "swap" CTA).
-- [ ] **POL-05** — The Add Dataset modal stays open after a successful drag-drop so the user can add multiple layers in one session; a toast confirms each add.
+- [x] **POL-05** — The Add Dataset modal stays open after a successful drag-drop so the user can add multiple layers in one session; a toast confirms each add.
 
 ### Multi-Layer Selection / Bulk Operations
 

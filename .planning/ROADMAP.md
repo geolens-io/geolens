@@ -110,7 +110,7 @@
   4. User performs a successful drag-drop and the Add Dataset modal stays open; a toast confirms each add, and the user can chain multiple adds in one modal session.
 **Plans**: 4 plans
 - [x] 1040-01-PLAN.md — Lift DndContext to MapBuilderPage; basemap row useDroppable (AUD-04); .dragging-active .kebab CSS rule (AUD-03)
-- [ ] 1040-02-PLAN.md — useDraggable on dataset + basemap rows in DatasetSearchPanel; loose-row drop calls handleAddDataset; modal stays open (POL-01, POL-02, POL-05)
+- [x] 1040-02-PLAN.md — useDraggable on dataset + basemap rows in DatasetSearchPanel; loose-row drop calls handleAddDataset; modal stays open (POL-01, POL-02, POL-05)
 - [ ] 1040-03-PLAN.md — Folder-group drop sets parent_group_id (POL-03); basemap-row drop swaps basemap (POL-04); named toasts via datasetAdded / basemapChanged
 - [ ] 1040-04-PLAN.md — Keyboard fallback wiring + aria-live announcements + CatalogDragGhost in DragOverlay + cross-context vitest coverage
 **UI hint**: yes
@@ -192,7 +192,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1039. ux-audit-and-test-debt-closeout | v1009 | 0/2 | Planned | - |
-| 1040. drag-from-catalog-into-stack | v1009 | 1/4 | In Progress|  |
+| 1040. drag-from-catalog-into-stack | v1009 | 2/4 | In Progress|  |
 | 1041. multi-layer-selection-and-bulk-ops | v1009 | 0/0 | Not started | - |
 | 1042. spacing-density-states-polish | v1009 | 0/0 | Not started | - |
 | 1043. error-empty-states-and-ia-cleanup | v1009 | 0/0 | Not started | - |
