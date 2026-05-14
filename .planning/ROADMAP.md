@@ -93,7 +93,9 @@
   2. User runs `npx vitest run src/components/builder/` and sees 0 failures and 0 unhandled worker errors — including the previously-failing `EmptyStackState.integration` Tests 2/3/5, the `StackRow` "Delete layer" kebab test, and the `UnifiedStackPanel` "calls onAddDataClick" test.
   3. User runs `src/components/builder/hooks/__tests__/use-builder-layers.add-dataset.test.ts` and sees it run to completion without `Worker exited unexpectedly` / `Timeout terminating forks worker`; the root cause is documented in the phase summary.
   4. Phase summary names the audit's P0 items so Phase 1042 and Phase 1043 can scope their plans against an explicit priority list.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 1039-01-test-debt-closeout-PLAN.md — Fix 5 builder vitest failures + worker-timeout regression (POL-19/20/21)
+- [ ] 1039-02-builder-ux-audit-PLAN.md — Produce BUILDER-UX-AUDIT.md across six builder surfaces (POL-12)
 **UI hint**: yes
 
 ### Phase 1040: drag-from-catalog-into-stack
@@ -185,7 +187,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1039. ux-audit-and-test-debt-closeout | v1009 | 0/0 | Not started | - |
+| 1039. ux-audit-and-test-debt-closeout | v1009 | 0/2 | Planned | - |
 | 1040. drag-from-catalog-into-stack | v1009 | 0/0 | Not started | - |
 | 1041. multi-layer-selection-and-bulk-ops | v1009 | 0/0 | Not started | - |
 | 1042. spacing-density-states-polish | v1009 | 0/0 | Not started | - |
