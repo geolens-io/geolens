@@ -2,33 +2,33 @@
 gsd_state_version: 1.0
 milestone: v1008
 milestone_name: Map Builder Sidebar Redesign
-status: Archived
+status: executing
 stopped_at: v1008 Map Builder Sidebar Redesign roadmapped; Phase 1033 ready to plan.
-last_updated: "2026-05-13T15:36:57.336Z"
-last_activity: 2026-05-13 — 1033-01 complete (normalize-saved-map pure function + 16 vitest tests)
+last_updated: "2026-05-13T20:57:48.404Z"
+last_activity: 2026-05-13 -- Phase 1036 execution started
 progress:
   total_phases: 21
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  completed_phases: 3
+  total_plans: 12
+  completed_plans: 10
+  percent: 83
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1033 — saved-map-normalizer-and-viewer-parity
-Plan: 1 / 2 complete
-Status: In progress — Plan 01 shipped
-Last activity: 2026-05-13 — 1033-01 complete (normalize-saved-map pure function + 16 vitest tests)
+Phase: 1036 (settings-affordance) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 1036
+Last activity: 2026-05-13 -- Phase 1036 execution started
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1008 Map Builder Sidebar Redesign — re-architect the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack with basemap-as-group, DEM-as-raster-layer, compact rows, side-by-side LayerEditorPanel flyout, settings affordance, catalog-first empty state, and saved-map normalizer that preserves public/shared/embed viewer fidelity.
+**Current focus:** Phase 1036 — settings-affordance
 
 ## Active Milestone: v1008 Map Builder Sidebar Redesign
 
@@ -41,7 +41,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 
 | Phase | Name | Requirements | Status |
 |---|---|---|---|
-| 1033 | saved-map-normalizer-and-viewer-parity | BSR-20..23 | Not started |
+| 1033 | saved-map-normalizer-and-viewer-parity | BSR-20..23 | ✅ Shipped 2026-05-13 |
 | 1034 | unified-stack-rows-and-layer-editor-flyout | BSR-01..04, BSR-10..13 | Not started |
 | 1035 | basemap-group-folder-groups-and-dem-raster | BSR-05..09 | Not started |
 | 1036 | settings-affordance | BSR-14..15 | Not started |
@@ -62,7 +62,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 **Version:** v1007 Release Hygiene
 **Started:** 2026-05-12
 **Shipped:** 2026-05-12
-**Status:** Archived
+**Status:** Executing Phase 1036
 **Goal:** Close release hygiene after v1006 by proving dependency/security state, generated artifacts, stack health, smoke coverage, Playwright MCP browser health, and temporary data cleanup.
 **Phases:** 1032 (1 phase, 10 requirements; 10 requirements complete)
 **Audit:** passed / GO

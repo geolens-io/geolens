@@ -73,7 +73,7 @@
 
 **Requirements:** 0/27 complete; 27/27 mapped (BSR-01..27)
 
-- [ ] **Phase 1033: saved-map-normalizer-and-viewer-parity** — Foundational normalizer that flattens legacy six-section saved maps into the unified shape and proves viewer parity before any sidebar UI changes ship.
+- [x] **Phase 1033: saved-map-normalizer-and-viewer-parity** — completed 2026-05-13 (normalizer wired into getMap/getSharedMap; 35/35 parity tests passing; verification 4/4)
 - [ ] **Phase 1034: unified-stack-rows-and-layer-editor-flyout** — One drag-orderable layer list with the compact row anatomy as the entry surface, paired with the revived side-by-side LayerEditorPanel flyout.
 - [ ] **Phase 1035: basemap-group-folder-groups-and-dem-raster** — Basemap-as-group, user folder groups, and DEM-as-raster-layer with `render as: image | hillshade | terrain` property.
 - [ ] **Phase 1036: settings-affordance** — `⚙ Settings` panel for terrain, widgets, and projection, pulling those controls out of the layer stack entirely.
@@ -104,7 +104,11 @@
   3. User sees each row as `drag · visibility · type-icon · name · opacity · kebab` only — no duplicate subtitle, no position tag, no type chip, no inline-expanding controls — and the kebab exposes rename, duplicate, delete, and grouping actions.
   4. User clicks any row and gets row highlight plus a 380px LayerEditorPanel flyout that opens between the 340px sidebar and the map, with Render-as / Appearance / Visibility / collapsed Filter+Labels+Source / footer Delete sections, while the sidebar stays mounted for cross-layer comparison.
   5. User on a narrow viewport sees the flyout degrade to a rail or drill-down variant without losing any capability.
-**Plans**: TBD
+**Plans**: 3 plans (0/3 complete)
+Plans:
+- [ ] 1034-01-PLAN.md — Three-column grid shell + breakpoints (1100/800) + LayerEditorPanel chrome revival (BSR-10, BSR-12, BSR-13)
+- [ ] 1034-02-PLAN.md — UnifiedStackPanel + StackRow + SidebarRail; retire MapStackPanel from sidebar (BSR-01, BSR-02, BSR-03, BSR-04)
+- [ ] 1034-03-PLAN.md — LayerEditorPanel section body (Render-as / Appearance / Visibility / collapsed Filter+Labels+Source) + footer Delete with inline confirm (BSR-11)
 **UI hint**: yes
 
 ### Phase 1035: basemap-group-folder-groups-and-dem-raster
@@ -117,7 +121,13 @@
   3. User creates a folder group using the `▸` glyph, renames it, adds layers into it, ungroups it, and the expansion state persists per map.
   4. User adds a DEM dataset and sees it appear as a regular raster row with a `render as: image | hillshade | terrain` property — no separate Relief section, no separate Surface section.
   5. User switches a DEM's render mode and source binding plus paint config are preserved; terrain mode wires the map-level terrain config without resurrecting a Relief section.
-**Plans**: TBD
+**Plans**: 5 plans (0/5 complete)
+Plans:
+- [ ] 1035-01-PLAN.md — Foundation: normalizer group_meta + use-builder-layers group/folder/DEM handlers + LayerEditorPanel editorScene dispatch + i18n (BSR-05, BSR-07, BSR-08, BSR-09)
+- [ ] 1035-02-PLAN.md — Basemap-as-group components: BasemapGroupRow + Scene B (preset grid + sublayer list) + Scene C (breadcrumb + Detail Level + Stroke) (BSR-05, BSR-06)
+- [ ] 1035-03-PLAN.md — FolderGroupRow with inline rename + inline delete confirm (BSR-07)
+- [ ] 1035-04-PLAN.md — DEM Scene A: render-as pills + compass widget + hillshade sliders/colors + terrain bind; StackRow DEM glyph variants (BSR-08, BSR-09)
+- [ ] 1035-05-PLAN.md — Wiring: UnifiedStackPanel + MapBuilderPage integration, Add-to-group sub-flow, retire MapStack*, acceptance verification (BSR-05, BSR-06, BSR-07, BSR-08, BSR-09)
 **UI hint**: yes
 
 ### Phase 1036: settings-affordance
@@ -127,7 +137,10 @@
 **Success Criteria** (what must be TRUE):
   1. User clicks a `⚙ Settings` affordance in the sidebar header and reaches a panel containing terrain global config, map widgets, and projection controls.
   2. User scans the layer stack and finds no permanent settings fixtures — terrain global, widgets, and projection no longer appear as stack rows or sections.
-**Plans**: TBD
+**Plans**: 2 plans (0/2 complete)
+Plans:
+- [ ] 1036-01-PLAN.md — SettingsEditorScene component + unit tests (BSR-14, BSR-15)
+- [ ] 1036-02-PLAN.md — MapBuilderPage editorScene='settings' dispatch + LayerEditorPanel + cog button isSettingsOpen wiring + BSR-15 audit (BSR-14, BSR-15)
 **UI hint**: yes
 
 ### Phase 1037: empty-state-and-add-data-alignment
@@ -139,18 +152,22 @@
   2. User typing into the empty-state search bar lands in the same Add Data modal as the `+ Add data` button with the query pre-filled.
   3. User opens the Add Data modal and finds raster discovery on par with vector, post-add layers landing at a sensible z-position, the LayerEditorPanel flyout opening on add, catalog parity with `/collections`, and a real empty/zero-result UX — all audit findings resolved.
   4. User does not see a `/api/datasets/suggested` backend dependency in v1; suggestions are hand-curated and the smart endpoint is explicitly deferred and tracked.
-**Plans**: TBD
+**Plans**: 2 plans (0/2 complete)
+Plans:
+- [ ] 1037-01-PLAN.md — EmptyStackState component + suggested-datasets module + UnifiedStackPanel wiring + i18n (BSR-16, BSR-19)
+- [ ] 1037-02-PLAN.md — Add Data modal alignment: initialQuery prefill, raster-filter fix, sort_order=0 prepend, onSuccess flyout auto-open, three-state empty/zero/error UX (BSR-17, BSR-18)
 **UI hint**: yes
 
 ### Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout
 **Goal**: Close the milestone with sketch-fidelity verification against `sketch-findings-geolens`, full keyboard accessibility, i18n coverage for new copy, and a Playwright MCP UAT that exercises every new surface end-to-end with zero console warnings or errors.
 **Depends on**: Phases 1033, 1034, 1035, 1036, 1037
-**Requirements**: BSR-24, BSR-25, BSR-26, BSR-27
+**Requirements**: BSR-13, BSR-24, BSR-25, BSR-26, BSR-27
 **Success Criteria** (what must be TRUE):
   1. Implementation visually matches the `sketch-findings-geolens` skill — palette, row anatomy, group glyphs (`⊞` basemap, `▸` folder), flyout layout, and section ordering all hold against the locked reference HTML.
   2. User navigates the unified stack, flyout sections, and settings panel entirely by keyboard, with focus correctly managed on row-select, flyout-open, and flyout-close.
   3. i18n keys for new copy are added, existing keys are reused where possible, and the changed-namespace check passes across all builder locales.
   4. Playwright MCP UAT exercises drag-reorder, basemap-group expand, DEM render-mode switch, flyout open/close, settings panel, empty-state entry, Add Data modal pre-fill, legacy-map open, and save/reload round-trip — and the live page console reports zero warnings and zero errors.
+  5. User on a viewport narrower than 800px gets the `<800px` drill-down variant of the LayerEditorPanel (overlay/Sheet rendered with `isDrillDown={true}` and a back-arrow), closing the BSR-13 gap deferred from Phase 1034.
 **Plans**: TBD
 **UI hint**: yes
 
@@ -162,10 +179,10 @@ Phases execute in numeric order: 1033 → 1034 → 1035 → 1036 → 1037 → 10
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1033. saved-map-normalizer-and-viewer-parity | v1008 | 2/2 | Complete   | 2026-05-13 |
-| 1034. unified-stack-rows-and-layer-editor-flyout | v1008 | 0/TBD | Not started | - |
-| 1035. basemap-group-folder-groups-and-dem-raster | v1008 | 0/TBD | Not started | - |
-| 1036. settings-affordance | v1008 | 0/TBD | Not started | - |
-| 1037. empty-state-and-add-data-alignment | v1008 | 0/TBD | Not started | - |
+| 1034. unified-stack-rows-and-layer-editor-flyout | v1008 | 0/3 | Not started | - |
+| 1035. basemap-group-folder-groups-and-dem-raster | v1008 | 0/5 | Not started | - |
+| 1036. settings-affordance | v1008 | 0/2 | Not started | - |
+| 1037. empty-state-and-add-data-alignment | v1008 | 0/2 | Not started | - |
 | 1038. a11y-i18n-sketch-fidelity-and-uat-closeout | v1008 | 0/TBD | Not started | - |
 
 

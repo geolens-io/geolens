@@ -749,6 +749,77 @@ export function MapBuilderPage() {
           </aside>
         )}
 
+        {/* BSR-13: <800px drill-down — Sheet overlay when editor is hidden but a layer/scene is active */}
+        {isEditorHidden && (editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer' || editorScene === 'settings') && (
+          <Sheet
+            open={true}
+            onOpenChange={(open) => { if (!open) handleCloseEditor(); }}
+          >
+            <SheetContent
+              side="right"
+              className="w-full max-w-[380px] p-0 flex flex-col"
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>
+                  {editingLayer?.display_name ?? editingLayer?.dataset_name ?? t('layerEditor.close', { defaultValue: 'Close layer editor' })}
+                </SheetTitle>
+                <SheetDescription>
+                  {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
+                </SheetDescription>
+              </SheetHeader>
+              <LazyLoadErrorBoundary>
+                <LayerEditorPanel
+                  key={layers.expandedLayerId ?? 'no-layer'}
+                  layer={editingLayer ?? {
+                    id: editorScene === 'settings' ? 'settings' : (layers.expandedLayerId ?? 'basemap-group'),
+                    dataset_id: editorScene === 'settings' ? 'settings' : 'basemap',
+                    dataset_name: editorScene === 'settings'
+                      ? 'Settings'
+                      : editorScene === 'basemap-sublayer'
+                        ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
+                        : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+                    dataset_geometry_type: null,
+                    dataset_table_name: editorScene === 'settings' ? 'settings' : 'basemap',
+                    dataset_extent_bbox: null,
+                    dataset_column_info: null,
+                    dataset_feature_count: null,
+                    dataset_sample_values: null,
+                    display_name: editorScene === 'settings'
+                      ? 'Settings'
+                      : editorScene === 'basemap-sublayer'
+                        ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
+                        : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
+                    sort_order: -1,
+                    visible: true,
+                    opacity: 1,
+                    paint: {},
+                    layout: {},
+                    filter: null,
+                    label_config: null,
+                    popup_config: null,
+                    style_config: null,
+                    layer_type: null,
+                    dataset_record_type: 'vector_dataset',
+                    show_in_legend: false,
+                    is_dem: false,
+                    dem_vertical_units: null,
+                  }}
+                  onClose={handleCloseEditor}
+                  isDrillDown={true}
+                  handlers={layerEditorHandlers}
+                  activeTab={layers.activeEditorTab}
+                  enableLegacyTabs={false}
+                  editorScene={editorScene}
+                  sceneContent={sceneContent ?? undefined}
+                  sceneFooter={sceneFooter ?? undefined}
+                  breadcrumbPresetName={breadcrumbPresetName}
+                  onBreadcrumbClick={onBreadcrumbClick}
+                />
+              </LazyLoadErrorBoundary>
+            </SheetContent>
+          </Sheet>
+        )}
+
         {/* Column 3 (or 2 when no editor): map canvas */}
         <div className="relative min-h-0 min-w-0">
           <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
