@@ -1,151 +1,98 @@
-# Requirements: v1008 Map Builder Sidebar Redesign
+---
+milestone: v1009
+milestone_name: Map Builder v1.5 (Polish)
+status: draft
+created: 2026-05-14
+---
 
-**Defined:** 2026-05-13
-**Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
+# Map Builder v1.5 (Polish) — Requirements
 
-## Milestone Goal
+**Milestone:** v1009 Map Builder v1.5 (Polish)
+**Started:** 2026-05-14
 
-Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief / Basemap / Data / Labels / Interactions) into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
+**Goal:** Polish the v1008 unified-stack Map Builder — add the two highest-value v1008 deferrals (drag-from-catalog, multi-layer selection), sweep the entire builder surface for modern, sleek, intuitive presentation, and close out pre-existing builder test drift.
 
-## Locked Context
+**Naming convention:** Requirement IDs use the `POL-NN` prefix (POLish).
 
-- **Direction note:** `.planning/notes/map-builder-sidebar-redesign-direction.md`
-- **Seed:** `.planning/seeds/map-builder-sidebar-redesign.md`
-- **Sketch findings:** `.planning/sketches/WRAP-UP-SUMMARY.md` (skill `sketch-findings-geolens`)
-- **Companion todo:** `.planning/todos/pending/audit-add-data-modal.md`
-- **Reference commits:**
-  - Revive: `1d3cdc9a` (LayerEditorPanel flyout), `aeac195c` (flyout z-index fix)
-  - Retire: `383e1f55` (inline expansion regression), `6756149c` (six-section model), `fa5856ba` (inline basemap/terrain rows)
-  - Compat fixtures: `d2c5c99c test(1000-02): lock saved map stack compatibility`
+---
 
-## Constraints
+## v1 Requirements
 
-- Reuse the existing OKLCH design tokens in `frontend/src/index.css`; do not introduce new tokens.
-- Preserve public, shared, and embed viewer fidelity — no viewer regressions.
-- Do not redesign the Add Data modal in full; this milestone aligns it.
-- Defer `/api/datasets/suggested` endpoint; ship hand-curated suggestions.
-- Carry the existing mobile shell forward; no mobile-specific layout polish here.
-- Existing renderer set (v1004–v1007) is preserved; no new renderAs modes introduced.
-- Touch saved-map JSON shape only via a backward-compatible normalizer in the loader (no schema migration).
+### Drag-from-Catalog-into-Stack
 
-## v1008 Requirements
+The user can drag a dataset row from the Add Dataset modal directly onto the unified layer stack to add it as a layer, without click-through.
 
-### Unified Stack & Row Anatomy
+- [ ] **POL-01** — Vector, raster, and basemap rows in the Add Dataset modal expose a drag affordance (cursor change + grab handle on hover) and are draggable via `@dnd-kit` to the unified stack.
+- [ ] **POL-02** — Dropping onto the unified stack adds the layer at the drop position; the in-stack insertion line (already implemented in v1008 phase 1038-02) renders during the drag.
+- [ ] **POL-03** — Dropping onto a folder-group row or its expanded children adds the layer as a child of that group (assigns `parent_group_id`).
+- [ ] **POL-04** — Dropping a basemap row swaps the basemap rather than creating a new layer (matches the in-modal "swap" CTA).
+- [ ] **POL-05** — The Add Dataset modal stays open after a successful drag-drop so the user can add multiple layers in one session; a toast confirms each add.
 
-- [ ] **BSR-01**: User sees a single drag-orderable layer list — no Surface / Relief / Basemap / Data / Labels / Interactions sibling sections.
-- [ ] **BSR-02**: User can reorder layers via the drag handle; z-order updates on the map immediately.
-- [ ] **BSR-03**: Each row shows drag · visibility · type-icon · name · opacity · kebab — no inline-expanding controls and no duplicate subtitle/position-tag/type-chip clutter.
-- [ ] **BSR-04**: Row kebab menu exposes rename, duplicate, delete, and grouping actions.
+### Multi-Layer Selection / Bulk Operations
 
-### Basemap Group & Folder Groups
+The user can select multiple stack rows and perform bulk operations atomically.
 
-- [ ] **BSR-05**: User sees the basemap as a collapsible group row (`⊞`) with sublayer expansion (roads / labels / buildings / boundaries / land–water).
-- [ ] **BSR-06**: User can toggle basemap sublayer visibility from inside the expanded group.
-- [ ] **BSR-07**: User-created folder groups use `▸`, share rename / add-layer / ungroup operations, and persist expansion state per map.
+- [ ] **POL-06** — Stack rows support multi-selection via `cmd-click` (toggle) and `shift-click` (contiguous range), with clear keyboard equivalents (Space toggles, Shift+ArrowUp/Down extends).
+- [ ] **POL-07** — Selected rows render a distinct selection state (background tint + optional `aria-selected="true"` + visible checkbox); the single-selection focus state for the layer editor remains visually distinguishable from multi-selection.
+- [ ] **POL-08** — When 2+ rows are selected, a bulk action bar appears (anchored to the stack header or footer) exposing: bulk visibility toggle, bulk opacity slider, group selection, ungroup, delete.
+- [ ] **POL-09** — Bulk operations execute atomically (single optimistic update, single API write per affected layer); failure surfaces a single error toast and rolls back optimistically updated state.
+- [ ] **POL-10** — Selection clears on `Escape`, on outside-click of the stack, and on route change.
+- [ ] **POL-11** — Multi-selection does NOT cross the basemap-group boundary (the basemap row + sublayers cannot be co-selected with overlay layers — bulk delete on basemap is non-sensical).
 
-### DEM as Raster Layer
+### General Map Builder UI/UX Sweep
 
-- [ ] **BSR-08**: User adds a DEM as a regular raster layer carrying a `render as: image | hillshade | terrain` property; no separate Relief or Surface section exists.
-- [ ] **BSR-09**: User switches a DEM render mode without losing source binding or paint config; terrain mode wires the map-level terrain config without resurrecting a Relief section.
+A modern, sleek, intuitive review across the entire builder surface — audit-first, then targeted polish.
 
-### Layer Editor Flyout
+- [ ] **POL-12** — A `BUILDER-UX-AUDIT.md` document is produced enumerating findings across the builder (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings scene, SidebarRail, EmptyStackState) with severity (P0/P1/P2) and a fix-priority recommendation.
+- [ ] **POL-13** — Spacing and density tokens are normalized across the builder surfaces (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings) using the `sketch-findings-geolens` token set; visual regressions caught by Playwright snapshots where added.
+- [ ] **POL-14** — Hover, focus-visible, pressed, and active states are unified across the builder using the same token palette; microinteractions (transitions, drag affordance, expand/collapse) use consistent timing (`--motion-fast`/`--motion-base` tokens).
+- [ ] **POL-15** — Loading affordances (skeletons for column lists, spinners for async previews, optimistic UI for stack reorder) are present everywhere an async fetch occurs in the builder.
+- [ ] **POL-16** — Error states are present and recoverable: every async failure point surfaces a localized error message with a retry affordance (no silent failure into the error boundary).
+- [ ] **POL-17** — Empty states are polished beyond v1008's catalog-first treatment — Filter section "no conditions yet", Labels section "labels off", Source section "no columns indexed", and the LayerEditorPanel itself when basemap-group has zero customization all receive intentional empty-state copy + iconography.
+- [ ] **POL-18** — Information architecture cleanup: section ordering inside `LayerEditorPanel` is consistent across vector/raster/DEM/basemap layer types; scene transitions (default → basemap-group → basemap-sublayer → back) preserve scroll position and focus.
 
-- [ ] **BSR-10**: Clicking a row highlights it and opens a 380px side-by-side LayerEditorPanel flyout between the sidebar (340px) and the map.
-- [ ] **BSR-11**: Flyout includes Render-as pill strip, Appearance (paint), Visibility (opacity + zoom range), Filter / Labels / Source (collapsed), and Delete in footer.
-- [ ] **BSR-12**: Cross-layer comparison stays available because the sidebar remains mounted while the flyout is open.
-- [ ] **BSR-13**: At narrow viewports the flyout falls back to a rail or drill-down variant without loss of capability.
+### Builder Test Debt Closeout
 
-### Settings Affordance
+Pre-existing builder test drift surfaced during the v1008 smoke-test sweep is closed out.
 
-- [ ] **BSR-14**: User opens a `⚙ Settings` affordance for terrain global config, map widgets, and projection.
-- [ ] **BSR-15**: Settings panel removes those controls from the sidebar layer stack entirely; no permanent settings fixtures in the stack.
+- [ ] **POL-19** — All 5 pre-existing builder vitest failures pass: `EmptyStackState.integration` Test 2/3/5, `StackRow` "Delete layer" kebab, `UnifiedStackPanel` "calls onAddDataClick when ＋ Add data button is clicked".
+- [ ] **POL-20** — `src/components/builder/hooks/__tests__/use-builder-layers.add-dataset.test.ts` runs to completion without `Worker exited unexpectedly` / `Timeout terminating forks worker`; root cause is identified (likely fixture cleanup leak) and documented in the phase summary.
+- [ ] **POL-21** — `npx vitest run src/components/builder/` reports 0 failures and 0 unhandled worker errors at milestone close; CI green.
 
-### Empty State & Add Data Alignment
+### Cross-Cutting Closeout
 
-- [ ] **BSR-16**: User on a new map sees an empty-state catalog entry experience with inline search and suggested datasets — not a generic "Add data" prompt.
-- [ ] **BSR-17**: Inline empty-state search routes into the same Add Data modal as `+ Add data`, with the query pre-filled.
-- [ ] **BSR-18**: Add Data modal audit findings (raster discovery, post-add z-position, flyout opens on add, catalog parity, empty/zero-result UX) are resolved; the modal aligns with the unified stack model.
-- [ ] **BSR-19**: Hand-curated suggested datasets ship for v1; `/api/datasets/suggested` endpoint is explicitly deferred and tracked.
+- [ ] **POL-22** — i18n locales (en / de / fr / es) updated for every new builder string introduced in v1.5 (drag-from-catalog affordances, bulk action labels, audit-driven copy refinements); `i18n-check` smoke green.
+- [ ] **POL-23** — Accessibility verified for new interactions: drag-from-catalog supports keyboard-only path (Space to pick up, Arrow to navigate stack, Space to drop, Escape to cancel — mirrors v1008 in-stack drag); multi-select supports Shift+ArrowUp/Down + Space; selection state announced via `aria-multiselectable` on the stack `role="listbox"`.
+- [ ] **POL-24** — A Playwright UAT spec (`e2e/builder-v1-5.spec.ts`) exercises the drag-from-catalog happy path, multi-select bulk-delete happy path, and one negative-path each (cancel via Escape during drag; bulk delete with mixed basemap + overlay selection blocked).
+- [ ] **POL-25** — Builder smoke (`npm run e2e:smoke:builder`) remains green at milestone close; all 21 existing tests pass + the new UAT spec from POL-24 is added.
 
-### Saved-Map Compatibility
+---
 
-- [x] **BSR-20**: User opens a legacy six-section saved map and sees it rendered correctly under the unified stack.
-- [x] **BSR-21**: Saved-map loader normalizes legacy `{ surface, relief, basemap, data, labels, interactions }` shape into a flat layer array + group metadata, without schema migration.
-- [x] **BSR-22**: Public, shared, and embed viewers render normalized maps identically to the builder.
-- [x] **BSR-23**: New maps saved under the unified stack round-trip through save → reload → public/shared/embed without loss; `d2c5c99c` compat fixtures pass against the normalized loader.
+## Future Requirements
 
-### Closeout
+_(Deferred to a later milestone; not in scope for v1.5)_
 
-- [ ] **BSR-24**: Sketch fidelity holds — implementation matches the `sketch-findings-geolens` skill (palette, row anatomy, group semantics, flyout layout).
-- [ ] **BSR-25**: Accessibility — keyboard navigation through stack, flyout sections, and settings panel; focus management on row-select + flyout-open + flyout-close.
-- [ ] **BSR-26**: i18n keys for new copy added; existing keys reused where possible; changed-namespace check passes.
-- [ ] **BSR-27**: Playwright MCP UAT proves drag-reorder, basemap-group-expand, DEM render-mode switch, flyout open/close, settings panel, empty-state entry, Add Data modal pre-fill, legacy-map open, and save/reload round-trip — with zero console warnings/errors.
+- Mobile-specific `<800px` drill-down polish beyond what POL-12's audit surfaces (gesture handling, sheet snap points, touch-target sizing audit)
+- Full Add Data modal redesign (incremental polish only via POL-13/14)
+- `/api/datasets/suggested` backend endpoint (still hand-curated v1)
+- Drag-from-catalog with multi-rendering bulk-add (drop one row, get N renderings)
+- Drag-to-reorder within the Add Dataset modal results list
 
-## Future Requirements (deferred)
-
-- Smart `/api/datasets/suggested` backend endpoint (ranked by org-usage + recency, starter set gated by `is_first_map(user)`).
-- Drag-from-catalog-into-stack.
-- Multi-layer selection / bulk operations.
-- Mobile-specific layout polish for sidebar + flyout.
-- Full Add Data modal redesign beyond alignment.
+---
 
 ## Out of Scope
 
-- Map widgets configuration UI rework (settings affordance covers entry point only).
-- New renderer types or renderAs modes (v1004–v1007 set preserved).
-- Schema migrations beyond the saved-map loader normalizer.
-- Re-architecting the catalog page or `/collections`.
+- Re-architecting the unified stack or layer editor flyout (v1008 foundation is locked)
+- Backend API changes to the maps router (v1.5 is a frontend polish milestone — POL-09 bulk ops use existing per-layer PATCH endpoints)
+- New layer types or render modes (v1004 / v1005 / v1006 scope is closed)
+- Saved-map normalizer changes (v1008 phase 1033 is the canonical migration; no shape changes in v1.5)
+- Public viewer / shared / embed surface changes (parity guarantee from v1008 carries forward)
+
+---
 
 ## Traceability
 
-| Requirement | Phase | Status |
+_(Filled by gsd-roadmapper after phase definition)_
+
+| REQ-ID | Phase | Notes |
 |---|---|---|
-| BSR-01 | Phase 1034 | Pending |
-| BSR-02 | Phase 1034 | Pending |
-| BSR-03 | Phase 1034 | Pending |
-| BSR-04 | Phase 1034 | Pending |
-| BSR-05 | Phase 1035 | Pending |
-| BSR-06 | Phase 1035 | Pending |
-| BSR-07 | Phase 1035 | Pending |
-| BSR-08 | Phase 1035 | Pending |
-| BSR-09 | Phase 1035 | Pending |
-| BSR-10 | Phase 1034 | Pending |
-| BSR-11 | Phase 1034 | Pending |
-| BSR-12 | Phase 1034 | Pending |
-| BSR-13 | Phase 1034 | Pending |
-| BSR-14 | Phase 1036 | Pending |
-| BSR-15 | Phase 1036 | Pending |
-| BSR-16 | Phase 1037 | Pending |
-| BSR-17 | Phase 1037 | Pending |
-| BSR-18 | Phase 1037 | Pending |
-| BSR-19 | Phase 1037 | Pending |
-| BSR-20 | Phase 1033 | Complete |
-| BSR-21 | Phase 1033 | Complete (1033-01) |
-| BSR-22 | Phase 1033 | Complete |
-| BSR-23 | Phase 1033 | Complete |
-| BSR-24 | Phase 1038 | Pending |
-| BSR-25 | Phase 1038 | Pending |
-| BSR-26 | Phase 1038 | Pending |
-| BSR-27 | Phase 1038 | Pending |
-
-**Phase mapping summary:**
-
-| Phase | Requirements | Count |
-|---|---|---|
-| Phase 1033: saved-map-normalizer-and-viewer-parity | BSR-20, BSR-21, BSR-22, BSR-23 | 4 |
-| Phase 1034: unified-stack-rows-and-layer-editor-flyout | BSR-01, BSR-02, BSR-03, BSR-04, BSR-10, BSR-11, BSR-12, BSR-13 | 8 |
-| Phase 1035: basemap-group-folder-groups-and-dem-raster | BSR-05, BSR-06, BSR-07, BSR-08, BSR-09 | 5 |
-| Phase 1036: settings-affordance | BSR-14, BSR-15 | 2 |
-| Phase 1037: empty-state-and-add-data-alignment | BSR-16, BSR-17, BSR-18, BSR-19 | 4 |
-| Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout | BSR-24, BSR-25, BSR-26, BSR-27 | 4 |
-
-**Coverage:**
-- v1008 requirements: 27 total
-- Complete: 0
-- Pending: 27
-- Mapped to phases: 27
-- Unmapped: 0
-
----
-*Requirements defined: 2026-05-13*
-*Phase mapping assigned: 2026-05-13*
