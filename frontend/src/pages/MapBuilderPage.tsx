@@ -471,7 +471,9 @@ export function MapBuilderPage() {
         toast.success(t('toasts.basemapChanged', { name: datasetName }), {
           id: `swap-basemap-${datasetId}`,
         });
-        announce(t('a11y.dragDropped', { name: datasetName, n: 1 }));
+        // WR-03: reuse the toast copy for the basemap swap announce — "Basemap changed to {name}."
+        // is semantically correct; dragDropped copy ("added at position 1") is not.
+        announce(t('toasts.basemapChanged', { name: datasetName }));
         return;
       }
 
