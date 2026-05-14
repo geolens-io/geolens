@@ -410,10 +410,20 @@ export function useBuilderLayers(
         { mapId, data: { dataset_id: datasetId, sort_order: 0 } },
         {
           onSuccess: (createdLayer) => {
-            // Phase 1040 POL-03: if a parentGroupId is provided, wire the created layer
-            // into the folder group BEFORE firing the toast (so the UI reflects the
-            // group membership immediately).
+            // CR-02: when dropping onto a folder group, the new layer is not yet in
+            // localLayers at this point — the invalidation refetch is async and the
+            // useEffect sync only runs when !hasUnsavedChanges. Optimistically prepend
+            // the layer with parent_group_id already set so handleAddLayerToExistingGroup
+            // finds it immediately instead of getting targetIdx === -1 and silently no-oping.
             if (parentGroupId && createdLayer?.id) {
+              setLocalLayers((prev) => {
+                if (prev.some((l) => l.id === createdLayer.id)) return prev;
+                const newLayer: GroupedLayer = {
+                  ...createdLayer,
+                  parent_group_id: parentGroupId,
+                };
+                return [newLayer as MapLayerResponse, ...prev];
+              });
               handleAddLayerToExistingGroup(createdLayer.id, parentGroupId);
             }
             // Phase 1040 POL-05: named toast when datasetName is provided; generic
