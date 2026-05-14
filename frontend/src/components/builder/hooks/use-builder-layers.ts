@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { useQueryClient } from '@tanstack/react-query';
 import { getLayerType, reorderDataLayers } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
@@ -17,6 +18,7 @@ import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-lay
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
+import { removeLayerFromMapApi } from '@/api/maps';
 
 /**
  * Frontend-only extension of MapLayerResponse with group-related fields.
@@ -61,6 +63,7 @@ export function useBuilderLayers(
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
+  const queryClient = useQueryClient();
 
   const initializedRef = useRef(false);
   const addDatasetProcessedRef = useRef(false);
@@ -356,6 +359,196 @@ export function useBuilderLayers(
     });
     setHasUnsavedChanges(true);
   }, []);
+
+  // --- Bulk operation handlers ---
+  // Visibility, opacity, group, and ungroup are PURE LOCAL STATE MUTATIONS
+  // (single setLocalLayers call each, persisted via the existing Save gate).
+  // Only handleBulkDelete calls the per-layer DELETE endpoint.
+
+  const handleBulkVisibility = useCallback((selectedIds: Set<string>) => {
+    const current = layersRef.current;
+    const selectedLayers = current.filter((l) => selectedIds.has(l.id));
+    if (selectedLayers.length === 0) return;
+
+    const visibleCount = selectedLayers.filter((l) => l.visible !== false).length;
+    const majorityVisible = visibleCount > selectedLayers.length / 2;
+    const nextVisible = !majorityVisible;
+
+    // Single setState call for the entire batch
+    setLocalLayers((prev) =>
+      prev.map((l) => (selectedIds.has(l.id) ? { ...l, visible: nextVisible } : l)),
+    );
+    setHasUnsavedChanges(true);
+
+    // Live-map sync: mirror the setLayoutProperty calls from handleToggleVisibility
+    // for each selected layer without firing N separate React re-renders.
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      const newVis = nextVisible ? 'visible' : 'none';
+      for (const l of selectedLayers) {
+        const id = l.id;
+        const ids = [
+          `layer-${id}`,
+          `layer-${id}-outline`,
+          `layer-${id}-label`,
+          `layer-${id}-extrusion`,
+          `layer-${id}-cluster`,
+          `layer-${id}-cluster-count`,
+        ];
+        for (const subId of ids) {
+          if (map.getLayer(subId)) map.setLayoutProperty(subId, 'visibility', newVis);
+        }
+      }
+    }
+  }, [mapInstanceRef]);
+
+  const handleBulkOpacity = useCallback((selectedIds: Set<string>, opacity: number) => {
+    const current = layersRef.current;
+    const selectedLayers = current.filter((l) => selectedIds.has(l.id));
+    if (selectedLayers.length === 0) return;
+
+    // Single setState call for the entire batch
+    setLocalLayers((prev) =>
+      prev.map((l) => (selectedIds.has(l.id) ? { ...l, opacity } : l)),
+    );
+    setHasUnsavedChanges(true);
+
+    // Live-map sync: set opacity paint properties on each selected layer
+    const map = mapInstanceRef.current;
+    if (map && map.isStyleLoaded()) {
+      for (const l of selectedLayers) {
+        const id = l.id;
+        const mapLayerId = `layer-${id}`;
+        const outlineId = `layer-${id}-outline`;
+        if (l.layer_type === 'raster_geolens') {
+          if (map.getLayer(mapLayerId)) {
+            map.setPaintProperty(mapLayerId, 'raster-opacity', opacity);
+          }
+        } else if (l.style_config?.render_mode === 'heatmap') {
+          if (map.getLayer(mapLayerId)) {
+            const storedHeatmapOpacity = (l.paint?.['heatmap-opacity'] as number) ?? 0.8;
+            map.setPaintProperty(mapLayerId, 'heatmap-opacity', opacity * storedHeatmapOpacity);
+          }
+        } else {
+          // fill, line, circle — use adapter type derived from geometry type
+          const geomType = l.dataset_geometry_type;
+          const adapterType =
+            geomType === 'Polygon' || geomType === 'MultiPolygon' ? 'fill'
+            : geomType === 'LineString' || geomType === 'MultiLineString' ? 'line'
+            : 'circle';
+          if (map.getLayer(mapLayerId)) {
+            map.setPaintProperty(mapLayerId, `${adapterType}-opacity`, opacity);
+          }
+          if (adapterType === 'fill' && map.getLayer(outlineId)) {
+            map.setPaintProperty(outlineId, 'line-opacity', opacity);
+          }
+        }
+      }
+    }
+  }, [mapInstanceRef]);
+
+  const handleBulkGroup = useCallback((selectedIds: Set<string>) => {
+    const current = layersRef.current;
+    // Defense-in-depth: all selected must be loose vector layers
+    const selectedLayers = current.filter((l) =>
+      selectedIds.has(l.id) &&
+      l.dataset_record_type === 'vector_dataset' &&
+      !(l as GroupedLayer).parent_group_id &&
+      (l as GroupedLayer).layer_type !== 'group:folder',
+    );
+    if (selectedLayers.length !== selectedIds.size || selectedLayers.length < 2) return;
+
+    const groupId = `group-${Date.now()}`;
+    const existingGroupCount = current.filter(
+      (l) => (l as GroupedLayer).layer_type === 'group:folder',
+    ).length;
+    const groupName = `Group ${existingGroupCount + 1}`;
+    const minSortOrder = Math.min(...selectedLayers.map((l) => l.sort_order));
+
+    const groupRow: GroupedLayer = {
+      ...(selectedLayers[0] as GroupedLayer),
+      id: groupId,
+      display_name: groupName,
+      layer_type: 'group:folder',
+      sort_order: minSortOrder,
+      parent_group_id: null,
+    };
+
+    setLocalLayers((prev) => {
+      const next = prev.map((l) =>
+        selectedIds.has(l.id)
+          ? ({ ...l, parent_group_id: groupId } as unknown as MapLayerResponse)
+          : l,
+      );
+      // Insert group row at position of first selected layer (smallest sort_order)
+      const insertIdx = next.findIndex((l) => selectedIds.has(l.id));
+      if (insertIdx >= 0) {
+        next.splice(insertIdx, 0, groupRow as unknown as MapLayerResponse);
+      } else {
+        next.push(groupRow as unknown as MapLayerResponse);
+      }
+      return next.map((l, i) => ({ ...l, sort_order: i }));
+    });
+    setGroupMeta((prev) => ({ ...prev, [groupId]: { expanded: true } }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleBulkUngroup = useCallback((selectedIds: Set<string>) => {
+    const current = layersRef.current;
+    // Defense-in-depth: all selected must be folder-group rows
+    const selectedGroups = current.filter(
+      (l) => selectedIds.has(l.id) && (l as GroupedLayer).layer_type === 'group:folder',
+    );
+    if (selectedGroups.length !== selectedIds.size || selectedGroups.length === 0) return;
+
+    setLocalLayers((prev) => {
+      const next = prev
+        .filter((l) => !selectedIds.has(l.id)) // remove group container rows
+        .map((l) => {
+          const gl = l as GroupedLayer;
+          if (gl.parent_group_id && selectedIds.has(gl.parent_group_id)) {
+            return { ...gl, parent_group_id: null } as MapLayerResponse;
+          }
+          return l;
+        });
+      return next.map((l, i) => ({ ...l, sort_order: i }));
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleBulkDelete = useCallback(async (selectedIds: Set<string>): Promise<boolean> => {
+    if (!mapId || selectedIds.size === 0) return false;
+
+    const previousLayers = layersRef.current;
+    const idsToDelete = Array.from(selectedIds);
+
+    // Clear expanded layer if it's being deleted
+    setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
+
+    // Optimistic update — remove selected layers and renumber sort_order
+    setLocalLayers((prev) =>
+      prev
+        .filter((l) => !selectedIds.has(l.id))
+        .map((l, i) => ({ ...l, sort_order: i })),
+    );
+
+    // Fire N parallel DELETEs
+    const results = await Promise.allSettled(
+      idsToDelete.map((id) => removeLayerFromMapApi(mapId, id)),
+    );
+
+    const anyFailed = results.some((r) => r.status === 'rejected');
+    if (anyFailed) {
+      // Rollback to pre-delete state
+      setLocalLayers(previousLayers);
+      toast.error(t('bulkActions.errorDeleteRolledBack', { count: idsToDelete.length }));
+      return false;
+    }
+
+    // Success: invalidate map detail query so layer list is fresh
+    await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
+    return true;
+  }, [mapId, t, queryClient]);
 
   const handleAddLayerToExistingGroup = useCallback((layerId: string, groupId: string) => {
     setLocalLayers((prev) => {
@@ -778,5 +971,11 @@ export function useBuilderLayers(
     handleDismissEphemeral,
     markDirty,
     chatLayerActions,
+    // Bulk operation handlers (Phase 1041 Plan 03)
+    handleBulkVisibility,
+    handleBulkOpacity,
+    handleBulkGroup,
+    handleBulkUngroup,
+    handleBulkDelete,
   };
 }
