@@ -395,10 +395,15 @@ export function MapBuilderPage() {
   }, [layers]);
 
   const handleBulkDelete = useCallback((ids: Set<string>) => {
-    layers.handleBulkDelete(ids).then((ok) => {
-      if (ok) setSelectedIds(new Set());
-      // on failure: selection preserved so user can retry
-    });
+    layers.handleBulkDelete(ids)
+      .then((ok) => {
+        if (ok) setSelectedIds(new Set());
+        // on failure: selection preserved so user can retry
+      })
+      .catch(() => {
+        // Error already toasted inside handleBulkDelete; swallow here to prevent
+        // unhandled rejection if invalidateQueries throws after allSettled.
+      });
   }, [layers]);
 
   // Derived: any row in selectedIds
