@@ -1,10 +1,11 @@
 ---
 phase: 1040
 slug: drag-from-catalog-into-stack
-status: draft
+status: approved
 shadcn_initialized: true
 preset: new-york / neutral / cssVariables
 created: 2026-05-14
+reviewed_at: 2026-05-14
 ---
 
 # Phase 1040 — UI Design Contract
