@@ -826,6 +826,12 @@
       "maxZoom": "Maximum zoom"
     }
   },
+  "a11y": {
+    "dragPickup": "Picked up {{name}}. Use arrow keys to choose a position, Enter to drop, Escape to cancel.",
+    "dragPosition": "Current position: {{n}} of {{total}}",
+    "dragDropped": "Dropped. {{name}} added at position {{n}}.",
+    "dragCancelled": "Drop cancelled."
+  },
   "styleJson": {
     "title": "Style JSON",
     "ariaLabel": "Style JSON",

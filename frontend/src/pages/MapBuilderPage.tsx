@@ -13,7 +13,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import type { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 // PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
@@ -87,6 +87,17 @@ export function MapBuilderPage() {
   // cross-panel drag is possible. Without this, @dnd-kit collision detection only
   // fires within one DndContext and cross-panel isOver events never fire.
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+
+  // Phase 1040 Plan 04: aria-live announcement for keyboard/mouse catalog drag (T-1040-10 / POL-05).
+  // A sr-only region reads these strings to screen-reader users. We append a zero-width-space
+  // + timestamp suffix to force aria-live re-fire when the same message is announced twice
+  // (e.g. two consecutive "Drop cancelled." calls without an intermediate different message).
+  const [dragAnnouncement, setDragAnnouncement] = useState('');
+  const lastOverIdRef = useRef<string | null>(null);
+
+  const announce = useCallback((text: string) => {
+    setDragAnnouncement(text + '​' + Date.now());
+  }, []);
   const dndSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -415,14 +426,27 @@ export function MapBuilderPage() {
     setDragActiveId(String(event.active.id));
     handleSelectLayer(null);
     document.documentElement.classList.add('dragging-active');
-  }, [handleSelectLayer]);
+    lastOverIdRef.current = null;
+    // Announce pick-up for catalog drags (POL-05 / T-1040-10)
+    const data = event.active.data.current as { source?: string; name?: string } | undefined;
+    if (data?.source === 'catalog' && data.name) {
+      announce(t('a11y.dragPickup', { name: data.name }));
+    }
+  }, [handleSelectLayer, announce, t]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     setDragActiveId(null);
     document.documentElement.classList.remove('dragging-active');
+    lastOverIdRef.current = null;
     const { active, over } = event;
     // If dropped outside any droppable, cancel cleanly with no action.
-    if (!over) return;
+    if (!over) {
+      const data = active.data.current as { source?: string; name?: string } | undefined;
+      if (data?.source === 'catalog') {
+        announce(t('a11y.dragCancelled'));
+      }
+      return;
+    }
 
     // --- Catalog drop (cross-context: from Add Dataset modal) ---
     const data = active.data.current as
@@ -445,22 +469,31 @@ export function MapBuilderPage() {
         toast.success(t('toasts.basemapChanged', { name: datasetName }), {
           id: `swap-basemap-${datasetId}`,
         });
+        announce(t('a11y.dragDropped', { name: datasetName, n: 1 }));
         return;
       }
 
       // Case 2: basemap row dropped onto a non-basemap target → silent reject (UI-SPEC §3d).
-      if (recordType === 'basemap') return;
+      if (recordType === 'basemap') {
+        announce(t('a11y.dragCancelled'));
+        return;
+      }
 
       // Case 3: non-basemap row dropped onto the basemap group row → silent reject (UI-SPEC §3d).
-      if (basemapGroup && overId === basemapGroup.id) return;
+      if (basemapGroup && overId === basemapGroup.id) {
+        announce(t('a11y.dragCancelled'));
+        return;
+      }
 
       // Cases 4 & 5: non-basemap row dropped onto a folder-group (POL-03) or loose row (POL-01).
       // When target is a folder group, parentGroupId is set so the new layer joins the group.
       const targetLayer = layers.localLayers.find((l) => l.id === overId);
       const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
+      const dropPosition = layers.localLayers.findIndex((l) => l.id === overId) + 1;
       // Pass datasetName so the hook fires the named toast (toasts.datasetAdded). Modal stays
       // open per POL-05 — onSuccessCb is omitted so no flyout auto-selects the new layer.
       layers.handleAddDataset(datasetId, undefined, parentGroupId, datasetName);
+      announce(t('a11y.dragDropped', { name: datasetName, n: dropPosition > 0 ? dropPosition : 1 }));
       return;
     }
 
@@ -471,13 +504,30 @@ export function MapBuilderPage() {
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
     layers.handleReorder(arrayMove(currentLayers, oldIndex, newIndex));
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + handleReorder + handleAddDataset captured; basemapGroup is stable derived value
-  }, [layers.localLayers, layers.handleReorder, layers.handleAddDataset, layers.basemapConfig, layers.showBasemapLabels, layers.setLocalBasemap, layers.setShowBasemapLabels, layers.setBasemapConfig, layers.markDirty, basemapGroup, t]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + handleReorder + handleAddDataset captured; basemapGroup is stable derived value; announce is stable
+  }, [layers.localLayers, layers.handleReorder, layers.handleAddDataset, layers.basemapConfig, layers.showBasemapLabels, layers.setLocalBasemap, layers.setShowBasemapLabels, layers.setBasemapConfig, layers.markDirty, basemapGroup, t, announce]);
 
   const handleDragCancel = useCallback(() => {
     setDragActiveId(null);
     document.documentElement.classList.remove('dragging-active');
-  }, []);
+    lastOverIdRef.current = null;
+    announce(t('a11y.dragCancelled'));
+  }, [announce, t]);
+
+  // Phase 1040 Plan 04: announce position updates during catalog drag (best-effort).
+  // Only fires when the over-target changes (via lastOverIdRef) to avoid excessive spam.
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const data = event.active.data.current as { source?: string } | undefined;
+    if (data?.source !== 'catalog') return;
+    const overId = event.over ? String(event.over.id) : null;
+    if (overId === lastOverIdRef.current) return;
+    lastOverIdRef.current = overId;
+    if (!overId) return;
+    const index = layers.localLayers.findIndex((l) => l.id === overId);
+    if (index < 0) return;
+    announce(t('a11y.dragPosition', { n: index + 1, total: layers.localLayers.length }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers length read; announce is stable
+  }, [layers.localLayers, announce, t]);
 
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
@@ -699,6 +749,19 @@ export function MapBuilderPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Phase 1040 Plan 04: sr-only aria-live region for keyboard/mouse catalog drag announcements.
+          Renders at root of the builder so screen readers in any panel can read it.
+          Zero-width-space + timestamp suffix in dragAnnouncement forces aria-live re-fire on
+          identical consecutive messages (e.g. two "Drop cancelled." announcements). */}
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="dnd-announcement"
+      >
+        {dragAnnouncement}
+      </div>
       {/* Breadcrumb header bar — title + save status + actions */}
       <MapTitleBar
         name={layers.localName}
@@ -728,6 +791,7 @@ export function MapBuilderPage() {
         sensors={dndSensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
