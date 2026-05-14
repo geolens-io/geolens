@@ -465,6 +465,64 @@ const SublayerRow = memo(function SublayerRow({
 });
 
 // ---------------------------------------------------------------------------
+// CatalogDragGhost — compact pill shown in DragOverlay during a catalog drag.
+// Rendered instead of the intra-stack StackRow ghost so the overlay accurately
+// represents a "new-dataset-to-be-added" rather than an existing stack row.
+// Exported so vitest can import and assert on it directly.
+// ---------------------------------------------------------------------------
+
+export function CatalogDragGhost({
+  recordType,
+  name,
+}: {
+  recordType: string;
+  name: string;
+}) {
+  // Type-icon swatch palette per UI-SPEC section 2.
+  // Basemap → primary-50/primary-700; raster/vrt → type-raster-bg/type-raster; default (vector) → type-vector-bg/type-vector.
+  let swatchBg: string;
+  let swatchColor: string;
+  let swatchGlyph: string;
+  if (recordType === 'basemap') {
+    swatchBg = 'var(--primary-50, oklch(0.97 0.02 250))';
+    swatchColor = 'var(--primary-700, oklch(0.40 0.15 250))';
+    swatchGlyph = 'B';
+  } else if (recordType === 'raster_dataset' || recordType === 'vrt_dataset') {
+    swatchBg = 'var(--type-raster-bg, oklch(0.95 0.04 60))';
+    swatchColor = 'var(--type-raster, oklch(0.55 0.12 60))';
+    swatchGlyph = 'R';
+  } else {
+    // vector_dataset or unknown
+    swatchBg = 'var(--type-vector-bg, oklch(0.95 0.04 145))';
+    swatchColor = 'var(--type-vector, oklch(0.45 0.12 145))';
+    swatchGlyph = 'V';
+  }
+
+  return (
+    <div
+      data-testid="catalog-ghost"
+      className="pointer-events-none flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 cursor-grabbing"
+      style={{
+        boxShadow: '0 4px 12px oklch(0 0 0 / 15%)',
+        maxWidth: 260,
+        minHeight: 36,
+      }}
+    >
+      {/* Type swatch */}
+      <span
+        aria-hidden="true"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded"
+        style={{ background: swatchBg, color: swatchColor }}
+      >
+        <span className="text-[10px] font-semibold uppercase">{swatchGlyph}</span>
+      </span>
+      {/* Dataset name */}
+      <span className="truncate text-sm" style={{ maxWidth: 200 }}>{name}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
 
@@ -503,6 +561,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   existingFolderGroups = [],
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
+
+  // Phase 1040 Plan 04: read the active drag item from the lifted DndContext so the
+  // DragOverlay can branch between an intra-stack StackRow ghost and a catalog drag pill.
+  // This is a second call to useDndContext — the first lives inside FolderGroupRowWrapper.
+  // Both coexist safely; @dnd-kit supports multiple consumers of the same context.
+  const { active } = useDndContext();
 
   // SortableContext items: all layer ids only.
   // basemapGroup is excluded: it is pinned at the top and cannot be reordered.
@@ -755,9 +819,27 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
               })}
             </SortableContext>
             {/* DragOverlay: ghost follows pointer during drag (BSR-24 VIS-01) */}
-            {/* activeDragId is provided by the lifted drag context in MapBuilderPage */}
+            {/* Plan 04: branched — catalog drags render CatalogDragGhost pill;
+                intra-stack drags render the existing StackRow ghost. */}
             <DragOverlay dropAnimation={null}>
-              {activeDragId ? (() => {
+              {(() => {
+                // Read catalog data from the active drag item via useDndContext
+                const catalogData = active?.data?.current as
+                  | { source?: string; recordType?: string; name?: string }
+                  | undefined;
+
+                if (catalogData?.source === 'catalog') {
+                  // Catalog drag: compact pill ghost
+                  return (
+                    <CatalogDragGhost
+                      recordType={catalogData.recordType ?? 'vector_dataset'}
+                      name={catalogData.name ?? ''}
+                    />
+                  );
+                }
+
+                // Intra-stack drag: existing StackRow ghost
+                if (!activeDragId) return null;
                 const activeLayer = layers.find((l) => l.id === activeDragId);
                 return activeLayer ? (
                   <div className="opacity-40 scale-[0.98] pointer-events-none bg-[var(--surface-2)] rounded shadow-md">
@@ -775,7 +857,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     />
                   </div>
                 ) : null;
-              })() : null}
+              })()}
             </DragOverlay>
           </>
         )}
