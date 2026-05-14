@@ -126,7 +126,11 @@
   3. User has 2+ rows selected and sees a bulk action bar anchored to the stack header or footer offering bulk visibility toggle, bulk opacity slider, group selection, ungroup, and delete.
   4. User runs a bulk op and sees one optimistic update applied across all selected layers; on any per-layer failure they see one error toast and the optimistic state rolls back. Selection clears on Escape, on outside-click of the stack, and on route change.
   5. User cannot co-select the basemap group row (or its sublayers) with overlay layers — the selection model refuses the combination so bulk delete on the basemap is unreachable.
-**Plans**: TBD
+**Plans**: 4 plans
+- [x] 1041-01-PLAN.md — Selection model + visual state (Cmd/Shift/Space + checkbox + clearing rules + basemap boundary) (POL-06, POL-07, POL-10, POL-11)
+- [ ] 1041-02-PLAN.md — BulkActionBar component + bulkActions i18n namespace + render condition wiring (POL-08)
+- [ ] 1041-03-PLAN.md — Bulk handlers in use-builder-layers (vis/opacity/group/ungroup local-state + delete with allSettled rollback) (POL-09)
+- [ ] 1041-04-PLAN.md — Vitest coverage: selection model + BulkActionBar + bulk handlers + delete-rollback path (POL-06..POL-11)
 **UI hint**: yes
 
 ### Phase 1042: spacing-density-states-polish
@@ -193,7 +197,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 |-------|-----------|----------------|--------|-----------|
 | 1039. ux-audit-and-test-debt-closeout | v1009 | 0/2 | Planned | - |
 | 1040. drag-from-catalog-into-stack | v1009 | 4/4 | Complete   | 2026-05-14 |
-| 1041. multi-layer-selection-and-bulk-ops | v1009 | 0/0 | Not started | - |
+| 1041. multi-layer-selection-and-bulk-ops | v1009 | 1/4 | In Progress|  |
 | 1042. spacing-density-states-polish | v1009 | 0/0 | Not started | - |
 | 1043. error-empty-states-and-ia-cleanup | v1009 | 0/0 | Not started | - |
 | 1044. cross-cutting-closeout | v1009 | 0/0 | Not started | - |

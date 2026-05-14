@@ -32,12 +32,12 @@ The user can drag a dataset row from the Add Dataset modal directly onto the uni
 
 The user can select multiple stack rows and perform bulk operations atomically.
 
-- [ ] **POL-06** — Stack rows support multi-selection via `cmd-click` (toggle) and `shift-click` (contiguous range), with clear keyboard equivalents (Space toggles, Shift+ArrowUp/Down extends).
-- [ ] **POL-07** — Selected rows render a distinct selection state (background tint + optional `aria-selected="true"` + visible checkbox); the single-selection focus state for the layer editor remains visually distinguishable from multi-selection.
+- [x] **POL-06** — Stack rows support multi-selection via `cmd-click` (toggle) and `shift-click` (contiguous range), with clear keyboard equivalents (Space toggles, Shift+ArrowUp/Down extends).
+- [x] **POL-07** — Selected rows render a distinct selection state (background tint + optional `aria-selected="true"` + visible checkbox); the single-selection focus state for the layer editor remains visually distinguishable from multi-selection.
 - [ ] **POL-08** — When 2+ rows are selected, a bulk action bar appears (anchored to the stack header or footer) exposing: bulk visibility toggle, bulk opacity slider, group selection, ungroup, delete.
 - [ ] **POL-09** — Bulk operations execute atomically (single optimistic update, single API write per affected layer); failure surfaces a single error toast and rolls back optimistically updated state.
-- [ ] **POL-10** — Selection clears on `Escape`, on outside-click of the stack, and on route change.
-- [ ] **POL-11** — Multi-selection does NOT cross the basemap-group boundary (the basemap row + sublayers cannot be co-selected with overlay layers — bulk delete on basemap is non-sensical).
+- [x] **POL-10** — Selection clears on `Escape`, on outside-click of the stack, and on route change.
+- [x] **POL-11** — Multi-selection does NOT cross the basemap-group boundary (the basemap row + sublayers cannot be co-selected with overlay layers — bulk delete on basemap is non-sensical).
 
 ### General Map Builder UI/UX Sweep
 
