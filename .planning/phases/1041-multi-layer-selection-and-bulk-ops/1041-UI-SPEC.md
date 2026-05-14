@@ -1,11 +1,11 @@
 ---
 phase: 1041
 slug: multi-layer-selection-and-bulk-ops
-status: draft
+status: approved
 shadcn_initialized: true
 preset: new-york / neutral / cssVariables
 created: 2026-05-14
-reviewed_at: ~
+reviewed_at: 2026-05-14
 ---
 
 # Phase 1041 — UI Design Contract
