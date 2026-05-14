@@ -420,15 +420,41 @@ export function MapBuilderPage() {
     setDragActiveId(null);
     document.documentElement.classList.remove('dragging-active');
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    // Intra-stack reorder — catalog-drop handling extends this in Plan 02.
+    // If dropped outside any droppable, cancel cleanly with no action.
+    if (!over) return;
+
+    // --- Catalog drop (cross-context: from Add Dataset modal) ---
+    const data = active.data.current as
+      | { source?: string; datasetId?: string; recordType?: string; name?: string }
+      | undefined;
+
+    if (data?.source === 'catalog') {
+      const { datasetId } = data;
+      if (!datasetId) return;
+      const overId = String(over.id);
+
+      // Plan 03 placeholder: basemap group drop → handled in Plan 03.
+      if (basemapGroup && overId === basemapGroup.id) return;
+
+      // Plan 03 placeholder: folder-group row drop → handled in Plan 03.
+      const targetLayer = layers.localLayers.find((l) => l.id === overId);
+      if (targetLayer && isFolderGroupLayer(targetLayer)) return;
+
+      // Loose-row drop: add dataset at the top (sort_order = 0). Modal stays open per POL-05.
+      // The hook's existing toast.success(t('toasts.layerAdded')) fires on mutation success.
+      layers.handleAddDataset(datasetId);
+      return;
+    }
+
+    // --- Intra-stack reorder (unchanged from Plan 01) ---
+    if (active.id === over.id) return;
     const currentLayers = layers.localLayers;
     const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
     layers.handleReorder(arrayMove(currentLayers, oldIndex, newIndex));
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers captured at call time; layers.handleReorder is stable
-  }, [layers.localLayers, layers.handleReorder]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + handleReorder + handleAddDataset captured; basemapGroup is stable derived value
+  }, [layers.localLayers, layers.handleReorder, layers.handleAddDataset, basemapGroup]);
 
   const handleDragCancel = useCallback(() => {
     setDragActiveId(null);
