@@ -63,128 +63,153 @@
 - ✅ **v1005 Builder Point Cluster Foundation** — Phases 1023-1026 (shipped 2026-05-12) — see [archive](milestones/v1005-ROADMAP.md)
 - ✅ **v1006 Large Dataset Cluster Scaling** — Phases 1027-1031 (shipped 2026-05-12) — see [archive](milestones/v1006-ROADMAP.md)
 - ✅ **v1007 Release Hygiene** — Phase 1032 (shipped 2026-05-12) — see [archive](milestones/v1007-ROADMAP.md)
-- 🚧 **v1008 Map Builder Sidebar Redesign** — Phases 1033-1038 (in progress)
+- ✅ **v1008 Map Builder Sidebar Redesign** — Phases 1033-1038 (shipped 2026-05-14) — see [archive](milestones/v1008-ROADMAP.md)
+- 🚧 **v1009 Map Builder v1.5 (Polish)** — Phases 1039-1044 (in progress, started 2026-05-14)
 
 ## Phases
 
-### 🚧 v1008 Map Builder Sidebar Redesign (In Progress)
+### 🚧 v1009 Map Builder v1.5 (Polish) (In Progress)
 
-**Milestone Goal:** Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief / Basemap / Data / Labels / Interactions) into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
+**Milestone Goal:** Polish the v1008 unified-stack Map Builder — add the two highest-value v1008 deferrals (drag-from-catalog-into-stack, multi-layer selection / bulk ops), sweep the entire builder surface for modern/sleek/intuitive presentation, and close out pre-existing builder test drift.
 
-**Requirements:** 0/27 complete; 27/27 mapped (BSR-01..27)
+**Requirements:** 0/25 complete; 25/25 mapped (POL-01..25)
 
-- [x] **Phase 1033: saved-map-normalizer-and-viewer-parity** — completed 2026-05-13 (normalizer wired into getMap/getSharedMap; 35/35 parity tests passing; verification 4/4)
-- [ ] **Phase 1034: unified-stack-rows-and-layer-editor-flyout** — One drag-orderable layer list with the compact row anatomy as the entry surface, paired with the revived side-by-side LayerEditorPanel flyout.
-- [ ] **Phase 1035: basemap-group-folder-groups-and-dem-raster** — Basemap-as-group, user folder groups, and DEM-as-raster-layer with `render as: image | hillshade | terrain` property.
-- [ ] **Phase 1036: settings-affordance** — `⚙ Settings` panel for terrain, widgets, and projection, pulling those controls out of the layer stack entirely.
-- [ ] **Phase 1037: empty-state-and-add-data-alignment** — Catalog-first empty state with inline search and hand-curated suggestions, plus Add Data modal alignment to the unified stack model.
-- [ ] **Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout** — Sketch fidelity, accessibility, i18n, and Playwright MCP UAT closeout covering every new surface end-to-end.
+- [ ] **Phase 1039: ux-audit-and-test-debt-closeout** — Produce the `BUILDER-UX-AUDIT.md` finding/severity/priority document that drives the rest of the milestone, and close the 5 pre-existing builder vitest failures + the `use-builder-layers.add-dataset.test.ts` worker timeout in the same pass.
+- [ ] **Phase 1040: drag-from-catalog-into-stack** — Let users drag dataset rows from the Add Dataset modal directly onto the unified layer stack to add a layer (or swap a basemap), with keyboard parity and modal-stays-open behavior.
+- [ ] **Phase 1041: multi-layer-selection-and-bulk-ops** — Multi-select stack rows via cmd/shift-click + keyboard, expose a bulk action bar (visibility, opacity, group/ungroup, delete), execute bulk ops atomically per layer with single rollback.
+- [ ] **Phase 1042: spacing-density-states-polish** — Apply the audit's P0/P1 spacing/density/typography/state polish across builder surfaces using the `sketch-findings-geolens` tokens; add unified hover/focus/pressed states and loading affordances.
+- [ ] **Phase 1043: error-empty-states-and-ia-cleanup** — Recoverable error states, intentional empty-state copy/iconography for Filter/Labels/Source/basemap-group, and information-architecture cleanup (section ordering + scene-transition focus/scroll preservation).
+- [ ] **Phase 1044: cross-cutting-closeout** — i18n locale fill (en/de/fr/es), a11y verification for drag-from-catalog + multi-select keyboard paths, Playwright UAT spec for the v1.5 surfaces, and final builder smoke green at milestone close.
 
-### Phase 1033: saved-map-normalizer-and-viewer-parity
-**Goal**: Land a backward-compatible saved-map loader normalizer that flattens legacy `{ surface, relief, basemap, data, labels, interactions }` into a flat layer array plus group metadata, and prove the unified shape renders identically in builder, public, shared, and embed viewers before the sidebar UI changes start.
-**Depends on**: Nothing (first v1008 phase; foundational because every downstream change must round-trip through this normalizer)
-**Requirements**: BSR-20, BSR-21, BSR-22, BSR-23
+## Phase Details
+
+### Phase 1039: ux-audit-and-test-debt-closeout
+
+**Goal**: Produce the `BUILDER-UX-AUDIT.md` finding/severity/priority document that the rest of the milestone executes against, and close the 5 pre-existing builder vitest failures + the `use-builder-layers.add-dataset.test.ts` worker timeout in the same pass — co-locating test repair with audit because both surfaces touch `EmptyStackState`, `StackRow`, `UnifiedStackPanel`, and `use-builder-layers`.
+**Depends on**: Nothing (first v1009 phase; foundational because the audit drives Phase 1042/1043 priorities and the test debt blocks any further refactor of these files)
+**Requirements**: POL-12, POL-19, POL-20, POL-21
 **Success Criteria** (what must be TRUE):
-  1. User opens any legacy six-section saved map in the builder and sees it rendered correctly — no missing layers and no console errors.
-  2. User opens the same legacy saved map in public, shared, and embed viewers and sees pixel-equivalent rendering to the builder.
-  3. User saves a new map under the unified stack model, reloads it, and gets a lossless round-trip through builder → public → shared → embed.
-  4. Existing `d2c5c99c` saved-map compatibility fixtures pass against the normalized loader without schema migration.
-**Plans**: 2 plans (1/2 complete)
-- [x] 1033-01-PLAN.md — Pure saved-map normalizer module + unit tests (BSR-21) — commits af1921f2, 39a3d54f
-- [x] 1033-02-PLAN.md — Wire normalizer into getMap/getSharedMap + viewer-parity regression tests (BSR-20, BSR-22, BSR-23)
-**UI hint**: yes
-
-### Phase 1034: unified-stack-rows-and-layer-editor-flyout
-**Goal**: Replace the six-section `MapStackPanel` with one drag-orderable unified layer list whose compact row anatomy is the entry surface that opens a revived side-by-side LayerEditorPanel flyout for all deep styling.
-**Depends on**: Phase 1033
-**Requirements**: BSR-01, BSR-02, BSR-03, BSR-04, BSR-10, BSR-11, BSR-12, BSR-13
-**Success Criteria** (what must be TRUE):
-  1. User sees a single drag-orderable layer list with no Surface / Relief / Basemap / Data / Labels / Interactions sibling sections.
-  2. User reorders layers by dragging the grip handle and the map z-order updates immediately.
-  3. User sees each row as `drag · visibility · type-icon · name · opacity · kebab` only — no duplicate subtitle, no position tag, no type chip, no inline-expanding controls — and the kebab exposes rename, duplicate, delete, and grouping actions.
-  4. User clicks any row and gets row highlight plus a 380px LayerEditorPanel flyout that opens between the 340px sidebar and the map, with Render-as / Appearance / Visibility / collapsed Filter+Labels+Source / footer Delete sections, while the sidebar stays mounted for cross-layer comparison.
-  5. User on a narrow viewport sees the flyout degrade to a rail or drill-down variant without losing any capability.
-**Plans**: 3 plans (0/3 complete)
-Plans:
-- [ ] 1034-01-PLAN.md — Three-column grid shell + breakpoints (1100/800) + LayerEditorPanel chrome revival (BSR-10, BSR-12, BSR-13)
-- [ ] 1034-02-PLAN.md — UnifiedStackPanel + StackRow + SidebarRail; retire MapStackPanel from sidebar (BSR-01, BSR-02, BSR-03, BSR-04)
-- [ ] 1034-03-PLAN.md — LayerEditorPanel section body (Render-as / Appearance / Visibility / collapsed Filter+Labels+Source) + footer Delete with inline confirm (BSR-11)
-**UI hint**: yes
-
-### Phase 1035: basemap-group-folder-groups-and-dem-raster
-**Goal**: Make basemap a first-class collapsible group, support user-created folder groups, and reframe DEMs as regular raster layers whose `render as: image | hillshade | terrain` property replaces the old Relief and Surface sections.
-**Depends on**: Phase 1034
-**Requirements**: BSR-05, BSR-06, BSR-07, BSR-08, BSR-09
-**Success Criteria** (what must be TRUE):
-  1. User sees the basemap as a collapsible group row with the `⊞` glyph and can expand it to see roads, labels, buildings, boundaries, and land–water sublayers.
-  2. User toggles visibility on individual basemap sublayers from inside the expanded group without leaving the unified stack.
-  3. User creates a folder group using the `▸` glyph, renames it, adds layers into it, ungroups it, and the expansion state persists per map.
-  4. User adds a DEM dataset and sees it appear as a regular raster row with a `render as: image | hillshade | terrain` property — no separate Relief section, no separate Surface section.
-  5. User switches a DEM's render mode and source binding plus paint config are preserved; terrain mode wires the map-level terrain config without resurrecting a Relief section.
-**Plans**: 5 plans (0/5 complete)
-Plans:
-- [ ] 1035-01-PLAN.md — Foundation: normalizer group_meta + use-builder-layers group/folder/DEM handlers + LayerEditorPanel editorScene dispatch + i18n (BSR-05, BSR-07, BSR-08, BSR-09)
-- [ ] 1035-02-PLAN.md — Basemap-as-group components: BasemapGroupRow + Scene B (preset grid + sublayer list) + Scene C (breadcrumb + Detail Level + Stroke) (BSR-05, BSR-06)
-- [ ] 1035-03-PLAN.md — FolderGroupRow with inline rename + inline delete confirm (BSR-07)
-- [ ] 1035-04-PLAN.md — DEM Scene A: render-as pills + compass widget + hillshade sliders/colors + terrain bind; StackRow DEM glyph variants (BSR-08, BSR-09)
-- [ ] 1035-05-PLAN.md — Wiring: UnifiedStackPanel + MapBuilderPage integration, Add-to-group sub-flow, retire MapStack*, acceptance verification (BSR-05, BSR-06, BSR-07, BSR-08, BSR-09)
-**UI hint**: yes
-
-### Phase 1036: settings-affordance
-**Goal**: Move terrain global config, map widgets, and projection out of the layer stack and behind a dedicated `⚙ Settings` affordance so the stack contains only layers and groups.
-**Depends on**: Phase 1034
-**Requirements**: BSR-14, BSR-15
-**Success Criteria** (what must be TRUE):
-  1. User clicks a `⚙ Settings` affordance in the sidebar header and reaches a panel containing terrain global config, map widgets, and projection controls.
-  2. User scans the layer stack and finds no permanent settings fixtures — terrain global, widgets, and projection no longer appear as stack rows or sections.
-**Plans**: 2 plans (0/2 complete)
-Plans:
-- [ ] 1036-01-PLAN.md — SettingsEditorScene component + unit tests (BSR-14, BSR-15)
-- [ ] 1036-02-PLAN.md — MapBuilderPage editorScene='settings' dispatch + LayerEditorPanel + cog button isSettingsOpen wiring + BSR-15 audit (BSR-14, BSR-15)
-**UI hint**: yes
-
-### Phase 1037: empty-state-and-add-data-alignment
-**Goal**: Replace the generic "Add data" prompt with a catalog-first empty state powered by inline search and hand-curated suggestions, and align the Add Data modal to the unified stack model using the companion audit findings.
-**Depends on**: Phase 1034
-**Requirements**: BSR-16, BSR-17, BSR-18, BSR-19
-**Success Criteria** (what must be TRUE):
-  1. User on a new map sees an empty-state catalog entry experience with inline search and a hand-curated suggested-datasets surface instead of a generic "Add data" prompt.
-  2. User typing into the empty-state search bar lands in the same Add Data modal as the `+ Add data` button with the query pre-filled.
-  3. User opens the Add Data modal and finds raster discovery on par with vector, post-add layers landing at a sensible z-position, the LayerEditorPanel flyout opening on add, catalog parity with `/collections`, and a real empty/zero-result UX — all audit findings resolved.
-  4. User does not see a `/api/datasets/suggested` backend dependency in v1; suggestions are hand-curated and the smart endpoint is explicitly deferred and tracked.
-**Plans**: 2 plans (0/2 complete)
-Plans:
-- [ ] 1037-01-PLAN.md — EmptyStackState component + suggested-datasets module + UnifiedStackPanel wiring + i18n (BSR-16, BSR-19)
-- [ ] 1037-02-PLAN.md — Add Data modal alignment: initialQuery prefill, raster-filter fix, sort_order=0 prepend, onSuccess flyout auto-open, three-state empty/zero/error UX (BSR-17, BSR-18)
-**UI hint**: yes
-
-### Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout
-**Goal**: Close the milestone with sketch-fidelity verification against `sketch-findings-geolens`, full keyboard accessibility, i18n coverage for new copy, and a Playwright MCP UAT that exercises every new surface end-to-end with zero console warnings or errors.
-**Depends on**: Phases 1033, 1034, 1035, 1036, 1037
-**Requirements**: BSR-13, BSR-24, BSR-25, BSR-26, BSR-27
-**Success Criteria** (what must be TRUE):
-  1. Implementation visually matches the `sketch-findings-geolens` skill — palette, row anatomy, group glyphs (`⊞` basemap, `▸` folder), flyout layout, and section ordering all hold against the locked reference HTML.
-  2. User navigates the unified stack, flyout sections, and settings panel entirely by keyboard, with focus correctly managed on row-select, flyout-open, and flyout-close.
-  3. i18n keys for new copy are added, existing keys are reused where possible, and the changed-namespace check passes across all builder locales.
-  4. Playwright MCP UAT exercises drag-reorder, basemap-group expand, DEM render-mode switch, flyout open/close, settings panel, empty-state entry, Add Data modal pre-fill, legacy-map open, and save/reload round-trip — and the live page console reports zero warnings and zero errors.
-  5. User on a viewport narrower than 800px gets the `<800px` drill-down variant of the LayerEditorPanel (overlay/Sheet rendered with `isDrillDown={true}` and a back-arrow), closing the BSR-13 gap deferred from Phase 1034.
+  1. User (developer/reviewer) opens `.planning/phases/1039-ux-audit-and-test-debt-closeout/BUILDER-UX-AUDIT.md` and finds enumerated findings across `UnifiedStackPanel`, `LayerEditorPanel`, Add Dataset modal, Settings scene, `SidebarRail`, and `EmptyStackState` — each tagged P0/P1/P2 with a fix-priority recommendation.
+  2. User runs `npx vitest run src/components/builder/` and sees 0 failures and 0 unhandled worker errors — including the previously-failing `EmptyStackState.integration` Tests 2/3/5, the `StackRow` "Delete layer" kebab test, and the `UnifiedStackPanel` "calls onAddDataClick" test.
+  3. User runs `src/components/builder/hooks/__tests__/use-builder-layers.add-dataset.test.ts` and sees it run to completion without `Worker exited unexpectedly` / `Timeout terminating forks worker`; the root cause is documented in the phase summary.
+  4. Phase summary names the audit's P0 items so Phase 1042 and Phase 1043 can scope their plans against an explicit priority list.
 **Plans**: TBD
 **UI hint**: yes
 
+### Phase 1040: drag-from-catalog-into-stack
+
+**Goal**: Let users drag vector, raster, or basemap rows from the Add Dataset modal directly onto the unified layer stack to add a layer (or swap a basemap) without click-through, while keeping the modal open for repeated adds and supporting a keyboard-only fallback.
+**Depends on**: Phase 1039
+**Requirements**: POL-01, POL-02, POL-03, POL-04, POL-05
+**Success Criteria** (what must be TRUE):
+  1. User hovers a dataset row in the Add Dataset modal and sees a grab cursor + grab handle affordance, then drags the row onto the unified stack and sees the in-stack 2px insertion line render during the drag.
+  2. User drops the row at a position in the stack and the layer is added at that position; dropping onto a folder-group row (or its expanded children) adds the layer as a child of that group with `parent_group_id` set.
+  3. User drags a basemap row and on drop the current basemap is swapped (no new overlay layer is created), matching the in-modal "swap" CTA.
+  4. User performs a successful drag-drop and the Add Dataset modal stays open; a toast confirms each add, and the user can chain multiple adds in one modal session.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1041: multi-layer-selection-and-bulk-ops
+
+**Goal**: Let users select multiple stack rows via mouse and keyboard, see a clear selection state, and run atomic bulk operations (visibility, opacity, group, ungroup, delete) with single optimistic update + single rollback on failure — without allowing cross-boundary selection between the basemap group and overlay layers.
+**Depends on**: Phase 1040
+**Requirements**: POL-06, POL-07, POL-08, POL-09, POL-10, POL-11
+**Success Criteria** (what must be TRUE):
+  1. User cmd-clicks rows to toggle individual selection and shift-clicks to select a contiguous range; the same operations work from the keyboard via Space (toggle) and Shift+ArrowUp/Down (extend).
+  2. User looks at the stack and visually distinguishes single-selection focus (the row that opens the flyout) from multi-selection (background tint + visible checkbox + `aria-selected="true"`).
+  3. User has 2+ rows selected and sees a bulk action bar anchored to the stack header or footer offering bulk visibility toggle, bulk opacity slider, group selection, ungroup, and delete.
+  4. User runs a bulk op and sees one optimistic update applied across all selected layers; on any per-layer failure they see one error toast and the optimistic state rolls back. Selection clears on Escape, on outside-click of the stack, and on route change.
+  5. User cannot co-select the basemap group row (or its sublayers) with overlay layers — the selection model refuses the combination so bulk delete on the basemap is unreachable.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1042: spacing-density-states-polish
+
+**Goal**: Apply Phase 1039's P0/P1 audit findings as a coordinated spacing/density/typography/state pass across `UnifiedStackPanel`, `LayerEditorPanel`, Add Dataset modal, and Settings — using only the existing `sketch-findings-geolens` token set, with unified hover/focus-visible/pressed/active states and consistent loading affordances everywhere an async fetch occurs.
+**Depends on**: Phase 1039
+**Requirements**: POL-13, POL-14, POL-15
+**Success Criteria** (what must be TRUE):
+  1. User compares `UnifiedStackPanel`, `LayerEditorPanel`, Add Dataset modal, and Settings scene side-by-side and sees normalized spacing/density/typography — no introduction of new tokens beyond the `sketch-findings-geolens` set.
+  2. User hovers, focuses (keyboard), presses, and activates any builder control and sees the same visual state vocabulary; microinteractions (transitions, drag affordance, expand/collapse) use consistent `--motion-fast`/`--motion-base` timing.
+  3. User triggers any async fetch in the builder (column list, dataset preview, stack reorder) and sees an appropriate loading affordance (skeleton, spinner, or optimistic UI) — no blank/frozen surfaces during fetch.
+  4. Playwright snapshot coverage (where added) gates against visual regressions in the polished surfaces.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1043: error-empty-states-and-ia-cleanup
+
+**Goal**: Close the audit's error/empty-state and information-architecture findings — every async failure recoverable with localized copy + retry, every section's empty state intentionally designed, section ordering consistent across vector/raster/DEM/basemap layer types, and scene transitions preserving scroll + focus.
+**Depends on**: Phase 1042
+**Requirements**: POL-16, POL-17, POL-18
+**Success Criteria** (what must be TRUE):
+  1. User triggers any builder async failure (column fetch, preview, save) and sees a localized error message with a retry affordance — no silent fall-through into the error boundary.
+  2. User opens the Filter section with no conditions, the Labels section with labels off, the Source section with no indexed columns, or the `LayerEditorPanel` for a basemap-group with zero customization and sees intentional empty-state copy + iconography in each location.
+  3. User opens a vector layer, then a raster layer, then a DEM layer, then a basemap-group from the stack and sees `LayerEditorPanel` section ordering remain consistent across layer types.
+  4. User navigates default → basemap-group → basemap-sublayer scene transitions and back and finds scroll position and keyboard focus preserved at each step.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 1044: cross-cutting-closeout
+
+**Goal**: Close the milestone with i18n locale fill for every new v1.5 string (en/de/fr/es), accessibility verification for the two new keyboard paths (drag-from-catalog + multi-select), a Playwright UAT spec covering happy + negative paths for both features, and final builder smoke green with the UAT spec added to the smoke set.
+**Depends on**: Phases 1040, 1041, 1042, 1043
+**Requirements**: POL-22, POL-23, POL-24, POL-25
+**Success Criteria** (what must be TRUE):
+  1. User switching browser locale to en/de/fr/es and walking the builder sees all new v1.5 strings (drag-from-catalog affordances, bulk action labels, audit-driven copy refinements) translated; `i18n-check` smoke green.
+  2. User completes a drag-from-catalog flow using only the keyboard (Space pick up → Arrow navigate → Space drop, Escape cancel) and a multi-select flow (Shift+ArrowUp/Down + Space); the stack root announces `aria-multiselectable` on its `role="listbox"`.
+  3. User runs `e2e/builder-v1-5.spec.ts` and sees the drag-from-catalog happy path, the multi-select bulk-delete happy path, and one negative-path each (Escape cancels mid-drag; bulk delete on mixed basemap + overlay selection is blocked) all pass.
+  4. User runs `npm run e2e:smoke:builder` at milestone close and sees all 21 existing tests + the new `builder-v1-5.spec.ts` pass green.
+**Plans**: TBD
+**UI hint**: yes
+
+## Sequencing Rationale
+
+**Why audit + test debt first (Phase 1039):** The UX audit produces the P0/P1 finding list that drives Phase 1042 (spacing/states) and Phase 1043 (error/empty/IA). Running the audit before those phases is non-negotiable; running it before the two feature phases (1040 drag-from-catalog, 1041 multi-select) is preferable because the audit may surface UnifiedStackPanel/StackRow issues that affect how the new interactions are wired. The test debt closeout co-locates here because the failing test surfaces (`EmptyStackState`, `StackRow`, `UnifiedStackPanel`, `use-builder-layers`) are exactly the files the audit touches — repair-while-you-read is cheaper than two separate passes.
+
+**Why drag-from-catalog before multi-select (Phase 1040 → Phase 1041):** Both features touch the unified stack's drop/selection model. The two phases are independent in capability terms but heavily overlap in file surface (`StackRow`, `UnifiedStackPanel`, `use-builder-layers`), so running them sequentially avoids merge conflicts on shared files. Drag-from-catalog goes first because it has fewer state-model implications (no new persistent selection state, no atomic-rollback contract) and acts as a warm-up to the same DnD primitives Phase 1041 will reuse.
+
+**Why polish phases (Phase 1042, 1043) ride after the feature phases:** Spacing/density and empty-state polish must include the new bulk action bar surface (1041) and any drag-from-catalog affordance changes (1040). Running 1042/1043 last lets the polish pass sweep across the final v1.5 surface area, not a half-built one. Phase 1042 (visual tokens/states/loading) feeds Phase 1043 (error/empty/IA) because the empty-state copy lives inside the polished spacing scaffold.
+
+**Why cross-cutting closeout is the final phase (Phase 1044):** i18n needs the final set of strings, a11y needs the final keyboard surface, the UAT spec exercises the final composition, and the builder smoke gate verifies the entire milestone. All upstream phases must be merged before any of these gates can be authored authoritatively.
+
+**Hard constraints carried forward from v1008:**
+- No saved-map shape changes (Phase 1033 normalizer is locked).
+- No public viewer / shared / embed surface changes (parity guarantee).
+- All work uses the `sketch-findings-geolens` token set; no new tokens introduced.
+- POL-09 bulk operations use existing per-layer PATCH endpoints — no backend API changes.
+
 ## Progress
 
-**Execution Order (v1008):**
-Phases execute in numeric order: 1033 → 1034 → 1035 → 1036 → 1037 → 1038
+**Execution Order (v1009):**
+Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 1044
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1033. saved-map-normalizer-and-viewer-parity | v1008 | 2/2 | Complete   | 2026-05-13 |
-| 1034. unified-stack-rows-and-layer-editor-flyout | v1008 | 0/3 | Not started | - |
-| 1035. basemap-group-folder-groups-and-dem-raster | v1008 | 0/5 | Not started | - |
-| 1036. settings-affordance | v1008 | 0/2 | Not started | - |
-| 1037. empty-state-and-add-data-alignment | v1008 | 0/2 | Not started | - |
-| 1038. a11y-i18n-sketch-fidelity-and-uat-closeout | v1008 | 0/TBD | Not started | - |
+| 1039. ux-audit-and-test-debt-closeout | v1009 | 0/0 | Not started | - |
+| 1040. drag-from-catalog-into-stack | v1009 | 0/0 | Not started | - |
+| 1041. multi-layer-selection-and-bulk-ops | v1009 | 0/0 | Not started | - |
+| 1042. spacing-density-states-polish | v1009 | 0/0 | Not started | - |
+| 1043. error-empty-states-and-ia-cleanup | v1009 | 0/0 | Not started | - |
+| 1044. cross-cutting-closeout | v1009 | 0/0 | Not started | - |
 
+
+<details>
+<summary>✅ v1008 Map Builder Sidebar Redesign (Phases 1033-1038) — SHIPPED 2026-05-14</summary>
+
+**Goal:** Re-architect the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
+
+**Requirements:** 27/27 complete; 27/27 mapped (BSR-01..27)
+
+- [x] **Phase 1033: saved-map-normalizer-and-viewer-parity** — completed 2026-05-13
+- [x] **Phase 1034: unified-stack-rows-and-layer-editor-flyout** — completed 2026-05-14
+- [x] **Phase 1035: basemap-group-folder-groups-and-dem-raster** — completed 2026-05-14
+- [x] **Phase 1036: settings-affordance** — completed 2026-05-14
+- [x] **Phase 1037: empty-state-and-add-data-alignment** — completed 2026-05-14
+- [x] **Phase 1038: a11y-i18n-sketch-fidelity-and-uat-closeout** — completed 2026-05-14
+
+27/27 v1008 requirements satisfied across 16 plans. UAT 9/9 PASS. Audit: `tech_debt` / `COMPLETE_WITH_TECH_DEBT_REVIEW` — 1 warning (smoke-test sweep) + 7 info/deferred items recorded. Smoke-test sweep cleared post-close via quick task `260514-ajo`. Full details: [milestones/v1008-ROADMAP.md](milestones/v1008-ROADMAP.md).
+
+</details>
 
 <details>
 <summary>✅ v1007 Release Hygiene (Phase 1032) — SHIPPED 2026-05-12</summary>
@@ -195,119 +220,12 @@ Phases execute in numeric order: 1033 → 1034 → 1035 → 1036 → 1037 → 10
 
 - [x] **Phase 1032: release-hygiene-closeout** — completed 2026-05-12
 
-### Phase 1032: release-hygiene-closeout
-
-**Goal:** Close the post-v1006 release hygiene milestone with CI-parity evidence and local browser validation.
-
-Requirements: REL-01, REL-02, REL-03, REL-04, REL-05, REL-06, REL-07, REL-08, REL-09, REL-10
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Dependency scanners are clean and Dependabot alert state is reconciled.
-2. Backend/frontend/security gates pass.
-3. OpenAPI and SDK generated artifacts are current.
-4. Compose `up --wait` succeeds.
-5. Playwright smoke and MCP console checks pass.
-6. Milestone artifacts document all evidence and caveats.
-
-Phase 1032 verified scanner-clean `urllib3==2.7.0`, regenerated OpenAPI/SDK artifacts for the v1006 cluster tile route, fixed the frontend compose healthcheck, made collections smoke self-seeding, ran broad CI-like gates plus root Playwright smoke, cleaned temp UAT/smoke datasets, and passed a Playwright MCP live search console check.
-
 10/10 v1007 requirements satisfied. Audit: passed / GO. Full details: [milestones/v1007-ROADMAP.md](milestones/v1007-ROADMAP.md).
 
 </details>
 
 <details>
 <summary>✅ v1006 Large Dataset Cluster Scaling (Phases 1027-1031) — SHIPPED 2026-05-12</summary>
-
-**Goal:** Extend v1005 Point Cluster from bounded client-side GeoJSON datasets to large point datasets by adding a server-side clustered tile/source path, preserving existing saved-map and renderer controls, and adding cluster exploration interactions.
-
-**Requirements:** 25/25 complete; 25/25 mapped (SCL-01..05, REND-01..05, UX-01..04, COMP-01..05, QA-01..06)
-
-- [x] **Phase 1027: server-cluster-tile-contract** — completed 2026-05-12
-- [x] **Phase 1028: cluster-source-routing-and-authoring-parity** — completed 2026-05-12
-- [x] **Phase 1029: cluster-exploration-interactions** — completed 2026-05-12
-- [x] **Phase 1030: cluster-compatibility-and-style-json-interop** — completed 2026-05-12
-- [x] **Phase 1031: cluster-performance-browser-qa-closeout** — completed 2026-05-12
-
-### Phase 1027: server-cluster-tile-contract
-
-**Goal:** Add the backend contract for clustered point tiles without changing persisted map/layer schemas or normal vector tile behavior.
-
-Requirements: SCL-01, SCL-02, SCL-03, SCL-04, SCL-05
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Backend exposes a server-side cluster tile/source contract for large vector point datasets.
-2. Public, private signed-tile, API-key, and embed-token access use existing tile authorization rules.
-3. Cluster and unclustered features emit stable properties needed by MapLibre rendering and interaction.
-4. Cluster SQL is bounded by tile envelope, zoom, limits, validated identifiers, and controlled empty/error responses.
-5. Tile cache keys separate normal vector tiles from cluster tiles and include cluster-relevant options.
-
-Phase 1027 landed `GET /tiles/clusters/data.{table}/{z}/{x}/{y}.pbf`, shared vector-tile auth helpers, bounded cluster MVT SQL, cluster-specific cache keys, and backend coverage for route success, point-only validation, private auth, embed-token access, cache separation, and emitted cluster properties.
-
-### Phase 1028: cluster-source-routing-and-authoring-parity
-
-**Goal:** Route Cluster layers to bounded GeoJSON or server-side cluster tiles based on source eligibility while keeping one authoring model.
-
-Requirements: REND-01, REND-02, REND-03, REND-04, REND-05
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Builder exposes Cluster for large point datasets when the server cluster contract is available.
-2. Cluster renderAs changes continue writing only existing `style_config.render_mode` / `style_config.builder` fields.
-3. Map sync chooses bounded client-side GeoJSON for small datasets, server-side cluster tiles for large datasets, and Point fallback for unsupported states.
-4. Builder, public, shared, and embed viewers share the same source-routing and auth-context policy.
-5. Cluster style controls behave consistently across bounded and server-side cluster sources.
-
-Phase 1028 added shared cluster source strategy routing, cluster tile URL construction, server-tile MapLibre source sync, authoring capability parity for large point datasets, source-layer-aware cluster companion layers, viewer token-refresh support, and focused frontend tests for eligibility, routing, style controls, and auth-context URL generation.
-
-### Phase 1029: cluster-exploration-interactions
-
-**Goal:** Add the expected map exploration affordances for clustered point datasets without disrupting existing popup and label behavior.
-
-Requirements: UX-01, UX-02, UX-03, UX-04
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Users can pointer-click or keyboard-activate a cluster to zoom toward its contents without mutating saved map state until save.
-2. Cluster aggregate popups show count plus bounded summary/sample information without full-table scans.
-3. Legend, map stack, and row state distinguish bounded Cluster, server-side Cluster, and Point fallback.
-4. Pointer, keyboard, and touch interactions do not interfere with existing feature popups, labels, or layer visibility.
-
-Phase 1029 added shared cluster interaction helpers, builder/viewer companion-layer hit-testing, pointer and canvas-keyboard cluster activation, aggregate cluster popup metadata, MapLibre/`expansion_zoom` zoom handling, and stack/legend state labels for bounded, server-side, and fallback cluster paths.
-
-### Phase 1030: cluster-compatibility-and-style-json-interop
-
-**Goal:** Prove server-side Cluster keeps saved-map, style JSON, viewer, and previous renderer compatibility intact.
-
-Requirements: COMP-01, COMP-02, COMP-03, COMP-04, COMP-05
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Normal vector tile behavior and cache semantics remain unchanged for non-cluster render modes.
-2. Existing bounded client-side Cluster remains available for small eligible point datasets.
-3. Saved maps with Cluster intent reload in builder and viewers across bounded, server-side, and Point fallback paths.
-4. Style JSON export/import preserves Cluster intent and documents standalone fallback behavior.
-5. Existing Point, Symbol, Heatmap, Arrow, Fill/Stroke, 3D extrusion, Raster, Hillshade, basemap, terrain, duplicate rendering, and Add Dataset behavior remains unchanged.
-
-Phase 1030 kept standalone style JSON drawable output on the point/vector fallback path, preserved Cluster intent through layer metadata, added source metadata that documents bounded/server/fallback cluster strategy and standalone fallback policy, and extended backend style JSON tests for server-side cluster export.
-
-### Phase 1031: cluster-performance-browser-qa-closeout
-
-**Goal:** Validate large-dataset cluster performance and close the milestone with automated and browser evidence.
-
-Requirements: QA-01, QA-02, QA-03, QA-04, QA-05, QA-06
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Backend tests cover cluster SQL/query construction, auth, cache keys, empty tiles, and controlled errors.
-2. Frontend tests cover eligibility, source routing, map sync, style controls, fallback states, and cluster lifecycle.
-3. Public/shared/embed viewer tests prove server-side Cluster works under the same access contexts as normal tiles.
-4. A seeded or synthetic large point dataset validates that cluster tiles avoid full-table GeoJSON and stay within a documented response budget.
-5. Playwright MCP verifies a live large point dataset can switch to Cluster, save, reload, interact with clusters, and remain console-clean.
-6. Focused Vitest, backend pytest, i18n, lint, build, ruff, builder smoke, and relevant Playwright specs pass.
-
-Phase 1031 ran the closeout gates, fixed Playwright-discovered multipoint cluster SQL and unsigned private cluster tile timing bugs, added a multipoint regression test plus token-dispatch coverage, and verified a 6,001-feature live large point dataset in Playwright MCP with signed server-cluster tile requests, aggregate cluster popup interaction, and zero current-page browser warnings/errors.
 
 25/25 v1006 requirements satisfied. Audit: passed / GO. Shipped authenticated server-side cluster MVT tiles for large point datasets, source routing across builder/viewers, cluster exploration interactions, style JSON strategy metadata, and live browser QA. Full details: [milestones/v1006-ROADMAP.md](milestones/v1006-ROADMAP.md).
 
@@ -316,81 +234,12 @@ Phase 1031 ran the closeout gates, fixed Playwright-discovered multipoint cluste
 <details>
 <summary>✅ v1005 Builder Point Cluster Foundation (Phases 1023-1026) — SHIPPED 2026-05-12</summary>
 
-**Goal:** Ship Point Cluster safely for eligible point datasets by proving a bounded GeoJSON source path, preserving saved-map compatibility, and falling back cleanly when clustering is not supported.
-
-**Requirements:** 20/20 complete; 20/20 mapped (SRC-01..05, CLUS-01..06, COMP-01..04, QA-01..05)
-
-- [x] **Phase 1023: cluster-source-eligibility-and-geojson-contract** — completed 2026-05-12
-- [x] **Phase 1024: maplibre-point-cluster-renderer** — completed 2026-05-12
-- [x] **Phase 1025: cluster-builder-controls-and-authoring-polish** — completed 2026-05-12
-- [x] **Phase 1026: cluster-compatibility-and-qa-closeout** — completed 2026-05-12
-
-### Phase 1023: cluster-source-eligibility-and-geojson-contract
-
-**Goal:** Prove when Cluster can be safely offered and wire a bounded GeoJSON source path without changing persisted schemas.
-
-Requirements: SRC-01, SRC-02, SRC-03, SRC-04, SRC-05
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Cluster capability visibility is derived from the renderer registry plus point geometry and feature-count/source eligibility.
-2. Cluster source loading is limited to cluster layers and reuses the existing authenticated GeoJSON feature delivery path where possible.
-3. Builder and viewer fetch paths preserve JWT/API-key/embed-token context.
-4. Oversized, truncated, failed, or unsupported cluster sources produce a Point fallback rather than a broken map.
-5. Eligibility and fallback behavior are covered by focused frontend tests.
-
-### Phase 1024: maplibre-point-cluster-renderer
-
-**Goal:** Add the native MapLibre cluster renderer and keep companion-layer lifecycle consistent with existing adapters.
-
-Requirements: CLUS-01, CLUS-02, CLUS-03, CLUS-04, CLUS-05
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Eligible point layers expose `Cluster` through the capability registry.
-2. Switching to Cluster patches only existing writable fields and stores intent under `style_config.render_mode` / `style_config.builder`.
-3. Map sync creates a GeoJSON source with MapLibre clustering options and stable cluster/unclustered/count layers.
-4. Visibility, filter, opacity, zoom range, reorder, removal, and stale cleanup apply to all cluster companion layers.
-5. Existing Point, Symbol, Heatmap, and Arrow behavior remains unchanged.
-
-### Phase 1025: cluster-builder-controls-and-authoring-polish
-
-**Goal:** Surface the cluster renderer as a usable authoring mode without introducing new UI primitives or model fields.
-
-Requirements: CLUS-06
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Cluster authoring controls cover radius, max zoom, color, opacity, and count-label appearance using existing UI primitives.
-2. Controls write only `style_config.builder`, `paint`, or `layout` fields already accepted by map-layer patching.
-3. Cluster rows, badges, menu labels, and warnings are translated in all builder locales.
-4. Authoring copy distinguishes eligible bounded clustering from future large-dataset server-side clustering.
-
-### Phase 1026: cluster-compatibility-and-qa-closeout
-
-**Goal:** Prove Cluster does not regress saved maps, style JSON, viewers, or prior renderer behavior.
-
-Requirements: COMP-01, COMP-02, COMP-03, COMP-04, QA-01, QA-02, QA-03, QA-04, QA-05
-Status: completed 2026-05-12
-
-**Success Criteria:**
-1. Saved maps with Cluster intent reload in builder and eligible viewers without schema drift.
-2. Public/shared/embed viewers render eligible Cluster layers or degrade to Point without noisy console loops.
-3. Style JSON export/import preserves Cluster intent or emits a documented Point fallback where standalone authenticated GeoJSON is not representable.
-4. Focused Vitest, backend pytest, i18n checks, frontend lint, frontend build, ruff, builder smoke, and Playwright MCP browser inspection pass.
-5. Any remaining server-side clustered tile endpoint work is documented as a future requirement, not hidden as implicit scope.
-
 20/20 v1005 requirements satisfied. Audit: passed / GO. Shipped native MapLibre point clustering for bounded eligible point datasets, cluster builder controls, viewer compatibility, style JSON intent preservation with standalone Point fallback, focused automated verification, builder smoke, and Playwright MCP live QA. Full details: [milestones/v1005-ROADMAP.md](milestones/v1005-ROADMAP.md).
 
 </details>
 
 <details>
 <summary>✅ v1004 Builder Renderer Expansion (Phases 1019-1022) — SHIPPED 2026-05-12</summary>
-
-- [x] Phase 1019: renderer-capability-architecture-and-cluster-feasibility (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1020: maplibre-line-arrow-renderer (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1021: advanced-renderer-adrs (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1022: renderer-compatibility-and-qa-closeout (1/1 plan) — completed 2026-05-12.
 
 20/20 v1004 requirements satisfied. Audit: passed / GO. Shipped the renderer capability registry, MapLibre-native Line → Arrow rendering with icon-backed companion layers, builder arrow controls, style JSON export/import round-trip, advanced renderer ADRs, focused Vitest/backend/i18n/lint/build/ruff checks, Playwright MCP browser verification, and builder smoke. Full details: [milestones/v1004-ROADMAP.md](milestones/v1004-ROADMAP.md).
 
@@ -399,12 +248,6 @@ Status: completed 2026-05-12
 <details>
 <summary>✅ v1003 Builder v1 Hardening (Phases 1014-1018) — SHIPPED 2026-05-12</summary>
 
-- [x] Phase 1014: browser-baseline-and-responsive-shell (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1015: duplicate-rendering-and-renderas-hardening (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1016: basemap-and-terrain-integration-hardening (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1017: add-dataset-modal-state-hardening (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1018: saved-map-roundtrip-and-closeout (1/1 plan) — completed 2026-05-12.
-
 24/24 v1003 requirements satisfied. Audit: passed / GO. Builder smoke, focused Vitest, scoped accessibility checks, lint, build, and Playwright MCP verification passed; remaining caveats are outside the frontend builder hardening scope. Full details: [milestones/v1003-ROADMAP.md](milestones/v1003-ROADMAP.md).
 
 </details>
@@ -412,117 +255,63 @@ Status: completed 2026-05-12
 <details>
 <summary>✅ v1002 Layer Sidebar + Add Dataset Redesign (Phases 1008-1013) — SHIPPED 2026-05-12</summary>
 
-- [x] Phase 1008: sidebar-view-model-and-renderas-foundation (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1009: layer-row-and-dataset-rendering-sidebar (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1010: renderas-actions-and-duplicate-renderings (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1011: basemap-and-terrain-inline-rows (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1012: add-dataset-modal-redesign (1/1 plan) — completed 2026-05-12.
-- [x] Phase 1013: builder-sidebar-modal-qa-closeout (1/1 plan) — completed 2026-05-12.
-
-37/37 v1002 requirements satisfied. Audit: `tech_debt` / `COMPLETE_WITH_BROWSER_ENV_REVIEW` because the local full stack was unavailable for live Playwright execution; focused Vitest, lint, build, and Playwright spec loading passed. Full details: [milestones/v1002-ROADMAP.md](milestones/v1002-ROADMAP.md).
+37/37 v1002 requirements satisfied. Audit: `tech_debt` / `COMPLETE_WITH_BROWSER_ENV_REVIEW`. Full details: [milestones/v1002-ROADMAP.md](milestones/v1002-ROADMAP.md).
 
 </details>
 
 <details>
 <summary>✅ v1001 Map Builder UI/UX Polish Sweep (Phases 1002-1007) — SHIPPED 2026-05-11</summary>
 
-- [x] Phase 1002: kepler-guided-builder-workflow-audit-and-triage (1/1 plan) — completed 2026-05-11
-- [x] Phase 1003: map-stack-inspector-interaction-polish (2/2 plans) — completed 2026-05-11
-- [x] Phase 1004: styling-and-cartography-control-polish (2/2 plans) — completed 2026-05-11
-- [x] Phase 1005: preview-save-share-output-parity (1/1 plan) — completed 2026-05-11
-- [x] Phase 1006: responsive-accessibility-copy-hardening (1/1 plan) — completed 2026-05-11
-- [x] Phase 1007: durable-builder-qa-gate-and-closeout (1/1 plan) — completed 2026-05-11
-
-38/38 v1001 requirements satisfied. Audit: passed. Builder smoke gate now runs without the sidebar drag-handle flake; focused Vitest, accessibility, builder Playwright, and builder smoke gates passed. Full details: [milestones/v1001-ROADMAP.md](milestones/v1001-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v13.14 Smoke Stabilization (Phases 280-282) — SHIPPED 2026-05-08</summary>
-
-- [x] Phase 280: trailing-slash-redirect-fix-on-post-api-maps-id-layers (1/1 plan) — completed 2026-05-08
-- [x] Phase 281: admin-audit-logs-heading-collections-add-button-investigatio (1/1 plan) — completed 2026-05-08
-- [x] Phase 282: dataset-detail-selector-tightening-milestone-close (1/1 plan) — completed 2026-05-08
-
-3 phases, 3 plans, ~5 source-file commits. Closed 4 of 6 baseline smoke failures from quick task `260508-d6i` (HIGH priority `POST /maps/{id}/layers/` 307 redirect, MEDIUM priority admin Audit Logs page-guard, MEDIUM priority collections Add-button seed-data drift, LOW/MEDIUM priority dataset-detail FEATURES strict-mode mismatch). Remaining `builder.spec.ts:343` sidebar drag-handle flake is pre-existing and out of scope. Final smoke: 50 passed / 1 failed / 2 did-not-run.
+38/38 v1001 requirements satisfied. Audit: passed. Full details: [milestones/v1001-ROADMAP.md](milestones/v1001-ROADMAP.md).
 
 </details>
 
 <details>
 <summary>✅ v1000 Map Stack and Basemap Layer Controls (Phases 1000-1001) — SHIPPED 2026-05-11</summary>
 
-- [x] Phase 1000: Kepler-inspired map stack and basemap layer controls (6/6 plans) — completed 2026-05-11
-- [x] Phase 1001: Preserve DEM metadata in authenticated public maps (1/1 plan) — completed 2026-05-11
-
-7/7 MAPSTACK requirements satisfied. Audit: complete with tracked tech debt for generated SDK drift, visual QA automation, seeded demo E2E gating, and full release gates not rerun. Full details: [milestones/v1000-ROADMAP.md](milestones/v1000-ROADMAP.md).
+7/7 MAPSTACK requirements satisfied. Audit: complete with tracked tech debt. Full details: [milestones/v1000-ROADMAP.md](milestones/v1000-ROADMAP.md).
 
 </details>
 
 <details>
-<summary>✅ v13.9 Map Builder Closeout (Phases 252-256) — SHIPPED 2026-05-06</summary>
+<summary>✅ v13.14 Smoke Stabilization (Phases 280-282) — SHIPPED 2026-05-08</summary>
 
-- [x] Phase 252: architecture-guard-regression-fixes (3/3 plans) — completed 2026-05-06
-- [x] Phase 253: v13-8-validation-md-backfill (3/3 plans) — completed 2026-05-06
-- [x] Phase 254: sdk-regen-warning-cleanup (2/2 plans) — completed 2026-05-06
-- [x] Phase 255: line-gradient-engine-foundation (3/3 plans) — completed 2026-05-06
-- [x] Phase 256: line-gradient-builder-ui (2/2 plans) — completed 2026-05-06
-
-19/19 v13.9 requirements satisfied. Audit: passed. Full details: [milestones/v13.9-ROADMAP.md](milestones/v13.9-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v13.10 GH Issues Hygiene (Phase 257) — SHIPPED 2026-05-07</summary>
-
-- [x] Phase 257: gh-issue-audit-closeout (3/3 plans) — completed 2026-05-07
-
-8/8 v13.10 requirements satisfied. Audit: passed. 11/11 open GitHub issues closed on github.com. Full details: [milestones/v13.10-ROADMAP.md](milestones/v13.10-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v13.11 Map Builder Polish & Quality Sweep (Phases 258-262) — SHIPPED 2026-05-07</summary>
-
-- [x] Phase 258: line-gradient-ui-closeout (2/2 plans) — completed 2026-05-07
-- [x] Phase 259: i18n-translations (1/1 plan) — completed 2026-05-07
-- [x] Phase 260: builder-quality-sweep (1/1 plan) — completed 2026-05-07
-- [x] Phase 261: layer-visibility-debug-audit (1/1 plan) — completed 2026-05-07
-- [x] Phase 262: milestone-closeout (1/1 plan) — completed 2026-05-07
-
-17/17 v13.11 requirements satisfied. Audit: passed. 7 source-file commits. Closed BUILDER-POLISH-01 (Phase 256 UI audit findings). Full details: [milestones/v13.11-ROADMAP.md](milestones/v13.11-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v13.12 Pre-Public Security & Audit Hardening (Phases 263-270) — SHIPPED 2026-05-07</summary>
-
-- [x] Phase 263: security-and-oss-audit-dispatch — completed 2026-05-07
-- [x] Phase 264: infrastructure-audit-dispatch — completed 2026-05-07
-- [x] Phase 265: api-and-docs-audit-dispatch — completed 2026-05-07
-- [x] Phase 266: code-perf-i18n-audit-dispatch — completed 2026-05-07
-- [x] Phase 267: findings-triage-and-classification — completed 2026-05-07
-- [x] Phase 268: security-and-infra-remediation — completed 2026-05-07
-- [x] Phase 269: api-docs-code-perf-i18n-remediation — completed 2026-05-07
-- [x] Phase 270: re-audit-verification-and-public-readiness — completed 2026-05-07
-
-32/32 v13.12 requirements satisfied. Coordinated 17-audit sweep (sec/dep/security-review/env/oc/docker/db/migration/perf/api-contract/doc/admin/demo/i18n/backend/frontend/test) → 193 findings (2C / 37H / 83M / 71L). All 39 Critical+High remediated inline; 154 M+L deferred to v13.13. ~40 source-file commits. Audit: composite grade A−, recommendation **CONDITIONAL-GO**. Full details: [milestones/v13.12-ROADMAP.md](milestones/v13.12-ROADMAP.md).
+3 phases, 3 plans, ~5 source-file commits. Closed 4 of 6 baseline smoke failures from quick task `260508-d6i`. Final smoke: 50 passed / 1 failed / 2 did-not-run.
 
 </details>
 
 <details>
 <summary>✅ v13.13 Backlog Sweep (Phases 271-279) — SHIPPED 2026-05-07</summary>
 
-- [x] Phase 271: db-migration-hardening (DBM-01..09) — completed 2026-05-07
-- [x] Phase 272: docker-infrastructure (INF-01..16) — completed 2026-05-07
-- [x] Phase 273: security-defense-in-depth (SEC-01..17) — completed 2026-05-07
-- [x] Phase 274: performance-polish (PERF-01..11) — completed 2026-05-07
-- [x] Phase 275: api-contract-docs-refresh (API-01..14) — completed 2026-05-07
-- [x] Phase 276: backend-frontend-code-quality (CODE-01..14) — completed 2026-05-07
-- [x] Phase 277: i18n-env-standardization (CONF-01..15) — completed 2026-05-07
-- [x] Phase 278: test-health-coverage (TEST-01..10) — completed 2026-05-07
-- [x] Phase 279: admin-polish-closeout (ADMIN-01..13, CLOSE-01..05) — completed 2026-05-07
-
 130/130 v13.13 requirements satisfied across 51 plans. Cleared the 154 deferred M+L findings from v13.12. ~106 source-file commits. Audit: composite grade A, recommendation **GO**. v1.1.0 tagged 2026-05-07 (commit 1bfc7b99). Full details: [milestones/v13.13-MILESTONE-AUDIT.md](milestones/v13.13-MILESTONE-AUDIT.md).
+
+</details>
+
+<details>
+<summary>✅ v13.12 Pre-Public Security & Audit Hardening (Phases 263-270) — SHIPPED 2026-05-07</summary>
+
+32/32 v13.12 requirements satisfied. Coordinated 17-audit sweep → 193 findings (2C / 37H / 83M / 71L). All 39 Critical+High remediated inline; 154 M+L deferred to v13.13. Audit: composite grade A−, recommendation **CONDITIONAL-GO**. Full details: [milestones/v13.12-ROADMAP.md](milestones/v13.12-ROADMAP.md).
+
+</details>
+
+<details>
+<summary>✅ v13.11 Map Builder Polish & Quality Sweep (Phases 258-262) — SHIPPED 2026-05-07</summary>
+
+17/17 v13.11 requirements satisfied. Audit: passed. Closed BUILDER-POLISH-01. Full details: [milestones/v13.11-ROADMAP.md](milestones/v13.11-ROADMAP.md).
+
+</details>
+
+<details>
+<summary>✅ v13.10 GH Issues Hygiene (Phase 257) — SHIPPED 2026-05-07</summary>
+
+8/8 v13.10 requirements satisfied. Audit: passed. 11/11 open GitHub issues closed. Full details: [milestones/v13.10-ROADMAP.md](milestones/v13.10-ROADMAP.md).
+
+</details>
+
+<details>
+<summary>✅ v13.9 Map Builder Closeout (Phases 252-256) — SHIPPED 2026-05-06</summary>
+
+19/19 v13.9 requirements satisfied. Audit: passed. Full details: [milestones/v13.9-ROADMAP.md](milestones/v13.9-ROADMAP.md).
 
 </details>
 

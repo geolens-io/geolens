@@ -1,7 +1,7 @@
 ---
 milestone: v1009
 milestone_name: Map Builder v1.5 (Polish)
-status: draft
+status: roadmapped
 created: 2026-05-14
 ---
 
@@ -92,7 +92,32 @@ _(Deferred to a later milestone; not in scope for v1.5)_
 
 ## Traceability
 
-_(Filled by gsd-roadmapper after phase definition)_
-
 | REQ-ID | Phase | Notes |
 |---|---|---|
+| POL-01 | 1040 drag-from-catalog-into-stack | Drag affordance on Add Dataset modal rows |
+| POL-02 | 1040 drag-from-catalog-into-stack | Drop on stack adds at position; reuses 1038-02 insertion line |
+| POL-03 | 1040 drag-from-catalog-into-stack | Drop on folder-group sets `parent_group_id` |
+| POL-04 | 1040 drag-from-catalog-into-stack | Basemap drop = swap, not add |
+| POL-05 | 1040 drag-from-catalog-into-stack | Modal stays open + per-add toast |
+| POL-06 | 1041 multi-layer-selection-and-bulk-ops | cmd/shift-click + Space / Shift+ArrowUp/Down |
+| POL-07 | 1041 multi-layer-selection-and-bulk-ops | Selection visual state distinct from single-selection focus |
+| POL-08 | 1041 multi-layer-selection-and-bulk-ops | Bulk action bar (visibility / opacity / group / ungroup / delete) |
+| POL-09 | 1041 multi-layer-selection-and-bulk-ops | Atomic bulk ops via existing per-layer PATCH endpoints |
+| POL-10 | 1041 multi-layer-selection-and-bulk-ops | Selection clears on Escape / outside-click / route change |
+| POL-11 | 1041 multi-layer-selection-and-bulk-ops | Basemap-group boundary blocks mixed selection |
+| POL-12 | 1039 ux-audit-and-test-debt-closeout | `BUILDER-UX-AUDIT.md` with P0/P1/P2 priorities — drives 1042/1043 |
+| POL-13 | 1042 spacing-density-states-polish | Spacing/density token normalization on existing token set |
+| POL-14 | 1042 spacing-density-states-polish | Hover/focus/pressed/active state unification + motion tokens |
+| POL-15 | 1042 spacing-density-states-polish | Loading affordances everywhere async occurs |
+| POL-16 | 1043 error-empty-states-and-ia-cleanup | Recoverable error states with localized retry |
+| POL-17 | 1043 error-empty-states-and-ia-cleanup | Filter/Labels/Source/basemap-group empty-state copy + iconography |
+| POL-18 | 1043 error-empty-states-and-ia-cleanup | Section ordering consistency + scene-transition focus/scroll preservation |
+| POL-19 | 1039 ux-audit-and-test-debt-closeout | 5 pre-existing vitest failures (EmptyStackState ×3, StackRow ×1, UnifiedStackPanel ×1) |
+| POL-20 | 1039 ux-audit-and-test-debt-closeout | use-builder-layers.add-dataset.test.ts worker timeout root cause |
+| POL-21 | 1039 ux-audit-and-test-debt-closeout | `npx vitest run src/components/builder/` 0 failures + 0 worker errors |
+| POL-22 | 1044 cross-cutting-closeout | i18n locale fill en/de/fr/es for all new v1.5 strings |
+| POL-23 | 1044 cross-cutting-closeout | a11y verification for drag-from-catalog + multi-select keyboard paths |
+| POL-24 | 1044 cross-cutting-closeout | `e2e/builder-v1-5.spec.ts` happy + negative paths |
+| POL-25 | 1044 cross-cutting-closeout | Builder smoke green at close (21 existing + new UAT) |
+
+**Coverage:** 25/25 v1 requirements mapped (POL-01..25). No orphans. No duplicates.
