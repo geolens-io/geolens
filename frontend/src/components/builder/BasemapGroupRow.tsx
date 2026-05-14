@@ -201,6 +201,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
+              data-kebab-trigger=""
               aria-label={t('stackRow.kebabTrigger', {
                 defaultValue: 'Layer options for {{name}}',
                 name: rowName,

@@ -264,6 +264,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                data-kebab-trigger=""
                 aria-label={t('stackRow.kebabGroupTrigger', {
                   defaultValue: 'Group options for {{name}}',
                   name: groupName,

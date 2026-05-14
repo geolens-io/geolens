@@ -508,3 +508,15 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Phase 1038 BSR-24 drag polish ───────────────────────────────────────── */
+
+/* Phase 1038 BSR-24: DnD insertion line — 2px primary line at drop target */
+[data-dnd-over="true"] {
+  border-top: 2px solid var(--primary);
+}
+
+/* Phase 1038 BSR-24: hide kebabs on non-dragging rows during drag */
+.dragging-active [data-testid^="stack-row-"] [data-kebab-trigger] {
+  opacity: 0 !important;
+}

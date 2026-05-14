@@ -1,14 +1,15 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   closestCenter,
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
+import type { DraggableAttributes, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   arrayMove,
   SortableContext,
@@ -147,6 +148,7 @@ const SortableStackRow = memo(function SortableStackRow({
     transform,
     transition,
     isDragging,
+    isOver,
   } = useSortable({ id: layer.id });
 
   const style = {
@@ -160,7 +162,7 @@ const SortableStackRow = memo(function SortableStackRow({
   );
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} data-dnd-over={isOver ? 'true' : undefined}>
       <StackRow
         layer={layer}
         selected={selected}
@@ -496,6 +498,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
+  const [activeId, setActiveId] = useState<string | null>(null);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -517,7 +521,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     return ids;
   }, [layers]);
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+    onSelectLayer(null);
+    document.documentElement.classList.add('dragging-active');
+  }, [onSelectLayer]);
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveId(null);
+    document.documentElement.classList.remove('dragging-active');
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = layers.findIndex((layer) => layer.id === active.id);
@@ -527,9 +539,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     onReorder(arrayMove(layers, oldIndex, newIndex));
   }, [layers, onReorder]);
 
-  const handleDragStart = useCallback(() => {
-    onSelectLayer(null);
-  }, [onSelectLayer]);
+  const handleDragCancel = useCallback(() => {
+    setActiveId(null);
+    document.documentElement.classList.remove('dragging-active');
+  }, []);
 
   // Build the render plan: group children by parent for O(N) pass
   const childrenByGroup = useMemo(() => {
@@ -692,6 +705,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             collisionDetection={closestCenter}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
           >
             <SortableContext
               items={sortableIds}
@@ -776,6 +790,28 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 );
               })}
             </SortableContext>
+            {/* DragOverlay: ghost follows pointer during drag (BSR-24 VIS-01) */}
+            <DragOverlay dropAnimation={null}>
+              {activeId ? (() => {
+                const activeLayer = layers.find((l) => l.id === activeId);
+                return activeLayer ? (
+                  <div className="opacity-40 scale-[0.98] pointer-events-none bg-[var(--surface-2)] rounded shadow-md">
+                    <StackRow
+                      layer={activeLayer}
+                      selected={false}
+                      isDragging={true}
+                      dragHandleProps={{ attributes: {} as DraggableAttributes, listeners: undefined, setActivatorNodeRef: NOOP }}
+                      onSelectLayer={NOOP}
+                      onToggleVisibility={NOOP}
+                      onOpacityChange={NOOP}
+                      onRemove={NOOP}
+                      onRename={NOOP}
+                      onDuplicate={NOOP}
+                    />
+                  </div>
+                ) : null;
+              })() : null}
+            </DragOverlay>
           </DndContext>
         )}
       </div>
