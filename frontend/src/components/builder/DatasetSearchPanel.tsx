@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  GripVertical,
   Image as ImageIcon,
   Inbox,
   Loader2,
@@ -16,6 +17,7 @@ import {
   Shuffle,
   Upload,
 } from 'lucide-react';
+import { useDraggable } from '@dnd-kit/core';
 import { useQuery } from '@tanstack/react-query';
 import { searchDatasets } from '@/api/search';
 import type { BasemapEntry } from '@/api/settings';
@@ -190,6 +192,194 @@ function BasemapMetadata({ entry }: { entry: BasemapEntry }) {
     </dl>
   );
 }
+
+// ---------------------------------------------------------------------------
+// DraggableDatasetRow: wraps a dataset result row with useDraggable so users
+// can drag it onto the unified stack. Registered in the lifted DndContext at
+// MapBuilderPage level.
+// ---------------------------------------------------------------------------
+interface DraggableDatasetRowProps {
+  record: OGCRecordResponse;
+  expanded: boolean;
+  setExpandedRowId: (id: string | null) => void;
+  renderDatasetAction: (record: OGCRecordResponse, compact?: boolean) => ReactNode;
+}
+
+const DraggableDatasetRow = memo(function DraggableDatasetRow({
+  record,
+  expanded,
+  setExpandedRowId,
+  renderDatasetAction,
+}: DraggableDatasetRowProps) {
+  const { t } = useTranslation('builder');
+  const props = record.properties;
+  const rowId = `dataset:${record.id}`;
+  const recordType = props.record_type ?? 'vector_dataset';
+  const meta = featureMeta(record);
+
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef, isDragging } = useDraggable({
+    id: `catalog:${record.id}`,
+    data: {
+      source: 'catalog' as const,
+      datasetId: record.id,
+      recordType,
+      name: props.title ?? 'Dataset',
+    },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      key={record.id}
+      className={cn(
+        'group/row rounded-md border border-border/60 bg-background',
+        isDragging && 'opacity-40 bg-[var(--surface-2)]',
+      )}
+    >
+      <div className="flex items-center gap-2 px-2 py-2">
+        {/* Grip handle — hidden at rest, appears on row hover */}
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={t('search.dragHandle', { defaultValue: 'Drag to add to map' })}
+          className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={expanded ? `Collapse ${props.title}` : `Expand ${props.title}`}
+          onClick={() => setExpandedRowId(expanded ? null : rowId)}
+        >
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{props.title}</p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden">
+            <RecordTypeBadge recordType={recordType} className="h-5 rounded px-1.5 text-[10px]" />
+            {props.geometry_type && (
+              <Badge variant="outline" className="h-5 shrink-0 rounded px-1.5 text-[10px]">
+                {getGeometryTypeLabel(t, props.geometry_type)}
+              </Badge>
+            )}
+            {meta && <span className="truncate text-xs text-muted-foreground">{meta}</span>}
+          </div>
+        </div>
+        {renderDatasetAction(record)}
+      </div>
+      {expanded && (
+        <div className="flex gap-3 border-t border-border/60 p-2">
+          <DatasetPreview record={record} />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <DatasetMetadata record={record} />
+            {props.description && (
+              <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">{props.description}</p>
+            )}
+            <div className="flex justify-end">{renderDatasetAction(record, true)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// DraggableBasemapRow: wraps a basemap entry row with useDraggable. Drop
+// semantics (swap) land in Plan 03; this plan just wires the drag affordance.
+// ---------------------------------------------------------------------------
+interface DraggableBasemapRowProps {
+  entry: BasemapEntry;
+  expanded: boolean;
+  setExpandedRowId: (id: string | null) => void;
+  renderBasemapAction: (entry: BasemapEntry, compact?: boolean) => ReactNode;
+}
+
+const DraggableBasemapRow = memo(function DraggableBasemapRow({
+  entry,
+  expanded,
+  setExpandedRowId,
+  renderBasemapAction,
+}: DraggableBasemapRowProps) {
+  const { t } = useTranslation('builder');
+  const rowId = `basemap:${entry.id}`;
+
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef, isDragging } = useDraggable({
+    id: `catalog-basemap:${entry.id}`,
+    data: {
+      source: 'catalog' as const,
+      datasetId: entry.id,
+      recordType: 'basemap',
+      name: entry.label,
+    },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      key={entry.id}
+      className={cn(
+        'group/row rounded-md border border-border/60 bg-background',
+        isDragging && 'opacity-40 bg-[var(--surface-2)]',
+      )}
+    >
+      <div className="flex items-center gap-2 px-2 py-2">
+        {/* Grip handle — hidden at rest, appears on row hover */}
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={t('search.dragHandle', { defaultValue: 'Drag to add to map' })}
+          className="flex h-7 w-5 shrink-0 items-center justify-center cursor-grab opacity-0 group-hover/row:opacity-35 hover:opacity-70 focus-visible:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={expanded ? `Collapse ${entry.label}` : `Expand ${entry.label}`}
+          onClick={() => setExpandedRowId(expanded ? null : rowId)}
+        >
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <img
+          src={basemapThumbnail(entry.id)}
+          alt=""
+          aria-hidden="true"
+          className="h-9 w-9 rounded border object-cover"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{entry.label}</p>
+          <Badge variant="outline" className="mt-0.5 h-5 rounded px-1.5 text-[10px]">
+            {t('search.basemap', { defaultValue: 'Basemap' })}
+          </Badge>
+        </div>
+        {renderBasemapAction(entry)}
+      </div>
+      {expanded && (
+        <div className="flex gap-3 border-t border-border/60 p-2">
+          <img
+            src={basemapThumbnail(entry.id)}
+            alt=""
+            aria-hidden="true"
+            className="h-24 w-28 rounded-md border object-cover"
+          />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <BasemapMetadata entry={entry} />
+            <div className="flex justify-end">{renderBasemapAction(entry, true)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 export function DatasetSearchPanel({
   onAddDataset,
@@ -499,96 +689,23 @@ export function DatasetSearchPanel({
           isFetching && !isLoading && activeTab !== 'basemap' && 'pointer-events-none opacity-50',
         )}
       >
-        {activeTab === 'basemap' ? filteredBasemaps.map((entry) => {
-          const rowId = `basemap:${entry.id}`;
-          const expanded = expandedRowId === rowId;
-          return (
-            <div key={entry.id} className="rounded-md border border-border/60 bg-background">
-              <div className="flex items-center gap-2 px-2 py-2">
-                <button
-                  type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={expanded ? `Collapse ${entry.label}` : `Expand ${entry.label}`}
-                  onClick={() => setExpandedRowId(expanded ? null : rowId)}
-                >
-                  {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                </button>
-                <img
-                  src={basemapThumbnail(entry.id)}
-                  alt=""
-                  aria-hidden="true"
-                  className="h-9 w-9 rounded border object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{entry.label}</p>
-                  <Badge variant="outline" className="mt-0.5 h-5 rounded px-1.5 text-[10px]">
-                    {t('search.basemap', { defaultValue: 'Basemap' })}
-                  </Badge>
-                </div>
-                {renderBasemapAction(entry)}
-              </div>
-              {expanded && (
-                <div className="flex gap-3 border-t border-border/60 p-2">
-                  <img
-                    src={basemapThumbnail(entry.id)}
-                    alt=""
-                    aria-hidden="true"
-                    className="h-24 w-28 rounded-md border object-cover"
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <BasemapMetadata entry={entry} />
-                    <div className="flex justify-end">{renderBasemapAction(entry, true)}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        }) : results.map((record) => {
-          const props = record.properties;
-          const rowId = `dataset:${record.id}`;
-          const expanded = expandedRowId === rowId;
-          const recordType = props.record_type ?? 'vector_dataset';
-          const meta = featureMeta(record);
-          return (
-            <div key={record.id} className="rounded-md border border-border/60 bg-background">
-              <div className="flex items-center gap-2 px-2 py-2">
-                <button
-                  type="button"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={expanded ? `Collapse ${props.title}` : `Expand ${props.title}`}
-                  onClick={() => setExpandedRowId(expanded ? null : rowId)}
-                >
-                  {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{props.title}</p>
-                  <div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden">
-                    <RecordTypeBadge recordType={recordType} className="h-5 rounded px-1.5 text-[10px]" />
-                    {props.geometry_type && (
-                      <Badge variant="outline" className="h-5 shrink-0 rounded px-1.5 text-[10px]">
-                        {getGeometryTypeLabel(t, props.geometry_type)}
-                      </Badge>
-                    )}
-                    {meta && <span className="truncate text-xs text-muted-foreground">{meta}</span>}
-                  </div>
-                </div>
-                {renderDatasetAction(record)}
-              </div>
-              {expanded && (
-                <div className="flex gap-3 border-t border-border/60 p-2">
-                  <DatasetPreview record={record} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <DatasetMetadata record={record} />
-                    {props.description && (
-                      <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">{props.description}</p>
-                    )}
-                    <div className="flex justify-end">{renderDatasetAction(record, true)}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {activeTab === 'basemap' ? filteredBasemaps.map((entry) => (
+          <DraggableBasemapRow
+            key={entry.id}
+            entry={entry}
+            expanded={expandedRowId === `basemap:${entry.id}`}
+            setExpandedRowId={setExpandedRowId}
+            renderBasemapAction={renderBasemapAction}
+          />
+        )) : results.map((record) => (
+          <DraggableDatasetRow
+            key={record.id}
+            record={record}
+            expanded={expandedRowId === `dataset:${record.id}`}
+            setExpandedRowId={setExpandedRowId}
+            renderDatasetAction={renderDatasetAction}
+          />
+        ))}
       </div>
 
       <div className="mt-3 flex justify-end border-t border-border/60 px-1 pt-3">
