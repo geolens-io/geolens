@@ -370,10 +370,14 @@ export function MapBuilderPage() {
   }, []);
 
   // Phase 1041-03: real bulk handlers — wired to use-builder-layers bulk ops.
+  // Each dep is the specific stable useCallback from use-builder-layers, NOT the
+  // entire `layers` object (which is a plain literal re-created on every render).
+  // Depending on `layers` defeats React.memo() on BulkActionBar / UnifiedStackPanel
+  // on every opacity-slider move, which fires at ~60fps (WR-04).
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
     layers.handleBulkVisibility(ids);
     setSelectedIds(new Set());
-  }, [layers]);
+  }, [layers.handleBulkVisibility]);
 
   const handleBulkOpacity = useCallback((ids: Set<string>, opacity: number) => {
     // NOTE: Opacity slider fires onValueChange continuously during drag.
@@ -382,17 +386,17 @@ export function MapBuilderPage() {
     // drag; user dismisses via Escape or by clicking another row. This is
     // documented in the Plan 03 SUMMARY as a deliberate UX decision.
     layers.handleBulkOpacity(ids, opacity);
-  }, [layers]);
+  }, [layers.handleBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
     layers.handleBulkGroup(ids);
     setSelectedIds(new Set());
-  }, [layers]);
+  }, [layers.handleBulkGroup]);
 
   const handleBulkUngroup = useCallback((ids: Set<string>) => {
     layers.handleBulkUngroup(ids);
     setSelectedIds(new Set());
-  }, [layers]);
+  }, [layers.handleBulkUngroup]);
 
   const handleBulkDelete = useCallback((ids: Set<string>) => {
     layers.handleBulkDelete(ids)
@@ -404,7 +408,7 @@ export function MapBuilderPage() {
         // Error already toasted inside handleBulkDelete; swallow here to prevent
         // unhandled rejection if invalidateQueries throws after allSettled.
       });
-  }, [layers]);
+  }, [layers.handleBulkDelete]);
 
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
