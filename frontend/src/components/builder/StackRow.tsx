@@ -68,7 +68,7 @@ function TypeIcon({ layer }: { layer: MapLayerResponse }) {
     }
     return (
       <span
-        className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-medium"
+        className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-semibold"
         aria-hidden="true"
       >
         {glyph}

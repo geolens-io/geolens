@@ -414,14 +414,14 @@ const SublayerRow = memo(function SublayerRow({
       <div className="flex items-center justify-center h-[22px] w-[22px]">
         {sublayer.kind === 'raster' ? (
           <span
-            className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-medium"
+            className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[--type-raster-bg] text-[--type-raster] text-xs font-semibold"
             aria-hidden="true"
           >
             ▦
           </span>
         ) : (
           <span
-            className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[var(--surface-3,theme(colors.muted.DEFAULT))] text-muted-foreground text-xs font-medium"
+            className="flex items-center justify-center h-[22px] w-[22px] rounded-sm bg-[var(--surface-3,theme(colors.muted.DEFAULT))] text-muted-foreground text-xs font-semibold"
             aria-hidden="true"
           >
             ≡
@@ -642,7 +642,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             {t('unifiedStack.title', { defaultValue: 'Layers' })}
           </h2>
           {layers.length > 0 && (
-            <Badge variant="secondary" className="rounded-full px-2 text-xs font-medium">
+            <Badge variant="secondary" className="rounded-full px-2 text-xs font-semibold">
               {layers.length}
             </Badge>
           )}

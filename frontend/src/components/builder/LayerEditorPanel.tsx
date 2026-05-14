@@ -217,7 +217,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
           </div>
         )}
         {/* Title row: back (drill-down only) | type icon | layer name | close × */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
         {/* Back arrow: only shown in <800px drill-down mode */}
         {isDrillDown && (
           <button
@@ -288,7 +288,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               aria-labelledby={`section-renderas-${layer.id}`}
               className="border-b"
             >
-              <div className="px-4 py-3">
+              <div className="px-4 py-2">
                 <p
                   id={`section-renderas-${layer.id}`}
                   className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
@@ -296,7 +296,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
                 </p>
                 {renderAsOptions.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {renderAsOptions.map((option) => {
                       const isActive = option.id === currentRenderAs;
                       return (
@@ -332,7 +332,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               aria-labelledby={`section-appearance-${layer.id}`}
               className="border-b"
             >
-              <div className="px-4 py-3">
+              <div className="px-4 py-2">
                 <p
                   id={`section-appearance-${layer.id}`}
                   className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
@@ -369,7 +369,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               aria-labelledby={`section-visibility-${layer.id}`}
               className="border-b"
             >
-              <div className="px-4 py-3">
+              <div className="px-4 py-2">
                 <p
                   id={`section-visibility-${layer.id}`}
                   className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
@@ -444,7 +444,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+                    className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
                   >
                     <ChevronRight
                       className={cn('h-4 w-4 shrink-0 transition-transform duration-150', filterOpen && 'rotate-90')}
@@ -461,7 +461,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <div className="px-4 py-3 border-b">
+                  <div className="px-4 py-2 border-b">
                     <LayerFilterEditor
                       columnInfo={columns}
                       filter={layer.filter ?? null}
@@ -479,7 +479,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+                    className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
                   >
                     <ChevronRight
                       className={cn('h-4 w-4 shrink-0 transition-transform duration-150', labelsOpen && 'rotate-90')}
@@ -496,7 +496,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <div className="px-4 py-3 border-b">
+                  <div className="px-4 py-2 border-b">
                     <LabelEditor
                       columns={columns}
                       labelConfig={layer.label_config ?? null}
@@ -513,7 +513,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+                  className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
                 >
                   <ChevronRight
                     className={cn('h-4 w-4 shrink-0 transition-transform duration-150', sourceOpen && 'rotate-90')}
@@ -530,7 +530,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <div className="px-4 py-3 space-y-2 border-b">
+                <div className="px-4 py-2 space-y-2 border-b">
                   {layer.dataset_name && (
                     <div>
                       <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Dataset</span>

@@ -29,7 +29,7 @@ function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
 
   if (caps.kind === 'raster' || caps.kind === 'vrt') {
     return (
-      <span className="text-xs font-medium" aria-hidden="true">▦</span>
+      <span className="text-xs font-semibold" aria-hidden="true">▦</span>
     );
   }
 
