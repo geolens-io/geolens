@@ -67,6 +67,32 @@ interface LayerEditorPanelProps {
   onBreadcrumbClick?: () => void;
 }
 
+// ---------------------------------------------------------------------------
+// LayerEditorTypePill — small inline chip showing layer type in the header
+// ---------------------------------------------------------------------------
+function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
+  const caps = getLayerCapabilities(layer);
+  const geometryType = layer.dataset_geometry_type;
+  const renderMode = (layer.style_config as Record<string, unknown> | null)?.render_mode as string | undefined;
+
+  let label: string;
+  if (caps.kind === 'raster' || caps.kind === 'vrt') {
+    if (layer.is_dem) {
+      label = renderMode ? `DEM · ${renderMode}` : 'DEM';
+    } else {
+      label = caps.kind === 'vrt' ? 'VRT' : 'Raster';
+    }
+  } else {
+    label = geometryType ?? 'Vector';
+  }
+
+  return (
+    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] bg-[var(--surface-2)] text-muted-foreground">
+      {label}
+    </span>
+  );
+}
+
 function clampZoom(v: number): number {
   return Math.max(0, Math.min(22, Math.round(v)));
 }
@@ -216,13 +242,25 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
           />
         )}
 
-        {/* Layer name / Settings title */}
-        <span
-          id="layer-editor-title"
-          className="text-sm font-semibold truncate flex-1 min-w-0"
-        >
-          {isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName}
-        </span>
+        {/* Layer name / Settings title + type pill + subtitle */}
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              id="layer-editor-title"
+              className="text-sm font-semibold truncate min-w-0"
+            >
+              {isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName}
+            </span>
+            {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (
+              <LayerEditorTypePill layer={layer} />
+            )}
+          </div>
+          {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (layer.dataset_geometry_type || caps.kind === 'raster' || caps.kind === 'vrt') && (
+            <span className="text-[11px] text-muted-foreground truncate">
+              {layer.dataset_geometry_type ?? (caps.kind === 'raster' || caps.kind === 'vrt' ? '1 band' : '')}
+            </span>
+          )}
+        </div>
 
         {/* Close × button */}
         <button

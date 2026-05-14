@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   closestCenter,
   DndContext,
@@ -634,22 +635,29 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            aria-label={t('unifiedStack.settings', { defaultValue: 'Settings' })}
-            aria-pressed={isSettingsOpen}
-            data-testid="settings-cog-btn"
-            className={cn(
-              'flex h-[22px] w-[22px] items-center justify-center rounded transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              isSettingsOpen
-                ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-            )}
-            onClick={onSettingsClick}
-          >
-            <Settings className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t('unifiedStack.settings', { defaultValue: 'Settings' })}
+                aria-pressed={isSettingsOpen}
+                data-testid="settings-cog-btn"
+                className={cn(
+                  'flex h-[22px] w-[22px] items-center justify-center rounded transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  isSettingsOpen
+                    ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+                onClick={onSettingsClick}
+              >
+                <Settings className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('unifiedStack.settings', { defaultValue: 'Settings' })}
+            </TooltipContent>
+          </Tooltip>
           <Button
             variant="default"
             size="sm"

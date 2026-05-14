@@ -2,6 +2,7 @@ import { memo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import {
   DropdownMenu,
@@ -107,6 +108,7 @@ export const StackRow = memo(function StackRow({
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState<string>('');
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const escapeRef = useRef(false);
   const committingRef = useRef(false);
 
@@ -137,6 +139,7 @@ export const StackRow = memo(function StackRow({
   }
 
   return (
+    <>
     <div
       id={`stack-row-${layer.id}`}
       role="option"
@@ -313,7 +316,7 @@ export const StackRow = memo(function StackRow({
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onSelect={() => {
-                onRemove(layer.id);
+                setConfirmingDelete(true);
               }}
             >
               {t('stackRow.kebabDeleteLayer', { defaultValue: 'Delete layer' })}
@@ -349,5 +352,40 @@ export const StackRow = memo(function StackRow({
         </DropdownMenu>
       </div>
     </div>
+
+    {/* Inline alertdialog confirm — appears below the row when kebab Delete is clicked */}
+    {confirmingDelete && (
+      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
+      <div
+        role="alertdialog"
+        aria-label={t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+        className="mx-2 mb-2 flex flex-col gap-2 p-3 bg-destructive/10 rounded-md"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm text-destructive">
+          {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              onRemove(layer.id);
+              setConfirmingDelete(false);
+            }}
+          >
+            {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmingDelete(false)}
+          >
+            {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
+          </Button>
+        </div>
+      </div>
+    )}
+    </>
   );
 });
