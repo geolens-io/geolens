@@ -652,10 +652,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   }, [selectedIds.size, onClearSelection]);
 
   // Phase 1041 POL-10 + POL-06: Escape clears selection; Shift+ArrowUp/Down extends selection.
-  // Both listeners are scoped to the stack panel element (not document) for Shift+Arrow
-  // so they don't interfere with global keyboard shortcuts when focus is outside the panel.
+  // Both listeners are scoped to the stack panel element (stackPanelRef) so that Escape
+  // pressed outside the panel (e.g. inside a flyout input or a Radix dropdown) does NOT
+  // clear the selection. Only keyboard events that bubble up through the listbox div fire.
   useEffect(() => {
     if (selectedIds.size === 0) return;
+    const el = stackPanelRef.current;
+    if (!el) return;
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         onClearSelection?.();
@@ -684,8 +687,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         adjacentEl?.focus();
       }
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    el.addEventListener('keydown', handleKeyDown);
+    return () => el.removeEventListener('keydown', handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds.size + selectableRowIds trigger remount; callbacks are stable
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
