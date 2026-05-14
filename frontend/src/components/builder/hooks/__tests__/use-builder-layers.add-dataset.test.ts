@@ -63,6 +63,7 @@ import { act } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
+import { toast } from 'sonner';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
@@ -237,17 +238,26 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
     expect(onSuccessCb).toHaveBeenCalledWith('new-layer-id');
   });
 
-  it('Test G: datasetName provided causes named toast key path (no throw)', () => {
+  it('Test G: datasetName provided causes named toast key path', () => {
     const layer = makeMockLayer();
     const { result, mutate } = renderBuilderLayers(makeMapData([layer]));
+    const successSpy = vi.spyOn(toast, 'success');
 
     act(() => {
       result.current.handleAddDataset('ds-42', undefined, null, 'My Dataset');
     });
 
     const [, { onSuccess }] = mutate.mock.calls[0];
-    // Should not throw even with name provided
-    expect(() => act(() => { onSuccess({ id: 'new-layer-id' }); })).not.toThrow();
+    act(() => { onSuccess({ id: 'new-layer-id' }); });
+
+    // WR-04: verify the dataset-specific key is used (not the generic layerAdded fallback)
+    // The i18n key toasts.datasetAdded interpolates to "My Dataset added to map"
+    expect(successSpy).toHaveBeenCalledWith(
+      expect.stringContaining('My Dataset'),
+      expect.objectContaining({ id: 'add-layer-ds-42' }),
+    );
+
+    successSpy.mockRestore();
   });
 
   it('Test H: backward compat — all new params optional, existing callers unchanged', () => {
