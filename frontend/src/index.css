@@ -520,3 +520,21 @@
 .dragging-active [data-testid^="stack-row-"] [data-kebab-trigger] {
   opacity: 0 !important;
 }
+
+/* ── Phase 1040 cross-panel drag polish ──────────────────────────── */
+
+/* Phase 1040 AUD-03: hide any .kebab element during catalog→stack drag */
+.dragging-active .kebab {
+  opacity: 0 !important;
+}
+
+/* Phase 1040: cursor-grabbing on html during any drag to prevent flicker */
+html.dragging-active {
+  cursor: grabbing !important;
+}
+
+/* Phase 1040: basemap group drop target — primary-50 tint + left rail */
+[data-basemap-drop-target="true"] {
+  background: var(--primary-50, oklch(0.97 0.02 250));
+  box-shadow: inset 2px 0 0 var(--primary);
+}
