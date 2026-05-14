@@ -97,7 +97,6 @@ function makeProps(overrides: {
   return {
     selectedIds: overrides.selectedIds ?? new Set(['a', 'b']),
     layers: overrides.layers ?? allLayers,
-    onClearSelection: vi.fn(),
     onBulkVisibility: vi.fn(),
     onBulkOpacity: vi.fn(),
     onBulkGroup: vi.fn(),
@@ -360,24 +359,27 @@ describe('BulkActionBar — confirmation state machine', () => {
     expect(onBulkDelete).toHaveBeenCalledWith(selectedIds);
   });
 
-  it('Test 15: Escape in confirmation does NOT fire onClearSelection', () => {
-    const onClearSelection = vi.fn();
+  it('Test 15: Escape in confirmation cancels confirmation (does not propagate to parent)', () => {
+    // onClearSelection was removed from BulkActionBarProps (WR-03). This test
+    // now verifies that Escape inside the confirmation dialog dismisses it
+    // (handleContainerKeyDown catches Escape + stopPropagation) rather than
+    // propagating to the parent panel's Escape handler.
     render(
       <BulkActionBar
         {...makeProps({ selectedIds: new Set(['a', 'b']) })}
-        onClearSelection={onClearSelection}
       />
     );
 
     // Enter confirmation
     fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
-    // Escape on toolbar — stops propagation to selection-clearing parent
+    // Escape on toolbar — consumed by confirmation handler; confirmation exits
     const toolbar = screen.getByRole('toolbar');
     fireEvent.keyDown(toolbar, { key: 'Escape' });
 
-    // onClearSelection should NOT have been called (Escape consumed by confirmation handler)
-    expect(onClearSelection).not.toHaveBeenCalled();
+    // Confirmation should be dismissed — alertdialog no longer in DOM
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 });
 

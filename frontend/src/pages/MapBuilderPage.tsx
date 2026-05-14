@@ -363,7 +363,7 @@ export function MapBuilderPage() {
     handleCmdClick(id);
   }, [handleCmdClick]);
 
-  // Phase 1041-02: clear-selection handler (also used by BulkActionBar onClearSelection)
+  // Phase 1041-02: clear-selection handler (used by UnifiedStackPanel's Escape/outside-click)
   const handleClearSelection = useCallback(() => {
     setSelectedIds(new Set());
     lastToggleAnchor.current = null;

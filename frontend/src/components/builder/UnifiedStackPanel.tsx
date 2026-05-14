@@ -1010,7 +1010,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         <BulkActionBar
           selectedIds={selectedIds}
           layers={layers}
-          onClearSelection={onClearSelection ?? (() => {})}
           onBulkVisibility={onBulkVisibility}
           onBulkOpacity={onBulkOpacity}
           onBulkGroup={onBulkGroup}

@@ -14,7 +14,8 @@ import type { MapLayerResponse } from '@/types/api';
 export interface BulkActionBarProps {
   selectedIds: Set<string>;
   layers: MapLayerResponse[];
-  onClearSelection: () => void;
+  // onClearSelection removed — selection clearing is the caller's responsibility
+  // via handleBulk* wrappers in MapBuilderPage. The bar has no X/clear button.
   onBulkVisibility: (ids: Set<string>) => void;
   onBulkOpacity: (ids: Set<string>, opacity: number) => void;
   onBulkGroup: (ids: Set<string>) => void;
@@ -37,7 +38,6 @@ function getParentGroupId(layer: MapLayerResponse): string | null {
 export const BulkActionBar = memo(function BulkActionBar({
   selectedIds,
   layers,
-  onClearSelection: _onClearSelection,
   onBulkVisibility,
   onBulkOpacity,
   onBulkGroup,
