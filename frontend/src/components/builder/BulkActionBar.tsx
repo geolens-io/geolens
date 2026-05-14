@@ -108,7 +108,6 @@ export const BulkActionBar = memo(function BulkActionBar({
     <div
       role="toolbar"
       aria-label={t('bulkActions.toolbarLabel', { count: N })}
-      aria-live="polite"
       className={cn(
         'sticky bottom-0 flex items-center gap-1 px-3',
         'h-12 bg-[var(--surface-2)] border-t border-[var(--border)]',
@@ -119,6 +118,11 @@ export const BulkActionBar = memo(function BulkActionBar({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={handleContainerKeyDown}
     >
+      {/* Dedicated sr-only live region — announces only the selection count,
+          not the entire toolbar content. role="toolbar" must not carry aria-live. */}
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {t('bulkActions.liveAnnouncement', { count: N })}
+      </span>
       {confirmingDelete ? (
         // ------------------------------------------------------------------
         // Confirmation state
