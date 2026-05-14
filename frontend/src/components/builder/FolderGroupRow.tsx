@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,6 +37,12 @@ interface FolderGroupRowProps {
   onAddLayer: (id: string) => void;
   onUngroup: (id: string) => void;
   onDeleteGroup: (id: string) => void;
+  // Phase 1041: multi-selection props (POL-06, POL-07)
+  isMultiSelected?: boolean;
+  isMultiSelectionActive?: boolean;
+  onCmdClick?: (id: string) => void;
+  onShiftClick?: (id: string) => void;
+  onCheckboxClick?: (id: string) => void;
 }
 
 export const FolderGroupRow = memo(function FolderGroupRow({
@@ -55,6 +62,11 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   onAddLayer,
   onUngroup,
   onDeleteGroup,
+  isMultiSelected = false,
+  isMultiSelectionActive = false,
+  onCmdClick,
+  onShiftClick,
+  onCheckboxClick,
 }: FolderGroupRowProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -100,7 +112,18 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     requestAnimationFrame(() => { committingRef.current = false; });
   }
 
-  function handleRowClick(_e: React.MouseEvent) {
+  // Phase 1041: modifier-aware click handler (POL-06)
+  function handleRowClick(e: React.MouseEvent) {
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      onCmdClick?.(groupId);
+      return;
+    }
+    if (e.shiftKey) {
+      e.preventDefault();
+      onShiftClick?.(groupId);
+      return;
+    }
     onSelectGroup(groupId);
   }
 
@@ -108,14 +131,18 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     <div
       id={`stack-row-${groupId}`}
       role="option"
-      aria-selected={selected}
+      aria-selected={selected || isMultiSelected}
       tabIndex={0}
       className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       onClick={handleRowClick}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === 'Enter') {
           e.preventDefault();
           onSelectGroup(groupId);
+        }
+        if (e.key === ' ') {
+          e.preventDefault();
+          onCmdClick?.(groupId); // Space = Cmd-click (toggles multi-selection)
         }
       }}
     >
@@ -123,29 +150,41 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       <div
         className={cn(
           'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
-          !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
-          selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
+          !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
+          (selected || isMultiSelected) && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
           isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
         )}
       >
-        {/* Cell 1: Caret — visible and functional for group rows */}
-        <button
-          type="button"
-          aria-expanded={isExpanded}
-          aria-controls={`folder-group-children-${groupId}`}
-          aria-label={t('folderGroup.toggleExpand', { defaultValue: 'Toggle folder group' })}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpand(groupId);
-          }}
-          className={cn(
-            'text-xs text-muted-foreground transition-transform',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
-            isExpanded && 'rotate-90',
-          )}
-        >
-          ▸
-        </button>
+        {/* Cell 1: Caret column — Checkbox during multi-selection mode; caret button otherwise (Phase 1041) */}
+        {isMultiSelectionActive ? (
+          <Checkbox
+            className="h-3.5 w-3.5"
+            checked={isMultiSelected}
+            aria-checked={isMultiSelected}
+            aria-label={t('bulkActions.selectGroup', { name: groupName, defaultValue: 'Select {{name}}' })}
+            onCheckedChange={() => onCheckboxClick?.(groupId)}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <button
+            type="button"
+            aria-expanded={isExpanded}
+            aria-controls={`folder-group-children-${groupId}`}
+            aria-label={t('folderGroup.toggleExpand', { defaultValue: 'Toggle folder group' })}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand(groupId);
+            }}
+            className={cn(
+              'text-xs text-muted-foreground transition-transform',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
+              isExpanded && 'rotate-90',
+            )}
+          >
+            ▸
+          </button>
+        )}
 
         {/* Cell 2: Grip handle */}
         <button

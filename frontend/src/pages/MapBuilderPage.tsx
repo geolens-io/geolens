@@ -89,6 +89,12 @@ export function MapBuilderPage() {
   // fires within one DndContext and cross-panel isOver events never fire.
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
 
+  // Phase 1041: Multi-selection state lifted to MapBuilderPage so handleDragStart
+  // can clear it directly (drag + multi-select are mutually exclusive). This mirrors
+  // the Phase 1040 lift-DndContext architecture decision.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const lastToggleAnchor = useRef<string | null>(null);
+
   // Phase 1040 Plan 04: aria-live announcement for keyboard/mouse catalog drag (T-1040-10 / POL-05).
   // A sr-only region reads these strings to screen-reader users. We append a zero-width-space
   // + timestamp suffix to force aria-live re-fire when the same message is announced twice
@@ -297,6 +303,69 @@ export function MapBuilderPage() {
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 
+  // Phase 1041: Boundary guard — true when id belongs to basemap group or its sublayers
+  const isBasemapBoundaryId = useCallback((id: string): boolean => {
+    if (!basemapGroup) return false;
+    if (id === basemapGroup.id) return true;
+    return basemapGroup.sublayers.some((s) => s.id === id);
+  }, [basemapGroup]);
+
+  // Phase 1041: derive selectable row ids (ordered flat list, basemap excluded)
+  // Used by handleShiftClick for range computation and by the Shift+Arrow keyboard handler
+  const selectableRowIds = useMemo((): string[] => {
+    const ids: string[] = [];
+    for (const layer of layers.localLayers) {
+      ids.push(layer.id);
+    }
+    return ids;
+  }, [layers.localLayers]);
+
+  // Phase 1041: multi-selection handlers (POL-06)
+  const handleCmdClick = useCallback((id: string) => {
+    if (isBasemapBoundaryId(id)) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    lastToggleAnchor.current = id;
+  }, [isBasemapBoundaryId]);
+
+  const handleShiftClick = useCallback((id: string) => {
+    if (isBasemapBoundaryId(id)) return;
+    const anchor = lastToggleAnchor.current;
+    if (!anchor) {
+      // No anchor — fall back to single toggle
+      handleCmdClick(id);
+      return;
+    }
+    const anchorIdx = selectableRowIds.indexOf(anchor);
+    const targetIdx = selectableRowIds.indexOf(id);
+    if (anchorIdx < 0 || targetIdx < 0) {
+      handleCmdClick(id);
+      return;
+    }
+    const lo = Math.min(anchorIdx, targetIdx);
+    const hi = Math.max(anchorIdx, targetIdx);
+    const rangeIds = selectableRowIds.slice(lo, hi + 1).filter((rid) => !isBasemapBoundaryId(rid));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const rid of rangeIds) next.add(rid);
+      return next;
+    });
+  }, [isBasemapBoundaryId, selectableRowIds, handleCmdClick]);
+
+  const handleCheckboxClick = useCallback((id: string) => {
+    handleCmdClick(id);
+  }, [handleCmdClick]);
+
+  // Derived: any row in selectedIds
+  const isMultiSelectionActive = selectedIds.size > 0;
+
   // Phase 1035: sublayer visibility/opacity handlers
   const handleToggleSublayerVisibility = useCallback((sublayerId: string) => {
     if (sublayerId === 'basemap:labels') {
@@ -427,6 +496,9 @@ export function MapBuilderPage() {
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDragActiveId(String(event.active.id));
     handleSelectLayer(null);
+    // Phase 1041 POL-10: drag + multi-select are mutually exclusive. Clear selection at drag-start.
+    setSelectedIds(new Set());
+    lastToggleAnchor.current = null;
     document.documentElement.classList.add('dragging-active');
     lastOverIdRef.current = null;
     // Announce pick-up for catalog drags (POL-05 / T-1040-10)
@@ -871,6 +943,13 @@ export function MapBuilderPage() {
               onCreateGroupWithLayer={layers.handleCreateGroupWithLayer}
               onMoveLayerOutOfGroup={layers.handleMoveLayerOutOfGroup}
               existingFolderGroups={existingFolderGroups}
+              selectedIds={selectedIds}
+              isMultiSelectionActive={isMultiSelectionActive}
+              selectableRowIds={selectableRowIds}
+              onCmdClick={handleCmdClick}
+              onShiftClick={handleShiftClick}
+              onCheckboxClick={handleCheckboxClick}
+              onClearSelection={() => { setSelectedIds(new Set()); lastToggleAnchor.current = null; }}
             />
           )}
         </aside>

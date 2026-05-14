@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import {
   DropdownMenu,
@@ -44,6 +45,12 @@ interface StackRowProps {
   onMoveLayerOutOfGroup?: (layerId: string) => void;
   /** When non-null, the layer is inside a group — "Move out of group" replaces the sub-flow */
   parentGroupId?: string | null;
+  // Phase 1041: multi-selection props (POL-06, POL-07)
+  isMultiSelected?: boolean;
+  isMultiSelectionActive?: boolean;
+  onCmdClick?: (id: string) => void;
+  onShiftClick?: (id: string) => void;
+  onCheckboxClick?: (id: string) => void;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
@@ -104,6 +111,11 @@ export const StackRow = memo(function StackRow({
   onCreateGroupWithLayer,
   onMoveLayerOutOfGroup,
   parentGroupId = null,
+  isMultiSelected = false,
+  isMultiSelectionActive = false,
+  onCmdClick,
+  onShiftClick,
+  onCheckboxClick,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -134,41 +146,69 @@ export const StackRow = memo(function StackRow({
     requestAnimationFrame(() => { committingRef.current = false; });
   }
 
-  function handleRowClick(_e: React.MouseEvent) {
+  // Phase 1041: modifier-aware click handler (POL-06)
+  function handleRowClick(e: React.MouseEvent) {
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      onCmdClick?.(layer.id);
+      return;
+    }
+    if (e.shiftKey) {
+      e.preventDefault();
+      onShiftClick?.(layer.id);
+      return;
+    }
     onSelectLayer(layer.id);
   }
 
   return (
     <>
+    {/* Phase 1041: visuallySelected is true for single-select focus OR multi-select membership */}
     <div
       id={`stack-row-${layer.id}`}
       role="option"
-      aria-selected={selected}
+      aria-selected={selected || isMultiSelected}
       tabIndex={0}
       className={cn(
         'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-        // Row states
-        !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
-        selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
+        // Row states — unified: either single-selection focus OR multi-selection shows primary tint
+        !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
+        (selected || isMultiSelected) && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
         isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
       )}
       onClick={handleRowClick}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === 'Enter') {
           e.preventDefault();
           onSelectLayer(layer.id);
         }
+        if (e.key === ' ') {
+          e.preventDefault();
+          onCmdClick?.(layer.id); // Space = Cmd-click (toggles multi-selection)
+        }
       }}
     >
-      {/* Cell 1: Caret (hidden for non-group rows) */}
-      <span
-        aria-hidden="true"
-        style={{ visibility: 'hidden' }}
-        className="text-xs text-muted-foreground"
-      >
-        ▸
-      </span>
+      {/* Cell 1: Caret column — hidden span at rest; Checkbox during multi-selection mode (Phase 1041) */}
+      {isMultiSelectionActive ? (
+        <Checkbox
+          className="h-3.5 w-3.5"
+          checked={isMultiSelected}
+          aria-checked={isMultiSelected}
+          aria-label={t('bulkActions.selectRow', { name: layer.display_name ?? layer.dataset_name, defaultValue: 'Select {{name}}' })}
+          onCheckedChange={() => onCheckboxClick?.(layer.id)}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          style={{ visibility: 'hidden' }}
+          className="text-xs text-muted-foreground"
+        >
+          ▸
+        </span>
+      )}
 
       {/* Cell 2: Grip handle */}
       <button

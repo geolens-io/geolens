@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   DragOverlay,
@@ -99,6 +99,15 @@ interface UnifiedStackPanelProps {
   onCreateGroupWithLayer?: (layerId: string) => void;
   onMoveLayerOutOfGroup?: (layerId: string) => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
+  // Phase 1041: multi-selection props (lifted to MapBuilderPage — see decision in SUMMARY)
+  selectedIds?: Set<string>;
+  isMultiSelectionActive?: boolean;
+  selectableRowIds?: string[];
+  onCmdClick?: (id: string) => void;
+  onShiftClick?: (id: string) => void;
+  onCheckboxClick?: (id: string) => void;
+  /** Called when outside-click or Escape should clear the multi-selection set */
+  onClearSelection?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +128,12 @@ interface SortableStackRowProps {
   onAddToGroup?: (layerId: string, groupId: string) => void;
   onCreateGroupWithLayer?: (layerId: string) => void;
   onMoveLayerOutOfGroup?: (layerId: string) => void;
+  // Phase 1041: multi-selection
+  isMultiSelected?: boolean;
+  isMultiSelectionActive?: boolean;
+  onCmdClick?: (id: string) => void;
+  onShiftClick?: (id: string) => void;
+  onCheckboxClick?: (id: string) => void;
 }
 
 const SortableStackRow = memo(function SortableStackRow({
@@ -135,6 +150,11 @@ const SortableStackRow = memo(function SortableStackRow({
   onAddToGroup,
   onCreateGroupWithLayer,
   onMoveLayerOutOfGroup,
+  isMultiSelected,
+  isMultiSelectionActive,
+  onCmdClick,
+  onShiftClick,
+  onCheckboxClick,
 }: SortableStackRowProps) {
   const {
     attributes,
@@ -158,7 +178,7 @@ const SortableStackRow = memo(function SortableStackRow({
   );
 
   return (
-    <div ref={setNodeRef} style={style} data-dnd-over={isOver ? 'true' : undefined}>
+    <div ref={setNodeRef} style={style} data-dnd-over={isOver ? 'true' : undefined} data-row-id={layer.id}>
       <StackRow
         layer={layer}
         selected={selected}
@@ -175,6 +195,11 @@ const SortableStackRow = memo(function SortableStackRow({
         onAddToGroup={onAddToGroup}
         onCreateGroupWithLayer={onCreateGroupWithLayer}
         onMoveLayerOutOfGroup={onMoveLayerOutOfGroup}
+        isMultiSelected={isMultiSelected}
+        isMultiSelectionActive={isMultiSelectionActive}
+        onCmdClick={onCmdClick}
+        onShiftClick={onShiftClick}
+        onCheckboxClick={onCheckboxClick}
       />
     </div>
   );
@@ -196,6 +221,8 @@ interface BasemapGroupRowWrapperProps {
   onOpacityChange: (id: string, opacity: number) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
+  // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active
+  isMultiSelectionActive?: boolean;
 }
 
 // Basemap group is a drop target only — Phase 1040 replaced the no-op useSortable
@@ -214,6 +241,7 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onOpacityChange,
   onSwapBasemap,
   onResetAppearance,
+  isMultiSelectionActive,
 }: BasemapGroupRowWrapperProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: group.id,
@@ -244,6 +272,7 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         onOpacityChange={onOpacityChange}
         onSwapBasemap={onSwapBasemap}
         onResetAppearance={onResetAppearance}
+        isMultiSelectionActive={isMultiSelectionActive}
       />
     </div>
   );
@@ -265,6 +294,12 @@ interface FolderGroupRowWrapperProps {
   onAddLayer: (id: string) => void;
   onUngroup: (id: string) => void;
   onDeleteGroup: (id: string) => void;
+  // Phase 1041: multi-selection
+  isMultiSelected?: boolean;
+  isMultiSelectionActive?: boolean;
+  onCmdClick?: (id: string) => void;
+  onShiftClick?: (id: string) => void;
+  onCheckboxClick?: (id: string) => void;
 }
 
 const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
@@ -279,6 +314,11 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
   onAddLayer,
   onUngroup,
   onDeleteGroup,
+  isMultiSelected,
+  isMultiSelectionActive,
+  onCmdClick,
+  onShiftClick,
+  onCheckboxClick,
 }: FolderGroupRowWrapperProps) {
   const {
     attributes,
@@ -316,6 +356,7 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
       ref={setNodeRef}
       style={style}
       data-group-drop-target={isOver && isCatalogDragActive ? 'true' : undefined}
+      data-row-id={layer.id}
     >
       <FolderGroupRow
         groupId={layer.id}
@@ -334,6 +375,11 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
         onAddLayer={onAddLayer}
         onUngroup={onUngroup}
         onDeleteGroup={onDeleteGroup}
+        isMultiSelected={isMultiSelected}
+        isMultiSelectionActive={isMultiSelectionActive}
+        onCmdClick={onCmdClick}
+        onShiftClick={onShiftClick}
+        onCheckboxClick={onCheckboxClick}
       />
     </div>
   );
@@ -559,6 +605,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onCreateGroupWithLayer,
   onMoveLayerOutOfGroup,
   existingFolderGroups = [],
+  selectedIds = new Set(),
+  isMultiSelectionActive = false,
+  selectableRowIds = [],
+  onCmdClick,
+  onShiftClick,
+  onCheckboxClick,
+  onClearSelection,
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
@@ -567,6 +620,62 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // This is a second call to useDndContext — the first lives inside FolderGroupRowWrapper.
   // Both coexist safely; @dnd-kit supports multiple consumers of the same context.
   const { active } = useDndContext();
+
+  // Phase 1041: ref for the scrollable listbox element — used for outside-click guard
+  // and Shift+Arrow focus management.
+  const stackPanelRef = useRef<HTMLDivElement>(null);
+
+  // Phase 1041 POL-10: outside-click clears selection.
+  // Guard: stackPanelRef.contains so row clicks (handled by row onClick) are NOT cleared here.
+  // Effect mounts only when selection is non-empty (keyed on size > 0 via early-return).
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    function handleMouseDown(e: MouseEvent) {
+      if (stackPanelRef.current?.contains(e.target as Node)) return;
+      onClearSelection?.();
+    }
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds.size is the only reactive dep; onClearSelection is stable from useCallback
+  }, [selectedIds.size, onClearSelection]);
+
+  // Phase 1041 POL-10 + POL-06: Escape clears selection; Shift+ArrowUp/Down extends selection.
+  // Both listeners are scoped to the stack panel element (not document) for Shift+Arrow
+  // so they don't interfere with global keyboard shortcuts when focus is outside the panel.
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClearSelection?.();
+        return;
+      }
+      if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        // Find the currently focused row's id via data-row-id attribute
+        const focused = document.activeElement as HTMLElement | null;
+        if (!focused) return;
+        // Walk up to find the element with data-row-id
+        const rowEl = focused.closest<HTMLElement>('[data-row-id]');
+        const focusedId = rowEl?.dataset?.rowId ?? null;
+        if (!focusedId) return;
+        // Derive adjacent index in selectable rows list
+        const currentIdx = selectableRowIds.indexOf(focusedId);
+        if (currentIdx < 0) return;
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        const adjacentIdx = Math.max(0, Math.min(selectableRowIds.length - 1, currentIdx + delta));
+        if (adjacentIdx === currentIdx) return; // clamped, no-op
+        const adjacentId = selectableRowIds[adjacentIdx];
+        if (!adjacentId) return;
+        e.preventDefault();
+        onShiftClick?.(adjacentId);
+        // Move DOM focus to the adjacent row
+        const adjacentEl = stackPanelRef.current?.querySelector<HTMLElement>(`[data-row-id="${adjacentId}"]`);
+        adjacentEl?.focus();
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds.size + selectableRowIds trigger remount; callbacks are stable
+  }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
   // SortableContext items: all layer ids only.
   // basemapGroup is excluded: it is pinned at the top and cannot be reordered.
@@ -639,6 +748,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           onOpacityChange={() => {}} // opacity via master slider in Scene B editor
           onSwapBasemap={safeSwapBasemap}
           onResetAppearance={safeResetBasemapAppearance}
+          isMultiSelectionActive={isMultiSelectionActive}
         />
         {isBasemapExpanded && (
           <div
@@ -718,11 +828,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       </div>
 
       {/* Scrollable layer list or empty state */}
+      {/* Phase 1041: aria-multiselectable="true" (POL-07); stackPanelRef for outside-click + Shift+Arrow */}
       <div
+        ref={stackPanelRef}
         className="flex-1 overflow-y-auto"
         role="listbox"
-        aria-label={t('unifiedStack.title', { defaultValue: 'Layers' })}
-        aria-multiselectable="false"
+        aria-label={t('unifiedStack.listboxLabel', { defaultValue: 'Map layers' })}
+        aria-multiselectable="true"
       >
         {isEmpty ? (
           <>
@@ -765,6 +877,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                         onAddLayer={safeAddLayerToGroup}
                         onUngroup={safeUngroup}
                         onDeleteGroup={safeDeleteGroup}
+                        isMultiSelected={selectedIds.has(layer.id)}
+                        isMultiSelectionActive={isMultiSelectionActive}
+                        onCmdClick={onCmdClick}
+                        onShiftClick={onShiftClick}
+                        onCheckboxClick={onCheckboxClick}
                       />
                       {expanded && (
                         <div
@@ -789,6 +906,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                               onAddToGroup={safeAddLayerToExistingGroup}
                               onCreateGroupWithLayer={safeCreateGroupWithLayer}
                               onMoveLayerOutOfGroup={safeMoveLayerOutOfGroup}
+                              isMultiSelected={selectedIds.has(child.id)}
+                              isMultiSelectionActive={isMultiSelectionActive}
+                              onCmdClick={onCmdClick}
+                              onShiftClick={onShiftClick}
+                              onCheckboxClick={onCheckboxClick}
                             />
                           ))}
                         </div>
@@ -814,6 +936,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onAddToGroup={safeAddLayerToExistingGroup}
                     onCreateGroupWithLayer={safeCreateGroupWithLayer}
                     onMoveLayerOutOfGroup={safeMoveLayerOutOfGroup}
+                    isMultiSelected={selectedIds.has(layer.id)}
+                    isMultiSelectionActive={isMultiSelectionActive}
+                    onCmdClick={onCmdClick}
+                    onShiftClick={onShiftClick}
+                    onCheckboxClick={onCheckboxClick}
                   />
                 );
               })}

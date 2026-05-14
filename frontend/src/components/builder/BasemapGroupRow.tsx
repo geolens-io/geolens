@@ -36,6 +36,8 @@ interface BasemapGroupRowProps {
   onOpacityChange: (id: string, opacity: number) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
+  // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active (POL-11)
+  isMultiSelectionActive?: boolean;
 }
 
 export const BasemapGroupRow = memo(function BasemapGroupRow({
@@ -55,6 +57,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   onOpacityChange,
   onSwapBasemap,
   onResetAppearance,
+  isMultiSelectionActive = false,
 }: BasemapGroupRowProps) {
   const { t } = useTranslation('builder');
 
@@ -77,6 +80,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
         selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
         isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
+        // Phase 1041 POL-11: cursor-not-allowed signals basemap boundary during multi-selection mode
+        isMultiSelectionActive && 'cursor-not-allowed',
       )}
       onClick={handleRowClick}
       onKeyDown={(e) => {
