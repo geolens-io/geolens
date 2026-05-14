@@ -847,5 +847,119 @@
       "skipped_one": "{{count}} skipped layer.",
       "skipped_other": "{{count}} skipped layers."
     }
+  },
+  "unifiedStack": {
+    "title": "Layers",
+    "addData": "＋ Add data",
+    "settings": "Settings",
+    "emptyState": "No layers yet",
+    "countBadge": "{{count}}",
+    "basemapEyebrow": "BASEMAP",
+    "emptyHeading": "Add your first layer",
+    "emptyBody": "Search the catalog or pick a starter dataset below.",
+    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
+    "suggestedLabel": "SUGGESTED",
+    "browseAll": "Browse all datasets →"
+  },
+  "rail": {
+    "aiDisabled": "AI disabled by admin"
+  },
+  "stackRow": {
+    "dragHandle": "Drag to reorder {{name}}",
+    "toggleVisibility": "Toggle visibility for {{name}}",
+    "opacitySlider": "Opacity for {{name}}",
+    "kebabTrigger": "Layer options for {{name}}",
+    "kebabRenameLayer": "Rename layer",
+    "kebabDuplicate": "Duplicate",
+    "kebabDeleteLayer": "Delete layer",
+    "kebabAddToGroup": "Add to group…",
+    "kebabRenameGroup": "Rename group",
+    "kebabAddLayer": "Add layer",
+    "kebabUngroup": "Ungroup",
+    "kebabDeleteGroup": "Delete group",
+    "kebabMoveOutOfGroup": "Move out of group"
+  },
+  "basemapGroup": {
+    "typeIconLabel": "Basemap group",
+    "swapBasemap": "Swap basemap",
+    "resetAppearance": "Reset appearance",
+    "removeBasemap": "Remove basemap",
+    "sublayersSectionLabel": "SUBLAYERS",
+    "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
+    "presetSectionLabel": "PRESET",
+    "masterOpacity": "Master opacity",
+    "addCustomBasemap": "＋ Add custom basemap…"
+  },
+  "basemapSublayer": {
+    "breadcrumbLabel": "Back to basemap group",
+    "detailLevelLabel": "DETAIL LEVEL",
+    "detailLevelOff": "Off",
+    "detailLevelMinimal": "Minimal",
+    "detailLevelDefault": "Default",
+    "detailLevelFull": "Full",
+    "customizedHint": "{{sublayer}} is currently customized",
+    "strokeLabel": "STROKE",
+    "resetLabel": "RESET",
+    "resetHint": "Reset to preset default",
+    "resetConfirmMessage": "This will remove all custom appearance for {{sublayer}}.",
+    "resetConfirmAction": "Reset",
+    "resetConfirmCancel": "Keep customization",
+    "footerBack": "Back to basemap"
+  },
+  "demEditor": {
+    "renderAsLabel": "RENDER AS",
+    "renderAsImage": "▦ Image",
+    "renderAsHillshade": "⛰ Hillshade",
+    "renderAsTerrain": "◬ Terrain",
+    "sunPositionLabel": "SUN POSITION",
+    "azimuth": "Azimuth",
+    "altitude": "Altitude",
+    "exaggeration": "Exaggeration",
+    "shadingColorsLabel": "SHADING COLORS",
+    "highlight": "Highlight",
+    "shadow": "Shadow",
+    "accent": "Accent",
+    "terrainHint": "Terrain uses elevation data to extrude the map surface. Adjust terrain exaggeration in Settings → Terrain.",
+    "imageHint": "No additional appearance controls for image mode",
+    "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
+  },
+  "folderGroup": {
+    "defaultName": "Group {{n}}",
+    "renameInputPlaceholder": "Group name",
+    "deleteConfirmMessage": "Delete this group and all its layers?",
+    "deleteConfirmAction": "Delete all",
+    "deleteConfirmCancel": "Keep group",
+    "newGroupItem": "＋ New group…"
+  },
+  "layerEditor": {
+    "close": "Close layer editor",
+    "section": {
+      "renderAs": "Render as",
+      "appearance": "Appearance",
+      "visibility": "Visibility",
+      "filter": "Filter",
+      "labels": "Labels",
+      "source": "Source"
+    },
+    "filter": {
+      "noFilter": "No filter",
+      "active": "Active"
+    },
+    "labels": {
+      "off": "Off"
+    },
+    "footer": {
+      "deleteLayer": "Delete layer"
+    },
+    "confirmDelete": {
+      "message": "Are you sure? This cannot be undone.",
+      "delete": "Delete",
+      "keep": "Keep layer"
+    },
+    "visibility": {
+      "opacity": "Opacity",
+      "minZoom": "Minimum zoom",
+      "maxZoom": "Maximum zoom"
+    }
   }
 }
