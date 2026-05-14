@@ -1,10 +1,11 @@
 ---
 phase: 1042
 slug: spacing-density-states-polish
-status: draft
+status: approved
 shadcn_initialized: true
 preset: new-york / neutral / cssVariables
 created: 2026-05-14
+reviewed_at: 2026-05-14
 ---
 
 # Phase 1042 — UI Design Contract
