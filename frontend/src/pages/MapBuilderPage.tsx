@@ -7,6 +7,7 @@ import { ApiError } from '@/api/client';
 import { toast } from 'sonner';
 import {
   closestCenter,
+  pointerWithin,
   DndContext,
   KeyboardSensor,
   PointerSensor,
@@ -794,7 +795,9 @@ export function MapBuilderPage() {
           at MapBuilderPage level so identity is stable across renders. */}
       <DndContext
         sensors={dndSensors}
-        collisionDetection={closestCenter}
+        collisionDetection={(args) =>
+          pointerWithin(args).length > 0 ? pointerWithin(args) : closestCenter(args)
+        }
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
