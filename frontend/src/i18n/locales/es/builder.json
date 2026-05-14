@@ -782,7 +782,8 @@
     "emptyBody": "Search the catalog or pick a starter dataset below.",
     "emptySearchPlaceholder": "Search datasets, URLs, or files…",
     "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →"
+    "browseAll": "Browse all datasets →",
+    "listboxLabel": "Map layers"
   },
   "rail": {
     "aiDisabled": "AI disabled by admin"
