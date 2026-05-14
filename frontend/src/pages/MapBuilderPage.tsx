@@ -4,6 +4,16 @@ import { useTranslation } from 'react-i18next';
 import { FileText, History, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 // PERF-06 (Phase 274): lazy-load BuilderMap so map-vendor chunk loads
 // only when the builder is about to render (post-data-fetch).
 const BuilderMap = lazy(() =>
@@ -70,6 +80,22 @@ export function MapBuilderPage() {
   // Runtime-only per Phase 1036 BSR-14 / UI-SPEC § Projection. Not persisted in v1.
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
+
+  // Phase 1040: Lifted DnD state — single DndContext wraps both the sidebar stack
+  // (UnifiedStackPanel) and the Add Dataset modal (BuilderDialogs) so catalog→stack
+  // cross-panel drag is possible. Without this, @dnd-kit collision detection only
+  // fires within one DndContext and cross-panel isOver events never fire.
+  const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // px — drag only after moving >= 8px from pointerdown origin (T-1040-01)
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
 
   // Initialize notes from server data, falling back to localStorage for migration
   useEffect(() => {
@@ -381,6 +407,34 @@ export function MapBuilderPage() {
     [layers.handleToggleExpand],
   );
 
+  // Phase 1040: DnD handlers hoisted from UnifiedStackPanel — same behavior,
+  // lifted to MapBuilderPage so BuilderDialogs (catalog modal) shares the context.
+  // T-1040-01: preserve activationConstraint distance:8 and closestCenter verbatim.
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setDragActiveId(String(event.active.id));
+    handleSelectLayer(null);
+    document.documentElement.classList.add('dragging-active');
+  }, [handleSelectLayer]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setDragActiveId(null);
+    document.documentElement.classList.remove('dragging-active');
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    // Intra-stack reorder — catalog-drop handling extends this in Plan 02.
+    const currentLayers = layers.localLayers;
+    const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
+    const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    layers.handleReorder(arrayMove(currentLayers, oldIndex, newIndex));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers captured at call time; layers.handleReorder is stable
+  }, [layers.localLayers, layers.handleReorder]);
+
+  const handleDragCancel = useCallback(() => {
+    setDragActiveId(null);
+    document.documentElement.classList.remove('dragging-active');
+  }, []);
+
   const handleCloseEditor = useCallback(() => {
     const expandedId = layers.expandedLayerId;
     layers.handleToggleExpand('');
@@ -622,6 +676,18 @@ export function MapBuilderPage() {
         }}
       />
 
+      {/* Phase 1040: single DndContext wraps sidebar (UnifiedStackPanel) and
+          BuilderDialogs (Add Dataset modal) so catalog→stack drag shares one
+          collision-detection scope. T-1040-02: sensors declared via useSensors
+          at MapBuilderPage level so identity is stable across renders. */}
+      <DndContext
+        sensors={dndSensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+
       <div className="flex flex-1 min-h-0">
 
       {/* Three-column builder body grid */}
@@ -670,6 +736,7 @@ export function MapBuilderPage() {
                 );
               }}
               isSettingsOpen={editorScene === 'settings'}
+              activeDragId={dragActiveId}
               groupMeta={layers.groupMeta}
               onToggleGroupExpand={layers.handleToggleGroupExpand}
               basemapGroup={basemapGroup}
@@ -942,6 +1009,9 @@ export function MapBuilderPage() {
         onBlockerReset={save.blocker.reset}
         onBlockerProceed={save.blocker.proceed}
       />
+
+      </DndContext>{/* close Phase 1040 DndContext */}
+
       {id && (
         <StyleJsonDialog
           mapId={id}

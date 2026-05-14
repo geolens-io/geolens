@@ -1,20 +1,12 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  closestCenter,
-  DndContext,
   DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
   useDroppable,
 } from '@dnd-kit/core';
-import type { DraggableAttributes, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import type { DraggableAttributes } from '@dnd-kit/core';
 import {
-  arrayMove,
   SortableContext,
-  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
@@ -87,6 +79,8 @@ interface UnifiedStackPanelProps {
   onAddDataset?: (datasetId: string) => void;
   onSettingsClick: () => void;
   isSettingsOpen?: boolean;
+  /** Phase 1040: id of the item currently being dragged (from the lifted drag context in MapBuilderPage) */
+  activeDragId?: string | null;
   // Phase 1035 new props
   groupMeta?: Record<string, { expanded: boolean }>;
   onToggleGroupExpand?: (groupId: string) => void;
@@ -466,7 +460,9 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
-  onReorder,
+  // onReorder is intentionally not destructured here — Phase 1040 lifted DragEnd
+  // to MapBuilderPage which calls layers.handleReorder directly. The prop is kept
+  // in the interface for call-site compatibility (MapBuilderPage still passes it).
   onOpacityChange,
   onRemove,
   onRename,
@@ -475,6 +471,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onAddDataset,
   onSettingsClick,
   isSettingsOpen = false,
+  activeDragId = null,
   groupMeta = {},
   onToggleGroupExpand,
   basemapGroup = null,
@@ -494,19 +491,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // px — drag only after moving >= 8px from pointerdown origin
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
-
   // SortableContext items: all layer ids only.
   // basemapGroup is excluded: it is pinned at the top and cannot be reordered.
   // Including it previously made the row visually draggable but the drag was a
@@ -516,29 +500,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     for (const l of layers) ids.push(l.id);
     return ids;
   }, [layers]);
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActiveId(String(event.active.id));
-    onSelectLayer(null);
-    document.documentElement.classList.add('dragging-active');
-  }, [onSelectLayer]);
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setActiveId(null);
-    document.documentElement.classList.remove('dragging-active');
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = layers.findIndex((layer) => layer.id === active.id);
-    const newIndex = layers.findIndex((layer) => layer.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    // TODO Phase 1038: handle cross-group drag and drag-from-loose-to-group
-    onReorder(arrayMove(layers, oldIndex, newIndex));
-  }, [layers, onReorder]);
-
-  const handleDragCancel = useCallback(() => {
-    setActiveId(null);
-    document.documentElement.classList.remove('dragging-active');
-  }, []);
 
   // Build the render plan: group children by parent for O(N) pass
   const childrenByGroup = useMemo(() => {
@@ -696,13 +657,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             {renderBasemapDockRow(true)}
           </>
         ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragCancel={handleDragCancel}
-          >
+          <>
             <SortableContext
               items={sortableIds}
               strategy={verticalListSortingStrategy}
@@ -787,9 +742,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
               })}
             </SortableContext>
             {/* DragOverlay: ghost follows pointer during drag (BSR-24 VIS-01) */}
+            {/* activeDragId is provided by the lifted drag context in MapBuilderPage */}
             <DragOverlay dropAnimation={null}>
-              {activeId ? (() => {
-                const activeLayer = layers.find((l) => l.id === activeId);
+              {activeDragId ? (() => {
+                const activeLayer = layers.find((l) => l.id === activeDragId);
                 return activeLayer ? (
                   <div className="opacity-40 scale-[0.98] pointer-events-none bg-[var(--surface-2)] rounded shadow-md">
                     <StackRow
@@ -808,7 +764,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 ) : null;
               })() : null}
             </DragOverlay>
-          </DndContext>
+          </>
         )}
       </div>
     </div>
