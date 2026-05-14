@@ -32,7 +32,7 @@ export interface LayerCapabilities {
  * dataset_record_type, and dataset_geometry_type.
  *
  * Consolidates the branching logic previously duplicated across
- * BuilderMap, LayerItem, and MapBuilderPage.
+ * BuilderMap, StackRow, and MapBuilderPage.
  */
 export function getLayerCapabilities(
   layer: Pick<MapLayerResponse, 'layer_type' | 'dataset_record_type' | 'dataset_geometry_type'>,

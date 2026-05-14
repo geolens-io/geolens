@@ -26,7 +26,7 @@ export function useLayerMapSync(
   // Mirror current layers in a ref so the memoized callbacks can read fresh
   // state without having `localLayers` in their dependency list. Without this
   // ref, every layer mutation would invalidate all callbacks, tearing down
-  // React.memo() on LayerItem and re-rendering every layer for every tweak
+  // React.memo() on StackRow and re-rendering every layer for every tweak
   // (KISS-2 / PERF-N2).
   const layersRef = useRef(localLayers);
   useLayoutEffect(() => {

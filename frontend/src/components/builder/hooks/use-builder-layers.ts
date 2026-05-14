@@ -80,7 +80,7 @@ export function useBuilderLayers(
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
   // without invalidating on every layer mutation. Without this, each layer
-  // edit would tear down React.memo() on LayerItem (KISS-2 / PERF-N2).
+  // edit would tear down React.memo() on StackRow (KISS-2 / PERF-N2).
   const layersRef = useRef(localLayers);
   useLayoutEffect(() => {
     layersRef.current = localLayers;
@@ -162,7 +162,7 @@ export function useBuilderLayers(
   // --- Layer handlers ---
   //
   // All handlers are wrapped in useCallback with stable deps so that
-  // React.memo() on LayerItem actually prevents re-renders on unrelated state
+  // React.memo() on StackRow actually prevents re-renders on unrelated state
   // changes. Handlers that need to read the current layers list use
   // `layersRef.current` instead of `localLayers` to keep their dep lists
   // stable (KISS-2 / PERF-N2).
