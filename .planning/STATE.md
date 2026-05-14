@@ -1,68 +1,65 @@
 ---
 gsd_state_version: 1.0
-milestone: v1008
-milestone_name: Map Builder Sidebar Redesign
-status: executing
-stopped_at: v1008 Map Builder Sidebar Redesign roadmapped; Phase 1033 ready to plan.
-last_updated: "2026-05-13T20:57:48.404Z"
-last_activity: 2026-05-13 -- Phase 1036 execution started
+milestone: v1009
+milestone_name: Map Builder v1.5 (Polish)
+status: planning
+last_updated: "2026-05-14T14:07:08.707Z"
+last_activity: 2026-05-14
 progress:
-  total_phases: 21
-  completed_phases: 3
-  total_plans: 12
-  completed_plans: 10
-  percent: 83
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1036 (settings-affordance) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 1036
-Last activity: 2026-05-13 -- Phase 1036 execution started
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-14 — Milestone v1009 started
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
+See: .planning/PROJECT.md (updated 2026-05-14 after shipping v1008)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1036 — settings-affordance
+**Current focus:** Defining requirements for v1009 Map Builder v1.5 (Polish)
 
-## Active Milestone: v1008 Map Builder Sidebar Redesign
+## Active Milestone: v1009 Map Builder v1.5 (Polish)
 
-**Started:** 2026-05-13
-**Roadmapped:** 2026-05-13
-**Phases:** 1033-1038 (6 phases)
-**Requirements:** 27 (BSR-01..27), 0/27 complete, 27/27 mapped
+**Started:** 2026-05-14
+**Roadmapped:** _pending_ (REQUIREMENTS.md + ROADMAP.md to be written next)
+**Phases:** _pending_
+**Requirements:** _pending_
 
-### Phase Sequence
-
-| Phase | Name | Requirements | Status |
-|---|---|---|---|
-| 1033 | saved-map-normalizer-and-viewer-parity | BSR-20..23 | ✅ Shipped 2026-05-13 |
-| 1034 | unified-stack-rows-and-layer-editor-flyout | BSR-01..04, BSR-10..13 | Not started |
-| 1035 | basemap-group-folder-groups-and-dem-raster | BSR-05..09 | Not started |
-| 1036 | settings-affordance | BSR-14..15 | Not started |
-| 1037 | empty-state-and-add-data-alignment | BSR-16..19 | Not started |
-| 1038 | a11y-i18n-sketch-fidelity-and-uat-closeout | BSR-24..27 | Not started |
+**Goal:** Polish the v1008 unified-stack Map Builder — add drag-from-catalog-into-stack + multi-layer selection / bulk ops, sweep the entire builder surface for modern/sleek/intuitive presentation, and close out pre-existing builder test drift.
 
 ### Sequencing Rationale
 
-- **Phase 1033 lands first** because every downstream phase must round-trip through the saved-map normalizer; viewer parity (public/shared/embed) is a non-optional constraint.
-- **Phase 1034 ships row anatomy + LayerEditorPanel flyout together** because they are co-dependent — the compact row IS the entry surface that opens the flyout (sketch-findings-geolens locked decision).
-- **Phase 1035 follows 1034** because basemap-as-group and folder groups extend the unified stack model already established.
-- **Phase 1036 (settings affordance)** depends on the unified stack existing so config controls can move OUT of it without losing entry points.
-- **Phase 1037 (empty state + Add Data alignment)** depends on the unified stack so the empty state can route into it correctly.
-- **Phase 1038 (closeout)** is final — sketch fidelity, a11y, i18n, and Playwright MCP UAT gate the milestone.
+_To be filled in by the gsd-roadmapper agent after requirements are defined._
 
 ## Last Shipped Milestone
+
+**Version:** v1008 Map Builder Sidebar Redesign
+**Started:** 2026-05-13
+**Shipped:** 2026-05-14
+**Status:** Archived (`tech_debt`)
+**Goal:** Re-architect the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
+**Phases:** 1033-1038 (6 phases, 16 plans, 27 requirements; 27/27 satisfied)
+**UAT:** 9 pass / 1 skip / 0 fail (`e2e/builder-unified-stack.spec.ts`)
+**Audit:** `tech_debt` / `COMPLETE_WITH_TECH_DEBT_REVIEW` — 1 warning (smoke-test sweep) + 7 info/deferred items recorded
+**Archive:** `.planning/milestones/v1008-ROADMAP.md`, `.planning/milestones/v1008-REQUIREMENTS.md`, `.planning/milestones/v1008-MILESTONE-AUDIT.md`
+
+## Prior Shipped Milestone
 
 **Version:** v1007 Release Hygiene
 **Started:** 2026-05-12
 **Shipped:** 2026-05-12
-**Status:** Executing Phase 1036
+**Status:** Executing Phase 1038
 **Goal:** Close release hygiene after v1006 by proving dependency/security state, generated artifacts, stack health, smoke coverage, Playwright MCP browser health, and temporary data cleanup.
 **Phases:** 1032 (1 phase, 10 requirements; 10 requirements complete)
 **Audit:** passed / GO
@@ -274,6 +271,7 @@ See: .planning/PROJECT.md (updated 2026-05-12 after shipping v1007)
 | 260508-lkz | Rebuild demo themes + fixtures with 5 visually arresting 3D + Map Builder showcase maps (code-only; seeder run + Playwright deferred) | 2026-05-08 | cb474308 | Verified | [260508-lkz-rebuild-geolens-demo-themes-and-fixtures](./quick/260508-lkz-rebuild-geolens-demo-themes-and-fixtures/) |
 | 260508-nl9 | Live validation of 260508-lkz demo fixtures (seeder + Playwright MCP) — surfaced 5 bugs, fixed 2 inline (gdal-bin in seeder image; NIFC retry), 2 documented as follow-ups (worker MissingGreenlet on raster + clip_to_mercator_bounds; api /tmp tmpfs cap < UPLOAD_MAX_SIZE_MB) | 2026-05-08 |  | Incomplete | [260508-nl9-run-seeder-and-playwright-mcp-smoke-chec](./quick/260508-nl9-run-seeder-and-playwright-mcp-smoke-chec/) |
 | 260508-rr5 | Fix /tmp tmpfs cap blocking large uploads (gh #101) — set tempfile.tempdir to /app/staging in app/api/main.py | 2026-05-08 | 220a2052 | Verified | [260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads](./quick/260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads/) |
+| 260514-ajo | Smoke-test sweep deferred from v1008 close: fixed SidebarRail Add-data event bug + rewrote 8 stale tests and deleted 4 tests for removed features; full smoke 56/56 pass | 2026-05-14 | 91951aca |  | [260514-ajo-run-through-the-smoke-checks-and-fix-any](./quick/260514-ajo-run-through-the-smoke-checks-and-fix-any/) |
 
 ## Deferred Items
 

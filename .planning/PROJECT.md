@@ -8,37 +8,49 @@ Shipped milestones through v1007, plus cross-repo marketing/docs milestones. Pro
 
 ## Current State
 
-Milestones are delivered through v1007 Release Hygiene (shipped 2026-05-12). v1007 verified v1006's release state with scanner-clean `urllib3==2.7.0`, dismissed stale Dependabot #36/#37 with evidence so open GitHub alerts are zero, regenerated OpenAPI and SDK artifacts for the server-side cluster route, fixed Docker Compose frontend health, made collections smoke self-seeding, passed broad backend/frontend/security/browser gates, and confirmed a clean Playwright MCP browser console after temporary UAT/smoke cleanup. v1006 extended native Cluster from bounded GeoJSON point datasets to large point datasets with authenticated server-side cluster MVT tiles, shared builder/public/shared/embed source routing, cluster exploration popups and zoom activation, style JSON cluster strategy metadata, and clean Playwright MCP UAT on a 6,001-feature imported point-family dataset. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring, Line → Arrow rendering, bounded/server-side Point Cluster rendering, style JSON round-trip, and the schema-preserving sidebar/Add Dataset redesign hardened in v1002-v1003.
+Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 2026-05-14). v1008 retired the six-section `MapStackPanel` / `MapStackSection` / `LayerItem` model in favor of a unified drag-orderable stack (`UnifiedStackPanel` + `StackRow`), folder-grouped basemap (`BasemapGroupRow`) with sublayer expansion, DEM-as-raster-layer with image/hillshade/terrain render modes, a 380px `LayerEditorPanel` flyout with collapsible Filter/Labels/Source sections (drill-down `Sheet` overlay at <800px), a `⚙ Settings` affordance on the `SidebarRail`, a saved-map normalizer that promotes legacy six-section JSON to flat-stack + group-metadata shape without viewer regression, and a catalog-first empty state with curated suggestions; quick task `260514-ajo` closed the deferred smoke-test sweep (8 tests rewritten, 4 obsolete tests deleted, `SidebarRail` Add-data click bug fixed, dead `LayerPanel.tsx` / `LayerItem.tsx` removed). v1007 verified v1006's release state with scanner-clean `urllib3==2.7.0`, dismissed stale Dependabot #36/#37 with evidence so open GitHub alerts are zero, regenerated OpenAPI and SDK artifacts for the server-side cluster route, fixed Docker Compose frontend health, made collections smoke self-seeding, passed broad backend/frontend/security/browser gates, and confirmed a clean Playwright MCP browser console after temporary UAT/smoke cleanup. v1006 extended native Cluster from bounded GeoJSON point datasets to large point datasets with authenticated server-side cluster MVT tiles, shared builder/public/shared/embed source routing, cluster exploration popups and zoom activation, style JSON cluster strategy metadata, and clean Playwright MCP UAT on a 6,001-feature imported point-family dataset. v1.7 Marketplace & Distribution paused at Phase 40 (AWS AMI Build). Open-core architecture is **A-grade ship-ready** — Apache 2.0 licensed core, enterprise extensions register via `importlib.metadata` entry_points, auto-generated Python + TypeScript SDKs from `backend/openapi.json`, Apache-2.0 `geolens` CLI on PyPI (login/scan/publish/export-stac/init/validate/apply), SAML enterprise overlay with SP-initiated SSO + JIT provisioning + audited attribute→role mapping, documented + tested edition lifecycle (operator runbooks, admin SAML→local conversion endpoint, round-trip symmetry test), **fully extensible audit + billing + AI + governance seams** (`AuditSink`, `BillingExtension`, `AIProviderExtension`, `EmbeddingProviderExtension`, `PermissionExtension`, `WorkflowExtension`), bidirectional catalog/processing boundaries enforced through `ProcessingPort` + `CatalogPort` architecture guards, maps/search service facades protected by private-module import guards plus size-budget checks, declarative manifest automation for first-catalog adoption, and a complete map-builder cartographic authoring stack with full MapLibre line-gradient authoring, Line → Arrow rendering, bounded/server-side Point Cluster rendering, style JSON round-trip, and the schema-preserving sidebar/Add Dataset redesign hardened in v1002-v1003.
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1008 Map Builder Sidebar Redesign
+## Current Milestone: v1009 Map Builder v1.5 (Polish)
 
-**Goal:** Re-architect the Map Builder sidebar from six fixed sections (Surface / Relief / Basemap / Data / Labels / Interactions) into one unified, drag-orderable layer stack with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — plus the saved-map JSON migration and Add Data modal alignment needed to ship without regressing existing maps.
+**Goal:** Polish the v1008 unified-stack Map Builder — add the two highest-value v1008 deferrals (drag-from-catalog-into-stack, multi-layer selection / bulk ops), sweep the entire builder surface for modern, sleek, and intuitive presentation, and close out pre-existing builder test drift surfaced during the v1008 smoke-test sweep.
 
 **Target features:**
-- Unified drag-orderable layer stack replacing the `MapStackPanel` / `MapStackSection` six-section model
-- Basemap as a collapsible group row with sublayer expansion (folder semantics)
-- DEM as a regular raster layer with a `render as: image | hillshade | terrain` property (no Relief section)
-- Compact LayerItem rows (drag · visibility · type-icon · name · opacity · kebab)
-- Restored side-by-side LayerEditorPanel flyout (revive commit `1d3cdc9a`; retire commit `383e1f55` inline expansion)
-- `⚙ Settings` affordance for terrain global config, map widgets, and projection (out of the layer stack)
-- Saved-map JSON migration / normalizer: convert legacy six-section maps to flat layer array + group metadata without regressing public/shared/embed viewers
-- Empty state as catalog entry experience: shared Add Data modal component, suggested datasets (hand-curated v1, smart endpoint deferred)
-- Add Data modal alignment audit + minimal alignment work (no full redesign)
+- Drag-from-catalog-into-stack — drag a row from the Add Dataset modal directly onto the unified stack to add a layer (no click-through to "Add to map" required)
+- Multi-layer selection / bulk operations — shift-click / cmd-click to select multiple stack rows; bulk toggle visibility, opacity, group, ungroup, delete
+- General Map Builder UI/UX sweep — modern, sleek, intuitive review across the entire builder surface (density, spacing, typography hierarchy, hover/focus states, microinteractions, component organization, information architecture, empty/error/loading states); audit-first, then targeted polish
+- Builder test debt closeout — fix 5 pre-existing builder vitest failures (`EmptyStackState.integration` ×3, `StackRow` × 1 delete-layer, `UnifiedStackPanel` × 1 add-data button) and the `use-builder-layers.add-dataset.test.ts` worker-timeout regression
 
-**Locked context (sketch + direction artifacts):**
-- `.planning/seeds/map-builder-sidebar-redesign.md`
-- `.planning/notes/map-builder-sidebar-redesign-direction.md`
-- `.planning/sketches/WRAP-UP-SUMMARY.md` + skill `sketch-findings-geolens`
-- `.planning/todos/pending/audit-add-data-modal.md`
+**Locked context:**
+- v1008 sidebar redesign is the foundation — v1.5 is polish on top, not re-architecture
+- All saved-map normalizer guarantees from v1008 must hold (no viewer regressions)
+- `tech_debt` audit smoke-test sweep already shipped via quick task `260514-ajo`
+- `sketch-findings-geolens` skill remains the canonical reference for the unified-stack design tokens
 
 **Non-goals (deferred):**
-- Full Add Data modal redesign
-- `/api/datasets/suggested` backend endpoint
-- Drag-from-catalog-into-stack
-- Multi-layer selection / bulk operations
-- Mobile-specific layout polish
+- Mobile-specific `<800px` drill-down polish beyond what the UX sweep surfaces
+- Full Add Data modal redesign (incremental polish only via the sweep)
+- `/api/datasets/suggested` backend endpoint (still hand-curated v1)
+- Multi-rendering bulk-add via drag-from-catalog
+
+## Recent Shipped Milestone: v1008 Map Builder Sidebar Redesign
+
+**Shipped:** 2026-05-14
+
+**Goal delivered:** Re-architected the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — without regressing existing maps.
+
+**Delivered:**
+- Unified drag-orderable layer stack (`UnifiedStackPanel` + `StackRow`) replacing `MapStackPanel` / `MapStackSection` / `LayerItem`.
+- Basemap as a collapsible folder-group row (`BasemapGroupRow`) with sublayer expansion, plus the basemap-group editor scene flyout.
+- DEM treated as a regular raster layer with `render as: image | hillshade | terrain` property, replacing the dedicated Relief section.
+- 380px `LayerEditorPanel` flyout with collapsible Filter / Labels / Source sections in place of per-tab navigation; drill-down `Sheet` overlay at `<800px`.
+- `⚙ Settings` affordance for terrain global config, map widgets, and projection via the `SidebarRail`.
+- Saved-map normalizer that promotes legacy six-section JSON to flat-stack + group-metadata shape without regressing public/shared/embed viewers.
+- Catalog-first empty state with shared `EmptyStackState` component and curated suggestions.
+- Smoke-test sweep deferred at milestone close shipped post-close via quick task `260514-ajo` (rewrote 8 builder tests, deleted 4 obsolete tests, fixed `SidebarRail` event-as-`initialQuery` bug). Builder smoke is now 21/21 green and `LayerPanel.tsx` / `LayerItem.tsx` dead code removed.
+
+**Milestone close:** 27/27 BSR-01..27 requirements satisfied across phases 1033-1038 (6 phases, 16 plans). UAT 9/9 PASS. `tech_debt` audit accepted at close.
 
 ## Recent Shipped Milestone: v1007 Release Hygiene
 
