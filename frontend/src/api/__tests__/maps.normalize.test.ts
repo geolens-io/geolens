@@ -366,7 +366,7 @@ describe('getSharedMap normalizer integration', () => {
       basemap_style: 'positron',
       // show_basemap_labels intentionally absent
     });
-    delete (payload as Record<string, unknown>).show_basemap_labels;
+    delete (payload as unknown as Record<string, unknown>).show_basemap_labels;
     vi.mocked(apiFetch).mockResolvedValueOnce(payload);
 
     const result = await getSharedMap('token-embed');
@@ -421,14 +421,17 @@ describe('four-viewer parity', () => {
     // SharedMapResponse (shared/embed path). Field names differ per PATTERNS.md:
     //   MapLayerResponse.dataset_table_name  →  SharedLayerResponse.table_name
     //   MapLayerResponse.dataset_geometry_type  →  SharedLayerResponse.geometry_type
-    const basemapConfig: MapBasemapConfig = {
+    // Round-trip fixture exercises wider enum strings (visible/vivid/medium)
+    // than the current MapBasemapConfig union — the normalizer must pass them
+    // through verbatim, so cast away the strict union for the test fixture.
+    const basemapConfig = {
       label_mode: 'subtle',
       road_visibility: 'visible',
       boundary_visibility: 'full',
       building_visibility: true,
       land_water_tone: 'vivid',
       relief_contrast: 'medium',
-    };
+    } as unknown as MapBasemapConfig;
     const terrainConfig: MapTerrainConfig = {
       enabled: false,
       source_dataset_id: 'dem-src',
@@ -491,6 +494,6 @@ describe('four-viewer parity', () => {
     // (using mapResult only, since buildMapStack takes MapLayerResponse[])
     const stackGroups = buildMapStack(mapResult);
     const basemapEntry = stackGroups.find((g) => g.id === 'basemap')?.entries[0];
-    expect(basemapEntry?.metadata.basemap.style).toBe('positron');
+    expect(basemapEntry?.metadata.basemap?.style).toBe('positron');
   });
 });

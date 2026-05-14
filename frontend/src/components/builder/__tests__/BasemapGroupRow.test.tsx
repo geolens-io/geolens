@@ -77,17 +77,12 @@ describe('BasemapGroupRow', () => {
     const typeIcon = screen.getByText('⊞');
     expect(typeIcon).toBeInTheDocument();
     expect(typeIcon).toHaveAttribute('aria-hidden', 'true');
-    // Verify it has the inline style for primary-50 bg and primary-700 fg
-    const style = window.getComputedStyle(typeIcon);
-    // The span itself should have style attributes set
     expect(typeIcon.tagName.toLowerCase()).toBe('span');
   });
 
   it('Test 2: caret button has aria-expanded and aria-controls', () => {
     const props = defaultProps({ groupId: 'grp-1', isExpanded: false });
     render(<BasemapGroupRow {...props} />);
-    const caret = screen.getByRole('button', { name: /toggle.*group/i }) ||
-      document.querySelector('button[aria-expanded]');
     // Find caret by aria-expanded
     const buttons = screen.getAllByRole('button');
     const caretBtn = buttons.find((b) => b.hasAttribute('aria-expanded'));

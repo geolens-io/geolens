@@ -123,7 +123,7 @@ describe('normalizeSavedMap', () => {
     // Factory leaves show_basemap_labels absent when not passed
     const input = makeSharedMapResponse({ basemap_style: 'positron', layers: [] });
     // Verify the input truly has no show_basemap_labels
-    expect((input as Record<string, unknown>).show_basemap_labels).toBeUndefined();
+    expect((input as unknown as Record<string, unknown>).show_basemap_labels).toBeUndefined();
 
     const result = normalizeSavedMap(input);
     expect(result.show_basemap_labels).toBe(true);
@@ -238,7 +238,7 @@ describe('normalizeSavedMap', () => {
     // Vitest test runs already have DEV=true; no manual mutation needed.
     // Use vi.stubEnv for reliable env control (import.meta.env is a frozen proxy in some
     // Vitest versions; direct assignment is a no-op and cannot be restored safely).
-    vi.stubEnv('DEV', 'true');
+    vi.stubEnv('DEV', true);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
@@ -260,7 +260,7 @@ describe('normalizeSavedMap', () => {
   });
 
   it("does NOT warn when input.basemap_style is missing outside DEV mode", () => {
-    vi.stubEnv('DEV', '');
+    vi.stubEnv('DEV', false);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
@@ -390,12 +390,13 @@ describe('normalizeSavedMap', () => {
   });
 
   it('group_meta: returns empty record when group_meta is a non-object string', () => {
-    const result = normalizeSavedMap({ group_meta: 'not-an-object' });
+    // Defensive-parse test: feed a bogus value past the type system.
+    const result = normalizeSavedMap({ group_meta: 'not-an-object' } as unknown as Parameters<typeof normalizeSavedMap>[0]);
     expect(result.group_meta).toEqual({});
   });
 
   it('group_meta: returns empty record when group_meta is an array (rejected by !Array.isArray guard)', () => {
-    const result = normalizeSavedMap({ group_meta: [{ expanded: true }] });
+    const result = normalizeSavedMap({ group_meta: [{ expanded: true }] } as unknown as Parameters<typeof normalizeSavedMap>[0]);
     expect(result.group_meta).toEqual({});
   });
 

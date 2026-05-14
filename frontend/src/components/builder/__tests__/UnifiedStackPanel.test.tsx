@@ -117,7 +117,11 @@ beforeAll(() => {
   });
 });
 
-function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+// layer_type widened to string so callers can pass group:folder / group:basemap
+// (use-builder-layers represents groups as virtual rows with those layer_type tags).
+function makeLayer(
+  overrides: Omit<Partial<MapLayerResponse>, 'layer_type'> & { layer_type?: string } = {},
+): MapLayerResponse {
   return {
     id: overrides.id ?? 'layer-1',
     dataset_id: overrides.dataset_id ?? 'dataset-1',
@@ -138,13 +142,13 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
     label_config: overrides.label_config ?? null,
     popup_config: overrides.popup_config ?? null,
     style_config: overrides.style_config ?? null,
-    layer_type: overrides.layer_type ?? null,
+    layer_type: (overrides.layer_type ?? null) as MapLayerResponse['layer_type'],
     dataset_record_type: overrides.dataset_record_type ?? 'vector_dataset',
     show_in_legend: overrides.show_in_legend ?? true,
     is_dem: overrides.is_dem ?? false,
     dem_vertical_units: overrides.dem_vertical_units ?? null,
     ...overrides,
-  };
+  } as MapLayerResponse;
 }
 
 const defaultBasemapGroup = {

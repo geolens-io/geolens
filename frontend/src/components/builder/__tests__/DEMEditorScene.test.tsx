@@ -75,7 +75,14 @@ beforeAll(() => {
   });
 });
 
-function makeDEMLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+// style_config widened: tests express partial DEM render-mode shapes that
+// don't satisfy StyleConfig's required mode/column/ramp fields. The runtime
+// indexed signature accepts these — only the strict static check rejects.
+function makeDEMLayer(
+  overrides: Omit<Partial<MapLayerResponse>, 'style_config'> & {
+    style_config?: unknown;
+  } = {},
+): MapLayerResponse {
   return {
     id: overrides.id ?? 'dem-layer-1',
     dataset_id: overrides.dataset_id ?? 'dem-dataset-1',
@@ -95,17 +102,19 @@ function makeDEMLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerRespon
     filter: overrides.filter ?? null,
     label_config: overrides.label_config ?? null,
     popup_config: overrides.popup_config ?? null,
-    style_config: overrides.style_config ?? null,
+    style_config: (overrides.style_config ?? null) as unknown as MapLayerResponse['style_config'],
     layer_type: overrides.layer_type ?? null,
     dataset_record_type: overrides.dataset_record_type ?? 'raster_dataset',
     show_in_legend: overrides.show_in_legend ?? true,
     is_dem: overrides.is_dem ?? true,
     dem_vertical_units: overrides.dem_vertical_units ?? null,
     ...overrides,
-  };
+  } as MapLayerResponse;
 }
 
-function defaultProps(overrides: Partial<React.ComponentProps<typeof DEMEditorScene>> = {}) {
+function defaultProps(
+  overrides: Partial<React.ComponentProps<typeof DEMEditorScene>> = {},
+): React.ComponentProps<typeof DEMEditorScene> {
   return {
     layer: makeDEMLayer(),
     onPaintChange: vi.fn(),
@@ -113,6 +122,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof DEMEditorSc
     onOpacityChange: vi.fn(),
     onZoomChange: vi.fn(),
     onTerrainBind: vi.fn(),
+    onRemove: vi.fn(),
     ...overrides,
   };
 }
@@ -157,7 +167,7 @@ describe('DEMEditorScene', () => {
     rerender(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as Parameters<typeof makeDEMLayer>[0]['style_config'] }),
+          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
         })}
       />,
     );
@@ -344,7 +354,7 @@ describe('DEMEditorScene', () => {
     render(
       <DEMEditorScene
         {...defaultProps({
-          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as Parameters<typeof makeDEMLayer>[0]['style_config'] }),
+          layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
         })}
       />,
     );
@@ -382,7 +392,7 @@ describe('DEMEditorScene', () => {
   it('switching image→hillshade→image preserves other style_config keys', () => {
     const onStyleConfigChange = vi.fn();
     const layer = makeDEMLayer({
-      style_config: { render_mode: 'hillshade', some_other_key: 'preserved' } as Parameters<typeof makeDEMLayer>[0]['style_config'],
+      style_config: { render_mode: 'hillshade', some_other_key: 'preserved' } as unknown as MapLayerResponse['style_config'],
     });
 
     render(

@@ -47,7 +47,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAdd }: SuggestCardProps) {
   const idIsRealUuid = UUID_RE.test(suggestion.id);
-  const { data, isError } = useQuery({
+  const { isError } = useQuery({
     queryKey: queryKeys.datasets.detail(suggestion.id),
     queryFn: () => getDataset(suggestion.id),
     staleTime: 60_000,
@@ -146,7 +146,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
 // EmptyStackState — main export
 // ---------------------------------------------------------------------------
 
-export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackStateProps): JSX.Element {
+export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackStateProps) {
   const { t } = useTranslation('builder');
   const [inlineQuery, setInlineQuery] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);

@@ -286,7 +286,7 @@ describe('DEM type icon', () => {
   // Test 1: DEM hillshade glyph
   it('renders ⛰ glyph when is_dem=true and render_mode=hillshade', () => {
     const layer = makeDEMLayerFixture({
-      style_config: { render_mode: 'hillshade' },
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
     });
     const { container } = render(<StackRow {...defaultProps({ layer })} />);
 
@@ -300,7 +300,7 @@ describe('DEM type icon', () => {
   it('renders ◬ glyph when is_dem=true and render_mode is terrain (cast value)', () => {
     const layer = makeDEMLayerFixture({
       // 'terrain' is cast at the boundary — style_config as any to simulate persisted value
-      style_config: { render_mode: 'terrain' } as Parameters<typeof makeLayer>[0]['style_config'],
+      style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
     });
     const { container } = render(<StackRow {...defaultProps({ layer })} />);
 
@@ -328,7 +328,7 @@ describe('DEM type icon', () => {
       dataset_geometry_type: null,
       dataset_record_type: 'raster_dataset',
       is_dem: false,
-      style_config: { render_mode: 'hillshade' },
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
     });
     const { container } = render(<StackRow {...defaultProps({ layer })} />);
 
@@ -362,7 +362,7 @@ describe('DEM type icon', () => {
 
     for (const { style_config, expected } of modes) {
       const layer = makeDEMLayerFixture({
-        style_config: style_config as Parameters<typeof makeLayer>[0]['style_config'],
+        style_config: style_config as unknown as MapLayerResponse['style_config'],
       });
       const { container, unmount } = render(<StackRow {...defaultProps({ layer })} />);
 

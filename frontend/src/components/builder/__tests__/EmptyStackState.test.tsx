@@ -76,7 +76,7 @@ describe('EmptyStackState', () => {
     mockGetDataset.mockResolvedValue({
       id: 'mock-id',
       display_name: 'Mock Dataset',
-    } as ReturnType<typeof getDataset> extends Promise<infer T> ? T : never);
+    } as unknown as ReturnType<typeof getDataset> extends Promise<infer T> ? T : never);
   });
 
   it('Test 1: renders heading and body text via defaultValue', async () => {
@@ -187,7 +187,7 @@ describe('EmptyStackState', () => {
       if (id === errorId) {
         return Promise.reject(new Error('404 Not Found'));
       }
-      return Promise.resolve({ id, display_name: 'ok' } as ReturnType<typeof getDataset> extends Promise<infer T> ? T : never);
+      return Promise.resolve({ id, display_name: 'ok' } as unknown as ReturnType<typeof getDataset> extends Promise<infer T> ? T : never);
     });
 
     render(<EmptyStackState {...defaultProps()} />);

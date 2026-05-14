@@ -44,7 +44,7 @@ beforeEach(() => {
   mockGetDataset.mockResolvedValue({
     id: 'mock-id',
     display_name: 'Mock Dataset',
-  } as Awaited<ReturnType<typeof getDataset>>);
+  } as unknown as Awaited<ReturnType<typeof getDataset>>);
 });
 
 // ---- tests ----
