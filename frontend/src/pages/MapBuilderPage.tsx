@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { FileText, History, Sparkles } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
+import { toast } from 'sonner';
 import {
   closestCenter,
   DndContext,
@@ -25,7 +26,7 @@ import { SettingsEditorScene } from '@/components/builder/SettingsEditorScene';
 import { BasemapGroupEditorScene, BasemapGroupEditorFooter } from '@/components/builder/BasemapGroupEditorScene';
 import { BasemapSublayerEditorScene, BasemapSublayerEditorFooter } from '@/components/builder/BasemapSublayerEditorScene';
 import { useBasemaps } from '@/hooks/use-settings';
-import { basemapThumbnail } from '@/lib/basemap-utils';
+import { basemapThumbnail, normalizeBasemapConfig } from '@/lib/basemap-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
@@ -429,20 +430,37 @@ export function MapBuilderPage() {
       | undefined;
 
     if (data?.source === 'catalog') {
-      const { datasetId } = data;
+      const { datasetId, recordType, name: datasetName = '' } = data;
       if (!datasetId) return;
       const overId = String(over.id);
 
-      // Plan 03 placeholder: basemap group drop → handled in Plan 03.
+      // Case 1: basemap row dropped onto the basemap group row → swap basemap (POL-04).
+      // Mirrors DatasetSearchPanel.handleBasemapSwap: four-step normalization.
+      if (recordType === 'basemap' && basemapGroup && overId === basemapGroup.id) {
+        const nextConfig = normalizeBasemapConfig(layers.basemapConfig, layers.showBasemapLabels);
+        layers.setLocalBasemap(datasetId);
+        layers.setShowBasemapLabels(nextConfig.label_mode !== 'hidden');
+        layers.setBasemapConfig(nextConfig);
+        layers.markDirty();
+        toast.success(t('toasts.basemapChanged', { name: datasetName }), {
+          id: `swap-basemap-${datasetId}`,
+        });
+        return;
+      }
+
+      // Case 2: basemap row dropped onto a non-basemap target → silent reject (UI-SPEC §3d).
+      if (recordType === 'basemap') return;
+
+      // Case 3: non-basemap row dropped onto the basemap group row → silent reject (UI-SPEC §3d).
       if (basemapGroup && overId === basemapGroup.id) return;
 
-      // Plan 03 placeholder: folder-group row drop → handled in Plan 03.
+      // Cases 4 & 5: non-basemap row dropped onto a folder-group (POL-03) or loose row (POL-01).
+      // When target is a folder group, parentGroupId is set so the new layer joins the group.
       const targetLayer = layers.localLayers.find((l) => l.id === overId);
-      if (targetLayer && isFolderGroupLayer(targetLayer)) return;
-
-      // Loose-row drop: add dataset at the top (sort_order = 0). Modal stays open per POL-05.
-      // The hook's existing toast.success(t('toasts.layerAdded')) fires on mutation success.
-      layers.handleAddDataset(datasetId);
+      const parentGroupId = (targetLayer && isFolderGroupLayer(targetLayer)) ? overId : null;
+      // Pass datasetName so the hook fires the named toast (toasts.datasetAdded). Modal stays
+      // open per POL-05 — onSuccessCb is omitted so no flyout auto-selects the new layer.
+      layers.handleAddDataset(datasetId, undefined, parentGroupId, datasetName);
       return;
     }
 
@@ -454,7 +472,7 @@ export function MapBuilderPage() {
     if (oldIndex < 0 || newIndex < 0) return;
     layers.handleReorder(arrayMove(currentLayers, oldIndex, newIndex));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + handleReorder + handleAddDataset captured; basemapGroup is stable derived value
-  }, [layers.localLayers, layers.handleReorder, layers.handleAddDataset, basemapGroup]);
+  }, [layers.localLayers, layers.handleReorder, layers.handleAddDataset, layers.basemapConfig, layers.showBasemapLabels, layers.setLocalBasemap, layers.setShowBasemapLabels, layers.setBasemapConfig, layers.markDirty, basemapGroup, t]);
 
   const handleDragCancel = useCallback(() => {
     setDragActiveId(null);
