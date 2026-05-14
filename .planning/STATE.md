@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1039 (not started)
+Phase: 1040 (not started)
 Plan: —
-Status: Roadmapped — ready to plan Phase 1039
-Last activity: 2026-05-14 — v1009 roadmap written (6 phases, 25/25 requirements mapped)
+Status: Phase 1039 shipped — ready to start Phase 1040
+Last activity: 2026-05-14 — Phase 1039 verification passed (POL-12/19/20/21 satisfied; 24 audit findings; builder vitest 692/692, smoke 21/21)
 
 ## Project Reference
 
@@ -40,14 +40,14 @@ See: .planning/PROJECT.md (updated 2026-05-14 after shipping v1008)
 
 ### Phase Sequence
 
-| Phase | Name | Requirements | Plans |
-|-------|------|--------------|-------|
-| 1039 | ux-audit-and-test-debt-closeout | POL-12, POL-19, POL-20, POL-21 | TBD |
-| 1040 | drag-from-catalog-into-stack | POL-01, POL-02, POL-03, POL-04, POL-05 | TBD |
-| 1041 | multi-layer-selection-and-bulk-ops | POL-06, POL-07, POL-08, POL-09, POL-10, POL-11 | TBD |
-| 1042 | spacing-density-states-polish | POL-13, POL-14, POL-15 | TBD |
-| 1043 | error-empty-states-and-ia-cleanup | POL-16, POL-17, POL-18 | TBD |
-| 1044 | cross-cutting-closeout | POL-22, POL-23, POL-24, POL-25 | TBD |
+| Phase | Name | Requirements | Plans | Status |
+|-------|------|--------------|-------|--------|
+| 1039 | ux-audit-and-test-debt-closeout | POL-12, POL-19, POL-20, POL-21 | 2 plans (1039-01 test debt, 1039-02 UX audit) | ✅ Shipped 2026-05-14 |
+| 1040 | drag-from-catalog-into-stack | POL-01, POL-02, POL-03, POL-04, POL-05 | TBD | Not started |
+| 1041 | multi-layer-selection-and-bulk-ops | POL-06, POL-07, POL-08, POL-09, POL-10, POL-11 | TBD | Not started |
+| 1042 | spacing-density-states-polish | POL-13, POL-14, POL-15 | TBD | Not started |
+| 1043 | error-empty-states-and-ia-cleanup | POL-16, POL-17, POL-18 | TBD | Not started |
+| 1044 | cross-cutting-closeout | POL-22, POL-23, POL-24, POL-25 | TBD | Not started |
 
 ### Sequencing Rationale
 
