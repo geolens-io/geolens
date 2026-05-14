@@ -11,7 +11,7 @@ interface SidebarRailProps {
   layers: MapLayerResponse[];
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
-  onAddDataClick: () => void;
+  onAddDataClick: (initialQuery?: string) => void;
   onSettingsClick: () => void;
   isSettingsOpen?: boolean;
 }

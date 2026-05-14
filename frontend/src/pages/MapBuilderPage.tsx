@@ -359,9 +359,12 @@ export function MapBuilderPage() {
       : t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map...' });
 
   const handleAddDataClick = useCallback(
-    () => dialogs.setShowAddData(true),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setter from useBuilderDialogs
-    [dialogs.setShowAddData],
+    (initialQuery?: string) => {
+      dialogs.setAddDataInitialQuery(initialQuery ?? '');
+      dialogs.setShowAddData(true);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable setters from useBuilderDialogs
+    [dialogs.setAddDataInitialQuery, dialogs.setShowAddData],
   );
 
   const handleClearFilter = useCallback(
@@ -656,6 +659,11 @@ export function MapBuilderPage() {
               onRename={layers.handleDisplayNameChange}
               onDuplicate={layers.handleDuplicateRendering}
               onAddDataClick={handleAddDataClick}
+              onAddDataset={(datasetId: string) => {
+                layers.handleAddDataset(datasetId, (newLayerId) => {
+                  handleSelectLayer(newLayerId);
+                });
+              }}
               onSettingsClick={() => {
                 layers.handleToggleExpand(
                   layers.expandedLayerId === 'settings' ? '' : 'settings',
@@ -711,7 +719,7 @@ export function MapBuilderPage() {
                     : editorScene === 'basemap-sublayer'
                       ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
                       : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
-                  sort_order: -1,
+                  sort_order: -1, // synthetic placeholder — not a real layer; not persisted
                   visible: true,
                   opacity: 1,
                   paint: {},
@@ -826,8 +834,20 @@ export function MapBuilderPage() {
         mapId={id}
         mapData={mapData}
         showAddData={dialogs.showAddData}
-        onShowAddDataChange={dialogs.setShowAddData}
-        onAddDataset={layers.handleAddDataset}
+        onShowAddDataChange={(open: boolean) => {
+          dialogs.setShowAddData(open);
+          if (!open) {
+            dialogs.setAddDataInitialQuery('');
+          }
+        }}
+        addDataInitialQuery={dialogs.addDataInitialQuery}
+        onAddDataset={(datasetId: string) => {
+          layers.handleAddDataset(datasetId, (newLayerId) => {
+            dialogs.setShowAddData(false);
+            dialogs.setAddDataInitialQuery('');
+            handleSelectLayer(newLayerId);
+          });
+        }}
         onDuplicateRendering={layers.handleDuplicateRendering}
         layers={layers.localLayers}
         isAdding={addLayer.isPending}

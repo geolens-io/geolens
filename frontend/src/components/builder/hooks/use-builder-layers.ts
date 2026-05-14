@@ -393,21 +393,31 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, []);
 
-  const handleAddDataset = useCallback((datasetId: string) => {
-    if (!mapId) return;
-    const nextSortOrder = layersRef.current.length;
-    addLayerMutation.mutate(
-      { mapId, data: { dataset_id: datasetId, sort_order: nextSortOrder } },
-      {
-        onSuccess: () => {
-          toast.success(t('toasts.layerAdded'));
+  const handleAddDataset = useCallback(
+    (datasetId: string, onSuccessCb?: (newLayerId: string) => void) => {
+      if (!mapId) return;
+      // Per BSR-18 UI-SPEC §4b: new layers PREPEND at top of user stack (sort_order: 0).
+      // The mutation onSuccess refresh (via React Query invalidation elsewhere) will
+      // renumber existing layers as needed. Do NOT use layersRef.current.length here
+      // (append) — that buries the new layer under existing ones and conflicts with
+      // the auto-open flyout UX.
+      addLayerMutation.mutate(
+        { mapId, data: { dataset_id: datasetId, sort_order: 0 } },
+        {
+          onSuccess: (createdLayer) => {
+            toast.success(t('toasts.layerAdded'));
+            if (onSuccessCb && createdLayer?.id) {
+              onSuccessCb(createdLayer.id);
+            }
+          },
+          onError: () => {
+            toast.error(t('toasts.layerAddFailed'));
+          },
         },
-        onError: () => {
-          toast.error(t('toasts.layerAddFailed'));
-        },
-      },
-    );
-  }, [mapId, addLayerMutation, t]);
+      );
+    },
+    [mapId, addLayerMutation, t],
+  );
 
   // AI-specific remove: removes locally (persisted on Save)
   const handleAiRemoveLayer = useCallback((layerId: string) => {

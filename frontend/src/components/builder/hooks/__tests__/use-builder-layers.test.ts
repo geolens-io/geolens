@@ -439,3 +439,7 @@ describe('useBuilderLayers', () => {
     });
   });
 });
+
+// BSR-18 handleAddDataset tests live in the dedicated file:
+// use-builder-layers.add-dataset.test.ts
+// (isolated to avoid OOM when running alongside the heavy hook render)
