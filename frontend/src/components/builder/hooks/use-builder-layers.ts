@@ -394,7 +394,12 @@ export function useBuilderLayers(
   }, []);
 
   const handleAddDataset = useCallback(
-    (datasetId: string, onSuccessCb?: (newLayerId: string) => void) => {
+    (
+      datasetId: string,
+      onSuccessCb?: (newLayerId: string) => void,
+      parentGroupId?: string | null,
+      datasetName?: string,
+    ) => {
       if (!mapId) return;
       // Per BSR-18 UI-SPEC §4b: new layers PREPEND at top of user stack (sort_order: 0).
       // The mutation onSuccess refresh (via React Query invalidation elsewhere) will
@@ -405,7 +410,21 @@ export function useBuilderLayers(
         { mapId, data: { dataset_id: datasetId, sort_order: 0 } },
         {
           onSuccess: (createdLayer) => {
-            toast.success(t('toasts.layerAdded'));
+            // Phase 1040 POL-03: if a parentGroupId is provided, wire the created layer
+            // into the folder group BEFORE firing the toast (so the UI reflects the
+            // group membership immediately).
+            if (parentGroupId && createdLayer?.id) {
+              handleAddLayerToExistingGroup(createdLayer.id, parentGroupId);
+            }
+            // Phase 1040 POL-05: named toast when datasetName is provided; generic
+            // fallback preserves backward-compat for callers that omit the name.
+            if (datasetName) {
+              toast.success(t('toasts.datasetAdded', { name: datasetName }), {
+                id: `add-layer-${datasetId}`,
+              });
+            } else {
+              toast.success(t('toasts.layerAdded'));
+            }
             if (onSuccessCb && createdLayer?.id) {
               onSuccessCb(createdLayer.id);
             }
@@ -416,7 +435,7 @@ export function useBuilderLayers(
         },
       );
     },
-    [mapId, addLayerMutation, t],
+    [mapId, addLayerMutation, t, handleAddLayerToExistingGroup],
   );
 
   // AI-specific remove: removes locally (persisted on Save)
