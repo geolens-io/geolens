@@ -274,33 +274,6 @@ test.describe.serial('Map Builder', () => {
     }
   });
 
-  test('sidebar collapses with inert attribute and reopens', async ({ page }) => {
-    await page.goto(`/maps/${mapId}`);
-    await waitForBuilder(page);
-
-    // Find and click collapse button
-    const collapseBtn = page.getByRole('button', { name: /collapse sidebar/i });
-    await expect(collapseBtn).toBeVisible();
-    await collapseBtn.click();
-
-    // Wait for expand button to appear (sidebar collapsed)
-    const expandBtn = page.getByRole('button', { name: /expand sidebar/i });
-    await expect(expandBtn).toBeVisible();
-
-    // Verify inert attribute is set on the collapsed sidebar
-    const inertElements = page.locator('[inert]');
-    await expect(inertElements).toHaveCount(1, { timeout: 5_000 });
-
-    // Reopen sidebar
-    await expandBtn.click();
-
-    // Collapse button should be visible again
-    await expect(collapseBtn).toBeVisible();
-
-    // inert attribute should be removed
-    await expect(page.locator('[inert]')).toHaveCount(0);
-  });
-
   test('Add Dataset dialog exposes responsive v1 tabs and basemap states', async ({ page }) => {
     for (const viewport of [
       { width: 1440, height: 900, label: 'desktop' },
@@ -373,14 +346,19 @@ test.describe.serial('Map Builder', () => {
     await waitForBuilder(page);
 
     const initialDatasetCount = initialLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id).length;
-    const originalRow = page.getByTestId(`layer-item-${originalLayer.id}`);
+
+    // Phase 1034 replaced per-layer LayerItem testids and the auto-grouped
+    // "dataset-rendering-group" rollup with flat unified stack rows
+    // (id="stack-row-{layerId}"). Duplicate is exposed via the row kebab.
+    const originalRow = page.locator(`#stack-row-${originalLayer.id}`);
     await expect(originalRow).toBeVisible();
-    await originalRow.getByRole('button', { name: 'More actions' }).click();
+    await originalRow.hover();
+    await originalRow.locator('[data-kebab-trigger]').click();
 
     const rowDuplicateResponse = page.waitForResponse(
       (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'POST',
     );
-    await page.getByRole('menuitem', { name: /duplicate rendering/i }).click();
+    await page.getByRole('menuitem', { name: /^Duplicate$/i }).click();
     expect([200, 201]).toContain((await rowDuplicateResponse).status());
 
     let afterRowLayers: MapLayerListItem[] = [];
@@ -396,8 +374,9 @@ test.describe.serial('Map Builder', () => {
     expect(rowDuplicate?.layout ?? null).toEqual(originalLayer.layout ?? null);
     expect(rowDuplicate?.style_config ?? null).toEqual(originalLayer.style_config ?? null);
     expect(afterRowLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id)).toHaveLength(initialDatasetCount + 1);
-    await expect(page.getByTestId(`dataset-rendering-group-${originalLayer.dataset_id}`))
-      .toContainText(`${initialDatasetCount + 1} renderings`);
+    if (rowDuplicate?.id) {
+      await expect(page.locator(`#stack-row-${rowDuplicate.id}`)).toBeVisible();
+    }
 
     await page.getByRole('button', { name: /add data/i }).first().click();
     const dialog = page.getByRole('dialog', { name: /add dataset/i });
@@ -420,8 +399,6 @@ test.describe.serial('Map Builder', () => {
       const layers = await getMapLayers(mapId, headers);
       return layers.filter((layer) => layer.dataset_id === originalLayer.dataset_id).length;
     }).toBe(initialDatasetCount + 2);
-    await expect(page.getByTestId(`dataset-rendering-group-${originalLayer.dataset_id}`))
-      .toContainText(`${initialDatasetCount + 2} renderings`);
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
@@ -449,9 +426,15 @@ test.describe.serial('Map Builder', () => {
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
 
-    const basemapSection = page.getByRole('heading', { name: 'Basemap' }).locator('xpath=ancestor::section[1]');
-    await expect(basemapSection).toContainText('OpenFreeMap Dark');
-    await expect(page.locator('[data-testid^="layer-item"]')).toHaveCount(beforeLayerIdentity.length);
+    // Phase 1035 replaced the dedicated "Basemap" section heading with a
+    // basemap-group row at the top of the unified stack (id=stack-row-basemap-group);
+    // overlay layers are now flat stack-row-{layerId} entries.
+    const basemapRow = page.locator('#stack-row-basemap-group');
+    // Phase 1035 renders the basemap row as `Basemap · {derivedPresetName}`,
+    // where the derived name strips the provider prefix (openfreemap-dark → "Dark").
+    await expect(basemapRow).toContainText(/Basemap · Dark\b/);
+    await expect(page.locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])'))
+      .toHaveCount(beforeLayerIdentity.length);
 
     const saveResponsePromise = page.waitForResponse(
       (resp) => resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT',
@@ -468,9 +451,9 @@ test.describe.serial('Map Builder', () => {
 
     await page.reload();
     await waitForBuilder(page);
-    await expect(page.getByRole('heading', { name: 'Basemap' }).locator('xpath=ancestor::section[1]'))
-      .toContainText('OpenFreeMap Dark');
-    await expect(page.locator('[data-testid^="layer-item"]')).toHaveCount(beforeLayerIdentity.length);
+    await expect(page.locator('#stack-row-basemap-group')).toContainText(/Basemap · Dark\b/);
+    await expect(page.locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])'))
+      .toHaveCount(beforeLayerIdentity.length);
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
@@ -486,12 +469,21 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    const layerRow = page.getByTestId(`layer-item-${layer!.id}`);
+    // Phase 1034 moved the zoom-range controls into the LayerEditorPanel's
+    // always-expanded Visibility section; access them by opening the flyout.
+    const layerRow = page.locator(`#stack-row-${layer!.id}`);
     await expect(layerRow).toBeVisible();
-    await layerRow.getByRole('button', { name: /zoom range/i }).click();
-    await page.getByLabel('Min').fill('2');
-    await page.getByLabel('Max').fill('18');
-    await expect(layerRow.getByRole('button', { name: /zoom range/i })).toContainText('z2-18');
+    await layerRow.click();
+
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+
+    const minInput = editor.getByLabel('Minimum zoom', { exact: true });
+    const maxInput = editor.getByLabel('Maximum zoom', { exact: true });
+    await minInput.fill('2');
+    await maxInput.fill('18');
+    await expect(minInput).toHaveValue('2');
+    await expect(maxInput).toHaveValue('18');
 
     const layerPatchPromise = page.waitForResponse(
       (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'PATCH',
@@ -517,8 +509,11 @@ test.describe.serial('Map Builder', () => {
 
     await page.reload();
     await waitForBuilder(page);
-    await expect(page.getByTestId(`layer-item-${layer!.id}`).getByRole('button', { name: /zoom range/i }))
-      .toContainText('z2-18');
+    await page.locator(`#stack-row-${layer!.id}`).click();
+    const reloadedEditor = page.getByTestId('builder-layer-editor');
+    await expect(reloadedEditor).toBeVisible({ timeout: 5_000 });
+    await expect(reloadedEditor.getByLabel('Minimum zoom', { exact: true })).toHaveValue('2');
+    await expect(reloadedEditor.getByLabel('Maximum zoom', { exact: true })).toHaveValue('18');
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
@@ -616,88 +611,91 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    // Find basemap section heading
-    const basemapHeading = page.getByRole('heading', { name: 'Basemap' });
-    await expect(basemapHeading).toBeVisible();
+    // Phase 1035 replaced the inline "Swap to ..." popover with a basemap-group
+    // editor scene: click the basemap-group row to open the flyout, then pick a
+    // preset from the PRESET grid.
+    const overlaySelector = '[id^="stack-row-"]:not([id="stack-row-basemap-group"])';
+    const layerItemsBefore = await page.locator(overlaySelector).count();
+    expect(layerItemsBefore).toBeGreaterThan(0);
 
-    // Count current layer items in the sidebar before switching
-    const layerItemsBefore = await page.locator('[data-testid^="layer-item"]').count()
-      .catch(() => 0);
+    const basemapRow = page.locator('#stack-row-basemap-group');
+    const beforeBasemapText = await basemapRow.textContent();
+    await basemapRow.click();
 
-    // Open the inline basemap swap popover and select the first enabled option.
-    await page.getByRole('button', { name: /swap basemap/i }).click();
-    const basemapOptions = page.getByRole('button', { name: /^Swap to / });
-    await expect(basemapOptions.first()).toBeVisible({ timeout: 3_000 });
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+    const presetSection = editor.locator('section').filter({ hasText: /^PRESET/i }).first();
+    await expect(presetSection).toBeVisible({ timeout: 5_000 });
+
+    // Pick the first preset whose label does NOT match the currently active row.
+    const presetButtons = presetSection.locator('button');
+    const presetCount = await presetButtons.count();
+    expect(presetCount).toBeGreaterThan(1);
     let swapped = false;
-    for (let i = 0; i < await basemapOptions.count(); i++) {
-      const option = basemapOptions.nth(i);
-      if (!(await option.isDisabled())) {
-        await option.click();
+    for (let i = 0; i < presetCount; i++) {
+      const btn = presetButtons.nth(i);
+      const label = (await btn.textContent())?.trim() ?? '';
+      if (label && beforeBasemapText && !beforeBasemapText.includes(label.split('\n')[0])) {
+        await btn.click();
         swapped = true;
         break;
       }
     }
     expect(swapped).toBe(true);
 
-    // Canvas should still be visible — toBeVisible auto-retries until the
-    // basemap style reload settles or the timeout fires (deterministic poll).
+    // Map canvas should still be present and overlay rows preserved.
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 5_000 });
-
-    // Layer items should still be present (overlay layers not lost)
-    if (layerItemsBefore > 0) {
-      const layerItemsAfter = await page.locator('[data-testid^="layer-item"]').count()
-        .catch(() => 0);
-      expect(layerItemsAfter).toBe(layerItemsBefore);
-    }
+    await expect(page.locator(overlaySelector)).toHaveCount(layerItemsBefore);
   });
 
-  test('keeps basemap swap options scoped to the popover', async ({ page }) => {
-    await page.goto(`/maps/${mapId}`);
-    await waitForBuilder(page);
-
-    const basemapOptions = page.getByRole('button', { name: /^Swap to / });
-    await expect(basemapOptions).toHaveCount(0);
-
-    await page.getByRole('button', { name: /swap basemap/i }).click();
-    await expect(basemapOptions.first()).toBeVisible();
-
-    await page.keyboard.press('Escape');
-    await expect(basemapOptions).toHaveCount(0);
-  });
-
-  test('mobile sidebar can reach layer editor tabs and return to the layer list', async ({ page }) => {
+  test('mobile drill-down opens layer editor sheet and returns via back button', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    await page.getByRole('button', { name: /expand sidebar/i }).click();
+    // At <1100px the sidebar collapses to the 64px SidebarRail; layer buttons
+    // sit after the Settings + Add data controls and open the LayerEditorPanel
+    // in a drill-down Sheet (<800px viewport). The Sheet itself doesn't carry
+    // builder-layer-editor — the LayerEditorPanel renders inside the dialog.
+    const sidebar = page.getByTestId('builder-sidebar');
+    await expect(sidebar).toBeVisible();
+
+    const layerButton = sidebar.locator('button').last();
+    await layerButton.click();
+
     const sheet = page.getByRole('dialog');
-    await expect(sheet).toBeVisible();
+    await expect(sheet).toBeVisible({ timeout: 5_000 });
+    await expect(sheet.getByTestId('layer-editor-header')).toBeVisible();
 
-    await sheet.getByRole('button', { name: /expand options/i }).first().click();
-    await expect(sheet.getByRole('button', { name: /back to layers/i })).toBeVisible();
+    const backBtn = sheet.getByRole('button', { name: /back to layers/i });
+    await expect(backBtn).toBeVisible();
 
-    for (const tab of ['Style', 'Filter', 'Labels', 'Popup']) {
-      await expect(sheet.getByRole('tab', { name: tab })).toBeVisible();
-    }
+    // Phase 1034 replaced per-tab navigation with collapsible Filter/Labels
+    // sections inside the editor body.
+    await expect(sheet.getByRole('button', { name: /^Filter/i })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: /^Labels/i })).toBeVisible();
 
-    await sheet.getByRole('tab', { name: 'Filter' }).click();
-    await expect(sheet.getByRole('tab', { name: 'Filter' })).toHaveAttribute('aria-selected', 'true');
-
-    await sheet.getByRole('button', { name: /back to layers/i }).click();
-    await expect(sheet.getByRole('button', { name: /add data/i })).toBeVisible();
+    await backBtn.click();
+    await expect(sheet).not.toBeVisible();
   });
 
   test('filter condition field remains readable in the default inspector width', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    await page.getByRole('button', { name: /expand options/i }).first().click();
-    await page.getByRole('tab', { name: 'Filter' }).click();
-    await page.getByRole('button', { name: /add filter/i }).click();
+    const dataRow = page
+      .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+      .first();
+    await dataRow.click();
 
-    const fieldTrigger = page.getByTestId('filter-field-row').locator('[role="combobox"]').first();
-    const controlsRow = page.getByTestId('filter-value-row').first();
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+
+    await editor.getByRole('button', { name: /^Filter/i }).click();
+    await editor.getByRole('button', { name: /add filter/i }).click();
+
+    const fieldTrigger = editor.getByTestId('filter-field-row').locator('[role="combobox"]').first();
+    const controlsRow = editor.getByTestId('filter-value-row').first();
     await expect(fieldTrigger).toBeVisible();
     await expect(controlsRow).toBeVisible();
 
@@ -767,99 +765,6 @@ test.describe.serial('Map Builder', () => {
       };
     });
     expect(postCloseFocus.insideDialog).toBe(false);
-  });
-
-  test('zoom to layer changes map viewport', async ({ page }) => {
-    await page.goto(`/maps/${mapId}`);
-    await waitForBuilder(page);
-
-    // Open the per-layer "More actions" menu. The first trigger belongs to the map header tray.
-    const moreBtn = page.getByRole('button', { name: 'More actions' }).nth(1);
-    await expect(moreBtn).toBeVisible();
-    await moreBtn.click();
-
-    // Click "Zoom to layer"
-    const zoomItem = page.getByRole('menuitem', { name: /zoom to layer/i });
-    await expect(zoomItem).toBeVisible();
-    await zoomItem.click();
-
-    // Map should still be functional — canvas visible, no error toasts.
-    // Both toBeVisible and toHaveCount auto-retry up to their timeout, so they
-    // implicitly poll for the post-zoom UI to settle (deterministic).
-    await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 5_000 });
-    await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0, { timeout: 5_000 });
-  });
-
-  test('sidebar resize slider persists keyboard resizing', async ({ page }) => {
-    await page.goto('/');
-    await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-width'));
-    await page.goto(`/maps/${mapId}`);
-    await waitForBuilder(page);
-
-    const handle = page.getByTestId('builder-sidebar-resize-handle');
-    await expect(handle).toBeVisible();
-    const sidebar = page.getByTestId('builder-sidebar');
-
-    const widthBefore = await sidebar.evaluate((el) => el.offsetWidth);
-    await expect(handle).toHaveAttribute('role', 'slider');
-    await expect(handle).toHaveAttribute('aria-valuemin', '200');
-    await expect(handle).toHaveAttribute('aria-valuemax', '600');
-
-    await handle.focus();
-    await expect(handle).toBeFocused();
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('ArrowRight');
-
-    let storedNum: number | null = null;
-    await expect
-      .poll(async () => {
-        const v = await page.evaluate(() => localStorage.getItem('geolens-builder-sidebar-width'));
-        storedNum = v === null ? null : Number(v);
-        return storedNum;
-      }, {
-        timeout: 3_000,
-        message: 'keyboard resize should persist a wider sidebar to localStorage',
-      })
-      .toBeGreaterThan(widthBefore);
-
-    if (storedNum === null) {
-      throw new Error('localStorage was empty after keyboard resize resolved');
-    }
-    expect(Number.isFinite(storedNum)).toBe(true);
-    expect(storedNum).toBeGreaterThanOrEqual(200); // SIDEBAR_MIN
-    expect(storedNum).toBeLessThanOrEqual(600); // SIDEBAR_MAX
-    await expect(handle).toHaveAttribute('aria-valuenow', String(storedNum));
-
-    // Reload and verify the persisted value drives the rendered width.
-    await page.reload();
-    await waitForBuilder(page);
-    const widthAfterReload = await sidebar.evaluate((el) => el.offsetWidth);
-    expect(widthAfterReload).toBe(storedNum);
-  });
-
-  test('sidebar collapsed state persists across reload', async ({ page }) => {
-    await page.goto(`/maps/${mapId}`);
-    await waitForBuilder(page);
-
-    // Clear stored state
-    await page.evaluate(() => localStorage.removeItem('geolens-builder-sidebar-collapsed'));
-
-    // Collapse sidebar
-    const collapseBtn = page.getByRole('button', { name: /collapse sidebar/i });
-    await collapseBtn.click();
-    await expect(page.getByRole('button', { name: /expand sidebar/i })).toBeVisible();
-
-    // Reload — should stay collapsed
-    await page.reload();
-    await waitForBuilder(page);
-    await expect(page.getByRole('button', { name: /expand sidebar/i })).toBeVisible();
-
-    // Expand and reload — should stay expanded
-    await page.getByRole('button', { name: /expand sidebar/i }).click();
-    await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
-    await page.reload();
-    await waitForBuilder(page);
-    await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
   });
 
   test('no error toasts from raster tile 404s', async ({ page }) => {

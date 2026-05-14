@@ -126,37 +126,43 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await expect(page.getByText(`Styled by: ${selectedColumn}`)).toBeVisible();
   });
 
-  test('colors preserved after collapse and re-expand', async ({ page }) => {
+  test('colors preserved after closing and reopening the layer editor', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Expand and configure categorical styling
-    await page.getByRole('button', { name: 'Expand options' }).click();
-    await expect(page.getByText('Data-Driven Style')).toBeVisible();
+    const dataRow = page
+      .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+      .first();
+    await expect(dataRow).toBeVisible();
 
-    const columnTrigger = page.getByText('Select column');
-    await expect(columnTrigger).toBeVisible();
-    await columnTrigger.click();
-    await page.getByRole('option').first().click();
+    // Configure data-driven styling fresh — zustand layer state resets on each
+    // page load, so don't rely on test 1's in-session state.
+    await dataRow.click();
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+    await expect(editor.getByText('Data-Driven Style')).toBeVisible();
 
-    // Wait for colors to appear
-    await expect(page.getByText('Colors', { exact: true })).toBeVisible({ timeout: 10_000 });
-    const swatches = page.locator('button.w-5.h-5.rounded-sm');
+    await editor.getByText('Select column').click();
+    const firstOption = page.getByRole('option').first();
+    await expect(firstOption).toBeVisible({ timeout: 5_000 });
+    await firstOption.click();
+
+    await expect(editor.getByText('Colors', { exact: true })).toBeVisible({ timeout: 10_000 });
+    const swatches = editor.locator('button.w-5.h-5.rounded-sm');
     await expect(swatches.first()).toBeVisible({ timeout: 5_000 });
     const initialCount = await swatches.count();
     const firstColor = await swatches.first().getAttribute('title');
+    expect(initialCount).toBeGreaterThanOrEqual(1);
     expect(firstColor).toBeTruthy();
 
-    // Return to the layer list through the current sidebar-local inspector control.
-    await page.getByRole('button', { name: 'Back to layers' }).click();
-    await expect(page.getByText('Data-Driven Style')).not.toBeVisible();
+    // Close the flyout. Layer state lives in the builder's zustand store, so
+    // re-opening the same row must rehydrate the configured swatches.
+    await editor.getByRole('button', { name: /close layer editor/i }).click();
+    await expect(editor).not.toBeVisible();
 
-    // Re-expand
-    await page.getByRole('button', { name: 'Expand options' }).click();
-
-    // Colors should still be present with the same count and first color
-    await expect(page.getByText('Colors', { exact: true })).toBeVisible({ timeout: 5_000 });
-    const afterSwatches = page.locator('button.w-5.h-5.rounded-sm');
+    await dataRow.click();
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+    const afterSwatches = editor.locator('button.w-5.h-5.rounded-sm');
     await expect(afterSwatches.first()).toBeVisible({ timeout: 5_000 });
     expect(await afterSwatches.count()).toBe(initialCount);
     expect(await afterSwatches.first().getAttribute('title')).toBe(firstColor);
@@ -166,44 +172,55 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Expand the layer
-    await page.getByRole('button', { name: 'Expand options' }).click();
+    const dataRow = page
+      .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+      .first();
+    await expect(dataRow).toBeVisible();
+    await dataRow.click();
 
-    // Switch to Filter tab and add a filter condition
-    await page.getByRole('tab', { name: 'Filter', exact: true }).click();
-    await page.getByRole('button', { name: 'Add filter' }).click();
-    await page.getByRole('textbox', { name: 'Value' }).fill('1');
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
 
-    await page.getByRole('button', { name: 'Back to layers' }).click();
-    const layerRow = page.locator('[data-testid^="layer-item"]').first();
-    await expect(layerRow).toBeVisible();
-    await layerRow.getByRole('button', { name: 'Expand options' }).click();
-    await page.getByRole('tab', { name: 'Filter', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Add filter' })).toBeVisible();
+    // Phase 1034 replaced the per-tab editor with collapsible sections; the
+    // Filter section is collapsed by default and exposes a section trigger
+    // button whose accessible name starts with "Filter".
+    await editor.getByRole('button', { name: /^Filter/i }).click();
+    await expect(editor.getByRole('button', { name: 'Add filter' })).toBeVisible();
+
+    await editor.getByRole('button', { name: /close layer editor/i }).click();
+    await expect(editor).not.toBeVisible();
+
+    await dataRow.click();
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+    await editor.getByRole('button', { name: /^Filter/i }).click();
+    await expect(editor.getByRole('button', { name: 'Add filter' })).toBeVisible();
   });
 
   test('label toggle persists after returning to the map stack', async ({ page }) => {
     await page.goto(`/maps/${mapId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 15_000 });
 
-    // Expand the layer
-    await page.getByRole('button', { name: 'Expand options' }).click();
+    const dataRow = page
+      .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+      .first();
+    await expect(dataRow).toBeVisible();
+    await dataRow.click();
 
-    // Switch to Labels tab and toggle labels on
-    await page.getByRole('tab', { name: 'Labels', exact: true }).click();
-    const labelsSwitch = page
-      .getByRole('tabpanel', { name: 'Labels' })
-      .getByRole('switch');
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+
+    await editor.getByRole('button', { name: /^Labels/i }).click();
+    const labelsSwitch = editor.getByRole('switch', { name: 'Enable labels' });
     await expect(labelsSwitch).toBeVisible();
     await labelsSwitch.click();
+    await expect(labelsSwitch).toBeChecked();
 
-    await page.getByRole('button', { name: 'Back to layers' }).click();
-    const layerRow = page.locator('[data-testid^="layer-item"]').first();
-    await expect(layerRow).toBeVisible();
-    await layerRow.getByRole('button', { name: 'Expand options' }).click();
-    await page.getByRole('tab', { name: 'Labels', exact: true }).click();
-    await expect(
-      page.getByRole('tabpanel', { name: 'Labels' }).getByRole('switch', { name: 'Enable labels' }),
-    ).toBeChecked();
+    await editor.getByRole('button', { name: /close layer editor/i }).click();
+    await expect(editor).not.toBeVisible();
+
+    await dataRow.click();
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+    await editor.getByRole('button', { name: /^Labels/i }).click();
+    await expect(editor.getByRole('switch', { name: 'Enable labels' })).toBeChecked();
   });
 });
