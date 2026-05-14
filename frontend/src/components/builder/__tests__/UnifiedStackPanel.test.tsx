@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@/test/test-utils';
-import { UnifiedStackPanel } from '../UnifiedStackPanel';
+import { UnifiedStackPanel, CatalogDragGhost } from '../UnifiedStackPanel';
 import type { MapLayerResponse } from '@/types/api';
 
 vi.mock('react-i18next', () => ({
@@ -474,5 +474,88 @@ describe('UnifiedStackPanel — settings cog button', () => {
     const cogBtn = screen.getByTestId('settings-cog-btn');
     fireEvent.click(cogBtn);
     expect(onSettingsClick).toHaveBeenCalledOnce();
+  });
+});
+
+// =============================================================================
+// Phase 1040 catalog drop — Plan 04 cross-context drag contract
+// =============================================================================
+
+describe('Phase 1040 catalog drop — CatalogDragGhost', () => {
+  it('renders catalog-ghost pill with vector type swatch for vector_dataset', () => {
+    render(<CatalogDragGhost recordType="vector_dataset" name="My Dataset" />);
+
+    const ghost = screen.getByTestId('catalog-ghost');
+    expect(ghost).toBeInTheDocument();
+    // Name rendered
+    expect(ghost.textContent).toContain('My Dataset');
+    // Glyph is V for vector
+    expect(ghost.textContent).toContain('V');
+  });
+
+  it('renders catalog-ghost pill with raster type swatch for raster_dataset', () => {
+    render(<CatalogDragGhost recordType="raster_dataset" name="Satellite Image" />);
+
+    const ghost = screen.getByTestId('catalog-ghost');
+    expect(ghost.textContent).toContain('Satellite Image');
+    expect(ghost.textContent).toContain('R');
+  });
+
+  it('renders catalog-ghost pill with basemap type swatch for basemap', () => {
+    render(<CatalogDragGhost recordType="basemap" name="Positron" />);
+
+    const ghost = screen.getByTestId('catalog-ghost');
+    expect(ghost.textContent).toContain('Positron');
+    expect(ghost.textContent).toContain('B');
+  });
+
+  it('renders catalog-ghost pill with raster swatch for vrt_dataset', () => {
+    render(<CatalogDragGhost recordType="vrt_dataset" name="Mosaic" />);
+
+    const ghost = screen.getByTestId('catalog-ghost');
+    expect(ghost.textContent).toContain('Mosaic');
+    expect(ghost.textContent).toContain('R');
+  });
+
+  it('catalog-ghost has pointer-events-none and cursor-grabbing className', () => {
+    render(<CatalogDragGhost recordType="vector_dataset" name="Test" />);
+
+    const ghost = screen.getByTestId('catalog-ghost');
+    expect(ghost.className).toContain('pointer-events-none');
+    expect(ghost.className).toContain('cursor-grabbing');
+  });
+});
+
+describe('Phase 1040 catalog drop — onAddDataset wiring', () => {
+  it('calls onAddDataset(datasetId) when EmptyStackState pick-suggestion is triggered', () => {
+    const onAddDataset = vi.fn();
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({ layers: [], basemapGroup: null, onAddDataset })}
+      />
+    );
+
+    // EmptyStackState stub renders a button with data-testid="empty-add-dataset"
+    const btn = screen.getByTestId('empty-add-dataset');
+    fireEvent.click(btn);
+
+    expect(onAddDataset).toHaveBeenCalledOnce();
+    expect(onAddDataset).toHaveBeenCalledWith('dataset-id-1');
+  });
+
+  it('does NOT call onAddDataset for basemap-group row selection', () => {
+    const onAddDataset = vi.fn();
+    render(
+      <UnifiedStackPanel
+        {...defaultProps({
+          basemapGroup: defaultBasemapGroup,
+          onAddDataset,
+        })}
+      />
+    );
+
+    // Clicking the basemap group select button does NOT trigger onAddDataset
+    fireEvent.click(screen.getByTestId('basemap-group-select-basemap-group'));
+    expect(onAddDataset).not.toHaveBeenCalled();
   });
 });
