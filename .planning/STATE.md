@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1009
 milestone_name: Map Builder v1.5 (Polish)
-status: roadmapped
-last_updated: "2026-05-14T15:00:00.000Z"
-last_activity: 2026-05-14
+status: Archived (`tech_debt`)
+stopped_at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
+last_updated: "2026-05-14T17:02:59.455Z"
+last_activity: 2026-05-14 — Phase 1039 verification passed (POL-12/19/20/21 satisfied; 24 audit findings; builder vitest 692/692, smoke 21/21)
 progress:
-  total_phases: 6
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 11
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 3
+  percent: 50
 ---
 
 # State
@@ -60,6 +61,7 @@ See: .planning/PROJECT.md (updated 2026-05-14 after shipping v1008)
 **Why cross-cutting closeout (Phase 1044) is the final phase:** i18n needs the final set of strings, a11y needs the final keyboard surface, the Playwright UAT spec exercises the final composition, and the builder smoke gate verifies the entire milestone. All upstream phases must be merged before any of these gates can be authored authoritatively.
 
 **Hard constraints carried from v1008:**
+
 - No saved-map shape changes (Phase 1033 normalizer is locked).
 - No public viewer / shared / embed surface changes (parity guarantee).
 - All work uses the `sketch-findings-geolens` token set; no new tokens introduced.
@@ -266,7 +268,7 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-14T15:00:00.000Z
+Last session: 2026-05-14T17:02:59.451Z
 Stopped at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
 Resume file: None
 
