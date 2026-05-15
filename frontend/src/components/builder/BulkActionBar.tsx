@@ -275,8 +275,14 @@ export const BulkActionBar = memo(function BulkActionBar({
               align="end"
               side="top"
               className="w-48"
-              // Stop propagation so menu interactions don't bubble into the toolbar
-              // container and trigger the parent's outside-click selection clear.
+              // SP-01 (Phase 1045): Radix portals the menu content out of the
+              // UnifiedStackPanel's stackPanelRef subtree. The panel's
+              // `document.mousedown` outside-click guard treats portal clicks
+              // as "outside" and would clear the multi-selection before our
+              // onSelect handlers can read it. The data-bulk-action-menu
+              // attribute is the marker UnifiedStackPanel reads to keep the
+              // selection intact while this menu is the target.
+              data-bulk-action-menu="true"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >

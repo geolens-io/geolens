@@ -168,6 +168,13 @@ describe('BulkActionBar — render condition (POL-08)', () => {
     expect(screen.getByTestId('bulk-action-group')).toBeInTheDocument();
     expect(screen.getByTestId('bulk-action-ungroup')).toBeInTheDocument();
     expect(screen.getByTestId('bulk-action-delete')).toBeInTheDocument();
+
+    // SP-01: the menu content carries data-bulk-action-menu so the parent
+    // UnifiedStackPanel's outside-click handler can skip its selection-clear
+    // when the click lands inside the portal-rendered menu (without this the
+    // menuitem click would unmount BulkActionBar before its onSelect runs).
+    const menuContent = document.querySelector('[data-bulk-action-menu="true"]');
+    expect(menuContent).not.toBeNull();
   });
 });
 

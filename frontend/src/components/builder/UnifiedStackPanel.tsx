@@ -645,12 +645,24 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const stackPanelRef = useRef<HTMLDivElement>(null);
 
   // Phase 1041 POL-10: outside-click clears selection.
-  // Guard: stackPanelRef.contains so row clicks (handled by row onClick) are NOT cleared here.
+  // Guard: stackPanelRef.contains so row clicks (handled by row onClick) are
+  // NOT cleared here.
+  //
+  // SP-01 (Phase 1045): also skip the clear when the click lands inside the
+  // BulkActionBar overflow DropdownMenu — Radix portals that content out of
+  // the panel subtree, so without this guard a menuitem click would clear
+  // the selection before the click's onSelect handler reads it (which would
+  // unmount the BulkActionBar via the `selectedIds.size >= 2` gate before
+  // Delete's confirmation dialog can appear).
+  //
   // Effect mounts only when selection is non-empty (keyed on size > 0 via early-return).
   useEffect(() => {
     if (selectedIds.size === 0) return;
     function handleMouseDown(e: MouseEvent) {
-      if (stackPanelRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (stackPanelRef.current?.contains(target)) return;
+      // Portal-rendered bulk-action overflow menu — treat as in-bounds.
+      if ((target as Element | null)?.closest?.('[data-bulk-action-menu="true"]')) return;
       onClearSelection?.();
     }
     document.addEventListener('mousedown', handleMouseDown);
