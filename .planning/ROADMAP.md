@@ -177,7 +177,11 @@
   2. User completes a drag-from-catalog flow using only the keyboard (Space pick up → Arrow navigate → Space drop, Escape cancel) and a multi-select flow (Shift+ArrowUp/Down + Space); the stack root announces `aria-multiselectable` on its `role="listbox"`.
   3. User runs `e2e/builder-v1-5.spec.ts` and sees the drag-from-catalog happy path, the multi-select bulk-delete happy path, and one negative-path each (Escape cancels mid-drag; bulk delete on mixed basemap + overlay selection is blocked) all pass.
   4. User runs `npm run e2e:smoke:builder` at milestone close and sees all 21 existing tests + the new `builder-v1-5.spec.ts` pass green.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 1044-01-PLAN.md — Locale parity sweep: fill de/es/fr for all 56 missing v1.5 keys + replace 30 English-passthrough values (POL-22)
+- [ ] 1044-02-PLAN.md — A11y verification: vitest a11y tests for listbox/multi-select + drag-announce; keyboard walkthrough doc (POL-23)
+- [ ] 1044-03-PLAN.md — Playwright UAT spec e2e/builder-v1-5.spec.ts (4 scenarios) + add to e2e:smoke:builder (POL-24)
+- [ ] 1044-04-PLAN.md — Final smoke gate (i18n + vitest + typecheck + e2e:smoke:builder) + GO/NO-GO SUMMARY (POL-25)
 **UI hint**: yes
 
 ## Sequencing Rationale
@@ -208,7 +212,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 | 1041. multi-layer-selection-and-bulk-ops | v1009 | 4/4 | Complete   | 2026-05-14 |
 | 1042. spacing-density-states-polish | v1009 | 4/4 | Complete   | 2026-05-15 |
 | 1043. error-empty-states-and-ia-cleanup | v1009 | 4/4 | Complete   | 2026-05-15 |
-| 1044. cross-cutting-closeout | v1009 | 0/0 | Not started | - |
+| 1044. cross-cutting-closeout | v1009 | 0/4 | Planned | - |
 
 
 <details>
