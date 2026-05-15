@@ -353,10 +353,10 @@ export function BasemapSublayerEditorScene({
 export function BasemapSublayerEditorFooter({ onBackToBasemap }: BasemapSublayerEditorFooterProps) {
   const { t } = useTranslation('builder');
   return (
-    <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
+    <div>
       <Button type="button" variant="ghost" className="w-full" onClick={onBackToBasemap}>
         {t('basemapSublayer.footerBack', { defaultValue: 'Back to basemap' })}
       </Button>
-    </footer>
+    </div>
   );
 }

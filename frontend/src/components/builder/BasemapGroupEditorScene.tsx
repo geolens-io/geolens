@@ -250,20 +250,18 @@ export function BasemapGroupEditorFooter({
 }: BasemapGroupEditorFooterProps) {
   const { t } = useTranslation('builder');
   return (
-    <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
-      <div className="flex gap-2">
-        <Button type="button" variant="ghost" className="flex-1" onClick={onResetAppearance}>
-          {t('basemapGroup.resetAppearance', { defaultValue: 'Reset appearance' })}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className="flex-1 text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
-          onClick={onRemoveBasemap}
-        >
-          {t('basemapGroup.removeBasemap', { defaultValue: 'Remove basemap' })}
-        </Button>
-      </div>
-    </footer>
+    <div className="flex gap-2">
+      <Button type="button" variant="ghost" className="flex-1" onClick={onResetAppearance}>
+        {t('basemapGroup.resetAppearance', { defaultValue: 'Reset appearance' })}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="flex-1 text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
+        onClick={onRemoveBasemap}
+      >
+        {t('basemapGroup.removeBasemap', { defaultValue: 'Remove basemap' })}
+      </Button>
+    </div>
   );
 }
