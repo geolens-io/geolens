@@ -1,17 +1,19 @@
 /**
- * SP-07: session-scoped negative cache for dataset quicklooks.
+ * SP-07: session-scoped negative cache for quicklook fetch() 404s.
  *
- * The OGC search response's `has_quicklook` flag is derived from
- * `dataset.quicklook_256_uri IS NOT NULL` — it tells us the backend assigned
- * a URI at ingest time, but it does NOT verify the file actually exists on
- * disk / in object storage. When the Celery thumbnail-generation task fails
- * silently (or was disabled), the URI is set but the file is missing, and
- * the frontend issues a doomed `GET /api/datasets/<id>/quicklook?size=256`
- * that 404s and pollutes the console.
+ * Datasets whose quicklook file is missing on disk return 404 from
+ * GET /api/datasets/<id>/quicklook even with a valid JWT (the backend sets
+ * has_quicklook=true when quicklook_256_uri is assigned at ingest, but does
+ * NOT verify that the file exists on disk / in object storage).
  *
- * Until the backend grows an honest `thumbnail_status` field, this module
- * records every quicklook URL that 404s for the current tab session and
- * exposes a check so subsequent renders / reloads skip the `<img>` entirely.
+ * The useQuicklook hook routes every quicklook request through apiFetchBlob()
+ * (which attaches the Bearer JWT from useAuthStore). When apiFetchBlob()
+ * receives a 404, it calls markQuicklookMissing(datasetId) so subsequent
+ * renders within the same tab session skip the fetch entirely and fall back
+ * to the placeholder immediately.
+ *
+ * Non-404 errors (e.g. 500, network) are NOT negative-cached — they are
+ * transient and should be retried on the next render cycle.
  *
  * Storage: sessionStorage so the cache survives a single tab reload but
  * resets across new tabs / windows. Falls back to in-memory when
