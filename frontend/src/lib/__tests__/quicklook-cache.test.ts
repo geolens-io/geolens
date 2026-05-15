@@ -25,17 +25,31 @@ describe('quicklook-cache (SP-07)', () => {
     expect(isQuicklookKnownMissing('b')).toBe(false);
   });
 
-  it('survives a reset to sessionStorage (re-read from store)', () => {
+  it('persists across an in-memory cache drop via sessionStorage', async () => {
+    // Mark, then reach in and only blow away the module-level memory cache.
+    // The next read must rebuild from sessionStorage.
     markQuicklookMissing('persisted');
-    // Drop the in-memory cache; the next read should rebuild from sessionStorage
-    // (in jsdom window.sessionStorage is available by default).
+
+    // Re-import the module fresh by clearing only the memory cache state.
+    // We use Vite's ESM `import` here against the same path so the module's
+    // module-level `memoryCache` variable is the same instance. To prove the
+    // sessionStorage roundtrip, we simulate a fresh page-load: dynamically
+    // re-import via vi.resetModules() so the module is reinitialized but
+    // sessionStorage (jsdom singleton) carries the prior state.
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    const fresh = await import('@/lib/quicklook-cache');
+    expect(fresh.isQuicklookKnownMissing('persisted')).toBe(true);
+  });
+
+  it('_resetQuicklookCache clears both memory and sessionStorage', () => {
+    markQuicklookMissing('to-be-cleared');
+    expect(isQuicklookKnownMissing('to-be-cleared')).toBe(true);
+
     _resetQuicklookCache();
-    // Need to repopulate the in-memory state for this id to roundtrip in jsdom.
-    // The persistence test is verified by NOT resetting between mark + check:
-    markQuicklookMissing('persisted-2');
-    _resetQuicklookCache();
-    // After full reset (memory + storage) it should be gone.
-    expect(isQuicklookKnownMissing('persisted-2')).toBe(false);
+
+    expect(isQuicklookKnownMissing('to-be-cleared')).toBe(false);
+    expect(window.sessionStorage.getItem('geolens-quicklook-404')).toBeNull();
   });
 
   it('is idempotent when marking the same id twice', () => {
