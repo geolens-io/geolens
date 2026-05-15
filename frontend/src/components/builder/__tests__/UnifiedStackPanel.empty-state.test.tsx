@@ -23,6 +23,7 @@ vi.mock('@/components/map/layer-icons', () => ({
 
 // Stub EmptyStackState with a predictable UI surface for wiring tests
 vi.mock('../EmptyStackState', () => ({
+  eyebrowClassName: 'block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-1',
   EmptyStackState: ({ onOpenAddData, onAddDataset }: {
     onOpenAddData: (query?: string) => void;
     onAddDataset: (id: string) => void;

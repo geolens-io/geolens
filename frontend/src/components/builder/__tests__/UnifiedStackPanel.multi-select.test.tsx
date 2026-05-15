@@ -404,7 +404,9 @@ describe('Phase 1041 — clearing rules (POL-10)', () => {
       />
     );
 
-    fireEvent.keyDown(document, { key: 'Escape' });
+    // Phase 1042 carry-over: keydown listener is scoped to stackPanelRef (listbox), not document.
+    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    fireEvent.keyDown(listbox, { key: 'Escape' });
     expect(onClearSelection).toHaveBeenCalledOnce();
   });
 
@@ -538,8 +540,9 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     const rowA = document.getElementById('stack-row-a')!;
     act(() => { rowA.focus(); });
 
-    // Fire Shift+ArrowDown on the document (the handler is attached to document)
-    fireEvent.keyDown(document, { key: 'ArrowDown', shiftKey: true });
+    // Phase 1042 carry-over: keydown listener is scoped to listbox (stackPanelRef), not document.
+    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: true });
 
     await waitFor(() => {
       expect(onShiftClick).toHaveBeenCalledWith('b');
@@ -564,8 +567,9 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     const rowA = document.getElementById('stack-row-a')!;
     act(() => { rowA.focus(); });
 
-    // Fire Shift+ArrowUp — should not extend selection (clamped)
-    fireEvent.keyDown(document, { key: 'ArrowUp', shiftKey: true });
+    // Phase 1042 carry-over: keydown listener is scoped to listbox (stackPanelRef).
+    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    fireEvent.keyDown(listbox, { key: 'ArrowUp', shiftKey: true });
 
     // Wait a tick for any async effects
     await act(async () => {});
@@ -589,8 +593,9 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     const rowA = document.getElementById('stack-row-a')!;
     act(() => { rowA.focus(); });
 
-    // Plain arrow — no Shift
-    fireEvent.keyDown(document, { key: 'ArrowDown', shiftKey: false });
+    // Plain arrow — no Shift. Phase 1042 carry-over: scoped to listbox.
+    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: false });
 
     await act(async () => {});
     expect(onShiftClick).not.toHaveBeenCalled();
