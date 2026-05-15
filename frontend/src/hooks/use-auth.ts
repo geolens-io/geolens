@@ -3,7 +3,8 @@ import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
-import { login as apiLogin, getMe, refreshAccessToken } from '@/api/auth';
+import { login as apiLogin, getMe } from '@/api/auth';
+import { tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -34,26 +35,19 @@ export function useAuth() {
     useAuthStore.setState({ user: meQuery.data });
   }, [token, meQuery.data, user?.id, userRoleKey, meRoleKey]);
 
-  // Proactive refresh: refresh 60 seconds before expiry
+  // Proactive refresh: refresh 60 seconds before expiry. Routes through the
+  // shared tryRefresh() mutex in api/client.ts so a concurrent 401-driven
+  // refresh and this timer collapse to a single /auth/refresh/ POST (SP-09).
   useEffect(() => {
     if (!expiresAt || !token) return;
 
     const delay = expiresAt - 60_000 - Date.now();
     if (delay <= 0) return;
 
-    const timer = setTimeout(async () => {
-      const { refreshToken } = useAuthStore.getState();
-      if (!refreshToken) return;
-      try {
-        const tokens = await refreshAccessToken(refreshToken);
-        useAuthStore.getState().setTokens(
-          tokens.access_token,
-          tokens.refresh_token,
-          tokens.expires_in,
-        );
-      } catch {
-        // Will be handled by 401 interceptor on next request
-      }
+    const timer = setTimeout(() => {
+      // tryRefresh swallows errors and returns boolean; the 401 interceptor
+      // on the next request will handle a failed refresh.
+      void tryRefresh();
     }, delay);
 
     return () => clearTimeout(timer);

@@ -15,19 +15,22 @@ export class ApiError extends Error {
   }
 }
 
-// Mutex to prevent concurrent refresh requests
-let refreshPromise: Promise<void> | null = null;
+// SP-09: module-level in-flight singleton. Concurrent 401s AND the proactive
+// timer in use-auth.ts (which now also calls tryRefresh) collapse to one
+// /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
+// expiration starts fresh.
+let inflightRefresh: Promise<void> | null = null;
 
-async function tryRefresh(): Promise<boolean> {
+export async function tryRefresh(): Promise<boolean> {
   const { refreshToken } = useAuthStore.getState();
   if (!refreshToken) return false;
 
-  if (refreshPromise) {
-    await refreshPromise;
+  if (inflightRefresh) {
+    await inflightRefresh;
     return !!useAuthStore.getState().token;
   }
 
-  refreshPromise = (async () => {
+  inflightRefresh = (async () => {
     try {
       const tokens = await refreshAccessToken(refreshToken);
       useAuthStore.getState().setTokens(
@@ -45,9 +48,9 @@ async function tryRefresh(): Promise<boolean> {
   })();
 
   try {
-    await refreshPromise;
+    await inflightRefresh;
   } finally {
-    refreshPromise = null;
+    inflightRefresh = null;
   }
 
   return !!useAuthStore.getState().token;

@@ -234,4 +234,86 @@ describe('apiFetch', () => {
       await expect(apiFetch('/test/')).rejects.toBe(abort);
     });
   });
+
+  // SP-09: 3 concurrent 401 responses should collapse to a single refresh POST.
+  // Smoke check on 2026-05-15 saw 3 concurrent /auth/refresh/ POSTs because the
+  // proactive timer in use-auth.ts bypassed the client.ts mutex. Both call sites
+  // must share the same in-flight singleton.
+  describe('concurrent refresh de-duplication (SP-09)', () => {
+    it('collapses 3 concurrent 401s into a single refresh POST', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      const mockRefresh = vi.mocked(refreshAccessToken);
+
+      let resolveRefresh: (v: unknown) => void = () => {};
+      mockRefresh.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+
+      useAuthStore.setState({ token: 'expired', refreshToken: 'r' });
+
+      // Each apiFetch call: 401, then retry success
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(jsonResponse({ ok: 1 }))
+        .mockResolvedValueOnce(jsonResponse({ ok: 2 }))
+        .mockResolvedValueOnce(jsonResponse({ ok: 3 }));
+
+      // Kick off 3 concurrent requests; do not await yet
+      const p1 = apiFetch('/a/');
+      const p2 = apiFetch('/b/');
+      const p3 = apiFetch('/c/');
+
+      // Yield twice so all three reach the 401-branch and queue on the shared promise
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Now release the refresh
+      resolveRefresh({
+        access_token: 'new',
+        refresh_token: 'r2',
+        token_type: 'bearer',
+        expires_in: 900,
+      });
+
+      await Promise.all([p1, p2, p3]);
+
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears the in-flight singleton on refresh failure so the next call retries', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      const mockRefresh = vi.mocked(refreshAccessToken);
+
+      // First refresh attempt fails
+      mockRefresh.mockRejectedValueOnce(new Error('boom'));
+      useAuthStore.setState({ token: 'expired', refreshToken: 'r' });
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(errorResponse(401));
+
+      await expect(apiFetch('/a/')).rejects.toThrow(ApiError);
+      expect(mockRefresh).toHaveBeenCalledTimes(1);
+
+      // Second wave: the singleton must have cleared, so a new refresh attempt fires
+      mockRefresh.mockResolvedValueOnce({
+        access_token: 'new',
+        refresh_token: 'r2',
+        token_type: 'bearer',
+        expires_in: 900,
+      });
+      useAuthStore.setState({ token: 'expired-2', refreshToken: 'r' });
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(jsonResponse({ ok: 1 }));
+
+      await apiFetch('/b/');
+      expect(mockRefresh).toHaveBeenCalledTimes(2);
+    });
+  });
 });
