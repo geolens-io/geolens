@@ -11,6 +11,7 @@ import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
+import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
 import type { OGCRecordResponse } from '@/types/api';
 
 const statusStyles: Record<string, string> = {
@@ -153,7 +154,16 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // fires 20+ parallel authenticated fetches.
   // NOTE: <img> tags cannot send Authorization headers, so quicklooks for
   // non-public datasets require a dedicated download-token endpoint (future).
-  const quicklookId = !isCollection && !isTable && properties.has_quicklook ? (feature.id as string) : null;
+  //
+  // SP-07: the backend's has_quicklook flag is set when quicklook_256_uri is
+  // assigned at ingest, but does NOT verify file existence. When the Celery
+  // thumbnail-generation task fails silently the request 404s and pollutes
+  // the console. Skip the <img> for any id that already 404'd this session.
+  const featureId = feature.id as string;
+  const quicklookId =
+    !isCollection && !isTable && properties.has_quicklook && !isQuicklookKnownMissing(featureId)
+      ? featureId
+      : null;
   const quicklookUrl = quicklookId
     ? `/api/datasets/${quicklookId}/quicklook?size=256`
     : null;
@@ -337,12 +347,17 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           {properties.column_count ? ` · ${t('card.tableCols', { count: properties.column_count })}` : ''}
                         </span>
                       </div>
-                    ) : quicklookUrl ? (
+                    ) : quicklookUrl && quicklookId ? (
                       <img
                         src={quicklookUrl}
                         loading="lazy"
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
                         className="size-[132px] object-cover xl:size-[148px]"
+                        onError={() => {
+                          // SP-07: cache the failure for the session so
+                          // subsequent renders / reloads skip the 404.
+                          markQuicklookMissing(quicklookId);
+                        }}
                       />
                     ) : (
                       <BBoxPreview bbox={bbox} className="size-[132px] rounded-md bg-muted xl:size-[148px]" />

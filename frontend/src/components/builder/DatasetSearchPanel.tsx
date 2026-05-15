@@ -24,6 +24,7 @@ import type { BasemapEntry } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useBasemaps } from '@/hooks/use-settings';
+import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -117,9 +118,12 @@ function DatasetPreview({ record }: { record: OGCRecordResponse }) {
   const { t } = useTranslation('builder');
   const props = record.properties;
   const isTable = props.record_type === 'table';
-  const quicklookUrl = !isTable && props.has_quicklook
-    ? `/api/datasets/${record.id}/quicklook?size=256`
-    : null;
+  // SP-07: same session-scoped negative cache pattern as the search page.
+  const recordId = record.id as string;
+  const quicklookUrl =
+    !isTable && props.has_quicklook && !isQuicklookKnownMissing(recordId)
+      ? `/api/datasets/${recordId}/quicklook?size=256`
+      : null;
 
   if (quicklookUrl) {
     return (
@@ -131,6 +135,7 @@ function DatasetPreview({ record }: { record: OGCRecordResponse }) {
         })}
         className="h-24 w-28 rounded-md border object-cover"
         loading="lazy"
+        onError={() => markQuicklookMissing(recordId)}
       />
     );
   }
