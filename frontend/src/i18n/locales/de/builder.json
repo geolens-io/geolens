@@ -391,7 +391,7 @@
     "dialogDescription": "Datensätze suchen und als Layer zur Karte hinzufügen.",
     "placeholder": "Datensätze suchen...",
     "noResults": "Keine Datensätze gefunden",
-    "added": "(hinzugefügt)",
+    "added": "Hinzugefügt",
     "addToMap": "Zur Karte hinzufügen",
     "dragHandle": "Ziehen, um zur Karte hinzuzufügen",
     "catalogEmpty": "Ihr Katalog ist leer. Laden Sie einen Datensatz hoch, um zu beginnen.",

@@ -391,7 +391,7 @@
     "dialogDescription": "Busca y agrega conjuntos de datos como capas a tu mapa.",
     "placeholder": "Buscar conjuntos de datos...",
     "noResults": "No se encontraron conjuntos de datos",
-    "added": "(agregado)",
+    "added": "Agregado",
     "addToMap": "Agregar al mapa",
     "dragHandle": "Arrastrar para agregar al mapa",
     "catalogEmpty": "Su catálogo está vacío. Cargue un conjunto de datos para comenzar.",

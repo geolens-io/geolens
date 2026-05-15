@@ -391,7 +391,7 @@
     "dialogDescription": "Recherchez et ajoutez des jeux de données comme couches à votre carte.",
     "placeholder": "Rechercher des jeux de données...",
     "noResults": "Aucun jeu de données trouvé",
-    "added": "(ajouté)",
+    "added": "Ajouté",
     "addToMap": "Ajouter à la carte",
     "dragHandle": "Glisser pour ajouter à la carte",
     "catalogEmpty": "Votre catalogue est vide. Importez un jeu de données pour commencer.",
