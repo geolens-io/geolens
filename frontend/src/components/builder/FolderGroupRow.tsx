@@ -372,7 +372,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             </Button>
             <Button
               type="button"
-              variant="secondary"
+              variant="ghost"
               className="flex-1"
               onClick={() => setConfirmingDelete(false)}
               // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on safe choice per UI-SPEC accessibility
