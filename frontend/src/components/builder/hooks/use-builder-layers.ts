@@ -652,7 +652,10 @@ export function useBuilderLayers(
             if (createdLayer?.id) {
               if (freshLayerTimeoutRef.current) clearTimeout(freshLayerTimeoutRef.current);
               setFreshLayerId(createdLayer.id);
-              freshLayerTimeoutRef.current = setTimeout(() => setFreshLayerId(null), 200);
+              freshLayerTimeoutRef.current = setTimeout(() => {
+                setFreshLayerId(null);
+                freshLayerTimeoutRef.current = null;
+              }, 200);
             }
           },
           onError: () => {
