@@ -136,6 +136,10 @@
   --sidebar-accent-foreground: oklch(0.205 0.005 250);
   --sidebar-border: oklch(0.92 0.005 85);
   --sidebar-ring: oklch(0.55 0.18 250);
+
+  /* Phase 1042 AUD-08: motion timing tokens */
+  --motion-fast: 150ms;
+  --motion-base: 250ms;
 }
 
 /* ── Dark Mode Tokens ─────────────────────────────── */
@@ -512,8 +516,11 @@
 /* ── Phase 1038 BSR-24 drag polish ───────────────────────────────────────── */
 
 /* Phase 1038 BSR-24: DnD insertion line — 2px primary line at drop target */
+/* Phase 1042: bloom shadow + full radius (1040 carry-over) */
 [data-dnd-over="true"] {
   border-top: 2px solid var(--primary);
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px oklch(0.55 0.18 250 / 25%);
 }
 
 /* Phase 1038 BSR-24: hide kebabs on non-dragging rows during drag */
@@ -543,4 +550,13 @@ html.dragging-active {
 [data-group-drop-target="true"] {
   background: var(--primary-50, oklch(0.97 0.02 250));
   box-shadow: inset 2px 0 0 var(--primary);
+}
+
+/* Phase 1042: folder group-children wash when parent is drop target (1040 carry-over) */
+/* DOM: [data-group-drop-target] div and children div are adjacent siblings under the same keyed wrapper */
+/* Children container uses id="folder-group-children-{id}" — matched via attribute-starts-with selector */
+[data-group-drop-target="true"] + [id^="folder-group-children"],
+[data-group-drop-target="true"] [id^="folder-group-children"] {
+  background: oklch(0.97 0.02 250 / 60%);
+  border-radius: var(--radius-md);
 }
