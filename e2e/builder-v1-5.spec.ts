@@ -207,6 +207,15 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     }
 
     if (!addedByKeyboard) {
+      // Guard: keyboard drag may have silently succeeded despite the assertion timeout.
+      // If row count already increased, treat as success to avoid double-add.
+      const countAfterCatch = await overlayRows.count();
+      if (countAfterCatch > initialCount) {
+        addedByKeyboard = true;
+      }
+    }
+
+    if (!addedByKeyboard) {
       // --- FALLBACK: pointer drag simulation ---
       // Re-open the dialog if it closed during keyboard attempt
       const dialogVisible = await dialog.isVisible();
@@ -217,7 +226,12 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
 
       // Press Escape to cancel any active keyboard drag state
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
+      // Wait for drag state to settle: announcement must no longer say "picked up"
+      await expect(page.locator('[data-testid="dnd-announcement"]'))
+        .not.toContainText(/picked up/i, { timeout: 2_000 })
+        .catch(() => {
+          // Announcement may not be present in all environments; continue regardless
+        });
 
       // Ensure we're back to the initial count before the pointer attempt
       const countAfterKeyboardAttempt = await overlayRows.count();
@@ -475,6 +489,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     // without preceding mousedown/pointerdown, so the outside-click handler does not trigger.
     const deleteBtn = page.locator('[role="toolbar"] button[aria-label*="Delete"]');
     await expect(deleteBtn).toBeVisible({ timeout: 3_000 });
+    await expect(deleteBtn).toBeEnabled({ timeout: 3_000 });
     await deleteBtn.dispatchEvent('click');
 
     // Confirm alertdialog appears inside the toolbar.
@@ -504,6 +519,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
       .filter({ hasText: /delete/i })
       .filter({ hasNot: cancelBtn });
     await expect(deleteConfirmBtn).toBeVisible({ timeout: 3_000 });
+    await expect(deleteConfirmBtn).toBeEnabled({ timeout: 3_000 });
     await deleteConfirmBtn.dispatchEvent('click');
 
     // Wait for the 2 rows to disappear
