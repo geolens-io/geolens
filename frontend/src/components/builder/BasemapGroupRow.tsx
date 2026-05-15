@@ -50,7 +50,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   isExpanded,
   isDragging = false,
   visibilityDisabled = false,
-  dragHandleProps,
+  dragHandleProps: _dragHandleProps,
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
