@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Loader2, Plus, Search } from 'lucide-react';
+import { Check, Loader2, MapPin, Plus, Search } from 'lucide-react';
 import { getDataset } from '@/api/datasets';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
@@ -224,27 +224,44 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
         />
       </div>
 
-      {/* Suggested section */}
-      <div className="flex flex-col gap-2">
-        <span
-          aria-hidden="true"
-          className={eyebrowClassName}
-        >
-          {t('unifiedStack.suggestedLabel', { defaultValue: 'SUGGESTED' })}
-        </span>
-        <ul role="list" aria-label="Suggested datasets" className="flex flex-col gap-2">
-          {SUGGESTED_DATASETS.map((suggestion) => (
-            <SuggestCard
-              key={suggestion.id}
-              suggestion={suggestion}
-              onOpenAddData={onOpenAddData}
-              addingId={addingId}
-              addedIds={addedIds}
-              onDirectAdd={handleDirectAdd}
-            />
-          ))}
-        </ul>
-      </div>
+      {/* Suggested section — or starter-help fallback when SUGGESTED_DATASETS is empty */}
+      {SUGGESTED_DATASETS.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <span
+            aria-hidden="true"
+            className={eyebrowClassName}
+          >
+            {t('unifiedStack.suggestedLabel', { defaultValue: 'SUGGESTED' })}
+          </span>
+          <ul role="list" aria-label="Suggested datasets" className="flex flex-col gap-2">
+            {SUGGESTED_DATASETS.map((suggestion) => (
+              <SuggestCard
+                key={suggestion.id}
+                suggestion={suggestion}
+                onOpenAddData={onOpenAddData}
+                addingId={addingId}
+                addedIds={addedIds}
+                onDirectAdd={handleDirectAdd}
+              />
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-3 px-4 py-4 text-center">
+          <MapPin className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">
+            {t('unifiedStack.emptyHelpBody', { defaultValue: 'Search the catalog to find datasets, or use the Upload button to add your own.' })}
+          </p>
+          <button
+            type="button"
+            aria-label="Browse all datasets in the Add Data modal"
+            onClick={() => onOpenAddData()}
+            className="text-xs text-primary self-center hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+          >
+            {t('unifiedStack.browseAllShort', { defaultValue: 'Browse catalog →' })}
+          </button>
+        </div>
+      )}
 
       {/* Browse all */}
       <button

@@ -780,6 +780,8 @@
     "emptySearchPlaceholder": "Search datasets, URLs, or files…",
     "suggestedLabel": "SUGGESTED",
     "browseAll": "Browse all datasets →",
+    "browseAllShort": "Browse catalog →",
+    "emptyHelpBody": "Search the catalog to find datasets, or use the Upload button to add your own.",
     "listboxLabel": "Map layers"
   },
   "rail": {
