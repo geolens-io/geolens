@@ -21,7 +21,7 @@ progress:
 Phase: Milestone v1009.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-15 — Milestone v1009.1 completed and archived; 3 followups open (SP-03 quick task, SP-07 backend, SP-12 feature)
+Last activity: 2026-05-15 — Completed quick task 260515-gm6: SP-03 B-01-followup (fresh-add maplibre sync race) — ref+callback refactor + idle-event retry; Playwright UAT verified vector + DEM render without refresh
 
 ## Project Reference
 
@@ -226,6 +226,7 @@ See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 | 260508-rr5 | Fix /tmp tmpfs cap blocking large uploads (gh #101) — set tempfile.tempdir to /app/staging in app/api/main.py | 2026-05-08 | 220a2052 | Verified | [260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads](./quick/260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads/) |
 | 260514-ajo | Smoke-test sweep deferred from v1008 close: fixed SidebarRail Add-data event bug + rewrote 8 stale tests and deleted 4 tests for removed features; full smoke 56/56 pass | 2026-05-14 | 91951aca |  | [260514-ajo-run-through-the-smoke-checks-and-fix-any](./quick/260514-ajo-run-through-the-smoke-checks-and-fix-any/) |
 | 260515-cej | Docker no-cache rebuild + Map Builder Playwright smoke check — 2 BLOCKERs (B-01 first-add maplibre sync miss, B-02 BulkActionBar clipped by sidebar), 4 MAJORs, 6 MINORs documented in FINDINGS.md with 18 screenshots | 2026-05-15 |  | Findings Reported | [260515-cej-docker-rebuild-builder-smoke](./quick/260515-cej-docker-rebuild-builder-smoke/) |
+| 260515-gm6 | SP-03 B-01-followup: fix fresh-add maplibre sync race (broken on first layer-add until refresh). Refactor to ref+callback (mirrors ViewerMap) + idle-event retry when style is transitioning. Playwright UAT confirmed: vector + DEM render without refresh, visibility + persistence regression checks pass. | 2026-05-15 | 74fe5cb8 | Verified | [260515-gm6-sp-03-b-01-followup-fix-fresh-add-maplib](./quick/260515-gm6-sp-03-b-01-followup-fix-fresh-add-maplib/) |
 
 ## Deferred Items
 
