@@ -644,4 +644,76 @@ describe('LayerEditorPanel', () => {
       expect(breadcrumb).toHaveTextContent('Basemap · Untitled ›');
     });
   });
+
+  describe('AUD-05/06/07: header padding, type pill color, caret duration', () => {
+    it('AUD-05: header element has className containing px-4 and py-3', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+        />
+      );
+      const header = screen.getByTestId('layer-editor-header');
+      expect(header.className).toContain('px-4');
+      expect(header.className).toContain('py-3');
+    });
+
+    it('AUD-06: vector layer type pill has bg-[var(--type-vector-bg)] and text-[var(--type-vector)] classes', () => {
+      const layer = makeLayer({ dataset_record_type: 'vector_dataset', dataset_geometry_type: 'POLYGON' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="default"
+        />
+      );
+      // The pill span — use querySelectorAll to find spans with the type-vector-bg class
+      const pill = document.querySelector('[class*="type-vector-bg"]');
+      expect(pill).not.toBeNull();
+      expect(pill?.className).toContain('type-vector');
+    });
+
+    it('AUD-06: raster layer type pill has bg-[var(--type-raster-bg)] class', () => {
+      const layer = makeLayer({
+        dataset_record_type: 'raster_dataset',
+        layer_type: 'raster_geolens',
+        dataset_geometry_type: null,
+      });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="default"
+        />
+      );
+      const pill = document.querySelector('[class*="type-raster-bg"]');
+      expect(pill).not.toBeNull();
+    });
+
+    it('AUD-07: Filter section caret has className containing transition-transform and duration-[--motion-fast]', () => {
+      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          enableLegacyTabs={false}
+          editorScene="default"
+        />
+      );
+      // All three collapsible section triggers have ChevronRight icons with the duration class
+      const carets = document.querySelectorAll('[class*="transition-transform"][class*="motion-fast"]');
+      // Should have at least 1 (Filter, Labels, Source — depending on layer kind)
+      expect(carets.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

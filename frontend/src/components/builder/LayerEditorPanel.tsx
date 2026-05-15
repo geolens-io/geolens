@@ -87,7 +87,13 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
   }
 
   return (
-    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] bg-[var(--surface-2)] text-muted-foreground">
+    <span className={cn(
+      'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
+      caps.kind === 'vector' && 'bg-[var(--type-vector-bg)] text-[var(--type-vector)]',
+      (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-[var(--type-raster-bg)] text-[var(--type-raster)]',
+      caps.kind === 'basemap' && 'bg-[var(--primary-50)] text-[var(--primary-700)]',
+      !['vector', 'raster', 'vrt', 'basemap'].includes(caps.kind) && 'bg-[var(--surface-2)] text-muted-foreground',
+    )}>
       {label}
     </span>
   );
@@ -200,7 +206,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       {/* Header: back (drill-down only) | [breadcrumb for sublayer] | type icon | layer name | close × */}
       <header
         data-testid="layer-editor-header"
-        className="flex flex-col px-2 py-2 border-b shrink-0"
+        className="flex flex-col px-4 py-3 border-b shrink-0"
       >
         {/* Breadcrumb: only shown when editorScene === 'basemap-sublayer' */}
         {editorScene === 'basemap-sublayer' && (
@@ -447,7 +453,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
                   >
                     <ChevronRight
-                      className={cn('h-4 w-4 shrink-0 transition-transform duration-150', filterOpen && 'rotate-90')}
+                      className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', filterOpen && 'rotate-90')}
                       aria-hidden="true"
                     />
                     <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -482,7 +488,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
                   >
                     <ChevronRight
-                      className={cn('h-4 w-4 shrink-0 transition-transform duration-150', labelsOpen && 'rotate-90')}
+                      className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', labelsOpen && 'rotate-90')}
                       aria-hidden="true"
                     />
                     <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -516,7 +522,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
                 >
                   <ChevronRight
-                    className={cn('h-4 w-4 shrink-0 transition-transform duration-150', sourceOpen && 'rotate-90')}
+                    className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', sourceOpen && 'rotate-90')}
                     aria-hidden="true"
                   />
                   <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
