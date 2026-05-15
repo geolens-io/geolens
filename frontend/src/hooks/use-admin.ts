@@ -179,14 +179,16 @@ export function useRejectUser() {
   });
 }
 
-// AI Status
+// AI Status — cached across all consumers (SP-08). No idle polling: the result is
+// re-fetched on staleTime expiry or via explicit invalidation (e.g. after mutating
+// AI config). 60s staleTime keeps multi-consumer mounts from refetching; 5min gcTime
+// keeps the cache warm across page transitions.
 export function useAIStatus(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.aiStatus,
     queryFn: getAIStatus,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
     enabled: options?.enabled,
   });
 }
