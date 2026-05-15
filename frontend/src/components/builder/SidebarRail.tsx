@@ -69,7 +69,7 @@ export const SidebarRail = memo(function SidebarRail({
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isSettingsOpen
                 ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                : 'text-muted-foreground hover:bg-[var(--surface-2)] hover:text-foreground',
             )}
             onClick={onSettingsClick}
           >
