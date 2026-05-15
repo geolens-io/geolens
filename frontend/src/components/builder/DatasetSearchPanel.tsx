@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'reac
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
+  AlertCircle,
   Check,
   ChevronRight,
   Database,
@@ -10,13 +11,14 @@ import {
   Inbox,
   Plus,
   Repeat2,
+  RotateCcw,
   Search,
   SearchX,
   Shuffle,
   Upload,
 } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { searchDatasets } from '@/api/search';
 import type { BasemapEntry } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
@@ -392,6 +394,7 @@ export function DatasetSearchPanel({
   initialQuery,
 }: DatasetSearchPanelProps) {
   const { t } = useTranslation('builder');
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState<string>(initialQuery ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -628,10 +631,20 @@ export function DatasetSearchPanel({
 
       {/* State: Error */}
       {activeTab !== 'basemap' && isError && (
-        <div role="alert" className="flex flex-col items-center gap-2 px-4 py-6">
-          <p className="text-sm text-destructive">
+        <div role="alert" className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+          <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
+          <p className="text-sm text-foreground text-center">
             {t('search.error', { defaultValue: 'Failed to load datasets. Check your connection and try again.' })}
           </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.datasetSearch.results(debouncedQuery, recordType) })}
+          >
+            <RotateCcw className="me-1 h-3.5 w-3.5" aria-hidden="true" />
+            {t('search.retry', { defaultValue: 'Try again' })}
+          </Button>
         </div>
       )}
 

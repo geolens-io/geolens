@@ -399,7 +399,8 @@
     "zeroResultHeading": "No datasets match '{{query}}'",
     "zeroResultBody": "Try a different search term, or browse all datasets.",
     "clearSearch": "Clear search",
-    "error": "Failed to load datasets. Check your connection and try again."
+    "error": "Failed to load datasets. Check your connection and try again.",
+    "retry": "Try again"
   },
   "share": {
     "title": "Share",
