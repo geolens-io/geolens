@@ -162,7 +162,7 @@
   4. User navigates default → basemap-group → basemap-sublayer scene transitions and back and finds scroll position and keyboard focus preserved at each step.
 **Plans**: 4 plans
 - [x] 1043-01-PLAN.md — Recoverable error state + destructive-confirm autoFocus safety (POL-16, AUD-09, AUD-11)
-- [ ] 1043-02-PLAN.md — Empty-state matrix: SUGGESTED fallback + secondary catalog CTA + Source no-columns (POL-16, POL-17, AUD-14, AUD-22)
+- [x] 1043-02-PLAN.md — Empty-state matrix: SUGGESTED fallback + secondary catalog CTA + Source no-columns (POL-16, POL-17, AUD-14, AUD-22)
 - [ ] 1043-03-PLAN.md — IA: SidebarRail basemap button + AUD-18 destructive footer + scene-transition scroll/focus preservation (POL-17, POL-18, AUD-18, AUD-20)
 - [ ] 1043-04-PLAN.md — Carry-overs: 7-site hover token sweep + SettingsEditorScene eyebrow migration + 5 missing English i18n keys + WR-03 verify (POL-17, POL-18)
 **UI hint**: yes
@@ -207,7 +207,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 | 1040. drag-from-catalog-into-stack | v1009 | 4/4 | Complete   | 2026-05-14 |
 | 1041. multi-layer-selection-and-bulk-ops | v1009 | 4/4 | Complete   | 2026-05-14 |
 | 1042. spacing-density-states-polish | v1009 | 4/4 | Complete   | 2026-05-15 |
-| 1043. error-empty-states-and-ia-cleanup | v1009 | 1/4 | In Progress|  |
+| 1043. error-empty-states-and-ia-cleanup | v1009 | 2/4 | In Progress|  |
 | 1044. cross-cutting-closeout | v1009 | 0/0 | Not started | - |
 
 
