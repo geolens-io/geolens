@@ -49,7 +49,7 @@ A modern, sleek, intuitive review across the entire builder surface — audit-fi
 - [x] **POL-15** — Loading affordances (skeletons for column lists, spinners for async previews, optimistic UI for stack reorder) are present everywhere an async fetch occurs in the builder.
 - [x] **POL-16** — Error states are present and recoverable: every async failure point surfaces a localized error message with a retry affordance (no silent failure into the error boundary).
 - [x] **POL-17** — Empty states are polished beyond v1008's catalog-first treatment — Filter section "no conditions yet", Labels section "labels off", Source section "no columns indexed", and the LayerEditorPanel itself when basemap-group has zero customization all receive intentional empty-state copy + iconography.
-- [ ] **POL-18** — Information architecture cleanup: section ordering inside `LayerEditorPanel` is consistent across vector/raster/DEM/basemap layer types; scene transitions (default → basemap-group → basemap-sublayer → back) preserve scroll position and focus.
+- [x] **POL-18** — Information architecture cleanup: section ordering inside `LayerEditorPanel` is consistent across vector/raster/DEM/basemap layer types; scene transitions (default → basemap-group → basemap-sublayer → back) preserve scroll position and focus.
 
 ### Builder Test Debt Closeout
 
@@ -62,7 +62,7 @@ Pre-existing builder test drift surfaced during the v1008 smoke-test sweep is cl
 ### Cross-Cutting Closeout
 
 - [ ] **POL-22** — i18n locales (en / de / fr / es) updated for every new builder string introduced in v1.5 (drag-from-catalog affordances, bulk action labels, audit-driven copy refinements); `i18n-check` smoke green.
-- [ ] **POL-23** — Accessibility verified for new interactions: drag-from-catalog supports keyboard-only path (Space to pick up, Arrow to navigate stack, Space to drop, Escape to cancel — mirrors v1008 in-stack drag); multi-select supports Shift+ArrowUp/Down + Space; selection state announced via `aria-multiselectable` on the stack `role="listbox"`.
+- [x] **POL-23** — Accessibility verified for new interactions: drag-from-catalog supports keyboard-only path (Space to pick up, Arrow to navigate stack, Space to drop, Escape to cancel — mirrors v1008 in-stack drag); multi-select supports Shift+ArrowUp/Down + Space; selection state announced via `aria-multiselectable` on the stack `role="listbox"`.
 - [ ] **POL-24** — A Playwright UAT spec (`e2e/builder-v1-5.spec.ts`) exercises the drag-from-catalog happy path, multi-select bulk-delete happy path, and one negative-path each (cancel via Escape during drag; bulk delete with mixed basemap + overlay selection blocked).
 - [ ] **POL-25** — Builder smoke (`npm run e2e:smoke:builder`) remains green at milestone close; all 21 existing tests pass + the new UAT spec from POL-24 is added.
 

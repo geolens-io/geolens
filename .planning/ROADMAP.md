@@ -179,7 +179,7 @@
   4. User runs `npm run e2e:smoke:builder` at milestone close and sees all 21 existing tests + the new `builder-v1-5.spec.ts` pass green.
 **Plans**: 4 plans
 - [ ] 1044-01-PLAN.md — Locale parity sweep: fill de/es/fr for all 56 missing v1.5 keys + replace 30 English-passthrough values (POL-22)
-- [ ] 1044-02-PLAN.md — A11y verification: vitest a11y tests for listbox/multi-select + drag-announce; keyboard walkthrough doc (POL-23)
+- [x] 1044-02-PLAN.md — A11y verification: vitest a11y tests for listbox/multi-select + drag-announce; keyboard walkthrough doc (POL-23)
 - [ ] 1044-03-PLAN.md — Playwright UAT spec e2e/builder-v1-5.spec.ts (4 scenarios) + add to e2e:smoke:builder (POL-24)
 - [ ] 1044-04-PLAN.md — Final smoke gate (i18n + vitest + typecheck + e2e:smoke:builder) + GO/NO-GO SUMMARY (POL-25)
 **UI hint**: yes
@@ -212,7 +212,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 | 1041. multi-layer-selection-and-bulk-ops | v1009 | 4/4 | Complete   | 2026-05-14 |
 | 1042. spacing-density-states-polish | v1009 | 4/4 | Complete   | 2026-05-15 |
 | 1043. error-empty-states-and-ia-cleanup | v1009 | 4/4 | Complete   | 2026-05-15 |
-| 1044. cross-cutting-closeout | v1009 | 0/4 | Planned | - |
+| 1044. cross-cutting-closeout | v1009 | 1/4 | In Progress|  |
 
 
 <details>
