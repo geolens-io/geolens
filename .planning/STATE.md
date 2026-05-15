@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1009.1
 milestone_name: Builder Smoke Polish
-status: roadmapped
-stopped_at: v1009.1 Builder Smoke Polish roadmapped; Phase 1045 ready to plan.
-last_updated: "2026-05-15T13:30:00.000Z"
-last_activity: 2026-05-15 — Milestone v1009.1 opened to close 17 smoke-check findings; B-01 already shipped at 85738f1c
+status: ready_to_complete
+stopped_at: Phase 1045 complete; CTRL-01 gate passed (16 PASS + 1 PARTIAL + 1 ESCALATE + 1 SKIPPED-with-rationale); ready for /gsd-complete-milestone v1009.1
+last_updated: "2026-05-15T15:30:00.000Z"
+last_activity: 2026-05-15 — Phase 1045 executed end-to-end; 20 commits across 3 plans; ready to tag v1009.1
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 3
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1045 (Builder Smoke Polish)
-Plan: —
-Status: Roadmapped; ready for `/gsd-plan-phase 1045`
-Last activity: 2026-05-15 — v1009.1 milestone opened; REQUIREMENTS.md + ROADMAP.md scaffolded; B-01 fix landed at 85738f1c
+Phase: 1045 (Builder Smoke Polish) — COMPLETE
+Plan: All 3 plans complete (1045-01, 1045-02, 1045-03)
+Status: Ready for `/gsd-complete-milestone v1009.1` — tag and archive
+Last activity: 2026-05-15 — CTRL-01 batch gate passed; 18/18 SP reqs accounted for; 20 commits between `cf40075b..HEAD`
 
 ## Project Reference
 
