@@ -6,8 +6,21 @@ interface MapCoordReadoutProps {
 }
 
 /**
- * Live coordinate readout anchored to the bottom-right of the map canvas.
- * Shows lat, lon, and zoom level — updates on mousemove and zoomend.
+ * Live coordinate readout anchored to the top-right of the map canvas.
+ * Shows lat, lon, and zoom level — updates on:
+ *   - `move`        → tracks programmatic flyTo / fitBounds / inertial pan
+ *                     (Phase 1045 SP-02 / M-01 fix: before this, lat/lng
+ *                     never updated after auto-fit because only `mousemove`
+ *                     fired setCoords; programmatic camera moves were invisible
+ *                     to the readout).
+ *   - `mousemove`   → tracks the cursor's geographic position while inside
+ *                     the canvas (existing behavior — preserved).
+ *   - `zoomend`     → updates the zoom value (kept for back-compat; `move`
+ *                     also covers this, but `zoomend` is the original signal
+ *                     and is cheap to leave in place).
+ *   - canvas leave  → fall back to the current map center so the readout
+ *                     reflects the viewport instead of stale cursor coords.
+ *
  * Uses font-mono for an instrument/cartographic feel.
  */
 export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordReadoutProps) {
@@ -23,6 +36,18 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
     const center = map.getCenter();
     setCoords({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
 
+    const updateFromCenter = () => {
+      if (disposed) return;
+      const c = map.getCenter();
+      const lat = parseFloat(c.lat.toFixed(2));
+      const lng = parseFloat(c.lng.toFixed(2));
+      const zoom = parseFloat(map.getZoom().toFixed(1));
+      setCoords((prev) => {
+        if (prev && prev.lat === lat && prev.lng === lng && prev.zoom === zoom) return prev;
+        return { lat, lng, zoom };
+      });
+    };
+
     const onMouseMove = (e: MapMouseEvent) => {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(() => {
@@ -37,19 +62,28 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
       });
     };
 
+    // SP-02: `move` fires on every camera change — programmatic flyTo /
+    // fitBounds, drag-pan, inertial pan, etc. — and is the canonical signal
+    // for "viewport changed". Without it the readout starts at the map
+    // center and never updates if the user never hovers the canvas.
+    const onMove = () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(updateFromCenter);
+    };
+
     const onZoom = () => {
       if (disposed) return;
       setCoords((prev) =>
-        prev ? { ...prev, zoom: map.getZoom() } : { lat: map.getCenter().lat, lng: map.getCenter().lng, zoom: map.getZoom() },
+        prev ? { ...prev, zoom: parseFloat(map.getZoom().toFixed(1)) } : { lat: map.getCenter().lat, lng: map.getCenter().lng, zoom: parseFloat(map.getZoom().toFixed(1)) },
       );
     };
 
     const onMouseLeave = () => {
       if (disposed) return;
-      const center = map.getCenter();
-      setCoords({ lat: center.lat, lng: center.lng, zoom: map.getZoom() });
+      updateFromCenter();
     };
 
+    map.on('move', onMove);
     map.on('mousemove', onMouseMove);
     map.on('zoomend', onZoom);
     const canvas = map.getCanvas?.();
@@ -58,6 +92,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
     return () => {
       disposed = true;
       cancelAnimationFrame(rafRef.current);
+      map.off('move', onMove);
       map.off('mousemove', onMouseMove);
       map.off('zoomend', onZoom);
       canvas?.removeEventListener('mouseleave', onMouseLeave);
