@@ -17,7 +17,7 @@
  * Worker-safety: no file-level vi.mock('@dnd-kit/core', ...).
  */
 
-import { render, screen, cleanup } from '@/test/test-utils';
+import { render, cleanup } from '@/test/test-utils';
 import { useParams } from 'react-router';
 import { MapBuilderPage } from '@/pages/MapBuilderPage';
 
