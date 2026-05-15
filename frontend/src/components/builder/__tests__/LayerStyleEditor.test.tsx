@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
-import { LayerStyleEditor } from '../LayerStyleEditor';
+import { LayerStyleEditor, hasUnsavedStyleChanges } from '../LayerStyleEditor';
 import { LayerEditorPanel } from '../LayerEditorPanel';
 import { stopsToLineGradientExpression } from '../LineGradientControls';
 import type { MapLayerResponse } from '@/types/api';
@@ -38,12 +38,9 @@ const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   ...overrides,
 });
 
-describe('LayerStyleEditor - dash presets', () => {
-  it('shows a geometry-aware pending style preview and scoped reset action', async () => {
-    const onStyleConfigChange = vi.fn();
-    const onOpacityChange = vi.fn();
-    const user = userEvent.setup();
-
+describe('LayerStyleEditor - SP-05 pending preview banner gating', () => {
+  it('does NOT show the pending preview banner on first open with no savedLayer baseline', () => {
+    // No savedLayer prop → draft is considered clean (no dirty tracking source).
     render(
       <LayerStyleEditor
         layer={makeLayer({
@@ -51,6 +48,77 @@ describe('LayerStyleEditor - dash presets', () => {
           opacity: 0.42,
           paint: { 'fill-color': '#123456', 'fill-opacity': 0.4, '_outline-color': '#abcdef' },
         })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('Pending style preview')).not.toBeInTheDocument();
+  });
+
+  it('does NOT show the pending preview banner when savedLayer matches the current draft', () => {
+    const layer = makeLayer({
+      dataset_geometry_type: 'Polygon',
+      opacity: 0.42,
+      paint: { 'fill-color': '#123456', 'fill-opacity': 0.4, '_outline-color': '#abcdef' },
+    });
+    render(
+      <LayerStyleEditor
+        layer={layer}
+        savedLayer={layer}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('Pending style preview')).not.toBeInTheDocument();
+  });
+
+  it('SHOWS the pending preview banner when draft paint diverges from savedLayer.paint', () => {
+    const saved = makeLayer({
+      dataset_geometry_type: 'Polygon',
+      paint: { 'fill-color': '#123456', 'fill-opacity': 0.4 },
+    });
+    // Draft has a different fill-color — dirty.
+    const draft = { ...saved, paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.4 } };
+    render(
+      <LayerStyleEditor
+        layer={draft}
+        savedLayer={saved}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Pending style preview')).toBeInTheDocument();
+    expect(screen.getByText('Reflects this layer before save')).toBeInTheDocument();
+  });
+
+  it('Reset action is exposed and wired to scoped style reset when banner is visible', async () => {
+    const onStyleConfigChange = vi.fn();
+    const onOpacityChange = vi.fn();
+    const user = userEvent.setup();
+
+    const saved = makeLayer({
+      dataset_geometry_type: 'Polygon',
+      opacity: 1,
+      paint: { 'fill-color': '#000000', 'fill-opacity': 1, '_outline-color': '#ffffff' },
+    });
+    const draft = {
+      ...saved,
+      opacity: 0.42,
+      paint: { 'fill-color': '#123456', 'fill-opacity': 0.4, '_outline-color': '#abcdef' },
+    };
+    render(
+      <LayerStyleEditor
+        layer={draft}
+        savedLayer={saved}
         onPaintChange={vi.fn()}
         onOpacityChange={onOpacityChange}
         onStyleConfigChange={onStyleConfigChange}
@@ -60,7 +128,6 @@ describe('LayerStyleEditor - dash presets', () => {
     );
 
     expect(screen.getByText('Pending style preview')).toBeInTheDocument();
-    expect(screen.getByText('Reflects this layer before save')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Reset' }));
     expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
@@ -69,6 +136,41 @@ describe('LayerStyleEditor - dash presets', () => {
     }));
     expect(onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
   });
+});
+
+describe('hasUnsavedStyleChanges helper (SP-05)', () => {
+  it('returns false when savedLayer is undefined', () => {
+    const draft = makeLayer({ paint: { 'fill-color': '#abc' } });
+    expect(hasUnsavedStyleChanges(draft, undefined)).toBe(false);
+  });
+
+  it('returns false when draft and saved are deep-equal in paint/layout/style_config', () => {
+    const layer = makeLayer({ paint: { 'fill-color': '#abc' } });
+    expect(hasUnsavedStyleChanges(layer, layer)).toBe(false);
+    // Different object identity, same content
+    expect(hasUnsavedStyleChanges({ ...layer, paint: { ...layer.paint } }, layer)).toBe(false);
+  });
+
+  it('returns true when draft.paint diverges from saved.paint', () => {
+    const saved = makeLayer({ paint: { 'fill-color': '#aaa' } });
+    const draft = { ...saved, paint: { 'fill-color': '#bbb' } };
+    expect(hasUnsavedStyleChanges(draft, saved)).toBe(true);
+  });
+
+  it('returns true when draft.layout diverges from saved.layout', () => {
+    const saved = makeLayer({ layout: {} });
+    const draft = { ...saved, layout: { 'line-dasharray': [4, 2] } };
+    expect(hasUnsavedStyleChanges(draft, saved)).toBe(true);
+  });
+
+  it('returns true when draft.style_config diverges from saved.style_config', () => {
+    const saved = makeLayer({ style_config: null });
+    const draft = { ...saved, style_config: { builder: { outlineWidth: 2 } } as MapLayerResponse['style_config'] };
+    expect(hasUnsavedStyleChanges(draft, saved)).toBe(true);
+  });
+});
+
+describe('LayerStyleEditor - dash presets', () => {
 
   it('warns about unsupported imported style state without mutating style config', () => {
     const onStyleConfigChange = vi.fn();

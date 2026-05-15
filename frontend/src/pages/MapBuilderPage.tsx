@@ -211,6 +211,18 @@ export function MapBuilderPage() {
     [layers.expandedLayerId, layers.localLayers],
   );
 
+  // SP-05 (Phase 1045): server-state baseline for the layer in the editor.
+  // Used by LayerStyleEditor to gate the "Pending style preview" banner on a
+  // real diff against persisted state instead of showing it unconditionally.
+  // Looked up by id from savedLayerBaseline which use-builder-layers refreshes
+  // after every successful save / fresh load (see savedLayerBaselineRef).
+  const editingSavedLayer = useMemo(
+    () => layers.expandedLayerId
+      ? layers.savedLayerBaseline.find((l) => l.id === layers.expandedLayerId)
+      : undefined,
+    [layers.expandedLayerId, layers.savedLayerBaseline],
+  );
+
   const layerEditorHandlers = useMemo((): LayerEditorHandlers => ({
     onTabChange: layers.handleTabChange,
     onPaintChange: layers.handlePaintChange,
@@ -1052,6 +1064,7 @@ export function MapBuilderPage() {
                   is_dem: false,
                   dem_vertical_units: null,
                 }}
+                savedLayer={editingSavedLayer}
                 onClose={handleCloseEditor}
                 isDrillDown={false}
                 handlers={layerEditorHandlers}
@@ -1122,6 +1135,7 @@ export function MapBuilderPage() {
                     is_dem: false,
                     dem_vertical_units: null,
                   }}
+                  savedLayer={editingSavedLayer}
                   onClose={handleCloseEditor}
                   isDrillDown={true}
                   handlers={layerEditorHandlers}

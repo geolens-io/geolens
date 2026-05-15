@@ -38,6 +38,13 @@ export interface LayerEditorHandlers {
 
 interface LayerEditorPanelProps {
   layer: MapLayerResponse;
+  /**
+   * SP-05 (Phase 1045): server-state baseline for `layer`. When set, the
+   * embedded LayerStyleEditor gates its "Pending style preview" banner on a
+   * deep-equal diff against this baseline. Caller (MapBuilderPage) looks the
+   * baseline up from useBuilderLayers().savedLayerBaseline by id.
+   */
+  savedLayer?: MapLayerResponse;
   activeTab?: 'style' | 'filter' | 'labels' | 'popup' | null;
   handlers: LayerEditorHandlers;
   /** New: closes the flyout and deselects the row */
@@ -112,6 +119,7 @@ function zoomValue(value: unknown, fallback: number): number {
 
 export const LayerEditorPanel = memo(function LayerEditorPanel({
   layer,
+  savedLayer,
   activeTab,
   handlers,
   onClose,
@@ -394,6 +402,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   <LayerStyleEditor
                     key={layer.id}
                     layer={layer}
+                    savedLayer={savedLayer}
                     onPaintChange={handlers.onPaintChange}
                     onStyleConfigChange={handlers.onStyleConfigChange}
                     onLayoutChange={handlers.onLayoutChange}
@@ -673,6 +682,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       <LayerStyleEditor
                         key={layer.id}
                         layer={layer}
+                        savedLayer={savedLayer}
                         onPaintChange={handlers.onPaintChange}
                         onOpacityChange={handlers.onOpacityChange}
                         onStyleConfigChange={handlers.onStyleConfigChange}

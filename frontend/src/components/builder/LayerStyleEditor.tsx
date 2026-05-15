@@ -26,12 +26,73 @@ type PointRenderMode = 'points' | 'heatmap' | 'symbol' | 'cluster';
 
 interface LayerStyleEditorProps {
   layer: MapLayerResponse;
+  /**
+   * SP-05: server-state baseline for the layer. Provided when the editor is
+   * mounted from MapBuilderPage (which holds `savedLayerBaseline`). When set,
+   * the "Pending style preview" banner is shown only if `layer` diverges from
+   * `savedLayer` in paint / layout / style_config. When undefined (e.g. in
+   * isolated tests or when the parent has no baseline source), the banner is
+   * hidden — the assumption is "no baseline => nothing to diff against".
+   */
+  savedLayer?: MapLayerResponse;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   /** Omit to hide the master opacity slider (e.g. when the parent owns opacity via a separate control). */
   onOpacityChange?: (layerId: string, opacity: number) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
   onRenderModeChange?: (layerId: string, mode: PointRenderMode) => void;
+}
+
+// ---------------------------------------------------------------------------
+// SP-05 (Phase 1045): dirty-tracking helper
+//
+// Exported for unit testing. Returns true iff the editor draft (`draft`)
+// diverges from its server-state baseline (`saved`) in any of:
+//   - paint   (Record<string, unknown>)
+//   - layout  (Record<string, unknown>)
+//   - style_config (StyleConfig | null)
+//
+// Identity-equal references short-circuit to false. When `saved` is undefined,
+// returns false — the caller has no baseline to compare against, so the
+// "Pending style preview" banner stays hidden (smoke check 2026-05-15, M-04).
+// ---------------------------------------------------------------------------
+export function hasUnsavedStyleChanges(
+  draft: MapLayerResponse,
+  saved: MapLayerResponse | undefined,
+): boolean {
+  if (!saved) return false;
+  if (draft === saved) return false;
+  return !(
+    deepEqual(draft.paint ?? {}, saved.paint ?? {})
+    && deepEqual(draft.layout ?? {}, saved.layout ?? {})
+    && deepEqual(draft.style_config ?? null, saved.style_config ?? null)
+  );
+}
+
+// Small inline deep-equality for plain JSON-ish values (objects, arrays,
+// primitives, null). Sufficient for paint/layout/style_config which are JSON.
+// Avoids pulling in lodash for a one-call surface.
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    return false;
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const aKeys = Object.keys(a as Record<string, unknown>);
+  const bKeys = Object.keys(b as Record<string, unknown>);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (!deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
 }
 
 const LINE_DASH_PRESETS = [
@@ -239,6 +300,7 @@ function StrokeControls({
 
 export const LayerStyleEditor = memo(function LayerStyleEditor({
   layer,
+  savedLayer,
   onPaintChange,
   onOpacityChange,
   onStyleConfigChange,
@@ -397,9 +459,18 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
 
   const unsupportedBuilderState = hasUnsupportedBuilderState(layer, geomType);
 
+  // SP-05 (Phase 1045): Gate the "Pending style preview" banner on real dirty
+  // tracking instead of unconditionally rendering it. Memoize so the deep-equal
+  // walk over paint/layout/style_config only runs when one of those (or the
+  // baseline reference) changes.
+  const isStyleDirty = useMemo(
+    () => hasUnsavedStyleChanges(layer, savedLayer),
+    [layer, savedLayer],
+  );
+
   return (
     <div className="space-y-2">
-      <StylePreview layer={layer} onReset={handleResetStyle} />
+      {isStyleDirty && <StylePreview layer={layer} onReset={handleResetStyle} />}
 
       {unsupportedBuilderState && (
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning-foreground">
