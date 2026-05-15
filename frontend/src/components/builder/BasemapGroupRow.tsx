@@ -112,13 +112,15 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       {/* Cell 2: Grip — hidden: basemap group is not user-draggable (AUD-04) */}
       <span aria-hidden="true" className="h-[14px] w-[14px]" />
 
-      {/* Cell 3: Eye visibility toggle — disabled when basemap visibility is not yet wired */}
+      {/* Cell 3: Eye visibility toggle — disabled when basemap visibility is not yet wired.
+          SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
       <button
         type="button"
         aria-label={t('stackRow.toggleVisibility', {
           defaultValue: 'Toggle visibility for {{name}}',
           name: rowName,
         })}
+        aria-pressed={visible}
         aria-disabled={visibilityDisabled || undefined}
         tabIndex={visibilityDisabled ? -1 : undefined}
         className={cn(

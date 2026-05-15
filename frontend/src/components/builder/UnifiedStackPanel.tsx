@@ -455,10 +455,11 @@ const SublayerRow = memo(function SublayerRow({
         <GripVertical className="h-3.5 w-3.5" />
       </span>
 
-      {/* Cell 3: Eye visibility toggle */}
+      {/* Cell 3: Eye visibility toggle (SP-10: aria-pressed reflects state) */}
       <button
         type="button"
         aria-label={`Toggle visibility for ${sublayer.name}`}
+        aria-pressed={sublayer.visible}
         className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={(e) => {
           e.stopPropagation();

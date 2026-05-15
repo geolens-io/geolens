@@ -193,6 +193,19 @@ describe('BasemapGroupRow', () => {
     expect(onSelectGroup).not.toHaveBeenCalled();
   });
 
+  // SP-10: visibility toggle exposes aria-pressed reflecting visible state.
+  it('Test 10b: eye toggle has aria-pressed=true when visible=true', () => {
+    render(<BasemapGroupRow {...defaultProps({ visible: true })} />);
+    const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i, pressed: true });
+    expect(eyeBtn).toBeInTheDocument();
+  });
+
+  it('Test 10c: eye toggle has aria-pressed=false when visible=false', () => {
+    render(<BasemapGroupRow {...defaultProps({ visible: false })} />);
+    const eyeBtn = screen.getByRole('button', { name: /Toggle visibility/i, pressed: false });
+    expect(eyeBtn).toBeInTheDocument();
+  });
+
   it('Test 11: when isExpanded=true caret has rotate-90; when false no rotate class', () => {
     const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
     const buttons = screen.getAllByRole('button');

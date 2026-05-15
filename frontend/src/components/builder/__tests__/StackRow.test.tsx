@@ -169,6 +169,24 @@ describe('StackRow', () => {
     expect(onSelectLayer).not.toHaveBeenCalled();
   });
 
+  // SP-10: visibility toggle exposes aria-pressed reflecting layer.visible so
+  // assistive tech can read the toggled state.
+  it('eye toggle has aria-pressed=true when layer.visible=true', () => {
+    const layer = makeLayer({ id: 'vis-on', visible: true });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    const eye = screen.getByRole('button', { name: /Toggle visibility/i, pressed: true });
+    expect(eye).toBeInTheDocument();
+  });
+
+  it('eye toggle has aria-pressed=false when layer.visible=false', () => {
+    const layer = makeLayer({ id: 'vis-off', visible: false });
+    render(<StackRow {...defaultProps({ layer })} />);
+
+    const eye = screen.getByRole('button', { name: /Toggle visibility/i, pressed: false });
+    expect(eye).toBeInTheDocument();
+  });
+
   it('clicking the kebab trigger does NOT call onSelectLayer; opening menu shows items in order', () => {
     const onSelectLayer = vi.fn();
     const layer = makeLayer({ id: 'kebab-layer', dataset_name: 'My Layer' });
