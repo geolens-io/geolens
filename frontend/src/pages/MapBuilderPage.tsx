@@ -38,6 +38,7 @@ import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
 import { BuilderDialogs } from '@/components/builder/BuilderDialogs';
 import { StyleJsonDialog } from '@/components/builder/StyleJsonDialog';
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
+import { computeNextSelection } from '@/components/builder/selection-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { LoadingState } from '@/components/layout/LoadingState';
@@ -332,44 +333,52 @@ export function MapBuilderPage() {
     return ids;
   }, [layers.localLayers]);
 
-  // Phase 1041: multi-selection handlers (POL-06)
+  // Phase 1041 + SP-04 (Phase 1045): multi-selection handlers driven by the
+  // `computeNextSelection` pure helper. Anchor lives in `lastToggleAnchor` ref
+  // so plain/shift/cmd clicks all coordinate from the same authoritative source.
   const handleCmdClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
     setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
+      const { selection, anchor } = computeNextSelection(
+        selectableRowIds,
+        id,
+        { shiftKey: false, metaKey: true, ctrlKey: false },
+        prev,
+        lastToggleAnchor.current,
+      );
+      lastToggleAnchor.current = anchor;
+      return selection;
     });
-    lastToggleAnchor.current = id;
-  }, [isBasemapBoundaryId]);
+  }, [isBasemapBoundaryId, selectableRowIds]);
 
   const handleShiftClick = useCallback((id: string) => {
     if (isBasemapBoundaryId(id)) return;
-    const anchor = lastToggleAnchor.current;
-    if (!anchor) {
-      // No anchor — fall back to single toggle
-      handleCmdClick(id);
-      return;
-    }
-    const anchorIdx = selectableRowIds.indexOf(anchor);
-    const targetIdx = selectableRowIds.indexOf(id);
-    if (anchorIdx < 0 || targetIdx < 0) {
-      handleCmdClick(id);
-      return;
-    }
-    const lo = Math.min(anchorIdx, targetIdx);
-    const hi = Math.max(anchorIdx, targetIdx);
-    const rangeIds = selectableRowIds.slice(lo, hi + 1).filter((rid) => !isBasemapBoundaryId(rid));
     setSelectedIds((prev) => {
-      const next = new Set(prev);
-      for (const rid of rangeIds) next.add(rid);
-      return next;
+      const { selection, anchor } = computeNextSelection(
+        selectableRowIds,
+        id,
+        { shiftKey: true, metaKey: false, ctrlKey: false },
+        prev,
+        lastToggleAnchor.current,
+      );
+      // Range may include basemap-boundary ids in theory if selectableRowIds
+      // ever changes; defensively drop them here.
+      for (const rid of selection) {
+        if (isBasemapBoundaryId(rid)) selection.delete(rid);
+      }
+      lastToggleAnchor.current = anchor;
+      return selection;
     });
-  }, [isBasemapBoundaryId, selectableRowIds, handleCmdClick]);
+  }, [isBasemapBoundaryId, selectableRowIds]);
+
+  // SP-04: plain row click must record the anchor so a subsequent shift-click
+  // has somewhere to range from. handleSelectLayer below opens the editor;
+  // this is the side-channel anchor capture without disturbing that flow.
+  const handlePlainSelectAnchor = useCallback((id: string | null) => {
+    if (id && !isBasemapBoundaryId(id)) {
+      lastToggleAnchor.current = id;
+    }
+  }, [isBasemapBoundaryId]);
 
   const handleCheckboxClick = useCallback((id: string) => {
     handleCmdClick(id);
@@ -543,10 +552,15 @@ export function MapBuilderPage() {
 
   // Adapter: UnifiedStackPanel/SidebarRail pass `string | null` (null = deselect);
   // handleToggleExpand accepts only string ('' = toggle off).
+  // SP-04 (Phase 1045): record the row id as the shift-click anchor on every
+  // plain selection so a subsequent shift-click range-extends from this row.
   const handleSelectLayer = useCallback(
-    (id: string | null) => layers.handleToggleExpand(id ?? ''),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handler
-    [layers.handleToggleExpand],
+    (id: string | null) => {
+      handlePlainSelectAnchor(id);
+      layers.handleToggleExpand(id ?? '');
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handlers
+    [layers.handleToggleExpand, handlePlainSelectAnchor],
   );
 
   // Phase 1040: DnD handlers hoisted from UnifiedStackPanel — same behavior,
