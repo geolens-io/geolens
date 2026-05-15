@@ -17,7 +17,7 @@ class TestRefreshToken:
     async def test_refresh_success(self, client: AsyncClient):
         """POST /auth/refresh/ with valid refresh token returns new tokens."""
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         assert login_resp.status_code == 200
@@ -54,7 +54,7 @@ class TestRefreshToken:
     async def test_refresh_rotates_token(self, client: AsyncClient):
         """POST /auth/refresh/ invalidates the old refresh token (rotation)."""
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         refresh_token = login_resp.json()["refresh_token"]
@@ -76,7 +76,7 @@ class TestRefreshToken:
     async def test_refresh_new_access_token_works(self, client: AsyncClient):
         """Access token from refresh can access /auth/me/."""
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         refresh_token = login_resp.json()["refresh_token"]
@@ -104,7 +104,7 @@ class TestLogout:
     async def test_logout_success(self, client: AsyncClient):
         """POST /auth/logout/ with valid token returns 204."""
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         token = login_resp.json()["access_token"]
@@ -123,7 +123,7 @@ class TestLogout:
     async def test_logout_revokes_refresh_tokens(self, client: AsyncClient):
         """After logout, refresh tokens are invalidated."""
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         token = login_resp.json()["access_token"]

@@ -286,7 +286,7 @@ async def admin_auth_header(client: AsyncClient) -> dict:
     from app.core.config import settings as app_settings
 
     resp = await client.post(
-        "/auth/login/",
+        "/auth/login",
         data={
             "username": app_settings.geolens_admin_username,
             "password": app_settings.geolens_admin_password.get_secret_value(),
@@ -705,7 +705,7 @@ async def test_token_lifetime_from_persistent_config(
 
     # Login and get a token
     resp = await client.post(
-        "/auth/login/",
+        "/auth/login",
         data={
             "username": app_settings.geolens_admin_username,
             "password": app_settings.geolens_admin_password.get_secret_value(),

@@ -6,7 +6,9 @@ export async function login(
   username: string,
   password: string,
 ): Promise<TokenResponse> {
-  const response = await fetch(`${API_BASE}/auth/login/`, {
+  // SP-11: route is /auth/login (no trailing slash) so the POST body is
+  // preserved without a 307 redirect.
+  const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username, password }),

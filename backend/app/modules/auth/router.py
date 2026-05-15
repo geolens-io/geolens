@@ -52,7 +52,7 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-@router.post("/login/", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
 async def login(
     request: Request,

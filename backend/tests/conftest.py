@@ -413,7 +413,7 @@ async def get_auth_header(
 ) -> dict[str, str]:
     """Log in via POST /auth/login and return an Authorization header dict."""
     resp = await client.post(
-        "/auth/login/",
+        "/auth/login",
         data={"username": username, "password": password},
     )
     assert resp.status_code == 200, f"Login failed for {username}: {resp.text}"

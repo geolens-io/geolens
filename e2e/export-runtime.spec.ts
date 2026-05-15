@@ -323,10 +323,10 @@ function buildWherePredicate(
 }
 
 async function loginAsAdmin(request: APIRequestContext): Promise<string> {
-  // Trailing slash is required: FastAPI's /auth/login/ route 307-redirects
-  // without it, and the Location header resolves to the Docker-internal
-  // api:8000 hostname which Playwright (running on the host) cannot reach.
-  const loginResponse = await request.post('/api/auth/login/', {
+  // SP-11: route is now /auth/login (no trailing slash), so the POST body is
+  // preserved without a 307 redirect and Playwright doesn't trip on the
+  // Docker-internal api:8000 hostname.
+  const loginResponse = await request.post('/api/auth/login', {
     form: {
       username: adminUser,
       password: adminPass,

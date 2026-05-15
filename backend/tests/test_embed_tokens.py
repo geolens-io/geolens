@@ -1101,7 +1101,7 @@ class TestAdminEmbedTokenList:
 
         # Login as viewer
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": viewer_username, "password": "testpass123"},
         )
         assert login_resp.status_code == 200
@@ -1362,7 +1362,7 @@ class TestUpdateEmbedToken:
 
         # Login as viewer
         login_resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": viewer_username, "password": "testpass123"},
         )
         assert login_resp.status_code == 200

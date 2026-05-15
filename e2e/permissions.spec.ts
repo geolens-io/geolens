@@ -64,7 +64,7 @@ test.describe('Permissions', () => {
     request,
   }) => {
     // Login to get token
-    const loginResp = await request.post('http://localhost:8080/api/auth/login/', {
+    const loginResp = await request.post('http://localhost:8080/api/auth/login', {
       form: {
         username: process.env.GEOLENS_ADMIN_USERNAME ?? 'admin',
         password: process.env.GEOLENS_ADMIN_PASSWORD ?? 'admin',

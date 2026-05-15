@@ -112,7 +112,7 @@ class TestLogin:
     async def test_login_success(self, client: AsyncClient):
         """Seeded admin user can log in and receives a JWT token."""
         resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         assert resp.status_code == 200
@@ -124,7 +124,7 @@ class TestLogin:
         """Successful login populates last_login_at on the user profile."""
         # Login
         resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": ADMIN_PASS},
         )
         assert resp.status_code == 200
@@ -139,7 +139,7 @@ class TestLogin:
     async def test_login_wrong_password(self, client: AsyncClient):
         """Wrong password returns 401."""
         resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": ADMIN_USER, "password": "wrongpassword"},
         )
         assert resp.status_code == 401
@@ -147,7 +147,7 @@ class TestLogin:
     async def test_login_nonexistent_user(self, client: AsyncClient):
         """Nonexistent username returns 401."""
         resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": "nonexistent_user_xyz", "password": "anypass123"},
         )
         assert resp.status_code == 401
@@ -172,7 +172,7 @@ class TestLogin:
 
         # Try to log in -- deactivated users get 403
         resp = await client.post(
-            "/auth/login/",
+            "/auth/login",
             data={"username": username, "password": "testpass123"},
         )
         assert resp.status_code == 403

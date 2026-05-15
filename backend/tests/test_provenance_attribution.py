@@ -36,7 +36,7 @@ async def _create_role_user(
     user_id = uuid.UUID(create_resp.json()["id"])
 
     login_resp = await client.post(
-        "/auth/login/",
+        "/auth/login",
         data={"username": username, "password": password},
     )
     assert login_resp.status_code == 200, login_resp.text
