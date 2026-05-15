@@ -72,14 +72,14 @@
 
 **Milestone Goal:** Polish the v1008 unified-stack Map Builder — add the two highest-value v1008 deferrals (drag-from-catalog-into-stack, multi-layer selection / bulk ops), sweep the entire builder surface for modern/sleek/intuitive presentation, and close out pre-existing builder test drift.
 
-**Requirements:** 0/25 complete; 25/25 mapped (POL-01..25)
+**Requirements:** 25/25 complete; 25/25 mapped (POL-01..25)
 
-- [ ] **Phase 1039: ux-audit-and-test-debt-closeout** — Produce the `BUILDER-UX-AUDIT.md` finding/severity/priority document that drives the rest of the milestone, and close the 5 pre-existing builder vitest failures + the `use-builder-layers.add-dataset.test.ts` worker timeout in the same pass.
-- [ ] **Phase 1040: drag-from-catalog-into-stack** — Let users drag dataset rows from the Add Dataset modal directly onto the unified layer stack to add a layer (or swap a basemap), with keyboard parity and modal-stays-open behavior.
-- [ ] **Phase 1041: multi-layer-selection-and-bulk-ops** — Multi-select stack rows via cmd/shift-click + keyboard, expose a bulk action bar (visibility, opacity, group/ungroup, delete), execute bulk ops atomically per layer with single rollback.
-- [ ] **Phase 1042: spacing-density-states-polish** — Apply the audit's P0/P1 spacing/density/typography/state polish across builder surfaces using the `sketch-findings-geolens` tokens; add unified hover/focus/pressed states and loading affordances.
-- [ ] **Phase 1043: error-empty-states-and-ia-cleanup** — Recoverable error states, intentional empty-state copy/iconography for Filter/Labels/Source/basemap-group, and information-architecture cleanup (section ordering + scene-transition focus/scroll preservation).
-- [ ] **Phase 1044: cross-cutting-closeout** — i18n locale fill (en/de/fr/es), a11y verification for drag-from-catalog + multi-select keyboard paths, Playwright UAT spec for the v1.5 surfaces, and final builder smoke green at milestone close.
+- [x] **Phase 1039: ux-audit-and-test-debt-closeout** — Produce the `BUILDER-UX-AUDIT.md` finding/severity/priority document that drives the rest of the milestone, and close the 5 pre-existing builder vitest failures + the `use-builder-layers.add-dataset.test.ts` worker timeout in the same pass.
+- [x] **Phase 1040: drag-from-catalog-into-stack** — Let users drag dataset rows from the Add Dataset modal directly onto the unified layer stack to add a layer (or swap a basemap), with keyboard parity and modal-stays-open behavior.
+- [x] **Phase 1041: multi-layer-selection-and-bulk-ops** — Multi-select stack rows via cmd/shift-click + keyboard, expose a bulk action bar (visibility, opacity, group/ungroup, delete), execute bulk ops atomically per layer with single rollback.
+- [x] **Phase 1042: spacing-density-states-polish** — Apply the audit's P0/P1 spacing/density/typography/state polish across builder surfaces using the `sketch-findings-geolens` tokens; add unified hover/focus/pressed states and loading affordances.
+- [x] **Phase 1043: error-empty-states-and-ia-cleanup** — Recoverable error states, intentional empty-state copy/iconography for Filter/Labels/Source/basemap-group, and information-architecture cleanup (section ordering + scene-transition focus/scroll preservation).
+- [x] **Phase 1044: cross-cutting-closeout** — i18n locale fill (en/de/fr/es), a11y verification for drag-from-catalog + multi-select keyboard paths, Playwright UAT spec for the v1.5 surfaces, and final builder smoke green at milestone close.
 
 ## Phase Details
 
@@ -207,7 +207,7 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1039. ux-audit-and-test-debt-closeout | v1009 | 0/2 | Planned | - |
+| 1039. ux-audit-and-test-debt-closeout | v1009 | 2/2 | Complete   | 2026-05-14 |
 | 1040. drag-from-catalog-into-stack | v1009 | 4/4 | Complete   | 2026-05-14 |
 | 1041. multi-layer-selection-and-bulk-ops | v1009 | 4/4 | Complete   | 2026-05-14 |
 | 1042. spacing-density-states-polish | v1009 | 4/4 | Complete   | 2026-05-15 |
