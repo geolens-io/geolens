@@ -43,7 +43,7 @@ The user can select multiple stack rows and perform bulk operations atomically.
 
 A modern, sleek, intuitive review across the entire builder surface — audit-first, then targeted polish.
 
-- [ ] **POL-12** — A `BUILDER-UX-AUDIT.md` document is produced enumerating findings across the builder (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings scene, SidebarRail, EmptyStackState) with severity (P0/P1/P2) and a fix-priority recommendation.
+- [x] **POL-12** — A `BUILDER-UX-AUDIT.md` document is produced enumerating findings across the builder (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings scene, SidebarRail, EmptyStackState) with severity (P0/P1/P2) and a fix-priority recommendation.
 - [x] **POL-13** — Spacing and density tokens are normalized across the builder surfaces (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings) using the `sketch-findings-geolens` token set; visual regressions caught by Playwright snapshots where added.
 - [x] **POL-14** — Hover, focus-visible, pressed, and active states are unified across the builder using the same token palette; microinteractions (transitions, drag affordance, expand/collapse) use consistent timing (`--motion-fast`/`--motion-base` tokens).
 - [x] **POL-15** — Loading affordances (skeletons for column lists, spinners for async previews, optimistic UI for stack reorder) are present everywhere an async fetch occurs in the builder.
@@ -55,9 +55,9 @@ A modern, sleek, intuitive review across the entire builder surface — audit-fi
 
 Pre-existing builder test drift surfaced during the v1008 smoke-test sweep is closed out.
 
-- [ ] **POL-19** — All 5 pre-existing builder vitest failures pass: `EmptyStackState.integration` Test 2/3/5, `StackRow` "Delete layer" kebab, `UnifiedStackPanel` "calls onAddDataClick when ＋ Add data button is clicked".
-- [ ] **POL-20** — `src/components/builder/hooks/__tests__/use-builder-layers.add-dataset.test.ts` runs to completion without `Worker exited unexpectedly` / `Timeout terminating forks worker`; root cause is identified (likely fixture cleanup leak) and documented in the phase summary.
-- [ ] **POL-21** — `npx vitest run src/components/builder/` reports 0 failures and 0 unhandled worker errors at milestone close; CI green.
+- [x] **POL-19** — All 5 pre-existing builder vitest failures pass: `EmptyStackState.integration` Test 2/3/5, `StackRow` "Delete layer" kebab, `UnifiedStackPanel` "calls onAddDataClick when ＋ Add data button is clicked".
+- [x] **POL-20** — `src/components/builder/hooks/__tests__/use-builder-layers.add-dataset.test.ts` runs to completion without `Worker exited unexpectedly` / `Timeout terminating forks worker`; root cause is identified (likely fixture cleanup leak) and documented in the phase summary.
+- [x] **POL-21** — `npx vitest run src/components/builder/` reports 0 failures and 0 unhandled worker errors at milestone close; CI green.
 
 ### Cross-Cutting Closeout
 

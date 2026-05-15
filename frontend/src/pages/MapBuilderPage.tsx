@@ -1003,6 +1003,7 @@ export function MapBuilderPage() {
               onBulkGroup={handleBulkGroup}
               onBulkUngroup={handleBulkUngroup}
               onBulkDelete={handleBulkDelete}
+              freshLayerId={layers.freshLayerId}
             />
           )}
         </aside>
