@@ -477,6 +477,43 @@ describe('UnifiedStackPanel — settings cog button', () => {
     fireEvent.click(cogBtn);
     expect(onSettingsClick).toHaveBeenCalledOnce();
   });
+
+  // SP-15: BulkActionBar is hidden when the global Settings scene is active.
+  describe('SP-15 — BulkActionBar gating on isSettingsOpen', () => {
+    function selectedBulkProps(extra: Partial<React.ComponentProps<typeof UnifiedStackPanel>> = {}) {
+      const layers = [makeLayer({ id: 'l1' }), makeLayer({ id: 'l2' })];
+      return defaultProps({
+        layers,
+        selectedIds: new Set(['l1', 'l2']),
+        onBulkVisibility: vi.fn(),
+        onBulkOpacity: vi.fn(),
+        onBulkGroup: vi.fn(),
+        onBulkUngroup: vi.fn(),
+        onBulkDelete: vi.fn(),
+        ...extra,
+      });
+    }
+
+    it('renders the BulkActionBar toolbar when 2+ selected and Settings closed', () => {
+      render(<UnifiedStackPanel {...selectedBulkProps({ isSettingsOpen: false })} />);
+      expect(screen.getByRole('toolbar')).toBeInTheDocument();
+    });
+
+    it('hides the BulkActionBar toolbar when 2+ selected but Settings is open', () => {
+      render(<UnifiedStackPanel {...selectedBulkProps({ isSettingsOpen: true })} />);
+      expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    });
+
+    it('re-renders the BulkActionBar when Settings closes (selection state preserved)', () => {
+      const { rerender } = render(
+        <UnifiedStackPanel {...selectedBulkProps({ isSettingsOpen: true })} />,
+      );
+      expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+
+      rerender(<UnifiedStackPanel {...selectedBulkProps({ isSettingsOpen: false })} />);
+      expect(screen.getByRole('toolbar')).toBeInTheDocument();
+    });
+  });
 });
 
 // =============================================================================

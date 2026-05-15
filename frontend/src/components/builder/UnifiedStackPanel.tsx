@@ -1030,8 +1030,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         )}
       </div>
 
-      {/* Phase 1041-02: BulkActionBar — sticky footer, visible only when 2+ rows selected */}
-      {selectedIds.size >= 2 && onBulkVisibility && onBulkOpacity && onBulkGroup && onBulkUngroup && onBulkDelete && (
+      {/* Phase 1041-02: BulkActionBar — sticky footer, visible only when 2+ rows selected.
+          SP-15: also hide when the global Settings scene is open. Selection state persists
+          in the parent (selectedIds), so when Settings closes the bar reappears unchanged. */}
+      {!isSettingsOpen && selectedIds.size >= 2 && onBulkVisibility && onBulkOpacity && onBulkGroup && onBulkUngroup && onBulkDelete && (
         <BulkActionBar
           selectedIds={selectedIds}
           layers={layers}
