@@ -118,7 +118,7 @@ export const SidebarRail = memo(function SidebarRail({
                   'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isSelected
                     ? 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]'
-                    : 'hover:bg-accent',
+                    : 'hover:bg-[var(--surface-2)]',
                 )}
                 onClick={() => onSelectLayer(layer.id)}
               >

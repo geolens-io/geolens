@@ -177,7 +177,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
               onToggleExpand(groupId);
             }}
             className={cn(
-              'text-xs text-muted-foreground transition-transform',
+              'text-xs text-muted-foreground transition-transform duration-[--motion-fast]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
               isExpanded && 'rotate-90',
             )}

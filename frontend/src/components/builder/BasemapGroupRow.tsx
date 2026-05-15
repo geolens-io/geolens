@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
+import { Eye, EyeOff, MoreVertical } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import {
   DropdownMenu,
@@ -101,7 +101,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           onToggleExpand(groupId);
         }}
         className={cn(
-          'text-xs text-muted-foreground transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
+          'text-xs text-muted-foreground transition-transform duration-[--motion-fast] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
           isExpanded && 'rotate-90',
         )}
         aria-label={t('basemapGroup.toggleExpand', { defaultValue: 'Toggle basemap group' })}
@@ -109,22 +109,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         ▸
       </button>
 
-      {/* Cell 2: Grip handle */}
-      <button
-        ref={dragHandleProps.setActivatorNodeRef}
-        type="button"
-        {...dragHandleProps.attributes}
-        {...dragHandleProps.listeners}
-        aria-label={t('stackRow.dragHandle', {
-          defaultValue: 'Drag to reorder {{name}}',
-          name: rowName,
-        })}
-        className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      {/* Cell 2: Grip — hidden: basemap group is not user-draggable (AUD-04) */}
+      <span aria-hidden="true" className="h-[14px] w-[14px]" />
 
       {/* Cell 3: Eye visibility toggle — disabled when basemap visibility is not yet wired */}
       <button
