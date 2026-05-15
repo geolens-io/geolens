@@ -51,6 +51,8 @@ interface StackRowProps {
   onCmdClick?: (id: string) => void;
   onShiftClick?: (id: string) => void;
   onCheckboxClick?: (id: string) => void;
+  // Phase 1042 POL-15: entry animation — set true immediately after add, cleared after 200ms
+  isFresh?: boolean;
 }
 
 function TypeIcon({ layer }: { layer: MapLayerResponse }) {
@@ -116,6 +118,7 @@ export const StackRow = memo(function StackRow({
   onCmdClick,
   onShiftClick,
   onCheckboxClick,
+  isFresh = false,
 }: StackRowProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
@@ -176,6 +179,8 @@ export const StackRow = memo(function StackRow({
         !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
         (selected || isMultiSelected) && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
         isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
+        // Phase 1042 POL-15: entry animation — animate-in/fade-in from tw-animate-css
+        isFresh && 'animate-in fade-in duration-[--motion-fast]',
       )}
       onClick={handleRowClick}
       onKeyDown={(e) => {

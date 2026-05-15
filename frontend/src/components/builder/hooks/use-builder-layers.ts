@@ -79,6 +79,8 @@ export function useBuilderLayers(
   const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
+  const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
+  const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
 
   // Mirror current layers in a ref so stable callbacks can read fresh state
@@ -123,6 +125,11 @@ export function useBuilderLayers(
       initializedRef.current = true;
     }
   }, [mapData]);
+
+  // Cleanup freshLayerId timeout on unmount (T-1042-04-03 mitigation)
+  useEffect(() => () => {
+    if (freshLayerTimeoutRef.current) clearTimeout(freshLayerTimeoutRef.current);
+  }, []);
 
   // Sync layers from API when they change (after add/remove mutations)
   const apiLayers = mapData?.layers;
@@ -639,6 +646,14 @@ export function useBuilderLayers(
             if (onSuccessCb && createdLayer?.id) {
               onSuccessCb(createdLayer.id);
             }
+            // Phase 1042 POL-15: entry animation — set freshLayerId for 200ms so
+            // StackRow can apply animate-in fade-in. Single-flight: clear any prior
+            // timer before scheduling a new one (T-1042-04-03 mitigation).
+            if (createdLayer?.id) {
+              if (freshLayerTimeoutRef.current) clearTimeout(freshLayerTimeoutRef.current);
+              setFreshLayerId(createdLayer.id);
+              freshLayerTimeoutRef.current = setTimeout(() => setFreshLayerId(null), 200);
+            }
           },
           onError: () => {
             toast.error(t('toasts.layerAddFailed'));
@@ -934,6 +949,7 @@ export function useBuilderLayers(
     localName, setLocalName,
     localDescription, setLocalDescription,
     localLayers,
+    freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
     localBasemap, setLocalBasemap,
     hasUnsavedChanges, setHasUnsavedChanges,
