@@ -785,7 +785,9 @@
     "errorUpdateRolledBack": "No se pudieron actualizar las capas — cambios revertidos.",
     "errorDeleteRolledBack": "No se pudieron eliminar {{count}} capas — no se realizaron cambios.",
     "selectRow": "Seleccionar {{name}}",
-    "selectGroup": "Seleccionar {{name}}"
+    "selectGroup": "Seleccionar {{name}}",
+    "moreActions": "Más acciones",
+    "moreActionsAriaLabel": "Más acciones para {{count}} capas seleccionadas"
   },
   "unifiedStack": {
     "title": "Capas",

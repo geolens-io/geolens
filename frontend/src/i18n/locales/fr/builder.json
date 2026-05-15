@@ -785,7 +785,9 @@
     "errorUpdateRolledBack": "Échec de la mise à jour des couches — modifications annulées.",
     "errorDeleteRolledBack": "Impossible de supprimer {{count}} couches — aucune modification effectuée.",
     "selectRow": "Sélectionner {{name}}",
-    "selectGroup": "Sélectionner {{name}}"
+    "selectGroup": "Sélectionner {{name}}",
+    "moreActions": "Plus d'actions",
+    "moreActionsAriaLabel": "Plus d'actions pour {{count}} couches sélectionnées"
   },
   "unifiedStack": {
     "title": "Couches",

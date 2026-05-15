@@ -785,7 +785,9 @@
     "errorUpdateRolledBack": "Failed to update layers — changes rolled back.",
     "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
     "selectRow": "Select {{name}}",
-    "selectGroup": "Select {{name}}"
+    "selectGroup": "Select {{name}}",
+    "moreActions": "More actions",
+    "moreActionsAriaLabel": "More actions for {{count}} selected layers"
   },
   "unifiedStack": {
     "title": "Layers",

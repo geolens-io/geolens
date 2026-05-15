@@ -146,7 +146,7 @@ describe('BulkActionBar — render condition (POL-08)', () => {
     expect(allText).toMatch(/2/);
   });
 
-  it('Test 4: Shows visibility button, opacity slider, group button, ungroup button, delete button', () => {
+  it('Test 4: Shows visibility button, opacity slider, and an overflow menu hosting Group/Ungroup/Delete', () => {
     render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
 
     // Visibility button — aria-label contains 'visibility' via t key
@@ -157,15 +157,17 @@ describe('BulkActionBar — render condition (POL-08)', () => {
     const opacitySlider = screen.getByRole('slider', { name: /bulkActions.opacityAriaLabel|opacity/i });
     expect(opacitySlider).toBeInTheDocument();
 
-    // Group button — either enabled or disabled (canGroup=true for a,b loose vector)
-    // Use getAllByRole to handle case where both group/ungroup share similar names
-    const allButtons = screen.getAllByRole('button');
-    const groupBtn = allButtons.find((btn) => btn.getAttribute('aria-label')?.toLowerCase().includes('group'));
-    expect(groupBtn).toBeInTheDocument();
+    // SP-01: Group / Ungroup / Delete now live behind a `…` overflow menu so
+    // the entire bar fits the 340px sidebar. The trigger is rendered inline
+    // and the items appear only after the menu is opened (Radix portal).
+    const overflowTrigger = screen.getByTestId('bulk-action-overflow');
+    expect(overflowTrigger).toBeInTheDocument();
 
-    // Delete button
-    const deleteBtn = screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i });
-    expect(deleteBtn).toBeInTheDocument();
+    fireEvent.pointerDown(overflowTrigger, { button: 0, ctrlKey: false });
+
+    expect(screen.getByTestId('bulk-action-group')).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-action-ungroup')).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-action-delete')).toBeInTheDocument();
   });
 });
 
@@ -174,7 +176,7 @@ describe('BulkActionBar — render condition (POL-08)', () => {
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — disable rules (POL-08)', () => {
-  it('Test 5: Group button is aria-disabled when selected layer has parent_group_id', () => {
+  it('Test 5: Group menuitem is aria-disabled when selected layer has parent_group_id', () => {
     const layerInGroup = { ...vecA, parent_group_id: 'g1' } as GroupedLayer as MapLayerResponse;
     const layers = [layerInGroup, vecB, folderG];
     render(
@@ -186,16 +188,14 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
       />
     );
 
-    // canGroup=false because layerInGroup has parent_group_id
-    // The disabled group button renders as aria-disabled="true" and tabIndex=-1
-    const groupButtons = screen.getAllByRole('button', { name: /bulkActions.groupAriaLabel|group/i });
-    const disabledGroup = groupButtons.find(
-      (btn) => btn.getAttribute('aria-disabled') === 'true' || btn.getAttribute('tabindex') === '-1',
-    );
-    expect(disabledGroup).toBeDefined();
+    // canGroup=false because layerInGroup has parent_group_id. The disabled
+    // Group menuitem renders with aria-disabled="true".
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    const groupItem = screen.getByTestId('bulk-action-group');
+    expect(groupItem.getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('Test 6: Group button is disabled when raster layer is in selection', () => {
+  it('Test 6: Group menuitem is disabled when raster layer is in selection', () => {
     render(
       <BulkActionBar
         {...makeProps({
@@ -206,14 +206,12 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
     );
 
     // canGroup=false: r1 is raster_dataset
-    const groupButtons = screen.getAllByRole('button', { name: /bulkActions.groupAriaLabel|group/i });
-    const disabledGroup = groupButtons.find(
-      (btn) => btn.getAttribute('aria-disabled') === 'true' || btn.getAttribute('tabindex') === '-1',
-    );
-    expect(disabledGroup).toBeDefined();
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    const groupItem = screen.getByTestId('bulk-action-group');
+    expect(groupItem.getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('Test 7: Ungroup button is disabled when mix of group + loose is selected', () => {
+  it('Test 7: Ungroup menuitem is disabled when mix of group + loose is selected', () => {
     render(
       <BulkActionBar
         {...makeProps({
@@ -224,14 +222,12 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
     );
 
     // canUngroup=false because not ALL selected are group:folder
-    const ungroupButtons = screen.getAllByRole('button', { name: /bulkActions.ungroupAriaLabel|ungroup/i });
-    const disabledUngroup = ungroupButtons.find(
-      (btn) => btn.getAttribute('aria-disabled') === 'true' || btn.getAttribute('tabindex') === '-1',
-    );
-    expect(disabledUngroup).toBeDefined();
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    const ungroupItem = screen.getByTestId('bulk-action-ungroup');
+    expect(ungroupItem.getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('Test 8: Ungroup button is enabled when all selected are folder-group rows', () => {
+  it('Test 8: Ungroup menuitem is enabled when all selected are folder-group rows', () => {
     const folderG2 = makeLayer({ id: 'g2', dataset_name: 'Group 2', sort_order: 5, layer_type: 'group:folder' });
     const layers = [folderG, folderG2, vecA];
     render(
@@ -243,13 +239,11 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
       />
     );
 
-    // canUngroup=true: both selected are group:folder
-    // Should render the enabled Ungroup button (no aria-disabled)
-    const ungroupButtons = screen.getAllByRole('button', { name: /bulkActions.ungroupAriaLabel|ungroup/i });
-    const enabledUngroup = ungroupButtons.find(
-      (btn) => btn.getAttribute('aria-disabled') !== 'true' && btn.getAttribute('tabindex') !== '-1',
-    );
-    expect(enabledUngroup).toBeDefined();
+    // canUngroup=true: both selected are group:folder. The Ungroup menuitem
+    // is enabled (aria-disabled is null or "false").
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    const ungroupItem = screen.getByTestId('bulk-action-ungroup');
+    expect(ungroupItem.getAttribute('aria-disabled')).not.toBe('true');
   });
 
   it('Test 9: Majority-visible selection shows EyeOff icon direction', () => {
@@ -277,68 +271,60 @@ describe('BulkActionBar — disable rules (POL-08)', () => {
 // ---------------------------------------------------------------------------
 
 describe('BulkActionBar — confirmation state machine', () => {
-  it('Test 10: Clicking Delete enters confirmation state and hides normal action buttons', () => {
+  // SP-01: confirmation is entered by opening the overflow menu (`…`) and
+  // selecting the Delete menuitem. Helper centralizes that two-step gesture.
+  function openDeleteConfirm() {
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByTestId('bulk-action-delete'));
+  }
+
+  it('Test 10: Selecting Delete from the overflow menu enters confirmation state', () => {
     render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
 
-    const deleteBtn = screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i });
-    fireEvent.click(deleteBtn);
+    openDeleteConfirm();
 
-    // Normal state buttons are replaced by confirmation UI
-    // Confirmation renders an alertdialog
+    // Normal state region is replaced by the confirmation UI
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
     // Confirmation message exists and contains text
     const confirmDialog = screen.getByRole('alertdialog');
     expect(confirmDialog.textContent).toBeTruthy();
 
-    // The original delete action button (from normal state) should be gone.
-    // The confirmation state replaces it with Cancel + confirm buttons.
-    // "bulkActions.deleteAriaLabel" is the name of the main delete button.
-    // After confirmation entry, that specific button is no longer rendered.
-    const allBtns = screen.getAllByRole('button');
-    const normalDeleteBtn = allBtns.find(
-      (btn) => btn.getAttribute('aria-label')?.includes('bulkActions.deleteAriaLabel'),
-    );
-    expect(normalDeleteBtn).toBeUndefined();
+    // The overflow trigger (and the Delete menuitem inside it) are unmounted while
+    // confirmation is active — only the Cancel + confirm buttons exist.
+    expect(screen.queryByTestId('bulk-action-overflow')).not.toBeInTheDocument();
   });
 
-  it('Test 11: Cancel button has autoFocus', async () => {
+  it('Test 11: Cancel button has autoFocus', () => {
     render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
 
-    const deleteBtn = screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i });
-    fireEvent.click(deleteBtn);
+    openDeleteConfirm();
 
-    // After entering confirmation state, Cancel button should have autoFocus
+    // After entering confirmation state, Cancel button should be present
     const cancelBtn = screen.getByRole('button', { name: /bulkActions.deleteConfirmCancel|Cancel/i });
     expect(cancelBtn).toBeInTheDocument();
-    // autoFocus is a React prop; JSDOM does not always expose it as an HTML attribute,
-    // but we can verify the Cancel button exists and is the safe choice per AUD-09 / UI-SPEC §5.
-    // Verify it is not disabled (it must be focusable).
     expect(cancelBtn).not.toBeDisabled();
   });
 
   it('Test 12: Clicking Cancel returns to normal state', () => {
     render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
 
-    // Enter confirmation
-    fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    openDeleteConfirm();
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
     // Click Cancel
     const cancelBtn = screen.getByRole('button', { name: /bulkActions.deleteConfirmCancel|Cancel/i });
     fireEvent.click(cancelBtn);
 
-    // Back to normal state — alertdialog gone
+    // Back to normal state — alertdialog gone, overflow trigger returns
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    // Normal delete button returns
-    expect(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i })).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-action-overflow')).toBeInTheDocument();
   });
 
   it('Test 13: Pressing Escape in confirmation state returns to normal state', () => {
     render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
 
-    // Enter confirmation
-    fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    openDeleteConfirm();
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
     // Press Escape inside the toolbar (the keyDown handler is on the toolbar div)
@@ -347,7 +333,7 @@ describe('BulkActionBar — confirmation state machine', () => {
 
     // Back to normal state
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i })).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-action-overflow')).toBeInTheDocument();
   });
 
   it('Test 14: Clicking confirm "Delete" button fires onBulkDelete(selectedIds)', () => {
@@ -355,8 +341,7 @@ describe('BulkActionBar — confirmation state machine', () => {
     const selectedIds = new Set(['a', 'b']);
     render(<BulkActionBar {...makeProps({ selectedIds })} onBulkDelete={onBulkDelete} />);
 
-    // Enter confirmation
-    fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    openDeleteConfirm();
 
     // Click the destructive confirm button (bulkActions.deleteConfirmAction)
     const confirmBtn = screen.getByRole('button', { name: /bulkActions.deleteConfirmAction|Delete 2/i });
@@ -377,8 +362,7 @@ describe('BulkActionBar — confirmation state machine', () => {
       />
     );
 
-    // Enter confirmation
-    fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    openDeleteConfirm();
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
     // Escape on toolbar — consumed by confirmation handler; confirmation exits
@@ -424,8 +408,9 @@ describe('BulkActionBar — Phase 1042-02 polish fixes (POL-14)', () => {
 
   it('Test C: Cancel button in delete-confirm state has ghost variant (ghost-specific classes)', () => {
     render(<BulkActionBar {...makeProps()} />);
-    // Enter confirmation state
-    fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    // SP-01: confirmation is now entered through the overflow menu.
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByTestId('bulk-action-delete'));
     // Find the Cancel button
     const cancelBtn = screen.getByRole('button', { name: /bulkActions.deleteConfirmCancel|Cancel/i });
     // Ghost variant renders with no background by default; it does NOT use the secondary bg class
@@ -481,7 +466,7 @@ describe('BulkActionBar — bulk handler invocations (POL-09)', () => {
     expect(calledIds).toEqual(selectedIds);
   });
 
-  it('Test 18: Clicking Group fires onBulkGroup(selectedIds) when canGroup=true', () => {
+  it('Test 18: Selecting Group from the overflow menu fires onBulkGroup(selectedIds) when canGroup=true', () => {
     const onBulkGroup = vi.fn();
     // a, b are loose vector — canGroup=true
     const selectedIds = new Set(['a', 'b']);
@@ -492,17 +477,16 @@ describe('BulkActionBar — bulk handler invocations (POL-09)', () => {
       />
     );
 
-    // canGroup=true → enabled Group button (no aria-disabled)
-    const groupButtons = screen.getAllByRole('button', { name: /bulkActions.groupAriaLabel|group/i });
-    const enabledBtn = groupButtons.find((btn) => btn.getAttribute('aria-disabled') !== 'true');
-    expect(enabledBtn).toBeDefined();
-    fireEvent.click(enabledBtn!);
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    const groupItem = screen.getByTestId('bulk-action-group');
+    expect(groupItem.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.click(groupItem);
 
     expect(onBulkGroup).toHaveBeenCalledOnce();
     expect(onBulkGroup).toHaveBeenCalledWith(selectedIds);
   });
 
-  it('Test 19: Clicking Ungroup fires onBulkUngroup(selectedIds) when canUngroup=true', () => {
+  it('Test 19: Selecting Ungroup from the overflow menu fires onBulkUngroup(selectedIds) when canUngroup=true', () => {
     const onBulkUngroup = vi.fn();
     const folderG2 = makeLayer({ id: 'g2', layer_type: 'group:folder' });
     // g1 and g2 are both folder-group — canUngroup=true
@@ -514,11 +498,10 @@ describe('BulkActionBar — bulk handler invocations (POL-09)', () => {
       />
     );
 
-    // canUngroup=true → enabled Ungroup button
-    const ungroupButtons = screen.getAllByRole('button', { name: /bulkActions.ungroupAriaLabel|ungroup/i });
-    const enabledBtn = ungroupButtons.find((btn) => btn.getAttribute('aria-disabled') !== 'true');
-    expect(enabledBtn).toBeDefined();
-    fireEvent.click(enabledBtn!);
+    fireEvent.pointerDown(screen.getByTestId('bulk-action-overflow'), { button: 0, ctrlKey: false });
+    const ungroupItem = screen.getByTestId('bulk-action-ungroup');
+    expect(ungroupItem.getAttribute('aria-disabled')).not.toBe('true');
+    fireEvent.click(ungroupItem);
 
     expect(onBulkUngroup).toHaveBeenCalledOnce();
     expect(onBulkUngroup).toHaveBeenCalledWith(selectedIds);

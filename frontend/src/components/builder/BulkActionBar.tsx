@@ -1,9 +1,16 @@
 import { memo, useState, useMemo, useEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, FolderPlus, FolderMinus, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, FolderPlus, FolderMinus, Trash2, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -179,7 +186,12 @@ export const BulkActionBar = memo(function BulkActionBar({
         </div>
       ) : (
         // ------------------------------------------------------------------
-        // Normal state: 5 action buttons
+        // Normal state: inline count + Visibility + Opacity, then overflow menu
+        // SP-01 (Phase 1045): Group / Ungroup / Delete were previously inline
+        // and clipped by the 340px sidebar `<aside class="overflow-hidden">`
+        // (smoke check 2026-05-15, B-02). They now live behind a `…` overflow
+        // trigger so the entire bar fits the sidebar width while Group / Ungroup
+        // / Delete remain reachable via keyboard + pointer.
         // ------------------------------------------------------------------
         <>
           {/* Selected count label */}
@@ -190,7 +202,7 @@ export const BulkActionBar = memo(function BulkActionBar({
           {/* Divider */}
           <span className="mx-1 h-4 w-px bg-[var(--border)] shrink-0" aria-hidden="true" />
 
-          {/* Visibility toggle */}
+          {/* Visibility toggle (inline) */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -218,7 +230,7 @@ export const BulkActionBar = memo(function BulkActionBar({
             <TooltipContent side="top">{t('bulkActions.visibility')}</TooltipContent>
           </Tooltip>
 
-          {/* Opacity slider group */}
+          {/* Opacity slider group (inline) */}
           <div
             className="flex items-center gap-1 shrink-0"
             onPointerDown={(e) => e.stopPropagation()}
@@ -239,133 +251,74 @@ export const BulkActionBar = memo(function BulkActionBar({
             />
           </div>
 
-          {/* Group button */}
-          {canGroup ? (
+          {/* Overflow menu — Group / Ungroup / Delete (SP-01) */}
+          <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 px-2 shrink-0"
-                  aria-label={t('bulkActions.groupAriaLabel', { count: N })}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBulkGroup(selectedIds);
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline text-xs">
-                    {t('bulkActions.group')}
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">{t('bulkActions.group')}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex shrink-0">
+                <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className={cn(
-                      'h-8 gap-1.5 px-2 opacity-40 cursor-not-allowed pointer-events-none',
-                    )}
-                    aria-label={t('bulkActions.groupAriaLabel', { count: N })}
-                    aria-disabled="true"
-                    tabIndex={-1}
+                    data-testid="bulk-action-overflow"
+                    className="h-8 w-8 p-0 shrink-0 ml-auto"
+                    aria-label={t('bulkActions.moreActionsAriaLabel', { count: N })}
+                    onPointerDown={(e) => e.stopPropagation()}
                   >
-                    <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden sm:inline text-xs">
-                      {t('bulkActions.group')}
-                    </span>
+                    <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
-                </span>
+                </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent side="top">
-                {t('bulkActions.groupDisabledTooltip')}
-              </TooltipContent>
+              <TooltipContent side="top">{t('bulkActions.moreActions')}</TooltipContent>
             </Tooltip>
-          )}
-
-          {/* Ungroup button */}
-          {canUngroup ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 px-2 shrink-0"
-                  aria-label={t('bulkActions.ungroupAriaLabel', { count: N })}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBulkUngroup(selectedIds);
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <FolderMinus className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline text-xs">
-                    {t('bulkActions.ungroup')}
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">{t('bulkActions.ungroup')}</TooltipContent>
-            </Tooltip>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex shrink-0">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      'h-8 gap-1.5 px-2 opacity-40 cursor-not-allowed pointer-events-none',
-                    )}
-                    aria-label={t('bulkActions.ungroupAriaLabel', { count: N })}
-                    aria-disabled="true"
-                    tabIndex={-1}
-                  >
-                    <FolderMinus className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden sm:inline text-xs">
-                      {t('bulkActions.ungroup')}
-                    </span>
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {t('bulkActions.ungroupDisabledTooltip')}
-              </TooltipContent>
-            </Tooltip>
-          )}
-
-          {/* Delete button */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 px-2 text-destructive shrink-0 ml-auto"
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              className="w-48"
+              // Stop propagation so menu interactions don't bubble into the toolbar
+              // container and trigger the parent's outside-click selection clear.
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <DropdownMenuItem
+                data-testid="bulk-action-group"
+                disabled={!canGroup}
+                aria-label={t('bulkActions.groupAriaLabel', { count: N })}
+                onSelect={() => {
+                  if (canGroup) onBulkGroup(selectedIds);
+                }}
+              >
+                <FolderPlus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                {t('bulkActions.group')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="bulk-action-ungroup"
+                disabled={!canUngroup}
+                aria-label={t('bulkActions.ungroupAriaLabel', { count: N })}
+                onSelect={() => {
+                  if (canUngroup) onBulkUngroup(selectedIds);
+                }}
+              >
+                <FolderMinus className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                {t('bulkActions.ungroup')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="bulk-action-delete"
+                className="text-destructive focus:text-destructive"
                 aria-label={t('bulkActions.deleteAriaLabel', { count: N })}
-                onClick={(e) => {
-                  e.stopPropagation();
+                onSelect={(e) => {
+                  // Keep the row from auto-closing the menu so the inline
+                  // confirmation dialog appears in the toolbar below.
+                  e.preventDefault();
                   setConfirmingDelete(true);
                 }}
-                onPointerDown={(e) => e.stopPropagation()}
               >
-                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline text-xs">
-                  {t('bulkActions.delete')}
-                </span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{t('bulkActions.delete')}</TooltipContent>
-          </Tooltip>
+                <Trash2 className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                {t('bulkActions.delete')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
       )}
     </div>

@@ -785,7 +785,9 @@
     "errorUpdateRolledBack": "Aktualisierung der Layer fehlgeschlagen — Änderungen rückgängig gemacht.",
     "errorDeleteRolledBack": "{{count}} Layer konnten nicht gelöscht werden — keine Änderungen vorgenommen.",
     "selectRow": "{{name}} auswählen",
-    "selectGroup": "{{name}} auswählen"
+    "selectGroup": "{{name}} auswählen",
+    "moreActions": "Weitere Aktionen",
+    "moreActionsAriaLabel": "Weitere Aktionen für {{count}} ausgewählte Layer"
   },
   "unifiedStack": {
     "title": "Layer",
