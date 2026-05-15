@@ -104,35 +104,12 @@ function waitForVisibleLayerSources(
   poll();
 }
 
-/** SP-16: 500ms trailing-edge debounce around captureThumbnail.
- *  Smoke evidence showed two back-to-back `PUT /maps/<id>/thumbnail/`
- *  requests when a single layer-add triggered both the save-path capture
- *  and the auto-capture. Coalesce all invocations within a 500ms window
- *  into one capture for the most-recent args.
- *
- *  Keyed by mapId so concurrent edits to different maps don't collide
- *  with each other. Each map has its own pending timer + latest args.
- */
-const THUMBNAIL_DEBOUNCE_MS = 500;
-type PendingThumbnailCapture = {
-  timer: ReturnType<typeof setTimeout>;
-  args: [
-    MaplibreMap,
-    string,
-    ReturnType<typeof useQueryClient>,
-    MapLayerResponse[],
-    { cancelled: boolean } | undefined,
-  ];
-};
-const pendingCaptures = new Map<string, PendingThumbnailCapture>();
-
-/** Capture a 400x250 JPEG thumbnail from the map canvas and upload it.
- *  PERF-08 (Phase 274): no longer relies on permanent preserveDrawingBuffer.
- *  Uses map.triggerRepaint() + map.once('render') to read pixels from a
- *  freshly-painted canvas (see doCapture body). If the map is not yet
- *  idle/loaded, waits for idle first via waitForVisibleLayerSources.
- *  SP-16: invocations are coalesced via a 500ms trailing debounce keyed
- *  on mapId — see runCaptureNow / captureThumbnail. */
+/** Run a thumbnail capture immediately for the given args.
+ *  PERF-08 (Phase 274): doCapture uses map.triggerRepaint() + map.once('render')
+ *  to read pixels from a freshly-painted canvas (no permanent preserveDrawingBuffer).
+ *  Auto-capture can run before BuilderMap has synced GeoLens sources, so we wait
+ *  for visible layer sources first via waitForVisibleLayerSources before calling
+ *  doCapture. Callers should go through captureThumbnail (debounced wrapper). */
 function runCaptureNow(
   map: MaplibreMap,
   mapId: string,
@@ -140,10 +117,17 @@ function runCaptureNow(
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
 ) {
-  // Auto-capture can run before BuilderMap has synced GeoLens sources. Wait
-  // for visible sources first so the thumbnail includes rendered layers.
   waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient), signal);
 }
+
+/** SP-16: 500ms trailing-edge debounce around captureThumbnail.
+ *  Smoke evidence showed two back-to-back `PUT /maps/<id>/thumbnail/`
+ *  requests when a single layer-add triggered both the save-path capture
+ *  and a chained auto-capture. Coalesce all invocations within a 500ms
+ *  window into one capture for the most-recent args. Keyed by mapId so
+ *  concurrent edits to different maps don't collide. */
+const THUMBNAIL_DEBOUNCE_MS = 500;
+const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
 
 function captureThumbnail(
   map: MaplibreMap,
@@ -155,22 +139,20 @@ function captureThumbnail(
   // SP-16: clear any prior pending capture for this mapId; the latest call
   // wins (trailing edge), reflecting the final state once the window settles.
   const existing = pendingCaptures.get(mapId);
-  if (existing) clearTimeout(existing.timer);
+  if (existing) clearTimeout(existing);
 
   const timer = setTimeout(() => {
     pendingCaptures.delete(mapId);
     runCaptureNow(map, mapId, queryClient, layers, signal);
   }, THUMBNAIL_DEBOUNCE_MS);
 
-  pendingCaptures.set(mapId, {
-    timer,
-    args: [map, mapId, queryClient, layers, signal],
-  });
+  pendingCaptures.set(mapId, timer);
 }
 
-/** Test helper — flush any pending debounced captures synchronously. */
+/** Test helper — clear any pending debounced captures so module-level state
+ *  doesn't leak across vitest cases. Called from `beforeEach`. */
 export function __resetThumbnailDebounceForTests(): void {
-  for (const { timer } of pendingCaptures.values()) clearTimeout(timer);
+  for (const timer of pendingCaptures.values()) clearTimeout(timer);
   pendingCaptures.clear();
 }
 
