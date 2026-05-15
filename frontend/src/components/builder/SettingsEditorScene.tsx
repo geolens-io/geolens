@@ -98,7 +98,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-150', terrainOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', terrainOpen && 'rotate-90')}
               aria-hidden="true"
             />
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -149,7 +149,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-150', widgetsOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', widgetsOpen && 'rotate-90')}
               aria-hidden="true"
             />
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -207,7 +207,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-150', projectionOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', projectionOpen && 'rotate-90')}
               aria-hidden="true"
             />
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">

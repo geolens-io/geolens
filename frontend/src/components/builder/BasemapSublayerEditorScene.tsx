@@ -285,7 +285,7 @@ export function BasemapSublayerEditorScene({
             className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
-              className={cn('h-4 w-4 shrink-0 transition-transform duration-150', resetOpen && 'rotate-90')}
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', resetOpen && 'rotate-90')}
               aria-hidden="true"
             />
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
