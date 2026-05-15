@@ -61,7 +61,7 @@ Pre-existing builder test drift surfaced during the v1008 smoke-test sweep is cl
 
 ### Cross-Cutting Closeout
 
-- [ ] **POL-22** — i18n locales (en / de / fr / es) updated for every new builder string introduced in v1.5 (drag-from-catalog affordances, bulk action labels, audit-driven copy refinements); `i18n-check` smoke green.
+- [x] **POL-22** — i18n locales (en / de / fr / es) updated for every new builder string introduced in v1.5 (drag-from-catalog affordances, bulk action labels, audit-driven copy refinements); `i18n-check` smoke green.
 - [x] **POL-23** — Accessibility verified for new interactions: drag-from-catalog supports keyboard-only path (Space to pick up, Arrow to navigate stack, Space to drop, Escape to cancel — mirrors v1008 in-stack drag); multi-select supports Shift+ArrowUp/Down + Space; selection state announced via `aria-multiselectable` on the stack `role="listbox"`.
 - [ ] **POL-24** — A Playwright UAT spec (`e2e/builder-v1-5.spec.ts`) exercises the drag-from-catalog happy path, multi-select bulk-delete happy path, and one negative-path each (cancel via Escape during drag; bulk delete with mixed basemap + overlay selection blocked).
 - [ ] **POL-25** — Builder smoke (`npm run e2e:smoke:builder`) remains green at milestone close; all 21 existing tests pass + the new UAT spec from POL-24 is added.
