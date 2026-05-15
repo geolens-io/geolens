@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { eyebrowClassName } from './EmptyStackState';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -101,7 +102,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', terrainOpen && 'rotate-90')}
               aria-hidden="true"
             />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className={eyebrowClassName}>
               {t('settings.terrainLabel', { defaultValue: 'TERRAIN' })}
             </span>
             {!terrainOpen && (
@@ -152,7 +153,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', widgetsOpen && 'rotate-90')}
               aria-hidden="true"
             />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className={eyebrowClassName}>
               {t('settings.widgetsLabel', { defaultValue: 'WIDGETS' })}
             </span>
             {!widgetsOpen && (
@@ -210,7 +211,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', projectionOpen && 'rotate-90')}
               aria-hidden="true"
             />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <span className={eyebrowClassName}>
               {t('settings.projectionLabel', { defaultValue: 'PROJECTION' })}
             </span>
             {!projectionOpen && (
