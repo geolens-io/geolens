@@ -9,6 +9,26 @@ vi.mock('@/api/search', async (importOriginal) => {
   return { ...actual, searchDatasets: vi.fn() };
 });
 
+// ---------------------------------------------------------------------------
+// useQuery override state — used by Phase 1042-02 polish tests to simulate
+// isLoading / isFetching states without relying on real promise timing.
+// When null, the mock delegates to the real @tanstack/react-query useQuery.
+// ---------------------------------------------------------------------------
+let useQueryOverride: Record<string, unknown> | null = null;
+
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+  return {
+    ...actual,
+    useQuery: vi.fn((options: Parameters<typeof actual.useQuery>[0]) => {
+      if (useQueryOverride !== null) {
+        return useQueryOverride;
+      }
+      return actual.useQuery(options);
+    }),
+  };
+});
+
 const mockBasemaps: BasemapEntry[] = [
   { id: 'openfreemap-positron', label: 'Positron', url: 'https://example.com/positron', enabled: true, is_preset: true },
   { id: 'openfreemap-dark', label: 'Dark', url: 'https://example.com/dark', enabled: true, is_preset: true },
@@ -365,5 +385,114 @@ describe('DatasetSearchPanel', () => {
 
     const alertEl = await screen.findByRole('alert');
     expect(alertEl.textContent).toMatch(/Failed to load datasets/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DatasetSearchPanel — Phase 1042-02 polish fixes (POL-15, AUD-10/12/13/15)
+// ---------------------------------------------------------------------------
+
+describe('DatasetSearchPanel — Phase 1042-02 polish fixes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useQueryOverride = null;
+  });
+
+  afterEach(() => {
+    useQueryOverride = null;
+  });
+
+  it('Test 1 (AUD-10): isLoading=true shows 5 skeleton placeholders with h-[58px]', () => {
+    useQueryOverride = {
+      data: undefined,
+      isLoading: true,
+      isFetching: true,
+      isError: false,
+    };
+
+    const { container } = render(<DatasetSearchPanel {...defaultProps()} />);
+
+    // Skeletons rendered via Skeleton component which uses data-slot="skeleton"
+    const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
+    expect(skeletons.length).toBe(5);
+    // Each skeleton should have h-[58px] class
+    skeletons.forEach((skeleton) => {
+      expect(skeleton.className).toContain('h-[58px]');
+    });
+    // No spinner present (Loader2 spin class)
+    expect(container.querySelector('.animate-spin')).toBeNull();
+  });
+
+  it('Test 2 (AUD-13): isFetching=true && isLoading=false shows thin progress band above dimmed list', () => {
+    useQueryOverride = {
+      data: searchResponse,
+      isLoading: false,
+      isFetching: true,
+      isError: false,
+    };
+
+    const { container } = render(<DatasetSearchPanel {...defaultProps()} />);
+
+    // Progress band — h-0.5 element with animate-pulse
+    const progressBand = container.querySelector('.h-0\\.5.animate-pulse');
+    expect(progressBand).not.toBeNull();
+    // The results list should be present but dimmed (pointer-events-none opacity-50)
+    const dimmedList = container.querySelector('.pointer-events-none.opacity-50');
+    expect(dimmedList).not.toBeNull();
+    // No skeleton rows during refetch
+    const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
+    expect(skeletons.length).toBe(0);
+  });
+
+  it('Test 3 (AUD-15): disclosure caret is a single ChevronRight; rotates 90deg when expanded, does not swap icons', async () => {
+    useQueryOverride = {
+      data: searchResponse,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    };
+
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    // Expand the first row — button "Expand Roads"
+    const expandBtn = screen.getByRole('button', { name: /Expand Roads/i });
+    // Before expanding: caret button exists, uses transition-transform
+    const caretIcon = expandBtn.querySelector('svg');
+    expect(caretIcon).not.toBeNull();
+    expect(caretIcon!.className.baseVal ?? caretIcon!.getAttribute('class') ?? '').toContain('transition-transform');
+    // The rotate-90 class should NOT be present initially
+    expect(caretIcon!.className.baseVal ?? caretIcon!.getAttribute('class') ?? '').not.toContain('rotate-90');
+
+    // Click to expand
+    fireEvent.click(expandBtn);
+
+    // After expanding: same SVG node now has rotate-90 (not a different icon swapped in)
+    await waitFor(() => {
+      const expandedCaret = expandBtn.querySelector('svg');
+      expect(expandedCaret).not.toBeNull();
+      const cls = expandedCaret!.className.baseVal ?? expandedCaret!.getAttribute('class') ?? '';
+      expect(cls).toContain('rotate-90');
+    });
+  });
+
+  it('Test 4 (cursor-grab): DraggableDatasetRow outer div has cursor-grab when not dragging', () => {
+    useQueryOverride = {
+      data: searchResponse,
+      isLoading: false,
+      isFetching: false,
+      isError: false,
+    };
+
+    const { container } = render(<DatasetSearchPanel {...defaultProps()} />);
+
+    // The result list items are DraggableDatasetRow outer divs
+    // They have class group/row rounded-md border... and cursor-grab when not dragging
+    const rowOuterDivs = container.querySelectorAll('.group\\/row');
+    expect(rowOuterDivs.length).toBeGreaterThan(0);
+    // At least one row should have cursor-grab
+    const withGrab = Array.from(rowOuterDivs).filter((div) =>
+      div.className.includes('cursor-grab'),
+    );
+    expect(withGrab.length).toBeGreaterThan(0);
   });
 });

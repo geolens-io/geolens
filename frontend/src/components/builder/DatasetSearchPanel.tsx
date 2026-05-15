@@ -3,13 +3,11 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   Database,
   GripVertical,
   Image as ImageIcon,
   Inbox,
-  Loader2,
   Plus,
   Repeat2,
   Search,
@@ -28,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Skeleton } from '@/components/ui/skeleton';
 import { RecordTypeBadge } from '@/components/search/RecordTypeBadge';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import {
@@ -233,6 +232,8 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
       className={cn(
         'group/row rounded-md border border-border/60 bg-background',
         isDragging && 'opacity-40 bg-[var(--surface-2)]',
+        !isDragging && 'cursor-grab',
+        isDragging && 'cursor-grabbing',
       )}
     >
       <div className="flex items-center gap-2 px-2 py-2">
@@ -255,7 +256,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           aria-label={expanded ? `Collapse ${props.title}` : `Expand ${props.title}`}
           onClick={() => setExpandedRowId(expanded ? null : rowId)}
         >
-          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform duration-[--motion-fast]', expanded && 'rotate-90')} />
         </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{props.title}</p>
@@ -323,6 +324,8 @@ const DraggableBasemapRow = memo(function DraggableBasemapRow({
       className={cn(
         'group/row rounded-md border border-border/60 bg-background',
         isDragging && 'opacity-40 bg-[var(--surface-2)]',
+        !isDragging && 'cursor-grab',
+        isDragging && 'cursor-grabbing',
       )}
     >
       <div className="flex items-center gap-2 px-2 py-2">
@@ -345,7 +348,7 @@ const DraggableBasemapRow = memo(function DraggableBasemapRow({
           aria-label={expanded ? `Collapse ${entry.label}` : `Expand ${entry.label}`}
           onClick={() => setExpandedRowId(expanded ? null : rowId)}
         >
-          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform duration-[--motion-fast]', expanded && 'rotate-90')} />
         </button>
         <img
           src={basemapThumbnail(entry.id)}
@@ -582,7 +585,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="h-6 rounded px-2 text-xs"
+                className="h-7 rounded px-2 text-xs"
                 onClick={() => setSourceOrganization('')}
               >
                 {sourceOrganization}
@@ -594,7 +597,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-6 rounded px-2 text-xs"
+                className="h-7 rounded px-2 text-xs"
                 onClick={() => setSourceOrganization(option)}
               >
                 {option}
@@ -605,7 +608,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="secondary"
                 size="sm"
-                className="h-6 rounded px-2 text-xs"
+                className="h-7 rounded px-2 text-xs"
                 onClick={() => setKeyword('')}
               >
                 #{keyword}
@@ -617,7 +620,7 @@ export function DatasetSearchPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-6 rounded px-2 text-xs text-muted-foreground"
+                className="h-7 rounded px-2 text-xs text-muted-foreground"
                 onClick={() => setKeyword(option)}
               >
                 #{option}
@@ -636,11 +639,17 @@ export function DatasetSearchPanel({
         </div>
       )}
 
-      {/* State: Loading */}
-      {activeTab !== 'basemap' && !isError && (isLoading || isFetching) && (
-        <div className="flex items-center justify-center py-3">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      {/* State: Loading — first fetch skeleton rows (AUD-10) */}
+      {activeTab !== 'basemap' && !isError && isLoading && (
+        <div className="mt-3 space-y-1 px-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-[58px] w-full rounded-md" />
+          ))}
         </div>
+      )}
+      {/* State: Refetching — progress band over stale list (AUD-13) */}
+      {activeTab !== 'basemap' && !isError && isFetching && !isLoading && (
+        <div className="h-0.5 w-full bg-[var(--primary)] animate-pulse" />
       )}
 
       {/* State A: Unfiltered empty — catalog is empty */}
