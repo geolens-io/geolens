@@ -401,7 +401,25 @@
     "clearSearch": "Clear search",
     "error": "Failed to load datasets. Check your connection and try again.",
     "retry": "Try again",
-    "browseCatalogCta": "Browse public catalog →"
+    "browseCatalogCta": "Browse public catalog →",
+    "basemap": "Basemap",
+    "inUse": "in use",
+    "anotherRendering": "another rendering",
+    "swap": "swap",
+    "importData": "Import data...",
+    "filters": "Filters",
+    "previewAlt": "Preview of {{name}}",
+    "previewUnavailable": "Preview unavailable",
+    "allTypes": "All",
+    "vector": "Vector",
+    "raster": "Raster",
+    "metadata": {
+      "type": "Type",
+      "source": "Source",
+      "count": "Count",
+      "crs": "CRS",
+      "attribution": "Attribution"
+    }
   },
   "share": {
     "title": "Share",
