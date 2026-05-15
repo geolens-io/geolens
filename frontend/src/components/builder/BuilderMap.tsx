@@ -887,7 +887,7 @@ export const BuilderMap = memo(function BuilderMap({
           />
         )}
       </MapGL>
-      <MapCoordReadout map={mapRef.current} />
+      <MapCoordReadout map={mapRef.current} showScale />
       {!mapReady && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
           <div className="text-sm text-muted-foreground animate-pulse">{t('builderMap.loading', { defaultValue: 'Loading map…' })}</div>

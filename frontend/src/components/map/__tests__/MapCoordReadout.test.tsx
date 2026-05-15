@@ -11,6 +11,7 @@ import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { MapCoordReadout } from '../MapCoordReadout';
+import { formatRepresentativeFraction } from '@/lib/representative-fraction';
 
 interface FakeMapState {
   lat: number;
@@ -131,5 +132,87 @@ describe('MapCoordReadout — SP-02 move-event subscription', () => {
     expect(state.handlers.move?.length ?? 0).toBeGreaterThan(0);
     unmount();
     expect(state.handlers.move?.length ?? 0).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SP-12 — representative-fraction scale segment
+// ---------------------------------------------------------------------------
+
+describe('MapCoordReadout — SP-12 representative-fraction segment', () => {
+  let rafCallbacks: Array<() => void>;
+  let originalRaf: typeof requestAnimationFrame;
+  let originalCaf: typeof cancelAnimationFrame;
+
+  beforeEach(() => {
+    rafCallbacks = [];
+    originalRaf = global.requestAnimationFrame;
+    originalCaf = global.cancelAnimationFrame;
+    global.requestAnimationFrame = ((cb: () => void) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    }) as typeof requestAnimationFrame;
+    global.cancelAnimationFrame = vi.fn();
+  });
+
+  afterEach(() => {
+    global.requestAnimationFrame = originalRaf;
+    global.cancelAnimationFrame = originalCaf;
+  });
+
+  function flushRaf() {
+    const queued = rafCallbacks.slice();
+    rafCallbacks = [];
+    queued.forEach((cb) => cb());
+  }
+
+  it('does not render the scale segment by default (showScale omitted)', () => {
+    const { map } = makeFakeMap({ lat: 0, lng: 0, zoom: 12 });
+    render(<MapCoordReadout map={map} />);
+    expect(screen.queryByText(/1:/)).toBeNull();
+  });
+
+  it('does not render the scale segment when showScale={false}', () => {
+    const { map } = makeFakeMap({ lat: 0, lng: 0, zoom: 12 });
+    render(<MapCoordReadout map={map} showScale={false} />);
+    expect(screen.queryByText(/1:/)).toBeNull();
+  });
+
+  it('renders the 1:N segment when showScale={true} with the expected format at a known lat/zoom', () => {
+    const { map } = makeFakeMap({ lat: 0, lng: 0, zoom: 12 });
+    const { container } = render(<MapCoordReadout map={map} showScale />);
+
+    // Derive the expected value the same way the component does.
+    const expected = formatRepresentativeFraction(0, 12); // e.g. "1:144.4k"
+    // The pill text content includes the full "1:N" string across the muted span + text node.
+    // Use the container's full text to verify the segment appears.
+    expect(container.textContent).toContain(expected.slice(2)); // the value part e.g. "144.4k"
+    // The muted "1:" prefix renders as a span; the full pill should contain "1:" somewhere.
+    expect(container.textContent).toMatch(/1:/);
+  });
+
+  it('updates the 1:N segment when the map moves to a different latitude (cos-lat changes)', () => {
+    const { map, fire, setCenter, state } = makeFakeMap({ lat: 0, lng: 0, zoom: 12 });
+    const { container } = render(<MapCoordReadout map={map} showScale />);
+
+    // Capture initial RF value (equator)
+    const initialValue = formatRepresentativeFraction(0, 12).slice(2); // e.g. "144.4k"
+    expect(container.textContent).toContain(initialValue);
+
+    // Move to lat 60 — cos(60°) = 0.5, so denominator halves → different value
+    act(() => {
+      setCenter(60, 0);
+      fire('move');
+      flushRaf();
+    });
+
+    const updatedValue = formatRepresentativeFraction(
+      parseFloat((60).toFixed(2)),
+      parseFloat(state.zoom.toFixed(1)),
+    ).slice(2);
+
+    expect(container.textContent).toContain(updatedValue);
+    // Confirm the value changed (lat 60 vs lat 0 at same zoom)
+    expect(updatedValue).not.toBe(initialValue);
   });
 });

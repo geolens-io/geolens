@@ -1,8 +1,11 @@
 import { memo, useEffect, useState, useRef } from 'react';
 import type { Map as MaplibreMap, MapMouseEvent } from 'maplibre-gl';
+import { formatRepresentativeFraction } from '@/lib/representative-fraction';
 
 interface MapCoordReadoutProps {
   map: MaplibreMap | null;
+  /** When true, appends a "1:N" representative-fraction segment. Default: false. */
+  showScale?: boolean;
 }
 
 /**
@@ -20,7 +23,10 @@ interface MapCoordReadoutProps {
  *
  * Uses font-mono for an instrument/cartographic feel.
  */
-export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordReadoutProps) {
+export const MapCoordReadout = memo(function MapCoordReadout({
+  map,
+  showScale = false,
+}: MapCoordReadoutProps) {
   const [coords, setCoords] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const rafRef = useRef(0);
 
@@ -92,6 +98,15 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
   const latDir = coords.lat >= 0 ? 'N' : 'S';
   const lngDir = coords.lng >= 0 ? 'E' : 'W';
 
+  // SP-12: derive RF value at render time from existing coords state.
+  // Uses same coords.lat as the lat segment (mouse position during hover,
+  // viewport center otherwise). No new subscription needed.
+  // formatRepresentativeFraction returns e.g. "1:288k"; we strip the "1:" prefix
+  // so we can render the prefix as a muted span (mirroring the "z" prefix at line 100).
+  const rfValue = showScale
+    ? formatRepresentativeFraction(coords.lat, coords.zoom).slice(2)
+    : null;
+
   return (
     <div className="absolute top-2 right-2 z-10 pointer-events-none">
       <div className="font-mono text-2xs tracking-wide text-muted-foreground/70 bg-background/60 backdrop-blur-sm rounded px-1.5 py-0.5">
@@ -100,6 +115,13 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
         {Math.abs(coords.lng).toFixed(2)}° {lngDir}
         {' · '}
         <span className="text-foreground/50">z</span> {coords.zoom.toFixed(1)}
+        {showScale && rfValue != null && (
+          <>
+            {' · '}
+            <span className="text-foreground/50">1:</span>
+            {rfValue}
+          </>
+        )}
       </div>
     </div>
   );

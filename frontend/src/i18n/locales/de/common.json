@@ -365,6 +365,9 @@
   "inlineEdit": {
     "hint": "Strg+Eingabe zum Speichern, Escape zum Abbrechen"
   },
+  "mapCoordReadout": {
+    "scale": "1:{{value}}"
+  },
   "errorBoundary": {
     "appTitle": "Etwas ist schiefgelaufen",
     "appMessage": "Ein unerwarteter Fehler ist aufgetreten. Bitte laden Sie die Seite neu, um fortzufahren.",

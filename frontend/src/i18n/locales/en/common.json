@@ -365,6 +365,9 @@
   "inlineEdit": {
     "hint": "Ctrl+Enter to save, Escape to cancel"
   },
+  "mapCoordReadout": {
+    "scale": "1:{{value}}"
+  },
   "errorBoundary": {
     "appTitle": "Something went wrong",
     "appMessage": "An unexpected error occurred. Please reload the page to continue.",

@@ -365,6 +365,9 @@
   "inlineEdit": {
     "hint": "Ctrl+Entrée pour enregistrer, Échap pour annuler"
   },
+  "mapCoordReadout": {
+    "scale": "1:{{value}}"
+  },
   "errorBoundary": {
     "appTitle": "Une erreur est survenue",
     "appMessage": "Une erreur inattendue s'est produite. Veuillez recharger la page pour continuer.",
