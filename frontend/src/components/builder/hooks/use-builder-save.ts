@@ -104,12 +104,36 @@ function waitForVisibleLayerSources(
   poll();
 }
 
+/** SP-16: 500ms trailing-edge debounce around captureThumbnail.
+ *  Smoke evidence showed two back-to-back `PUT /maps/<id>/thumbnail/`
+ *  requests when a single layer-add triggered both the save-path capture
+ *  and the auto-capture. Coalesce all invocations within a 500ms window
+ *  into one capture for the most-recent args.
+ *
+ *  Keyed by mapId so concurrent edits to different maps don't collide
+ *  with each other. Each map has its own pending timer + latest args.
+ */
+const THUMBNAIL_DEBOUNCE_MS = 500;
+type PendingThumbnailCapture = {
+  timer: ReturnType<typeof setTimeout>;
+  args: [
+    MaplibreMap,
+    string,
+    ReturnType<typeof useQueryClient>,
+    MapLayerResponse[],
+    { cancelled: boolean } | undefined,
+  ];
+};
+const pendingCaptures = new Map<string, PendingThumbnailCapture>();
+
 /** Capture a 400x250 JPEG thumbnail from the map canvas and upload it.
  *  PERF-08 (Phase 274): no longer relies on permanent preserveDrawingBuffer.
  *  Uses map.triggerRepaint() + map.once('render') to read pixels from a
  *  freshly-painted canvas (see doCapture body). If the map is not yet
- *  idle/loaded, waits for idle first via waitForVisibleLayerSources. */
-function captureThumbnail(
+ *  idle/loaded, waits for idle first via waitForVisibleLayerSources.
+ *  SP-16: invocations are coalesced via a 500ms trailing debounce keyed
+ *  on mapId — see runCaptureNow / captureThumbnail. */
+function runCaptureNow(
   map: MaplibreMap,
   mapId: string,
   queryClient: ReturnType<typeof useQueryClient>,
@@ -119,6 +143,35 @@ function captureThumbnail(
   // Auto-capture can run before BuilderMap has synced GeoLens sources. Wait
   // for visible sources first so the thumbnail includes rendered layers.
   waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient), signal);
+}
+
+function captureThumbnail(
+  map: MaplibreMap,
+  mapId: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+  layers: MapLayerResponse[],
+  signal?: { cancelled: boolean },
+) {
+  // SP-16: clear any prior pending capture for this mapId; the latest call
+  // wins (trailing edge), reflecting the final state once the window settles.
+  const existing = pendingCaptures.get(mapId);
+  if (existing) clearTimeout(existing.timer);
+
+  const timer = setTimeout(() => {
+    pendingCaptures.delete(mapId);
+    runCaptureNow(map, mapId, queryClient, layers, signal);
+  }, THUMBNAIL_DEBOUNCE_MS);
+
+  pendingCaptures.set(mapId, {
+    timer,
+    args: [map, mapId, queryClient, layers, signal],
+  });
+}
+
+/** Test helper — flush any pending debounced captures synchronously. */
+export function __resetThumbnailDebounceForTests(): void {
+  for (const { timer } of pendingCaptures.values()) clearTimeout(timer);
+  pendingCaptures.clear();
 }
 
 function resolveWidgetsPayload(

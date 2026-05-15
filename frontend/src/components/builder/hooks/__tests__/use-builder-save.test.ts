@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
-import { buildLayerDiff, useBuilderSave } from '@/components/builder/hooks/use-builder-save';
+import { buildLayerDiff, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
 import { useWidgetStore } from '@/stores/map-widget-store';
 import type { MapLayerResponse } from '@/types/api';
 import { queryKeys } from '@/lib/query-keys';
@@ -245,6 +245,9 @@ describe('buildLayerDiff', () => {
 describe('useBuilderSave', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // SP-16: clear any pending debounced thumbnail captures from a prior test
+    // so module-level state doesn't bleed across cases.
+    __resetThumbnailDebounceForTests();
     mockEnabledWidgets.value = null;
     mockUpdateMapMutateAsync.mockImplementation(async (payload) => {
       mockMutate(payload);
@@ -680,8 +683,17 @@ describe('useBuilderSave', () => {
     }
 
     it('captures immediately when map is already loaded', async () => {
+      // SP-16: captureThumbnail is now wrapped in a 500ms trailing
+      // debounce; advance fake timers past the boundary to drive the
+      // capture path that this test exercises.
+      vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: true });
       await triggerSaveSuccess(mockMap);
+
+      // Before the debounce boundary, no capture has been requested.
+      expect(mockMap.once).not.toHaveBeenCalledWith('render', expect.any(Function));
+
+      act(() => { vi.advanceTimersByTime(500); });
 
       // PERF-08 (Phase 274): doCapture registers `once('render', ...)` then
       // calls triggerRepaint(); fire the render callback to simulate the
@@ -693,11 +705,18 @@ describe('useBuilderSave', () => {
       expect(mockMap.getCanvas).toHaveBeenCalled();
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
       expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
+
+      vi.useRealTimers();
     });
 
     it('defers capture via idle event when map is not loaded', async () => {
+      // SP-16: the 500ms debounce sits in front of whenMapIdle now;
+      // advance past it to reach the idle-deferral path.
+      vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
       await triggerSaveSuccess(mockMap);
+
+      act(() => { vi.advanceTimersByTime(500); });
 
       expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
       // Not captured yet
@@ -712,6 +731,9 @@ describe('useBuilderSave', () => {
       // Idle alone is not enough now; render frame has to fire.
       expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
       expect(mockMap.triggerRepaint).toHaveBeenCalled();
+
+      // The uploadThumbnail microtask resolves on real timers.
+      vi.useRealTimers();
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
 
       expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
@@ -722,6 +744,10 @@ describe('useBuilderSave', () => {
       const mockMap = createMockMap({ loaded: false });
       await triggerSaveSuccess(mockMap);
 
+      // SP-16: clear the 500ms debounce first so the whenMapIdle safety
+      // timer (which fires at +3000ms after the debounce flushes) becomes
+      // observable.
+      act(() => { vi.advanceTimersByTime(500); });
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
       // Advance past 3s timeout — whenMapIdle's safety timer fires the
@@ -743,6 +769,10 @@ describe('useBuilderSave', () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
       await triggerSaveSuccess(mockMap);
+
+      // SP-16: advance past the 500ms trailing debounce so the
+      // whenMapIdle path runs and registers the idle listener.
+      act(() => { vi.advanceTimersByTime(500); });
 
       // Simulate idle event fires quickly — this registers the render
       // listener (PERF-08) but does not yet capture.
@@ -796,9 +826,10 @@ describe('useBuilderSave', () => {
       });
       const { result } = renderHook(() => useBuilderSave(state));
 
-      // Two back-to-back saves 100ms apart. Before any debounce window
-      // elapses no capture (and therefore no `once('render')` registration)
-      // should fire.
+      // Two back-to-back saves 100ms apart. The second save resets the
+      // debounce timer; the trailing edge fires 500ms after that LATEST
+      // call, i.e. at t = 100 + 500 = 600ms. Before then no capture (and
+      // therefore no `once('render')` registration) should occur.
       await act(async () => { await result.current.handleSave(); });
       act(() => { vi.advanceTimersByTime(100); });
       await act(async () => { await result.current.handleSave(); });
@@ -806,11 +837,12 @@ describe('useBuilderSave', () => {
       expect(renderCallbackCount(mockMap)).toBe(0);
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
 
-      // Advance to just before the 500ms trailing boundary.
-      act(() => { vi.advanceTimersByTime(399); });
+      // Advance to just before the 500ms trailing boundary from the second save.
+      act(() => { vi.advanceTimersByTime(499); });
       expect(renderCallbackCount(mockMap)).toBe(0);
 
-      // Cross the boundary — one capture fires for the final state.
+      // Cross the boundary — exactly one capture fires for the final state,
+      // not two: the first save's debounced capture was cancelled by the second.
       act(() => { vi.advanceTimersByTime(1); });
       expect(renderCallbackCount(mockMap)).toBe(1);
 
