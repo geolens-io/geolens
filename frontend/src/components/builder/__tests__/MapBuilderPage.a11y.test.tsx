@@ -278,7 +278,7 @@ describe('Phase 1044-02 — MapBuilderPage drag aria-live region (POL-23)', () =
  * Rationale: these handlers (handleDragStart, handleDragEnd, handleDragCancel)
  * are invoked by @dnd-kit/core's internal PointerSensor / KeyboardSensor machinery,
  * not directly accessible in a JSDOM vitest environment. The handlers call
- * announce(t('a11y.XXX', ...)) which updates the aria-live region, but triggering
+ * announce(t('a11y.<event>', ...)) which updates the aria-live region, but triggering
  * them requires real pointer / keyboard events that dnd-kit processes through its
  * sensor activation (activationConstraint: distance >= 8px) — not achievable with
  * fireEvent or userEvent in JSDOM.
