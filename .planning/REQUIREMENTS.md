@@ -47,7 +47,7 @@ A modern, sleek, intuitive review across the entire builder surface — audit-fi
 - [x] **POL-13** — Spacing and density tokens are normalized across the builder surfaces (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings) using the `sketch-findings-geolens` token set; visual regressions caught by Playwright snapshots where added.
 - [x] **POL-14** — Hover, focus-visible, pressed, and active states are unified across the builder using the same token palette; microinteractions (transitions, drag affordance, expand/collapse) use consistent timing (`--motion-fast`/`--motion-base` tokens).
 - [x] **POL-15** — Loading affordances (skeletons for column lists, spinners for async previews, optimistic UI for stack reorder) are present everywhere an async fetch occurs in the builder.
-- [ ] **POL-16** — Error states are present and recoverable: every async failure point surfaces a localized error message with a retry affordance (no silent failure into the error boundary).
+- [x] **POL-16** — Error states are present and recoverable: every async failure point surfaces a localized error message with a retry affordance (no silent failure into the error boundary).
 - [ ] **POL-17** — Empty states are polished beyond v1008's catalog-first treatment — Filter section "no conditions yet", Labels section "labels off", Source section "no columns indexed", and the LayerEditorPanel itself when basemap-group has zero customization all receive intentional empty-state copy + iconography.
 - [ ] **POL-18** — Information architecture cleanup: section ordering inside `LayerEditorPanel` is consistent across vector/raster/DEM/basemap layer types; scene transitions (default → basemap-group → basemap-sublayer → back) preserve scroll position and focus.
 

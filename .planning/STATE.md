@@ -4,14 +4,14 @@ milestone: v1009
 milestone_name: Map Builder v1.5 (Polish)
 status: Archived (`tech_debt`)
 stopped_at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
-last_updated: "2026-05-15T00:24:41.338Z"
+last_updated: "2026-05-15T01:31:05.679Z"
 last_activity: 2026-05-14 — Phase 1040 Plan 02 complete (POL-01/02/05 partial; catalog rows draggable; handleDragEnd routes to handleAddDataset; modal stays open)
 progress:
   total_phases: 11
   completed_phases: 4
-  total_plans: 14
-  completed_plans: 14
-  percent: 100
+  total_plans: 18
+  completed_plans: 15
+  percent: 36
 ---
 
 # State
@@ -268,7 +268,7 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-15T00:24:41.334Z
+Last session: 2026-05-15T01:31:05.675Z
 Stopped at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
 Resume file: None
 
