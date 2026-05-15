@@ -4,8 +4,8 @@ milestone: v1009.1
 milestone_name: Builder Smoke Polish
 status: completed
 stopped_at: v1009.1 shipped and archived 2026-05-15. Awaiting next milestone.
-last_updated: "2026-05-15T17:15:00.000Z"
-last_activity: 2026-05-15 — Quick task 260515-i45: SP-07 backend has_quicklook predicate (reconcile script + 4 predicate tests)
+last_updated: "2026-05-15T17:35:00.000Z"
+last_activity: 2026-05-15 — Quick task 260515-ilt: raster/vrt has_quicklook dispatch fix (queries.py + service_records.py + extended predicate tests 9/9 PASS; live curl confirms rasters now report has_quicklook=true)
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,7 +21,7 @@ progress:
 Phase: Milestone v1009.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-15 — Completed quick task 260515-i45: SP-07 backend has_quicklook predicate — added `backend/scripts/reconcile_quicklook_uris.py` one-shot sweeper + 4 predicate tests (all PASS). No edits to service_records.py, ORM models, or frontend. Live `--dry-run` against demo data deferred (container rootfs read-only — run after next `docker compose up --build`).
+Last activity: 2026-05-15 — Completed quick task 260515-ilt: raster/vrt `has_quicklook` dispatch — `raster/queries.py:_row_to_meta()` now threads `quicklook_256_uri` through `fetch_raster_meta_one/bulk`; `service_records.py:312` dispatches on `record_type` (raster/vrt → `raster_meta['quicklook_256_uri']`, vector/table → existing column). 9/9 predicate tests PASS. Live curl against raster `93839c2a-ed2c-…` confirms `has_quicklook: true` (was `false`), no `quicklook_256_uri` leak in public properties. Closes the latent bug captured 2026-05-15 during SP-07.
 
 ## Project Reference
 
@@ -228,6 +228,7 @@ See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 | 260515-cej | Docker no-cache rebuild + Map Builder Playwright smoke check — 2 BLOCKERs (B-01 first-add maplibre sync miss, B-02 BulkActionBar clipped by sidebar), 4 MAJORs, 6 MINORs documented in FINDINGS.md with 18 screenshots | 2026-05-15 |  | Findings Reported | [260515-cej-docker-rebuild-builder-smoke](./quick/260515-cej-docker-rebuild-builder-smoke/) |
 | 260515-gm6 | SP-03 B-01-followup: fix fresh-add maplibre sync race (broken on first layer-add until refresh). Refactor to ref+callback (mirrors ViewerMap) + idle-event retry when style is transitioning. Playwright UAT confirmed: vector + DEM render without refresh, visibility + persistence regression checks pass. | 2026-05-15 | 74fe5cb8 | Verified | [260515-gm6-sp-03-b-01-followup-fix-fresh-add-maplib](./quick/260515-gm6-sp-03-b-01-followup-fix-fresh-add-maplib/) |
 | 260515-i45 | SP-07 backend has_quicklook predicate: one-shot async reconcile script (`backend/scripts/reconcile_quicklook_uris.py`) that lists vector datasets with non-null `quicklook_256_uri`, calls `storage.exists()`, and clears the URI on miss. 4 predicate tests PASS. No edits to `service_records.py` or schema. Live `--dry-run` against demo data deferred (container rootfs read-only). | 2026-05-15 | 8204b2c6 | Pending Live Verify | [260515-i45-sp-07-backend-has-quicklook-predicate](./quick/260515-i45-sp-07-backend-has-quicklook-predicate/) |
+| 260515-ilt | Fix `has_quicklook` raster/vrt dispatch: thread `quicklook_256_uri` through `_row_to_meta()` in `raster/queries.py` (cascades to both single + bulk fetchers via KISS-6) and dispatch on `record_type` at `service_records.py:312`. 9/9 predicate tests PASS (4 vector + 5 new raster/vrt incl. no-leak guard). Live curl confirms `has_quicklook=true` for raster + no `quicklook_256_uri` leak. Closes the latent bug captured by 260515-i45. | 2026-05-15 | 098f822c | Live Verified | [260515-ilt-fix-has-quicklook-raster-vrt-dispatch](./quick/260515-ilt-fix-has-quicklook-raster-vrt-dispatch/) |
 
 ## Deferred Items
 
@@ -247,7 +248,7 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 **Surfaced 2026-05-15 (during SP-07 quick task 260515-i45):**
 
-- **Latent bug — `has_quicklook` always False for raster/vrt records.** `backend/app/modules/catalog/search/service_records.py:312` is hardcoded to `dataset.quicklook_256_uri is not None`. For `record_type in ("raster_dataset", "vrt_dataset")` records, the quicklook URI lives on `RasterAsset.quicklook_256_uri`, not on `Dataset` — so the column is always None and `has_quicklook` always reports False. The frontend (`SearchResultCard.tsx:164`, `DatasetSearchPanel.tsx:124`) gates the quicklook GET on `properties.has_quicklook`, so **raster thumbnails are never displayed in search or Builder dataset panels** even though `/api/datasets/{id}/quicklook` at `router.py:215-226` correctly serves them via `RasterAsset.quicklook_256_uri`. **Scope of fix (small, mechanical — mirrors SP-07):** include `quicklook_256_uri` in the `raster_meta` dict built by `_build_raster_assets()` in `router.py`, then dispatch `has_quicklook` on `record_type` at `service_records.py:312` (vector → existing column; raster/vrt → `raster_meta.get("quicklook_256_uri") is not None`). One bulk-fetcher edit, one predicate-site edit, one test. Out of scope of SP-07 (FINDINGS m-02 evidence was vector-only), captured here for follow-up. Suggested next-task slug: `has-quicklook-raster-dispatch`.
+- ~~**Latent bug — `has_quicklook` always False for raster/vrt records.**~~ **CLOSED 2026-05-15 via quick task 260515-ilt (commit `098f822c`).** The dispatch fix threads `quicklook_256_uri` through `_row_to_meta()` in `backend/app/processing/raster/queries.py` (KISS-6 — single column list, both fetchers picked it up for free) and dispatches on `record_type` at `service_records.py:312`. 9/9 predicate tests PASS (4 vector from 260515-i45 + 5 new raster/vrt incl. a no-leak guard). Live curl against `/api/collections/datasets/items/93839c2a-…` now returns `has_quicklook: true` for the raster (was `false`); `quicklook_256_uri` does NOT appear in the public response properties.
 
 **Standing carryforwards (cross-milestone):**
 
