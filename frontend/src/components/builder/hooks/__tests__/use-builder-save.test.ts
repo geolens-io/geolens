@@ -764,6 +764,89 @@ describe('useBuilderSave', () => {
     });
   });
 
+  // SP-16: trailing 500ms debounce around the captureThumbnail entry point.
+  // Two back-to-back saves (or save + maybeAutoCaptureThumbnail) within
+  // 500ms must collapse into exactly one capture → one PUT /thumbnail/.
+  describe('SP-16 — captureThumbnail trailing debounce', () => {
+    const origCreateElement = document.createElement.bind(document);
+    let createElementSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag === 'canvas') {
+          return createMockCanvas() as unknown as HTMLCanvasElement;
+        }
+        return origCreateElement(tag, options);
+      });
+    });
+
+    afterEach(() => {
+      createElementSpy.mockRestore();
+    });
+
+    function renderCallbackCount(mockMap: ReturnType<typeof createMockMap>): number {
+      return mockMap.once.mock.calls.filter((c: unknown[]) => c[0] === 'render').length;
+    }
+
+    it('coalesces two saves within 500ms into a single capture (one render-frame registration)', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+
+      // Two back-to-back saves 100ms apart. Before any debounce window
+      // elapses no capture (and therefore no `once('render')` registration)
+      // should fire.
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(100); });
+      await act(async () => { await result.current.handleSave(); });
+
+      expect(renderCallbackCount(mockMap)).toBe(0);
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+
+      // Advance to just before the 500ms trailing boundary.
+      act(() => { vi.advanceTimersByTime(399); });
+      expect(renderCallbackCount(mockMap)).toBe(0);
+
+      // Cross the boundary — one capture fires for the final state.
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(renderCallbackCount(mockMap)).toBe(1);
+
+      // Fire the single registered render frame to drive the upload.
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+      expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('a single save still results in exactly one capture after the 500ms window', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+
+      await act(async () => { await result.current.handleSave(); });
+
+      // No capture before the trailing edge.
+      expect(renderCallbackCount(mockMap)).toBe(0);
+      act(() => { vi.advanceTimersByTime(499); });
+      expect(renderCallbackCount(mockMap)).toBe(0);
+
+      // At/after 500ms one capture fires.
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(renderCallbackCount(mockMap)).toBe(1);
+
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+      expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+  });
+
   describe('handleExportPNG (idle handling)', () => {
     it('defers export via idle event when map is not loaded', () => {
       const mockMap = createMockMap({ loaded: false });
