@@ -46,7 +46,14 @@ export const BulkActionBar = memo(function BulkActionBar({
 }: BulkActionBarProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const confirmId = useId();
+
+  // Mount animation: initial state → rAF flip to mounted state (translate-y + opacity)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const N = selectedIds.size;
 
@@ -109,10 +116,11 @@ export const BulkActionBar = memo(function BulkActionBar({
       role="toolbar"
       aria-label={t('bulkActions.toolbarLabel', { count: N })}
       className={cn(
-        'sticky bottom-0 flex items-center gap-1 px-3',
+        'sticky bottom-0 flex items-center gap-2 px-3',
         'h-12 bg-[var(--surface-2)] border-t border-[var(--border)]',
         'rounded-bl-[var(--radius-md)] rounded-br-[var(--radius-md)]',
-        'transition-all duration-150',
+        'transition-all duration-[--motion-fast]',
+        mounted ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
       )}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -142,7 +150,7 @@ export const BulkActionBar = memo(function BulkActionBar({
           </p>
           <Button
             type="button"
-            variant="secondary"
+            variant="ghost"
             size="sm"
             // eslint-disable-next-line jsx-a11y/no-autofocus -- focus on safe choice per AUD-09 / UI-SPEC §5
             autoFocus
@@ -183,34 +191,39 @@ export const BulkActionBar = memo(function BulkActionBar({
           <span className="mx-1 h-4 w-px bg-[var(--border)] shrink-0" aria-hidden="true" />
 
           {/* Visibility toggle */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 px-2 shrink-0"
-            aria-label={t('bulkActions.visibilityAriaLabel', { count: N })}
-            onClick={(e) => {
-              e.stopPropagation();
-              onBulkVisibility(selectedIds);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {majorityVisible ? (
-              <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
-            ) : (
-              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-            )}
-            <span className="hidden xl:inline text-xs">
-              {t('bulkActions.visibility')}
-            </span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 px-2 shrink-0"
+                aria-label={t('bulkActions.visibilityAriaLabel', { count: N })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBulkVisibility(selectedIds);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {majorityVisible ? (
+                  <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                <span className="hidden sm:inline text-xs">
+                  {t('bulkActions.visibility')}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('bulkActions.visibility')}</TooltipContent>
+          </Tooltip>
 
           {/* Opacity slider group */}
           <div
             className="flex items-center gap-1 shrink-0"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            <span className="hidden xl:inline text-xs text-muted-foreground">
+            <span className="hidden sm:inline text-xs text-muted-foreground">
               {t('bulkActions.opacity')}
             </span>
             <Slider
@@ -228,23 +241,28 @@ export const BulkActionBar = memo(function BulkActionBar({
 
           {/* Group button */}
           {canGroup ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 px-2 shrink-0"
-              aria-label={t('bulkActions.groupAriaLabel', { count: N })}
-              onClick={(e) => {
-                e.stopPropagation();
-                onBulkGroup(selectedIds);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden xl:inline text-xs">
-                {t('bulkActions.group')}
-              </span>
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 px-2 shrink-0"
+                  aria-label={t('bulkActions.groupAriaLabel', { count: N })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBulkGroup(selectedIds);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="hidden sm:inline text-xs">
+                    {t('bulkActions.group')}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('bulkActions.group')}</TooltipContent>
+            </Tooltip>
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -261,7 +279,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                     tabIndex={-1}
                   >
                     <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden xl:inline text-xs">
+                    <span className="hidden sm:inline text-xs">
                       {t('bulkActions.group')}
                     </span>
                   </Button>
@@ -275,23 +293,28 @@ export const BulkActionBar = memo(function BulkActionBar({
 
           {/* Ungroup button */}
           {canUngroup ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 px-2 shrink-0"
-              aria-label={t('bulkActions.ungroupAriaLabel', { count: N })}
-              onClick={(e) => {
-                e.stopPropagation();
-                onBulkUngroup(selectedIds);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <FolderMinus className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden xl:inline text-xs">
-                {t('bulkActions.ungroup')}
-              </span>
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 px-2 shrink-0"
+                  aria-label={t('bulkActions.ungroupAriaLabel', { count: N })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBulkUngroup(selectedIds);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <FolderMinus className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="hidden sm:inline text-xs">
+                    {t('bulkActions.ungroup')}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('bulkActions.ungroup')}</TooltipContent>
+            </Tooltip>
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -308,7 +331,7 @@ export const BulkActionBar = memo(function BulkActionBar({
                     tabIndex={-1}
                   >
                     <FolderMinus className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden xl:inline text-xs">
+                    <span className="hidden sm:inline text-xs">
                       {t('bulkActions.ungroup')}
                     </span>
                   </Button>
@@ -321,23 +344,28 @@ export const BulkActionBar = memo(function BulkActionBar({
           )}
 
           {/* Delete button */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 px-2 text-destructive shrink-0 ml-auto"
-            aria-label={t('bulkActions.deleteAriaLabel', { count: N })}
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirmingDelete(true);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="hidden xl:inline text-xs">
-              {t('bulkActions.delete')}
-            </span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 px-2 text-destructive shrink-0 ml-auto"
+                aria-label={t('bulkActions.deleteAriaLabel', { count: N })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmingDelete(true);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="hidden sm:inline text-xs">
+                  {t('bulkActions.delete')}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('bulkActions.delete')}</TooltipContent>
+          </Tooltip>
         </>
       )}
     </div>

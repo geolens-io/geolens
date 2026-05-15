@@ -9,7 +9,7 @@
  * Worker-safety: no file-level vi.mock('@dnd-kit/core').
  */
 
-import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { BulkActionBar } from '../BulkActionBar';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -122,11 +122,18 @@ describe('BulkActionBar — render condition (POL-08)', () => {
     expect(ariaLabel.length).toBeGreaterThan(0);
   });
 
-  it('Test 2: Renders aria-live="polite" on the toolbar', () => {
-    render(<BulkActionBar {...makeProps()} />);
+  it('Test 2: Renders aria-live="polite" on a live region inside the toolbar', () => {
+    const { container } = render(<BulkActionBar {...makeProps()} />);
 
+    // The live region is a sr-only span inside the toolbar, not the toolbar itself.
+    // role="toolbar" must NOT carry aria-live (it is a container, not a live region).
     const toolbar = screen.getByRole('toolbar');
-    expect(toolbar).toHaveAttribute('aria-live', 'polite');
+    expect(toolbar).not.toHaveAttribute('aria-live');
+
+    // The sr-only span inside carries the live region
+    const liveSpan = container.querySelector('[aria-live="polite"]');
+    expect(liveSpan).not.toBeNull();
+    expect(liveSpan).toHaveClass('sr-only');
   });
 
   it('Test 3: Shows selected count label (the selectedCount text is rendered)', () => {
@@ -380,6 +387,63 @@ describe('BulkActionBar — confirmation state machine', () => {
 
     // Confirmation should be dismissed — alertdialog no longer in DOM
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BulkActionBar — Phase 1042-02 polish fixes (POL-14)
+// ---------------------------------------------------------------------------
+
+describe('BulkActionBar — Phase 1042-02 polish fixes (POL-14)', () => {
+  it('Test A: Container element has gap-2 class (not gap-1)', () => {
+    const { container } = render(<BulkActionBar {...makeProps()} />);
+    const toolbar = container.querySelector('[role="toolbar"]');
+    expect(toolbar).not.toBeNull();
+    expect(toolbar!.className).toContain('gap-2');
+    expect(toolbar!.className).not.toContain('gap-1');
+  });
+
+  it('Test B: Initial render carries translate-y-2 opacity-0; after rAF flush carries translate-y-0 opacity-100', async () => {
+    // Use fake timers so requestAnimationFrame callbacks are controllable
+    vi.useFakeTimers();
+    const { container } = render(<BulkActionBar {...makeProps()} />);
+    const toolbar = container.querySelector('[role="toolbar"]');
+    expect(toolbar).not.toBeNull();
+    // Initial state (before rAF)
+    expect(toolbar!.className).toContain('translate-y-2');
+    expect(toolbar!.className).toContain('opacity-0');
+    // Flush rAF callbacks via act + runAllTimers
+    await act(async () => {
+      vi.runAllTimers();
+    });
+    vi.useRealTimers();
+    // Mounted state (after rAF)
+    expect(toolbar!.className).toContain('translate-y-0');
+    expect(toolbar!.className).toContain('opacity-100');
+  });
+
+  it('Test C: Cancel button in delete-confirm state has ghost variant (ghost-specific classes)', () => {
+    render(<BulkActionBar {...makeProps()} />);
+    // Enter confirmation state
+    fireEvent.click(screen.getByRole('button', { name: /bulkActions.deleteAriaLabel|delete/i }));
+    // Find the Cancel button
+    const cancelBtn = screen.getByRole('button', { name: /bulkActions.deleteConfirmCancel|Cancel/i });
+    // Ghost variant renders with no background by default; it does NOT use the secondary bg class
+    // We verify the button does not carry secondary-specific bg utilities
+    expect(cancelBtn.className).not.toContain('bg-secondary');
+    // Verify it is not disabled
+    expect(cancelBtn).not.toBeDisabled();
+  });
+
+  it('Test D: Enabled Visibility button has accessible name reachable via aria-label or Tooltip', () => {
+    render(<BulkActionBar {...makeProps({ selectedIds: new Set(['a', 'b']) })} />);
+    // Visibility button accessible name via aria-label
+    const visBtn = screen.getByRole('button', { name: /bulkActions.visibilityAriaLabel|visibility/i });
+    expect(visBtn).toBeInTheDocument();
+    // aria-label must be non-empty
+    const ariaLabel = visBtn.getAttribute('aria-label');
+    expect(ariaLabel).toBeTruthy();
+    expect((ariaLabel ?? '').length).toBeGreaterThan(0);
   });
 });
 
