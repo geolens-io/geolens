@@ -160,7 +160,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         aria-labelledby={`section-renderas-dem-${layer.id}`}
         className="border-b"
       >
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p
             id={`section-renderas-dem-${layer.id}`}
             className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
@@ -200,7 +200,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         aria-labelledby={`section-appearance-dem-${layer.id}`}
         className="border-b"
       >
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p
             id={`section-appearance-dem-${layer.id}`}
             className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
@@ -356,7 +356,7 @@ export const DEMEditorScene = memo(function DEMEditorScene({
         aria-labelledby={`section-visibility-dem-${layer.id}`}
         className="border-b"
       >
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p
             id={`section-visibility-dem-${layer.id}`}
             className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"

@@ -89,7 +89,7 @@ export function BasemapSublayerEditorScene({
     <>
       {/* 1. Detail Level section — always expanded */}
       <section className="border-b">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapSublayer.detailLevelLabel', { defaultValue: 'DETAIL LEVEL' })}
           </p>
@@ -133,7 +133,7 @@ export function BasemapSublayerEditorScene({
 
       {/* 2. Stroke section — always expanded */}
       <section className="border-b">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapSublayer.strokeLabel', { defaultValue: 'STROKE' })}
           </p>
@@ -205,7 +205,7 @@ export function BasemapSublayerEditorScene({
 
       {/* 3. Visibility section — opacity + zoom range */}
       <section className="border-b">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('layerEditor.section.visibility', { defaultValue: 'Visibility' })}
           </p>
@@ -282,7 +282,7 @@ export function BasemapSublayerEditorScene({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+            className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
               className={cn('h-4 w-4 shrink-0 transition-transform duration-150', resetOpen && 'rotate-90')}
@@ -299,7 +299,7 @@ export function BasemapSublayerEditorScene({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="px-4 py-3 border-b">
+          <div className="px-4 py-2 border-b">
             {!confirmingReset ? (
               <Button
                 type="button"

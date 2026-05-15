@@ -139,7 +139,7 @@ describe('BasemapGroupEditorScene', () => {
     expect(screen.getByText('Buildings')).toBeInTheDocument();
   });
 
-  it('Test 7: each sublayer list item is 32px tall and NOT clickable as a row', () => {
+  it('Test 7: each sublayer list item is NOT clickable as a row', () => {
     render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
 
     // Get the list
@@ -147,10 +147,45 @@ describe('BasemapGroupEditorScene', () => {
     const items = list.querySelectorAll('li');
     expect(items.length).toBe(3);
     items.forEach((item) => {
-      expect((item as HTMLElement).style.height).toBe('32px');
       // The li should NOT have an onClick directly (rows not clickable)
       expect((item as HTMLLIElement).onclick).toBeNull();
     });
+  });
+
+  it('AUD-16: all three section wrappers have className containing px-4 py-2 (not py-3)', () => {
+    const { container } = render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
+    // Find all divs with px-4 py-2 — should be at least 3 (one per section)
+    const wrappers = container.querySelectorAll('div[class*="px-4"][class*="py-2"]');
+    expect(wrappers.length).toBeGreaterThanOrEqual(3);
+    // Confirm no section wrapper has py-3
+    const py3Wrappers = container.querySelectorAll('div[class*="px-4"][class*="py-3"]');
+    expect(py3Wrappers.length).toBe(0);
+  });
+
+  it('AUD-17: each sublayer li has the canonical 7-cell grid class', () => {
+    render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
+
+    const list = screen.getByRole('list');
+    const items = list.querySelectorAll('li');
+    expect(items.length).toBe(3);
+    items.forEach((item) => {
+      expect(item.className).toContain('grid');
+      expect(item.className).toContain('grid-cols-[16px_14px_22px_22px_1fr_60px_22px]');
+    });
+  });
+
+  it('AUD-17: sublayer rows have hidden caret col (visibility:hidden) and hidden grip col (opacity-0)', () => {
+    const { container } = render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
+    const list = container.querySelector('ul');
+    const firstItem = list?.querySelector('li');
+    expect(firstItem).not.toBeNull();
+    // Col 1: visibility-hidden caret span
+    const caretSpan = firstItem?.querySelector('span[style*="visibility"]') ??
+      firstItem?.querySelector('[aria-hidden="true"][class*="w-\\[14px\\]"]');
+    expect(caretSpan).not.toBeNull();
+    // Col 2: opacity-0 grip span
+    const gripSpan = firstItem?.querySelector('.opacity-0.pointer-events-none');
+    expect(gripSpan).not.toBeNull();
   });
 
   it('Test 8: eye toggle in sublayer list calls onSublayerVisibilityChange(sublayerId)', () => {

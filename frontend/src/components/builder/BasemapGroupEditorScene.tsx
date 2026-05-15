@@ -75,7 +75,7 @@ export function BasemapGroupEditorScene({
     <>
       {/* 1. Preset section */}
       <section className="border-b">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapGroup.presetSectionLabel', { defaultValue: 'PRESET' })}
           </p>
@@ -125,7 +125,7 @@ export function BasemapGroupEditorScene({
 
       {/* 2. Sublayers section */}
       <section className="border-b">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
             {t('basemapGroup.sublayersSectionLabel', { defaultValue: 'SUBLAYERS' })}
           </p>
@@ -142,9 +142,22 @@ export function BasemapGroupEditorScene({
               return (
                 <li
                   key={sublayer.id}
-                  style={{ height: '32px', display: 'flex', alignItems: 'center', gap: '8px', padding: '0 4px' }}
+                  className="group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2"
                 >
-                  {/* Eye toggle */}
+                  {/* Col 1 (16px): caret — hidden; sublayers are not collapsible from scene B */}
+                  <span
+                    style={{ visibility: 'hidden' }}
+                    className="h-[14px] w-[14px]"
+                    aria-hidden="true"
+                  />
+
+                  {/* Col 2 (14px): grip — hidden; sublayers are not draggable from scene B */}
+                  <span
+                    className="opacity-0 pointer-events-none h-[14px] w-[14px]"
+                    aria-hidden="true"
+                  />
+
+                  {/* Col 3 (22px): Eye visibility toggle */}
                   <button
                     type="button"
                     aria-label={t('stackRow.toggleVisibility', {
@@ -164,15 +177,15 @@ export function BasemapGroupEditorScene({
                     )}
                   </button>
 
-                  {/* Type icon */}
+                  {/* Col 4 (22px): Type icon */}
                   <SublayerTypeIcon kind={sublayer.kind} />
 
-                  {/* Name */}
-                  <span className="text-xs text-foreground truncate flex-1 min-w-0">
+                  {/* Col 5 (1fr): Name */}
+                  <span className="text-xs text-foreground truncate min-w-0">
                     {sublayer.name}
                   </span>
 
-                  {/* Opacity slider */}
+                  {/* Col 6 (60px): Opacity slider */}
                   {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
                   <div
                     className="flex items-center"
@@ -195,6 +208,9 @@ export function BasemapGroupEditorScene({
                       }}
                     />
                   </div>
+
+                  {/* Col 7 (22px): spacer for kebab column alignment */}
+                  <span aria-hidden="true" />
                 </li>
               );
             })}
@@ -204,7 +220,7 @@ export function BasemapGroupEditorScene({
 
       {/* 3. Visibility section — master opacity */}
       <section className="border-b">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">
               {t('basemapGroup.masterOpacity', { defaultValue: 'Master opacity' })}

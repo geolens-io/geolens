@@ -95,7 +95,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+            className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
               className={cn('h-4 w-4 shrink-0 transition-transform duration-150', terrainOpen && 'rotate-90')}
@@ -112,7 +112,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="px-4 py-3 border-b">
+          <div className="px-4 py-2 border-b">
             <SliderRow
               label={t('settings.exaggeration', { defaultValue: 'Exaggeration' })}
               value={exaggerationValue}
@@ -146,7 +146,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+            className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
               className={cn('h-4 w-4 shrink-0 transition-transform duration-150', widgetsOpen && 'rotate-90')}
@@ -164,7 +164,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         </CollapsibleTrigger>
         <CollapsibleContent>
           {widgets.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-muted-foreground">
+            <p className="px-4 py-2 text-xs text-muted-foreground">
               {t('settings.noWidgets', { defaultValue: 'No widgets available.' })}
             </p>
           ) : (
@@ -204,7 +204,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-4 py-3 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+            className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
           >
             <ChevronRight
               className={cn('h-4 w-4 shrink-0 transition-transform duration-150', projectionOpen && 'rotate-90')}
@@ -223,7 +223,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="px-4 py-3 border-b">
+          <div className="px-4 py-2 border-b">
             <div
               role="radiogroup"
               aria-label={t('settings.projectionAria', { defaultValue: 'Map projection' })}
