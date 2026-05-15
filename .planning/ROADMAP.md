@@ -130,7 +130,7 @@
 - [x] 1041-01-PLAN.md — Selection model + visual state (Cmd/Shift/Space + checkbox + clearing rules + basemap boundary) (POL-06, POL-07, POL-10, POL-11)
 - [x] 1041-02-PLAN.md — BulkActionBar component + bulkActions i18n namespace + render condition wiring (POL-08)
 - [x] 1041-03-PLAN.md — Bulk handlers in use-builder-layers (vis/opacity/group/ungroup local-state + delete with allSettled rollback) (POL-09)
-- [ ] 1041-04-PLAN.md — Vitest coverage: selection model + BulkActionBar + bulk handlers + delete-rollback path (POL-06..POL-11)
+- [x] 1041-04-PLAN.md — Vitest coverage: selection model + BulkActionBar + bulk handlers + delete-rollback path (POL-06..POL-11)
 **UI hint**: yes
 
 ### Phase 1042: spacing-density-states-polish
@@ -143,7 +143,11 @@
   2. User hovers, focuses (keyboard), presses, and activates any builder control and sees the same visual state vocabulary; microinteractions (transitions, drag affordance, expand/collapse) use consistent `--motion-fast`/`--motion-base` timing.
   3. User triggers any async fetch in the builder (column list, dataset preview, stack reorder) and sees an appropriate loading affordance (skeleton, spinner, or optimistic UI) — no blank/frozen surfaces during fetch.
   4. Playwright snapshot coverage (where added) gates against visual regressions in the polished surfaces.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 1042-01-PLAN.md — index.css motion tokens (--motion-fast/--motion-base) + insertion-line bloom + group-children wash (PREREQUISITE; AUD-08 + 1040 carry-overs)
+- [ ] 1042-02-PLAN.md — BulkActionBar fixes (gap/Cancel/mount/labels) + DatasetSearchPanel skeleton/progress/filter heights/chevron/cursor-grab (Clusters B + C; AUD-10/12/13/15)
+- [ ] 1042-03-PLAN.md — LayerEditorPanel + 4 scenes spacing/density + state vocabulary unification (Cluster D + F; AUD-04/05/06/07/16/17/21)
+- [ ] 1042-04-PLAN.md — i18n duplicate-key dedup + freshLayerId entry animation + UnifiedStackPanel header sizing + EmptyStackState polish + eyebrow extraction (Clusters E + G; AUD-01/02/19/23/24)
 **UI hint**: yes
 
 ### Phase 1043: error-empty-states-and-ia-cleanup
@@ -197,8 +201,8 @@ Phases execute in numeric order: 1039 → 1040 → 1041 → 1042 → 1043 → 10
 |-------|-----------|----------------|--------|-----------|
 | 1039. ux-audit-and-test-debt-closeout | v1009 | 0/2 | Planned | - |
 | 1040. drag-from-catalog-into-stack | v1009 | 4/4 | Complete   | 2026-05-14 |
-| 1041. multi-layer-selection-and-bulk-ops | v1009 | 3/4 | In Progress|  |
-| 1042. spacing-density-states-polish | v1009 | 0/0 | Not started | - |
+| 1041. multi-layer-selection-and-bulk-ops | v1009 | 4/4 | Complete   | 2026-05-14 |
+| 1042. spacing-density-states-polish | v1009 | 0/4 | Planned | - |
 | 1043. error-empty-states-and-ia-cleanup | v1009 | 0/0 | Not started | - |
 | 1044. cross-cutting-closeout | v1009 | 0/0 | Not started | - |
 
