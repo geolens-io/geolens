@@ -526,6 +526,33 @@ describe('Phase 1040 catalog drop — CatalogDragGhost', () => {
   });
 });
 
+describe('Phase 1042 Plan 04 — AUD-01 + AUD-19 header button sizing', () => {
+  it('AUD-01: Settings cog button renders with h-8 w-8 className', () => {
+    render(<UnifiedStackPanel {...defaultProps()} />);
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    expect(cogBtn.className).toContain('h-8');
+    expect(cogBtn.className).toContain('w-8');
+    expect(cogBtn.className).not.toContain('h-[22px]');
+    expect(cogBtn.className).not.toContain('w-[22px]');
+  });
+
+  it('AUD-19: Settings cog icon renders with h-[18px] w-[18px]', () => {
+    render(<UnifiedStackPanel {...defaultProps()} />);
+    const cogBtn = screen.getByTestId('settings-cog-btn');
+    // The Settings icon is a child of the cog button
+    const icon = cogBtn.querySelector('svg');
+    expect(icon).not.toBeNull();
+    expect(icon!.getAttribute('class')).toContain('h-[18px]');
+    expect(icon!.getAttribute('class')).toContain('w-[18px]');
+  });
+
+  it('AUD-01 parity: + Add data button renders with h-8 className', () => {
+    render(<UnifiedStackPanel {...defaultProps()} />);
+    const addBtn = screen.getByRole('button', { name: /Add data/i });
+    expect(addBtn.className).toContain('h-8');
+  });
+});
+
 describe('Phase 1040 catalog drop — onAddDataset wiring', () => {
   it('calls onAddDataset(datasetId) when EmptyStackState pick-suggestion is triggered', () => {
     const onAddDataset = vi.fn();

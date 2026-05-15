@@ -237,4 +237,43 @@ describe('EmptyStackState', () => {
       expect(addBtn).toHaveAttribute('aria-busy', 'false');
     });
   });
+
+  // Phase 1042 Plan 04: AUD-23 + AUD-24 + AUD-02 assertions
+  it('Test 11 (AUD-23): suggest card rest background is --surface-0, not --surface-1', () => {
+    render(<EmptyStackState {...defaultProps()} />);
+    // Find the suggest card container (the clickable div wrapping each card)
+    const first = SUGGESTED_DATASETS[0];
+    const cardBody = screen.getByRole('button', { name: `Open ${first.name} in Add Data modal` });
+    // The card container is the parent of the card body button
+    const cardContainer = cardBody.closest('div');
+    expect(cardContainer).not.toBeNull();
+    expect(cardContainer!.className).toContain('bg-[var(--surface-0)]');
+    expect(cardContainer!.className).not.toContain('bg-[var(--surface-1)]');
+  });
+
+  it('Test 12 (AUD-24): inline search container has transition-colors duration-[--motion-fast]', () => {
+    render(<EmptyStackState {...defaultProps()} />);
+    const input = screen.getByRole('searchbox');
+    // The search container is the parent of the input
+    const container = input.closest('div');
+    expect(container).not.toBeNull();
+    expect(container!.className).toContain('transition-colors');
+    expect(container!.className).toContain('duration-[--motion-fast]');
+  });
+
+  it('Test 13 (AUD-24): search icon button has transition-colors duration-[--motion-fast]', () => {
+    render(<EmptyStackState {...defaultProps()} />);
+    const searchBtn = screen.getByRole('button', { name: 'Search and open Add Data modal' });
+    expect(searchBtn.className).toContain('transition-colors');
+    expect(searchBtn.className).toContain('duration-[--motion-fast]');
+  });
+
+  it('Test 14 (AUD-02): eyebrowClassName is exported from EmptyStackState', async () => {
+    const module = await import('../EmptyStackState');
+    expect(module.eyebrowClassName).toBeDefined();
+    expect(typeof module.eyebrowClassName).toBe('string');
+    expect(module.eyebrowClassName).toContain('text-[10px]');
+    expect(module.eyebrowClassName).toContain('font-semibold');
+    expect(module.eyebrowClassName).toContain('tracking-wide');
+  });
 });
