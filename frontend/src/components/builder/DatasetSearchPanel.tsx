@@ -674,6 +674,11 @@ export function DatasetSearchPanel({
               {t('search.uploadCta', { defaultValue: 'Upload a file →' })}
             </Link>
           </Button>
+          <Button variant="link" size="sm" className="text-muted-foreground text-xs" asChild>
+            <Link to="/collections">
+              {t('search.browseCatalogCta', { defaultValue: 'Browse public catalog →' })}
+            </Link>
+          </Button>
         </div>
       )}
 

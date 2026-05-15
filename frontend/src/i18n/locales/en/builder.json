@@ -400,7 +400,8 @@
     "zeroResultBody": "Try a different search term, or browse all datasets.",
     "clearSearch": "Clear search",
     "error": "Failed to load datasets. Check your connection and try again.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "browseCatalogCta": "Browse public catalog →"
   },
   "share": {
     "title": "Share",
