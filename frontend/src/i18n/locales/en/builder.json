@@ -391,7 +391,7 @@
     "dialogDescription": "Search and add datasets as layers to your map.",
     "placeholder": "Search datasets...",
     "noResults": "No datasets found",
-    "added": "(added)",
+    "added": "Added",
     "addToMap": "Add to map",
     "dragHandle": "Drag to add to map",
     "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
