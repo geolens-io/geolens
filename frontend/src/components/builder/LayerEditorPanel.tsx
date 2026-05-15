@@ -264,7 +264,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             onClick={onClose}
             aria-label={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
             title={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
-            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronLeft className="h-4 w-4 rtl-mirror" />
           </button>
@@ -308,7 +308,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
           aria-label={isPureSettings
             ? t('settings.closePanel', { defaultValue: 'Close settings' })
             : t('layerEditor.close', { defaultValue: 'Close layer editor' })}
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="h-4 w-4" aria-hidden="true" />
         </button>

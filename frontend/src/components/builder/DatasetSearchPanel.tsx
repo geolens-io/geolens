@@ -252,7 +252,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
         </button>
         <button
           type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={expanded ? `Collapse ${props.title}` : `Expand ${props.title}`}
           onClick={() => setExpandedRowId(expanded ? null : rowId)}
         >
@@ -342,7 +342,7 @@ const DraggableBasemapRow = memo(function DraggableBasemapRow({
         </button>
         <button
           type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={expanded ? `Collapse ${entry.label}` : `Expand ${entry.label}`}
           onClick={() => setExpandedRowId(expanded ? null : rowId)}
         >

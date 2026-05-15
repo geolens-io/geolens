@@ -311,7 +311,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
                 className={cn(
                   'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground',
                   'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  'hover:text-foreground hover:bg-accent',
+                  'hover:text-foreground hover:bg-[var(--surface-2)]',
                   selected && 'opacity-100',
                 )}
                 onClick={(e) => e.stopPropagation()}
