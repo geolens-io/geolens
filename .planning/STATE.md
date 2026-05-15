@@ -4,8 +4,8 @@ milestone: v1009.1
 milestone_name: Builder Smoke Polish
 status: completed
 stopped_at: v1009.1 shipped and archived 2026-05-15. Awaiting next milestone.
-last_updated: "2026-05-15T16:00:00.000Z"
-last_activity: 2026-05-15 — Milestone v1009.1 archived; 24 commits; tag v1009.1 created locally
+last_updated: "2026-05-15T17:15:00.000Z"
+last_activity: 2026-05-15 — Quick task 260515-i45: SP-07 backend has_quicklook predicate (reconcile script + 4 predicate tests)
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,17 +21,17 @@ progress:
 Phase: Milestone v1009.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-15 — Completed quick task 260515-gm6: SP-03 B-01-followup (fresh-add maplibre sync race) — ref+callback refactor + idle-event retry; Playwright UAT verified vector + DEM render without refresh
+Last activity: 2026-05-15 — Completed quick task 260515-i45: SP-07 backend has_quicklook predicate — added `backend/scripts/reconcile_quicklook_uris.py` one-shot sweeper + 4 predicate tests (all PASS). No edits to service_records.py, ORM models, or frontend. Live `--dry-run` against demo data deferred (container rootfs read-only — run after next `docker compose up --build`).
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone. Three followups deferred from v1009.1:
-- SP-03 / B-01-followup — fresh-add maplibre sync race (suspect `syncInputs` memo closure or `mapReady` timing)
-- SP-07 backend `has_quicklook` predicate
-- SP-12 representative-fraction "1:N" pane
+**Current focus:** No active milestone. Two followups deferred from v1009.1 remain:
+- ~~SP-03 / B-01-followup — fresh-add maplibre sync race~~ — CLOSED 2026-05-15 via quick task 260515-gm6 (ref+callback + idle-event retry)
+- ~~SP-07 backend `has_quicklook` predicate~~ — CLOSED 2026-05-15 via quick task 260515-i45 (one-shot reconcile sweeper at `backend/scripts/reconcile_quicklook_uris.py`)
+- SP-12 representative-fraction "1:N" pane (still open)
 
 ## Last Shipped Milestone
 
@@ -227,6 +227,7 @@ See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 | 260514-ajo | Smoke-test sweep deferred from v1008 close: fixed SidebarRail Add-data event bug + rewrote 8 stale tests and deleted 4 tests for removed features; full smoke 56/56 pass | 2026-05-14 | 91951aca |  | [260514-ajo-run-through-the-smoke-checks-and-fix-any](./quick/260514-ajo-run-through-the-smoke-checks-and-fix-any/) |
 | 260515-cej | Docker no-cache rebuild + Map Builder Playwright smoke check — 2 BLOCKERs (B-01 first-add maplibre sync miss, B-02 BulkActionBar clipped by sidebar), 4 MAJORs, 6 MINORs documented in FINDINGS.md with 18 screenshots | 2026-05-15 |  | Findings Reported | [260515-cej-docker-rebuild-builder-smoke](./quick/260515-cej-docker-rebuild-builder-smoke/) |
 | 260515-gm6 | SP-03 B-01-followup: fix fresh-add maplibre sync race (broken on first layer-add until refresh). Refactor to ref+callback (mirrors ViewerMap) + idle-event retry when style is transitioning. Playwright UAT confirmed: vector + DEM render without refresh, visibility + persistence regression checks pass. | 2026-05-15 | 74fe5cb8 | Verified | [260515-gm6-sp-03-b-01-followup-fix-fresh-add-maplib](./quick/260515-gm6-sp-03-b-01-followup-fix-fresh-add-maplib/) |
+| 260515-i45 | SP-07 backend has_quicklook predicate: one-shot async reconcile script (`backend/scripts/reconcile_quicklook_uris.py`) that lists vector datasets with non-null `quicklook_256_uri`, calls `storage.exists()`, and clears the URI on miss. 4 predicate tests PASS. No edits to `service_records.py` or schema. Live `--dry-run` against demo data deferred (container rootfs read-only). | 2026-05-15 | 8204b2c6 | Pending Live Verify | [260515-i45-sp-07-backend-has-quicklook-predicate](./quick/260515-i45-sp-07-backend-has-quicklook-predicate/) |
 
 ## Deferred Items
 
