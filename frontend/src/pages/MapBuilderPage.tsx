@@ -103,7 +103,7 @@ export function MapBuilderPage() {
   const lastOverIdRef = useRef<string | null>(null);
 
   const announce = useCallback((text: string) => {
-    // ​ = zero-width space; forces aria-live re-fire for identical consecutive strings
+    // appends zero-width space to forces aria-live re-fire for identical consecutive strings
     setDragAnnouncement(text + '\u200B' + Date.now());
   }, []);
   const dndSensors = useSensors(

@@ -489,9 +489,9 @@ describe('DatasetSearchPanel — Phase 1042-02 polish fixes', () => {
     // They have class group/row rounded-md border... and cursor-grab when not dragging
     const rowOuterDivs = container.querySelectorAll('.group\\/row');
     expect(rowOuterDivs.length).toBeGreaterThan(0);
-    // At least one row should have cursor-grab
+    // cursor-grab is on the inner flex-row div (not the outer group/row wrapper)
     const withGrab = Array.from(rowOuterDivs).filter((div) =>
-      div.className.includes('cursor-grab'),
+      div.querySelector('.cursor-grab') !== null,
     );
     expect(withGrab.length).toBeGreaterThan(0);
   });

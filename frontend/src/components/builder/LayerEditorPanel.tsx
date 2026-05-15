@@ -91,8 +91,6 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
       'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
       caps.kind === 'vector' && 'bg-[var(--type-vector-bg)] text-[var(--type-vector)]',
       (caps.kind === 'raster' || caps.kind === 'vrt') && 'bg-[var(--type-raster-bg)] text-[var(--type-raster)]',
-      caps.kind === 'basemap' && 'bg-[var(--primary-50)] text-[var(--primary-700)]',
-      !['vector', 'raster', 'vrt', 'basemap'].includes(caps.kind) && 'bg-[var(--surface-2)] text-muted-foreground',
     )}>
       {label}
     </span>
