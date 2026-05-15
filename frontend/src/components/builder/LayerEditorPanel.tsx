@@ -169,7 +169,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   // POL-18: Scroll + focus preservation across scene transitions
   const bodyRef = useRef<HTMLDivElement>(null);
-  const savedScrollTopRef = useRef<number>(0);
+  const savedScrollTopRef = useRef<number | null>(null);
   const prevSceneRef = useRef(editorScene);
   const headerRef = useRef<HTMLElement>(null);
 
@@ -185,8 +185,9 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
   // Restore scrollTop on remount / scene return
   useEffect(() => {
-    if (bodyRef.current && savedScrollTopRef.current > 0) {
+    if (bodyRef.current && savedScrollTopRef.current !== null) {
       bodyRef.current.scrollTop = savedScrollTopRef.current;
+      savedScrollTopRef.current = null;
     }
   }, [layer.id, editorScene]);
 
