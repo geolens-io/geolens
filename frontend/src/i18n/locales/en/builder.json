@@ -804,15 +804,16 @@
     "kebabMoveOutOfGroup": "Move out of group"
   },
   "basemapGroup": {
-    "typeIconLabel": "Basemap group",
-    "swapBasemap": "Swap basemap",
-    "resetAppearance": "Reset appearance",
-    "removeBasemap": "Remove basemap",
-    "sublayersSectionLabel": "SUBLAYERS",
-    "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
-    "presetSectionLabel": "PRESET",
+    "addCustomBasemap": "＋ Add custom basemap…",
     "masterOpacity": "Master opacity",
-    "addCustomBasemap": "＋ Add custom basemap…"
+    "presetSectionLabel": "PRESET",
+    "railLabel": "Basemap group",
+    "removeBasemap": "Remove basemap",
+    "resetAppearance": "Reset appearance",
+    "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
+    "sublayersSectionLabel": "SUBLAYERS",
+    "swapBasemap": "Swap basemap",
+    "typeIconLabel": "Basemap group"
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Back to basemap group",

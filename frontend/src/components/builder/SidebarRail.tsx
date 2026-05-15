@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Settings } from 'lucide-react';
+import { LayoutGrid, Plus, Settings } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ColorizedGeometryIcon, extractStyleHints, getLayerColors } from '@/components/map/layer-icons';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
@@ -14,6 +14,7 @@ interface SidebarRailProps {
   onAddDataClick: (initialQuery?: string) => void;
   onSettingsClick: () => void;
   isSettingsOpen?: boolean;
+  basemapGroup?: { id: string } | null;
 }
 
 function RailLayerIcon({ layer }: { layer: MapLayerResponse }) {
@@ -51,6 +52,7 @@ export const SidebarRail = memo(function SidebarRail({
   onAddDataClick,
   onSettingsClick,
   isSettingsOpen = false,
+  basemapGroup = null,
 }: SidebarRailProps) {
   const { t } = useTranslation('builder');
 
@@ -99,7 +101,7 @@ export const SidebarRail = memo(function SidebarRail({
       </Tooltip>
 
       {/* Divider */}
-      {layers.length > 0 && (
+      {(layers.length > 0 || basemapGroup) && (
         <div className="h-px w-8 bg-border my-1" aria-hidden="true" />
       )}
 
@@ -133,6 +135,31 @@ export const SidebarRail = memo(function SidebarRail({
           </Tooltip>
         );
       })}
+
+      {/* Basemap group button — rendered below the layer list when a basemap is configured */}
+      {basemapGroup && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('basemapGroup.railLabel', { defaultValue: 'Basemap group' })}
+              data-selected={basemapGroup.id === selectedLayerId ? 'true' : undefined}
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                basemapGroup.id === selectedLayerId
+                  ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] shadow-[inset_2px_0_0_var(--primary)]'
+                  : 'hover:bg-[var(--surface-2)] text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => onSelectLayer(basemapGroup.id)}
+            >
+              <LayoutGrid className="h-[18px] w-[18px]" aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8} className="text-xs">
+            {t('basemapGroup.railLabel', { defaultValue: 'Basemap group' })}
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 });

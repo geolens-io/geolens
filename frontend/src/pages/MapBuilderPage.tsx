@@ -949,6 +949,7 @@ export function MapBuilderPage() {
                 );
               }}
               isSettingsOpen={editorScene === 'settings'}
+              basemapGroup={layers.localBasemap ? { id: 'basemap-group' } : null}
             />
           ) : (
             <UnifiedStackPanel
