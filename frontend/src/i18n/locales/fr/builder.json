@@ -791,7 +791,7 @@
   },
   "unifiedStack": {
     "title": "Couches",
-    "addData": "＋ Ajouter des données",
+    "addData": "Ajouter des données",
     "settings": "Paramètres",
     "emptyState": "Aucune couche pour l'instant",
     "countBadge": "{{count}}",
@@ -834,7 +834,8 @@
     "sublayersSectionLabel": "SOUS-COUCHES",
     "swapBasemap": "Remplacer le fond de carte",
     "toggleExpand": "Réduire/développer le groupe de fond de carte",
-    "typeIconLabel": "Groupe de fond de carte"
+    "typeIconLabel": "Groupe de fond de carte",
+    "visibilityLocked": "Le fond de carte est toujours visible — utilisez « Supprimer le fond de carte » pour le masquer."
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Retour au groupe de fond de carte",

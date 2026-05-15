@@ -791,7 +791,7 @@
   },
   "unifiedStack": {
     "title": "Capas",
-    "addData": "＋ Agregar datos",
+    "addData": "Agregar datos",
     "settings": "Configuración",
     "emptyState": "Aún no hay capas",
     "countBadge": "{{count}}",
@@ -834,7 +834,8 @@
     "sublayersSectionLabel": "SUBCAPAS",
     "swapBasemap": "Cambiar mapa base",
     "toggleExpand": "Contraer/expandir grupo de mapa base",
-    "typeIconLabel": "Grupo de mapa base"
+    "typeIconLabel": "Grupo de mapa base",
+    "visibilityLocked": "El mapa base siempre está visible — use Eliminar mapa base para ocultarlo."
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Volver al grupo de mapa base",

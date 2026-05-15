@@ -88,7 +88,7 @@ export const SidebarRail = memo(function SidebarRail({
         <TooltipTrigger asChild>
           <button
             type="button"
-            aria-label={t('unifiedStack.addData', { defaultValue: '＋ Add data' })}
+            aria-label={t('unifiedStack.addData', { defaultValue: 'Add data' })}
             className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onAddDataClick()}
           >
@@ -96,7 +96,7 @@ export const SidebarRail = memo(function SidebarRail({
           </button>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8} className="text-xs">
-          {t('unifiedStack.addData', { defaultValue: '＋ Add data' })}
+          {t('unifiedStack.addData', { defaultValue: 'Add data' })}
         </TooltipContent>
       </Tooltip>
 

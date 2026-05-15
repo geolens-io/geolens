@@ -791,7 +791,7 @@
   },
   "unifiedStack": {
     "title": "Layers",
-    "addData": "＋ Add data",
+    "addData": "Add data",
     "settings": "Settings",
     "emptyState": "No layers yet",
     "countBadge": "{{count}}",
@@ -834,7 +834,8 @@
     "sublayersSectionLabel": "SUBLAYERS",
     "swapBasemap": "Swap basemap",
     "toggleExpand": "Toggle basemap group",
-    "typeIconLabel": "Basemap group"
+    "typeIconLabel": "Basemap group",
+    "visibilityLocked": "Basemap is always visible — use Remove basemap to hide."
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Back to basemap group",

@@ -791,7 +791,7 @@
   },
   "unifiedStack": {
     "title": "Layer",
-    "addData": "＋ Daten hinzufügen",
+    "addData": "Daten hinzufügen",
     "settings": "Einstellungen",
     "emptyState": "Noch keine Layer",
     "countBadge": "{{count}}",
@@ -834,7 +834,8 @@
     "sublayersSectionLabel": "SUBLAYER",
     "swapBasemap": "Basiskarte tauschen",
     "toggleExpand": "Basiskarten-Gruppe ein-/ausklappen",
-    "typeIconLabel": "Basiskarten-Gruppe"
+    "typeIconLabel": "Basiskarten-Gruppe",
+    "visibilityLocked": "Basiskarte ist immer sichtbar — verwenden Sie „Basiskarte entfernen“, um sie auszublenden."
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",

@@ -856,8 +856,11 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             className="h-8 gap-1 px-2 text-xs"
             onClick={() => onAddDataClick()}
           >
-            <Plus className="h-3 w-3" aria-hidden="true" />
-            {t('unifiedStack.addData', { defaultValue: '＋ Add data' })}
+            {/* SP-17: Lucide <Plus /> replaces the full-width U+FF0B character that
+                lived inside the i18n default. The literal "＋" has been stripped
+                from the locale strings; the icon is the sole visual plus. */}
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t('unifiedStack.addData', { defaultValue: 'Add data' })}
           </Button>
         </div>
       </div>

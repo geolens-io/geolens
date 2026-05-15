@@ -112,32 +112,47 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       {/* Cell 2: Grip — hidden: basemap group is not user-draggable (AUD-04) */}
       <span aria-hidden="true" className="h-[14px] w-[14px]" />
 
-      {/* Cell 3: Eye visibility toggle — disabled when basemap visibility is not yet wired.
-          SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed". */}
-      <button
-        type="button"
-        aria-label={t('stackRow.toggleVisibility', {
-          defaultValue: 'Toggle visibility for {{name}}',
-          name: rowName,
-        })}
-        aria-pressed={visible}
-        aria-disabled={visibilityDisabled || undefined}
-        tabIndex={visibilityDisabled ? -1 : undefined}
-        className={cn(
-          'flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          visibilityDisabled ? 'opacity-30 cursor-default' : 'hover:text-foreground',
-        )}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (!visibilityDisabled) onToggleVisibility(groupId);
-        }}
-      >
-        {visible ? (
+      {/* Cell 3: Eye visibility toggle.
+          SP-13: when visibilityDisabled (current v1 behavior), render a non-interactive
+          <span> glyph with a tooltip rather than a disabled <button>. The slot footprint
+          is identical to the active button so layout doesn't shift.
+          SP-10: aria-pressed reflects the visible state so AT users hear "Basemap pressed"
+          when the toggle is actually wired. */}
+      {visibilityDisabled ? (
+        <span
+          role="img"
+          aria-label={t('basemapGroup.visibilityLocked', {
+            defaultValue: 'Basemap is always visible — use Remove basemap to hide.',
+          })}
+          title={t('basemapGroup.visibilityLocked', {
+            defaultValue: 'Basemap is always visible — use Remove basemap to hide.',
+          })}
+          data-testid="basemap-visibility-locked"
+          className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground opacity-40 cursor-default"
+        >
           <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-      </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          aria-label={t('stackRow.toggleVisibility', {
+            defaultValue: 'Toggle visibility for {{name}}',
+            name: rowName,
+          })}
+          aria-pressed={visible}
+          className="flex items-center justify-center h-[22px] w-[22px] rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleVisibility(groupId);
+          }}
+        >
+          {visible ? (
+            <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+          ) : (
+            <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+        </button>
+      )}
 
       {/* Cell 4: Type icon — fixed ⊞ glyph with primary colors */}
       <div className="flex items-center justify-center h-[22px] w-[22px]">

@@ -206,6 +206,40 @@ describe('BasemapGroupRow', () => {
     expect(eyeBtn).toBeInTheDocument();
   });
 
+  // SP-13: visibilityDisabled renders a non-interactive glyph (not a disabled <button>).
+  it('Test 10d: visibilityDisabled renders a non-button glyph with tooltip, no Toggle button', () => {
+    render(<BasemapGroupRow {...defaultProps({ visibilityDisabled: true })} />);
+
+    // The disabled-but-button is gone: no "Toggle visibility" button.
+    expect(
+      screen.queryByRole('button', { name: /Toggle visibility/i }),
+    ).not.toBeInTheDocument();
+
+    // A non-interactive glyph element renders in its place, carrying the explanatory tooltip.
+    const glyph = screen.getByTestId('basemap-visibility-locked');
+    expect(glyph.tagName.toLowerCase()).toBe('span');
+    expect(glyph).toHaveAttribute(
+      'title',
+      'Basemap is always visible — use Remove basemap to hide.',
+    );
+    expect(glyph).toHaveAttribute(
+      'aria-label',
+      'Basemap is always visible — use Remove basemap to hide.',
+    );
+  });
+
+  it('Test 10e: visibilityDisabled glyph does not call onToggleVisibility when clicked', () => {
+    const onToggleVisibility = vi.fn();
+    render(
+      <BasemapGroupRow {...defaultProps({ visibilityDisabled: true, onToggleVisibility })} />,
+    );
+
+    const glyph = screen.getByTestId('basemap-visibility-locked');
+    fireEvent.click(glyph);
+
+    expect(onToggleVisibility).not.toHaveBeenCalled();
+  });
+
   it('Test 11: when isExpanded=true caret has rotate-90; when false no rotate class', () => {
     const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
     const buttons = screen.getAllByRole('button');
