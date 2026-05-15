@@ -715,9 +715,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   </Button>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     className="flex-1"
                     onClick={() => setConfirmingDelete(false)}
+                    // eslint-disable-next-line jsx-a11y/no-autofocus -- moves focus to safe action so Enter dismisses, not destroys (AUD-09)
+                    autoFocus
                   >
                     {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
                   </Button>
@@ -753,9 +755,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                   </Button>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
                     className="flex-1"
                     onClick={() => setConfirmingDelete(false)}
+                    // eslint-disable-next-line jsx-a11y/no-autofocus -- moves focus to safe action so Enter dismisses, not destroys (AUD-09)
+                    autoFocus
                   >
                     {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
                   </Button>

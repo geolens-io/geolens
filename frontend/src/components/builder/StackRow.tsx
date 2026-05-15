@@ -424,8 +424,10 @@ export const StackRow = memo(function StackRow({
           </Button>
           <Button
             size="sm"
-            variant="outline"
+            variant="ghost"
             onClick={() => setConfirmingDelete(false)}
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- moves focus to safe action so Enter dismisses, not destroys (AUD-09)
+            autoFocus
           >
             {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
           </Button>
