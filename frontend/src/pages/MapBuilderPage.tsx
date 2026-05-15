@@ -361,13 +361,14 @@ export function MapBuilderPage() {
         prev,
         lastToggleAnchor.current,
       );
-      // Range may include basemap-boundary ids in theory if selectableRowIds
-      // ever changes; defensively drop them here.
+      // Treat the helper's return as immutable (WR-03). Range may include
+      // basemap-boundary ids if selectableRowIds drifts; build a fresh Set.
+      const filtered = new Set<string>();
       for (const rid of selection) {
-        if (isBasemapBoundaryId(rid)) selection.delete(rid);
+        if (!isBasemapBoundaryId(rid)) filtered.add(rid);
       }
       lastToggleAnchor.current = anchor;
-      return selection;
+      return filtered;
     });
   }, [isBasemapBoundaryId, selectableRowIds]);
 

@@ -15,9 +15,6 @@ interface MapCoordReadoutProps {
  *                     to the readout).
  *   - `mousemove`   → tracks the cursor's geographic position while inside
  *                     the canvas (existing behavior — preserved).
- *   - `zoomend`     → updates the zoom value (kept for back-compat; `move`
- *                     also covers this, but `zoomend` is the original signal
- *                     and is cheap to leave in place).
  *   - canvas leave  → fall back to the current map center so the readout
  *                     reflects the viewport instead of stale cursor coords.
  *
@@ -71,13 +68,6 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
       rafRef.current = requestAnimationFrame(updateFromCenter);
     };
 
-    const onZoom = () => {
-      if (disposed) return;
-      setCoords((prev) =>
-        prev ? { ...prev, zoom: parseFloat(map.getZoom().toFixed(1)) } : { lat: map.getCenter().lat, lng: map.getCenter().lng, zoom: parseFloat(map.getZoom().toFixed(1)) },
-      );
-    };
-
     const onMouseLeave = () => {
       if (disposed) return;
       updateFromCenter();
@@ -85,7 +75,6 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
 
     map.on('move', onMove);
     map.on('mousemove', onMouseMove);
-    map.on('zoomend', onZoom);
     const canvas = map.getCanvas?.();
     canvas?.addEventListener('mouseleave', onMouseLeave);
 
@@ -94,7 +83,6 @@ export const MapCoordReadout = memo(function MapCoordReadout({ map }: MapCoordRe
       cancelAnimationFrame(rafRef.current);
       map.off('move', onMove);
       map.off('mousemove', onMouseMove);
-      map.off('zoomend', onZoom);
       canvas?.removeEventListener('mouseleave', onMouseLeave);
     };
   }, [map]);

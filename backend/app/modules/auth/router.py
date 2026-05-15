@@ -52,6 +52,8 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
+# SP-11 (v1009.1): no trailing slash — FastAPI's default 307 strips the
+# POST body for OAuth2 form callers. Do NOT add a trailing slash on cleanup.
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
 async def login(

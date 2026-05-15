@@ -30,7 +30,11 @@ export async function tryRefresh(): Promise<boolean> {
     return !!useAuthStore.getState().token;
   }
 
-  inflightRefresh = (async () => {
+  // The singleton MUST be cleared synchronously when the IIFE settles —
+  // not in the outer try/finally — so a third caller that arrives between
+  // resolution and the outer finally can't observe `inflightRefresh === null`
+  // and kick off a second refresh cycle. WR-02 (1045-REVIEW.md).
+  const promise = (async () => {
     try {
       const tokens = await refreshAccessToken(refreshToken);
       useAuthStore.getState().setTokens(
@@ -44,15 +48,13 @@ export async function tryRefresh(): Promise<boolean> {
         await new Promise((r) => setTimeout(r, 2000));
       }
       // Refresh failed -- will fall through to logout
+    } finally {
+      inflightRefresh = null;
     }
   })();
+  inflightRefresh = promise;
 
-  try {
-    await inflightRefresh;
-  } finally {
-    inflightRefresh = null;
-  }
-
+  await promise;
   return !!useAuthStore.getState().token;
 }
 
