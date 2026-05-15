@@ -24,7 +24,7 @@ import type { BasemapEntry } from '@/api/settings';
 import { queryKeys } from '@/lib/query-keys';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useBasemaps } from '@/hooks/use-settings';
-import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
+import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -118,24 +118,21 @@ function DatasetPreview({ record }: { record: OGCRecordResponse }) {
   const { t } = useTranslation('builder');
   const props = record.properties;
   const isTable = props.record_type === 'table';
-  // SP-07: same session-scoped negative cache pattern as the search page.
-  const recordId = record.id as string;
-  const quicklookUrl =
-    !isTable && props.has_quicklook && !isQuicklookKnownMissing(recordId)
-      ? `/api/datasets/${recordId}/quicklook?size=256`
-      : null;
+  // useQuicklook solves the Bearer-JWT mismatch: apiFetchBlob attaches the
+  // Authorization header, returning a blob URL instead of an anonymous <img src>.
+  const enableQuicklook = !isTable && Boolean(props.has_quicklook);
+  const { url: quicklookBlobUrl } = useQuicklook(enableQuicklook ? (record.id as string) : null, 256);
 
-  if (quicklookUrl) {
+  if (quicklookBlobUrl) {
     return (
       <img
-        src={quicklookUrl}
+        src={quicklookBlobUrl}
         alt={t('search.previewAlt', {
           name: props.title,
           defaultValue: '{{name}} preview',
         })}
         className="h-24 w-28 rounded-md border object-cover"
         loading="lazy"
-        onError={() => markQuicklookMissing(recordId)}
       />
     );
   }

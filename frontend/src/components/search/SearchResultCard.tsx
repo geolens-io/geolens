@@ -11,7 +11,7 @@ import { formatProvenanceTime } from '@/lib/provenance-attribution';
 import { extractBbox, geometryIcon } from '@/lib/geo-utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
-import { isQuicklookKnownMissing, markQuicklookMissing } from '@/lib/quicklook-cache';
+import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import type { OGCRecordResponse } from '@/types/api';
 
 const statusStyles: Record<string, string> = {
@@ -148,25 +148,14 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
 
-  // Quicklook: only render when the backend confirms a quicklook exists.
-  // Uses native <img loading="lazy"> so the browser can cache the image
-  // (Cache-Control: public, max-age=3600) and the search page no longer
-  // fires 20+ parallel authenticated fetches.
-  // NOTE: <img> tags cannot send Authorization headers, so quicklooks for
-  // non-public datasets require a dedicated download-token endpoint (future).
-  //
-  // SP-07: the backend's has_quicklook flag is set when quicklook_256_uri is
-  // assigned at ingest, but does NOT verify file existence. When the Celery
-  // thumbnail-generation task fails silently the request 404s and pollutes
-  // the console. Skip the <img> for any id that already 404'd this session.
+  // Quicklook: useQuicklook solves the Bearer-JWT mismatch — <img src> requests
+  // do NOT carry the Authorization header, so private-dataset quicklooks 404'd
+  // anonymously. useQuicklook routes the fetch through apiFetchBlob (Bearer-
+  // attached) and returns a blob URL. SP-07 negative-cache: genuine file-missing
+  // 404s are cached in quicklook-cache.ts for the session so we skip re-fetching.
   const featureId = feature.id as string;
-  const quicklookId =
-    !isCollection && !isTable && properties.has_quicklook && !isQuicklookKnownMissing(featureId)
-      ? featureId
-      : null;
-  const quicklookUrl = quicklookId
-    ? `/api/datasets/${quicklookId}/quicklook?size=256`
-    : null;
+  const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);
+  const { url: quicklookBlobUrl } = useQuicklook(enableQuicklook ? featureId : null, 256);
 
   // Provenance (for non-collection types)
   const neverEditedLabel = t('card.neverEdited', { defaultValue: 'Never' });
@@ -347,17 +336,12 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           {properties.column_count ? ` · ${t('card.tableCols', { count: properties.column_count })}` : ''}
                         </span>
                       </div>
-                    ) : quicklookUrl && quicklookId ? (
+                    ) : quicklookBlobUrl ? (
                       <img
-                        src={quicklookUrl}
+                        src={quicklookBlobUrl}
                         loading="lazy"
                         alt={t('datasetCard.quicklookAlt', { name: properties.title })}
                         className="size-[132px] object-cover xl:size-[148px]"
-                        onError={() => {
-                          // SP-07: cache the failure for the session so
-                          // subsequent renders / reloads skip the 404.
-                          markQuicklookMissing(quicklookId);
-                        }}
                       />
                     ) : (
                       <BBoxPreview bbox={bbox} className="size-[132px] rounded-md bg-muted xl:size-[148px]" />
