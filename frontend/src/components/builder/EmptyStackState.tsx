@@ -12,6 +12,10 @@ export interface EmptyStackStateProps {
   onAddDataset: (datasetId: string) => void;
 }
 
+// AUD-02: shared eyebrow class string — single source of truth for 10px uppercase label
+// imported by UnifiedStackPanel for the basemap-dock BASEMAP eyebrow label
+export const eyebrowClassName = 'block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-1';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -79,7 +83,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
       <div
         className={cn(
           'grid gap-2 items-center p-2 px-3 rounded-md border',
-          'bg-[var(--surface-1)] hover:bg-[var(--surface-2)] hover:border-primary/30 hover:shadow-sm',
+          'bg-[var(--surface-0)] hover:bg-[var(--surface-2)] hover:border-primary/30 hover:shadow-sm',
           'transition-colors',
           isAdding && 'pointer-events-none opacity-70',
         )}
@@ -193,7 +197,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           'flex items-center gap-2 rounded-md border',
           'bg-[var(--surface-2)] px-3',
           'focus-within:border-primary',
-          'transition-colors',
+          'transition-colors duration-[--motion-fast]',
         )}
         style={{ height: '36px' }}
       >
@@ -205,7 +209,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
               onOpenAddData(inlineQuery.trim());
             }
           }}
-          className="flex items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-none"
+          className="flex items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-none transition-colors duration-[--motion-fast]"
         >
           <Search className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -224,7 +228,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
       <div className="flex flex-col gap-2">
         <span
           aria-hidden="true"
-          className="block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-1"
+          className={eyebrowClassName}
         >
           {t('unifiedStack.suggestedLabel', { defaultValue: 'SUGGESTED' })}
         </span>

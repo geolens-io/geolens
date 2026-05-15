@@ -30,6 +30,8 @@ vi.mock('@/components/map/layer-icons', () => ({
 
 // Mock BasemapGroupRow and FolderGroupRow to simple stubs for routing logic tests
 vi.mock('../EmptyStackState', () => ({
+  // AUD-02: export the constant so UnifiedStackPanel can import it from this mock
+  eyebrowClassName: 'block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-1',
   EmptyStackState: ({ onOpenAddData, onAddDataset }: {
     onOpenAddData: (query?: string) => void;
     onAddDataset: (id: string) => void;

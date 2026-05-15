@@ -20,7 +20,7 @@ import { Slider } from '@/components/ui/slider';
 import { StackRow } from '@/components/builder/StackRow';
 import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
 import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
-import { EmptyStackState } from '@/components/builder/EmptyStackState';
+import { EmptyStackState, eyebrowClassName } from '@/components/builder/EmptyStackState';
 import { BulkActionBar } from '@/components/builder/BulkActionBar';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
@@ -115,6 +115,8 @@ interface UnifiedStackPanelProps {
   onBulkGroup?: (ids: Set<string>) => void;
   onBulkUngroup?: (ids: Set<string>) => void;
   onBulkDelete?: (ids: Set<string>) => void;
+  // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
+  freshLayerId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,8 @@ interface SortableStackRowProps {
   onCmdClick?: (id: string) => void;
   onShiftClick?: (id: string) => void;
   onCheckboxClick?: (id: string) => void;
+  // Phase 1042 POL-15: entry animation
+  isFresh?: boolean;
 }
 
 const SortableStackRow = memo(function SortableStackRow({
@@ -162,6 +166,7 @@ const SortableStackRow = memo(function SortableStackRow({
   onCmdClick,
   onShiftClick,
   onCheckboxClick,
+  isFresh,
 }: SortableStackRowProps) {
   const {
     attributes,
@@ -207,6 +212,7 @@ const SortableStackRow = memo(function SortableStackRow({
         onCmdClick={onCmdClick}
         onShiftClick={onShiftClick}
         onCheckboxClick={onCheckboxClick}
+        isFresh={isFresh}
       />
     </div>
   );
@@ -624,6 +630,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onBulkGroup,
   onBulkUngroup,
   onBulkDelete,
+  freshLayerId = null,
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
@@ -746,7 +753,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
         {showEyebrow && (
           <span
             aria-hidden="true"
-            className="block text-[10px] font-semibold tracking-wide text-muted-foreground uppercase px-3 pt-1 pb-0"
+            className={cn(eyebrowClassName, 'px-3 pt-1 pb-0')}
           >
             {t('unifiedStack.basemapEyebrow', { defaultValue: 'BASEMAP' })}
           </span>
@@ -815,15 +822,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 aria-pressed={isSettingsOpen}
                 data-testid="settings-cog-btn"
                 className={cn(
-                  'flex h-[22px] w-[22px] items-center justify-center rounded transition-colors',
+                  'flex h-8 w-8 items-center justify-center rounded transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   isSettingsOpen
                     ? 'bg-[var(--primary-50,oklch(0.97_0.02_250))] text-primary'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    : 'text-muted-foreground hover:bg-[var(--surface-2)] hover:text-foreground',
                 )}
                 onClick={onSettingsClick}
               >
-                <Settings className="h-4 w-4" aria-hidden="true" />
+                <Settings className="h-[18px] w-[18px]" aria-hidden="true" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -833,7 +840,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           <Button
             variant="default"
             size="sm"
-            className="h-7 gap-1 px-2 text-xs"
+            className="h-8 gap-1 px-2 text-xs"
             onClick={() => onAddDataClick()}
           >
             <Plus className="h-3 w-3" aria-hidden="true" />
@@ -926,6 +933,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                               onCmdClick={onCmdClick}
                               onShiftClick={onShiftClick}
                               onCheckboxClick={onCheckboxClick}
+                              isFresh={child.id === freshLayerId}
                             />
                           ))}
                         </div>
@@ -956,6 +964,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onCmdClick={onCmdClick}
                     onShiftClick={onShiftClick}
                     onCheckboxClick={onCheckboxClick}
+                    isFresh={layer.id === freshLayerId}
                   />
                 );
               })}
