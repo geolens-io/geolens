@@ -35,7 +35,7 @@ The user can select multiple stack rows and perform bulk operations atomically.
 - [x] **POL-06** — Stack rows support multi-selection via `cmd-click` (toggle) and `shift-click` (contiguous range), with clear keyboard equivalents (Space toggles, Shift+ArrowUp/Down extends).
 - [x] **POL-07** — Selected rows render a distinct selection state (background tint + optional `aria-selected="true"` + visible checkbox); the single-selection focus state for the layer editor remains visually distinguishable from multi-selection.
 - [x] **POL-08** — When 2+ rows are selected, a bulk action bar appears (anchored to the stack header or footer) exposing: bulk visibility toggle, bulk opacity slider, group selection, ungroup, delete.
-- [ ] **POL-09** — Bulk operations execute atomically (single optimistic update, single API write per affected layer); failure surfaces a single error toast and rolls back optimistically updated state.
+- [x] **POL-09** — Bulk operations execute atomically (single optimistic update, single API write per affected layer); failure surfaces a single error toast and rolls back optimistically updated state.
 - [x] **POL-10** — Selection clears on `Escape`, on outside-click of the stack, and on route change.
 - [x] **POL-11** — Multi-selection does NOT cross the basemap-group boundary (the basemap row + sublayers cannot be co-selected with overlay layers — bulk delete on basemap is non-sensical).
 
@@ -44,8 +44,8 @@ The user can select multiple stack rows and perform bulk operations atomically.
 A modern, sleek, intuitive review across the entire builder surface — audit-first, then targeted polish.
 
 - [ ] **POL-12** — A `BUILDER-UX-AUDIT.md` document is produced enumerating findings across the builder (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings scene, SidebarRail, EmptyStackState) with severity (P0/P1/P2) and a fix-priority recommendation.
-- [ ] **POL-13** — Spacing and density tokens are normalized across the builder surfaces (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings) using the `sketch-findings-geolens` token set; visual regressions caught by Playwright snapshots where added.
-- [ ] **POL-14** — Hover, focus-visible, pressed, and active states are unified across the builder using the same token palette; microinteractions (transitions, drag affordance, expand/collapse) use consistent timing (`--motion-fast`/`--motion-base` tokens).
+- [x] **POL-13** — Spacing and density tokens are normalized across the builder surfaces (UnifiedStackPanel, LayerEditorPanel, Add Dataset modal, Settings) using the `sketch-findings-geolens` token set; visual regressions caught by Playwright snapshots where added.
+- [x] **POL-14** — Hover, focus-visible, pressed, and active states are unified across the builder using the same token palette; microinteractions (transitions, drag affordance, expand/collapse) use consistent timing (`--motion-fast`/`--motion-base` tokens).
 - [ ] **POL-15** — Loading affordances (skeletons for column lists, spinners for async previews, optimistic UI for stack reorder) are present everywhere an async fetch occurs in the builder.
 - [ ] **POL-16** — Error states are present and recoverable: every async failure point surfaces a localized error message with a retry affordance (no silent failure into the error boundary).
 - [ ] **POL-17** — Empty states are polished beyond v1008's catalog-first treatment — Filter section "no conditions yet", Labels section "labels off", Source section "no columns indexed", and the LayerEditorPanel itself when basemap-group has zero customization all receive intentional empty-state copy + iconography.
