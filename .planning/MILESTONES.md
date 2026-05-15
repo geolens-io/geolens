@@ -1,5 +1,36 @@
 # Milestones
 
+## v1009 Map Builder v1.5 (Polish) (Shipped: 2026-05-15)
+
+**Phases completed:** 11 phases, 22 plans, 28 tasks
+
+**Key accomplishments:**
+
+- 1. [Rule 3 - Blocking issue] Two additional pre-existing failures revealed by Task 2
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- Motion timing tokens (--motion-fast/--motion-base) landed in :root, insertion-line bloom shadow and 9999px radius added, folder-group children wash rule added using [id^=folder-group-children] attribute selector
+- One-liner:
+- AUD-05:
+- One-liner:
+- Task 1 — AUD-11 retry pattern:
+- AUD-22 (P0) — EmptyStackState starter-help fallback:
+- SidebarRail gains a LayoutGrid basemap-group rail button with proper selected/hover state; Remove basemap footer styled destructive; LayerEditorPanel preserves scroll position and keyboard focus across scene transitions.
+- 1. [Rule 1 - Bug] Fixed pre-existing TS2367 at LayerEditorPanel.tsx:94
+- One-liner:
+- Vitest pinning of UnifiedStackPanel listbox ARIA contract (8 tests) + MapBuilderPage aria-live region presence (2 tests) + reusable keyboard-only walkthrough for drag-from-catalog and multi-select bulk delete
+- One-liner:
+- Final v1009 milestone smoke gate — `npm run e2e:smoke:builder` green at 25/25 tests (fixed 5 spec defects inline), i18n parity green at 2/2, builder vitest at 799/799 with 0 failures, typecheck 0 errors: Recommendation: GO
+
+---
+
 ## v1007 Release Hygiene (Shipped: 2026-05-12)
 
 **Delivered:** Release hygiene closeout after v1006, including scanner-clean dependency verification, OpenAPI/SDK regeneration, compose health fix, robust root smoke, Playwright MCP console-clean browser sanity, and temporary UAT data cleanup.

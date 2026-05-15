@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1009
 milestone_name: Map Builder v1.5 (Polish)
-status: Archived (`tech_debt`)
+status: completed
 stopped_at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
-last_updated: "2026-05-15T04:00:00.000Z"
-last_activity: 2026-05-15 — Phase 1044 Plan 04 complete (final smoke gate; all 5 gates PASS; v1009 GO; POL-25 satisfied)
+last_updated: "2026-05-15T09:06:23.895Z"
+last_activity: 2026-05-15 — Milestone v1009 completed and archived
 progress:
   total_phases: 11
-  completed_phases: 11
-  total_plans: 26
-  completed_plans: 26
-  percent: 100
+  completed_phases: 6
+  total_plans: 22
+  completed_plans: 22
+  percent: 55
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1044
-Plan: 04 complete
-Status: v1009 milestone complete — all 25 POL requirements satisfied, smoke gate green
-Last activity: 2026-05-15 — Phase 1044 Plan 04 complete (final smoke gate; all 5 gates PASS; v1009 GO; POL-25 satisfied)
+Phase: Milestone v1009 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-15 — Milestone v1009 completed and archived
 
 ## Project Reference
 
@@ -72,7 +72,7 @@ See: .planning/PROJECT.md (updated 2026-05-14 after shipping v1008)
 **Version:** v1008 Map Builder Sidebar Redesign
 **Started:** 2026-05-13
 **Shipped:** 2026-05-14
-**Status:** Archived (`tech_debt`)
+**Status:** v1009 milestone complete
 **Goal:** Re-architect the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
 **Phases:** 1033-1038 (6 phases, 16 plans, 27 requirements; 27/27 satisfied)
 **UAT:** 9 pass / 1 skip / 0 fail (`e2e/builder-unified-stack.spec.ts`)
@@ -274,3 +274,7 @@ Resume file: None
 
 ---
 *Last updated: 2026-05-14 after creating v1009 roadmap*
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
