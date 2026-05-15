@@ -98,8 +98,15 @@ describe('MapTitleBar', () => {
 
     // No "Unsaved changes" indicator
     expect(screen.queryByLabelText('Unsaved changes')).not.toBeInTheDocument();
-    expect(screen.getByTestId('builder-save-status')).toHaveTextContent('Saved');
-    expect(screen.getAllByText('Saved')).toHaveLength(2);
+    // SP-06: builder-save-status testid moved to the Save button itself; the
+    // separate "[OK Saved]" badge was removed because it duplicated the button.
+    const saveBtn = screen.getByTestId('builder-save-status');
+    expect(saveBtn).toHaveTextContent('Saved');
+    expect(saveBtn).toHaveAttribute('data-save-status', 'saved');
+    // Only one element renders the "Saved" text now (visible label inside the
+    // button); the sr-only span renders the same status label so AT users hear
+    // it too — that's the same single element from a "save state element"
+    // standpoint, not a duplicate badge.
   });
 
   it('disables the save button and shows a spinner when isSaving=true', () => {
@@ -130,7 +137,10 @@ describe('MapTitleBar', () => {
       />,
     );
 
-    expect(screen.getByTestId('builder-save-status')).toHaveTextContent('Save failed');
+    // SP-06: testid now lives on the Save button itself
+    const saveBtn = screen.getByTestId('builder-save-status');
+    expect(saveBtn).toHaveTextContent('Save failed');
+    expect(saveBtn).toHaveAttribute('data-save-status', 'failed');
     expect(screen.getByRole('button', { name: 'Retry save' })).toHaveTextContent('Retry');
   });
 

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { AlertTriangle, CheckCircle2, Loader2, Save, Share2, MoreHorizontal, Info, Copy, Download, Pencil, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Loader2, Save, Share2, MoreHorizontal, Info, Copy, Download, Pencil, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -147,27 +147,15 @@ export function MapTitleBar({
             </Tooltip>
           )}
 
-          <div
-            data-testid="builder-save-status"
-            className="hidden md:flex min-w-[7.5rem] items-center justify-end gap-1.5 text-xs"
-          >
-            {saveStatus === 'saving' ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
-            ) : saveStatus === 'failed' ? (
-              <AlertTriangle className="h-3 w-3 text-destructive" aria-hidden="true" />
-            ) : saveStatus === 'unsaved' ? (
-              <span className="h-2 w-2 rounded-full bg-warning" aria-hidden="true" />
-            ) : (
-              <CheckCircle2 className="h-3 w-3 text-success" aria-hidden="true" />
-            )}
-            <span className={saveStatus === 'failed' ? 'font-medium text-destructive' : 'text-muted-foreground'}>
-              {saveStatusLabel}
-            </span>
-          </div>
-
+          {/* SP-06: a single Save button carries all three states (Save / Saving... /
+              Saved / Save failed). The "[OK Saved]" badge that previously lived to
+              the left was a duplicate signal — the button's label, dot indicator,
+              and tooltip already convey state. */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                data-testid="builder-save-status"
+                data-save-status={saveStatus}
                 variant={saveStatus === 'failed' ? 'destructive' : hasUnsavedChanges ? 'default' : 'outline'}
                 size="sm"
                 className="h-7 text-xs gap-1 relative"
@@ -193,6 +181,9 @@ export function MapTitleBar({
                 <span className="hidden sm:inline">
                   {isSaveRetryable ? t('titleBar.retry', { defaultValue: 'Retry' }) : saveButtonLabel}
                 </span>
+                {/* sr-only status text so AT users still hear the save state even
+                    when the visible label is hidden on narrow viewports. */}
+                <span className="sr-only">{saveStatusLabel}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
