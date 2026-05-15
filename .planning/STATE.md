@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1009.1
 milestone_name: Builder Smoke Polish
-status: ready_to_complete
-stopped_at: Phase 1045 complete; CTRL-01 gate passed (16 PASS + 1 PARTIAL + 1 ESCALATE + 1 SKIPPED-with-rationale); ready for /gsd-complete-milestone v1009.1
-last_updated: "2026-05-15T15:30:00.000Z"
-last_activity: 2026-05-15 — Phase 1045 executed end-to-end; 20 commits across 3 plans; ready to tag v1009.1
+status: completed
+stopped_at: v1009.1 shipped and archived 2026-05-15. Awaiting next milestone.
+last_updated: "2026-05-15T16:00:00.000Z"
+last_activity: 2026-05-15 — Milestone v1009.1 archived; 24 commits; tag v1009.1 created locally
 progress:
   total_phases: 1
   completed_phases: 1
@@ -18,50 +18,34 @@ progress:
 
 ## Current Position
 
-Phase: 1045 (Builder Smoke Polish) — COMPLETE
-Plan: All 3 plans complete (1045-01, 1045-02, 1045-03)
-Status: Ready for `/gsd-complete-milestone v1009.1` — tag and archive
-Last activity: 2026-05-15 — CTRL-01 batch gate passed; 18/18 SP reqs accounted for; 20 commits between `cf40075b..HEAD`
+Phase: Milestone v1009.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-15 — Milestone v1009.1 completed and archived; 3 followups open (SP-03 quick task, SP-07 backend, SP-12 feature)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-15 to reflect v1009.1)
+See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Executing v1009.1 Builder Smoke Polish — close out the 17 non-B-01 findings from the 2026-05-15 smoke check (BulkActionBar clipping, coord readout, range-select, "Pending preview" false-positive, plus minor backend/a11y items).
-
-## Active Milestone: v1009.1 Builder Smoke Polish
-
-**Started:** 2026-05-15
-**Roadmapped:** 2026-05-15
-**Phases:** 1045 (single phase, hygiene pattern)
-**Requirements:** 18 (SP-01..SP-18 across 5 severity tiers)
-
-**Goal:** Close the 17 non-B-01 findings from `.planning/quick/260515-cej-docker-rebuild-builder-smoke/FINDINGS.md` plus housekeeping. Restore the v1009 multi-select bulk-ops + UI/UX polish promises that the smoke check exposed as unmet.
-
-### Phase Sequence
-
-| Phase | Name | Requirements | Plans | Status |
-|-------|------|--------------|-------|--------|
-| 1045 | builder-smoke-polish | SP-01..SP-18 | 3 plans (A: BLOCKER+MAJORs; B: MINORs; C: POLISH+HOUSEKEEPING) | Not started |
-
-### Sequencing Rationale
-
-**Why one phase (hygiene shape):** Per `feedback_hygiene_milestone_pattern.md`, audit/close milestones use 1 phase, sequential plans, single CTRL-01 batch gate. The 18 requirements here are independent fixes across the existing builder surface — no inter-dependencies that warrant splitting. A single phase keeps the ledger tight.
-
-**Why three sequential plans by severity:** Plan A (BLOCKER + MAJORs, SP-01..SP-05) restores shipped-promise functionality and should be merged first so smoke-re-check can verify them early. Plan B (MINORs, SP-06..SP-11) handles backend/a11y hygiene that doesn't touch the same code paths. Plan C (POLISH + HOUSEKEEPING, SP-12..SP-18) closes visual nits and deletes the test map. Each plan is a single commit chain; reviewer findings get fixed inline per `feedback_review_findings_inline.md`.
-
-**Why single CTRL-01 batch gate:** The 18 verifications are mostly small (Playwright assertions, network counts, DOM queries). Batching them into one verification pass at the end of the phase is cheaper than per-plan gates and matches the proven v13.10/v13.14/v1007 hygiene cadence.
-
-**Hard constraints:**
-
-- B-01 fix at `85738f1c` is locked — SP-03 verifies its impact on the DEM-add interaction; do not re-investigate.
-- No saved-map shape changes (v1008 normalizer is locked).
-- No new tokens; no design-system shifts.
-- No `docker compose build` — stack is already up; Vite HMR works.
-- Lint + typecheck must pass locally before each commit (per `feedback_ci_local_first.md`).
+**Current focus:** No active milestone. Three followups deferred from v1009.1:
+- SP-03 / B-01-followup — fresh-add maplibre sync race (suspect `syncInputs` memo closure or `mapReady` timing)
+- SP-07 backend `has_quicklook` predicate
+- SP-12 representative-fraction "1:N" pane
 
 ## Last Shipped Milestone
+
+**Version:** v1009.1 Builder Smoke Polish
+**Started:** 2026-05-15
+**Shipped:** 2026-05-15
+**Status:** Archived 2026-05-15
+**Goal:** Close the 17 non-B-01 findings from the 2026-05-15 Map Builder Playwright smoke check (B-01 shipped ahead at `85738f1c`).
+**Phases:** 1045 (single phase, hygiene pattern, 3 plans, 16 tasks)
+**Requirements:** 18/18 accounted for — 16 PASS + 1 PARTIAL-PASS (SP-07) + 1 ESCALATE (SP-03) + 1 SKIPPED-with-rationale (SP-12)
+**Commits:** 24 between `cf40075b..1168e91a` (including 1 cross-cutting code-review fix bundle at `9031742f`)
+**Archive:** `.planning/milestones/v1009.1-ROADMAP.md`
+
+## Prior Shipped Milestone
 
 **Version:** v1009 Map Builder v1.5 (Polish)
 **Started:** 2026-05-14

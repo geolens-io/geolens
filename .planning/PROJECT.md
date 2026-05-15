@@ -12,32 +12,40 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1009.1 Builder Smoke Polish
+## Recent Shipped Milestone: v1009.1 Builder Smoke Polish
 
-**Goal:** Close out the 17 non-B-01 findings from the 2026-05-15 Map Builder Playwright smoke check. B-01 (live-add maplibre sync regression) already shipped at commit `85738f1c` ahead of milestone open. Restore the v1009 promises (multi-select bulk-ops + UI/UX polish sweep) that the smoke check showed were unmet, plus a handful of low-cost backend / a11y hygiene wins.
+**Shipped:** 2026-05-15
 
-**Source of truth:** `.planning/quick/260515-cej-docker-rebuild-builder-smoke/FINDINGS.md` (full smoke-check report with 18 reproduction screenshots).
+**Goal delivered:** Closed 17 non-B-01 findings from the 2026-05-15 Map Builder Playwright smoke check. B-01 (live-add maplibre sync regression) shipped ahead of milestone open at commit `85738f1c`. Restored most of the v1009 multi-select + UI/UX polish promises the smoke check exposed, plus low-cost backend / a11y hygiene wins.
 
-**Target fixes (18 reqs, single Phase 1045):**
-- BLOCKER — BulkActionBar Delete/Group/Ungroup clipped by sidebar `overflow-hidden` (multi-select bulk delete unreachable today)
-- MAJOR (4) — coord readout never updates lat/lng; DEM auto-add (verify B-01 fix); shift-click range-select; "Pending style preview" false-positive on untouched layer
-- MINOR (6) — duplicate "Saved" badge + button; 3 quicklook 404s; aggressive `/api/admin/ai-status/` polling; `/api/auth/refresh/` concurrent dedupe; missing `aria-pressed` on visibility toggles; `/auth/login` 307 trailing-slash
-- POLISH (6) — optional scale pane; basemap eye-toggle glyph; layer-row hover affordance; bulk bar dismissal during global Settings; thumbnail PUT debounce; "+ Add data" Lucide icon
-- HOUSEKEEPING (1) — delete the test map `Smoke Check 2026-05-15`
+**Delivered (16/18 PASS):**
+- BLOCKER — BulkActionBar Group/Ungroup/Delete reachable via Lucide `MoreHorizontal` overflow popover
+- MAJOR — coord readout subscribes to MapLibre `move`; shift-click range-select via `computeNextSelection` helper; "Pending preview" banner gated on deep-equal dirty state
+- MINOR — duplicate Saved badge removed; TanStack 60s staleTime for ai-status; auth refresh mutex routed through `tryRefresh`; aria-pressed on visibility toggles; `/auth/login` decorator now no-trailing-slash
+- POLISH — basemap eye is non-button glyph with tooltip; row hover affordance via Tailwind classes; bulk bar hides during global Settings; thumbnail PUT 500ms trailing debounce; Lucide `<Plus />` icon replaces full-width "＋"
+- HOUSEKEEPING — test maps `a00b7e96-…` + `58149b92-…` deleted (DELETE 204 / GET 404 verified)
+- REVIEWER — 4 cross-cutting code-review fixes applied inline (WR-02 inflightRefresh microtask race; WR-03 defensive Set copy; IN-02 redundant zoomend handler; IN-05 SP-11 docstring)
 
-**Shape:** Hygiene milestone pattern (per `feedback_hygiene_milestone_pattern.md`) — one phase, three sequential plans grouped by severity, single CTRL-01 batch gate at the end.
+**Open followups (escalated/deferred):**
+- **SP-03 / M-02 race** — B-01 fix at `85738f1c` did NOT fully close M-02. Live Playwright re-check confirms fresh-add still doesn't push source/layer into maplibre style until reload. Suspect `syncInputs` memo closure on `structuralKey`-only key OR `mapReady` timing on the second effect re-fire when tokens land. Workaround: refresh after add. Needs a quick task.
+- **SP-07 first-request 404** — frontend `quicklook-cache.ts` prevents repeats but first request per session still 404s. Honest fix is a backend `has_quicklook` predicate. Needs a backend quick task.
+- **SP-12 representative-fraction "1:N" pane** — MapLibre `ScaleControl` bar already on screen; the smoke checker's p-01 asked for a representative-fraction pane (small feature: cos-lat factor + UI slot in MapCoordReadout + i18n). New feature ticket if requested.
 
-**Locked context:**
-- B-01 already shipped (commit `85738f1c`); SP-03 verifies B-01 closure rather than re-investigating
-- v1008/v1009 design tokens unchanged — no re-architecture
-- Frontend stack is already up at `http://localhost:8080` (Vite HMR); no docker rebuild needed
-- Reviewer findings get fixed inline per `feedback_review_findings_inline.md`
+**Milestone close:** 18/18 reqs accounted for (16 PASS + 1 PARTIAL + 1 ESCALATE + 1 SKIPPED-with-rationale). 24 commits between `cf40075b..1168e91a`. Single phase (1045), 3 plans, single CTRL-01 batch gate. Tag `v1009.1` created locally.
 
-**Non-goals:**
-- Re-architecting the BulkActionBar layout beyond what SP-01 requires
-- Backend Celery job changes beyond the SP-07 quicklook decision
-- New features / new widgets
-- Mobile/`<800px` polish beyond what's already in scope
+## Recent Shipped Milestone: v1009 Map Builder v1.5 (Polish)
+
+**Shipped:** 2026-05-15
+
+**Goal delivered:** Polished the v1008 unified-stack Map Builder — drag-from-catalog into the stack, multi-layer selection / bulk ops, UI/UX sweep, and pre-existing builder test debt closeout.
+
+**Delivered:**
+- Drag-from-catalog-into-stack — drag a row from Add Dataset directly onto the unified stack to add a layer
+- Multi-layer selection / bulk operations — shift-click / cmd-click to select multiple stack rows; bulk toggle visibility, opacity, group, ungroup, delete (note: BulkActionBar overflow clipping found in post-release smoke check + fixed in v1009.1 SP-01)
+- General Map Builder UI/UX sweep — density, spacing, typography hierarchy, hover/focus states, microinteractions, component organization, information architecture, empty/error/loading states; 18 P0/P1 polish closures driven by Phase 1039 BUILDER-UX-AUDIT
+- Builder test debt closeout — 5 pre-existing vitest failures fixed + `use-builder-layers.add-dataset` worker-timeout regression resolved
+
+**Milestone close:** 25/25 POL-01..25 requirements satisfied across phases 1039-1044 (6 phases, 22 plans). Audit PASSED; 1 BLOCKER (B-01 freshLayerId wiring) found and fixed inline during audit. Smoke gate: typecheck 0 errors; vitest 799/799 + 54/54 pages; e2e:smoke:builder 25/25. Tag `v1009`. Subsequent 2026-05-15 Playwright smoke check exposed 17 follow-ups closed in v1009.1.
 
 ## Recent Shipped Milestone: v1008 Map Builder Sidebar Redesign
 
