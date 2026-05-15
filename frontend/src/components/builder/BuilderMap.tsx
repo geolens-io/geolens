@@ -441,17 +441,35 @@ export const BuilderMap = memo(function BuilderMap({
   // Helper: refresh the cached list of queryable layer IDs.
   // Called after every syncLayersToMap so the click/hover handlers
   // see the layers that actually exist on the map right now.
+  // Reads from `layersRef.current` (updated on every render) so the callback
+  // identity stays stable — required because `runSync` below lists it as a
+  // dep and is itself a dep of the main sync effect.
   const refreshQueryLayerIds = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    queryLayerIdsRef.current = layers
+    queryLayerIdsRef.current = layersRef.current
       .filter((l) => l.visible && l.layer_type !== 'raster_geolens')
       .flatMap((l) => {
         const layerId = getLayerId(l.id);
         return isClusterRenderMode(l) ? clusterInteractiveLayerIds(layerId) : [layerId];
       })
       .filter((id) => map.getLayer(id));
-  }, [layers]);
+  }, []);
+
+  /**
+   * Run a full layer sync against the map, reading all inputs from
+   * `syncInputsRef.current` so the effect that calls this is immune to
+   * closure-stale inputs. Mirrors ViewerMap.tsx's `runSync` shape — see the
+   * SP-03 / B-01-followup quick task for why this pattern is required.
+   */
+  const runSync = useCallback((map: MaplibreMap) => {
+    const { layers: ls, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
+    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
+    const syncInputs = ls.map(toSyncInput);
+    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl });
+    applyTerrainConfig();
+    refreshQueryLayerIds();
+  }, [applyTerrainConfig, refreshQueryLayerIds]);
 
   // O(1) lookup map: feature.layer.id (with `layer-` prefix) → layer/source metadata.
   // Rebuilt only when the layers ref content changes; kept in a ref so the
@@ -667,30 +685,27 @@ export const BuilderMap = memo(function BuilderMap({
     setPopupInfo(null);
   }, [structuralKey]);
 
-  // Memoized sync inputs — avoids re-allocating on every effect run (token refresh, etc.)
-  const syncInputs = useMemo(
-    () => layers.map(toSyncInput),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- structural changes only
-    [structuralKey],
-  );
-
   // Sync layers to map — runs on structural changes (add/remove/visibility) and token refresh.
   // Paint/filter/opacity edits are handled imperatively by use-layer-map-sync.ts.
+  //
+  // SP-03 / B-01-followup: this effect was previously keyed on `structuralKey`
+  // (a derived string) and called `syncLayersToMap` directly with a memoized
+  // `syncInputs`. That combination left a closure-stale-input race on the very
+  // first "Add to map" against an empty builder. Mirroring ViewerMap's
+  // `runSync(map)` + `syncInputsRef.current` pattern eliminates the race by
+  // construction: every input is read fresh from the ref at call time.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    // B-01 fix: gate on actual token *presence*, not on the `isLoading`
-    // boolean. The previous boolean-transition gate could miss its
-    // false→true→false flip across concurrent renders, leaving freshly
-    // added layers without sources until the next page reload. tokenMap
-    // is now a primary dep so the effect re-runs the moment tokens land.
+    // Mirror ViewerMap's gate: if layers exist but tokens haven't arrived,
+    // wait. The effect re-runs when the tokenMap reference changes (tokens
+    // arrive via use-tile-token).
+    if (layers.length > 0 && tokenMap.size === 0) return;
+    // Defense in depth: also wait if any specific layer is still missing its
+    // token (e.g. a partial batch — one dataset cached, one still in flight).
     if (layers.some((l) => l.dataset_id && !tokenMap.has(l.dataset_id))) return;
-    const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
-    syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels });
-    applyTerrainConfig();
-    refreshQueryLayerIds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncInputs/showBasemapLabels tracked via structuralKey + tokenMap closure
-  }, [structuralKey, mapReady, tileConfig?.cdn_base_url, clusterGeoJsonVersion, tokenMap]);
+    runSync(map);
+  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, clusterGeoJsonVersion, runSync]);
 
   useEffect(() => {
     applyTerrainConfig();
