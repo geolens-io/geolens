@@ -894,5 +894,29 @@
     "source": {
       "noColumns": "No queryable columns indexed for this layer."
     }
+  },
+  "settings": {
+    "regionLabel": "Map settings",
+    "panelTitle": "Settings",
+    "closePanel": "Close settings",
+    "terrainLabel": "TERRAIN",
+    "widgetsLabel": "WIDGETS",
+    "projectionLabel": "PROJECTION",
+    "terrainActiveHint": "{{value}}× exaggeration",
+    "terrainInactiveCollapsedHint": "No terrain active",
+    "exaggeration": "Exaggeration",
+    "terrainExaggerationAria": "Terrain exaggeration",
+    "boundTo": "Bound to: {{name}}",
+    "terrainInactiveHint": "No terrain layer is active. Switch a DEM layer to Terrain mode to enable global terrain exaggeration.",
+    "widgetsEnabledCount": "{{count}} enabled",
+    "noWidgets": "No widgets available.",
+    "widgetsGroupAria": "Widgets",
+    "disableAction": "Disable",
+    "enableAction": "Enable",
+    "toggleWidget": "{{action}} {{name}} widget",
+    "projectionMercator": "Mercator",
+    "projectionGlobe": "Globe",
+    "projectionAria": "Map projection",
+    "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly."
   }
 }
