@@ -275,6 +275,10 @@ def dataset_to_ogc_record(
     # AND in properties for STAC consumer compatibility.
     record_time = _build_time(dataset)
 
+    # Resolve record_type once; used both for has_quicklook dispatch (below)
+    # and for the STAC raster properties block at the end of this function.
+    record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
+
     ogc_record: dict = {
         "type": "Feature",
         "id": str(dataset.id),
@@ -309,7 +313,16 @@ def dataset_to_ogc_record(
             "quality_detail": dataset.quality_detail,
             "quality_statement": dataset.quality_statement,
             "record_status": record.record_status,
-            "has_quicklook": dataset.quicklook_256_uri is not None,
+            # has_quicklook source depends on record_type:
+            # - vector_dataset / table: Dataset.quicklook_256_uri (set by vector ingest)
+            # - raster_dataset / vrt_dataset: RasterAsset.quicklook_256_uri, surfaced via
+            #   raster_meta (internal-only storage key — never forwarded to response properties)
+            "has_quicklook": (
+                raster_meta is not None
+                and raster_meta.get("quicklook_256_uri") is not None
+            )
+            if record_type in ("raster_dataset", "vrt_dataset")
+            else (dataset.quicklook_256_uri is not None),
             # Enriched OGC properties (Phase 10-02)
             "formats": (
                 list(_RASTER_FORMAT_MEDIA.values())
@@ -406,8 +419,7 @@ def dataset_to_ogc_record(
         ),
     }
 
-    # STAC properties for raster/VRT records
-    record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"
+    # STAC properties for raster/VRT records (record_type already resolved above)
     if raster_meta and record_type in ("raster_dataset", "vrt_dataset"):
         if raster_meta.get("epsg") is not None:
             ogc_record["properties"]["proj:epsg"] = raster_meta["epsg"]
