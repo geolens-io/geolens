@@ -232,11 +232,9 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
       className={cn(
         'group/row rounded-md border border-border/60 bg-background',
         isDragging && 'opacity-40 bg-[var(--surface-2)]',
-        !isDragging && 'cursor-grab',
-        isDragging && 'cursor-grabbing',
       )}
     >
-      <div className="flex items-center gap-2 px-2 py-2">
+      <div className={cn('flex items-center gap-2 px-2 py-2', !isDragging && 'cursor-grab', isDragging && 'cursor-grabbing')}>
         {/* Grip handle — hidden at rest, appears on row hover */}
         <button
           ref={setActivatorNodeRef}
@@ -324,11 +322,9 @@ const DraggableBasemapRow = memo(function DraggableBasemapRow({
       className={cn(
         'group/row rounded-md border border-border/60 bg-background',
         isDragging && 'opacity-40 bg-[var(--surface-2)]',
-        !isDragging && 'cursor-grab',
-        isDragging && 'cursor-grabbing',
       )}
     >
-      <div className="flex items-center gap-2 px-2 py-2">
+      <div className={cn('flex items-center gap-2 px-2 py-2', !isDragging && 'cursor-grab', isDragging && 'cursor-grabbing')}>
         {/* Grip handle — hidden at rest, appears on row hover */}
         <button
           ref={setActivatorNodeRef}
