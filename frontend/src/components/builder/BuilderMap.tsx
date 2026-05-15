@@ -187,7 +187,6 @@ export const BuilderMap = memo(function BuilderMap({
     () => tokenQueries.map((q) => q.data ? (q.data.kind === 'vector' ? q.data.sig : q.data.tile_url) : '').join(','),
     [tokenQueries],
   );
-  const tileTokensPending = datasetIds.length > 0 && tokenQueries.some((q) => q.isLoading);
 
   const clusterGeoJsonDataRef = useRef<Map<string, GeoJSON.FeatureCollection>>(new Map());
   const clusterFallbackNotifiedRef = useRef<Set<string>>(new Set());
@@ -327,8 +326,8 @@ export const BuilderMap = memo(function BuilderMap({
     .join(',');
 
   // Keep a ref to the latest sync inputs so style.load handler can access them
-  const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig, tileTokensPending });
-  syncInputsRef.current = { layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig, tileTokensPending };
+  const syncInputsRef = useRef({ layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig });
+  syncInputsRef.current = { layers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
 
   const layersRef = useRef(layers);
   layersRef.current = layers;
@@ -418,10 +417,13 @@ export const BuilderMap = memo(function BuilderMap({
     if (!map) return;
 
     const onStyleLoad = () => {
-      const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc, tileTokensPending: pending } = syncInputsRef.current;
+      const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
       lastOrderKeyRef.current = '';
-      if (l.length > 0 && pending) return;
+      // B-01 fix: gate on tokenMap presence rather than the isLoading boolean
+      // so a later token arrival is picked up by the main sync effect's
+      // tokenMap dep — no separate retry needed.
+      if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
       syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl });
       applyBasemapConfigToMap(map, bc, sbl);
@@ -677,13 +679,18 @@ export const BuilderMap = memo(function BuilderMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    if (layers.length > 0 && tileTokensPending) return;
+    // B-01 fix: gate on actual token *presence*, not on the `isLoading`
+    // boolean. The previous boolean-transition gate could miss its
+    // false→true→false flip across concurrent renders, leaving freshly
+    // added layers without sources until the next page reload. tokenMap
+    // is now a primary dep so the effect re-runs the moment tokens land.
+    if (layers.some((l) => l.dataset_id && !tokenMap.has(l.dataset_id))) return;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url || undefined;
     syncLayersToMap(map, syncInputs, tokenMap, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels });
     applyTerrainConfig();
     refreshQueryLayerIds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tokenMap handled by separate token-refresh effect (P-05)
-  }, [structuralKey, mapReady, tileConfig?.cdn_base_url, clusterGeoJsonVersion, tileTokensPending]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncInputs/showBasemapLabels tracked via structuralKey + tokenMap closure
+  }, [structuralKey, mapReady, tileConfig?.cdn_base_url, clusterGeoJsonVersion, tokenMap]);
 
   useEffect(() => {
     applyTerrainConfig();
