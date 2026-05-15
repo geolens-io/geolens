@@ -884,6 +884,9 @@
       "opacity": "Opacity",
       "minZoom": "Minimum zoom",
       "maxZoom": "Maximum zoom"
+    },
+    "source": {
+      "noColumns": "No queryable columns indexed for this layer."
     }
   }
 }

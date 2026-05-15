@@ -561,6 +561,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                       <p className="text-xs">{layer.dataset_geometry_type}</p>
                     </div>
                   )}
+                  {columns.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('layerEditor.source.noColumns', { defaultValue: 'No queryable columns indexed for this layer.' })}
+                    </p>
+                  )}
                   {columns.length > 0 && (
                     <ColumnsReference columns={columns} />
                   )}
