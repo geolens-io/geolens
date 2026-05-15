@@ -65,8 +65,29 @@
 - ✅ **v1007 Release Hygiene** — Phase 1032 (shipped 2026-05-12) — see [archive](milestones/v1007-ROADMAP.md)
 - ✅ **v1008 Map Builder Sidebar Redesign** — Phases 1033-1038 (shipped 2026-05-14) — see [archive](milestones/v1008-ROADMAP.md)
 - ✅ **v1009 Map Builder v1.5 (Polish)** — Phases 1039-1044 (shipped 2026-05-15) — see [archive](milestones/v1009-ROADMAP.md)
+- 🚧 **v1009.1 Builder Smoke Polish** — Phase 1045 (in progress)
 
 ## Phases
+
+### Phase 1045: builder-smoke-polish (v1009.1 — IN PROGRESS)
+
+**Goal:** Close out the 17 non-B-01 findings from the 2026-05-15 Map Builder Playwright smoke check (full report at `.planning/quick/260515-cej-docker-rebuild-builder-smoke/FINDINGS.md`). B-01 (live-add maplibre sync) already shipped at commit `85738f1c`. Restore the v1009 shipped promises (multi-select bulk-ops + UI/UX polish sweep) that the smoke check showed were unmet, plus low-cost backend/a11y hygiene wins.
+
+**Requirements:** 18 (SP-01..SP-18)
+- 1 BLOCKER (SP-01): BulkActionBar clipping
+- 4 MAJOR (SP-02..SP-05): coord readout, DEM/B-01 verify, range-select, "Pending preview" false-positive
+- 6 MINOR (SP-06..SP-11): duplicate Saved badge, quicklook 404s, ai-status poll storm, auth-refresh dedupe, aria-pressed, login 307
+- 6 POLISH (SP-12..SP-17): scale pane (optional), basemap eye glyph, hover affordance, bulk bar dismissal on Settings, thumbnail PUT debounce, "+ Add data" icon
+- 1 HOUSEKEEPING (SP-18): delete test map `Smoke Check 2026-05-15`
+
+**Shape:** Hygiene milestone pattern per `feedback_hygiene_milestone_pattern.md` — single phase, 3 sequential plans, single CTRL-01 batch gate at end.
+
+Plans:
+- [ ] Plan A: BLOCKER + MAJORs (SP-01..SP-05)
+- [ ] Plan B: MINORs (SP-06..SP-11)
+- [ ] Plan C: POLISH + HOUSEKEEPING (SP-12..SP-18)
+
+---
 
 <details>
 <summary>✅ v1009 Map Builder v1.5 (Polish) (Phases 1039-1044) — SHIPPED 2026-05-15</summary>

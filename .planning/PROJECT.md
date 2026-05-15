@@ -12,27 +12,32 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1009 Map Builder v1.5 (Polish)
+## Current Milestone: v1009.1 Builder Smoke Polish
 
-**Goal:** Polish the v1008 unified-stack Map Builder — add the two highest-value v1008 deferrals (drag-from-catalog-into-stack, multi-layer selection / bulk ops), sweep the entire builder surface for modern, sleek, and intuitive presentation, and close out pre-existing builder test drift surfaced during the v1008 smoke-test sweep.
+**Goal:** Close out the 17 non-B-01 findings from the 2026-05-15 Map Builder Playwright smoke check. B-01 (live-add maplibre sync regression) already shipped at commit `85738f1c` ahead of milestone open. Restore the v1009 promises (multi-select bulk-ops + UI/UX polish sweep) that the smoke check showed were unmet, plus a handful of low-cost backend / a11y hygiene wins.
 
-**Target features:**
-- Drag-from-catalog-into-stack — drag a row from the Add Dataset modal directly onto the unified stack to add a layer (no click-through to "Add to map" required)
-- Multi-layer selection / bulk operations — shift-click / cmd-click to select multiple stack rows; bulk toggle visibility, opacity, group, ungroup, delete
-- General Map Builder UI/UX sweep — modern, sleek, intuitive review across the entire builder surface (density, spacing, typography hierarchy, hover/focus states, microinteractions, component organization, information architecture, empty/error/loading states); audit-first, then targeted polish
-- Builder test debt closeout — fix 5 pre-existing builder vitest failures (`EmptyStackState.integration` ×3, `StackRow` × 1 delete-layer, `UnifiedStackPanel` × 1 add-data button) and the `use-builder-layers.add-dataset.test.ts` worker-timeout regression
+**Source of truth:** `.planning/quick/260515-cej-docker-rebuild-builder-smoke/FINDINGS.md` (full smoke-check report with 18 reproduction screenshots).
+
+**Target fixes (18 reqs, single Phase 1045):**
+- BLOCKER — BulkActionBar Delete/Group/Ungroup clipped by sidebar `overflow-hidden` (multi-select bulk delete unreachable today)
+- MAJOR (4) — coord readout never updates lat/lng; DEM auto-add (verify B-01 fix); shift-click range-select; "Pending style preview" false-positive on untouched layer
+- MINOR (6) — duplicate "Saved" badge + button; 3 quicklook 404s; aggressive `/api/admin/ai-status/` polling; `/api/auth/refresh/` concurrent dedupe; missing `aria-pressed` on visibility toggles; `/auth/login` 307 trailing-slash
+- POLISH (6) — optional scale pane; basemap eye-toggle glyph; layer-row hover affordance; bulk bar dismissal during global Settings; thumbnail PUT debounce; "+ Add data" Lucide icon
+- HOUSEKEEPING (1) — delete the test map `Smoke Check 2026-05-15`
+
+**Shape:** Hygiene milestone pattern (per `feedback_hygiene_milestone_pattern.md`) — one phase, three sequential plans grouped by severity, single CTRL-01 batch gate at the end.
 
 **Locked context:**
-- v1008 sidebar redesign is the foundation — v1.5 is polish on top, not re-architecture
-- All saved-map normalizer guarantees from v1008 must hold (no viewer regressions)
-- `tech_debt` audit smoke-test sweep already shipped via quick task `260514-ajo`
-- `sketch-findings-geolens` skill remains the canonical reference for the unified-stack design tokens
+- B-01 already shipped (commit `85738f1c`); SP-03 verifies B-01 closure rather than re-investigating
+- v1008/v1009 design tokens unchanged — no re-architecture
+- Frontend stack is already up at `http://localhost:8080` (Vite HMR); no docker rebuild needed
+- Reviewer findings get fixed inline per `feedback_review_findings_inline.md`
 
-**Non-goals (deferred):**
-- Mobile-specific `<800px` drill-down polish beyond what the UX sweep surfaces
-- Full Add Data modal redesign (incremental polish only via the sweep)
-- `/api/datasets/suggested` backend endpoint (still hand-curated v1)
-- Multi-rendering bulk-add via drag-from-catalog
+**Non-goals:**
+- Re-architecting the BulkActionBar layout beyond what SP-01 requires
+- Backend Celery job changes beyond the SP-07 quicklook decision
+- New features / new widgets
+- Mobile/`<800px` polish beyond what's already in scope
 
 ## Recent Shipped Milestone: v1008 Map Builder Sidebar Redesign
 

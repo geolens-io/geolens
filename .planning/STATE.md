@@ -1,78 +1,84 @@
 ---
 gsd_state_version: 1.0
-milestone: v1009
-milestone_name: Map Builder v1.5 (Polish)
-status: completed
-stopped_at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
-last_updated: "2026-05-15T09:06:23.895Z"
-last_activity: 2026-05-15 — Milestone v1009 completed and archived
+milestone: v1009.1
+milestone_name: Builder Smoke Polish
+status: roadmapped
+stopped_at: v1009.1 Builder Smoke Polish roadmapped; Phase 1045 ready to plan.
+last_updated: "2026-05-15T13:30:00.000Z"
+last_activity: 2026-05-15 — Milestone v1009.1 opened to close 17 smoke-check findings; B-01 already shipped at 85738f1c
 progress:
-  total_phases: 11
-  completed_phases: 6
-  total_plans: 22
-  completed_plans: 22
-  percent: 55
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1009 complete
+Phase: 1045 (Builder Smoke Polish)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-15 — Milestone v1009 completed and archived
+Status: Roadmapped; ready for `/gsd-plan-phase 1045`
+Last activity: 2026-05-15 — v1009.1 milestone opened; REQUIREMENTS.md + ROADMAP.md scaffolded; B-01 fix landed at 85738f1c
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-14 after shipping v1008)
+See: .planning/PROJECT.md (updated 2026-05-15 to reflect v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Executing v1009 Map Builder v1.5 (Polish) — drag-from-catalog, multi-select bulk ops, UI/UX sweep, test debt closeout
+**Current focus:** Executing v1009.1 Builder Smoke Polish — close out the 17 non-B-01 findings from the 2026-05-15 smoke check (BulkActionBar clipping, coord readout, range-select, "Pending preview" false-positive, plus minor backend/a11y items).
 
-## Active Milestone: v1009 Map Builder v1.5 (Polish)
+## Active Milestone: v1009.1 Builder Smoke Polish
 
-**Started:** 2026-05-14
-**Roadmapped:** 2026-05-14
-**Phases:** 1039-1044 (6 phases)
-**Requirements:** 25 (POL-01..25 across 5 categories)
+**Started:** 2026-05-15
+**Roadmapped:** 2026-05-15
+**Phases:** 1045 (single phase, hygiene pattern)
+**Requirements:** 18 (SP-01..SP-18 across 5 severity tiers)
 
-**Goal:** Polish the v1008 unified-stack Map Builder — add drag-from-catalog-into-stack + multi-layer selection / bulk ops, sweep the entire builder surface for modern/sleek/intuitive presentation, and close out pre-existing builder test drift.
+**Goal:** Close the 17 non-B-01 findings from `.planning/quick/260515-cej-docker-rebuild-builder-smoke/FINDINGS.md` plus housekeeping. Restore the v1009 multi-select bulk-ops + UI/UX polish promises that the smoke check exposed as unmet.
 
 ### Phase Sequence
 
 | Phase | Name | Requirements | Plans | Status |
 |-------|------|--------------|-------|--------|
-| 1039 | ux-audit-and-test-debt-closeout | POL-12, POL-19, POL-20, POL-21 | 2 plans (1039-01 test debt, 1039-02 UX audit) | ✅ Shipped 2026-05-14 |
-| 1040 | drag-from-catalog-into-stack | POL-01, POL-02, POL-03, POL-04, POL-05 | TBD | Not started |
-| 1041 | multi-layer-selection-and-bulk-ops | POL-06, POL-07, POL-08, POL-09, POL-10, POL-11 | TBD | Not started |
-| 1042 | spacing-density-states-polish | POL-13, POL-14, POL-15 | TBD | Not started |
-| 1043 | error-empty-states-and-ia-cleanup | POL-16, POL-17, POL-18 | TBD | Not started |
-| 1044 | cross-cutting-closeout | POL-22, POL-23, POL-24, POL-25 | TBD | Not started |
+| 1045 | builder-smoke-polish | SP-01..SP-18 | 3 plans (A: BLOCKER+MAJORs; B: MINORs; C: POLISH+HOUSEKEEPING) | Not started |
 
 ### Sequencing Rationale
 
-**Why audit + test debt first (Phase 1039):** POL-12's `BUILDER-UX-AUDIT.md` produces the P0/P1 finding list that scopes Phase 1042 (spacing/density/states) and Phase 1043 (error/empty/IA). Running the audit before those phases is non-negotiable. The test debt closeout (POL-19/20/21) co-locates here because the failing test surfaces — `EmptyStackState.integration`, `StackRow`, `UnifiedStackPanel`, `use-builder-layers.add-dataset` — are exactly the files the audit touches; repair-while-you-read is cheaper than two separate passes over the same code.
+**Why one phase (hygiene shape):** Per `feedback_hygiene_milestone_pattern.md`, audit/close milestones use 1 phase, sequential plans, single CTRL-01 batch gate. The 18 requirements here are independent fixes across the existing builder surface — no inter-dependencies that warrant splitting. A single phase keeps the ledger tight.
 
-**Why drag-from-catalog before multi-select (Phase 1040 → Phase 1041):** Both features are independent in capability terms but heavily overlap in file surface (`StackRow`, `UnifiedStackPanel`, `use-builder-layers`), so sequential ordering avoids merge conflicts. Drag-from-catalog goes first because it has fewer state-model implications (no persistent selection state, no atomic-rollback contract) and acts as a warm-up to the DnD primitives Phase 1041 will reuse.
+**Why three sequential plans by severity:** Plan A (BLOCKER + MAJORs, SP-01..SP-05) restores shipped-promise functionality and should be merged first so smoke-re-check can verify them early. Plan B (MINORs, SP-06..SP-11) handles backend/a11y hygiene that doesn't touch the same code paths. Plan C (POLISH + HOUSEKEEPING, SP-12..SP-18) closes visual nits and deletes the test map. Each plan is a single commit chain; reviewer findings get fixed inline per `feedback_review_findings_inline.md`.
 
-**Why polish (Phases 1042, 1043) rides after the feature phases:** Spacing/density and empty-state polish must include the new bulk action bar surface (1041) and any drag-from-catalog affordance changes (1040). Running 1042/1043 last lets the polish pass sweep across the final v1.5 surface area, not a half-built one. Phase 1042 (visual tokens/states/loading) feeds Phase 1043 (error/empty/IA) because the empty-state copy lives inside the polished spacing scaffold.
+**Why single CTRL-01 batch gate:** The 18 verifications are mostly small (Playwright assertions, network counts, DOM queries). Batching them into one verification pass at the end of the phase is cheaper than per-plan gates and matches the proven v13.10/v13.14/v1007 hygiene cadence.
 
-**Why cross-cutting closeout (Phase 1044) is the final phase:** i18n needs the final set of strings, a11y needs the final keyboard surface, the Playwright UAT spec exercises the final composition, and the builder smoke gate verifies the entire milestone. All upstream phases must be merged before any of these gates can be authored authoritatively.
+**Hard constraints:**
 
-**Hard constraints carried from v1008:**
-
-- No saved-map shape changes (Phase 1033 normalizer is locked).
-- No public viewer / shared / embed surface changes (parity guarantee).
-- All work uses the `sketch-findings-geolens` token set; no new tokens introduced.
-- POL-09 bulk operations use existing per-layer PATCH endpoints — no backend API changes.
+- B-01 fix at `85738f1c` is locked — SP-03 verifies its impact on the DEM-add interaction; do not re-investigate.
+- No saved-map shape changes (v1008 normalizer is locked).
+- No new tokens; no design-system shifts.
+- No `docker compose build` — stack is already up; Vite HMR works.
+- Lint + typecheck must pass locally before each commit (per `feedback_ci_local_first.md`).
 
 ## Last Shipped Milestone
+
+**Version:** v1009 Map Builder v1.5 (Polish)
+**Started:** 2026-05-14
+**Shipped:** 2026-05-15
+**Status:** Archived 2026-05-15
+**Goal:** Polish the v1008 unified-stack Map Builder — drag-from-catalog, multi-select bulk ops, UI/UX sweep, test debt closeout.
+**Phases:** 1039-1044 (6 phases, 22 plans, 25 requirements)
+**UAT:** 25/25 POL-01..25 satisfied; e2e:smoke:builder 25/25 pass
+**Audit:** PASSED 25/25; 1 BLOCKER (B-01 freshLayerId wiring) found and fixed inline during audit
+**Archive:** `.planning/milestones/v1009-ROADMAP.md`
+
+## Prior Shipped Milestone
 
 **Version:** v1008 Map Builder Sidebar Redesign
 **Started:** 2026-05-13
 **Shipped:** 2026-05-14
-**Status:** v1009 milestone complete
+**Status:** Archived
 **Goal:** Re-architect the Map Builder sidebar from six fixed sections into one unified, drag-orderable layer stack — with basemap-as-group, DEM-as-raster-layer, compact rows, and a side-by-side LayerEditorPanel flyout — while normalizing legacy saved maps and aligning the Add Data modal to the new model.
 **Phases:** 1033-1038 (6 phases, 16 plans, 27 requirements; 27/27 satisfied)
 **UAT:** 9 pass / 1 skip / 0 fail (`e2e/builder-unified-stack.spec.ts`)
@@ -235,6 +241,7 @@ See: .planning/PROJECT.md (updated 2026-05-14 after shipping v1008)
 | 260508-nl9 | Live validation of 260508-lkz demo fixtures (seeder + Playwright MCP) — surfaced 5 bugs, fixed 2 inline (gdal-bin in seeder image; NIFC retry), 2 documented as follow-ups (worker MissingGreenlet on raster + clip_to_mercator_bounds; api /tmp tmpfs cap < UPLOAD_MAX_SIZE_MB) | 2026-05-08 |  | Incomplete | [260508-nl9-run-seeder-and-playwright-mcp-smoke-chec](./quick/260508-nl9-run-seeder-and-playwright-mcp-smoke-chec/) |
 | 260508-rr5 | Fix /tmp tmpfs cap blocking large uploads (gh #101) — set tempfile.tempdir to /app/staging in app/api/main.py | 2026-05-08 | 220a2052 | Verified | [260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads](./quick/260508-rr5-fix-tmp-tmpfs-cap-blocking-large-uploads/) |
 | 260514-ajo | Smoke-test sweep deferred from v1008 close: fixed SidebarRail Add-data event bug + rewrote 8 stale tests and deleted 4 tests for removed features; full smoke 56/56 pass | 2026-05-14 | 91951aca |  | [260514-ajo-run-through-the-smoke-checks-and-fix-any](./quick/260514-ajo-run-through-the-smoke-checks-and-fix-any/) |
+| 260515-cej | Docker no-cache rebuild + Map Builder Playwright smoke check — 2 BLOCKERs (B-01 first-add maplibre sync miss, B-02 BulkActionBar clipped by sidebar), 4 MAJORs, 6 MINORs documented in FINDINGS.md with 18 screenshots | 2026-05-15 |  | Findings Reported | [260515-cej-docker-rebuild-builder-smoke](./quick/260515-cej-docker-rebuild-builder-smoke/) |
 
 ## Deferred Items
 
@@ -268,12 +275,12 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-15T03:42:09.240Z
-Stopped at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
+Last session: 2026-05-15 (resume)
+Stopped at: v1009 shipped & archived. Repo housekeeping pass committed — deleted stale repo-root `handoff*.md` and untracked 19 archived v1008 phase docs (commit `8c183664`). Awaiting next milestone.
 Resume file: None
 
 ---
-*Last updated: 2026-05-14 after creating v1009 roadmap*
+*Last updated: 2026-05-15 after v1009 close + repo housekeeping*
 
 ## Operator Next Steps
 
