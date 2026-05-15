@@ -4,24 +4,24 @@ milestone: v1009
 milestone_name: Map Builder v1.5 (Polish)
 status: Archived (`tech_debt`)
 stopped_at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
-last_updated: "2026-05-15T03:02:21.980Z"
-last_activity: 2026-05-14 — Phase 1040 Plan 02 complete (POL-01/02/05 partial; catalog rows draggable; handleDragEnd routes to handleAddDataset; modal stays open)
+last_updated: "2026-05-15T04:00:00.000Z"
+last_activity: 2026-05-15 — Phase 1044 Plan 04 complete (final smoke gate; all 5 gates PASS; v1009 GO; POL-25 satisfied)
 progress:
   total_phases: 11
-  completed_phases: 5
-  total_plans: 22
-  completed_plans: 21
-  percent: 45
+  completed_phases: 11
+  total_plans: 26
+  completed_plans: 26
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1040
-Plan: 02 complete
-Status: Plan 02 shipped — ready for Plan 03 (group/basemap drop + DragOverlay ghost)
-Last activity: 2026-05-14 — Phase 1040 Plan 02 complete (POL-01/02/05 partial; catalog rows draggable; handleDragEnd routes to handleAddDataset; modal stays open)
+Phase: 1044
+Plan: 04 complete
+Status: v1009 milestone complete — all 25 POL requirements satisfied, smoke gate green
+Last activity: 2026-05-15 — Phase 1044 Plan 04 complete (final smoke gate; all 5 gates PASS; v1009 GO; POL-25 satisfied)
 
 ## Project Reference
 
@@ -268,7 +268,7 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 
 ## Session Continuity
 
-Last session: 2026-05-15T03:02:21.975Z
+Last session: 2026-05-15T03:42:09.240Z
 Stopped at: v1009 Map Builder v1.5 (Polish) roadmapped; Phase 1039 ready to plan.
 Resume file: None
 
