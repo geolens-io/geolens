@@ -274,3 +274,73 @@ describe('handleAddDataset extended signature (Phase 1040 POL-03/05)', () => {
     expect(data).toMatchObject({ dataset_id: 'ds-42', sort_order: 0 });
   });
 });
+
+// Phase 1042 Plan 04 POL-15: freshLayerId lifecycle tests
+describe('freshLayerId lifecycle (Phase 1042 POL-15)', () => {
+  it('Test I: freshLayerId is set synchronously to new layer id after successful handleAddDataset', () => {
+    vi.useFakeTimers();
+    const layer = makeMockLayer();
+    const { result, mutate } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'fresh-layer-id' }); });
+
+    expect(result.current.freshLayerId).toBe('fresh-layer-id');
+    vi.useRealTimers();
+  });
+
+  it('Test J: freshLayerId returns to null approximately 200ms after handleAddDataset resolves', () => {
+    vi.useFakeTimers();
+    const layer = makeMockLayer();
+    const { result, mutate } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'fresh-layer-id' }); });
+
+    // Still set before 200ms
+    expect(result.current.freshLayerId).toBe('fresh-layer-id');
+
+    // Advance timers past 200ms
+    act(() => { vi.advanceTimersByTime(200); });
+
+    expect(result.current.freshLayerId).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it('Test K: unmounting before 200ms fires does NOT produce setState-after-unmount warning', () => {
+    vi.useFakeTimers();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const layer = makeMockLayer();
+    const { result, mutate, unmount } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.handleAddDataset('ds-42');
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    act(() => { onSuccess({ id: 'fresh-layer-id' }); });
+
+    // Unmount before 200ms timer fires
+    unmount();
+
+    // Advance timers — should NOT trigger setState on unmounted component
+    act(() => { vi.advanceTimersByTime(250); });
+
+    const stateLogs = consoleSpy.mock.calls.filter((args) =>
+      args.some((a: unknown) => typeof a === 'string' && a.includes('setState')),
+    );
+    expect(stateLogs).toHaveLength(0);
+
+    consoleSpy.mockRestore();
+    vi.useRealTimers();
+  });
+});
