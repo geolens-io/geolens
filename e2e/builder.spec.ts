@@ -657,10 +657,15 @@ test.describe.serial('Map Builder', () => {
     // sit after the Settings + Add data controls and open the LayerEditorPanel
     // in a drill-down Sheet (<800px viewport). The Sheet itself doesn't carry
     // builder-layer-editor — the LayerEditorPanel renders inside the dialog.
+    // Phase 1043-03 added a basemap-group button at the bottom of the SidebarRail —
+    // avoid `button.last()` which now selects the basemap button. Target user layer
+    // buttons by excluding the fixed control buttons (Settings, Add data, Basemap group).
     const sidebar = page.getByTestId('builder-sidebar');
     await expect(sidebar).toBeVisible();
 
-    const layerButton = sidebar.locator('button').last();
+    const layerButton = sidebar.locator(
+      'button:not([data-testid="settings-cog-btn"]):not([aria-label*="Add data"]):not([aria-label="Basemap group"])',
+    ).first();
     await layerButton.click();
 
     const sheet = page.getByRole('dialog');
