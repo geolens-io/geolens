@@ -124,7 +124,7 @@
     "sortableLayer": "capa ordenable",
     "hideFromLegend": "Ocultar de la leyenda",
     "showInLegend": "Mostrar en la leyenda",
-    "backToLayers": "Back to layers"
+    "backToLayers": "Volver a capas"
   },
   "style": {
     "fill": "Relleno",
@@ -135,6 +135,9 @@
     "layer": "Capa",
     "color": "Color",
     "width": "Ancho",
+    "gapWidth": "Ancho de hueco",
+    "blur": "Desenfoque",
+    "offset": "Desplazamiento",
     "radius": "Radio",
     "preview": {
       "title": "Vista previa de estilo pendiente",
@@ -159,6 +162,19 @@
       "advanced": "JSON de estilo avanzado",
       "advancedDescription": "Edite paint y layout de MapLibre directamente cuando sea necesario."
     },
+    "zoomExpression": {
+      "fixed": "Fijo",
+      "variesByZoom": "Varía por zoom",
+      "step": "Pasos",
+      "interpolate": "Interpolar",
+      "baseValue": "Valor base",
+      "stopZoom": "Zoom de la parada {{index}}",
+      "stopValue": "Valor de la parada {{index}}",
+      "addStop": "Agregar parada",
+      "removeStop": "Eliminar parada",
+      "unsupported": "Esta propiedad usa una expresión no compatible. Use JSON avanzado para editarla.",
+      "kindLabel": "Tipo de expresión"
+    },
     "styledBy": "Estilizado por: {{column}}",
     "radiusByColumn": "Radio por: {{column}}",
     "widthByColumn": "Ancho por: {{column}}",
@@ -182,40 +198,10 @@
     "maxZoom": "Zoom máximo",
     "renderAs": "Renderizar como",
     "renderPoints": "Puntos",
+    "renderSymbol": "Símbolo",
     "renderHeatmap": "Mapa de calor",
     "renderCluster": "Agrupación",
-    "heatmap": {
-      "weight": "Columna de peso",
-      "weightNone": "Ninguno (peso igual)",
-      "colorRamp": "Rampa de color",
-      "radius": "Radio",
-      "intensity": "Intensidad"
-    },
-    "cluster": {
-      "radius": "Radio de agrupación",
-      "maxZoom": "Zoom máximo de agrupación",
-      "color": "Color de agrupación",
-      "countColor": "Color del conteo",
-      "countSize": "Tamaño del conteo"
-    },
-    "gapWidth": "Gap",
-    "blur": "Blur",
-    "offset": "Offset",
-    "zoomExpression": {
-      "fixed": "Fijo",
-      "variesByZoom": "Varía por zoom",
-      "step": "Pasos",
-      "interpolate": "Interpolar",
-      "baseValue": "Valor base",
-      "stopZoom": "Zoom de la parada {{index}}",
-      "stopValue": "Valor de la parada {{index}}",
-      "addStop": "Agregar parada",
-      "removeStop": "Eliminar parada",
-      "unsupported": "Esta propiedad usa una expresión no compatible. Use JSON avanzado para editarla.",
-      "kindLabel": "Tipo de expresión"
-    },
-    "renderSymbol": "Symbol",
-    "none": "None",
+    "none": "Ninguno",
     "symbol": {
       "title": "Símbolo",
       "iconImage": "Icono",
@@ -233,6 +219,20 @@
       "color": "Color de flecha",
       "size": "Tamaño de flecha",
       "spacing": "Espaciado"
+    },
+    "heatmap": {
+      "weight": "Columna de peso",
+      "weightNone": "Ninguno (peso igual)",
+      "colorRamp": "Rampa de color",
+      "radius": "Radio",
+      "intensity": "Intensidad"
+    },
+    "cluster": {
+      "radius": "Radio de agrupación",
+      "maxZoom": "Zoom máximo de agrupación",
+      "color": "Color de agrupación",
+      "countColor": "Color del conteo",
+      "countSize": "Tamaño del conteo"
     },
     "raster": {
       "title": "Ráster",
@@ -382,8 +382,8 @@
     "targetColor": "Color",
     "targetRadius": "Radio",
     "targetWidth": "Ancho",
-    "sizeMin": "Tamano min",
-    "sizeMax": "Tamano max",
+    "sizeMin": "Tamaño mín.",
+    "sizeMax": "Tamaño máx.",
     "colors": "Colores"
   },
   "search": {
@@ -393,12 +393,33 @@
     "noResults": "No se encontraron conjuntos de datos",
     "added": "(agregado)",
     "addToMap": "Agregar al mapa",
-    "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
-    "uploadCta": "Upload a file →",
-    "zeroResultHeading": "No datasets match '{{query}}'",
-    "zeroResultBody": "Try a different search term, or browse all datasets.",
-    "clearSearch": "Clear search",
-    "error": "Failed to load datasets. Check your connection and try again."
+    "dragHandle": "Arrastrar para agregar al mapa",
+    "catalogEmpty": "Su catálogo está vacío. Cargue un conjunto de datos para comenzar.",
+    "uploadCta": "Subir un archivo →",
+    "zeroResultHeading": "Ningún conjunto de datos coincide con '{{query}}'",
+    "zeroResultBody": "Pruebe otro término de búsqueda o explore todos los conjuntos de datos.",
+    "clearSearch": "Borrar búsqueda",
+    "error": "No se pudieron cargar los conjuntos de datos. Compruebe su conexión e inténtelo de nuevo.",
+    "retry": "Volver a intentarlo",
+    "browseCatalogCta": "Explorar catálogo público →",
+    "basemap": "Mapa base",
+    "inUse": "en uso",
+    "anotherRendering": "otra representación",
+    "swap": "cambiar",
+    "importData": "Importar datos...",
+    "filters": "Filtros",
+    "previewAlt": "Vista previa de {{name}}",
+    "previewUnavailable": "Vista previa no disponible",
+    "allTypes": "Todos",
+    "vector": "Vector",
+    "raster": "Ráster",
+    "metadata": {
+      "type": "Tipo",
+      "source": "Fuente",
+      "count": "Recuento",
+      "crs": "SRC",
+      "attribution": "Atribución"
+    }
   },
   "share": {
     "title": "Compartir",
@@ -463,14 +484,26 @@
     "cancelled": "Cancelado.",
     "streamInterrupted": "Respuesta interrumpida — se aplicaron algunos cambios.",
     "failedToProcess": "Error al procesar la solicitud",
-    "almostThere": "Casi listo, un momento...",
     "errorFriendly": "Algo salió mal. Intente de nuevo.",
     "errorSessionExpired": "Sesión expirada. Inicie sesión de nuevo.",
     "errorForbidden": "No tiene permiso para usar el chat de IA.",
     "errorAiUnavailable": "El servicio de IA no está disponible temporalmente.",
     "retry": "Reintentar",
+    "undo": "Deshacer",
+    "undoApplied": "Cambios deshecho",
     "stillWorking": "Aún procesando...",
     "takingLonger": "Esto está tardando más de lo habitual...",
+    "almostThere": "Casi listo, un momento...",
+    "layersDropdown": "Capas",
+    "commandsDropdown": "Comandos",
+    "mentionHint": "Escriba @ para mencionar una capa, / para comandos",
+    "commands": {
+      "style": "Cambiar colores, opacidad o estilo visual de la capa",
+      "filter": "Filtrar entidades por valores de atributo",
+      "label": "Agregar o configurar etiquetas de entidades",
+      "query": "Consultar y analizar datos de la capa",
+      "add": "Agregar un conjunto de datos como nueva capa"
+    },
     "suggestions": {
       "searchDatasets": "Buscar conjuntos de datos para agregar a este mapa",
       "colorByAttribute": "Colorear \"{{name}}\" usando un campo",
@@ -478,27 +511,25 @@
       "filterByAttribute": "Filtrar \"{{name}}\" usando un campo",
       "styleAllLayers": "Aplicar un tema de color a todas las capas",
       "addDataset": "Agregar otro conjunto de datos a este mapa",
-      "adjustOpacity": "Adjust opacity for {{name}}",
-      "areaLabels": "Add area labels for {{name}}",
-      "heatmap": "Show {{name}} as a heatmap"
-    },
-    "commands": {
-      "add": "Add a dataset as a new layer",
-      "filter": "Filter features by attribute values",
-      "label": "Add or configure feature labels",
-      "query": "Query and analyze layer data",
-      "style": "Change layer colors, opacity, or visual style"
-    },
-    "commandsDropdown": "Commands",
-    "layersDropdown": "Layers",
-    "mentionHint": "Type @ to mention a layer, / for commands",
-    "undo": "Undo",
-    "undoApplied": "Changes undone"
+      "heatmap": "Mostrar {{name}} como mapa de calor",
+      "areaLabels": "Agregar etiquetas de área para {{name}}",
+      "adjustOpacity": "Ajustar opacidad para {{name}}"
+    }
   },
   "basemap": {
     "title": "Mapa base",
     "showLabels": "Mostrar etiquetas de lugares",
     "blank": "Ninguno"
+  },
+  "terrain": {
+    "title": "Terreno",
+    "enabled": "Activar terreno",
+    "source": "Fuente DEM",
+    "sourcePlaceholder": "Seleccionar DEM",
+    "exaggeration": "Exageración",
+    "noDem": "Agregue una capa ráster DEM para activar el terreno.",
+    "unitsUnknown": "Las unidades verticales no están disponibles; la exageración es aproximada.",
+    "unitsNonMeter": "Las unidades verticales son {{unit}}, no metros; la exageración es aproximada."
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",
@@ -511,19 +542,6 @@
     "close": "Cerrar popup"
   },
   "descriptionPlaceholder": "Agregar una descripción...",
-  "unifiedStack": {
-    "title": "Layers",
-    "addData": "＋ Add data",
-    "settings": "Settings",
-    "emptyState": "No layers yet",
-    "countBadge": "{{count}}",
-    "basemapEyebrow": "BASEMAP",
-    "emptyHeading": "Add your first layer",
-    "emptyBody": "Search the catalog or pick a starter dataset below.",
-    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
-    "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →"
-  },
   "titleBar": {
     "saved": "Guardado",
     "retry": "Reintentar",
@@ -554,7 +572,7 @@
   },
   "tooltips": {
     "aiChat": "Chat de IA",
-    "share": "Share or embed this map",
+    "share": "Compartir o insertar este mapa",
     "mapInfo": "Info del mapa",
     "downloadPng": "Descargar PNG",
     "duplicateMap": "Duplicar mapa",
@@ -565,19 +583,21 @@
     "moreActions": "Más acciones",
     "allSaved": "Todos los cambios guardados",
     "retrySave": "Error al guardar. Reintenta guardar los cambios.",
-    "toggleDock": "Toggle dock (D)",
+    "toggleDock": "Alternar panel (D)",
     "closeChat": "Cerrar chat"
   },
   "toasts": {
     "mapSaved": "Mapa guardado",
     "saveFailed": "Error al guardar el mapa",
-    "saveFailedWithDetail": "Failed to save map: {{detail}}",
+    "saveFailedWithDetail": "Error al guardar el mapa: {{detail}}",
     "layerRemoved": "Capa eliminada",
     "layerRemoveFailed": "Error al eliminar la capa",
     "layerAdded": "Capa agregada",
+    "datasetAdded": "{{name}} agregado al mapa",
+    "basemapChanged": "Mapa base cambiado a {{name}}",
     "layerAddFailed": "Error al agregar la capa",
-    "layerSyncFailed": "Layer sync failed for \"{{name}}\"",
-    "renderModeSwitchFailed": "Failed to switch render mode",
+    "layerSyncFailed": "Error de sincronización de capa para \"{{name}}\"",
+    "renderModeSwitchFailed": "Error al cambiar el modo de renderizado",
     "exportFailed": "Error al exportar la imagen del mapa",
     "exportSuccess": "Mapa exportado como PNG",
     "mapNowPublic": "El mapa ahora es público",
@@ -588,7 +608,7 @@
     "embedCodeCopied": "Código de inserción copiado",
     "copyFailed": "Error al copiar al portapapeles",
     "shareLinkFailed": "Error al generar el enlace para compartir",
-    "shareTokenUpdateFailed": "Failed to update share token",
+    "shareTokenUpdateFailed": "Error al actualizar el token de compartición",
     "shareLinkRevoked": "Enlace compartido revocado",
     "revokeFailed": "Error al revocar el enlace compartido",
     "mapDuplicated": "Mapa duplicado exitosamente",
@@ -684,13 +704,27 @@
   },
   "actions": {
     "save": "Guardar",
-    "export": "Export"
+    "export": "Exportar"
+  },
+  "history": {
+    "title": "Historial",
+    "timelineLabel": "Historial de edición del mapa",
+    "loading": "Cargando historial...",
+    "emptyTitle": "Aún no hay historial de edición",
+    "emptyDescription": "El historial comienza después de que se registren ediciones guardadas para este mapa.",
+    "errorTitle": "No se pudo cargar el historial",
+    "errorDescription": "Intente cerrar y volver a abrir este panel.",
+    "notAvailableTitle": "Guarde este mapa para ver el historial",
+    "notAvailableDescription": "El historial de edición está disponible después de que el mapa exista.",
+    "unknownTime": "Tiempo desconocido",
+    "unknownActor": "Usuario desconocido",
+    "actorTarget": "{{actor}} - {{target}}"
   },
   "dock": {
-    "askAi": "Ask AI",
-    "notes": "Notes",
-    "notesPlaceholder": "Add notes about this map...",
-    "history": "History"
+    "askAi": "Preguntar a IA",
+    "history": "Historial",
+    "notes": "Notas",
+    "notesPlaceholder": "Agregar notas sobre este mapa..."
   },
   "leaveWarning": {
     "title": "Cambios sin guardar",
@@ -698,192 +732,209 @@
     "stay": "Quedarse",
     "leave": "Salir"
   },
-  "terrain": {
-    "title": "Terrain",
-    "enabled": "Enable terrain",
-    "source": "DEM source",
-    "sourcePlaceholder": "Select DEM",
-    "exaggeration": "Exaggeration",
-    "noDem": "Add a DEM raster layer to enable terrain.",
-    "unitsUnknown": "Vertical units are unavailable; exaggeration is approximate.",
-    "unitsNonMeter": "Vertical units are {{unit}}, not meters; exaggeration is approximate."
-  },
-  "history": {
-    "title": "History",
-    "timelineLabel": "Map edit history",
-    "loading": "Loading history...",
-    "emptyTitle": "No edit history yet",
-    "emptyDescription": "History starts after saved edits are recorded for this map.",
-    "errorTitle": "History could not be loaded",
-    "errorDescription": "Try closing and reopening this panel.",
-    "notAvailableTitle": "Save this map to see history",
-    "notAvailableDescription": "Edit history is available after the map exists.",
-    "unknownTime": "Unknown time",
-    "unknownActor": "Unknown user",
-    "actorTarget": "{{actor}} - {{target}}"
+  "a11y": {
+    "dragPickup": "Se tomó {{name}}. Use las teclas de flecha para elegir una posición, Intro para soltar, Escape para cancelar.",
+    "dragPosition": "Posición actual: {{n}} de {{total}}",
+    "dragDropped": "Soltado. {{name}} agregado en la posición {{n}}.",
+    "dragCancelled": "Soltar cancelado."
   },
   "styleJson": {
-    "title": "Style JSON",
-    "ariaLabel": "Style JSON",
-    "description": "Export or import a portable MapLibre style document.",
+    "title": "JSON de estilo",
+    "ariaLabel": "JSON de estilo",
+    "description": "Exportar o importar un documento de estilo MapLibre portátil.",
     "tabs": {
-      "export": "Export",
-      "import": "Import"
+      "export": "Exportar",
+      "import": "Importar"
     },
-    "exportHint": "Download `{{filename}}` with sources, layers, filters, labels, sprites, glyphs, and viewport metadata.",
-    "exportButton": "Export JSON",
-    "importButton": "Import JSON",
+    "exportHint": "Descargar `{{filename}}` con fuentes, capas, filtros, etiquetas, sprites, glifos y metadatos de viewport.",
+    "exportButton": "Exportar JSON",
+    "importButton": "Importar JSON",
     "errors": {
-      "notObject": "Style JSON must be an object.",
-      "invalidJson": "Invalid JSON.",
-      "importFailed": "Import failed."
+      "notObject": "El JSON de estilo debe ser un objeto.",
+      "invalidJson": "JSON no válido.",
+      "importFailed": "Importación fallida."
     },
     "summary": {
-      "imported_one": "Imported {{count}} layer",
-      "imported_other": "Imported {{count}} layers",
-      "matched_one": "{{count}} matched source",
-      "matched_other": "{{count}} matched sources",
-      "skipped_one": "{{count}} skipped layer.",
-      "skipped_other": "{{count}} skipped layers."
+      "imported_one": "{{count}} capa importada",
+      "imported_other": "{{count}} capas importadas",
+      "matched_one": "{{count}} fuente coincidente",
+      "matched_other": "{{count}} fuentes coincidentes",
+      "skipped_one": "{{count}} capa omitida.",
+      "skipped_other": "{{count}} capas omitidas."
     }
   },
   "bulkActions": {
-    "selectedCount": "{{count}} selected",
-    "toolbarLabel": "Bulk actions for {{count}} selected layers",
-    "liveAnnouncement": "{{count}} layers selected.",
-    "visibility": "Visibility",
-    "visibilityAriaLabel": "Toggle visibility for {{count}} selected layers",
-    "opacity": "Opacity",
-    "opacityAriaLabel": "Set opacity for {{count}} selected layers",
-    "group": "Group",
-    "groupAriaLabel": "Group {{count}} selected layers",
-    "groupDisabledTooltip": "Select only loose layers to group",
-    "ungroup": "Ungroup",
-    "ungroupAriaLabel": "Ungroup {{count}} selected groups",
-    "ungroupDisabledTooltip": "Select only groups to ungroup",
-    "delete": "Delete",
-    "deleteAriaLabel": "Delete {{count}} selected layers",
-    "deleteConfirmLabel": "Delete {{count}} layers? This cannot be undone.",
-    "deleteConfirmAction": "Delete {{count}} layers",
-    "deleteConfirmCancel": "Cancel",
-    "errorUpdateRolledBack": "Failed to update layers — changes rolled back.",
-    "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
-    "selectRow": "Select {{name}}",
-    "selectGroup": "Select {{name}}"
+    "selectedCount": "{{count}} seleccionadas",
+    "toolbarLabel": "Acciones en bloque para {{count}} capas seleccionadas",
+    "liveAnnouncement": "{{count}} capas seleccionadas.",
+    "visibility": "Visibilidad",
+    "visibilityAriaLabel": "Alternar visibilidad de {{count}} capas seleccionadas",
+    "opacity": "Opacidad",
+    "opacityAriaLabel": "Establecer opacidad para {{count}} capas seleccionadas",
+    "group": "Agrupar",
+    "groupAriaLabel": "Agrupar {{count}} capas seleccionadas",
+    "groupDisabledTooltip": "Seleccione solo capas sueltas para agrupar",
+    "ungroup": "Desagrupar",
+    "ungroupAriaLabel": "Desagrupar {{count}} grupos seleccionados",
+    "ungroupDisabledTooltip": "Seleccione solo grupos para desagrupar",
+    "delete": "Eliminar",
+    "deleteAriaLabel": "Eliminar {{count}} capas seleccionadas",
+    "deleteConfirmLabel": "¿Eliminar {{count}} capas? Esta acción no se puede deshacer.",
+    "deleteConfirmAction": "Eliminar {{count}} capas",
+    "deleteConfirmCancel": "Cancelar",
+    "errorUpdateRolledBack": "No se pudieron actualizar las capas — cambios revertidos.",
+    "errorDeleteRolledBack": "No se pudieron eliminar {{count}} capas — no se realizaron cambios.",
+    "selectRow": "Seleccionar {{name}}",
+    "selectGroup": "Seleccionar {{name}}"
   },
   "unifiedStack": {
-    "title": "Layers",
-    "addData": "＋ Add data",
-    "settings": "Settings",
-    "emptyState": "No layers yet",
+    "title": "Capas",
+    "addData": "＋ Agregar datos",
+    "settings": "Configuración",
+    "emptyState": "Aún no hay capas",
     "countBadge": "{{count}}",
-    "basemapEyebrow": "BASEMAP",
-    "emptyHeading": "Add your first layer",
-    "emptyBody": "Search the catalog or pick a starter dataset below.",
-    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
-    "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →",
-    "listboxLabel": "Map layers"
+    "basemapEyebrow": "MAPA BASE",
+    "emptyHeading": "Agrega tu primera capa",
+    "emptyBody": "Busca en el catálogo o elige un conjunto de datos inicial abajo.",
+    "emptySearchPlaceholder": "Buscar conjuntos de datos, URLs o archivos…",
+    "suggestedLabel": "SUGERIDO",
+    "browseAll": "Explorar todos los conjuntos de datos →",
+    "browseAllShort": "Explorar catálogo →",
+    "emptyHelpBody": "Busque en el catálogo para encontrar conjuntos de datos, o use el botón Cargar para agregar los suyos.",
+    "listboxLabel": "Capas del mapa"
   },
   "rail": {
-    "aiDisabled": "AI disabled by admin"
+    "aiDisabled": "IA desactivada por el administrador"
   },
   "stackRow": {
-    "dragHandle": "Drag to reorder {{name}}",
-    "toggleVisibility": "Toggle visibility for {{name}}",
-    "opacitySlider": "Opacity for {{name}}",
-    "kebabTrigger": "Layer options for {{name}}",
-    "kebabRenameLayer": "Rename layer",
-    "kebabDuplicate": "Duplicate",
-    "kebabDeleteLayer": "Delete layer",
-    "kebabAddToGroup": "Add to group…",
-    "kebabRenameGroup": "Rename group",
-    "kebabAddLayer": "Add layer",
-    "kebabUngroup": "Ungroup",
-    "kebabDeleteGroup": "Delete group",
-    "kebabMoveOutOfGroup": "Move out of group"
+    "dragHandle": "Arrastrar para reordenar {{name}}",
+    "toggleVisibility": "Alternar visibilidad para {{name}}",
+    "opacitySlider": "Opacidad para {{name}}",
+    "kebabTrigger": "Opciones de capa para {{name}}",
+    "kebabRenameLayer": "Renombrar capa",
+    "kebabDuplicate": "Duplicar",
+    "kebabDeleteLayer": "Eliminar capa",
+    "kebabAddToGroup": "Agregar al grupo…",
+    "kebabRenameGroup": "Renombrar grupo",
+    "kebabAddLayer": "Agregar capa",
+    "kebabUngroup": "Desagrupar",
+    "kebabDeleteGroup": "Eliminar grupo",
+    "kebabMoveOutOfGroup": "Mover fuera del grupo"
   },
   "basemapGroup": {
-    "typeIconLabel": "Basemap group",
-    "swapBasemap": "Swap basemap",
-    "resetAppearance": "Reset appearance",
-    "removeBasemap": "Remove basemap",
-    "sublayersSectionLabel": "SUBLAYERS",
-    "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
-    "presetSectionLabel": "PRESET",
-    "masterOpacity": "Master opacity",
-    "addCustomBasemap": "＋ Add custom basemap…"
+    "addCustomBasemap": "＋ Agregar mapa base personalizado…",
+    "masterOpacity": "Opacidad general",
+    "presetSectionLabel": "PREAJUSTE",
+    "railLabel": "Grupo de mapa base",
+    "removeBasemap": "Eliminar mapa base",
+    "resetAppearance": "Restablecer apariencia",
+    "sublayersSectionHint": "Haga clic en cualquier subcapa de la barra lateral para darle estilo individualmente.",
+    "sublayersSectionLabel": "SUBCAPAS",
+    "swapBasemap": "Cambiar mapa base",
+    "toggleExpand": "Contraer/expandir grupo de mapa base",
+    "typeIconLabel": "Grupo de mapa base"
   },
   "basemapSublayer": {
-    "breadcrumbLabel": "Back to basemap group",
-    "detailLevelLabel": "DETAIL LEVEL",
-    "detailLevelOff": "Off",
-    "detailLevelMinimal": "Minimal",
-    "detailLevelDefault": "Default",
-    "detailLevelFull": "Full",
-    "customizedHint": "{{sublayer}} is currently customized",
-    "strokeLabel": "STROKE",
-    "resetLabel": "RESET",
-    "resetHint": "Reset to preset default",
-    "resetConfirmMessage": "This will remove all custom appearance for {{sublayer}}.",
-    "resetConfirmAction": "Reset",
-    "resetConfirmCancel": "Keep customization",
-    "footerBack": "Back to basemap"
+    "breadcrumbLabel": "Volver al grupo de mapa base",
+    "casingColor": "Color de carcasa",
+    "casingWidth": "Ancho de carcasa",
+    "customizedHint": "{{sublayer}} está actualmente personalizado",
+    "detailLevelLabel": "NIVEL DE DETALLE",
+    "detailLevelOff": "Desactivado",
+    "detailLevelMinimal": "Mínimo",
+    "detailLevelDefault": "Predeterminado",
+    "detailLevelFull": "Completo",
+    "footerBack": "Volver al mapa base",
+    "resetConfirmAction": "Restablecer",
+    "resetConfirmCancel": "Mantener personalización",
+    "resetConfirmMessage": "Se eliminará toda la apariencia personalizada de {{sublayer}}.",
+    "resetHint": "Restablecer al preajuste predeterminado",
+    "resetLabel": "RESTABLECER",
+    "strokeColor": "Color de trazo",
+    "strokeLabel": "TRAZO",
+    "strokeWidth": "Ancho de trazo"
   },
   "demEditor": {
-    "renderAsLabel": "RENDER AS",
-    "renderAsImage": "▦ Image",
-    "renderAsHillshade": "⛰ Hillshade",
-    "renderAsTerrain": "◬ Terrain",
-    "sunPositionLabel": "SUN POSITION",
-    "azimuth": "Azimuth",
-    "altitude": "Altitude",
-    "exaggeration": "Exaggeration",
-    "shadingColorsLabel": "SHADING COLORS",
-    "highlight": "Highlight",
-    "shadow": "Shadow",
-    "accent": "Accent",
-    "terrainHint": "Terrain uses elevation data to extrude the map surface. Adjust terrain exaggeration in Settings → Terrain.",
-    "imageHint": "No additional appearance controls for image mode",
-    "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
+    "renderAsLabel": "RENDERIZAR COMO",
+    "renderAsImage": "▦ Imagen",
+    "renderAsHillshade": "⛰ Sombreado",
+    "renderAsTerrain": "◬ Terreno",
+    "sunPositionLabel": "POSICIÓN DEL SOL",
+    "azimuth": "Azimut",
+    "altitude": "Altitud",
+    "exaggeration": "Exageración",
+    "shadingColorsLabel": "COLORES DE SOMBREADO",
+    "highlight": "Luz",
+    "shadow": "Sombra",
+    "accent": "Acento",
+    "terrainHint": "El terreno usa datos de elevación para extruir la superficie del mapa. Ajuste la exageración del terreno en Configuración → Terreno.",
+    "imageHint": "No hay controles de apariencia adicionales para el modo imagen",
+    "compassAriaLabel": "Azimut solar: {{azimuth}}°"
   },
   "folderGroup": {
-    "defaultName": "Group {{n}}",
-    "renameInputPlaceholder": "Group name",
-    "deleteConfirmMessage": "Delete this group and all its layers?",
-    "deleteConfirmAction": "Delete all",
-    "deleteConfirmCancel": "Keep group",
-    "newGroupItem": "＋ New group…"
+    "defaultName": "Grupo {{n}}",
+    "renameInputPlaceholder": "Nombre del grupo",
+    "deleteConfirmMessage": "¿Eliminar este grupo y todas sus capas?",
+    "deleteConfirmAction": "Eliminar todo",
+    "deleteConfirmCancel": "Conservar grupo",
+    "newGroupItem": "＋ Nuevo grupo…"
   },
   "layerEditor": {
-    "close": "Close layer editor",
+    "close": "Cerrar editor de capa",
     "section": {
-      "renderAs": "Render as",
-      "appearance": "Appearance",
-      "visibility": "Visibility",
-      "filter": "Filter",
-      "labels": "Labels",
-      "source": "Source"
+      "renderAs": "Renderizar como",
+      "appearance": "Apariencia",
+      "visibility": "Visibilidad",
+      "filter": "Filtro",
+      "labels": "Etiquetas",
+      "source": "Fuente"
     },
     "filter": {
-      "noFilter": "No filter",
-      "active": "Active"
+      "noFilter": "Sin filtro",
+      "active": "Activo"
     },
     "labels": {
-      "off": "Off"
+      "off": "Desactivado"
     },
     "footer": {
-      "deleteLayer": "Delete layer"
+      "deleteLayer": "Eliminar capa"
     },
     "confirmDelete": {
-      "message": "Are you sure? This cannot be undone.",
-      "delete": "Delete",
-      "keep": "Keep layer"
+      "message": "¿Está seguro? Esta acción no se puede deshacer.",
+      "delete": "Eliminar",
+      "keep": "Conservar capa"
     },
     "visibility": {
-      "opacity": "Opacity",
-      "minZoom": "Minimum zoom",
-      "maxZoom": "Maximum zoom"
+      "opacity": "Opacidad",
+      "minZoom": "Zoom mínimo",
+      "maxZoom": "Zoom máximo"
+    },
+    "source": {
+      "noColumns": "No hay columnas consultables indexadas para esta capa."
     }
+  },
+  "settings": {
+    "regionLabel": "Configuración del mapa",
+    "panelTitle": "Configuración",
+    "closePanel": "Cerrar configuración",
+    "terrainLabel": "TERRENO",
+    "widgetsLabel": "WIDGETS",
+    "projectionLabel": "PROYECCIÓN",
+    "terrainActiveHint": "{{value}}× de exageración",
+    "terrainInactiveCollapsedHint": "Sin terreno activo",
+    "exaggeration": "Exageración",
+    "terrainExaggerationAria": "Exageración del terreno",
+    "boundTo": "Vinculado a: {{name}}",
+    "terrainInactiveHint": "No hay ninguna capa de terreno activa. Cambie una capa DEM al modo Terreno para habilitar la exageración global del terreno.",
+    "widgetsEnabledCount": "{{count}} activados",
+    "noWidgets": "No hay widgets disponibles.",
+    "widgetsGroupAria": "Widgets",
+    "disableAction": "Desactivar",
+    "enableAction": "Activar",
+    "toggleWidget": "{{action}} widget {{name}}",
+    "projectionMercator": "Mercator",
+    "projectionGlobe": "Globo",
+    "projectionAria": "Proyección del mapa",
+    "globeDisclaimer": "La proyección de globo es experimental. Es posible que algunas capas no se rendericen correctamente."
   }
 }

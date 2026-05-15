@@ -124,7 +124,7 @@
     "sortableLayer": "couche triable",
     "hideFromLegend": "Masquer de la légende",
     "showInLegend": "Afficher dans la légende",
-    "backToLayers": "Back to layers"
+    "backToLayers": "Retour aux couches"
   },
   "style": {
     "fill": "Remplissage",
@@ -135,6 +135,9 @@
     "layer": "Couche",
     "color": "Couleur",
     "width": "Largeur",
+    "gapWidth": "Largeur de l'écart",
+    "blur": "Flou",
+    "offset": "Décalage",
     "radius": "Rayon",
     "preview": {
       "title": "Aperçu du style en attente",
@@ -159,6 +162,19 @@
       "advanced": "JSON de style avancé",
       "advancedDescription": "Modifiez directement paint et layout MapLibre si nécessaire."
     },
+    "zoomExpression": {
+      "fixed": "Fixe",
+      "variesByZoom": "Varie selon le zoom",
+      "step": "Paliers",
+      "interpolate": "Interpoler",
+      "baseValue": "Valeur de base",
+      "stopZoom": "Zoom de l'arrêt {{index}}",
+      "stopValue": "Valeur de l'arrêt {{index}}",
+      "addStop": "Ajouter un arrêt",
+      "removeStop": "Supprimer l'arrêt",
+      "unsupported": "Cette propriété utilise une expression non prise en charge. Utilisez le JSON avancé pour la modifier.",
+      "kindLabel": "Type d'expression"
+    },
     "styledBy": "Stylisé par : {{column}}",
     "radiusByColumn": "Rayon par : {{column}}",
     "widthByColumn": "Largeur par : {{column}}",
@@ -182,40 +198,10 @@
     "maxZoom": "Zoom max",
     "renderAs": "Afficher comme",
     "renderPoints": "Points",
+    "renderSymbol": "Symbole",
     "renderHeatmap": "Carte de chaleur",
     "renderCluster": "Agrégat",
-    "heatmap": {
-      "weight": "Colonne de poids",
-      "weightNone": "Aucun (poids égal)",
-      "colorRamp": "Palette de couleurs",
-      "radius": "Rayon",
-      "intensity": "Intensité"
-    },
-    "cluster": {
-      "radius": "Rayon d'agrégat",
-      "maxZoom": "Zoom max d'agrégat",
-      "color": "Couleur d'agrégat",
-      "countColor": "Couleur du nombre",
-      "countSize": "Taille du nombre"
-    },
-    "gapWidth": "Gap",
-    "blur": "Blur",
-    "offset": "Offset",
-    "zoomExpression": {
-      "fixed": "Fixe",
-      "variesByZoom": "Varie selon le zoom",
-      "step": "Paliers",
-      "interpolate": "Interpoler",
-      "baseValue": "Valeur de base",
-      "stopZoom": "Zoom de l'arrêt {{index}}",
-      "stopValue": "Valeur de l'arrêt {{index}}",
-      "addStop": "Ajouter un arrêt",
-      "removeStop": "Supprimer l'arrêt",
-      "unsupported": "Cette propriété utilise une expression non prise en charge. Utilisez le JSON avancé pour la modifier.",
-      "kindLabel": "Type d'expression"
-    },
-    "renderSymbol": "Symbol",
-    "none": "None",
+    "none": "Aucun",
     "symbol": {
       "title": "Symbole",
       "iconImage": "Icône",
@@ -233,6 +219,20 @@
       "color": "Couleur des flèches",
       "size": "Taille des flèches",
       "spacing": "Espacement"
+    },
+    "heatmap": {
+      "weight": "Colonne de poids",
+      "weightNone": "Aucun (poids égal)",
+      "colorRamp": "Palette de couleurs",
+      "radius": "Rayon",
+      "intensity": "Intensité"
+    },
+    "cluster": {
+      "radius": "Rayon d'agrégat",
+      "maxZoom": "Zoom max d'agrégat",
+      "color": "Couleur d'agrégat",
+      "countColor": "Couleur du nombre",
+      "countSize": "Taille du nombre"
     },
     "raster": {
       "title": "Raster",
@@ -358,7 +358,7 @@
     "noColumns": "Cette couche n'a pas de colonnes inspectables."
   },
   "dataDriven": {
-    "title": "Style base sur les donnees",
+    "title": "Style piloté par les données",
     "scopeHelp": "Crée des expressions paint MapLibre tout en gardant la configuration de style du builder alignée.",
     "clearTitle": "Effacer le style piloté par les données",
     "mode": "Mode",
@@ -393,12 +393,33 @@
     "noResults": "Aucun jeu de données trouvé",
     "added": "(ajouté)",
     "addToMap": "Ajouter à la carte",
-    "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
-    "uploadCta": "Upload a file →",
-    "zeroResultHeading": "No datasets match '{{query}}'",
-    "zeroResultBody": "Try a different search term, or browse all datasets.",
-    "clearSearch": "Clear search",
-    "error": "Failed to load datasets. Check your connection and try again."
+    "dragHandle": "Glisser pour ajouter à la carte",
+    "catalogEmpty": "Votre catalogue est vide. Importez un jeu de données pour commencer.",
+    "uploadCta": "Téléverser un fichier →",
+    "zeroResultHeading": "Aucun jeu de données ne correspond à '{{query}}'",
+    "zeroResultBody": "Essayez un autre terme de recherche, ou parcourez tous les jeux de données.",
+    "clearSearch": "Effacer la recherche",
+    "error": "Impossible de charger les jeux de données. Vérifiez votre connexion et réessayez.",
+    "retry": "Réessayer",
+    "browseCatalogCta": "Parcourir le catalogue public →",
+    "basemap": "Fond de carte",
+    "inUse": "en cours d'utilisation",
+    "anotherRendering": "autre rendu",
+    "swap": "remplacer",
+    "importData": "Importer des données...",
+    "filters": "Filtres",
+    "previewAlt": "Aperçu de {{name}}",
+    "previewUnavailable": "Aperçu indisponible",
+    "allTypes": "Tous",
+    "vector": "Vecteur",
+    "raster": "Raster",
+    "metadata": {
+      "type": "Type",
+      "source": "Source",
+      "count": "Nombre",
+      "crs": "SCR",
+      "attribution": "Attribution"
+    }
   },
   "share": {
     "title": "Partager",
@@ -425,6 +446,9 @@
     "copyEmbedCode": "Copier le code d'intégration",
     "cannotPublish": "Impossible de publier : les jeux de données {{datasets}} ne sont pas publics",
     "embedTokenInfo": "Des couches non publiques sont incluses. Un jeton d'intégration gère l'accès automatiquement.",
+    "unsavedWarning": "Les modifications non enregistrées sont uniquement dans l'aperçu du constructeur. Enregistrez avant de copier des liens ou des intégrations.",
+    "savingWarning": "Enregistrement des modifications. Les liens et intégrations se mettent à jour après cet enregistrement.",
+    "saveFailedWarning": "Échec de l'enregistrement. Les liens et intégrations affichent encore la dernière carte enregistrée jusqu'à une nouvelle tentative réussie.",
     "expirationLabel": "Expiration",
     "expirationPlaceholder": "Pas d'expiration",
     "expirationHint": "Laisser vide pour un lien sans expiration",
@@ -446,10 +470,7 @@
     "summaryUnrestricted": "Sans restriction",
     "expirationUpdated": "Expiration mise à jour",
     "domainsUpdated": "Restrictions de domaine mises à jour",
-    "updateFailed": "Échec de la sauvegarde",
-    "unsavedWarning": "Les modifications non enregistrées sont uniquement dans l'aperçu du constructeur. Enregistrez avant de copier des liens ou des intégrations.",
-    "savingWarning": "Enregistrement des modifications. Les liens et intégrations se mettent à jour après cet enregistrement.",
-    "saveFailedWarning": "Échec de l'enregistrement. Les liens et intégrations affichent encore la dernière carte enregistrée jusqu'à une nouvelle tentative réussie."
+    "updateFailed": "Échec de la sauvegarde"
   },
   "chat": {
     "experimental": "Expérimental",
@@ -463,14 +484,26 @@
     "cancelled": "Annulé.",
     "streamInterrupted": "Réponse interrompue — certaines modifications ont été appliquées.",
     "failedToProcess": "Échec du traitement de la demande",
-    "almostThere": "Presque terminé, un instant...",
     "errorFriendly": "Quelque chose s'est mal passé. Veuillez réessayer.",
     "errorSessionExpired": "Session expirée. Veuillez vous reconnecter.",
     "errorForbidden": "Vous n'avez pas la permission d'utiliser le chat IA.",
     "errorAiUnavailable": "Le service IA est temporairement indisponible.",
     "retry": "Réessayer",
+    "undo": "Annuler",
+    "undoApplied": "Modifications annulées",
     "stillWorking": "Traitement en cours...",
     "takingLonger": "Cela prend plus de temps que d'habitude...",
+    "almostThere": "Presque terminé, un instant...",
+    "layersDropdown": "Couches",
+    "commandsDropdown": "Commandes",
+    "mentionHint": "Tapez @ pour mentionner une couche, / pour les commandes",
+    "commands": {
+      "style": "Modifier les couleurs, l'opacité ou le style visuel de la couche",
+      "filter": "Filtrer les entités par valeurs d'attribut",
+      "label": "Ajouter ou configurer des libellés d'entités",
+      "query": "Interroger et analyser les données de la couche",
+      "add": "Ajouter un jeu de données comme nouvelle couche"
+    },
     "suggestions": {
       "searchDatasets": "Rechercher des jeux de données à ajouter à cette carte",
       "colorByAttribute": "Colorer « {{name}} » à l'aide d'un champ",
@@ -478,27 +511,25 @@
       "filterByAttribute": "Filtrer « {{name}} » à l'aide d'un champ",
       "styleAllLayers": "Appliquer un thème de couleurs à toutes les couches",
       "addDataset": "Ajouter un autre jeu de données à cette carte",
-      "adjustOpacity": "Adjust opacity for {{name}}",
-      "areaLabels": "Add area labels for {{name}}",
-      "heatmap": "Show {{name}} as a heatmap"
-    },
-    "commands": {
-      "add": "Add a dataset as a new layer",
-      "filter": "Filter features by attribute values",
-      "label": "Add or configure feature labels",
-      "query": "Query and analyze layer data",
-      "style": "Change layer colors, opacity, or visual style"
-    },
-    "commandsDropdown": "Commands",
-    "layersDropdown": "Layers",
-    "mentionHint": "Type @ to mention a layer, / for commands",
-    "undo": "Undo",
-    "undoApplied": "Changes undone"
+      "heatmap": "Afficher {{name}} comme carte de chaleur",
+      "areaLabels": "Ajouter des libellés de zone pour {{name}}",
+      "adjustOpacity": "Ajuster l'opacité pour {{name}}"
+    }
   },
   "basemap": {
     "title": "Fond de carte",
     "showLabels": "Afficher les libellés des lieux",
     "blank": "Aucun"
+  },
+  "terrain": {
+    "title": "Terrain",
+    "enabled": "Activer le terrain",
+    "source": "Source DEM",
+    "sourcePlaceholder": "Sélectionner DEM",
+    "exaggeration": "Exagération",
+    "noDem": "Ajoutez une couche raster DEM pour activer le terrain.",
+    "unitsUnknown": "Les unités verticales sont indisponibles ; l'exagération est approximative.",
+    "unitsNonMeter": "Les unités verticales sont {{unit}}, pas des mètres ; l'exagération est approximative."
   },
   "featurePopup": {
     "noAttributes": "Aucun attribut",
@@ -511,6 +542,17 @@
     "close": "Fermer la popup"
   },
   "descriptionPlaceholder": "Ajouter une description...",
+  "titleBar": {
+    "saved": "Enregistré",
+    "retry": "Réessayer",
+    "retrySave": "Réessayer l'enregistrement",
+    "saveStatus": {
+      "saved": "Enregistré",
+      "unsaved": "Modifications non enregistrées",
+      "saving": "Enregistrement...",
+      "failed": "Échec de l'enregistrement"
+    }
+  },
   "visibility": {
     "public": "Public",
     "internal": "Interne",
@@ -530,7 +572,7 @@
   },
   "tooltips": {
     "aiChat": "Chat IA",
-    "share": "Share or embed this map",
+    "share": "Partager ou intégrer cette carte",
     "mapInfo": "Info carte",
     "downloadPng": "Télécharger PNG",
     "duplicateMap": "Dupliquer la carte",
@@ -540,20 +582,22 @@
     "widgets": "Widgets",
     "moreActions": "Plus d'actions",
     "allSaved": "Toutes les modifications enregistrées",
-    "toggleDock": "Toggle dock (D)",
-    "closeChat": "Fermer le chat",
-    "retrySave": "Échec de l'enregistrement. Réessayez d'enregistrer les modifications."
+    "retrySave": "Échec de l'enregistrement. Réessayez d'enregistrer les modifications.",
+    "toggleDock": "Basculer le panneau (D)",
+    "closeChat": "Fermer le chat"
   },
   "toasts": {
     "mapSaved": "Carte enregistrée",
     "saveFailed": "Échec de l'enregistrement de la carte",
-    "saveFailedWithDetail": "Failed to save map: {{detail}}",
+    "saveFailedWithDetail": "Échec de l'enregistrement de la carte : {{detail}}",
     "layerRemoved": "Couche supprimée",
     "layerRemoveFailed": "Échec de la suppression de la couche",
     "layerAdded": "Couche ajoutée",
+    "datasetAdded": "{{name}} ajouté à la carte",
+    "basemapChanged": "Fond de carte changé en {{name}}",
     "layerAddFailed": "Échec de l'ajout de la couche",
-    "layerSyncFailed": "Layer sync failed for \"{{name}}\"",
-    "renderModeSwitchFailed": "Failed to switch render mode",
+    "layerSyncFailed": "Échec de la synchronisation de la couche « {{name}} »",
+    "renderModeSwitchFailed": "Échec du changement de mode de rendu",
     "exportFailed": "Échec de l'exportation de l'image de la carte",
     "exportSuccess": "Carte exportée en PNG",
     "mapNowPublic": "La carte est maintenant publique",
@@ -564,7 +608,7 @@
     "embedCodeCopied": "Code d'intégration copié",
     "copyFailed": "Échec de la copie dans le presse-papiers",
     "shareLinkFailed": "Échec de la génération du lien de partage",
-    "shareTokenUpdateFailed": "Failed to update share token",
+    "shareTokenUpdateFailed": "Échec de la mise à jour du jeton de partage",
     "shareLinkRevoked": "Lien de partage révoqué",
     "revokeFailed": "Échec de la révocation du lien de partage",
     "mapDuplicated": "Carte dupliquée avec succès",
@@ -574,10 +618,10 @@
   },
   "builderMap": {
     "loading": "Chargement de la carte...",
-    "authError": "La session a expire. Rechargez la page pour retablir l'acces aux tuiles.",
+    "authError": "La session a expiré. Rechargez la page pour rétablir l'accès aux tuiles.",
     "mapError": "Erreur de tuiles de carte. Certaines couches peuvent ne pas s'afficher correctement.",
-    "basemapIssueTitle": "Probleme de connexion au fond de carte",
-    "basemapIssueDescription": "Vos couches de donnees restent modifiables. Verifiez le service de fond de carte ou choisissez un autre fond si l'arriere-plan reste vide.",
+    "basemapIssueTitle": "Problème de connexion au fond de carte",
+    "basemapIssueDescription": "Vos couches de données restent modifiables. Vérifiez le service de fond de carte ou choisissez un autre fond si l'arrière-plan reste vide.",
     "clusterFallback": "{{name}} s'affiche sous forme de points : {{reason}}",
     "clusterTruncated": "la source d'agrégats dépasse la limite GeoJSON bornée",
     "clusterLoadError": "{{name}} s'affiche sous forme de points, car les données d'agrégats n'ont pas pu être chargées."
@@ -660,13 +704,27 @@
   },
   "actions": {
     "save": "Enregistrer",
-    "export": "Export"
+    "export": "Exporter"
+  },
+  "history": {
+    "title": "Historique",
+    "timelineLabel": "Historique de modification de la carte",
+    "loading": "Chargement de l'historique...",
+    "emptyTitle": "Aucun historique de modification",
+    "emptyDescription": "L'historique commence après l'enregistrement des modifications pour cette carte.",
+    "errorTitle": "Impossible de charger l'historique",
+    "errorDescription": "Essayez de fermer et rouvrir ce panneau.",
+    "notAvailableTitle": "Enregistrez cette carte pour voir l'historique",
+    "notAvailableDescription": "L'historique de modification est disponible après la création de la carte.",
+    "unknownTime": "Heure inconnue",
+    "unknownActor": "Utilisateur inconnu",
+    "actorTarget": "{{actor}} - {{target}}"
   },
   "dock": {
-    "askAi": "Ask AI",
+    "askAi": "Demander à l'IA",
+    "history": "Historique",
     "notes": "Notes",
-    "notesPlaceholder": "Add notes about this map...",
-    "history": "History"
+    "notesPlaceholder": "Ajouter des notes sur cette carte..."
   },
   "leaveWarning": {
     "title": "Modifications non enregistrées",
@@ -674,216 +732,209 @@
     "stay": "Rester",
     "leave": "Quitter"
   },
-  "terrain": {
-    "title": "Terrain",
-    "enabled": "Enable terrain",
-    "source": "DEM source",
-    "sourcePlaceholder": "Select DEM",
-    "exaggeration": "Exaggeration",
-    "noDem": "Add a DEM raster layer to enable terrain.",
-    "unitsUnknown": "Vertical units are unavailable; exaggeration is approximate.",
-    "unitsNonMeter": "Vertical units are {{unit}}, not meters; exaggeration is approximate."
-  },
-  "history": {
-    "title": "History",
-    "timelineLabel": "Map edit history",
-    "loading": "Loading history...",
-    "emptyTitle": "No edit history yet",
-    "emptyDescription": "History starts after saved edits are recorded for this map.",
-    "errorTitle": "History could not be loaded",
-    "errorDescription": "Try closing and reopening this panel.",
-    "notAvailableTitle": "Save this map to see history",
-    "notAvailableDescription": "Edit history is available after the map exists.",
-    "unknownTime": "Unknown time",
-    "unknownActor": "Unknown user",
-    "actorTarget": "{{actor}} - {{target}}"
+  "a11y": {
+    "dragPickup": "{{name}} saisi. Utilisez les flèches pour choisir une position, Entrée pour déposer, Échap pour annuler.",
+    "dragPosition": "Position actuelle : {{n}} sur {{total}}",
+    "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
+    "dragCancelled": "Dépôt annulé."
   },
   "styleJson": {
-    "title": "Style JSON",
-    "ariaLabel": "Style JSON",
-    "description": "Export or import a portable MapLibre style document.",
+    "title": "JSON de style",
+    "ariaLabel": "JSON de style",
+    "description": "Exporter ou importer un document de style MapLibre portable.",
     "tabs": {
-      "export": "Export",
-      "import": "Import"
+      "export": "Exporter",
+      "import": "Importer"
     },
-    "exportHint": "Download `{{filename}}` with sources, layers, filters, labels, sprites, glyphs, and viewport metadata.",
-    "exportButton": "Export JSON",
-    "importButton": "Import JSON",
+    "exportHint": "Télécharger `{{filename}}` avec les sources, couches, filtres, étiquettes, sprites, glyphes et métadonnées de viewport.",
+    "exportButton": "Exporter JSON",
+    "importButton": "Importer JSON",
     "errors": {
-      "notObject": "Style JSON must be an object.",
-      "invalidJson": "Invalid JSON.",
-      "importFailed": "Import failed."
+      "notObject": "Le JSON de style doit être un objet.",
+      "invalidJson": "JSON invalide.",
+      "importFailed": "Importation échouée."
     },
     "summary": {
-      "imported_one": "Imported {{count}} layer",
-      "imported_other": "Imported {{count}} layers",
-      "matched_one": "{{count}} matched source",
-      "matched_other": "{{count}} matched sources",
-      "skipped_one": "{{count}} skipped layer.",
-      "skipped_other": "{{count}} skipped layers."
+      "imported_one": "{{count}} couche importée",
+      "imported_other": "{{count}} couches importées",
+      "matched_one": "{{count}} source correspondante",
+      "matched_other": "{{count}} sources correspondantes",
+      "skipped_one": "{{count}} couche ignorée.",
+      "skipped_other": "{{count}} couches ignorées."
     }
   },
   "bulkActions": {
-    "selectedCount": "{{count}} selected",
-    "toolbarLabel": "Bulk actions for {{count}} selected layers",
-    "liveAnnouncement": "{{count}} layers selected.",
-    "visibility": "Visibility",
-    "visibilityAriaLabel": "Toggle visibility for {{count}} selected layers",
-    "opacity": "Opacity",
-    "opacityAriaLabel": "Set opacity for {{count}} selected layers",
-    "group": "Group",
-    "groupAriaLabel": "Group {{count}} selected layers",
-    "groupDisabledTooltip": "Select only loose layers to group",
-    "ungroup": "Ungroup",
-    "ungroupAriaLabel": "Ungroup {{count}} selected groups",
-    "ungroupDisabledTooltip": "Select only groups to ungroup",
-    "delete": "Delete",
-    "deleteAriaLabel": "Delete {{count}} selected layers",
-    "deleteConfirmLabel": "Delete {{count}} layers? This cannot be undone.",
-    "deleteConfirmAction": "Delete {{count}} layers",
-    "deleteConfirmCancel": "Cancel",
-    "errorUpdateRolledBack": "Failed to update layers — changes rolled back.",
-    "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
-    "selectRow": "Select {{name}}",
-    "selectGroup": "Select {{name}}"
+    "selectedCount": "{{count}} sélectionnées",
+    "toolbarLabel": "Actions groupées pour {{count}} couches sélectionnées",
+    "liveAnnouncement": "{{count}} couches sélectionnées.",
+    "visibility": "Visibilité",
+    "visibilityAriaLabel": "Basculer la visibilité de {{count}} couches sélectionnées",
+    "opacity": "Opacité",
+    "opacityAriaLabel": "Définir l'opacité de {{count}} couches sélectionnées",
+    "group": "Grouper",
+    "groupAriaLabel": "Grouper {{count}} couches sélectionnées",
+    "groupDisabledTooltip": "Sélectionnez uniquement des couches libres pour grouper",
+    "ungroup": "Dégrouper",
+    "ungroupAriaLabel": "Dégrouper {{count}} groupes sélectionnés",
+    "ungroupDisabledTooltip": "Sélectionnez uniquement des groupes pour dégrouper",
+    "delete": "Supprimer",
+    "deleteAriaLabel": "Supprimer {{count}} couches sélectionnées",
+    "deleteConfirmLabel": "Supprimer {{count}} couches ? Cette action est irréversible.",
+    "deleteConfirmAction": "Supprimer {{count}} couches",
+    "deleteConfirmCancel": "Annuler",
+    "errorUpdateRolledBack": "Échec de la mise à jour des couches — modifications annulées.",
+    "errorDeleteRolledBack": "Impossible de supprimer {{count}} couches — aucune modification effectuée.",
+    "selectRow": "Sélectionner {{name}}",
+    "selectGroup": "Sélectionner {{name}}"
   },
   "unifiedStack": {
-    "title": "Layers",
-    "addData": "＋ Add data",
-    "settings": "Settings",
-    "emptyState": "No layers yet",
+    "title": "Couches",
+    "addData": "＋ Ajouter des données",
+    "settings": "Paramètres",
+    "emptyState": "Aucune couche pour l'instant",
     "countBadge": "{{count}}",
-    "basemapEyebrow": "BASEMAP",
-    "emptyHeading": "Add your first layer",
-    "emptyBody": "Search the catalog or pick a starter dataset below.",
-    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
-    "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →"
-  },
-  "titleBar": {
-    "saved": "Enregistré",
-    "retry": "Réessayer",
-    "retrySave": "Réessayer l'enregistrement",
-    "saveStatus": {
-      "saved": "Enregistré",
-      "unsaved": "Modifications non enregistrées",
-      "saving": "Enregistrement...",
-      "failed": "Échec de l'enregistrement"
-    }
-  },
-  "unifiedStack": {
-    "title": "Layers",
-    "addData": "＋ Add data",
-    "settings": "Settings",
-    "emptyState": "No layers yet",
-    "countBadge": "{{count}}",
-    "basemapEyebrow": "BASEMAP",
-    "emptyHeading": "Add your first layer",
-    "emptyBody": "Search the catalog or pick a starter dataset below.",
-    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
-    "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →",
-    "listboxLabel": "Map layers"
+    "basemapEyebrow": "FOND DE CARTE",
+    "emptyHeading": "Ajoutez votre première couche",
+    "emptyBody": "Parcourez le catalogue ou choisissez un jeu de données de démarrage ci-dessous.",
+    "emptySearchPlaceholder": "Rechercher des jeux de données, URLs ou fichiers…",
+    "suggestedLabel": "SUGGÉRÉ",
+    "browseAll": "Parcourir tous les jeux de données →",
+    "browseAllShort": "Parcourir le catalogue →",
+    "emptyHelpBody": "Recherchez dans le catalogue pour trouver des jeux de données, ou utilisez le bouton Importer pour ajouter les vôtres.",
+    "listboxLabel": "Couches de la carte"
   },
   "rail": {
-    "aiDisabled": "AI disabled by admin"
+    "aiDisabled": "IA désactivée par l'administrateur"
   },
   "stackRow": {
-    "dragHandle": "Drag to reorder {{name}}",
-    "toggleVisibility": "Toggle visibility for {{name}}",
-    "opacitySlider": "Opacity for {{name}}",
-    "kebabTrigger": "Layer options for {{name}}",
-    "kebabRenameLayer": "Rename layer",
-    "kebabDuplicate": "Duplicate",
-    "kebabDeleteLayer": "Delete layer",
-    "kebabAddToGroup": "Add to group…",
-    "kebabRenameGroup": "Rename group",
-    "kebabAddLayer": "Add layer",
-    "kebabUngroup": "Ungroup",
-    "kebabDeleteGroup": "Delete group",
-    "kebabMoveOutOfGroup": "Move out of group"
+    "dragHandle": "Glisser pour réorganiser {{name}}",
+    "toggleVisibility": "Basculer la visibilité pour {{name}}",
+    "opacitySlider": "Opacité pour {{name}}",
+    "kebabTrigger": "Options de couche pour {{name}}",
+    "kebabRenameLayer": "Renommer la couche",
+    "kebabDuplicate": "Dupliquer",
+    "kebabDeleteLayer": "Supprimer la couche",
+    "kebabAddToGroup": "Ajouter au groupe…",
+    "kebabRenameGroup": "Renommer le groupe",
+    "kebabAddLayer": "Ajouter une couche",
+    "kebabUngroup": "Dégrouper",
+    "kebabDeleteGroup": "Supprimer le groupe",
+    "kebabMoveOutOfGroup": "Déplacer hors du groupe"
   },
   "basemapGroup": {
-    "typeIconLabel": "Basemap group",
-    "swapBasemap": "Swap basemap",
-    "resetAppearance": "Reset appearance",
-    "removeBasemap": "Remove basemap",
-    "sublayersSectionLabel": "SUBLAYERS",
-    "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
-    "presetSectionLabel": "PRESET",
-    "masterOpacity": "Master opacity",
-    "addCustomBasemap": "＋ Add custom basemap…"
+    "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",
+    "masterOpacity": "Opacité globale",
+    "presetSectionLabel": "PRÉRÉGLAGE",
+    "railLabel": "Groupe de fond de carte",
+    "removeBasemap": "Supprimer le fond de carte",
+    "resetAppearance": "Réinitialiser l'apparence",
+    "sublayersSectionHint": "Cliquez sur une sous-couche dans la barre latérale pour la styliser individuellement.",
+    "sublayersSectionLabel": "SOUS-COUCHES",
+    "swapBasemap": "Remplacer le fond de carte",
+    "toggleExpand": "Réduire/développer le groupe de fond de carte",
+    "typeIconLabel": "Groupe de fond de carte"
   },
   "basemapSublayer": {
-    "breadcrumbLabel": "Back to basemap group",
-    "detailLevelLabel": "DETAIL LEVEL",
-    "detailLevelOff": "Off",
+    "breadcrumbLabel": "Retour au groupe de fond de carte",
+    "casingColor": "Couleur de bordure externe",
+    "casingWidth": "Largeur de bordure externe",
+    "customizedHint": "{{sublayer}} est actuellement personnalisé",
+    "detailLevelLabel": "NIVEAU DE DÉTAIL",
+    "detailLevelOff": "Désactivé",
     "detailLevelMinimal": "Minimal",
-    "detailLevelDefault": "Default",
-    "detailLevelFull": "Full",
-    "customizedHint": "{{sublayer}} is currently customized",
-    "strokeLabel": "STROKE",
-    "resetLabel": "RESET",
-    "resetHint": "Reset to preset default",
-    "resetConfirmMessage": "This will remove all custom appearance for {{sublayer}}.",
-    "resetConfirmAction": "Reset",
-    "resetConfirmCancel": "Keep customization",
-    "footerBack": "Back to basemap"
+    "detailLevelDefault": "Par défaut",
+    "detailLevelFull": "Complet",
+    "footerBack": "Retour au fond de carte",
+    "resetConfirmAction": "Réinitialiser",
+    "resetConfirmCancel": "Conserver la personnalisation",
+    "resetConfirmMessage": "Cela supprimera toute apparence personnalisée pour {{sublayer}}.",
+    "resetHint": "Réinitialiser au préréglage par défaut",
+    "resetLabel": "RÉINITIALISER",
+    "strokeColor": "Couleur de contour",
+    "strokeLabel": "CONTOUR",
+    "strokeWidth": "Largeur de contour"
   },
   "demEditor": {
-    "renderAsLabel": "RENDER AS",
+    "renderAsLabel": "AFFICHER COMME",
     "renderAsImage": "▦ Image",
-    "renderAsHillshade": "⛰ Hillshade",
+    "renderAsHillshade": "⛰ Ombrage",
     "renderAsTerrain": "◬ Terrain",
-    "sunPositionLabel": "SUN POSITION",
-    "azimuth": "Azimuth",
+    "sunPositionLabel": "POSITION DU SOLEIL",
+    "azimuth": "Azimut",
     "altitude": "Altitude",
-    "exaggeration": "Exaggeration",
-    "shadingColorsLabel": "SHADING COLORS",
-    "highlight": "Highlight",
-    "shadow": "Shadow",
-    "accent": "Accent",
-    "terrainHint": "Terrain uses elevation data to extrude the map surface. Adjust terrain exaggeration in Settings → Terrain.",
-    "imageHint": "No additional appearance controls for image mode",
-    "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
+    "exaggeration": "Exagération",
+    "shadingColorsLabel": "COULEURS D'OMBRAGE",
+    "highlight": "Lumière",
+    "shadow": "Ombre",
+    "accent": "Accentuation",
+    "terrainHint": "Le terrain utilise des données d'élévation pour extruder la surface de la carte. Ajustez l'exagération du terrain dans Paramètres → Terrain.",
+    "imageHint": "Aucun contrôle d'apparence supplémentaire pour le mode image",
+    "compassAriaLabel": "Azimut solaire : {{azimuth}}°"
   },
   "folderGroup": {
-    "defaultName": "Group {{n}}",
-    "renameInputPlaceholder": "Group name",
-    "deleteConfirmMessage": "Delete this group and all its layers?",
-    "deleteConfirmAction": "Delete all",
-    "deleteConfirmCancel": "Keep group",
-    "newGroupItem": "＋ New group…"
+    "defaultName": "Groupe {{n}}",
+    "renameInputPlaceholder": "Nom du groupe",
+    "deleteConfirmMessage": "Supprimer ce groupe et toutes ses couches ?",
+    "deleteConfirmAction": "Tout supprimer",
+    "deleteConfirmCancel": "Conserver le groupe",
+    "newGroupItem": "＋ Nouveau groupe…"
   },
   "layerEditor": {
-    "close": "Close layer editor",
+    "close": "Fermer l'éditeur de couche",
     "section": {
-      "renderAs": "Render as",
-      "appearance": "Appearance",
-      "visibility": "Visibility",
-      "filter": "Filter",
-      "labels": "Labels",
+      "renderAs": "Afficher comme",
+      "appearance": "Apparence",
+      "visibility": "Visibilité",
+      "filter": "Filtre",
+      "labels": "Étiquettes",
       "source": "Source"
     },
     "filter": {
-      "noFilter": "No filter",
-      "active": "Active"
+      "noFilter": "Aucun filtre",
+      "active": "Actif"
     },
     "labels": {
-      "off": "Off"
+      "off": "Désactivé"
     },
     "footer": {
-      "deleteLayer": "Delete layer"
+      "deleteLayer": "Supprimer la couche"
     },
     "confirmDelete": {
-      "message": "Are you sure? This cannot be undone.",
-      "delete": "Delete",
-      "keep": "Keep layer"
+      "message": "Êtes-vous sûr ? Cette action est irréversible.",
+      "delete": "Supprimer",
+      "keep": "Conserver la couche"
     },
     "visibility": {
-      "opacity": "Opacity",
-      "minZoom": "Minimum zoom",
-      "maxZoom": "Maximum zoom"
+      "opacity": "Opacité",
+      "minZoom": "Zoom minimum",
+      "maxZoom": "Zoom maximum"
+    },
+    "source": {
+      "noColumns": "Aucune colonne interrogeable indexée pour cette couche."
     }
+  },
+  "settings": {
+    "regionLabel": "Paramètres de carte",
+    "panelTitle": "Paramètres",
+    "closePanel": "Fermer les paramètres",
+    "terrainLabel": "TERRAIN",
+    "widgetsLabel": "WIDGETS",
+    "projectionLabel": "PROJECTION",
+    "terrainActiveHint": "{{value}}× d'exagération",
+    "terrainInactiveCollapsedHint": "Aucun terrain actif",
+    "exaggeration": "Exagération",
+    "terrainExaggerationAria": "Exagération du terrain",
+    "boundTo": "Lié à : {{name}}",
+    "terrainInactiveHint": "Aucune couche de terrain n'est active. Basculez une couche DEM en mode Terrain pour activer l'exagération globale du terrain.",
+    "widgetsEnabledCount": "{{count}} activés",
+    "noWidgets": "Aucun widget disponible.",
+    "widgetsGroupAria": "Widgets",
+    "disableAction": "Désactiver",
+    "enableAction": "Activer",
+    "toggleWidget": "{{action}} le widget {{name}}",
+    "projectionMercator": "Mercator",
+    "projectionGlobe": "Globe",
+    "projectionAria": "Projection de la carte",
+    "globeDisclaimer": "La projection globe est expérimentale. Certaines couches peuvent ne pas s'afficher correctement."
   }
 }

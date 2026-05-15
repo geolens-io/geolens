@@ -124,7 +124,7 @@
     "sortableLayer": "sortierbarer Layer",
     "hideFromLegend": "Aus Legende ausblenden",
     "showInLegend": "In Legende anzeigen",
-    "backToLayers": "Back to layers"
+    "backToLayers": "Zurück zu Layer"
   },
   "style": {
     "fill": "Füllung",
@@ -135,6 +135,9 @@
     "layer": "Layer",
     "color": "Farbe",
     "width": "Breite",
+    "gapWidth": "Lückenbreite",
+    "blur": "Unschärfe",
+    "offset": "Versatz",
     "radius": "Radius",
     "preview": {
       "title": "Ausstehende Stilvorschau",
@@ -159,6 +162,19 @@
       "advanced": "Erweitertes Stil-JSON",
       "advancedDescription": "Bearbeiten Sie MapLibre paint und layout bei Bedarf direkt."
     },
+    "zoomExpression": {
+      "fixed": "Fest",
+      "variesByZoom": "Variiert nach Zoom",
+      "step": "Stufen",
+      "interpolate": "Interpolieren",
+      "baseValue": "Basiswert",
+      "stopZoom": "Zoom für Stopp {{index}}",
+      "stopValue": "Wert für Stopp {{index}}",
+      "addStop": "Stopp hinzufügen",
+      "removeStop": "Stopp entfernen",
+      "unsupported": "Diese Eigenschaft verwendet einen nicht unterstützten Ausdruck. Verwenden Sie erweitertes JSON, um ihn zu bearbeiten.",
+      "kindLabel": "Ausdruckstyp"
+    },
     "styledBy": "Stilisiert nach: {{column}}",
     "radiusByColumn": "Radius nach: {{column}}",
     "widthByColumn": "Breite nach: {{column}}",
@@ -182,40 +198,10 @@
     "maxZoom": "Max. Zoom",
     "renderAs": "Darstellung",
     "renderPoints": "Punkte",
+    "renderSymbol": "Symbol",
     "renderHeatmap": "Heatmap",
     "renderCluster": "Cluster",
-    "heatmap": {
-      "weight": "Gewichtsspalte",
-      "weightNone": "Keine (gleiche Gewichtung)",
-      "colorRamp": "Farbverlauf",
-      "radius": "Radius",
-      "intensity": "Intensität"
-    },
-    "cluster": {
-      "radius": "Cluster-Radius",
-      "maxZoom": "Max. Cluster-Zoom",
-      "color": "Cluster-Farbe",
-      "countColor": "Zählerfarbe",
-      "countSize": "Zählergröße"
-    },
-    "gapWidth": "Gap",
-    "blur": "Blur",
-    "offset": "Offset",
-    "zoomExpression": {
-      "fixed": "Fest",
-      "variesByZoom": "Variiert nach Zoom",
-      "step": "Stufen",
-      "interpolate": "Interpolieren",
-      "baseValue": "Basiswert",
-      "stopZoom": "Zoom für Stopp {{index}}",
-      "stopValue": "Wert für Stopp {{index}}",
-      "addStop": "Stopp hinzufügen",
-      "removeStop": "Stopp entfernen",
-      "unsupported": "Diese Eigenschaft verwendet einen nicht unterstützten Ausdruck. Verwenden Sie erweitertes JSON, um ihn zu bearbeiten.",
-      "kindLabel": "Ausdruckstyp"
-    },
-    "renderSymbol": "Symbol",
-    "none": "None",
+    "none": "Keine",
     "symbol": {
       "title": "Symbol",
       "iconImage": "Symbol",
@@ -233,6 +219,20 @@
       "color": "Pfeilfarbe",
       "size": "Pfeilgröße",
       "spacing": "Abstand"
+    },
+    "heatmap": {
+      "weight": "Gewichtsspalte",
+      "weightNone": "Keine (gleiche Gewichtung)",
+      "colorRamp": "Farbverlauf",
+      "radius": "Radius",
+      "intensity": "Intensität"
+    },
+    "cluster": {
+      "radius": "Cluster-Radius",
+      "maxZoom": "Max. Cluster-Zoom",
+      "color": "Cluster-Farbe",
+      "countColor": "Zählerfarbe",
+      "countSize": "Zählergröße"
     },
     "raster": {
       "title": "Raster",
@@ -382,8 +382,8 @@
     "targetColor": "Farbe",
     "targetRadius": "Radius",
     "targetWidth": "Breite",
-    "sizeMin": "Min. Groesse",
-    "sizeMax": "Max. Groesse",
+    "sizeMin": "Min. Größe",
+    "sizeMax": "Max. Größe",
     "colors": "Farben"
   },
   "search": {
@@ -393,12 +393,33 @@
     "noResults": "Keine Datensätze gefunden",
     "added": "(hinzugefügt)",
     "addToMap": "Zur Karte hinzufügen",
-    "catalogEmpty": "Your catalog is empty. Upload a dataset to get started.",
-    "uploadCta": "Upload a file →",
-    "zeroResultHeading": "No datasets match '{{query}}'",
-    "zeroResultBody": "Try a different search term, or browse all datasets.",
-    "clearSearch": "Clear search",
-    "error": "Failed to load datasets. Check your connection and try again."
+    "dragHandle": "Ziehen, um zur Karte hinzuzufügen",
+    "catalogEmpty": "Ihr Katalog ist leer. Laden Sie einen Datensatz hoch, um zu beginnen.",
+    "uploadCta": "Datei hochladen →",
+    "zeroResultHeading": "Keine Datensätze passen zu '{{query}}'",
+    "zeroResultBody": "Versuchen Sie einen anderen Suchbegriff oder durchsuchen Sie alle Datensätze.",
+    "clearSearch": "Suche löschen",
+    "error": "Datensätze konnten nicht geladen werden. Verbindung prüfen und erneut versuchen.",
+    "retry": "Erneut versuchen",
+    "browseCatalogCta": "Öffentlichen Katalog durchsuchen →",
+    "basemap": "Basiskarte",
+    "inUse": "in Verwendung",
+    "anotherRendering": "eine weitere Darstellung",
+    "swap": "tauschen",
+    "importData": "Daten importieren...",
+    "filters": "Filter",
+    "previewAlt": "Vorschau von {{name}}",
+    "previewUnavailable": "Vorschau nicht verfügbar",
+    "allTypes": "Alle",
+    "vector": "Vektor",
+    "raster": "Raster",
+    "metadata": {
+      "type": "Typ",
+      "source": "Quelle",
+      "count": "Anzahl",
+      "crs": "KRS",
+      "attribution": "Namensnennung"
+    }
   },
   "share": {
     "title": "Teilen",
@@ -425,6 +446,9 @@
     "copyEmbedCode": "Einbettungscode kopieren",
     "cannotPublish": "Veröffentlichung nicht möglich: Datensätze {{datasets}} sind nicht öffentlich",
     "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
+    "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
+    "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
+    "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist.",
     "expirationLabel": "Ablaufdatum",
     "expirationPlaceholder": "Kein Ablaufdatum",
     "expirationHint": "Leer lassen für einen Link ohne Ablaufdatum",
@@ -446,10 +470,7 @@
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
     "domainsUpdated": "Domain-Einschränkungen aktualisiert",
-    "updateFailed": "Änderungen konnten nicht gespeichert werden",
-    "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
-    "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
-    "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist."
+    "updateFailed": "Änderungen konnten nicht gespeichert werden"
   },
   "chat": {
     "experimental": "Experimentell",
@@ -463,14 +484,26 @@
     "cancelled": "Abgebrochen.",
     "streamInterrupted": "Antwort unterbrochen — einige Änderungen wurden angewendet.",
     "failedToProcess": "Anfrage konnte nicht verarbeitet werden",
-    "almostThere": "Fast fertig, einen Moment...",
     "errorFriendly": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
     "errorSessionExpired": "Sitzung abgelaufen. Bitte erneut anmelden.",
     "errorForbidden": "Sie haben keine Berechtigung, den KI-Chat zu verwenden.",
     "errorAiUnavailable": "Der KI-Dienst ist vorübergehend nicht verfügbar.",
     "retry": "Erneut versuchen",
+    "undo": "Rückgängig",
+    "undoApplied": "Änderungen rückgängig gemacht",
     "stillWorking": "Noch in Bearbeitung...",
     "takingLonger": "Dies dauert länger als gewöhnlich...",
+    "almostThere": "Fast fertig, einen Moment...",
+    "layersDropdown": "Layer",
+    "commandsDropdown": "Befehle",
+    "mentionHint": "@ zum Erwähnen eines Layers eingeben, / für Befehle",
+    "commands": {
+      "style": "Layerfarben, Deckkraft oder visuellen Stil ändern",
+      "filter": "Features nach Attributwerten filtern",
+      "label": "Feature-Beschriftungen hinzufügen oder konfigurieren",
+      "query": "Layer-Daten abfragen und analysieren",
+      "add": "Datensatz als neuen Layer hinzufügen"
+    },
     "suggestions": {
       "searchDatasets": "Datasätze finden, die zu dieser Karte hinzugefügt werden können",
       "colorByAttribute": "„{{name}}“ mithilfe eines Feldes einfärben",
@@ -478,27 +511,25 @@
       "filterByAttribute": "„{{name}}“ mithilfe eines Feldes filtern",
       "styleAllLayers": "Ein Farbschema auf alle Ebenen anwenden",
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
-      "adjustOpacity": "Adjust opacity for {{name}}",
-      "areaLabels": "Add area labels for {{name}}",
-      "heatmap": "Show {{name}} as a heatmap"
-    },
-    "commands": {
-      "add": "Add a dataset as a new layer",
-      "filter": "Filter features by attribute values",
-      "label": "Add or configure feature labels",
-      "query": "Query and analyze layer data",
-      "style": "Change layer colors, opacity, or visual style"
-    },
-    "commandsDropdown": "Commands",
-    "layersDropdown": "Layers",
-    "mentionHint": "Type @ to mention a layer, / for commands",
-    "undo": "Undo",
-    "undoApplied": "Changes undone"
+      "heatmap": "{{name}} als Heatmap anzeigen",
+      "areaLabels": "Flächenbeschriftungen für {{name}} hinzufügen",
+      "adjustOpacity": "Deckkraft für {{name}} anpassen"
+    }
   },
   "basemap": {
     "title": "Basiskarte",
     "showLabels": "Ortsbeschriftungen anzeigen",
     "blank": "Keine"
+  },
+  "terrain": {
+    "title": "Terrain",
+    "enabled": "Terrain aktivieren",
+    "source": "DEM-Quelle",
+    "sourcePlaceholder": "DEM auswählen",
+    "exaggeration": "Überhöhung",
+    "noDem": "Einen DEM-Raster-Layer hinzufügen, um Terrain zu aktivieren.",
+    "unitsUnknown": "Vertikale Einheiten nicht verfügbar; Überhöhung ist näherungsweise.",
+    "unitsNonMeter": "Vertikale Einheiten sind {{unit}}, nicht Meter; Überhöhung ist näherungsweise."
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",
@@ -511,6 +542,17 @@
     "close": "Popup schließen"
   },
   "descriptionPlaceholder": "Beschreibung hinzufügen...",
+  "titleBar": {
+    "saved": "Gespeichert",
+    "retry": "Erneut versuchen",
+    "retrySave": "Speichern erneut versuchen",
+    "saveStatus": {
+      "saved": "Gespeichert",
+      "unsaved": "Ungespeicherte Änderungen",
+      "saving": "Speichern...",
+      "failed": "Speichern fehlgeschlagen"
+    }
+  },
   "visibility": {
     "public": "Öffentlich",
     "internal": "Intern",
@@ -530,7 +572,7 @@
   },
   "tooltips": {
     "aiChat": "KI-Chat",
-    "share": "Share or embed this map",
+    "share": "Karte teilen oder einbetten",
     "mapInfo": "Karteninfo",
     "downloadPng": "PNG herunterladen",
     "duplicateMap": "Karte duplizieren",
@@ -540,20 +582,22 @@
     "widgets": "Widgets",
     "moreActions": "Weitere Aktionen",
     "allSaved": "Alle Änderungen gespeichert",
-    "toggleDock": "Toggle dock (D)",
-    "closeChat": "Chat schließen",
-    "retrySave": "Speichern fehlgeschlagen. Änderungen erneut speichern."
+    "retrySave": "Speichern fehlgeschlagen. Änderungen erneut speichern.",
+    "toggleDock": "Dock umschalten (D)",
+    "closeChat": "Chat schließen"
   },
   "toasts": {
     "mapSaved": "Karte gespeichert",
     "saveFailed": "Karte konnte nicht gespeichert werden",
-    "saveFailedWithDetail": "Failed to save map: {{detail}}",
+    "saveFailedWithDetail": "Karte konnte nicht gespeichert werden: {{detail}}",
     "layerRemoved": "Layer entfernt",
     "layerRemoveFailed": "Layer konnte nicht entfernt werden",
     "layerAdded": "Layer hinzugefügt",
+    "datasetAdded": "{{name}} zur Karte hinzugefügt",
+    "basemapChanged": "Basiskarte zu {{name}} gewechselt",
     "layerAddFailed": "Layer konnte nicht hinzugefügt werden",
-    "layerSyncFailed": "Layer sync failed for \"{{name}}\"",
-    "renderModeSwitchFailed": "Failed to switch render mode",
+    "layerSyncFailed": "Layer-Synchronisation für \"{{name}}\" fehlgeschlagen",
+    "renderModeSwitchFailed": "Darstellungsmodus konnte nicht gewechselt werden",
     "exportFailed": "Kartenbild konnte nicht exportiert werden",
     "exportSuccess": "Karte als PNG exportiert",
     "mapNowPublic": "Karte ist jetzt öffentlich",
@@ -564,7 +608,7 @@
     "embedCodeCopied": "Einbettungscode kopiert",
     "copyFailed": "In Zwischenablage kopieren fehlgeschlagen",
     "shareLinkFailed": "Freigabelink konnte nicht erstellt werden",
-    "shareTokenUpdateFailed": "Failed to update share token",
+    "shareTokenUpdateFailed": "Freigabe-Token konnte nicht aktualisiert werden",
     "shareLinkRevoked": "Freigabelink widerrufen",
     "revokeFailed": "Freigabelink konnte nicht widerrufen werden",
     "mapDuplicated": "Karte erfolgreich dupliziert",
@@ -577,9 +621,9 @@
     "authError": "Die Sitzung ist abgelaufen. Laden Sie die Seite neu, um den Kachelzugriff wiederherzustellen.",
     "mapError": "Fehler bei Kartenkacheln. Einige Ebenen werden eventuell nicht richtig dargestellt.",
     "basemapIssueTitle": "Verbindungsproblem mit der Grundkarte",
-    "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prufen Sie den Grundkartendienst oder wahlen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt.",
+    "basemapIssueDescription": "Ihre Datenebenen bleiben bearbeitbar. Prüfen Sie den Grundkartendienst oder wählen Sie eine andere Grundkarte, wenn der Hintergrund leer bleibt.",
     "clusterFallback": "{{name}} wird als Punkte dargestellt: {{reason}}",
-    "clusterTruncated": "die Cluster-Quelle hat das begrenzte GeoJSON-Limit ueberschritten",
+    "clusterTruncated": "die Cluster-Quelle hat das begrenzte GeoJSON-Limit überschritten",
     "clusterLoadError": "{{name}} wird als Punkte dargestellt, weil die Cluster-Daten nicht geladen werden konnten."
   },
   "mapCreate": {
@@ -660,13 +704,27 @@
   },
   "actions": {
     "save": "Speichern",
-    "export": "Export"
+    "export": "Exportieren"
+  },
+  "history": {
+    "title": "Verlauf",
+    "timelineLabel": "Karten-Bearbeitungsverlauf",
+    "loading": "Verlauf wird geladen...",
+    "emptyTitle": "Noch kein Bearbeitungsverlauf",
+    "emptyDescription": "Der Verlauf beginnt, nachdem gespeicherte Bearbeitungen für diese Karte aufgezeichnet wurden.",
+    "errorTitle": "Verlauf konnte nicht geladen werden",
+    "errorDescription": "Schließen und erneut öffnen Sie dieses Panel.",
+    "notAvailableTitle": "Speichern Sie diese Karte, um den Verlauf zu sehen",
+    "notAvailableDescription": "Der Bearbeitungsverlauf ist verfügbar, nachdem die Karte gespeichert wurde.",
+    "unknownTime": "Unbekannte Zeit",
+    "unknownActor": "Unbekannter Benutzer",
+    "actorTarget": "{{actor}} - {{target}}"
   },
   "dock": {
-    "askAi": "Ask AI",
-    "notes": "Notes",
-    "notesPlaceholder": "Add notes about this map...",
-    "history": "History"
+    "askAi": "KI fragen",
+    "history": "Verlauf",
+    "notes": "Notizen",
+    "notesPlaceholder": "Notizen zu dieser Karte hinzufügen..."
   },
   "leaveWarning": {
     "title": "Nicht gespeicherte Änderungen",
@@ -674,216 +732,209 @@
     "stay": "Bleiben",
     "leave": "Verlassen"
   },
-  "terrain": {
-    "title": "Terrain",
-    "enabled": "Enable terrain",
-    "source": "DEM source",
-    "sourcePlaceholder": "Select DEM",
-    "exaggeration": "Exaggeration",
-    "noDem": "Add a DEM raster layer to enable terrain.",
-    "unitsUnknown": "Vertical units are unavailable; exaggeration is approximate.",
-    "unitsNonMeter": "Vertical units are {{unit}}, not meters; exaggeration is approximate."
-  },
-  "history": {
-    "title": "History",
-    "timelineLabel": "Map edit history",
-    "loading": "Loading history...",
-    "emptyTitle": "No edit history yet",
-    "emptyDescription": "History starts after saved edits are recorded for this map.",
-    "errorTitle": "History could not be loaded",
-    "errorDescription": "Try closing and reopening this panel.",
-    "notAvailableTitle": "Save this map to see history",
-    "notAvailableDescription": "Edit history is available after the map exists.",
-    "unknownTime": "Unknown time",
-    "unknownActor": "Unknown user",
-    "actorTarget": "{{actor}} - {{target}}"
+  "a11y": {
+    "dragPickup": "{{name}} aufgenommen. Pfeiltasten zum Wählen einer Position verwenden, Eingabe zum Ablegen, Escape zum Abbrechen.",
+    "dragPosition": "Aktuelle Position: {{n}} von {{total}}",
+    "dragDropped": "Abgelegt. {{name}} an Position {{n}} hinzugefügt.",
+    "dragCancelled": "Ablegen abgebrochen."
   },
   "styleJson": {
-    "title": "Style JSON",
-    "ariaLabel": "Style JSON",
-    "description": "Export or import a portable MapLibre style document.",
+    "title": "Stil-JSON",
+    "ariaLabel": "Stil-JSON",
+    "description": "Portables MapLibre-Stildokument exportieren oder importieren.",
     "tabs": {
-      "export": "Export",
-      "import": "Import"
+      "export": "Exportieren",
+      "import": "Importieren"
     },
-    "exportHint": "Download `{{filename}}` with sources, layers, filters, labels, sprites, glyphs, and viewport metadata.",
-    "exportButton": "Export JSON",
-    "importButton": "Import JSON",
+    "exportHint": "`{{filename}}` mit Quellen, Layern, Filtern, Beschriftungen, Sprites, Glyphen und Viewport-Metadaten herunterladen.",
+    "exportButton": "JSON exportieren",
+    "importButton": "JSON importieren",
     "errors": {
-      "notObject": "Style JSON must be an object.",
-      "invalidJson": "Invalid JSON.",
-      "importFailed": "Import failed."
+      "notObject": "Stil-JSON muss ein Objekt sein.",
+      "invalidJson": "Ungültiges JSON.",
+      "importFailed": "Import fehlgeschlagen."
     },
     "summary": {
-      "imported_one": "Imported {{count}} layer",
-      "imported_other": "Imported {{count}} layers",
-      "matched_one": "{{count}} matched source",
-      "matched_other": "{{count}} matched sources",
-      "skipped_one": "{{count}} skipped layer.",
-      "skipped_other": "{{count}} skipped layers."
+      "imported_one": "{{count}} Layer importiert",
+      "imported_other": "{{count}} Layer importiert",
+      "matched_one": "{{count}} übereinstimmende Quelle",
+      "matched_other": "{{count}} übereinstimmende Quellen",
+      "skipped_one": "{{count}} Layer übersprungen.",
+      "skipped_other": "{{count}} Layer übersprungen."
     }
   },
   "bulkActions": {
-    "selectedCount": "{{count}} selected",
-    "toolbarLabel": "Bulk actions for {{count}} selected layers",
-    "liveAnnouncement": "{{count}} layers selected.",
-    "visibility": "Visibility",
-    "visibilityAriaLabel": "Toggle visibility for {{count}} selected layers",
-    "opacity": "Opacity",
-    "opacityAriaLabel": "Set opacity for {{count}} selected layers",
-    "group": "Group",
-    "groupAriaLabel": "Group {{count}} selected layers",
-    "groupDisabledTooltip": "Select only loose layers to group",
-    "ungroup": "Ungroup",
-    "ungroupAriaLabel": "Ungroup {{count}} selected groups",
-    "ungroupDisabledTooltip": "Select only groups to ungroup",
-    "delete": "Delete",
-    "deleteAriaLabel": "Delete {{count}} selected layers",
-    "deleteConfirmLabel": "Delete {{count}} layers? This cannot be undone.",
-    "deleteConfirmAction": "Delete {{count}} layers",
-    "deleteConfirmCancel": "Cancel",
-    "errorUpdateRolledBack": "Failed to update layers — changes rolled back.",
-    "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
-    "selectRow": "Select {{name}}",
-    "selectGroup": "Select {{name}}"
+    "selectedCount": "{{count}} ausgewählt",
+    "toolbarLabel": "Massenaktionen für {{count}} ausgewählte Layer",
+    "liveAnnouncement": "{{count}} Layer ausgewählt.",
+    "visibility": "Sichtbarkeit",
+    "visibilityAriaLabel": "Sichtbarkeit für {{count}} ausgewählte Layer umschalten",
+    "opacity": "Deckkraft",
+    "opacityAriaLabel": "Deckkraft für {{count}} ausgewählte Layer festlegen",
+    "group": "Gruppieren",
+    "groupAriaLabel": "{{count}} ausgewählte Layer gruppieren",
+    "groupDisabledTooltip": "Nur einzelne Layer zum Gruppieren auswählen",
+    "ungroup": "Gruppierung aufheben",
+    "ungroupAriaLabel": "Gruppierung von {{count}} ausgewählten Gruppen aufheben",
+    "ungroupDisabledTooltip": "Nur Gruppen zum Aufheben der Gruppierung auswählen",
+    "delete": "Löschen",
+    "deleteAriaLabel": "{{count}} ausgewählte Layer löschen",
+    "deleteConfirmLabel": "{{count}} Layer löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "deleteConfirmAction": "{{count}} Layer löschen",
+    "deleteConfirmCancel": "Abbrechen",
+    "errorUpdateRolledBack": "Aktualisierung der Layer fehlgeschlagen — Änderungen rückgängig gemacht.",
+    "errorDeleteRolledBack": "{{count}} Layer konnten nicht gelöscht werden — keine Änderungen vorgenommen.",
+    "selectRow": "{{name}} auswählen",
+    "selectGroup": "{{name}} auswählen"
   },
   "unifiedStack": {
-    "title": "Layers",
-    "addData": "＋ Add data",
-    "settings": "Settings",
-    "emptyState": "No layers yet",
+    "title": "Layer",
+    "addData": "＋ Daten hinzufügen",
+    "settings": "Einstellungen",
+    "emptyState": "Noch keine Layer",
     "countBadge": "{{count}}",
-    "basemapEyebrow": "BASEMAP",
-    "emptyHeading": "Add your first layer",
-    "emptyBody": "Search the catalog or pick a starter dataset below.",
-    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
-    "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →"
-  },
-  "titleBar": {
-    "saved": "Gespeichert",
-    "retry": "Erneut versuchen",
-    "retrySave": "Speichern erneut versuchen",
-    "saveStatus": {
-      "saved": "Gespeichert",
-      "unsaved": "Ungespeicherte Änderungen",
-      "saving": "Speichern...",
-      "failed": "Speichern fehlgeschlagen"
-    }
-  },
-  "unifiedStack": {
-    "title": "Layers",
-    "addData": "＋ Add data",
-    "settings": "Settings",
-    "emptyState": "No layers yet",
-    "countBadge": "{{count}}",
-    "basemapEyebrow": "BASEMAP",
-    "emptyHeading": "Add your first layer",
-    "emptyBody": "Search the catalog or pick a starter dataset below.",
-    "emptySearchPlaceholder": "Search datasets, URLs, or files…",
-    "suggestedLabel": "SUGGESTED",
-    "browseAll": "Browse all datasets →",
-    "listboxLabel": "Map layers"
+    "basemapEyebrow": "BASISKARTE",
+    "emptyHeading": "Ersten Layer hinzufügen",
+    "emptyBody": "Katalog durchsuchen oder unten einen Startdatensatz auswählen.",
+    "emptySearchPlaceholder": "Datensätze, URLs oder Dateien suchen…",
+    "suggestedLabel": "VORGESCHLAGEN",
+    "browseAll": "Alle Datensätze durchsuchen →",
+    "browseAllShort": "Katalog durchsuchen →",
+    "emptyHelpBody": "Den Katalog durchsuchen, um Datensätze zu finden, oder die Schaltfläche \"Hochladen\" verwenden, um eigene hinzuzufügen.",
+    "listboxLabel": "Karten-Layer"
   },
   "rail": {
-    "aiDisabled": "AI disabled by admin"
+    "aiDisabled": "KI durch Administrator deaktiviert"
   },
   "stackRow": {
-    "dragHandle": "Drag to reorder {{name}}",
-    "toggleVisibility": "Toggle visibility for {{name}}",
-    "opacitySlider": "Opacity for {{name}}",
-    "kebabTrigger": "Layer options for {{name}}",
-    "kebabRenameLayer": "Rename layer",
-    "kebabDuplicate": "Duplicate",
-    "kebabDeleteLayer": "Delete layer",
-    "kebabAddToGroup": "Add to group…",
-    "kebabRenameGroup": "Rename group",
-    "kebabAddLayer": "Add layer",
-    "kebabUngroup": "Ungroup",
-    "kebabDeleteGroup": "Delete group",
-    "kebabMoveOutOfGroup": "Move out of group"
+    "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
+    "toggleVisibility": "Sichtbarkeit für {{name}} umschalten",
+    "opacitySlider": "Deckkraft für {{name}}",
+    "kebabTrigger": "Layer-Optionen für {{name}}",
+    "kebabRenameLayer": "Layer umbenennen",
+    "kebabDuplicate": "Duplizieren",
+    "kebabDeleteLayer": "Layer löschen",
+    "kebabAddToGroup": "Zur Gruppe hinzufügen…",
+    "kebabRenameGroup": "Gruppe umbenennen",
+    "kebabAddLayer": "Layer hinzufügen",
+    "kebabUngroup": "Gruppierung aufheben",
+    "kebabDeleteGroup": "Gruppe löschen",
+    "kebabMoveOutOfGroup": "Aus Gruppe verschieben"
   },
   "basemapGroup": {
-    "typeIconLabel": "Basemap group",
-    "swapBasemap": "Swap basemap",
-    "resetAppearance": "Reset appearance",
-    "removeBasemap": "Remove basemap",
-    "sublayersSectionLabel": "SUBLAYERS",
-    "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
-    "presetSectionLabel": "PRESET",
-    "masterOpacity": "Master opacity",
-    "addCustomBasemap": "＋ Add custom basemap…"
+    "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",
+    "masterOpacity": "Deckkraft gesamt",
+    "presetSectionLabel": "VORGABE",
+    "railLabel": "Basiskarten-Gruppe",
+    "removeBasemap": "Basiskarte entfernen",
+    "resetAppearance": "Darstellung zurücksetzen",
+    "sublayersSectionHint": "Auf einen Sublayer in der Seitenleiste klicken, um ihn einzeln zu gestalten.",
+    "sublayersSectionLabel": "SUBLAYER",
+    "swapBasemap": "Basiskarte tauschen",
+    "toggleExpand": "Basiskarten-Gruppe ein-/ausklappen",
+    "typeIconLabel": "Basiskarten-Gruppe"
   },
   "basemapSublayer": {
-    "breadcrumbLabel": "Back to basemap group",
-    "detailLevelLabel": "DETAIL LEVEL",
-    "detailLevelOff": "Off",
+    "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",
+    "casingColor": "Außenrahmenfarbe",
+    "casingWidth": "Außenrahmenbreite",
+    "customizedHint": "{{sublayer}} ist derzeit angepasst",
+    "detailLevelLabel": "DETAILGRAD",
+    "detailLevelOff": "Aus",
     "detailLevelMinimal": "Minimal",
-    "detailLevelDefault": "Default",
-    "detailLevelFull": "Full",
-    "customizedHint": "{{sublayer}} is currently customized",
-    "strokeLabel": "STROKE",
-    "resetLabel": "RESET",
-    "resetHint": "Reset to preset default",
-    "resetConfirmMessage": "This will remove all custom appearance for {{sublayer}}.",
-    "resetConfirmAction": "Reset",
-    "resetConfirmCancel": "Keep customization",
-    "footerBack": "Back to basemap"
+    "detailLevelDefault": "Standard",
+    "detailLevelFull": "Voll",
+    "footerBack": "Zurück zur Basiskarte",
+    "resetConfirmAction": "Zurücksetzen",
+    "resetConfirmCancel": "Anpassung behalten",
+    "resetConfirmMessage": "Alle benutzerdefinierten Darstellungen für {{sublayer}} werden entfernt.",
+    "resetHint": "Auf Vorgabe zurücksetzen",
+    "resetLabel": "ZURÜCKSETZEN",
+    "strokeColor": "Konturfarbe",
+    "strokeLabel": "KONTUR",
+    "strokeWidth": "Konturbreite"
   },
   "demEditor": {
-    "renderAsLabel": "RENDER AS",
-    "renderAsImage": "▦ Image",
-    "renderAsHillshade": "⛰ Hillshade",
+    "renderAsLabel": "DARSTELLUNG",
+    "renderAsImage": "▦ Bild",
+    "renderAsHillshade": "⛰ Schummerung",
     "renderAsTerrain": "◬ Terrain",
-    "sunPositionLabel": "SUN POSITION",
-    "azimuth": "Azimuth",
-    "altitude": "Altitude",
-    "exaggeration": "Exaggeration",
-    "shadingColorsLabel": "SHADING COLORS",
-    "highlight": "Highlight",
-    "shadow": "Shadow",
-    "accent": "Accent",
-    "terrainHint": "Terrain uses elevation data to extrude the map surface. Adjust terrain exaggeration in Settings → Terrain.",
-    "imageHint": "No additional appearance controls for image mode",
-    "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
+    "sunPositionLabel": "SONNENPOSITION",
+    "azimuth": "Azimut",
+    "altitude": "Höhe",
+    "exaggeration": "Überhöhung",
+    "shadingColorsLabel": "SCHATTENFARBEN",
+    "highlight": "Glanzlicht",
+    "shadow": "Schatten",
+    "accent": "Akzent",
+    "terrainHint": "Terrain verwendet Höhendaten, um die Kartenoberfläche zu extrudieren. Terrain-Überhöhung unter Einstellungen → Terrain anpassen.",
+    "imageHint": "Keine weiteren Darstellungssteuerungen für den Bildmodus",
+    "compassAriaLabel": "Sonnenazimut: {{azimuth}}°"
   },
   "folderGroup": {
-    "defaultName": "Group {{n}}",
-    "renameInputPlaceholder": "Group name",
-    "deleteConfirmMessage": "Delete this group and all its layers?",
-    "deleteConfirmAction": "Delete all",
-    "deleteConfirmCancel": "Keep group",
-    "newGroupItem": "＋ New group…"
+    "defaultName": "Gruppe {{n}}",
+    "renameInputPlaceholder": "Gruppenname",
+    "deleteConfirmMessage": "Diese Gruppe und alle ihre Layer löschen?",
+    "deleteConfirmAction": "Alle löschen",
+    "deleteConfirmCancel": "Gruppe behalten",
+    "newGroupItem": "＋ Neue Gruppe…"
   },
   "layerEditor": {
-    "close": "Close layer editor",
+    "close": "Layer-Editor schließen",
     "section": {
-      "renderAs": "Render as",
-      "appearance": "Appearance",
-      "visibility": "Visibility",
+      "renderAs": "Darstellung",
+      "appearance": "Darstellung",
+      "visibility": "Sichtbarkeit",
       "filter": "Filter",
-      "labels": "Labels",
-      "source": "Source"
+      "labels": "Beschriftungen",
+      "source": "Quelle"
     },
     "filter": {
-      "noFilter": "No filter",
-      "active": "Active"
+      "noFilter": "Kein Filter",
+      "active": "Aktiv"
     },
     "labels": {
-      "off": "Off"
+      "off": "Aus"
     },
     "footer": {
-      "deleteLayer": "Delete layer"
+      "deleteLayer": "Layer löschen"
     },
     "confirmDelete": {
-      "message": "Are you sure? This cannot be undone.",
-      "delete": "Delete",
-      "keep": "Keep layer"
+      "message": "Sind Sie sicher? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "delete": "Löschen",
+      "keep": "Layer behalten"
     },
     "visibility": {
-      "opacity": "Opacity",
-      "minZoom": "Minimum zoom",
-      "maxZoom": "Maximum zoom"
+      "opacity": "Deckkraft",
+      "minZoom": "Minimaler Zoom",
+      "maxZoom": "Maximaler Zoom"
+    },
+    "source": {
+      "noColumns": "Keine abfragbaren Spalten für diesen Layer indiziert."
     }
+  },
+  "settings": {
+    "regionLabel": "Karteneinstellungen",
+    "panelTitle": "Einstellungen",
+    "closePanel": "Einstellungen schließen",
+    "terrainLabel": "TERRAIN",
+    "widgetsLabel": "WIDGETS",
+    "projectionLabel": "PROJEKTION",
+    "terrainActiveHint": "{{value}}× Überhöhung",
+    "terrainInactiveCollapsedHint": "Kein aktives Terrain",
+    "exaggeration": "Überhöhung",
+    "terrainExaggerationAria": "Terrain-Überhöhung",
+    "boundTo": "Gebunden an: {{name}}",
+    "terrainInactiveHint": "Kein Terrain-Layer ist aktiv. Einen DEM-Layer in den Terrain-Modus wechseln, um die globale Terrain-Überhöhung zu aktivieren.",
+    "widgetsEnabledCount": "{{count}} aktiviert",
+    "noWidgets": "Keine Widgets verfügbar.",
+    "widgetsGroupAria": "Widgets",
+    "disableAction": "Deaktivieren",
+    "enableAction": "Aktivieren",
+    "toggleWidget": "Widget {{name}} {{action}}",
+    "projectionMercator": "Mercator",
+    "projectionGlobe": "Globus",
+    "projectionAria": "Kartenprojektion",
+    "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt."
   }
 }
