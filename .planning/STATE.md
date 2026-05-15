@@ -4,8 +4,8 @@ milestone: v1009.1
 milestone_name: Builder Smoke Polish
 status: completed
 stopped_at: v1009.1 shipped and archived 2026-05-15. Awaiting next milestone.
-last_updated: "2026-05-15T18:50:00.000Z"
-last_activity: 2026-05-15 — Quick task 260515-k49 (--discuss): closed the FINDINGS m-02 root cause by replacing `<img src=".../quicklook">` with a `useQuicklook` hook backed by `apiFetchBlob` + blob URLs. Playwright MCP confirms 0 quicklook 404s on Search (was 3); 6 cards including the 3 private "sample" datasets now render thumbnails for the admin user. 908/908 frontend tests pass.
+last_updated: "2026-05-15T20:45:00.000Z"
+last_activity: 2026-05-15 — Quick task 260515-mmo (--discuss): SP-12 representative-fraction "1:N" readout landed on Builder pill (Viewer pill unchanged via `showScale={false}` default). Playwright MCP confirms 4-segment pill `20.00° N · 0.00° E · z 2.0 · 1:139M` on Builder, denominator scales correctly with zoom. Also caught + fixed a latent pre-SP-12 overlap between the pill and NavigationControl (pill shifted from `right-2` to `right-14`, measured 17px gap). v1009.1 followup tail FULLY CLOSED.
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,17 +21,18 @@ progress:
 Phase: Milestone v1009.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-15 — Completed quick task 260515-k49 (--discuss): converted SearchResultCard + DatasetSearchPanel from `<img src>` to a new `useQuicklook` hook that drives `apiFetchBlob` + `URL.createObjectURL(blob)` with unmount-revoke lifecycle. Adapted `quicklook-cache.ts` semantics from "image-tag 404" to "fetch()-call 404" via comment-only update (API surface unchanged). Playwright MCP verify: 0 quicklook 404s on the Search page (was 3), 6 cards render including the 3 private "sample" datasets which are now visible to the admin user as blob URLs. typecheck clean, 908/908 frontend tests pass, zero `<img src.*quicklook>` left in `frontend/src/`. Backend unchanged.
+Last activity: 2026-05-15 — Completed quick task 260515-mmo (--discuss): SP-12 representative-fraction "1:N" readout shipped to BuilderMap. New pure formatter at `frontend/src/lib/representative-fraction.ts` (23 unit tests covering boundary cases 850/999/1000/1234/288000/999999/1234567/120000000); `MapCoordReadout.tsx` extended with `showScale?: boolean` prop (default `false`) and a muted `1:` prefix segment; `BuilderMap.tsx:890` passes `showScale={true}`; `ViewerMap.tsx` untouched (stays 3-segment). All four locales (en/de/es/fr) gain the `common.mapCoordReadout.scale` "1:{{value}}" key. Playwright MCP verify on Builder: pill renders `20.00° N · 0.00° E · z 2.0 · 1:139M`; zoom wheel from z=2.0 → z=3.7 shifts denominator from 1:139M → 1:42.8M. Also caught + fixed a latent layout bug: the pill (`right-2`) overlapped the NavigationControl by ~31px; shifted to `right-14` for a 17px clearance gap. v1009.1 followup tail now FULLY CLOSED — no remaining SP items.
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone. Two followups deferred from v1009.1 remain:
-- ~~SP-03 / B-01-followup — fresh-add maplibre sync race~~ — CLOSED 2026-05-15 via quick task 260515-gm6 (ref+callback + idle-event retry)
-- ~~SP-07 backend `has_quicklook` predicate~~ — CLOSED 2026-05-15 via quick task 260515-i45 (one-shot reconcile sweeper at `backend/scripts/reconcile_quicklook_uris.py`)
-- SP-12 representative-fraction "1:N" pane (still open)
+**Current focus:** No active milestone. **All v1009.1 followups CLOSED 2026-05-15:**
+- ~~SP-03 / B-01-followup — fresh-add maplibre sync race~~ — CLOSED via quick task 260515-gm6 (ref+callback + idle-event retry)
+- ~~SP-07 backend `has_quicklook` predicate~~ — CLOSED via quick task 260515-i45 (reconcile sweeper; live-verified no-op — see misdiagnosis note below) + 260515-k49 (the actual fix: img Bearer-JWT mismatch via useQuicklook hook + blob URLs)
+- ~~SP-07 raster/vrt dispatch latent bug~~ — CLOSED via quick task 260515-ilt (`_row_to_meta` + record_type dispatch)
+- ~~SP-12 representative-fraction "1:N" pane~~ — CLOSED via quick task 260515-mmo (--discuss; Builder-only `showScale` prop on MapCoordReadout)
 
 ## Last Shipped Milestone
 
@@ -230,6 +231,7 @@ See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 | 260515-i45 | SP-07 backend has_quicklook predicate: one-shot async reconcile script (`backend/scripts/reconcile_quicklook_uris.py`) that lists vector datasets with non-null `quicklook_256_uri`, calls `storage.exists()`, and clears the URI on miss. 4 predicate tests PASS. **Live-verified 2026-05-15 17:45 after api rebuild: 0 cleared / 5 kept — all 5 files exist on disk, FINDINGS m-02 was misdiagnosed** (404s were access-denied, not file-missing; real root cause closed by 260515-k49). Sweeper kept as defensive tool; idempotent no-op on healthy storage. | 2026-05-15 | 8204b2c6 | Verified (no-op) | [260515-i45-sp-07-backend-has-quicklook-predicate](./quick/260515-i45-sp-07-backend-has-quicklook-predicate/) |
 | 260515-ilt | Fix `has_quicklook` raster/vrt dispatch: thread `quicklook_256_uri` through `_row_to_meta()` in `raster/queries.py` (cascades to both single + bulk fetchers via KISS-6) and dispatch on `record_type` at `service_records.py:312`. 9/9 predicate tests PASS (4 vector + 5 new raster/vrt incl. no-leak guard). Live curl confirms `has_quicklook=true` for raster + no `quicklook_256_uri` leak. Closes the latent bug captured by 260515-i45. | 2026-05-15 | 098f822c | Live Verified | [260515-ilt-fix-has-quicklook-raster-vrt-dispatch](./quick/260515-ilt-fix-has-quicklook-raster-vrt-dispatch/) |
 | 260515-k49 | Fix `<img>` Bearer-JWT mismatch causing quicklook 404s on Search/Builder for non-public datasets (--discuss): new `useQuicklook` hook at `frontend/src/components/maps/hooks/use-quicklook.ts` (apiFetchBlob + URL.createObjectURL with unmount/id-change revoke), SearchResultCard + DatasetSearchPanel converted, `quicklook-cache.ts` JSDoc adapted for fetch()-call 404 semantics. Playwright MCP confirms 0 console 404s on Search (was 3); 6 cards render thumbnails as blob URLs incl. 3 previously-broken private "sample" datasets. 908/908 frontend tests pass. Zero backend edits. | 2026-05-15 | 64e5ff76 | Live Verified | [260515-k49-fix-img-bearer-jwt-mismatch-causing-quic](./quick/260515-k49-fix-img-bearer-jwt-mismatch-causing-quic/) |
+| 260515-mmo | SP-12 representative-fraction "1:N" readout (--discuss): new pure `formatRepresentativeFraction(lat, zoom)` helper at `frontend/src/lib/representative-fraction.ts` (23 boundary tests); `MapCoordReadout.tsx` extended with optional `showScale` prop (default false) and a muted `1:` prefix segment; BuilderMap passes `true`, ViewerMap untouched; 4 locales (en/de/es/fr) gain `common.mapCoordReadout.scale` key. Playwright MCP verify: Builder pill shows `· 1:139M` at z=2; denominator scales correctly on zoom (z=3.7 → 1:42.8M). Also fixed a latent pre-SP-12 layout overlap between the pill and NavigationControl (pill shifted from `right-2` to `right-14` for 17px clearance, commit `76a1ce89`). | 2026-05-15 | 76a1ce89 | Live Verified | [260515-mmo-sp-12-representative-fraction-1-n-readou](./quick/260515-mmo-sp-12-representative-fraction-1-n-readou/) |
 
 ## Deferred Items
 
