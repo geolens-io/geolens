@@ -4,8 +4,8 @@ milestone: v1009.1
 milestone_name: Builder Smoke Polish
 status: completed
 stopped_at: v1009.1 shipped and archived 2026-05-15. Awaiting next milestone.
-last_updated: "2026-05-15T17:35:00.000Z"
-last_activity: 2026-05-15 — Quick task 260515-ilt: raster/vrt has_quicklook dispatch fix (queries.py + service_records.py + extended predicate tests 9/9 PASS; live curl confirms rasters now report has_quicklook=true)
+last_updated: "2026-05-15T17:50:00.000Z"
+last_activity: 2026-05-15 — Live verify of 260515-i45 SP-07 sweeper revealed FINDINGS m-02 was MISDIAGNOSED — the 3 quicklook 404s are access-denied 404s on anonymous `<img>` requests for private datasets, not file-missing. Sweeper works correctly but is harmless on healthy storage. Real bug captured below.
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,7 +21,7 @@ progress:
 Phase: Milestone v1009.1 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-05-15 — Completed quick task 260515-ilt: raster/vrt `has_quicklook` dispatch — `raster/queries.py:_row_to_meta()` now threads `quicklook_256_uri` through `fetch_raster_meta_one/bulk`; `service_records.py:312` dispatches on `record_type` (raster/vrt → `raster_meta['quicklook_256_uri']`, vector/table → existing column). 9/9 predicate tests PASS. Live curl against raster `93839c2a-ed2c-…` confirms `has_quicklook: true` (was `false`), no `quicklook_256_uri` leak in public properties. Closes the latent bug captured 2026-05-15 during SP-07.
+Last activity: 2026-05-15 — Live verify of 260515-i45 SP-07 sweeper post `docker compose up -d --build api`. Sweeper found 0 stale / 5 kept — all 5 vector quicklook files exist on disk. Playwright MCP confirmed FINDINGS m-02 was misdiagnosed: 404s are access-denied (Bearer JWT not carried by `<img>` tags against private datasets), not file-missing. New bug captured in Deferred Items with three fix options. 260515-ilt (raster dispatch) remains solid — independent fix for a real bug.
 
 ## Project Reference
 
@@ -230,6 +230,8 @@ See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 | 260515-i45 | SP-07 backend has_quicklook predicate: one-shot async reconcile script (`backend/scripts/reconcile_quicklook_uris.py`) that lists vector datasets with non-null `quicklook_256_uri`, calls `storage.exists()`, and clears the URI on miss. 4 predicate tests PASS. No edits to `service_records.py` or schema. Live `--dry-run` against demo data deferred (container rootfs read-only). | 2026-05-15 | 8204b2c6 | Pending Live Verify | [260515-i45-sp-07-backend-has-quicklook-predicate](./quick/260515-i45-sp-07-backend-has-quicklook-predicate/) |
 | 260515-ilt | Fix `has_quicklook` raster/vrt dispatch: thread `quicklook_256_uri` through `_row_to_meta()` in `raster/queries.py` (cascades to both single + bulk fetchers via KISS-6) and dispatch on `record_type` at `service_records.py:312`. 9/9 predicate tests PASS (4 vector + 5 new raster/vrt incl. no-leak guard). Live curl confirms `has_quicklook=true` for raster + no `quicklook_256_uri` leak. Closes the latent bug captured by 260515-i45. | 2026-05-15 | 098f822c | Live Verified | [260515-ilt-fix-has-quicklook-raster-vrt-dispatch](./quick/260515-ilt-fix-has-quicklook-raster-vrt-dispatch/) |
 
+**Correction on 260515-i45 (SP-07) status:** Sweeper was live-verified 2026-05-15 17:45 against demo data after `docker compose up -d --build api`. Result: **0 stale URIs cleared / 5 kept** — all 5 vector `quicklook_256_uri` rows have files present on disk under `/app/staging/vectors/<id>/quicklook_256.png` and `storage.get()` returns bytes for every one of them. **FINDINGS m-02 was misdiagnosed.** The "3 quicklook 404s" the smoke check captured are **access-denied 404s**, not file-missing 404s — see new Deferred Items entry below. The sweeper is harmless and worth keeping as a defensive tool (idempotent, no-op on healthy storage, would catch real drift if it ever occurred), but it does NOT fix the m-02 console-noise that motivated SP-07.
+
 ## Deferred Items
 
 Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
@@ -249,6 +251,8 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
 **Surfaced 2026-05-15 (during SP-07 quick task 260515-i45):**
 
 - ~~**Latent bug — `has_quicklook` always False for raster/vrt records.**~~ **CLOSED 2026-05-15 via quick task 260515-ilt (commit `098f822c`).** The dispatch fix threads `quicklook_256_uri` through `_row_to_meta()` in `backend/app/processing/raster/queries.py` (KISS-6 — single column list, both fetchers picked it up for free) and dispatches on `record_type` at `service_records.py:312`. 9/9 predicate tests PASS (4 vector from 260515-i45 + 5 new raster/vrt incl. a no-leak guard). Live curl against `/api/collections/datasets/items/93839c2a-…` now returns `has_quicklook: true` for the raster (was `false`); `quicklook_256_uri` does NOT appear in the public response properties.
+
+- **NEW BUG — `<img>` tags cannot carry Bearer-JWT, so authenticated-only quicklooks 404 in the browser console.** Surfaced 2026-05-15 during the live verify of SP-07 sweeper, which proved the original FINDINGS m-02 root-cause analysis was wrong. **Evidence:** Anonymous and authenticated `fetch()` of `/api/datasets/777ddb26-…/quicklook?size=256` return `404` and `200` respectively for the SAME url (verified via Playwright MCP `browser_evaluate`). The OGC search response is fetched with the Bearer token in TanStack Query, so admin users see all 6 vector records (3 public + 3 private "sample"); `SearchResultCard.tsx:155-156` constructs `${API_BASE}/datasets/${id}/quicklook?size=256` and hands it to an `<img src>`; browser `<img>` requests do NOT include `Authorization` headers (only cookies); `check_dataset_access_or_anonymous` at `backend/app/modules/catalog/authorization.py:75-95` returns 404 (existence-masking, intentional) for any anonymous request against a non-public dataset. **Net effect:** every authenticated session lands on the Search page with N console 404s where N = count of private datasets the user can see. Frontend `quicklook-cache.ts` negative-caches these so it's 1 burst per tab session, not per re-render. **Fix options (none "small mechanical"):** (a) cookie-set the JWT on login alongside the Bearer response so `<img credentialled>` requests carry it — needs CORS/SameSite handling; (b) refactor `SearchResultCard` + `DatasetSearchPanel` to `fetch()` + `URL.createObjectURL(blob)` so the Authorization header is sent — adds blob-URL lifecycle management; (c) append the API-key query param to the image URL (backend already supports `?api_key=<key>` per project memory) — exposes the key in browser cache and proxy logs, security tradeoff. Recommend (b) for new code; (a) for the long-term clean fix. **Scope warning:** before picking a fix, validate with `/gsd-quick --discuss` because option (a) touches auth surface and option (c) interacts with the "no security by obscurity" feedback memory.
 
 **Standing carryforwards (cross-milestone):**
 
