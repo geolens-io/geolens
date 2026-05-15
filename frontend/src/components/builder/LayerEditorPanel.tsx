@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { LayerStyleEditor } from './LayerStyleEditor';
@@ -169,6 +169,37 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     setSourceOpen(false);
   }, [layer.id, editorScene]);
 
+  // POL-18: Scroll + focus preservation across scene transitions
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const savedScrollTopRef = useRef<number>(0);
+  const prevSceneRef = useRef(editorScene);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Save scrollTop before navigating away (when editorScene changes)
+  useEffect(() => {
+    const bodyEl = bodyRef.current;
+    return () => {
+      if (bodyEl) {
+        savedScrollTopRef.current = bodyEl.scrollTop;
+      }
+    };
+  }, [editorScene]);
+
+  // Restore scrollTop on remount / scene return
+  useEffect(() => {
+    if (bodyRef.current && savedScrollTopRef.current > 0) {
+      bodyRef.current.scrollTop = savedScrollTopRef.current;
+    }
+  }, [layer.id, editorScene]);
+
+  // Restore keyboard focus to panel header when transitioning back from basemap-sublayer to basemap-group
+  useEffect(() => {
+    if (editorScene === 'basemap-group' && prevSceneRef.current === 'basemap-sublayer') {
+      headerRef.current?.focus();
+    }
+    prevSceneRef.current = editorScene;
+  }, [editorScene]);
+
   // Zoom range from layout
   const layout = layerLayout(layer);
   const minZoom = zoomValue(layout._minzoom, 0);
@@ -205,8 +236,10 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     >
       {/* Header: back (drill-down only) | [breadcrumb for sublayer] | type icon | layer name | close × */}
       <header
+        ref={headerRef}
         data-testid="layer-editor-header"
         className="flex flex-col px-4 py-3 border-b shrink-0"
+        tabIndex={-1}
       >
         {/* Breadcrumb: only shown when editorScene === 'basemap-sublayer' */}
         {editorScene === 'basemap-sublayer' && (
@@ -284,6 +317,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
 
       {/* Scrollable body */}
       <div
+        ref={bodyRef}
         data-testid="layer-editor-body"
         className="flex-1 overflow-y-auto"
       >
