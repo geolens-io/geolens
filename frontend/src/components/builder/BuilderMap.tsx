@@ -696,14 +696,25 @@ export const BuilderMap = memo(function BuilderMap({
   // construction: every input is read fresh from the ref at call time.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    // Mirror ViewerMap's gate: if layers exist but tokens haven't arrived,
-    // wait. The effect re-runs when the tokenMap reference changes (tokens
-    // arrive via use-tile-token).
+    if (!map) return;
+    // Token gate (ViewerMap-style): wait for tokens before any sync.
     if (layers.length > 0 && tokenMap.size === 0) return;
     // Defense in depth: also wait if any specific layer is still missing its
     // token (e.g. a partial batch — one dataset cached, one still in flight).
     if (layers.some((l) => l.dataset_id && !tokenMap.has(l.dataset_id))) return;
+
+    // Style gate. If the basemap style is currently transitioning, the
+    // previous shape (return early) left a permanent miss: nothing in the
+    // effect's dep array would change later, and the once-fired `style.load`
+    // listener already ran with the pre-add state. SP-03 / B-01-followup:
+    // attach a one-shot `idle` listener so the sync is retried as soon as
+    // the map settles. `idle` fires after style.load + tile loading +
+    // transitions complete, which is exactly when `runSync` can succeed.
+    if (!map.isStyleLoaded()) {
+      const retry = () => runSync(map);
+      map.once('idle', retry);
+      return () => { map.off('idle', retry); };
+    }
     runSync(map);
   }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, clusterGeoJsonVersion, runSync]);
 
