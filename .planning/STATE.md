@@ -245,6 +245,10 @@ Items acknowledged and deferred at v13.13 milestone close (2026-05-07).
   - `test_no_catalog_imports_processing` regex false-positive on a comment in `service_public.py:186`. Pre-existing on clean main HEAD.
   - Backend `pytest --cov` collection import errors (`tests/test_tile_cache.py` missing `cachetools` in test env; `tests/test_phase_272_compose.py` setup errors).
 
+**Surfaced 2026-05-15 (during SP-07 quick task 260515-i45):**
+
+- **Latent bug — `has_quicklook` always False for raster/vrt records.** `backend/app/modules/catalog/search/service_records.py:312` is hardcoded to `dataset.quicklook_256_uri is not None`. For `record_type in ("raster_dataset", "vrt_dataset")` records, the quicklook URI lives on `RasterAsset.quicklook_256_uri`, not on `Dataset` — so the column is always None and `has_quicklook` always reports False. The frontend (`SearchResultCard.tsx:164`, `DatasetSearchPanel.tsx:124`) gates the quicklook GET on `properties.has_quicklook`, so **raster thumbnails are never displayed in search or Builder dataset panels** even though `/api/datasets/{id}/quicklook` at `router.py:215-226` correctly serves them via `RasterAsset.quicklook_256_uri`. **Scope of fix (small, mechanical — mirrors SP-07):** include `quicklook_256_uri` in the `raster_meta` dict built by `_build_raster_assets()` in `router.py`, then dispatch `has_quicklook` on `record_type` at `service_records.py:312` (vector → existing column; raster/vrt → `raster_meta.get("quicklook_256_uri") is not None`). One bulk-fetcher edit, one predicate-site edit, one test. Out of scope of SP-07 (FINDINGS m-02 evidence was vector-only), captured here for follow-up. Suggested next-task slug: `has-quicklook-raster-dispatch`.
+
 **Standing carryforwards (cross-milestone):**
 
 - 175+ cross-milestone `quick_tasks` carried forward since v13.1.
