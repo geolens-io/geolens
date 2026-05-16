@@ -14,7 +14,7 @@ Requirements for this milestone. Each maps to a roadmap phase.
 - [x] **PERF-01**: User can open a saved map with 50+ layers and see first paint complete inside a measured budget. Baseline captured at audit time; target documented in phase notes; verified by an automated perf check or Playwright timing assertion.
 - [ ] **PERF-02**: User can hover/click rows in the unified stack on a 50+ layer map without per-row jank. Target: input latency under 16ms on a representative dev laptop; verified by profiling notes + smoke pass.
 - [ ] **PERF-03**: User-triggered bulk visibility/opacity/group/ungroup/delete on N selected layers batches requests (Promise.allSettled or batched endpoint) with rollback + progress affordances. No regression in the existing v1009 multi-select bulk-ops surface.
-- [ ] **PERF-04**: User-typed paint property updates (color pick, opacity slider, expression edits) coalesce into one MapLibre repaint per animation frame via debounce / requestAnimationFrame. Verified by perf profile + unit-level rAF coalescing test.
+- [x] **PERF-04**: User-typed paint property updates (color pick, opacity slider, expression edits) coalesce into one MapLibre repaint per animation frame via debounce / requestAnimationFrame. Verified by perf profile + unit-level rAF coalescing test.
 - [x] **PERF-05**: Builder route entry chunk shrinks via lazy-load of LayerEditorPanel, AddDataModal, and the Settings scene. Before/after chunk sizes documented in phase notes; no regression in first-paint to first-interactive on `/maps/:id`.
 - [x] **PERF-06**: All perf changes ship with measured before/after metrics in PHASE notes; no measurable regression in builder smoke runtime, vitest builder suite runtime, or cold first build.
 
@@ -86,7 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERF-01 | Phase 1047 | Complete |
 | PERF-02 | Phase 1047 | Pending |
 | PERF-03 | Phase 1047 | Pending |
-| PERF-04 | Phase 1047 | Pending |
+| PERF-04 | Phase 1047 | Complete |
 | PERF-05 | Phase 1047 | Complete |
 | PERF-06 | Phase 1047 | Complete |
 | CODE-01 | Phase 1046 | Pending |
