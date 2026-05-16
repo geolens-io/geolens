@@ -4,13 +4,13 @@ milestone: v1010
 milestone_name: Builder Performance & Code Quality
 status: executing
 stopped_at: Phase 1047 UI-SPEC approved
-last_updated: "2026-05-16T17:51:58.532Z"
-last_activity: 2026-05-16 -- Phase 1047 planning complete
+last_updated: "2026-05-16T18:00:33.062Z"
+last_activity: 2026-05-16
 progress:
   total_phases: 8
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 1
+  total_plans: 6
+  completed_plans: 2
   percent: 0
 ---
 
@@ -18,19 +18,19 @@ progress:
 
 ## Current Position
 
-Phase: 1046 — COMPLETE
-Plan: —
+Phase: 1047 (perf-and-code-quality-fixes) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-05-16 -- Phase 1047 planning complete
+Last activity: 2026-05-16
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1010 Phase 1046 — builder-perf-and-code-audit
+**Current focus:** Phase 1047 — perf-and-code-quality-fixes
 
 ## Last Shipped Milestone
 
@@ -58,6 +58,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-05-16T17:30:33.442Z
+Last session: 2026-05-16T18:00:33.058Z
 Stopped at: Phase 1047 UI-SPEC approved
-Resume file: .planning/phases/1047-perf-and-code-quality-fixes/1047-UI-SPEC.md
+Resume file: None

@@ -21,9 +21,9 @@ Requirements for this milestone. Each maps to a roadmap phase.
 ### Code Quality (CODE)
 
 - [ ] **CODE-01**: `BUILDER-CODE-AUDIT.md` documents structured findings (duplication, file-size offenders, dead code, complexity hotspots) classified P0/P1/P2 across `frontend/src/components/builder/`, `frontend/src/hooks/use-builder-*`, and `frontend/src/lib/builder-*` (and any adjacent `basemap-utils.ts` / `fill-adapter.ts` style helpers used by builder).
-- [ ] **CODE-02**: All P0 audit findings are remediated and committed with regression tests where applicable.
-- [ ] **CODE-03**: All P1 audit findings are remediated OR explicitly deferred-with-rationale in the audit doc; no silent skips.
-- [ ] **CODE-04**: No new dead code remains in audited directories; audit re-verification step in closeout confirms removal.
+- [x] **CODE-02**: All P0 audit findings are remediated and committed with regression tests where applicable.
+- [x] **CODE-03**: All P1 audit findings are remediated OR explicitly deferred-with-rationale in the audit doc; no silent skips.
+- [x] **CODE-04**: No new dead code remains in audited directories; audit re-verification step in closeout confirms removal.
 - [ ] **CODE-05**: File-size offenders either drop below a milestone-defined LOC threshold OR are explicitly accepted with rationale (e.g., generated SDK code, fixture data).
 - [ ] **CODE-06**: No behavior regressions from code-quality refactors: vitest builder suite green, builder smoke green, typecheck clean, public component contracts preserved.
 
@@ -90,9 +90,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERF-05 | Phase 1047 | Pending |
 | PERF-06 | Phase 1047 | Pending |
 | CODE-01 | Phase 1046 | Pending |
-| CODE-02 | Phase 1047 | Pending |
-| CODE-03 | Phase 1047 | Pending |
-| CODE-04 | Phase 1047 | Pending |
+| CODE-02 | Phase 1047 | Complete |
+| CODE-03 | Phase 1047 | Complete |
+| CODE-04 | Phase 1047 | Complete |
 | CODE-05 | Phase 1047 | Pending |
 | CODE-06 | Phase 1047 | Pending |
 | FOLLOWUP-01 | Phase 1048 | Pending |
