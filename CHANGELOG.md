@@ -11,6 +11,94 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+> v1010 Builder Performance & Code Quality milestone — large-map performance
+> wins (bulk-op batching, MapLibre paint coalescing, builder entry chunk
+> reduction), code-quality refactor of the unified-stack Map Builder
+> (LayerStyleEditor split, paint setter centralization), and three
+> carried-forward builder follow-ups closed (popup_config error surface,
+> Add Data modal audit, SourcesTab test backlog drained to zero).
+
+### Added
+
+- Backend `POST /api/maps/{id}/layers/bulk-delete` endpoint — batched
+  multi-layer deletion in a single transactional request with full audit
+  and history event coverage. Replaces N sequential `DELETE` calls in
+  the builder's multi-select bulk-delete flow.
+- `coalesceFrame(key, fn)` rAF-coalescing utility at
+  `frontend/src/lib/builder/raf-coalesce.ts` — last-write-wins semantics
+  per animation frame; routes opacity-slider and color-picker paint
+  updates through a single MapLibre repaint per frame.
+- `SceneSpinnerFallback` Suspense fallback for lazy-loaded editor scenes
+  (DEMEditorScene, SettingsEditorScene, BasemapGroupEditorScene,
+  BasemapSublayerEditorScene, DatasetSearchPanel).
+- Bulk-op progress affordance: `BulkActionBar` shows `Loader2` spinner
+  + `aria-live="polite"` announcement during the deleting state.
+- 65+ new vitest cases across `raf-coalesce.test.ts`,
+  `use-layer-map-sync.raf.test.ts`, the LayerStyleEditor sub-component
+  suite, and the SourcesTab live tests (Phase 1048 FOLLOWUP-03). Vitest
+  suite total: 1887 tests (was 1875 at Phase 1046 baseline).
+
+### Changed
+
+- Map Builder route entry chunk reduced **281.76 KB → 233.10 KB
+  (−17.3% uncompressed, −13.9% gzip 64.35 KB → 55.38 KB)** via
+  lazy-loaded editor scenes. Reduces JS parse/compile budget on
+  `/maps/:id` cold open.
+- `LayerStyleEditor` split **1231 LOC → 468 LOC orchestrator + 8
+  per-render-mode child editors** (FillEditor, LineEditor, CircleEditor,
+  SymbolEditor, HeatmapEditor, ClusterEditor, RasterEditor,
+  RenderModeSwitch) + AdvancedJsonEditor + StrokeControls (−62%
+  orchestrator LOC). RenderModeSwitch lookup-table replaces a 200+ LOC
+  nested ternary (CODE-01/CD-19).
+- Bulk-delete on N selected layers now sends **1 batched HTTP POST
+  instead of N sequential DELETEs** (−98% request count at N=50). Wall-
+  clock hover input latency measured live at p50=4.9ms, p95=7.1ms
+  against a 50-layer stack (target ≤30ms — 6× margin).
+- `BulkActionBar` selected-count label changed from `text-[13px]`
+  arbitrary size to `text-xs` (12px) — aligns with declared type scale.
+  Container adds `cursor-not-allowed` during the deleting state.
+- `bulkActions.deletePartialFailure` toast copy appends a translated
+  "— Tap to retry." suffix in all four locales (en/de/es/fr).
+- `setLayerProperty` centralized in `layer-adapters/shared.ts` —
+  replaces 5 scattered try-catch `setPaintProperty` patterns in
+  `fill-adapter.ts` with a single dev-logging setter (CODE-01/CA-03).
+- Cold Vite build time: **1.2–1.5s baseline → 364ms measured** (Phase
+  1047 Plan 06 SHA) — no regression from lazy-load splits. Vitest wall-
+  clock: **12.877s → 12.14s (−0.74s)**.
+
+### Fixed
+
+- Invalid layer `popup_config` no longer silently blocks the map save
+  action — the save-blocker toast now names the offending layer
+  (`"Cannot save: layer '{name}' has an invalid popup expression."`)
+  instead of a generic message. Backend rejection of a malformed
+  `popup_config` payload (HTTP 422) produces a distinct, translated
+  error toast instead of falling through to the generic save-failed
+  path. Vitest (4 cases) + Playwright cover both surfaces. (FOLLOWUP-01)
+- 6 code-quality findings from `1046-BUILDER-CODE-AUDIT.md` remediated
+  with regression tests: filter-sync extraction (CA-01), paint-setter
+  centralization (CA-03), LayerStyleEditor split (CB-07), nested-ternary
+  lookup-table (CD-19). 12 additional P1 findings explicitly deferred
+  with written rationale in `1047-06-AUDIT-CLOSEOUT.md`. (CODE-02,
+  CODE-03)
+
+### Internal
+
+- `.planning/phases/1046-builder-perf-and-code-audit/1046-BUILDER-CODE-AUDIT.md` —
+  24 builder-surface findings (P0=3, P1=14, P2=7) classified across
+  duplication, file-size, dead code, complexity, and test-coverage
+  dimensions.
+- `.planning/phases/1046-builder-perf-and-code-audit/1046-BUILDER-PERF-BASELINE.md` —
+  Baseline metrics for all six PERF requirements (large-map FCP, input
+  latency, bulk-op batching, paint repaint coalescing, route chunk
+  sizes, smoke runtime).
+- `.planning/phases/1048-followups-and-closeout/1048-ADDDATA-MODAL-AUDIT.md` —
+  Add Data modal structural audit (BuilderDialogs.tsx + DatasetSearchPanel.tsx);
+  13 findings (P0=0, P1=5, P2=8); v1008 unified-stack alignment
+  confirmed clean (no legacy six-section assumptions). (FOLLOWUP-02)
+- SourcesTab `it.todo` backlog drained to zero — 8 deferred tests
+  shipped as live vitest cases; net `it.todo` count = 0. (FOLLOWUP-03)
+
 ## [1.1.1] - 2026-05-08
 
 > v13.14 Smoke Stabilization milestone — bug fixes for 4 smoke-test
