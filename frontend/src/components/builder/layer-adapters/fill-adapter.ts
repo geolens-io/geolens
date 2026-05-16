@@ -1,6 +1,6 @@
 import type { FillExtrusionLayerSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig, syncLayerFilter } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig, syncLayerFilter, setLayerProperty } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
@@ -126,9 +126,7 @@ export const fillAdapter: LayerAdapter = {
       syncLayerFilter(map, layerId, filter);
       const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
       const outlineColor = (builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
-      try {
-        map.setPaintProperty(layerId, 'fill-outline-color', strokeDisabled ? 'rgba(0,0,0,0)' : (outlineColor ?? 'rgba(0,0,0,0)'));
-      } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] fill-outline-color may not be supported on all styles:`, e); }
+      setLayerProperty(map, layerId, 'fill-outline-color', strokeDisabled ? 'rgba(0,0,0,0)' : (outlineColor ?? 'rgba(0,0,0,0)'));
     }
     // Sync outline companion layer
     if (map.getLayer(outlineId)) {
@@ -136,16 +134,12 @@ export const fillAdapter: LayerAdapter = {
       const outlineColor = builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color'];
       const outlineWidth = builder.outlineWidth ?? rawPaint['_outline-width'] ?? rawPaint['outline-width'];
       if (typeof outlineColor === 'string') {
-        try {
-          const cur = map.getPaintProperty(outlineId, 'line-color');
-          if (cur !== outlineColor) map.setPaintProperty(outlineId, 'line-color', outlineColor);
-        } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-color on ${outlineId}:`, e); }
+        const cur = map.getPaintProperty(outlineId, 'line-color');
+        if (cur !== outlineColor) setLayerProperty(map, outlineId, 'line-color', outlineColor);
       }
       if (typeof outlineWidth === 'number') {
-        try {
-          const cur = map.getPaintProperty(outlineId, 'line-width');
-          if (cur !== outlineWidth) map.setPaintProperty(outlineId, 'line-width', outlineWidth);
-        } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set line-width on ${outlineId}:`, e); }
+        const cur = map.getPaintProperty(outlineId, 'line-width');
+        if (cur !== outlineWidth) setLayerProperty(map, outlineId, 'line-width', outlineWidth);
       }
       map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
       map.setLayoutProperty(outlineId, 'visibility', outlineStrokeDisabled ? 'none' : 'visible');
@@ -158,15 +152,10 @@ export const fillAdapter: LayerAdapter = {
       if (heightColumn) {
         const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
         // Update height expression when column changes
-        try {
-          map.setPaintProperty(extrusionId, 'fill-extrusion-height',
-            buildHeightExpression(heightColumn, heightScale));
-        } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion height:`, e); }
+        setLayerProperty(map, extrusionId, 'fill-extrusion-height', buildHeightExpression(heightColumn, heightScale));
         const fillColor = rawPaint['fill-color'] as string | undefined;
         if (fillColor) {
-          try {
-            map.setPaintProperty(extrusionId, 'fill-extrusion-color', fillColor);
-          } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion color:`, e); }
+          setLayerProperty(map, extrusionId, 'fill-extrusion-color', fillColor);
         }
         map.setPaintProperty(extrusionId, 'fill-extrusion-opacity', extrusionOpacity);
         try {

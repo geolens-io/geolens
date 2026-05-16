@@ -154,6 +154,35 @@ export function finalizeLayer(
 }
 
 /**
+ * Set a paint or layout property on a MapLibre layer, swallowing any errors
+ * that arise from attempting to set an unsupported property (e.g. calling
+ * setPaintProperty before addLayer completes, or setting a property not valid
+ * for the layer type).  In DEV mode the error is surfaced as console.debug.
+ *
+ * Extracted from 7+ repeated try-catch wrapped setPaintProperty occurrences
+ * across layer adapters (CA-03 remediation).
+ */
+export function setLayerProperty(
+  map: MaplibreMap,
+  layerId: string,
+  property: string,
+  value: unknown,
+  kind: 'paint' | 'layout' = 'paint',
+): void {
+  try {
+    if (kind === 'paint') {
+      map.setPaintProperty(layerId, property, value);
+    } else {
+      map.setLayoutProperty(layerId, property, value);
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.debug(`[map-sync] Failed to set ${kind} property ${property} on ${layerId}:`, e);
+    }
+  }
+}
+
+/**
  * Sync the MapLibre layer filter for a given layer ID.
  * If `filter` is a non-empty array it is applied directly; otherwise the filter
  * is cleared by passing `null`.  Safe to call when the layer does not exist
