@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { syncLayerFilter } from '../shared';
+import { syncLayerFilter, setLayerProperty } from '../shared';
 import type { FilterSpecification } from 'maplibre-gl';
 
 function createMockMap(layerExists = true) {
@@ -49,5 +49,47 @@ describe('syncLayerFilter', () => {
       syncLayerFilter(map as unknown as import('maplibre-gl').Map, 'missing-layer', ['==', ['get', 'x'], 1]);
     }).not.toThrow();
     expect(map.setFilter).not.toHaveBeenCalled();
+  });
+});
+
+// --- setLayerProperty ---
+
+function createMockMapForSetLayerProperty() {
+  return {
+    setPaintProperty: vi.fn(),
+    setLayoutProperty: vi.fn(),
+  };
+}
+
+describe('setLayerProperty', () => {
+  it('Test 1: calls setPaintProperty exactly once with the given args (default kind=paint)', () => {
+    const map = createMockMapForSetLayerProperty();
+    setLayerProperty(map as unknown as import('maplibre-gl').Map, 'L', 'fill-color', '#ff0000');
+    expect(map.setPaintProperty).toHaveBeenCalledTimes(1);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'fill-color', '#ff0000');
+    expect(map.setLayoutProperty).not.toHaveBeenCalled();
+  });
+
+  it('Test 2: calls setLayoutProperty when kind is layout', () => {
+    const map = createMockMapForSetLayerProperty();
+    setLayerProperty(map as unknown as import('maplibre-gl').Map, 'L', 'visibility', 'visible', 'layout');
+    expect(map.setLayoutProperty).toHaveBeenCalledTimes(1);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('L', 'visibility', 'visible');
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+
+  it('Test 3: catches and does NOT re-throw when setPaintProperty throws', () => {
+    const map = createMockMapForSetLayerProperty();
+    map.setPaintProperty.mockImplementation(() => { throw new Error('boom'); });
+    expect(() => {
+      setLayerProperty(map as unknown as import('maplibre-gl').Map, 'L', 'fill-opacity', 0.5);
+    }).not.toThrow();
+  });
+
+  it('Test 4: default kind is paint — omitting the 5th arg routes to setPaintProperty', () => {
+    const map = createMockMapForSetLayerProperty();
+    setLayerProperty(map as unknown as import('maplibre-gl').Map, 'L', 'line-width', 2);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-width', 2);
+    expect(map.setLayoutProperty).not.toHaveBeenCalled();
   });
 });
