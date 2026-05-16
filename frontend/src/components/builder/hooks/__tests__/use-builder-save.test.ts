@@ -417,6 +417,39 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
+  it('persists basemap_config.opacity when set via masterOpacity', async () => {
+    const layer = makeLayer();
+    let state = makeSaveState({ localLayers: [layer] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+
+    state = makeSaveState({
+      localLayers: [layer],
+      basemapConfig: {
+        label_mode: 'full',
+        road_visibility: 'full',
+        boundary_visibility: 'full',
+        building_visibility: true,
+        land_water_tone: 'default',
+        relief_contrast: null,
+        opacity: 0.55,
+      },
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          basemap_config: expect.objectContaining({ opacity: 0.55 }),
+        }),
+      }),
+    );
+  });
+
   it('skips layer PATCH when the layer diff is empty', async () => {
     const layer = makeLayer();
     let state = makeSaveState({ localLayers: [layer] });

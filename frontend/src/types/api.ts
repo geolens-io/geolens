@@ -24,6 +24,7 @@ export interface MapBasemapConfig {
   building_visibility: boolean;
   land_water_tone: MapBasemapLandWaterTone;
   relief_contrast?: MapBasemapReliefContrast | null;
+  opacity?: number;
 }
 
 export interface TokenResponse {

@@ -251,12 +251,6 @@ export function MapBuilderPage() {
   // TODO(Phase 1038): include sublayerState in the save payload via basemap_config round-trip.
   const [sublayerState, setSublayerState] = useState<Record<string, { visible: boolean; opacity: number }>>({});
 
-  // Phase 1035: in-memory master opacity for the basemap group.
-  // TODO(Phase 1038): persist masterOpacity via a dedicated basemap_config.opacity field (requires
-  // backend schema addition to MapBasemapConfig). Spreading `opacity` directly into basemapConfig
-  // bypasses the type system and the field is stripped on the next API round-trip.
-  const [masterOpacity, setMasterOpacity] = useState(1);
-
   // Phase 1035: basemap group display object derived from localBasemap + showBasemapLabels
   const basemapGroup = useMemo(() => {
     if (!layers.localBasemap) return null;
@@ -272,7 +266,7 @@ export function MapBuilderPage() {
       presetName,
       providerLabel: undefined,
       visible: true,
-      opacity: masterOpacity,
+      opacity: layers.basemapConfig?.opacity ?? 1,
       sublayers: [
         {
           id: 'basemap:roads',
@@ -312,7 +306,7 @@ export function MapBuilderPage() {
         },
       ],
     };
-  }, [layers.localBasemap, layers.showBasemapLabels, sublayerState, masterOpacity]);
+  }, [layers.localBasemap, layers.showBasemapLabels, sublayerState, layers.basemapConfig]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
 
@@ -466,7 +460,6 @@ export function MapBuilderPage() {
   const handleResetBasemapAppearance = useCallback(() => {
     layers.setBasemapConfig(null);
     setSublayerState({});
-    setMasterOpacity(1);
     layers.markDirty(); // basemapConfig reset IS persisted (null → saved)
   }, [layers.setBasemapConfig, layers.markDirty]);
 
@@ -753,11 +746,10 @@ export function MapBuilderPage() {
         onSublayerVisibilityChange={handleToggleSublayerVisibility}
         onSublayerOpacityChange={handleSublayerOpacityChange}
         onMasterOpacityChange={(opacity) => {
-          setMasterOpacity(opacity);
-          // TODO(Phase 1038): persist masterOpacity via basemap_config.opacity field
-          // (requires backend MapBasemapConfig schema addition). Spreading `opacity`
-          // directly into basemapConfig bypasses the type system and is stripped on
-          // the next API round-trip, so markDirty() is omitted until persistence is wired.
+          const current = layers.basemapConfig
+            ?? normalizeBasemapConfig(null, layers.showBasemapLabels);
+          layers.setBasemapConfig({ ...current, opacity });
+          layers.markDirty();
         }}
       />
     );
