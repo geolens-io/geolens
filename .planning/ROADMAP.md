@@ -115,7 +115,7 @@
 **Plans**: 4 plans
 
 Plans:
-- [ ] 1048-01-popup-config-and-ui-polish-PLAN.md — FOLLOWUP-01 popup_config error surface + bundle 3 UI-REVIEW carry-over polish fixes
+- [x] 1048-01-popup-config-and-ui-polish-PLAN.md — FOLLOWUP-01 popup_config error surface + bundle 3 UI-REVIEW carry-over polish fixes
 - [ ] 1048-02-adddata-modal-audit-PLAN.md — FOLLOWUP-02 Add Data modal audit + inline P0 fixes under 1-hour budget
 - [ ] 1048-03-sourcestab-test-drain-PLAN.md — FOLLOWUP-03 drain 8-item SourcesTab it.todo backlog to zero
 - [ ] 1048-04-smoke-gate-and-changelog-PLAN.md — CLOSE-01 7-gate smoke + CLOSE-02 CHANGELOG [Unreleased]
@@ -126,7 +126,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1046. builder-perf-and-code-audit | 2/2 | Complete | 2026-05-16 |
 | 1047. perf-and-code-quality-fixes | 6/6 | Complete   | 2026-05-16 |
-| 1048. followups-and-closeout | 0/4 | Not started | - |
+| 1048. followups-and-closeout | 1/4 | In Progress|  |
 
 <details>
 <summary>✅ v1009.1 Builder Smoke Polish (Phase 1045) — SHIPPED 2026-05-15</summary>

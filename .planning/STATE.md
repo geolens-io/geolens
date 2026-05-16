@@ -4,13 +4,13 @@ milestone: v1010
 milestone_name: Builder Performance & Code Quality
 status: executing
 stopped_at: "Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)"
-last_updated: "2026-05-16T22:18:16.977Z"
-last_activity: 2026-05-16 -- Phase 1048 planning complete
+last_updated: "2026-05-16T22:25:00.317Z"
+last_activity: 2026-05-16
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 13
 ---
 
@@ -18,19 +18,19 @@ progress:
 
 ## Current Position
 
-Phase: 1047 (perf-and-code-quality-fixes) — COMPLETE (pending human-verify smoke gate)
-Plan: 6 of 6
+Phase: 1048 (followups-and-closeout) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-05-16 -- Phase 1048 planning complete
+Last activity: 2026-05-16
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80%
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1047 — perf-and-code-quality-fixes
+**Current focus:** Phase 1048 — followups-and-closeout
 
 ## Last Shipped Milestone
 
@@ -62,6 +62,6 @@ None at roadmap creation.
 
 ## Session Continuity
 
-Last session: 2026-05-16T21:20:00.000Z
+Last session: 2026-05-16T22:25:00.313Z
 Stopped at: Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)
-Resume file: None (self-contained checkpoint — paste smoke results to complete)
+Resume file: None
