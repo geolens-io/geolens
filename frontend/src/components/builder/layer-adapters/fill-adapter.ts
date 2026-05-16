@@ -1,6 +1,6 @@
 import type { FillExtrusionLayerSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig, syncLayerFilter } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
@@ -88,9 +88,7 @@ export const fillAdapter: LayerAdapter = {
       if (strokeDisabled) {
         map.setLayoutProperty(outlineId, 'visibility', 'none');
       }
-      if (filter && Array.isArray(filter) && filter.length > 0) {
-        map.setFilter(outlineId, filter);
-      }
+      syncLayerFilter(map, outlineId, filter);
 
       // Companion fill-extrusion layer: only when a builder height column is set
       if (heightColumn) {
@@ -111,9 +109,7 @@ export const fillAdapter: LayerAdapter = {
             'fill-extrusion-vertical-gradient': true,
           },
         });
-        if (filter && Array.isArray(filter) && filter.length > 0) {
-          map.setFilter(extrusionId, filter);
-        }
+        syncLayerFilter(map, extrusionId, filter);
       }
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${layerId}:`, e);
@@ -127,11 +123,7 @@ export const fillAdapter: LayerAdapter = {
     if (map.getLayer(layerId)) {
       syncVectorPaint(map, layerId, rawPaint, 'fill');
       map.setPaintProperty(layerId, 'fill-opacity', getExpressionSafeOpacity(rawPaint, 'fill', opacity ?? 1));
-      if (filter && Array.isArray(filter) && filter.length > 0) {
-        map.setFilter(layerId, filter);
-      } else {
-        if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
-      }
+      syncLayerFilter(map, layerId, filter);
       const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
       const outlineColor = (builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
       try {
@@ -157,11 +149,7 @@ export const fillAdapter: LayerAdapter = {
       }
       map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
       map.setLayoutProperty(outlineId, 'visibility', outlineStrokeDisabled ? 'none' : 'visible');
-      if (filter && Array.isArray(filter) && filter.length > 0) {
-        map.setFilter(outlineId, filter);
-      } else {
-        if (map.getFilter(outlineId) != null) map.setFilter(outlineId, null);
-      }
+      syncLayerFilter(map, outlineId, filter);
     }
     // Sync fill-extrusion companion layer
     const extrusionId = `${layerId}-extrusion`;
@@ -184,11 +172,7 @@ export const fillAdapter: LayerAdapter = {
         try {
           map.setLayerZoomRange(extrusionId, extrusionMinZoom, 22);
         } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion zoom range:`, e); }
-        if (filter && Array.isArray(filter) && filter.length > 0) {
-          map.setFilter(extrusionId, filter);
-        } else {
-          if (map.getFilter(extrusionId) != null) map.setFilter(extrusionId, null);
-        }
+        syncLayerFilter(map, extrusionId, filter);
         // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
         try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
       }

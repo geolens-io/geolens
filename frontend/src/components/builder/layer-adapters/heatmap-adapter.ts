@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { CUSTOM_PAINT_PROPS, getBuilderStyleConfig, paintValueChanged, syncSingleLayerVisibility } from './shared';
+import { CUSTOM_PAINT_PROPS, getBuilderStyleConfig, paintValueChanged, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { getRampColors } from '@/lib/color-ramps';
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
@@ -61,9 +61,7 @@ export const heatmapAdapter: LayerAdapter = {
         } as Record<string, unknown>,
       });
 
-      if (filter && Array.isArray(filter) && filter.length > 0) {
-        map.setFilter(layerId, filter);
-      }
+      syncLayerFilter(map, layerId, filter);
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] addLayer (heatmap) failed for ${layerId}:`, e);
     }
@@ -91,11 +89,7 @@ export const heatmapAdapter: LayerAdapter = {
     const storedOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
     map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
 
-    if (filter && Array.isArray(filter) && filter.length > 0) {
-      map.setFilter(layerId, filter);
-    } else {
-      map.setFilter(layerId, null);
-    }
+    syncLayerFilter(map, layerId, filter);
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {

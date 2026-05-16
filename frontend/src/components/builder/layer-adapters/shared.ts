@@ -1,4 +1,4 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import type { StyleConfig } from '@/types/api';
 
 /** Custom paint props stored in layer JSON but not valid MapLibre paint properties.
@@ -150,6 +150,25 @@ export function finalizeLayer(
   map.setPaintProperty(layerId, `${geomType}-opacity`, getExpressionSafeOpacity(rawPaint, geomType, masterOpacity));
   if (filter && Array.isArray(filter) && filter.length > 0) {
     map.setFilter(layerId, filter);
+  }
+}
+
+/**
+ * Sync the MapLibre layer filter for a given layer ID.
+ * If `filter` is a non-empty array it is applied directly; otherwise the filter
+ * is cleared by passing `null`.  Safe to call when the layer does not exist
+ * (no-op). Extracted from duplicated filter-checking branches across adapters (CA-01).
+ */
+export function syncLayerFilter(
+  map: MaplibreMap,
+  layerId: string,
+  filter: FilterSpecification | unknown[] | null | undefined,
+): void {
+  if (!map.getLayer(layerId)) return;
+  if (filter && Array.isArray(filter) && filter.length > 0) {
+    map.setFilter(layerId, filter as FilterSpecification);
+  } else {
+    map.setFilter(layerId, null);
   }
 }
 

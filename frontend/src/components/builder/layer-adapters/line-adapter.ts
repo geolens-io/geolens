@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getBuilderStyleConfig, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getBuilderStyleConfig, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 const ARROW_IMAGE_ID = 'geolens-line-arrow';
@@ -105,11 +105,7 @@ function syncArrowLayer(map: MaplibreMap, input: AdapterLayerInput) {
   map.setPaintProperty(id, 'icon-color', config.color);
   map.setPaintProperty(id, 'icon-opacity', input.opacity ?? 1);
   map.setLayoutProperty(id, 'visibility', input.visible ? 'visible' : 'none');
-  if (input.filter && Array.isArray(input.filter) && input.filter.length > 0) {
-    map.setFilter(id, input.filter);
-  } else if (map.getFilter(id) != null) {
-    map.setFilter(id, null);
-  }
+  syncLayerFilter(map, id, input.filter);
 }
 
 export const lineAdapter: LayerAdapter = {
@@ -168,11 +164,7 @@ export const lineAdapter: LayerAdapter = {
     if (map.getLayer(layerId)) {
       map.setPaintProperty(layerId, 'line-dasharray', dasharray ?? undefined);
     }
-    if (filter && Array.isArray(filter) && filter.length > 0) {
-      map.setFilter(layerId, filter);
-    } else {
-      if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
-    }
+    syncLayerFilter(map, layerId, filter);
     syncArrowLayer(map, input);
   },
 

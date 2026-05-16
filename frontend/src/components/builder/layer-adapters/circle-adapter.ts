@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility } from './shared';
+import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 export const circleAdapter: LayerAdapter = {
@@ -36,11 +36,7 @@ export const circleAdapter: LayerAdapter = {
     if (!map.getLayer(layerId)) return;
     syncVectorPaint(map, layerId, rawPaint, 'circle');
     map.setPaintProperty(layerId, 'circle-opacity', getExpressionSafeOpacity(rawPaint, 'circle', opacity ?? 1));
-    if (filter && Array.isArray(filter) && filter.length > 0) {
-      map.setFilter(layerId, filter);
-    } else {
-      if (map.getFilter(layerId) != null) map.setFilter(layerId, null);
-    }
+    syncLayerFilter(map, layerId, filter);
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
