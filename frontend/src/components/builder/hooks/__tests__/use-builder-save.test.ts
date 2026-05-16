@@ -515,12 +515,13 @@ describe('useBuilderSave', () => {
     expect(result.current.isSaveRetryable).toBe(true);
   });
 
-  it('surfaces popupConfigInvalid toast with dedupe id + extended duration when layer has invalid popup expression', async () => {
+  it('surfaces popupConfigInvalidNamed toast with dedupe id + extended duration for named layer (Test A)', async () => {
     const { toast } = await import('sonner');
     const state = makeSaveState({
       hasUnsavedChanges: true,
       localLayers: [
         makeLayer({
+          display_name: 'My Test Layer',
           popup_config: { enabled: true, expression: '{{missing_column}}', visible_fields: null },
           dataset_column_info: [{ name: 'present_column', type: 'text' }],
         }),
@@ -532,12 +533,87 @@ describe('useBuilderSave', () => {
       await result.current.handleSave();
     });
 
+    // t() mock returns the key; we verify the NEW key (not popupConfigInvalid) is used
+    // and the toast options preserve dedupe id + extended duration
     expect(toast.error).toHaveBeenCalledWith(
-      'toasts.popupConfigInvalid',
+      'toasts.popupConfigInvalidNamed',
       expect.objectContaining({ id: 'popup-config-invalid', duration: 6000 }),
     );
     expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
     expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('surfaces popupConfigInvalidNamed toast with fallback name when display_name is null (Test B)', async () => {
+    const { toast } = await import('sonner');
+    const state = makeSaveState({
+      hasUnsavedChanges: true,
+      localLayers: [
+        makeLayer({
+          display_name: null,
+          popup_config: { enabled: true, expression: '{{missing_column}}', visible_fields: null },
+          dataset_column_info: [{ name: 'present_column', type: 'text' }],
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    // Same key, same options — fallback name path also goes through popupConfigInvalidNamed
+    expect(toast.error).toHaveBeenCalledWith(
+      'toasts.popupConfigInvalidNamed',
+      expect.objectContaining({ id: 'popup-config-invalid', duration: 6000 }),
+    );
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('routes backend 422 popup_config rejection to popupConfigBackendRejected toast (Test C)', async () => {
+    const { toast } = await import('sonner');
+    // Layer has no popup_config — bypasses frontend pre-check; save proceeds to API
+    const state = makeSaveState({
+      hasUnsavedChanges: true,
+      localLayers: [makeLayer({ popup_config: null })],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    // Reject with a FastAPI 422 whose detail array tags popup_config
+    mockUpdateMapMutateAsync.mockRejectedValueOnce(
+      new ApiError('Unprocessable Entity', 422, [
+        { loc: ['body', 'layers', 0, 'popup_config', 'expression'], msg: 'String should have at most 500 characters', type: 'string_too_long' },
+      ]),
+    );
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    // t() mock returns the key; verify it is the popup-specific key, not saveFailed
+    expect(toast.error).toHaveBeenCalledWith(
+      'toasts.popupConfigBackendRejected',
+      expect.anything(),
+    );
+    expect(result.current.saveStatus).toBe('failed');
+  });
+
+  it('routes non-popup ApiError (500) to generic saveFailed toast (Test D)', async () => {
+    const { toast } = await import('sonner');
+    const state = makeSaveState({
+      hasUnsavedChanges: true,
+      localLayers: [makeLayer({ popup_config: null })],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    mockUpdateMapMutateAsync.mockRejectedValueOnce(new ApiError('Server Error', 500, undefined));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
+    expect(result.current.saveStatus).toBe('failed');
   });
 
   it('omits widgets when active widgets match client defaults already saved as defaults', () => {

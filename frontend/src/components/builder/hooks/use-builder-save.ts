@@ -377,7 +377,8 @@ export function useBuilderSave(state: SaveState) {
       return !validatePlaceholders(extractPlaceholders(cfg.expression), columns).ok;
     });
     if (invalidLayer) {
-      toast.error(t('toasts.popupConfigInvalid'), { id: 'popup-config-invalid', duration: 6000 });
+      const layerName = invalidLayer.display_name ?? t('layerFallbackName');
+      toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
 
@@ -438,8 +439,27 @@ export function useBuilderSave(state: SaveState) {
       if (map && id) {
         captureThumbnail(map, id, queryClient, localLayers);
       }
-    } catch {
+    } catch (err) {
       setLastSaveFailed(true);
+      // Detect FastAPI 422 popup_config rejection and surface a structured toast.
+      // err.body is the raw detail value from the response (may be an array of
+      // {loc, msg, type} objects for validation errors). Any unexpected shape
+      // falls through to the generic saveFailed path — do not throw here.
+      if (
+        err instanceof ApiError &&
+        err.status === 422 &&
+        Array.isArray(err.body)
+      ) {
+        const popupLocItem = (err.body as Array<{ loc?: unknown[]; msg?: string; type?: string }>)
+          .find((item) => Array.isArray(item.loc) && item.loc.includes('popup_config'));
+        if (popupLocItem && Array.isArray(popupLocItem.loc)) {
+          const loc = popupLocItem.loc as string[];
+          const popupIdx = loc.indexOf('popup_config');
+          const field = loc.slice(popupIdx).join('.');
+          toast.error(t('toasts.popupConfigBackendRejected', { field }), {});
+          return;
+        }
+      }
       toast.error(t('toasts.saveFailed'));
     }
   }
