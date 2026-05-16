@@ -57,7 +57,6 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof FolderGroup
     groupId: 'group-1',
     groupName: 'My Group',
     visible: true,
-    opacity: 1,
     selected: false,
     isExpanded: false,
     isDragging: false,
@@ -65,7 +64,6 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof FolderGroup
     onSelectGroup: vi.fn(),
     onToggleExpand: vi.fn(),
     onToggleVisibility: vi.fn(),
-    onOpacityChange: vi.fn(),
     onRenameGroup: vi.fn(),
     onAddLayer: vi.fn(),
     onUngroup: vi.fn(),
@@ -117,7 +115,7 @@ describe('FolderGroupRow', () => {
     expect(onSelectGroup).not.toHaveBeenCalled();
   });
 
-  it('Test 4: Row body click (not on caret/eye/opacity/kebab) calls onSelectGroup(groupId)', () => {
+  it('Test 4: Row body click (not on caret/eye/kebab) calls onSelectGroup(groupId)', () => {
     const onSelectGroup = vi.fn();
     render(<FolderGroupRow {...defaultProps({ onSelectGroup })} />);
 
