@@ -1080,6 +1080,7 @@ export function MapBuilderPage() {
             className="border-e bg-background flex flex-col overflow-hidden"
           >
             <LazyLoadErrorBoundary>
+              <Suspense fallback={<SceneSpinnerFallback />}>
               <LayerEditorPanel
                 key={layers.expandedLayerId ?? 'no-layer'}
                 layer={editingLayer ?? {
@@ -1129,6 +1130,7 @@ export function MapBuilderPage() {
                 breadcrumbPresetName={breadcrumbPresetName}
                 onBreadcrumbClick={onBreadcrumbClick}
               />
+              </Suspense>
             </LazyLoadErrorBoundary>
           </aside>
         )}
@@ -1152,6 +1154,7 @@ export function MapBuilderPage() {
                 </SheetDescription>
               </SheetHeader>
               <LazyLoadErrorBoundary>
+                <Suspense fallback={<SceneSpinnerFallback />}>
                 <LayerEditorPanel
                   key={layers.expandedLayerId ?? 'no-layer'}
                   layer={editingLayer ?? {
@@ -1200,6 +1203,7 @@ export function MapBuilderPage() {
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
                 />
+                </Suspense>
               </LazyLoadErrorBoundary>
             </SheetContent>
           </Sheet>
