@@ -7,6 +7,7 @@ import {
   getThemeBasemap,
   findBasemapById,
   basemapThumbnail,
+  applyBasemapConfigToStyle,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
@@ -304,5 +305,69 @@ describe('preset IDs', () => {
 
   it('DARK_PRESET_ID is openfreemap-dark', () => {
     expect(DARK_PRESET_ID).toBe('openfreemap-dark');
+  });
+});
+
+describe('applyBasemapConfigToStyle master opacity', () => {
+  it('multiplies raster-opacity on raster basemap layers by config.opacity', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
+      layers: [
+        { id: 'osm', type: 'raster', source: 'osm' },
+      ],
+    };
+    const next = applyBasemapConfigToStyle(style, { opacity: 0.55 });
+    const layer = next.layers[0] as unknown as { paint: { 'raster-opacity': number } };
+    expect(layer.paint['raster-opacity']).toBeCloseTo(0.55, 5);
+  });
+
+  it('multiplies existing line-opacity by config.opacity (compose with applyProminence)', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['x'] } },
+      layers: [
+        {
+          id: 'road-primary',
+          type: 'line',
+          source: 'v',
+          'source-layer': 'transportation',
+          paint: { 'line-opacity': 1 },
+        },
+      ],
+    };
+    const next = applyBasemapConfigToStyle(style, {
+      road_visibility: 'subtle',
+      opacity: 0.5,
+    });
+    const layer = next.layers[0] as unknown as { paint: { 'line-opacity': number } };
+    // applyProminence writes line-opacity = 0.35 for subtle roads;
+    // master opacity 0.5 multiplies to 0.175.
+    expect(layer.paint['line-opacity']).toBeCloseTo(0.175, 5);
+  });
+
+  it('opacity=1 is a no-op (paint unchanged for raster)', () => {
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.8 } }],
+    };
+    const next = applyBasemapConfigToStyle(style, { opacity: 1 });
+    const layer = next.layers[0] as unknown as { paint: { 'raster-opacity': number } };
+    expect(layer.paint['raster-opacity']).toBe(0.8);
+  });
+
+  it('leaves expression-valued *-opacity untouched (no AST surgery)', () => {
+    const expression = ['interpolate', ['linear'], ['zoom'], 0, 0.2, 14, 0.8] as unknown as number;
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
+      layers: [
+        { id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': expression } },
+      ],
+    };
+    const next = applyBasemapConfigToStyle(style, { opacity: 0.5 });
+    const layer = next.layers[0] as unknown as { paint: { 'raster-opacity': unknown } };
+    expect(layer.paint['raster-opacity']).toEqual(expression);
   });
 });

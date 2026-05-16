@@ -23,6 +23,7 @@ export const DEFAULT_BASEMAP_CONFIG: MapBasemapConfig = {
   building_visibility: true,
   land_water_tone: 'default',
   relief_contrast: null,
+  opacity: 1,
 };
 
 const VISIBILITY_MODES = new Set<MapBasemapVisibilityMode>(['full', 'subtle', 'hidden']);
@@ -203,6 +204,13 @@ export function normalizeBasemapConfig(
       : DEFAULT_BASEMAP_CONFIG.building_visibility,
     land_water_tone: validLandWaterTone(value?.land_water_tone),
     relief_contrast: validReliefContrast(value?.relief_contrast),
+    opacity:
+      typeof value?.opacity === 'number'
+      && Number.isFinite(value.opacity)
+      && value.opacity >= 0
+      && value.opacity <= 1
+        ? value.opacity
+        : DEFAULT_BASEMAP_CONFIG.opacity,
   };
 }
 
@@ -297,6 +305,43 @@ function applyReliefContrast(
   });
 }
 
+// Multiplicative opacity keys MapLibre exposes on the layer paint surface.
+// Keep this set narrow: only canonical *-opacity scalars MapLibre treats
+// as numeric. Expression values (arrays/objects) and non-number scalars
+// are left untouched.
+const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
+  raster: ['raster-opacity'],
+  fill: ['fill-opacity'],
+  'fill-extrusion': ['fill-extrusion-opacity'],
+  line: ['line-opacity'],
+  symbol: ['text-opacity', 'icon-opacity'],
+  circle: ['circle-opacity', 'circle-stroke-opacity'],
+  heatmap: ['heatmap-opacity'],
+};
+
+function applyMasterOpacity(layer: StyleLayer, masterOpacity: number): StyleLayer {
+  if (!Number.isFinite(masterOpacity) || masterOpacity >= 1) return layer;
+  if (masterOpacity < 0) return layer;
+  const type = typeof layer.type === 'string' ? layer.type : '';
+  const keys = OPACITY_PAINT_KEYS_BY_TYPE[type];
+  if (!keys || keys.length === 0) return layer;
+  const existingPaint = (layer.paint ?? {}) as Record<string, unknown>;
+  const nextPaint: Record<string, unknown> = { ...existingPaint };
+  for (const key of keys) {
+    const existing = existingPaint[key];
+    if (existing == null) {
+      // Layer has no explicit *-opacity set — seed from MapLibre's default
+      // of 1.0 and multiply, so plain layers dim too.
+      nextPaint[key] = masterOpacity;
+    } else if (typeof existing === 'number' && Number.isFinite(existing)) {
+      nextPaint[key] = existing * masterOpacity;
+    }
+    // Expression/non-number values: leave untouched (safest — multiplying
+    // into an interpolate/step expression requires AST surgery).
+  }
+  return { ...layer, paint: nextPaint } as StyleLayer;
+}
+
 function applyBasemapLayerConfig(
   layer: StyleLayer,
   config: MapBasemapConfig,
@@ -335,6 +380,12 @@ function applyBasemapLayerConfig(
       'text-halo-width': 0.8,
     });
   }
+
+  // Path R (quick-260516-9g9): master-opacity multiplier applied LAST so it
+  // composes on top of per-sublayer prominence (e.g., subtle road
+  // line-opacity=0.35 * masterOpacity=0.55 = 0.1925). config.opacity is
+  // optional on MapBasemapConfig but always set by normalizeBasemapConfig.
+  next = applyMasterOpacity(next, config.opacity ?? 1);
 
   return next;
 }
