@@ -4,7 +4,6 @@ import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Slider } from '@/components/ui/slider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +30,6 @@ interface StackRowProps {
   dragHandleProps: DragHandleProps;
   onSelectLayer: (id: string) => void;
   onToggleVisibility: (id: string) => void;
-  onOpacityChange: (layerId: string, opacity: number) => void;
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
@@ -104,7 +102,6 @@ export const StackRow = memo(function StackRow({
   dragHandleProps,
   onSelectLayer,
   onToggleVisibility,
-  onOpacityChange,
   onRemove,
   onRename,
   onDuplicate,
@@ -128,7 +125,6 @@ export const StackRow = memo(function StackRow({
   const committingRef = useRef(false);
 
   const displayName = layer.display_name ?? layer.dataset_name;
-  const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
 
   function handleStartRename() {
     setNameValue(displayName);
@@ -175,7 +171,7 @@ export const StackRow = memo(function StackRow({
       className={cn(
         // SP-14: explicit cursor-pointer + hover:bg-[var(--surface-2)] on the row body
         // so hover affordance is discoverable across the whole row, not just child controls.
-        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         // Row states — unified: either single-selection focus OR multi-selection shows primary tint
         !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2)]',
@@ -299,31 +295,7 @@ export const StackRow = memo(function StackRow({
         )}
       </div>
 
-      {/* Cell 6: Opacity slider — stopPropagation prevents row click on slider drag */}
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
-      <div
-        className="flex items-center"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Slider
-          aria-label={t('stackRow.opacitySlider', {
-            defaultValue: 'Opacity for {{name}}',
-            name: displayName,
-          })}
-          aria-valuetext={`${Math.round(opacity * 100)}%`}
-          value={[opacity]}
-          min={0}
-          max={1}
-          step={0.05}
-          className="w-[60px]"
-          onValueChange={([value]) => {
-            onOpacityChange(layer.id, Number((value ?? opacity).toFixed(2)));
-          }}
-        />
-      </div>
-
-      {/* Cell 7: Kebab menu — stopPropagation prevents row click when opening menu */}
+      {/* Cell 6: Kebab menu — stopPropagation prevents row click when opening menu */}
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
       <div onClick={(e) => e.stopPropagation()}>
         <DropdownMenu>

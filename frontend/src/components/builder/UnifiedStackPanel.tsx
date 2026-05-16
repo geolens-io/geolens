@@ -128,7 +128,6 @@ interface SortableStackRowProps {
   selected: boolean;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
-  onOpacityChange: (layerId: string, opacity: number) => void;
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
@@ -152,7 +151,6 @@ const SortableStackRow = memo(function SortableStackRow({
   selected,
   onSelectLayer,
   onToggleVisibility,
-  onOpacityChange,
   onRemove,
   onRename,
   onDuplicate,
@@ -198,7 +196,6 @@ const SortableStackRow = memo(function SortableStackRow({
         dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
         onSelectLayer={handleSelectLayer}
         onToggleVisibility={onToggleVisibility}
-        onOpacityChange={onOpacityChange}
         onRemove={onRemove}
         onRename={onRename}
         onDuplicate={onDuplicate}
@@ -935,7 +932,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                               selected={child.id === selectedLayerId}
                               onSelectLayer={onSelectLayer}
                               onToggleVisibility={onToggleVisibility}
-                              onOpacityChange={onOpacityChange}
                               onRemove={onRemove}
                               onRename={onRename}
                               onDuplicate={onDuplicate}
@@ -966,7 +962,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     selected={layer.id === selectedLayerId}
                     onSelectLayer={onSelectLayer}
                     onToggleVisibility={onToggleVisibility}
-                    onOpacityChange={onOpacityChange}
                     onRemove={onRemove}
                     onRename={onRename}
                     onDuplicate={onDuplicate}
@@ -1017,7 +1012,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                       dragHandleProps={{ attributes: {} as DraggableAttributes, listeners: undefined, setActivatorNodeRef: NOOP }}
                       onSelectLayer={NOOP}
                       onToggleVisibility={NOOP}
-                      onOpacityChange={NOOP}
                       onRemove={NOOP}
                       onRename={NOOP}
                       onDuplicate={NOOP}
