@@ -70,19 +70,19 @@ describe('MapCoordReadout — SP-02 move-event subscription', () => {
 
   beforeEach(() => {
     rafCallbacks = [];
-    originalRaf = global.requestAnimationFrame;
-    originalCaf = global.cancelAnimationFrame;
+    originalRaf = globalThis.requestAnimationFrame;
+    originalCaf = globalThis.cancelAnimationFrame;
     // Synchronous rAF so we can flush updates within `act()`.
-    global.requestAnimationFrame = ((cb: () => void) => {
+    globalThis.requestAnimationFrame = ((cb: () => void) => {
       rafCallbacks.push(cb);
       return rafCallbacks.length;
     }) as typeof requestAnimationFrame;
-    global.cancelAnimationFrame = vi.fn();
+    globalThis.cancelAnimationFrame = vi.fn();
   });
 
   afterEach(() => {
-    global.requestAnimationFrame = originalRaf;
-    global.cancelAnimationFrame = originalCaf;
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCaf;
   });
 
   function flushRaf() {
@@ -146,18 +146,18 @@ describe('MapCoordReadout — SP-12 representative-fraction segment', () => {
 
   beforeEach(() => {
     rafCallbacks = [];
-    originalRaf = global.requestAnimationFrame;
-    originalCaf = global.cancelAnimationFrame;
-    global.requestAnimationFrame = ((cb: () => void) => {
+    originalRaf = globalThis.requestAnimationFrame;
+    originalCaf = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((cb: () => void) => {
       rafCallbacks.push(cb);
       return rafCallbacks.length;
     }) as typeof requestAnimationFrame;
-    global.cancelAnimationFrame = vi.fn();
+    globalThis.cancelAnimationFrame = vi.fn();
   });
 
   afterEach(() => {
-    global.requestAnimationFrame = originalRaf;
-    global.cancelAnimationFrame = originalCaf;
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCaf;
   });
 
   function flushRaf() {

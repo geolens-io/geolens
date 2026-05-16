@@ -1,5 +1,6 @@
 import { apiFetch, ApiError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
+import type { TokenResponse } from '@/types/api';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
@@ -244,10 +245,10 @@ describe('apiFetch', () => {
       const { refreshAccessToken } = await import('@/api/auth');
       const mockRefresh = vi.mocked(refreshAccessToken);
 
-      let resolveRefresh: (v: unknown) => void = () => {};
+      let resolveRefresh: (v: TokenResponse | PromiseLike<TokenResponse>) => void = () => {};
       mockRefresh.mockImplementation(
         () =>
-          new Promise((resolve) => {
+          new Promise<TokenResponse>((resolve) => {
             resolveRefresh = resolve;
           }),
       );
