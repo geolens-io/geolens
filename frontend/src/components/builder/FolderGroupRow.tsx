@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -24,7 +23,6 @@ interface FolderGroupRowProps {
   groupId: string;
   groupName: string;
   visible: boolean;
-  opacity: number;
   selected: boolean;
   isExpanded: boolean;
   isDragging?: boolean;
@@ -32,7 +30,6 @@ interface FolderGroupRowProps {
   onSelectGroup: (id: string) => void;
   onToggleExpand: (id: string) => void;
   onToggleVisibility: (id: string) => void;
-  onOpacityChange: (id: string, opacity: number) => void;
   onRenameGroup: (id: string, name: string) => void;
   onAddLayer: (id: string) => void;
   onUngroup: (id: string) => void;
@@ -49,7 +46,6 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   groupId,
   groupName,
   visible,
-  opacity: opacityProp,
   selected,
   isExpanded,
   isDragging = false,
@@ -57,7 +53,6 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
-  onOpacityChange,
   onRenameGroup,
   onAddLayer,
   onUngroup,
@@ -75,8 +70,6 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   const committingRef = useRef(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const opacity = typeof opacityProp === 'number' && Number.isFinite(opacityProp) ? opacityProp : 1;
 
   // Reset state on groupId change
   useEffect(() => {
@@ -149,7 +142,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
       {/* Row grid */}
       <div
         className={cn(
-          'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+          'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
           !(selected || isMultiSelected) && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
           (selected || isMultiSelected) && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
           isDragging && 'opacity-40 bg-[var(--surface-2,theme(colors.accent.DEFAULT))] scale-[0.98]',
@@ -272,31 +265,7 @@ export const FolderGroupRow = memo(function FolderGroupRow({
           )}
         </div>
 
-        {/* Cell 6: Opacity slider */}
-        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
-        <div
-          className="flex items-center"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Slider
-            aria-label={t('stackRow.opacitySlider', {
-              defaultValue: 'Opacity for {{name}}',
-              name: groupName,
-            })}
-            aria-valuetext={`${Math.round(opacity * 100)}%`}
-            value={[opacity]}
-            min={0}
-            max={1}
-            step={0.05}
-            className="w-[60px]"
-            onValueChange={([value]) => {
-              onOpacityChange(groupId, Number((value ?? opacity).toFixed(2)));
-            }}
-          />
-        </div>
-
-        {/* Cell 7: Kebab menu */}
+        {/* Cell 6: Kebab menu */}
         {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
         <div onClick={(e) => e.stopPropagation()}>
           <DropdownMenu>

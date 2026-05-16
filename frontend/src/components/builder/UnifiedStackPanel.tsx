@@ -299,7 +299,6 @@ interface FolderGroupRowWrapperProps {
   onSelectGroup: (id: string | null) => void;
   onToggleExpand: (id: string) => void;
   onToggleVisibility: (id: string) => void;
-  onOpacityChange: (id: string, opacity: number) => void;
   onRenameGroup: (id: string, name: string) => void;
   onAddLayer: (id: string) => void;
   onUngroup: (id: string) => void;
@@ -319,7 +318,6 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
-  onOpacityChange,
   onRenameGroup,
   onAddLayer,
   onUngroup,
@@ -359,7 +357,6 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
   );
 
   const displayName = layer.display_name ?? layer.dataset_name;
-  const opacity = typeof layer.opacity === 'number' && Number.isFinite(layer.opacity) ? layer.opacity : 1;
 
   return (
     <div
@@ -372,7 +369,6 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
         groupId={layer.id}
         groupName={displayName}
         visible={layer.visible}
-        opacity={opacity}
         selected={selected}
         isExpanded={isExpanded}
         isDragging={isDragging}
@@ -380,7 +376,6 @@ const FolderGroupRowWrapper = memo(function FolderGroupRowWrapper({
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
         onToggleVisibility={onToggleVisibility}
-        onOpacityChange={onOpacityChange}
         onRenameGroup={onRenameGroup}
         onAddLayer={onAddLayer}
         onUngroup={onUngroup}
@@ -591,7 +586,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // onReorder is intentionally not destructured here — Phase 1040 lifted DragEnd
   // to MapBuilderPage which calls layers.handleReorder directly. The prop is kept
   // in the interface for call-site compatibility (MapBuilderPage still passes it).
-  onOpacityChange,
+  // onOpacityChange is intentionally not destructured here — the basemap-group
+  // wrapper hard-codes `() => {}` (opacity goes through Scene B's master slider),
+  // FolderGroupRow no longer renders a row slider (quick task 260515-sqf), and
+  // StackRow no longer renders a row slider (quick task 260515-rdn). The prop is
+  // kept in the interface for call-site compatibility (MapBuilderPage still
+  // passes it, and `handlers.onOpacityChange` still feeds LayerEditorPanel).
   onRemove,
   onRename,
   onDuplicate,
@@ -907,7 +907,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                         onSelectGroup={onSelectLayer}
                         onToggleExpand={safeToggleGroupExpand}
                         onToggleVisibility={onToggleVisibility}
-                        onOpacityChange={onOpacityChange}
                         onRenameGroup={safeRenameGroup}
                         onAddLayer={safeAddLayerToGroup}
                         onUngroup={safeUngroup}
