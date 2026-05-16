@@ -83,29 +83,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERF-01 | TBD | Pending |
-| PERF-02 | TBD | Pending |
-| PERF-03 | TBD | Pending |
-| PERF-04 | TBD | Pending |
-| PERF-05 | TBD | Pending |
-| PERF-06 | TBD | Pending |
-| CODE-01 | TBD | Pending |
-| CODE-02 | TBD | Pending |
-| CODE-03 | TBD | Pending |
-| CODE-04 | TBD | Pending |
-| CODE-05 | TBD | Pending |
-| CODE-06 | TBD | Pending |
-| FOLLOWUP-01 | TBD | Pending |
-| FOLLOWUP-02 | TBD | Pending |
-| FOLLOWUP-03 | TBD | Pending |
-| CLOSE-01 | TBD | Pending |
-| CLOSE-02 | TBD | Pending |
+| PERF-01 | Phase 1047 | Pending |
+| PERF-02 | Phase 1047 | Pending |
+| PERF-03 | Phase 1047 | Pending |
+| PERF-04 | Phase 1047 | Pending |
+| PERF-05 | Phase 1047 | Pending |
+| PERF-06 | Phase 1047 | Pending |
+| CODE-01 | Phase 1046 | Pending |
+| CODE-02 | Phase 1047 | Pending |
+| CODE-03 | Phase 1047 | Pending |
+| CODE-04 | Phase 1047 | Pending |
+| CODE-05 | Phase 1047 | Pending |
+| CODE-06 | Phase 1047 | Pending |
+| FOLLOWUP-01 | Phase 1048 | Pending |
+| FOLLOWUP-02 | Phase 1048 | Pending |
+| FOLLOWUP-03 | Phase 1048 | Pending |
+| CLOSE-01 | Phase 1048 | Pending |
+| CLOSE-02 | Phase 1048 | Pending |
 
 **Coverage:**
 - v1010 requirements: 17 total
-- Mapped to phases: 0 (filled by roadmapper)
-- Unmapped: 17 (filled by roadmapper)
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-16*
-*Last updated: 2026-05-16 after /gsd-new-milestone questioning*
+*Last updated: 2026-05-16 after roadmap creation*
