@@ -1,35 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1009.1
-milestone_name: Builder Smoke Polish
-status: completed
-stopped_at: v1009.1 shipped and archived 2026-05-15. Awaiting next milestone.
-last_updated: "2026-05-15T20:45:00.000Z"
-last_activity: 2026-05-15 — Quick task 260515-mmo (--discuss): SP-12 representative-fraction "1:N" readout landed on Builder pill (Viewer pill unchanged via `showScale={false}` default). Playwright MCP confirms 4-segment pill `20.00° N · 0.00° E · z 2.0 · 1:139M` on Builder, denominator scales correctly with zoom. Also caught + fixed a latent pre-SP-12 overlap between the pill and NavigationControl (pill shifted from `right-2` to `right-14`, measured 17px gap). v1009.1 followup tail FULLY CLOSED.
+milestone: v1010
+milestone_name: Builder Performance & Code Quality
+status: planning
+last_updated: "2026-05-16T16:54:58.614Z"
+last_activity: 2026-05-16
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1009.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-16 — Completed quick task 260516-feh (--full sweep): three row-slider follow-ups closed in one pass. (1) FEH-01: defensive hardening of `popupConfigInvalid` toast in `use-builder-save.ts:380` — adds Sonner `id: 'popup-config-invalid'` (dedupe) + `duration: 6000` + new vitest case. Research falsified all 3 original hypotheses (toast IS firing; bug was likely Sonner's 4s default duration aging out or stale observation). (2) FEH-02: bulk-delete e2e in `builder-v1-5.spec.ts:485-510` updated to SP-01 portal architecture — research showed test wasn't flaky, it was structurally broken vs SP-01 (`bbde1a5d`) which moved Delete behind a portaled DropdownMenu; new locator uses `data-testid="bulk-action-overflow"` → `data-testid="bulk-action-delete"` with real `.click()`. Test-only, zero production change. (3) FEH-03: boundary symbol icon-opacity asymmetry closed — `basemap-utils.ts:396` boundary subtle paint now stamps `{ 'text-opacity': 0.45, 'icon-opacity': 0.45 }` (was missing icon-opacity, causing icon to stay full while text dimmed under master). New vitest asserts both keys land at 0.225 under subtle + master=0.5. Closes WR-01 from 260516-9g9 review. Gates: `tsc -b` exit 0; vitest 77/77 (35+1 FEH-01 + 40+1 FEH-03); playwright 5/5 (full v1.5 spec). Code review CLEAR (zero HIGH/MEDIUM findings). Verifier 5/5 PASS. 4 commits `eb29a056..cbfc34e4` (3 atomic FEH-* + 1 Rule-1 test-fixture hygiene for `visible_fields: null`). Sonner id-collision pre-check: 0 prior usages. No backend or Docker rebuild needed. Memory accuracy assessment: original framing was wrong for items 1 and 2 — research caught it before locking the plan.
-
-Previous activity: 2026-05-16 — Completed quick task 260516-9g9 (--full Path B+R cross-stack): Shipped Path B+R from 260515-tb3 investigation. Final closure of the row-slider + master-opacity story: backend `BasemapConfig.opacity` field, Option B state lift (killed local masterOpacity React state), Path R runtime application (basemap visually dims in real-time), `applyLayerUpdate` dirty-gate side-finding fix. Inline-fixed 2 review findings: CR-01 BLOCKER (compound opacity bug — slider only went down) by tracking prominence stamps + absolute master writes; WR-02 by wrapping setBasemapConfig to auto-mark dirty. 7 commits `277644b4..8f72fd0c` on main (pre-push). Gates: tsc -b clean, 1181/1181 vitest (+3 CR-01 regression cases), 10/10 backend basemap pytest. Playwright verified end-to-end: BasemapGroupRow has no slider; drag master opacity 1→0.4 dims basemap; drag back to 1 restores. Verifier 13/13 PASS. **Follow-up surfaced:** test map dfbe4fd8 has bad popup_config blocking actual PUT + popup-config toast doesn't surface — separate UX bug. **i18n key consumer count** went 3→1 across the 3 row-slider removal tasks (260515-rdn, 260515-sqf, 260516-9g9). Only BasemapGroupEditorScene sublayer rows now use it.
-
-Earlier (2026-05-15): Completed quick task 260515-tb3 (investigation only, --discuss --research): BasemapGroupRow row slider + master-opacity persistence audit. Confirmed row slider is BROKEN (real Playwright mouse drag + synthetic + keyboard all no-op; root cause `applyLayerUpdate("basemap-group", …)` short-circuits in `localLayers.map`). Confirmed master opacity is NOT persisted (Phase-1038 TODO is real; backend `BasemapConfig` schema lacks `opacity` field with `extra="forbid"`). Decision matrix delivered (Path A = remove row slider only ~−25 LOC mirrors 260515-rdn/sqf; Path B = Path A + master-opacity persistence ~+30-50 LOC additive Pydantic field on JSONB so no Alembic DDL). Awaiting user direction on follow-up. No code changes.
-
-Earlier today: Completed quick task 260515-sqf (--full, mirrors 260515-rdn): Removed redundant per-row Opacity slider from FolderGroupRow. Identical pattern to the just-shipped StackRow change — clicking the row opens LayerEditorPanel whose Visibility-section slider writes the same `layer.opacity` field. 3 atomic commits: `53fc662c` refactor (FolderGroupRow.tsx + UnifiedStackPanel.tsx FolderGroupRowWrapper + Rule-3 auto-fix removing now-unused destructure at line 589, interface field retained), `e7d01dc9` test (defaultProps + Test 4 name; suite unchanged at 18/18), `10ea48ca` docs (sketch ref forward note narrowed to "basemap group rows and basemap-editor sublayer rows retain opacity slider"). i18n key consumer count: 3 → 2 (BasemapGroupRow + BasemapGroupEditorScene/SublayerRow remain). Locales untouched. Gates: tsc -b PASS, vitest 708 tests builder dir, manual smoke skipped (test map has 0 folder groups). Code review CLEAN (0/0/0). Verifier 8/8 PASS. Predecessor 260515-rdn: also Verified, also pushed to origin/main earlier this session (commits e6f09f46..8a4fbb40 incl. typecheck hygiene fixes from MapCoordReadout + client tests). Loose ends remaining: BasemapGroupRow row slider + master-opacity persistence (Phase-1038 TODO) — investigation queued as follow-up quick task.
-
-Earlier today: Removed redundant per-row Opacity slider from Map Builder layer list (260515-rdn). User reported the per-row slider felt unresponsive — Playwright MCP verified it WAS wired (drag 0.85→0 hid the layer) but redundant with the LayerEditorPanel Visibility-section slider that opens on row click (both call same `onOpacityChange` handler, both write to `layer.opacity`). User chose "Remove row slider" via AskUserQuestion. 3 atomic commits: `4bd92e87` refactor (StackRow.tsx slider+grid+prop+import; UnifiedStackPanel.tsx 4 SortableStackRow callsites + interface), `6c2e79e1` test (StackRow.test.tsx — 1 test deleted, 1 renamed; suite 25→24), `dbf43ab5` docs (sketch ref `layer-rows-and-groups.md` updated; group-row HTML example flagged as intentionally retained). Researcher caught + revised CONTEXT.md "delete i18n key" decision: the `stackRow.opacitySlider` key has 3 surviving consumers (BasemapGroupRow, FolderGroupRow, BasemapGroupEditorScene) — locales untouched. Group sliders out-of-scope, untouched. Gates: pnpm typecheck PASS (zero new errors), pnpm vitest run src/components/builder/__tests__ 24/24, manual Playwright smoke on http://localhost:8080/maps/dfbe4fd8-… confirms 1 row slider remaining (basemap group, retained), LayerEditorPanel Opacity reads persisted 0.85. Code review CLEAN (0 blockers, 0 warnings). Verifier 7/7 must-haves PASS.
+Status: Defining requirements
+Last activity: 2026-05-16 — Milestone v1010 started
 
 ## Project Reference
 
@@ -37,6 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 **Current focus:** No active milestone. **All v1009.1 followups CLOSED 2026-05-15:**
+
 - ~~SP-03 / B-01-followup — fresh-add maplibre sync race~~ — CLOSED via quick task 260515-gm6 (ref+callback + idle-event retry)
 - ~~SP-07 backend `has_quicklook` predicate~~ — CLOSED via quick task 260515-i45 (reconcile sweeper; live-verified no-op — see misdiagnosis note below) + 260515-k49 (the actual fix: img Bearer-JWT mismatch via useQuicklook hook + blob URLs)
 - ~~SP-07 raster/vrt dispatch latent bug~~ — CLOSED via quick task 260515-ilt (`_row_to_meta` + record_type dispatch)

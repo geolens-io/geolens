@@ -12,6 +12,17 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1010 Builder Performance & Code Quality
+
+**Goal:** Improve Map Builder performance under load (large saved maps, bulk-ops, MapLibre repaint, bundle weight) and lock in code-quality wins via an audit-first sweep — while clearing three carried-forward builder follow-ups.
+
+**Target features:**
+- Performance — first paint + repaint cost for 50+ layer saved maps; batched bulk-{visibility,opacity,group,ungroup,delete}; debounced/coalesced `setPaintProperty`/`setStyle`; code-split LayerEditorPanel + AddData panels off route entry
+- Code-quality audit + fixes — `BUILDER-CODE-AUDIT.md` (duplication, file-size offenders, dead code, complexity hotspots in `frontend/src/components/builder/`) drives fix work in a follow-on phase (mirrors v1009's BUILDER-UX-AUDIT pattern)
+- Carried-forward follow-ups — popup_config UX bug (test map dfbe4fd8 PUT blocked, toast silent); audit-add-data-modal todo; SourcesTab `it.todo` backlog (8 items)
+
+**Shape:** Small milestone (1-3 phases), audit-first; phases continue from 1045. Hygiene-shape acceptable for closeout. Reuse `sketch-findings-geolens` tokens — no new visual vocabulary. Research disabled per project config (audits substitute for new-stack research).
+
 ## Recent Shipped Milestone: v1009.1 Builder Smoke Polish
 
 **Shipped:** 2026-05-15
@@ -705,6 +716,9 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - [ ] v1004 MapLibre-native renderer expansion: users can use safe new renderer modes without schema drift or a new rendering dependency.
 - [ ] v1004 deck.gl/H3/trips decision: future non-MapLibre renderers have an explicit adapter, data, interaction, z-order, and bundle-size decision before implementation.
 - [ ] v1004 renderer QA closeout: focused tests, builder smoke, Playwright MCP, saved-map round-trip, and style JSON gates prove new render modes do not regress existing builder flows.
+- [ ] v1010 Builder performance under load: large saved-map (50+ layer) first paint + repaint costs, bulk-op throughput, MapLibre per-keystroke repaint coalescing, and builder bundle/code-split footprint all meet measurable targets without regressing existing flows.
+- [ ] v1010 Builder code-quality audit + fixes: `BUILDER-CODE-AUDIT.md` documents duplication, file-size offenders, dead code, and complexity hotspots in `frontend/src/components/builder/`; P0/P1 findings ship as fixes in a follow-on phase.
+- [ ] v1010 Carried-forward builder follow-ups closed: popup_config UX bug (PUT-blocking + silent toast), Add Data modal audit, and SourcesTab `it.todo` backlog all resolved with vitest + Playwright coverage.
 
 ### Out of Scope
 
@@ -976,4 +990,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-13 after starting v1008 Map Builder Sidebar Redesign*
+*Last updated: 2026-05-16 after starting v1010 Builder Performance & Code Quality*
