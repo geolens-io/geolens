@@ -74,7 +74,7 @@
 
 **Milestone Goal:** Improve Map Builder performance under load (large saved maps, bulk-ops, MapLibre repaint, bundle weight) and lock in code-quality wins via an audit-first sweep — while clearing three carried-forward builder follow-ups.
 
-- [ ] **Phase 1046: builder-perf-and-code-audit** — Produce BUILDER-CODE-AUDIT.md + BUILDER-PERF-BASELINE.md with classified P0/P1/P2 findings and baseline metrics
+- [x] **Phase 1046: builder-perf-and-code-audit** — Produce BUILDER-CODE-AUDIT.md + BUILDER-PERF-BASELINE.md with classified P0/P1/P2 findings and baseline metrics (shipped 2026-05-16: 24 code findings + 8 perf bottlenecks)
 - [ ] **Phase 1047: perf-and-code-quality-fixes** — Implement P0/P1 perf and code-quality findings with quantified before/after metrics
 - [ ] **Phase 1048: followups-and-closeout** — Resolve three carried-forward follow-ups and run smoke/i18n/CHANGELOG hygiene close
 
@@ -118,7 +118,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1046. builder-perf-and-code-audit | 0/TBD | Not started | - |
+| 1046. builder-perf-and-code-audit | 2/2 | Complete | 2026-05-16 |
 | 1047. perf-and-code-quality-fixes | 0/TBD | Not started | - |
 | 1048. followups-and-closeout | 0/TBD | Not started | - |
 
