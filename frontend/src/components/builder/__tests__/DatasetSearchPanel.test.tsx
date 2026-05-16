@@ -260,6 +260,7 @@ describe('DatasetSearchPanel', () => {
       building_visibility: false,
       land_water_tone: 'muted',
       relief_contrast: 'soft',
+      opacity: 1,
     });
   });
 

@@ -52,6 +52,7 @@ const VALUE: MapBasemapConfig = {
   building_visibility: true,
   land_water_tone: 'default',
   relief_contrast: null,
+  opacity: 1,
 };
 
 describe('BasemapAppearanceControls', () => {

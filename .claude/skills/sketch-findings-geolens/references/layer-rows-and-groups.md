@@ -31,17 +31,19 @@ expand to see its children."**
 - `name`: ellipsis-truncated; bolder font-weight (500) for group rows
 - `kebab`: 0 opacity at rest, 100% on row hover or when row is selected
 
-> **Note (2026-05-15, quick tasks 260515-rdn + 260515-sqf):** The per-row
-> opacity slider was removed in two sweeps — first from non-group rows
-> (260515-rdn), then from user-folder group rows (260515-sqf). Opacity is
-> now edited exclusively in the LayerEditorPanel Visibility section (see
-> `layer-editor-flyout.md`) for both loose layers and user-folder groups.
-> The dedicated 60px slider column was collapsed; the row template is six
-> columns: `16px 14px 22px 22px 1fr 22px`. **Only basemap group rows and
-> basemap-editor sublayer rows retain their own opacity sliders** — the
-> HTML example for the group row below illustrates a basemap-group row;
-> a user-folder-group row uses the same anatomy but without the `.opacity`
-> range input.
+> **Note (2026-05-16, quick tasks 260515-rdn + 260515-sqf + 260516-9g9):** The
+> per-row opacity slider was removed in three sweeps — first from non-group
+> rows (260515-rdn), then from user-folder group rows (260515-sqf), and finally
+> from basemap group rows (260516-9g9 — also shipped master-opacity persistence
+> via `basemap_config.opacity`). Opacity is now edited exclusively in the
+> LayerEditorPanel Visibility section (see `layer-editor-flyout.md`) for both
+> loose layers and user-folder groups, and in the BasemapGroupEditorScene
+> "Master opacity" slider for basemap groups. The dedicated 60px slider column
+> was collapsed across all three row variants; the row template is six columns:
+> `16px 14px 22px 22px 1fr 22px`. **Only basemap-editor SUBLAYER rows** (the
+> per-sublayer rows inside the BasemapGroupEditorScene flyout) retain their
+> own per-row opacity sliders — every stack-list row (loose, folder group,
+> basemap group) is slider-free.
 
 ### Type icons + colors
 
@@ -168,8 +170,7 @@ A selected row gets:
   <span class="eye">●</span>
   <span class="type-icon type-folder">▸</span>
   <span class="name">Demographics</span>
-  <!-- basemap-group row; user-folder-group row has no .opacity input as of 260515-sqf -->
-  <input class="opacity" type="range" min="0" max="100" value="100" />
+  <!-- Note: no per-row opacity slider on group rows as of 260516-9g9. Per-sublayer opacity lives in the BasemapGroupEditorScene flyout only. -->
   <span class="kebab">⋯</span>
 </div>
 <div class="group-children open"> <!-- toggle .open with the caret -->
