@@ -554,10 +554,12 @@ export function useBuilderLayers(
     // Clear expanded layer if it's being deleted
     setExpandedLayerId((prev) => (prev && selectedIds.has(prev) ? null : prev));
 
-    // Optimistic update — remove selected layers and renumber sort_order
+    // Optimistic update — remove only layers actually sent to the backend (idsToDelete),
+    // not the full selectedIds which may include frontend-only group folder rows (WR-04).
+    const idsToDeleteSet = new Set(idsToDelete);
     setLocalLayers((prev) =>
       prev
-        .filter((l) => !selectedIds.has(l.id))
+        .filter((l) => !idsToDeleteSet.has(l.id))
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
@@ -567,7 +569,11 @@ export function useBuilderLayers(
       const result = await bulkDeleteLayersApi(mapId, idsToDelete);
 
       if (result.failed.length === 0) {
-        // Full success — optimistic state is already correct
+        // Full success — sync baseline immediately so the subsequent invalidateQueries
+        // refetch is not blocked by a stale savedLayerBaselineRef (CR-01).
+        savedLayerBaselineRef.current = savedLayerBaselineRef.current.filter(
+          (l) => !idsToDeleteSet.has(l.id),
+        );
         await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
         toast.success(t('bulkActions.deleteSuccess', { count: idsToDelete.length }));
         return true;
@@ -590,6 +596,8 @@ export function useBuilderLayers(
         merged.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
         return merged.map((l, i) => ({ ...l, sort_order: i }));
       });
+      // Partial state differs from server — prevent silent refetch wipe (CR-01)
+      setHasUnsavedChanges(true);
       toast.error(
         t('bulkActions.deletePartialFailure', {
           deleted: result.deleted.length,
