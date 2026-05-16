@@ -119,7 +119,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1046. builder-perf-and-code-audit | 2/2 | Complete | 2026-05-16 |
-| 1047. perf-and-code-quality-fixes | 5/6 | In Progress|  |
+| 1047. perf-and-code-quality-fixes | 6/6 | Complete   | 2026-05-16 |
 | 1048. followups-and-closeout | 0/TBD | Not started | - |
 
 <details>
