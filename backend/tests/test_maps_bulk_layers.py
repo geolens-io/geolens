@@ -300,5 +300,8 @@ class TestBulkDeleteAudit:
         history_rows = history_result.scalars().all()
         assert len(history_rows) >= 1, "Expected at least one layer.bulk_remove history entry"
         latest = history_rows[0]
-        assert latest.target_type == "layer"
+        # WR-02 fix: bulk operations use target_type="map" since there is no
+        # single layer target. This matches the layer.replace recording pattern
+        # and prevents broken "jump to layer" links in history viewers.
+        assert latest.target_type == "map"
         assert "Removed 3" in latest.summary

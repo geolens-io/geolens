@@ -1713,33 +1713,42 @@ async def bulk_delete_layers_endpoint(
 
     deleted_count = len(deleted_ids)
 
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="map.bulk_remove_layers",
-            resource_type="map",
-            resource_id=map_id,
-            details={
-                "layer_ids": [str(lid) for lid in body.layer_ids],
-                "deleted_count": deleted_count,
-            },
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
+    # WR-01: only emit audit/history when something was actually deleted.
+    # A request where all IDs are not_found produces deleted_count=0; emitting
+    # audit rows in that case creates false positives for monitoring systems.
+    if deleted_count > 0:
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="map.bulk_remove_layers",
+                resource_type="map",
+                resource_id=map_id,
+                details={
+                    "layer_ids": [str(lid) for lid in body.layer_ids],
+                    "deleted_count": deleted_count,
+                },
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
 
-    await record_map_history_event(
-        db,
-        map_id=map_id,
-        actor=user,
-        target_type="layer",
-        action="layer.bulk_remove",
-        summary=f"Removed {deleted_count} layers",
-        details={
-            "deleted_count": deleted_count,
-            "failed_count": len(failed_pairs),
-        },
-    )
+        # WR-02: use target_type="map" with target_id=map_id since there is no
+        # single layer target for a bulk operation.  Mirrors how layer.replace is
+        # recorded elsewhere and prevents broken "jump to layer" links in history.
+        await record_map_history_event(
+            db,
+            map_id=map_id,
+            actor=user,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_obj.name,
+            action="layer.bulk_remove",
+            summary=f"Removed {deleted_count} layers",
+            details={
+                "deleted_count": deleted_count,
+                "failed_count": len(failed_pairs),
+            },
+        )
 
     await db.commit()
 
