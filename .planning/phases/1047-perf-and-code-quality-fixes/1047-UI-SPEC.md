@@ -1,7 +1,8 @@
 ---
 phase: 1047
 slug: perf-and-code-quality-fixes
-status: draft
+status: approved
+reviewed_at: 2026-05-16T00:00:00Z
 shadcn_initialized: true
 preset: "new-york / neutral base / CSS variables / lucide icons"
 created: 2026-05-16
