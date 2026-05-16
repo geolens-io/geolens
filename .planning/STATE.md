@@ -1,42 +1,42 @@
 ---
 gsd_state_version: 1.0
-milestone: v1010
-milestone_name: Builder Performance & Code Quality
-status: Awaiting next milestone
-stopped_at: "Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)"
-last_updated: "2026-05-16T23:13:33.999Z"
-last_activity: 2026-05-16 — Milestone v1010 completed and archived
+milestone: v1010.1
+milestone_name: Live Playwright MCP Smoke
+status: In progress
+stopped_at: "Roadmap written; ready for /gsd:plan-phase 1049"
+last_updated: "2026-05-16T23:30:00.000Z"
+last_activity: 2026-05-16 — v1010.1 opened
 progress:
-  total_phases: 8
-  completed_phases: 2
-  total_plans: 10
-  completed_plans: 11
-  percent: 25
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1010 complete
+Phase: 1049 — mcp-smoke-verification
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-16 — Milestone v1010 completed and archived
+Status: Roadmap + REQUIREMENTS written; ready to plan
+Last activity: 2026-05-16 — v1010.1 opened
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-15 after shipping v1009.1)
+See: .planning/PROJECT.md (updated 2026-05-16 after shipping v1010)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1048 — followups-and-closeout
+**Current focus:** v1010.1 Phase 1049 — fresh-stack Playwright MCP smoke verification
 
 ## Last Shipped Milestone
 
-**Version:** v1009.1 Builder Smoke Polish
-**Shipped:** 2026-05-15
-**Phases:** 1045 (single phase, 3 plans, 16 tasks, 24 commits)
-**Requirements:** 18/18 — 16 PASS + 1 PARTIAL + 1 ESCALATE + 1 SKIPPED
-**Archive:** `.planning/milestones/v1009.1-ROADMAP.md`
+**Version:** v1010 Builder Performance & Code Quality
+**Shipped:** 2026-05-16
+**Phases:** 1046-1048 (3 phases, 12 plans, 17/17 reqs)
+**Tag:** v1010 (local)
+**Archive:** `.planning/milestones/v1010-ROADMAP.md`
 
 ## Accumulated Context
 
