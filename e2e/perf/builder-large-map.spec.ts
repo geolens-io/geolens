@@ -87,6 +87,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
   );
 
   test.beforeAll(async ({ request }) => {
+    const authToken = getAuthToken();
     const datasetId = await findVectorDatasetId(request);
     if (!datasetId) {
       throw new Error('seed-large-builder-map: no vector dataset found in catalog; run demo seeder first');
@@ -96,13 +97,15 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
       name: `Perf Test Map ${Date.now()}`,
       layerCount: LARGE_MAP_LAYER_COUNT,
       datasetId,
+      authToken,
     });
     largeMapId = mapId;
   });
 
   test.afterAll(async ({ request }) => {
     if (largeMapId) {
-      await deleteBuilderMap(request, largeMapId);
+      const authToken = getAuthToken();
+      await deleteBuilderMap(request, largeMapId, authToken);
       largeMapId = null;
     }
   });
@@ -194,6 +197,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
   // -------------------------------------------------------------------------
   test('bulk-delete issues exactly 1 HTTP request and completes < 600ms', async ({ page, request }) => {
     // Seed a fresh map just for this test so we don't destroy largeMapId
+    const authToken = getAuthToken();
     const datasetId = await findVectorDatasetId(request);
     if (!datasetId) {
       console.warn('PERF-03: No vector dataset found; skipping bulk-delete test');
@@ -204,6 +208,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
       name: `PERF-03 Bulk Delete Test ${Date.now()}`,
       layerCount: 10, // 10 layers is enough for the throughput assertion
       datasetId,
+      authToken,
     });
 
     try {
@@ -265,7 +270,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
       expect(bulkDeleteCallCount).toBe(1);
       expect(elapsed).toBeLessThan(600);
     } finally {
-      await deleteBuilderMap(request, testMapId);
+      await deleteBuilderMap(request, testMapId, authToken);
     }
   });
 });

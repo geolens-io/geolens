@@ -377,7 +377,7 @@ export function useBuilderSave(state: SaveState) {
       return !validatePlaceholders(extractPlaceholders(cfg.expression), columns).ok;
     });
     if (invalidLayer) {
-      const layerName = invalidLayer.display_name ?? t('layerFallbackName');
+      const layerName = invalidLayer.display_name ?? t('toasts.layerFallbackName');
       toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
