@@ -35,8 +35,8 @@ Requirements for this milestone. Each maps to a roadmap phase.
 
 ### Closeout (CLOSE)
 
-- [ ] **CLOSE-01**: Smoke gate green at milestone close — typecheck clean, vitest builder suite (no regressions vs pre-milestone count), builder smoke (Playwright) green, i18n parity green, frontend coverage thresholds met.
-- [ ] **CLOSE-02**: `CHANGELOG.md` `[Unreleased]` section populated with v1010 user-visible changes (perf wins quantified, follow-up bug fixes, audit deliverable).
+- [x] **CLOSE-01**: Smoke gate green at milestone close — typecheck clean, vitest builder suite (no regressions vs pre-milestone count), builder smoke (Playwright) green, i18n parity green, frontend coverage thresholds met.
+- [x] **CLOSE-02**: `CHANGELOG.md` `[Unreleased]` section populated with v1010 user-visible changes (perf wins quantified, follow-up bug fixes, audit deliverable).
 
 ## Future Requirements
 
@@ -98,8 +98,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FOLLOWUP-01 | Phase 1048 | Complete |
 | FOLLOWUP-02 | Phase 1048 | Complete |
 | FOLLOWUP-03 | Phase 1048 | Complete |
-| CLOSE-01 | Phase 1048 | Pending |
-| CLOSE-02 | Phase 1048 | Pending |
+| CLOSE-01 | Phase 1048 | Complete |
+| CLOSE-02 | Phase 1048 | Complete |
 
 **Coverage:**
 - v1010 requirements: 17 total
