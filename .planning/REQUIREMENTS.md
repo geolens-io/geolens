@@ -30,7 +30,7 @@ Requirements for this milestone. Each maps to a roadmap phase.
 ### Carried-forward Followups (FOLLOWUP)
 
 - [x] **FOLLOWUP-01**: Invalid `popup_config` no longer silently blocks PUT round-trip. User sees a visible, actionable error toast/banner. Backend rejection path surfaces a structured error the frontend can render. Vitest covers the failure surface; e2e covers the success-path round-trip on the once-blocked test map.
-- [ ] **FOLLOWUP-02**: Add Data modal audit completes. Findings surfaced in audit doc, P0 fixes shipped inline or as targeted plans, deferred items documented with rationale. Alignment with v1008 unified-stack model verified (no leftover six-section assumptions).
+- [x] **FOLLOWUP-02**: Add Data modal audit completes. Findings surfaced in audit doc, P0 fixes shipped inline or as targeted plans, deferred items documented with rationale. Alignment with v1008 unified-stack model verified (no leftover six-section assumptions).
 - [ ] **FOLLOWUP-03**: SourcesTab `it.todo` backlog (8 items at `.planning/backlog/SourcesTab-test-todos.md`) resolved — items either ship as live tests OR migrate to documented backlog with rationale; net `it.todo` count drops to zero on the closeout.
 
 ### Closeout (CLOSE)
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CODE-05 | Phase 1047 | Complete |
 | CODE-06 | Phase 1047 | Complete |
 | FOLLOWUP-01 | Phase 1048 | Complete |
-| FOLLOWUP-02 | Phase 1048 | Pending |
+| FOLLOWUP-02 | Phase 1048 | Complete |
 | FOLLOWUP-03 | Phase 1048 | Pending |
 | CLOSE-01 | Phase 1048 | Pending |
 | CLOSE-02 | Phase 1048 | Pending |
