@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test/test-utils';
+import { act, render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import { getRampColors } from '@/lib/color-ramps';
@@ -351,9 +351,11 @@ describe('DataDrivenStyleEditor', () => {
       const pickers = screen.getAllByTestId('hex-color-picker');
       await user.click(pickers[0]);
 
-      // handleCategoryColorChange fires onStyleConfigChange directly;
+      // handleCategoryColorChange fires onStyleConfigChange after 200ms debounce;
       // setRamp('custom') may trigger a second useEffect run
-      expect(onStyleConfigChange).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(onStyleConfigChange).toHaveBeenCalled();
+      }, { timeout: 1000 });
       // The first call is from handleCategoryColorChange
       const [layerId, newConfig] = onStyleConfigChange.mock.calls[0];
       expect(layerId).toBe('layer-1');
@@ -400,7 +402,10 @@ describe('DataDrivenStyleEditor', () => {
       const pickers = screen.getAllByTestId('hex-color-picker');
       await user.click(pickers[0]);
 
-      expect(onStyleConfigChange).toHaveBeenCalled();
+      // After 200ms debounce, onStyleConfigChange should have been called
+      await waitFor(() => {
+        expect(onStyleConfigChange).toHaveBeenCalled();
+      }, { timeout: 1000 });
       const [layerId, newConfig] = onStyleConfigChange.mock.calls[0];
       expect(layerId).toBe('layer-1');
       expect((newConfig as StyleConfig).ramp).toBe('custom');

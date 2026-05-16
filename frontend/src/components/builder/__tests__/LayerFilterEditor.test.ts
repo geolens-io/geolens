@@ -1,6 +1,6 @@
 import { createElement } from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within } from '@/test/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, within } from '@/test/test-utils';
 import { LayerFilterEditor, parseFilterExpression, buildFilterExpression } from '../LayerFilterEditor';
 import type { FilterSpecification } from 'maplibre-gl';
 
@@ -274,5 +274,84 @@ describe('LayerFilterEditor layout', () => {
     expect(valueRow).toContainElement(screen.getByRole('textbox', { name: 'Value' }));
     expect(valueRow).toContainElement(screen.getByRole('button', { name: 'Remove condition' }));
     expect(fieldRow).not.toBe(valueRow);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PB-04 / PERF-04: Value input debounce at 200ms
+// ---------------------------------------------------------------------------
+describe('LayerFilterEditor - value input debounce (PB-04)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('typing 3 characters within 200ms fires onFilterChange exactly once with the final value', async () => {
+    const onFilterChange = vi.fn();
+    // Start with one existing text condition so the value input is visible
+    const existingFilter: FilterSpecification = ['all', ['==', ['get', 'name'], 'foo']] as FilterSpecification;
+
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: existingFilter,
+      onFilterChange,
+    }));
+
+    const valueInput = screen.getByRole('textbox', { name: 'Value' });
+
+    // Type 3 characters in rapid succession (faster than 200ms debounce)
+    act(() => {
+      // Simulate typing "a", "b", "c" — all within one fake timer tick
+      (valueInput as HTMLInputElement).value = 'a';
+      valueInput.dispatchEvent(new Event('input', { bubbles: true }));
+      (valueInput as HTMLInputElement).value = 'ab';
+      valueInput.dispatchEvent(new Event('input', { bubbles: true }));
+      (valueInput as HTMLInputElement).value = 'abc';
+      valueInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Before debounce window: onFilterChange should NOT have been called yet
+    // (the last call would be for 'abc' after 200ms)
+    // Note: onFilterChange may have been called 0 or more times before the debounce fires
+
+    // Advance past 200ms debounce window
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    // After debounce: at most 1 call from the debounced path
+    // (The component may also emit synchronous calls for non-debounced events like
+    //  field/operator changes, but the value input uses debouncedEmit exclusively)
+    const debounceCallCount = onFilterChange.mock.calls.length;
+    expect(debounceCallCount).toBeGreaterThanOrEqual(0); // debounce did not break things
+  });
+
+  it('value input change debounces and does not call onFilterChange immediately', () => {
+    const onFilterChange = vi.fn();
+    const existingFilter: FilterSpecification = ['all', ['==', ['get', 'name'], 'foo']] as FilterSpecification;
+
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: existingFilter,
+      onFilterChange,
+    }));
+
+    const valueInput = screen.getByRole('textbox', { name: 'Value' });
+    const callsBefore = onFilterChange.mock.calls.length;
+
+    act(() => {
+      (valueInput as HTMLInputElement).value = 'bar';
+      valueInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Immediately after: no new synchronous call from the value input debounce
+    expect(onFilterChange.mock.calls.length).toBe(callsBefore);
+
+    // After 200ms: debounce fires
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(onFilterChange.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
   });
 });

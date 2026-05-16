@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@/test/test-utils';
+import { act, fireEvent, render, screen, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { LayerStyleEditor, hasUnsavedStyleChanges } from '../LayerStyleEditor';
 import { LayerEditorPanel } from '../LayerEditorPanel';
@@ -1123,5 +1123,102 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
     expect(filterTab).toHaveAttribute('aria-selected', 'true');
     expect(filterTab.className).toContain('focus-visible:ring-2');
     expect(screen.getByRole('button', { name: 'Back to layers' }).className).toContain('focus-visible:ring-2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PB-02 / PERF-04: Master opacity slider debounce (100ms)
+// ---------------------------------------------------------------------------
+describe('LayerStyleEditor - opacity slider debounce (PB-02)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rapid opacity changes coalesce into ONE onOpacityChange call after 100ms', () => {
+    const onOpacityChange = vi.fn();
+
+    const { rerender } = render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          opacity: 1,
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 1, '_outline-color': '#000000' },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={onOpacityChange}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    // Find the master opacity slider (aria-label = "Layer")
+    const slider = screen.getByRole('slider', { name: 'Layer' });
+
+    // Simulate 3 rapid keydown events on the slider to change the value
+    // Radix Slider responds to ArrowLeft/ArrowRight key events
+    act(() => {
+      fireEvent.keyDown(slider, { key: 'ArrowLeft' });
+      fireEvent.keyDown(slider, { key: 'ArrowLeft' });
+      fireEvent.keyDown(slider, { key: 'ArrowLeft' });
+    });
+
+    // Before debounce window: onOpacityChange should NOT have been called yet
+    expect(onOpacityChange).not.toHaveBeenCalled();
+
+    // Advance time past 100ms debounce window
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+
+    // After debounce: exactly 1 call (last value wins)
+    expect(onOpacityChange).toHaveBeenCalledTimes(1);
+    expect(onOpacityChange).toHaveBeenCalledWith('layer-1', expect.any(Number));
+
+    rerender(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Polygon',
+          opacity: 1,
+          paint: { 'fill-color': '#ff0000', 'fill-opacity': 1, '_outline-color': '#000000' },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={onOpacityChange}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+  });
+
+  it('does not call onOpacityChange immediately on mount (no spurious call on first render)', () => {
+    const onOpacityChange = vi.fn();
+
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'LineString',
+          opacity: 0.5,
+          paint: { 'line-color': '#ff0000', 'line-width': 2 },
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={onOpacityChange}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+        onRenderModeChange={vi.fn()}
+      />,
+    );
+
+    // Advance past the debounce window — no interaction happened
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    // No call because opacity hasn't changed from the prop value
+    expect(onOpacityChange).not.toHaveBeenCalled();
   });
 });

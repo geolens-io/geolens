@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
@@ -115,6 +115,11 @@ export function DataDrivenStyleEditor({
     existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
   );
 
+  // PB-04 (PERF-04): 200ms debounce for per-category / per-class color picker
+  // drags in DataDrivenStyleEditor. The HexColorPicker fires onChange on every
+  // drag pixel; debouncing collapses rapid calls into a single map repaint.
+  const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   // Determine available targets for this layer's geometry type
   const layerType = getLayerType(layer.dataset_geometry_type);
   const availableTargets: ('color' | 'radius' | 'width')[] =
@@ -154,6 +159,11 @@ export function DataDrivenStyleEditor({
   const styleConfig = layer.style_config;
   const layerId = layer.id;
   const geomType = layer.dataset_geometry_type;
+
+  // Cleanup color debounce timer on unmount
+  useEffect(() => {
+    return () => clearTimeout(colorDebounceRef.current);
+  }, []);
 
   // Effect 1: Categorical styling with value-fetching
   useEffect(() => {
@@ -371,10 +381,14 @@ export function DataDrivenStyleEditor({
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      onStyleConfigChange(layerId, newConfig, paint);
-      setRamp('custom');
+      // PB-04 (PERF-04): 200ms debounce — HexColorPicker fires on every drag pixel
+      clearTimeout(colorDebounceRef.current);
+      colorDebounceRef.current = setTimeout(() => {
+        onStyleConfigChange(layerId, newConfig, paint);
+        setRamp('custom');
+      }, 200);
     },
-    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange],
+    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange, colorDebounceRef],
   );
 
   const handleGraduatedColorChange = useCallback(
@@ -387,10 +401,14 @@ export function DataDrivenStyleEditor({
       const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
       const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      onStyleConfigChange(layerId, newConfig, paint);
-      setRamp('custom');
+      // PB-04 (PERF-04): 200ms debounce — HexColorPicker fires on every drag pixel
+      clearTimeout(colorDebounceRef.current);
+      colorDebounceRef.current = setTimeout(() => {
+        onStyleConfigChange(layerId, newConfig, paint);
+        setRamp('custom');
+      }, 200);
     },
-    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange],
+    [styleConfig, geomType, layerPaint, layerId, onStyleConfigChange, colorDebounceRef],
   );
 
   const hasTooManyCategories =

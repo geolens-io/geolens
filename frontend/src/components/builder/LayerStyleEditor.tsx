@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo, lazy, Suspense } from 'react';
+import { useState, useMemo, useCallback, memo, lazy, Suspense, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code, AlertTriangle, RotateCcw } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -348,6 +348,33 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer, renderMode],
   );
 
+  // PB-02 (PERF-04): 100ms debounce for master opacity slider.
+  // Local state holds the slider's displayed value so drags feel instant,
+  // while the debounced effect coalesces rapid changes into a single
+  // onOpacityChange call. The `opacityFromPropRef` tracks the last value
+  // received via the `layer.opacity` prop so we can skip emitting on external
+  // resets (undo, layer swap) — only user-initiated drags emit debounced calls.
+  const [localOpacity, setLocalOpacity] = useState(layer.opacity ?? 1);
+  const opacityTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const opacityFromPropRef = useRef(layer.opacity ?? 1);
+  // Sync local opacity when the external prop changes (e.g., undo / layer swap)
+  useEffect(() => {
+    const next = layer.opacity ?? 1;
+    opacityFromPropRef.current = next;
+    setLocalOpacity(next);
+  }, [layer.opacity]);
+  // Debounced emission — only fires when localOpacity diverges from last prop value
+  useEffect(() => {
+    if (!onOpacityChange) return;
+    if (localOpacity === opacityFromPropRef.current) return;
+    clearTimeout(opacityTimerRef.current);
+    opacityTimerRef.current = setTimeout(() => {
+      onOpacityChange(layer.id, localOpacity);
+    }, 100);
+    return () => clearTimeout(opacityTimerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localOpacity, layer.id]);
+
   const controlPaint = useMemo(() => ({
     ...paint,
     ...(builderConfig.outlineColor !== undefined ? { '_outline-color': builderConfig.outlineColor } : {}),
@@ -581,12 +608,12 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
             <div className="text-xs font-medium mt-2 pt-2 border-t">{t('style.opacity')}</div>
             <SliderRow
               label={t('style.layer')}
-              value={layer.opacity}
+              value={localOpacity}
               min={0}
               max={1}
               step={0.01}
               format="percent"
-              onChange={(val) => onOpacityChange(layer.id, val)}
+              onChange={setLocalOpacity}
             />
           </>
         )}

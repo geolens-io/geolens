@@ -351,7 +351,7 @@ export function LayerFilterEditor({
         const newFilter = buildFilterExpression(updated, columnInfo, combo);
         lastEmittedFilterRef.current = newFilter;
         onFilterChange(newFilter);
-      }, 180);
+      }, 200);
     },
     [columnInfo, onFilterChange],
   );
