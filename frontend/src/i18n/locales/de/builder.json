@@ -789,7 +789,7 @@
     "errorDeleteRolledBack": "{{count}} Layer konnten nicht gelöscht werden — keine Änderungen vorgenommen.",
     "deletingLayers": "{{count}} Layer werden gelöscht…",
     "deleteSuccess": "{{count}} Layer gelöscht",
-    "deletePartialFailure": "{{deleted}} von {{count}} Layern gelöscht. {{failed}} fehlgeschlagen.",
+    "deletePartialFailure": "{{deleted}} von {{count}} Layern gelöscht. {{failed}} fehlgeschlagen. — Zum Wiederholen tippen.",
     "deleteRollback": "Löschen fehlgeschlagen — es wurden keine Änderungen vorgenommen.",
     "retryAction": "Wiederholen",
     "selectRow": "{{name}} auswählen",

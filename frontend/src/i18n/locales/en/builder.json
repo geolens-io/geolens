@@ -789,7 +789,7 @@
     "errorDeleteRolledBack": "Failed to delete {{count}} layers — no changes made.",
     "deletingLayers": "Deleting {{count}} layers…",
     "deleteSuccess": "{{count}} layers deleted",
-    "deletePartialFailure": "{{deleted}} of {{count}} layers deleted. {{failed}} failed.",
+    "deletePartialFailure": "{{deleted}} of {{count}} layers deleted. {{failed}} failed. — Tap to retry.",
     "deleteRollback": "Delete failed — no changes were made.",
     "retryAction": "Retry",
     "selectRow": "Select {{name}}",

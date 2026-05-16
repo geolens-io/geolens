@@ -789,7 +789,7 @@
     "errorDeleteRolledBack": "No se pudieron eliminar {{count}} capas — no se realizaron cambios.",
     "deletingLayers": "Eliminando {{count}} capas…",
     "deleteSuccess": "{{count}} capas eliminadas",
-    "deletePartialFailure": "{{deleted}} de {{count}} capas eliminadas. {{failed}} fallaron.",
+    "deletePartialFailure": "{{deleted}} de {{count}} capas eliminadas. {{failed}} fallaron. — Toca para reintentar.",
     "deleteRollback": "Eliminación fallida — no se realizaron cambios.",
     "retryAction": "Reintentar",
     "selectRow": "Seleccionar {{name}}",

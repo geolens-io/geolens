@@ -132,6 +132,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         'rounded-bl-[var(--radius-md)] rounded-br-[var(--radius-md)]',
         'transition-all duration-[--motion-fast]',
         mounted ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
+        isDeleting ? 'cursor-not-allowed' : '',
       )}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -224,7 +225,7 @@ export const BulkActionBar = memo(function BulkActionBar({
         // ------------------------------------------------------------------
         <>
           {/* Selected count label */}
-          <span className="text-[13px] font-medium text-muted-foreground shrink-0">
+          <span className="text-xs font-medium text-muted-foreground shrink-0">
             {t('bulkActions.selectedCount', { count: N })}
           </span>
 

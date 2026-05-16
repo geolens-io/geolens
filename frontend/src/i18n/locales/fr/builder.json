@@ -789,7 +789,7 @@
     "errorDeleteRolledBack": "Impossible de supprimer {{count}} couches — aucune modification effectuée.",
     "deletingLayers": "Suppression de {{count}} couches…",
     "deleteSuccess": "{{count}} couches supprimées",
-    "deletePartialFailure": "{{deleted}} sur {{count}} couches supprimées. {{failed}} ont échoué.",
+    "deletePartialFailure": "{{deleted}} sur {{count}} couches supprimées. {{failed}} ont échoué. — Appuyer pour réessayer.",
     "deleteRollback": "Suppression échouée — aucune modification effectuée.",
     "retryAction": "Réessayer",
     "selectRow": "Sélectionner {{name}}",
