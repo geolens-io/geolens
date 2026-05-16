@@ -22,10 +22,26 @@ const BuilderMap = lazy(() =>
   import('@/components/builder/BuilderMap').then((m) => ({ default: m.BuilderMap }))
 );
 import { UnifiedStackPanel } from '@/components/builder/UnifiedStackPanel';
-import { DEMEditorScene } from '@/components/builder/DEMEditorScene';
-import { SettingsEditorScene } from '@/components/builder/SettingsEditorScene';
-import { BasemapGroupEditorScene, BasemapGroupEditorFooter } from '@/components/builder/BasemapGroupEditorScene';
-import { BasemapSublayerEditorScene, BasemapSublayerEditorFooter } from '@/components/builder/BasemapSublayerEditorScene';
+// PERF-05 (Phase 1047 Plan 02): lazy-load editor scenes so they only ship in their own
+// chunks and are fetched only when the user opens the corresponding scene panel.
+const DEMEditorScene = lazy(() =>
+  import('@/components/builder/DEMEditorScene').then((m) => ({ default: m.DEMEditorScene }))
+);
+const SettingsEditorScene = lazy(() =>
+  import('@/components/builder/SettingsEditorScene').then((m) => ({ default: m.SettingsEditorScene }))
+);
+const BasemapGroupEditorScene = lazy(() =>
+  import('@/components/builder/BasemapGroupEditorScene').then((m) => ({ default: m.BasemapGroupEditorScene }))
+);
+const BasemapGroupEditorFooter = lazy(() =>
+  import('@/components/builder/BasemapGroupEditorScene').then((m) => ({ default: m.BasemapGroupEditorFooter }))
+);
+const BasemapSublayerEditorScene = lazy(() =>
+  import('@/components/builder/BasemapSublayerEditorScene').then((m) => ({ default: m.BasemapSublayerEditorScene }))
+);
+const BasemapSublayerEditorFooter = lazy(() =>
+  import('@/components/builder/BasemapSublayerEditorScene').then((m) => ({ default: m.BasemapSublayerEditorFooter }))
+);
 import { useBasemaps } from '@/hooks/use-settings';
 import { basemapThumbnail, normalizeBasemapConfig } from '@/lib/basemap-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
@@ -36,11 +52,14 @@ import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
 import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
 import { BuilderDialogs } from '@/components/builder/BuilderDialogs';
-import { StyleJsonDialog } from '@/components/builder/StyleJsonDialog';
+const StyleJsonDialog = lazy(() =>
+  import('@/components/builder/StyleJsonDialog').then((m) => ({ default: m.StyleJsonDialog }))
+);
 import { ActiveFilterChips } from '@/components/builder/ActiveFilterChips';
 import { computeNextSelection } from '@/components/builder/selection-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { SceneSpinnerFallback } from '@/components/builder/SceneSpinnerFallback';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { MapErrorBoundary } from '@/components/error';
@@ -738,116 +757,140 @@ export function MapBuilderPage() {
       thumbnailUrl: basemapThumbnail(b.id),
     }));
     sceneContent = (
-      <BasemapGroupEditorScene
-        activePresetId={layers.localBasemap}
-        presets={presets}
-        sublayers={basemapGroup.sublayers}
-        masterOpacity={basemapGroup.opacity}
-        onSwapBasemap={(presetId) => { layers.setLocalBasemap(presetId); layers.markDirty(); }}
-        onAddCustomBasemap={() => { /* Plan 1037 follow-up */ }}
-        onSublayerVisibilityChange={handleToggleSublayerVisibility}
-        onSublayerOpacityChange={handleSublayerOpacityChange}
-        onMasterOpacityChange={(opacity) => {
-          const current = layers.basemapConfig
-            ?? normalizeBasemapConfig(null, layers.showBasemapLabels);
-          // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
-          layers.setBasemapConfig({ ...current, opacity });
-        }}
-      />
+      <LazyLoadErrorBoundary>
+        <Suspense fallback={<SceneSpinnerFallback />}>
+          <BasemapGroupEditorScene
+            activePresetId={layers.localBasemap}
+            presets={presets}
+            sublayers={basemapGroup.sublayers}
+            masterOpacity={basemapGroup.opacity}
+            onSwapBasemap={(presetId) => { layers.setLocalBasemap(presetId); layers.markDirty(); }}
+            onAddCustomBasemap={() => { /* Plan 1037 follow-up */ }}
+            onSublayerVisibilityChange={handleToggleSublayerVisibility}
+            onSublayerOpacityChange={handleSublayerOpacityChange}
+            onMasterOpacityChange={(opacity) => {
+              const current = layers.basemapConfig
+                ?? normalizeBasemapConfig(null, layers.showBasemapLabels);
+              // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
+              layers.setBasemapConfig({ ...current, opacity });
+            }}
+          />
+        </Suspense>
+      </LazyLoadErrorBoundary>
     );
     sceneFooter = (
-      <BasemapGroupEditorFooter
-        onResetAppearance={handleResetBasemapAppearance}
-        onRemoveBasemap={() => { layers.setLocalBasemap('openfreemap-positron'); layers.markDirty(); }}
-      />
+      <LazyLoadErrorBoundary>
+        <Suspense fallback={<SceneSpinnerFallback />}>
+          <BasemapGroupEditorFooter
+            onResetAppearance={handleResetBasemapAppearance}
+            onRemoveBasemap={() => { layers.setLocalBasemap('openfreemap-positron'); layers.markDirty(); }}
+          />
+        </Suspense>
+      </LazyLoadErrorBoundary>
     );
   } else if (editorScene === 'basemap-sublayer' && basemapGroup) {
     const sublayer = basemapGroup.sublayers.find((s) => s.id === layers.expandedLayerId);
     breadcrumbPresetName = basemapGroup.presetName;
     if (sublayer) {
       sceneContent = (
-        <BasemapSublayerEditorScene
-          sublayerId={sublayer.id}
-          sublayerName={sublayer.name}
-          activeDetailLevel="default"
-          isCustomized={false}
-          strokeColor="#888888"
-          strokeWidth={1}
-          casingColor="#FFFFFF"
-          casingWidth={0}
-          opacity={sublayer.opacity}
-          minZoom={0}
-          maxZoom={22}
-          onDetailLevelChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-          onStrokeColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-          onStrokeWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-          onCasingColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-          onCasingWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-          onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
-          onZoomChange={() => { /* TODO(Phase 1038): markDirty() once sublayer zoom range is persisted */ }}
-          onResetSublayer={() => {
-            setSublayerState((prev) => {
-              const next = { ...prev };
-              delete next[sublayer.id];
-              return next;
-            });
-            // TODO(Phase 1038): markDirty() once sublayerState is persisted
-          }}
-        />
+        <LazyLoadErrorBoundary>
+          <Suspense fallback={<SceneSpinnerFallback />}>
+            <BasemapSublayerEditorScene
+              sublayerId={sublayer.id}
+              sublayerName={sublayer.name}
+              activeDetailLevel="default"
+              isCustomized={false}
+              strokeColor="#888888"
+              strokeWidth={1}
+              casingColor="#FFFFFF"
+              casingWidth={0}
+              opacity={sublayer.opacity}
+              minZoom={0}
+              maxZoom={22}
+              onDetailLevelChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+              onStrokeColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+              onStrokeWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+              onCasingColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+              onCasingWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+              onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
+              onZoomChange={() => { /* TODO(Phase 1038): markDirty() once sublayer zoom range is persisted */ }}
+              onResetSublayer={() => {
+                setSublayerState((prev) => {
+                  const next = { ...prev };
+                  delete next[sublayer.id];
+                  return next;
+                });
+                // TODO(Phase 1038): markDirty() once sublayerState is persisted
+              }}
+            />
+          </Suspense>
+        </LazyLoadErrorBoundary>
       );
       sceneFooter = (
-        <BasemapSublayerEditorFooter
-          onBackToBasemap={() => handleSelectLayer('basemap-group')}
-        />
+        <LazyLoadErrorBoundary>
+          <Suspense fallback={<SceneSpinnerFallback />}>
+            <BasemapSublayerEditorFooter
+              onBackToBasemap={() => handleSelectLayer('basemap-group')}
+            />
+          </Suspense>
+        </LazyLoadErrorBoundary>
       );
     }
   } else if (editorScene === 'dem' && editingLayer) {
     sceneContent = (
-      <DEMEditorScene
-        layer={editingLayer}
-        onPaintChange={(p) => layers.handlePaintChange(editingLayer.id, p)}
-        onStyleConfigChange={(cfg, paint) => layers.handleStyleConfigChange(editingLayer.id, cfg, paint)}
-        onOpacityChange={(o) => layers.handleOpacityChange(editingLayer.id, o)}
-        onZoomChange={(min, max) => layers.handleLayoutChange(editingLayer.id, { ...editingLayer.layout, _minzoom: min, _maxzoom: max })}
-        onTerrainBind={layers.handleDEMTerrainBind}
-        onRemove={(id) => layers.handleRemove(id)}
-      />
+      <LazyLoadErrorBoundary>
+        <Suspense fallback={<SceneSpinnerFallback />}>
+          <DEMEditorScene
+            layer={editingLayer}
+            onPaintChange={(p) => layers.handlePaintChange(editingLayer.id, p)}
+            onStyleConfigChange={(cfg, paint) => layers.handleStyleConfigChange(editingLayer.id, cfg, paint)}
+            onOpacityChange={(o) => layers.handleOpacityChange(editingLayer.id, o)}
+            onZoomChange={(min, max) => layers.handleLayoutChange(editingLayer.id, { ...editingLayer.layout, _minzoom: min, _maxzoom: max })}
+            onTerrainBind={layers.handleDEMTerrainBind}
+            onRemove={(id) => layers.handleRemove(id)}
+          />
+        </Suspense>
+      </LazyLoadErrorBoundary>
     );
     // DEMEditorScene renders its own footer (Delete layer inline confirm)
   } else if (editorScene === 'settings') {
     sceneContent = (
-      <SettingsEditorScene
-        terrainConfig={layers.localTerrainConfig}
-        isTerrainActive={isTerrainActive}
-        boundLayerName={boundLayerName}
-        onExaggerationChange={(v) => {
-          layers.setLocalTerrainConfig((prev) =>
-            prev ? { ...prev, exaggeration: v } : { enabled: false, source_dataset_id: null, exaggeration: v },
-          );
-          layers.setHasUnsavedChanges(true);
-          if (
-            mapInstanceRef.current &&
-            layers.localTerrainConfig?.enabled &&
-            layers.localTerrainConfig.source_dataset_id
-          ) {
-            mapInstanceRef.current.setTerrain({
-              source: `dem-${layers.localTerrainConfig.source_dataset_id}`,
-              exaggeration: v,
-            });
-          }
-        }}
-        activeWidgetIds={activeWidgets}
-        onToggleWidget={toggleWidget}
-        projection={localProjection}
-        onSetProjection={(proj) => {
-          setLocalProjection(proj);
-          try {
-            mapInstanceRef.current?.setProjection?.({ type: proj });
-          } catch {
-            // setProjection may not exist in test envs / older maplibre — swallow safely
-          }
-        }}
-      />
+      <LazyLoadErrorBoundary>
+        <Suspense fallback={<SceneSpinnerFallback />}>
+          <SettingsEditorScene
+            terrainConfig={layers.localTerrainConfig}
+            isTerrainActive={isTerrainActive}
+            boundLayerName={boundLayerName}
+            onExaggerationChange={(v) => {
+              layers.setLocalTerrainConfig((prev) =>
+                prev ? { ...prev, exaggeration: v } : { enabled: false, source_dataset_id: null, exaggeration: v },
+              );
+              layers.setHasUnsavedChanges(true);
+              if (
+                mapInstanceRef.current &&
+                layers.localTerrainConfig?.enabled &&
+                layers.localTerrainConfig.source_dataset_id
+              ) {
+                mapInstanceRef.current.setTerrain({
+                  source: `dem-${layers.localTerrainConfig.source_dataset_id}`,
+                  exaggeration: v,
+                });
+              }
+            }}
+            activeWidgetIds={activeWidgets}
+            onToggleWidget={toggleWidget}
+            projection={localProjection}
+            onSetProjection={(proj) => {
+              setLocalProjection(proj);
+              try {
+                mapInstanceRef.current?.setProjection?.({ type: proj });
+              } catch {
+                // setProjection may not exist in test envs / older maplibre — swallow safely
+              }
+            }}
+          />
+        </Suspense>
+      </LazyLoadErrorBoundary>
     );
     sceneFooter = undefined;
     breadcrumbPresetName = undefined;
@@ -1289,12 +1332,16 @@ export function MapBuilderPage() {
       </DndContext>{/* close Phase 1040 DndContext */}
 
       {id && (
-        <StyleJsonDialog
-          mapId={id}
-          mapName={layers.localName}
-          open={showStyleJson}
-          onOpenChange={setShowStyleJson}
-        />
+        <LazyLoadErrorBoundary>
+          <Suspense fallback={null}>
+            <StyleJsonDialog
+              mapId={id}
+              mapName={layers.localName}
+              open={showStyleJson}
+              onOpenChange={setShowStyleJson}
+            />
+          </Suspense>
+        </LazyLoadErrorBoundary>
       )}
     </div>
   );
