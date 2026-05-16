@@ -64,7 +64,20 @@ findings:
   warning: 6
   info: 3
   total: 11
-status: issues_found
+fixes_applied: 8
+findings_status:
+  CR-01: fixed
+  CR-02: fixed
+  WR-01: fixed
+  WR-02: fixed
+  WR-03: fixed
+  WR-04: fixed
+  WR-05: fixed
+  WR-06: fixed
+  IN-01: deferred (out of scope — info-level, requires live data-flow testing with a running DEM layer)
+  IN-02: deferred (out of scope — info-level, no production circular-reference risk)
+  IN-03: deferred (out of scope — info-level, cosmetic OpenAPI schema annotation)
+status: clean
 ---
 
 # Phase 1047: Code Review Report
