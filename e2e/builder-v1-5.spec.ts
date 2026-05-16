@@ -482,15 +482,18 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     const toolbarLive = toolbar.locator('[aria-live="polite"][aria-atomic="true"]');
     await expect(toolbarLive).toHaveCount(1);
 
-    // Click Delete button (opens confirm dialog — does NOT delete immediately).
-    // The button's aria-label is "Delete N selected layers" (from bulkActions.deleteAriaLabel).
-    // Use dispatchEvent to bypass Playwright actionability checks (avoids mousedown race with
-    // the outside-click selection-clear handler on document). dispatchEvent fires only 'click'
-    // without preceding mousedown/pointerdown, so the outside-click handler does not trigger.
-    const deleteBtn = page.locator('[role="toolbar"] button[aria-label*="Delete"]');
+    // SP-01 (Phase 1045): Delete moved into a portaled overflow DropdownMenu.
+    // 1) Open the overflow menu via its testid trigger.
+    // 2) Click the Delete menuitem from the portal (not from the toolbar subtree).
+    // The outside-click handler whitelists `[data-bulk-action-menu="true"]` so
+    // the selection survives the menu interaction.
+    const overflowBtn = page.locator('[data-testid="bulk-action-overflow"]');
+    await expect(overflowBtn).toBeVisible({ timeout: 3_000 });
+    await overflowBtn.click();
+
+    const deleteBtn = page.locator('[data-testid="bulk-action-delete"]');
     await expect(deleteBtn).toBeVisible({ timeout: 3_000 });
-    await expect(deleteBtn).toBeEnabled({ timeout: 3_000 });
-    await deleteBtn.dispatchEvent('click');
+    await deleteBtn.click();
 
     // Confirm alertdialog appears inside the toolbar.
     // BulkActionBar renders role="alertdialog" inside role="toolbar" when confirmingDelete=true.
