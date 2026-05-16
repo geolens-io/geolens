@@ -37,7 +37,45 @@ BASEMAP_CONFIG_PAYLOAD = {
     "building_visibility": False,
     "land_water_tone": "muted",
     "relief_contrast": "strong",
+    "opacity": 0.55,
 }
+
+
+def test_basemap_config_opacity_defaults_to_one():
+    from app.modules.catalog.maps.schemas import BasemapConfig
+
+    cfg = BasemapConfig()
+    assert cfg.opacity == 1.0
+
+
+def test_basemap_config_opacity_accepts_valid_range():
+    from app.modules.catalog.maps.schemas import BasemapConfig
+
+    assert BasemapConfig(opacity=0.0).opacity == 0.0
+    assert BasemapConfig(opacity=0.55).opacity == 0.55
+    assert BasemapConfig(opacity=1.0).opacity == 1.0
+
+
+def test_basemap_config_opacity_rejects_out_of_range():
+    import pytest
+    from pydantic import ValidationError
+
+    from app.modules.catalog.maps.schemas import BasemapConfig
+
+    with pytest.raises(ValidationError):
+        BasemapConfig(opacity=-0.1)
+    with pytest.raises(ValidationError):
+        BasemapConfig(opacity=1.1)
+
+
+def test_basemap_config_still_rejects_unknown_fields_with_opacity_set():
+    import pytest
+    from pydantic import ValidationError
+
+    from app.modules.catalog.maps.schemas import BasemapConfig
+
+    with pytest.raises(ValidationError):
+        BasemapConfig(opacity=0.5, unknown_field=1)
 
 
 def test_maps_service_facade_exports_public_api() -> None:
@@ -514,6 +552,25 @@ class TestUpdateMap:
         fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
         assert fetched.status_code == 200
         assert fetched.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
+
+    async def test_update_map_round_trips_basemap_opacity_field(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """Explicit opacity round-trip: PUT 0.55 -> GET 0.55 (covers PB-A3)."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"basemap_config": {**BASEMAP_CONFIG_PAYLOAD, "opacity": 0.55}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["basemap_config"]["opacity"] == 0.55
+
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        assert fetched.json()["basemap_config"]["opacity"] == 0.55
 
     async def test_update_map_rejects_extra_basemap_config_fields(
         self, client: AsyncClient, admin_auth_header: dict

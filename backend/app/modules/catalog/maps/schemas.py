@@ -204,6 +204,12 @@ class BasemapConfig(BaseModel):
         default=None,
         description="Optional contrast hint for relief-oriented basemap styling.",
     )
+    opacity: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Master basemap opacity 0.0-1.0",
+    )
 
     model_config = ConfigDict(extra="forbid")
 
