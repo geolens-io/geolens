@@ -515,6 +515,31 @@ describe('useBuilderSave', () => {
     expect(result.current.isSaveRetryable).toBe(true);
   });
 
+  it('surfaces popupConfigInvalid toast with dedupe id + extended duration when layer has invalid popup expression', async () => {
+    const { toast } = await import('sonner');
+    const state = makeSaveState({
+      hasUnsavedChanges: true,
+      localLayers: [
+        makeLayer({
+          popup_config: { enabled: true, expression: '{{missing_column}}' },
+          dataset_column_info: [{ name: 'present_column', type: 'text' }],
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(
+      'toasts.popupConfigInvalid',
+      expect.objectContaining({ id: 'popup-config-invalid', duration: 6000 }),
+    );
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+  });
+
   it('omits widgets when active widgets match client defaults already saved as defaults', () => {
     useWidgetStore.getState().open('legend');
     const state = makeSaveState();

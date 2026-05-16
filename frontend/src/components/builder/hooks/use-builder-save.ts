@@ -377,7 +377,7 @@ export function useBuilderSave(state: SaveState) {
       return !validatePlaceholders(extractPlaceholders(cfg.expression), columns).ok;
     });
     if (invalidLayer) {
-      toast.error(t('toasts.popupConfigInvalid'));
+      toast.error(t('toasts.popupConfigInvalid'), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
 
