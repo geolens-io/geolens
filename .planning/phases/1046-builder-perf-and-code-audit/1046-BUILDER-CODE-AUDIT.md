@@ -122,6 +122,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** S (< 1 hour: grep all call sites, remove parameter + arguments, test)
 - **Phase 1047 mapping:** CODE-04 (dead code removal)
 
+**Status (Phase 1047):** resolved — audit claim could not be reproduced. `selectedLayerId` does not appear in the `syncLayersToMap` signature at git SHA b8d2abe5 nor at the Phase 1047 start SHA (baa734cf); verified 2026-05-16 via `rg -n "selectedLayerId" frontend/src/components/builder/map-sync.ts` which returned 0 matches. The parameter `selectedLayerId` does exist in `UnifiedStackPanel.tsx` and `SidebarRail.tsx` (UI selection state) but those files were not the CC-15 target. No code change required.
+
 ---
 
 ### P1 Severity
