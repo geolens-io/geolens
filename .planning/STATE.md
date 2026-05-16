@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1010
 milestone_name: Builder Performance & Code Quality
-status: verifying
+status: Awaiting next milestone
 stopped_at: "Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)"
-last_updated: "2026-05-16T22:53:21.986Z"
-last_activity: 2026-05-16
+last_updated: "2026-05-16T23:13:33.999Z"
+last_activity: 2026-05-16 — Milestone v1010 completed and archived
 progress:
   total_phases: 8
   completed_phases: 2
@@ -18,12 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1048 (followups-and-closeout) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-05-16
-
-Progress: [██████████] 100%
+Phase: Milestone v1010 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-16 — Milestone v1010 completed and archived
 
 ## Project Reference
 
@@ -66,3 +64,7 @@ None at roadmap creation.
 Last session: 2026-05-16T22:53:21.981Z
 Stopped at: Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

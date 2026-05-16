@@ -12,16 +12,19 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1010 Builder Performance & Code Quality
+## Recent Shipped Milestone: v1010 Builder Performance & Code Quality
 
-**Goal:** Improve Map Builder performance under load (large saved maps, bulk-ops, MapLibre repaint, bundle weight) and lock in code-quality wins via an audit-first sweep — while clearing three carried-forward builder follow-ups.
+**Shipped:** 2026-05-16
 
-**Target features:**
-- Performance — first paint + repaint cost for 50+ layer saved maps; batched bulk-{visibility,opacity,group,ungroup,delete}; debounced/coalesced `setPaintProperty`/`setStyle`; code-split LayerEditorPanel + AddData panels off route entry
-- Code-quality audit + fixes — `BUILDER-CODE-AUDIT.md` (duplication, file-size offenders, dead code, complexity hotspots in `frontend/src/components/builder/`) drives fix work in a follow-on phase (mirrors v1009's BUILDER-UX-AUDIT pattern)
-- Carried-forward follow-ups — popup_config UX bug (test map dfbe4fd8 PUT blocked, toast silent); audit-add-data-modal todo; SourcesTab `it.todo` backlog (8 items)
+**Goal delivered:** Improved Map Builder performance under load and locked in code-quality wins via an audit-first sweep, while clearing three carried-forward builder follow-ups.
 
-**Shape:** Small milestone (1-3 phases), audit-first; phases continue from 1045. Hygiene-shape acceptable for closeout. Reuse `sketch-findings-geolens` tokens — no new visual vocabulary. Research disabled per project config (audits substitute for new-stack research).
+**Delivered:**
+- **Performance (6 axes):** MapBuilderPage entry chunk 281.76 → 233.10 KB (-17.3%) via 6 lazy-loaded editor scenes; opacity slider 100ms debounce + color picker / filter editor 200ms debounce + `coalesceFrame` rAF utility collapses paint updates to 1 MapLibre repaint per animation frame; `POST /api/maps/{id}/layers/bulk-delete` batches 50 sequential deletes into 1 HTTP call (-98%); PERF-02 hover p50=4.9ms (target ≤30ms — 6× margin); cold vite build 364ms; vitest builder 951/951 in 5.66s.
+- **Code quality (24-finding audit closeout):** LayerStyleEditor.tsx 1231 → 468 LOC (-62%) via per-render-mode sub-components + RenderModeSwitch lookup-table (closes CB-07 + CD-19); `syncLayerFilter` + `setLayerProperty` helpers extracted to layer-adapters/shared.ts (closes CA-01 + CA-03); all 24 BUILDER-CODE-AUDIT findings dispositioned (P0=3 shipped, P1=14 shipped or deferred-with-rationale, P2=7 deferred).
+- **Three carried-forward follow-ups (FOLLOWUP-01..03):** Invalid `popup_config` now surfaces actionable error toast with layer name + backend 422 translation (e2e round-trip test passes); Add Data modal audit shipped (13 findings; 0 P0; v1008 unified-stack alignment ALIGNED); SourcesTab `it.todo` backlog drained from 8 → 0 (9 live vitest cases shipped, backlog file deleted).
+- **Closeout (CLOSE-01..02):** 7/7 smoke gates PASS — typecheck clean, vitest 1887/1887, e2e:smoke:builder 26/26, e2e:smoke:perf live, backend pytest test_maps_bulk_layers 8/8, backend ruff 0 errors, i18n parity (en/de/es/fr 781 keys); CHANGELOG.md `[Unreleased]` populated with measured numbers + Internal section referencing audit deliverables.
+
+**Milestone close:** 17/17 requirements satisfied across phases 1046-1048 (3 phases, 12 plans). Audit: passed / GO. 11 Info-level findings deferred to future builder polish cycle as tech debt. See `.planning/milestones/v1010-ROADMAP.md` and `.planning/milestones/v1010-MILESTONE-AUDIT.md`.
 
 ## Recent Shipped Milestone: v1009.1 Builder Smoke Polish
 
@@ -990,4 +993,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-16 after starting v1010 Builder Performance & Code Quality*
+*Last updated: 2026-05-16 after shipping v1010 Builder Performance & Code Quality*

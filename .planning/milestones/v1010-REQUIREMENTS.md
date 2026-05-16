@@ -1,3 +1,12 @@
+# Requirements Archive: v1010 Builder Performance & Code Quality
+
+**Archived:** 2026-05-16
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: v1010 Builder Performance & Code Quality
 
 **Defined:** 2026-05-16

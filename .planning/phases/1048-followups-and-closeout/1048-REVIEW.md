@@ -18,7 +18,17 @@ findings:
   warning: 4
   info: 3
   total: 8
-status: issues_found
+status: clean
+fixes_applied: 5
+finding_statuses:
+  CR-01: fixed
+  WR-01: fixed
+  WR-02: fixed
+  WR-03: fixed
+  WR-04: fixed
+  IN-01: deferred (low-priority cosmetic — container cursor-not-allowed is redundant but harmless)
+  IN-02: deferred (low-risk — backend persists null correctly; poll assertion is nice-to-have)
+  IN-03: deferred (no runtime failure; makeLayer factory improvement is minor type hygiene)
 ---
 
 # Phase 1048: Code Review Report

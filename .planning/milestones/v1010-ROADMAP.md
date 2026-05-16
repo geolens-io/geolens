@@ -66,28 +66,67 @@
 - ✅ **v1008 Map Builder Sidebar Redesign** — Phases 1033-1038 (shipped 2026-05-14) — see [archive](milestones/v1008-ROADMAP.md)
 - ✅ **v1009 Map Builder v1.5 (Polish)** — Phases 1039-1044 (shipped 2026-05-15) — see [archive](milestones/v1009-ROADMAP.md)
 - ✅ **v1009.1 Builder Smoke Polish** — Phase 1045 (shipped 2026-05-15) — see [archive](milestones/v1009.1-ROADMAP.md)
-- ✅ **v1010 Builder Performance & Code Quality** — Phases 1046-1048 (shipped 2026-05-16) — see [archive](milestones/v1010-ROADMAP.md)
+- 🚧 **v1010 Builder Performance & Code Quality** — Phases 1046-1048 (in progress)
 
 ## Phases
 
-<details>
-<summary>✅ v1010 Builder Performance & Code Quality (Phases 1046-1048) — SHIPPED 2026-05-16</summary>
+### 🚧 v1010 Builder Performance & Code Quality (Phases 1046-1048)
 
-**Goal:** Improve Map Builder performance under load (large saved maps, bulk-ops, MapLibre repaint, bundle weight) and lock in code-quality wins via an audit-first sweep — while clearing three carried-forward builder follow-ups.
+**Milestone Goal:** Improve Map Builder performance under load (large saved maps, bulk-ops, MapLibre repaint, bundle weight) and lock in code-quality wins via an audit-first sweep — while clearing three carried-forward builder follow-ups.
 
-**Requirements:** 17/17 complete (PERF-01..06, CODE-01..06, FOLLOWUP-01..03, CLOSE-01..02)
+- [x] **Phase 1046: builder-perf-and-code-audit** — Produce BUILDER-CODE-AUDIT.md + BUILDER-PERF-BASELINE.md with classified P0/P1/P2 findings and baseline metrics (shipped 2026-05-16: 24 code findings + 8 perf bottlenecks)
+- [ ] **Phase 1047: perf-and-code-quality-fixes** — Implement P0/P1 perf and code-quality findings with quantified before/after metrics
+- [ ] **Phase 1048: followups-and-closeout** — Resolve three carried-forward follow-ups and run smoke/i18n/CHANGELOG hygiene close
 
-- [x] **Phase 1046: builder-perf-and-code-audit** — completed 2026-05-16 (2 plans; 24 code findings + 8 perf bottlenecks)
-- [x] **Phase 1047: perf-and-code-quality-fixes** — completed 2026-05-16 (6 plans, 6 waves)
-- [x] **Phase 1048: followups-and-closeout** — completed 2026-05-16 (4 plans, 4 waves)
+### Phase 1046: builder-perf-and-code-audit
+**Goal**: Structured audit artifacts exist — BUILDER-CODE-AUDIT.md classifies code-quality findings P0/P1/P2 across builder directories, and BUILDER-PERF-BASELINE.md records measurable baseline metrics for all six PERF requirements — so Phase 1047 has a concrete, prioritized fix list.
+**Depends on**: Nothing (first phase of milestone)
+**Requirements**: CODE-01
+**Success Criteria** (what must be TRUE):
+  1. BUILDER-CODE-AUDIT.md exists with P0/P1/P2 findings covering duplication, file-size offenders, dead code, and complexity hotspots across `frontend/src/components/builder/`, `frontend/src/hooks/use-builder-*`, `frontend/src/lib/builder-*`, and adjacent style helpers (`basemap-utils.ts`, `fill-adapter.ts`).
+  2. BUILDER-PERF-BASELINE.md exists with measured baseline metrics for large-map first-paint, input latency on 50+ layer maps, bulk-op batching profile, rAF repaint coalescing status, and route entry chunk sizes.
+  3. Every finding in both documents is tagged P0, P1, or P2 with enough detail for a plan author to write an implementation plan without additional investigation.
+  4. Baseline metrics reference the specific test map and tooling used so Phase 1047 can reproduce and compare.
+**Plans**: TBD
 
-**Audit:** passed (17/17 requirements). Smoke gate: typecheck 0 errors; vitest 1887/1887; e2e:smoke:builder 26/26; e2e:smoke:perf PERF-02 p50=4.9ms (target ≤30ms); backend pytest test_maps_bulk_layers 8/8; backend ruff 0 errors; i18n parity (en/de/es/fr at 781 keys).
+### Phase 1047: perf-and-code-quality-fixes
+**Goal**: All P0 audit findings and all PERF requirements are remediated — large-map paint is faster, input latency is sub-16ms, bulk ops batch correctly, paint updates coalesce per animation frame, route chunks are lazy-loaded, and all code-quality P0/P1 findings are either fixed or explicitly deferred with rationale.
+**Depends on**: Phase 1046
+**Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, CODE-02, CODE-03, CODE-04, CODE-05, CODE-06
+**Success Criteria** (what must be TRUE):
+  1. Opening a saved map with 50+ layers completes first paint within the budget documented in BUILDER-PERF-BASELINE.md; an automated check or Playwright timing assertion confirms the metric.
+  2. Hovering and clicking rows in the unified stack on a 50+ layer map produces no perceptible jank; profiling notes confirm input latency under 16ms.
+  3. Bulk visibility/opacity/group/ungroup/delete on multiple selected layers sends batched requests with rollback and progress affordances; no regression in existing v1009 multi-select bulk-op surface.
+  4. Paint property updates (color pick, opacity slider, expression edits) coalesce into one MapLibre repaint per animation frame; a unit-level rAF coalescing test passes.
+  5. Builder route entry chunk sizes are documented before and after lazy-load of LayerEditorPanel, AddDataModal, and Settings scene; no regression in smoke runtime, vitest runtime, or cold first build; all P0/P1 code-quality findings committed or explicitly deferred with rationale; dead code removed; vitest builder suite green; typecheck clean.
+**Plans**: TBD
+**UI hint**: yes
 
-**Headline wins:** MapBuilderPage entry chunk 281.76 → 233.10 KB (-17.3%); LayerStyleEditor 1231 → 468 LOC (-62%); bulk-delete 50 sequential → 1 batched HTTP (-98%); rAF coalescing collapses paint updates to 1/frame; popup_config invalid save surfaces named error toast.
+### Phase 1048: followups-and-closeout
+**Goal**: Three carried-forward builder follow-ups are resolved, the smoke gate is green, and the CHANGELOG records all v1010 user-visible changes — closing the milestone cleanly.
+**Depends on**: Phase 1047
+**Requirements**: FOLLOWUP-01, FOLLOWUP-02, FOLLOWUP-03, CLOSE-01, CLOSE-02
+**Success Criteria** (what must be TRUE):
+  1. An invalid `popup_config` no longer silently blocks the PUT round-trip — the user sees a visible, actionable error toast/banner; a vitest covers the failure surface and an e2e covers the success-path round-trip on the previously-blocked test map.
+  2. The Add Data modal audit document exists; P0 findings are shipped inline or as targeted plans; deferred items carry rationale; alignment with the v1008 unified-stack model is verified with no leftover six-section assumptions.
+  3. The SourcesTab `it.todo` backlog reaches zero — items either ship as live tests or are migrated to the documented backlog with rationale.
+  4. Smoke gate is fully green at milestone close: typecheck clean, vitest builder suite regression-free vs pre-milestone count, builder Playwright smoke green, i18n parity green, frontend coverage thresholds met.
+  5. CHANGELOG.md `[Unreleased]` section documents all v1010 user-visible changes with quantified perf wins and follow-up bug fixes.
+**Plans**: 4 plans
 
-Full details: [milestones/v1010-ROADMAP.md](milestones/v1010-ROADMAP.md).
+Plans:
+- [x] 1048-01-popup-config-and-ui-polish-PLAN.md — FOLLOWUP-01 popup_config error surface + bundle 3 UI-REVIEW carry-over polish fixes
+- [x] 1048-02-adddata-modal-audit-PLAN.md — FOLLOWUP-02 Add Data modal audit + inline P0 fixes under 1-hour budget
+- [x] 1048-03-sourcestab-test-drain-PLAN.md — FOLLOWUP-03 drain 8-item SourcesTab it.todo backlog to zero
+- [x] 1048-04-smoke-gate-and-changelog-PLAN.md — CLOSE-01 7-gate smoke + CLOSE-02 CHANGELOG [Unreleased]
 
-</details>
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1046. builder-perf-and-code-audit | 2/2 | Complete | 2026-05-16 |
+| 1047. perf-and-code-quality-fixes | 6/6 | Complete   | 2026-05-16 |
+| 1048. followups-and-closeout | 4/4 | Complete   | 2026-05-16 |
 
 <details>
 <summary>✅ v1009.1 Builder Smoke Polish (Phase 1045) — SHIPPED 2026-05-15</summary>

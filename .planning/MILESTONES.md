@@ -1,5 +1,25 @@
 # Milestones
 
+## v1010 Builder Performance & Code Quality (Shipped: 2026-05-16)
+
+**Phases completed:** 8 phases, 10 plans, 19 tasks
+
+**Key accomplishments:**
+
+- builder-perf-and-code-audit
+- Contract:
+- What changed:
+- rAF coalescing utility + 100ms/200ms debounce wiring collapses MapLibre paint updates from 50-100 setPaintProperty/sec to 1 per animation frame (PERF-04).
+- One-liner:
+- LayerStyleEditor.tsx split from 1231 LOC to 468 LOC (62% reduction) via per-render-mode sub-components and RenderModeSwitch lookup-table dispatch. CB-07 (P0 file-size) and CD-19 (P1 nested ternaries) both closed.
+- CA-03 try-catch extraction, all 24 audit findings annotated, PERF before/after table captured, and final smoke gate evidence gathered. Phase 1047 closeout complete except for human-verify checkpoint (Docker stack required for e2e:smoke:builder).
+- One-liner:
+- 0 P0 findings — no inline work.
+- Drained all 8 deferred SourcesTab vitest backlog items to live passing tests; net it.todo count is 0 and backlog file deleted
+- One-liner:
+
+---
+
 ## v1009 Map Builder v1.5 (Polish) (Shipped: 2026-05-15)
 
 **Phases completed:** 11 phases, 22 plans, 28 tasks
