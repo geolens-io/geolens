@@ -31,14 +31,17 @@ expand to see its children."**
 - `name`: ellipsis-truncated; bolder font-weight (500) for group rows
 - `kebab`: 0 opacity at rest, 100% on row hover or when row is selected
 
-> **Note (2026-05-15, quick task 260515-rdn):** The per-row opacity slider on
-> non-group rows was removed. Opacity is now edited exclusively in the
-> LayerEditorPanel Visibility section (see `layer-editor-flyout.md`). The
-> dedicated slider column was collapsed; the new row template is six
-> columns: `16px 14px 22px 22px 1fr 22px`. **Group rows (basemap, user
-> folder) and basemap-editor sublayer rows still render their own opacity
-> sliders** — the HTML example for the group row below intentionally
-> retains its `.opacity` range input.
+> **Note (2026-05-15, quick tasks 260515-rdn + 260515-sqf):** The per-row
+> opacity slider was removed in two sweeps — first from non-group rows
+> (260515-rdn), then from user-folder group rows (260515-sqf). Opacity is
+> now edited exclusively in the LayerEditorPanel Visibility section (see
+> `layer-editor-flyout.md`) for both loose layers and user-folder groups.
+> The dedicated 60px slider column was collapsed; the row template is six
+> columns: `16px 14px 22px 22px 1fr 22px`. **Only basemap group rows and
+> basemap-editor sublayer rows retain their own opacity sliders** — the
+> HTML example for the group row below illustrates a basemap-group row;
+> a user-folder-group row uses the same anatomy but without the `.opacity`
+> range input.
 
 ### Type icons + colors
 
@@ -165,6 +168,7 @@ A selected row gets:
   <span class="eye">●</span>
   <span class="type-icon type-folder">▸</span>
   <span class="name">Demographics</span>
+  <!-- basemap-group row; user-folder-group row has no .opacity input as of 260515-sqf -->
   <input class="opacity" type="range" min="0" max="100" value="100" />
   <span class="kebab">⋯</span>
 </div>
