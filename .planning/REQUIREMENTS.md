@@ -24,7 +24,7 @@ Requirements for this milestone. Each maps to a roadmap phase.
 - [x] **CODE-02**: All P0 audit findings are remediated and committed with regression tests where applicable.
 - [x] **CODE-03**: All P1 audit findings are remediated OR explicitly deferred-with-rationale in the audit doc; no silent skips.
 - [x] **CODE-04**: No new dead code remains in audited directories; audit re-verification step in closeout confirms removal.
-- [ ] **CODE-05**: File-size offenders either drop below a milestone-defined LOC threshold OR are explicitly accepted with rationale (e.g., generated SDK code, fixture data).
+- [x] **CODE-05**: File-size offenders either drop below a milestone-defined LOC threshold OR are explicitly accepted with rationale (e.g., generated SDK code, fixture data).
 - [ ] **CODE-06**: No behavior regressions from code-quality refactors: vitest builder suite green, builder smoke green, typecheck clean, public component contracts preserved.
 
 ### Carried-forward Followups (FOLLOWUP)
@@ -93,7 +93,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CODE-02 | Phase 1047 | Complete |
 | CODE-03 | Phase 1047 | Complete |
 | CODE-04 | Phase 1047 | Complete |
-| CODE-05 | Phase 1047 | Pending |
+| CODE-05 | Phase 1047 | Complete |
 | CODE-06 | Phase 1047 | Pending |
 | FOLLOWUP-01 | Phase 1048 | Pending |
 | FOLLOWUP-02 | Phase 1048 | Pending |
