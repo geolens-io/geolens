@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, resolveAdapterType, getCompoundOpacity } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from '@/components/builder/label-layer-utils';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
@@ -118,7 +119,10 @@ export function useLayerMapSync(
           };
           input.style_config = layer.style_config ?? null;
 
-          adapter.syncPaint(map, input);
+          // Paint writes coalesce via rAF (PERF-04); visibility/filter/order remain
+          // synchronous because they're idempotent and cheap, and synchronous
+          // semantics let UI toggles feel instant.
+          coalesceFrame(`paint:${layerId}`, () => adapter.syncPaint(map, input));
         },
       );
     },
