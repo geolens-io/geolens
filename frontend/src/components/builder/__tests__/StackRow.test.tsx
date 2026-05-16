@@ -92,7 +92,6 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof StackRow>> 
     dragHandleProps: makeDragHandleProps(),
     onSelectLayer: vi.fn(),
     onToggleVisibility: vi.fn(),
-    onOpacityChange: vi.fn(),
     onRemove: vi.fn(),
     onRename: vi.fn(),
     onDuplicate: vi.fn(),
@@ -101,7 +100,7 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof StackRow>> 
 }
 
 describe('StackRow', () => {
-  it('renders the six interactive cells in DOM order: grip → eye → name → opacity slider → kebab (caret hidden)', () => {
+  it('renders the five interactive cells in DOM order: grip → eye → name → kebab (caret hidden)', () => {
     const props = defaultProps();
     render(<StackRow {...props} />);
 
@@ -122,10 +121,6 @@ describe('StackRow', () => {
 
     // Name — layer name appears in the row
     expect(screen.getByText('Population')).toBeInTheDocument();
-
-    // Opacity slider
-    const slider = screen.getByRole('slider', { name: /Opacity for/i });
-    expect(slider).toBeInTheDocument();
 
     // Kebab trigger
     const kebab = screen.getByRole('button', { name: /Layer options for/i });
@@ -277,14 +272,6 @@ describe('StackRow', () => {
 
     expect(onRename).toHaveBeenCalledOnce();
     expect(onRename).toHaveBeenCalledWith('rename-layer', 'New name');
-  });
-
-  it('opacity slider aria-label reads "Opacity for {layer name}"', () => {
-    const layer = makeLayer({ dataset_name: 'My Dataset' });
-    render(<StackRow {...defaultProps({ layer })} />);
-
-    const slider = screen.getByRole('slider', { name: /Opacity for My Dataset/i });
-    expect(slider).toBeInTheDocument();
   });
 
   it('row has id="stack-row-{layer.id}" for MapBuilderPage focus-return', () => {
