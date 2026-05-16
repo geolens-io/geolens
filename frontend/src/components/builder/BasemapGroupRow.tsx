@@ -2,7 +2,6 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, MoreVertical } from 'lucide-react';
-import { Slider } from '@/components/ui/slider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +21,6 @@ interface BasemapGroupRowProps {
   presetName: string;
   providerLabel?: string;
   visible: boolean;
-  opacity: number;
   selected: boolean;
   isExpanded: boolean;
   isDragging?: boolean;
@@ -33,7 +31,6 @@ interface BasemapGroupRowProps {
   onSelectGroup: (id: string) => void;
   onToggleExpand: (id: string) => void;
   onToggleVisibility: (id: string) => void;
-  onOpacityChange: (id: string, opacity: number) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
   // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active (POL-11)
@@ -45,7 +42,6 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   presetName,
   providerLabel,
   visible,
-  opacity,
   selected,
   isExpanded,
   isDragging = false,
@@ -54,14 +50,12 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
-  onOpacityChange,
   onSwapBasemap,
   onResetAppearance,
   isMultiSelectionActive = false,
 }: BasemapGroupRowProps) {
   const { t } = useTranslation('builder');
 
-  const safeOpacity = typeof opacity === 'number' && Number.isFinite(opacity) ? opacity : 1;
   const rowName = `Basemap · ${presetName}`;
 
   function handleRowClick(_e: React.MouseEvent) {
@@ -75,7 +69,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       aria-selected={selected}
       tabIndex={0}
       className={cn(
-        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         !selected && !isDragging && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
         selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
@@ -178,31 +172,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         </span>
       </div>
 
-      {/* Cell 6: Opacity slider */}
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
-      <div
-        className="flex items-center"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Slider
-          aria-label={t('stackRow.opacitySlider', {
-            defaultValue: 'Opacity for {{name}}',
-            name: rowName,
-          })}
-          aria-valuetext={`${Math.round(safeOpacity * 100)}%`}
-          value={[safeOpacity]}
-          min={0}
-          max={1}
-          step={0.05}
-          className="w-[60px]"
-          onValueChange={([value]) => {
-            onOpacityChange(groupId, Number((value ?? safeOpacity).toFixed(2)));
-          }}
-        />
-      </div>
-
-      {/* Cell 7: Kebab menu — basemap variant with only 2 items */}
+      {/* Cell 6: Kebab menu — basemap variant with only 2 items */}
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
       <div onClick={(e) => e.stopPropagation()}>
         <DropdownMenu>

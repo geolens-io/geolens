@@ -56,7 +56,6 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof BasemapGrou
     presetName: 'Positron',
     providerLabel: 'OpenFreeMap',
     visible: true,
-    opacity: 1,
     selected: false,
     isExpanded: false,
     isDragging: false,
@@ -64,7 +63,6 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof BasemapGrou
     onSelectGroup: vi.fn(),
     onToggleExpand: vi.fn(),
     onToggleVisibility: vi.fn(),
-    onOpacityChange: vi.fn(),
     onSwapBasemap: vi.fn(),
     onResetAppearance: vi.fn(),
     ...overrides,
@@ -165,19 +163,6 @@ describe('BasemapGroupRow', () => {
     expect(screen.getByText(/OpenFreeMap/)).toBeInTheDocument();
     const providerSpan = screen.getByText(/OpenFreeMap/);
     expect(providerSpan.className).toContain('muted');
-  });
-
-  it('Test 9: opacity slider calls onOpacityChange(groupId, value) and stopPropagation prevents row click', () => {
-    const onOpacityChange = vi.fn();
-    const onSelectGroup = vi.fn();
-    const props = defaultProps({ groupId: 'grp-opacity', onOpacityChange, onSelectGroup, opacity: 0.8 });
-    render(<BasemapGroupRow {...props} />);
-
-    const slider = screen.getByRole('slider');
-    // Clicking the slider container should NOT trigger row click
-    const sliderContainer = slider.closest('[data-opacity-cell]') ?? slider.parentElement!;
-    fireEvent.click(sliderContainer);
-    expect(onSelectGroup).not.toHaveBeenCalled();
   });
 
   it('Test 10: eye toggle calls onToggleVisibility(groupId) and stopPropagation prevents row click', () => {

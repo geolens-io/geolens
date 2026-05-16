@@ -228,7 +228,6 @@ interface BasemapGroupRowWrapperProps {
   onSelectGroup: (id: string | null) => void;
   onToggleExpand: (id: string) => void;
   onToggleVisibility: (id: string) => void;
-  onOpacityChange: (id: string, opacity: number) => void;
   onSwapBasemap: () => void;
   onResetAppearance: () => void;
   // Phase 1041: boundary signal — shows cursor-not-allowed when multi-selection is active
@@ -248,7 +247,6 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
-  onOpacityChange,
   onSwapBasemap,
   onResetAppearance,
   isMultiSelectionActive,
@@ -270,7 +268,6 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         presetName={group.presetName}
         providerLabel={group.providerLabel}
         visible={group.visible}
-        opacity={group.opacity}
         selected={selected}
         isExpanded={isExpanded}
         isDragging={false}
@@ -279,7 +276,6 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
         onToggleVisibility={onToggleVisibility}
-        onOpacityChange={onOpacityChange}
         onSwapBasemap={onSwapBasemap}
         onResetAppearance={onResetAppearance}
         isMultiSelectionActive={isMultiSelectionActive}
@@ -777,7 +773,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           onSelectGroup={onSelectLayer}
           onToggleExpand={safeToggleGroupExpand}
           onToggleVisibility={() => {}}
-          onOpacityChange={() => {}} // opacity via master slider in Scene B editor
           onSwapBasemap={safeSwapBasemap}
           onResetAppearance={safeResetBasemapAppearance}
           isMultiSelectionActive={isMultiSelectionActive}
