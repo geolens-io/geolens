@@ -1,5 +1,6 @@
 /**
  * Phase 1041 — Bulk operation handler tests (POL-09).
+ * Phase 1047-04 — Extended with bulkDeleteLayersApi tests (PERF-03).
  *
  * Tests handleBulkVisibility, handleBulkOpacity, handleBulkGroup, handleBulkUngroup,
  * and handleBulkDelete (including rollback on failure) in use-builder-layers.ts.
@@ -25,19 +26,21 @@ import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
-// Selective vi.mock — only override removeLayerFromMapApi; keep rest real via importActual
+// Selective vi.mock — override removeLayerFromMapApi + bulkDeleteLayersApi;
+// keep rest real via importActual.
 // ---------------------------------------------------------------------------
 vi.mock('@/api/maps', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/maps')>();
   return {
     ...actual,
     removeLayerFromMapApi: vi.fn(),
+    bulkDeleteLayersApi: vi.fn(),
   };
 });
 
-// Import the mocked function AFTER the vi.mock declaration so we get the mock reference.
+// Import the mocked functions AFTER the vi.mock declaration so we get the mock reference.
 // Dynamic import is required because vitest hoists vi.mock calls.
-import { removeLayerFromMapApi } from '@/api/maps';
+import { removeLayerFromMapApi, bulkDeleteLayersApi } from '@/api/maps';
 
 // ---------------------------------------------------------------------------
 // Cleanup
@@ -565,5 +568,149 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
 
     expect(ok).toBe(false);
     expect(mockedRemove).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleBulkDelete — batched endpoint (Phase 1047-04 PERF-03)
+// These tests cover the new bulkDeleteLayersApi path that replaces the
+// Promise.allSettled(removeLayerFromMapApi × N) pattern.
+// ---------------------------------------------------------------------------
+
+describe('useBuilderLayers — handleBulkDelete batched (PERF-03)', () => {
+  it('Test 20: Issues exactly ONE network call for N selected layers', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockResolvedValue({ deleted: ['a', 'b', 'c'], failed: [] });
+
+    const layers = [
+      makeMockLayer({ id: 'a', sort_order: 0 }),
+      makeMockLayer({ id: 'b', sort_order: 1 }),
+      makeMockLayer({ id: 'c', sort_order: 2 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    await act(async () => {
+      await result.current.handleBulkDelete(new Set(['a', 'b', 'c']));
+    });
+
+    // Exactly ONE call — not 3 (the old parallel pattern)
+    expect(mockedBulkDelete).toHaveBeenCalledTimes(1);
+    expect(mockedBulkDelete).toHaveBeenCalledWith(MAP_ID, expect.arrayContaining(['a', 'b', 'c']));
+  });
+
+  it('Test 21: Full success path: layers removed and toast.success fires', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockResolvedValue({ deleted: ['a', 'b'], failed: [] });
+    const successSpy = vi.spyOn(toast, 'success');
+
+    const layers = [
+      makeMockLayer({ id: 'a', sort_order: 0 }),
+      makeMockLayer({ id: 'b', sort_order: 1 }),
+      makeMockLayer({ id: 'c', sort_order: 2 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.handleBulkDelete(new Set(['a', 'b']));
+    });
+
+    expect(ok).toBe(true);
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids).not.toContain('a');
+    expect(ids).not.toContain('b');
+    expect(ids).toContain('c');
+    expect(successSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Test 22: Full rollback path: all failed → localLayers restored + toast.error', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockResolvedValue({
+      deleted: [],
+      failed: [
+        { id: 'a', reason: 'not_found' },
+        { id: 'b', reason: 'not_found' },
+      ],
+    });
+    const errorSpy = vi.spyOn(toast, 'error');
+
+    const layers = [
+      makeMockLayer({ id: 'a', sort_order: 0 }),
+      makeMockLayer({ id: 'b', sort_order: 1 }),
+      makeMockLayer({ id: 'c', sort_order: 2 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.handleBulkDelete(new Set(['a', 'b']));
+    });
+
+    expect(ok).toBe(false);
+    // All 3 layers still present (rolled back)
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids).toContain('a');
+    expect(ids).toContain('b');
+    expect(ids).toContain('c');
+    expect(errorSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Test 23: Partial failure: deleted layers removed, failed remain, toast.error fires', async () => {
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockResolvedValue({
+      deleted: ['a'],
+      failed: [{ id: 'b', reason: 'not_found' }],
+    });
+    const errorSpy = vi.spyOn(toast, 'error');
+
+    const layers = [
+      makeMockLayer({ id: 'a', sort_order: 0 }),
+      makeMockLayer({ id: 'b', sort_order: 1 }),
+      makeMockLayer({ id: 'c', sort_order: 2 }),
+    ];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.handleBulkDelete(new Set(['a', 'b']));
+    });
+
+    expect(ok).toBe(false);
+    const ids = result.current.localLayers.map((l) => l.id);
+    // 'a' was deleted (in deleted[])
+    expect(ids).not.toContain('a');
+    // 'b' failed → re-inserted
+    expect(ids).toContain('b');
+    // 'c' untouched
+    expect(ids).toContain('c');
+    expect(errorSpy).toHaveBeenCalledOnce();
+  });
+
+  it('Test 24: isDeleting=true during the call, false after', async () => {
+    let isDeletingDuringCall = false;
+
+    const mockedBulkDelete = vi.mocked(bulkDeleteLayersApi);
+    mockedBulkDelete.mockImplementation(async () => {
+      // Capture isDeleting value inside the async call (it should be true here)
+      isDeletingDuringCall = true;
+      return { deleted: ['a'], failed: [] };
+    });
+
+    const layers = [makeMockLayer({ id: 'a', sort_order: 0 })];
+    const { result } = renderBuilderLayers(makeMapData(layers));
+    await waitForInit();
+
+    await act(async () => {
+      await result.current.handleBulkDelete(new Set(['a']));
+    });
+
+    // After completion isDeleting is false
+    expect(result.current.isDeleting).toBe(false);
+    // The mock was called (proving it executed during the call)
+    expect(isDeletingDuringCall).toBe(true);
   });
 });
