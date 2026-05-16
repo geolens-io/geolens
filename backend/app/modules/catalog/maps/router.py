@@ -32,6 +32,9 @@ from app.modules.catalog.authorization import get_user_roles
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
 from app.modules.catalog.maps.schemas import (
+    BulkDeleteLayersRequest,
+    BulkDeleteLayersResponse,
+    BulkDeleteLayersFailure,
     DatasetMetaKwargs,
     DuplicateMapResponse,
     MapCreate,
@@ -90,6 +93,7 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.service_layers import remove_layers_bulk
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -1671,3 +1675,78 @@ async def remove_layer_endpoint(
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{map_id}/layers/bulk-delete",
+    response_model=BulkDeleteLayersResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def bulk_delete_layers_endpoint(
+    map_id: uuid.UUID,
+    body: BulkDeleteLayersRequest,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> BulkDeleteLayersResponse:
+    """Batch-delete multiple layers from a map in a single request.
+
+    Milestone exception (v1010 Phase 1047): one additive endpoint permitted
+    per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
+    batched call for bulk-delete UX (PB-03 / PERF-03).
+
+    Returns 200 with deleted/failed arrays in all cases (partial failures
+    surface inline, not as HTTP errors).  Full rollback is the caller's
+    responsibility if all ids fail.
+    """
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
+
+    deleted_ids, failed_pairs = await remove_layers_bulk(
+        db, body.layer_ids, map_id
+    )
+
+    deleted_count = len(deleted_ids)
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="map.bulk_remove_layers",
+            resource_type="map",
+            resource_id=map_id,
+            details={
+                "layer_ids": [str(lid) for lid in body.layer_ids],
+                "deleted_count": deleted_count,
+            },
+            ip_address=request.client.host if request.client else None,
+        ),
+    )
+
+    await record_map_history_event(
+        db,
+        map_id=map_id,
+        actor=user,
+        target_type="layer",
+        action="layer.bulk_remove",
+        summary=f"Removed {deleted_count} layers",
+        details={
+            "deleted_count": deleted_count,
+            "failed_count": len(failed_pairs),
+        },
+    )
+
+    await db.commit()
+
+    return BulkDeleteLayersResponse(
+        deleted=deleted_ids,
+        failed=[
+            BulkDeleteLayersFailure(id=fid, reason=reason)
+            for fid, reason in failed_pairs
+        ],
+    )

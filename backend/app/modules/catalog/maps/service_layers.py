@@ -144,3 +144,58 @@ async def remove_layer(
     # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
     # type stub is less specific so mypy can't narrow it here.
     return result.rowcount > 0  # type: ignore[attr-defined]
+
+
+async def remove_layers_bulk(
+    session: AsyncSession,
+    layer_ids: list[uuid.UUID],
+    map_id: uuid.UUID,
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Batch-delete multiple layers from a map in a single transaction.
+
+    Fetches all matching MapLayer rows in one SELECT, then removes them
+    with a single DELETE WHERE id=ANY(...) AND map_id=:map_id. Layer ids
+    that were not found in the SELECT are returned in the failure list.
+
+    Returns:
+        (deleted_ids, failed_pairs) where:
+        - deleted_ids: list[str] — UUIDs of successfully deleted layers.
+        - failed_pairs: list[(str, str)] — (layer_id_str, reason) for each
+          layer that could not be found (reason="not_found").
+
+    NOTE: The caller is responsible for committing the transaction. This
+    function does NOT call session.commit() so that audit/history can be
+    written in the same transaction before the commit.
+    """
+    if not layer_ids:
+        return [], []
+
+    # Fetch all matching rows in one round-trip to discover which ids exist
+    existing_result = await session.execute(
+        select(MapLayer.id).where(
+            MapLayer.map_id == map_id,
+            MapLayer.id.in_(layer_ids),
+        )
+    )
+    existing_ids: set[uuid.UUID] = set(existing_result.scalars().all())
+
+    # Determine failures (ids not in the map)
+    failed_pairs: list[tuple[str, str]] = [
+        (str(lid), "not_found")
+        for lid in layer_ids
+        if lid not in existing_ids
+    ]
+
+    if not existing_ids:
+        return [], failed_pairs
+
+    # Single DELETE for all found rows
+    await session.execute(
+        delete(MapLayer).where(
+            MapLayer.map_id == map_id,
+            MapLayer.id.in_(existing_ids),
+        )
+    )
+
+    deleted_ids = [str(lid) for lid in layer_ids if lid in existing_ids]
+    return deleted_ids, failed_pairs

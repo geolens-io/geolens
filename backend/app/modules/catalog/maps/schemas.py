@@ -761,3 +761,38 @@ class VisibilityCheckResponse(BaseModel):
     has_non_public: bool = Field(
         description="True if any layer references a non-public dataset"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bulk-delete layers (Phase 1047, milestone exception — PB-03 / PERF-03)
+# One additive endpoint permitted per REQUIREMENTS.md Out-of-Scope to reduce
+# N sequential DELETEs to one batched call for bulk-delete UX.
+# ---------------------------------------------------------------------------
+
+
+class BulkDeleteLayersRequest(BaseModel):
+    """Request body for POST /maps/{map_id}/layers/bulk-delete."""
+
+    layer_ids: list[uuid.UUID] = Field(
+        ...,
+        min_length=1,
+        max_length=_MAX_LAYERS_PER_MAP,
+        description=(
+            "UUIDs of layers to delete. Must be 1–200 elements "
+            "(matches _MAX_LAYERS_PER_MAP)."
+        ),
+    )
+
+
+class BulkDeleteLayersFailure(BaseModel):
+    """A single layer that could not be deleted."""
+
+    id: str
+    reason: str
+
+
+class BulkDeleteLayersResponse(BaseModel):
+    """Response body for POST /maps/{map_id}/layers/bulk-delete."""
+
+    deleted: list[str]
+    failed: list[BulkDeleteLayersFailure]

@@ -71,14 +71,14 @@ class TestBulkDeleteSuccess:
         """POST /maps/{id}/layers/bulk-delete with 3 valid ids deletes all 3."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
-        test_db_session.expire_all()
+        ds_id = str(ds.id)
 
         map_obj = await _create_map(client, admin_auth_header)
         map_id = map_obj["id"]
 
-        layer_a = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
-        layer_b = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
-        layer_c = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
+        layer_a = await _add_layer(client, admin_auth_header, map_id, ds_id)
+        layer_b = await _add_layer(client, admin_auth_header, map_id, ds_id)
+        layer_c = await _add_layer(client, admin_auth_header, map_id, ds_id)
 
         resp = await client.post(
             f"/maps/{map_id}/layers/bulk-delete",
@@ -110,12 +110,12 @@ class TestBulkDeletePartial:
         """One invalid layer id produces 200 with that id in failed[]."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
-        test_db_session.expire_all()
+        ds_id = str(ds.id)
 
         map_obj = await _create_map(client, admin_auth_header)
         map_id = map_obj["id"]
-        layer_a = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
-        layer_b = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
+        layer_a = await _add_layer(client, admin_auth_header, map_id, ds_id)
+        layer_b = await _add_layer(client, admin_auth_header, map_id, ds_id)
 
         invalid_id = str(uuid.uuid4())
 
@@ -228,12 +228,12 @@ class TestBulkDeleteAudit:
         """Exactly one audit event map.bulk_remove_layers is emitted per call."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
-        test_db_session.expire_all()
+        ds_id = str(ds.id)
 
         map_obj = await _create_map(client, admin_auth_header)
         map_id = map_obj["id"]
-        layer_a = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
-        layer_b = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
+        layer_a = await _add_layer(client, admin_auth_header, map_id, ds_id)
+        layer_b = await _add_layer(client, admin_auth_header, map_id, ds_id)
 
         resp = await client.post(
             f"/maps/{map_id}/layers/bulk-delete",
@@ -273,13 +273,13 @@ class TestBulkDeleteAudit:
 
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await create_dataset(test_db_session, created_by=admin_id)
-        test_db_session.expire_all()
+        ds_id = str(ds.id)
 
         map_obj = await _create_map(client, admin_auth_header)
         map_id = map_obj["id"]
-        layer_a = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
-        layer_b = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
-        layer_c = await _add_layer(client, admin_auth_header, map_id, str(ds.id))
+        layer_a = await _add_layer(client, admin_auth_header, map_id, ds_id)
+        layer_b = await _add_layer(client, admin_auth_header, map_id, ds_id)
+        layer_c = await _add_layer(client, admin_auth_header, map_id, ds_id)
 
         resp = await client.post(
             f"/maps/{map_id}/layers/bulk-delete",
