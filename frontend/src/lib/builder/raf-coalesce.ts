@@ -93,3 +93,19 @@ export function __resetForTest(): void {
   }
   pending.clear();
 }
+
+// ---------------------------------------------------------------------------
+// HMR dispose hook (WR-06)
+// During Vite hot-module-replacement, cancel any pending rAF so the old
+// module's flush() does not fire stale callbacks after the module is replaced.
+// This is a no-op in production builds (import.meta.hot is undefined).
+// ---------------------------------------------------------------------------
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (rafHandle !== null) {
+      cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    }
+    pending.clear();
+  });
+}
