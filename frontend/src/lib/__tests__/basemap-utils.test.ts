@@ -404,4 +404,36 @@ describe('applyBasemapConfigToStyle master opacity', () => {
     const layer = next.layers[0] as unknown as { paint: { 'raster-opacity': unknown } };
     expect(layer.paint['raster-opacity']).toEqual(expression);
   });
+
+  it('dims boundary symbol icons in lockstep with text under subtle + master opacity', () => {
+    // FEH-03: applyBasemapLayerConfig's boundary branch previously stamped only
+    // `text-opacity: 0.45` for symbol layers, so `applyMasterOpacity` (which
+    // iterates BOTH text-opacity and icon-opacity for symbol type) fell back to
+    // writing absolute master for icon-opacity — text dimmed, icon stayed full.
+    // Fix stamps `icon-opacity: 0.45` alongside `text-opacity: 0.45` so both
+    // dim in lockstep to 0.45 * 0.5 = 0.225 under subtle + master=0.5.
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { v: { type: 'vector', tiles: ['x'] } },
+      layers: [
+        {
+          id: 'boundary_country_label',
+          type: 'symbol',
+          source: 'v',
+          'source-layer': 'boundary',
+          layout: { 'text-field': ['get', 'name'], 'icon-image': 'border-dot' },
+          paint: {},
+        },
+      ],
+    };
+    const next = applyBasemapConfigToStyle(style, {
+      boundary_visibility: 'subtle',
+      opacity: 0.5,
+    });
+    const layer = next.layers[0] as unknown as {
+      paint: { 'text-opacity': number; 'icon-opacity': number };
+    };
+    expect(layer.paint['text-opacity']).toBeCloseTo(0.225, 5);
+    expect(layer.paint['icon-opacity']).toBeCloseTo(0.225, 5);
+  });
 });

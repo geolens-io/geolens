@@ -391,7 +391,9 @@ function applyBasemapLayerConfig(
     if (config.road_visibility === 'subtle') Object.assign(prominenceStamps, subtle);
   }
   if (boundaryLayer) {
-    const subtle = next.type === 'line' ? { 'line-opacity': 0.4 } : { 'text-opacity': 0.45 };
+    const subtle = next.type === 'line'
+      ? { 'line-opacity': 0.4 }
+      : { 'text-opacity': 0.45, 'icon-opacity': 0.45 };
     next = applyProminence(next, config.boundary_visibility, subtle);
     if (config.boundary_visibility === 'subtle') Object.assign(prominenceStamps, subtle);
   }
