@@ -570,6 +570,33 @@ describe('useBuilderSave', () => {
     expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
   });
 
+  it('allows save when popup is enabled but dataset_column_info is null (CR-01 regression)', async () => {
+    // dataset_column_info is null (column metadata not yet fetched).
+    // Pre-check must skip validation and let the server be the authoritative gate.
+    const state = makeSaveState({
+      hasUnsavedChanges: true,
+      localLayers: [
+        makeLayer({
+          popup_config: { enabled: true, expression: '{{some_column}}', visible_fields: null },
+          dataset_column_info: null,
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    // Save must proceed — no blocking toast, mutation called
+    const { toast } = await import('sonner');
+    expect(toast.error).not.toHaveBeenCalledWith(
+      'toasts.popupConfigInvalidNamed',
+      expect.anything(),
+    );
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalled();
+  });
+
   it('routes backend 422 popup_config rejection to popupConfigBackendRejected toast (Test C)', async () => {
     const { toast } = await import('sonner');
     // Layer has no popup_config — bypasses frontend pre-check; save proceeds to API

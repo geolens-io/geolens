@@ -373,7 +373,9 @@ export function useBuilderSave(state: SaveState) {
     const invalidLayer = localLayers.find((l) => {
       const cfg = l.popup_config;
       if (!cfg?.enabled || !cfg.expression) return false;
-      const columns = (l.dataset_column_info ?? []).map((c) => c.name);
+      // Skip validation when column metadata is absent — the server is the authoritative gate.
+      if (!l.dataset_column_info) return false;
+      const columns = l.dataset_column_info.map((c) => c.name);
       return !validatePlaceholders(extractPlaceholders(cfg.expression), columns).ok;
     });
     if (invalidLayer) {
@@ -453,7 +455,7 @@ export function useBuilderSave(state: SaveState) {
         const popupLocItem = (err.body as Array<{ loc?: unknown[]; msg?: string; type?: string }>)
           .find((item) => Array.isArray(item.loc) && item.loc.includes('popup_config'));
         if (popupLocItem && Array.isArray(popupLocItem.loc)) {
-          const loc = popupLocItem.loc as string[];
+          const loc = popupLocItem.loc as Array<string | number>;
           const popupIdx = loc.indexOf('popup_config');
           const field = loc.slice(popupIdx).join('.');
           toast.error(t('toasts.popupConfigBackendRejected', { field }), {});
