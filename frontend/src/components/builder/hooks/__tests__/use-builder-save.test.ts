@@ -521,7 +521,7 @@ describe('useBuilderSave', () => {
       hasUnsavedChanges: true,
       localLayers: [
         makeLayer({
-          popup_config: { enabled: true, expression: '{{missing_column}}' },
+          popup_config: { enabled: true, expression: '{{missing_column}}', visible_fields: null },
           dataset_column_info: [{ name: 'present_column', type: 'text' }],
         }),
       ],
