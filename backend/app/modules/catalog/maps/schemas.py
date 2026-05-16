@@ -783,6 +783,13 @@ class BulkDeleteLayersRequest(BaseModel):
         ),
     )
 
+    @field_validator("layer_ids")
+    @classmethod
+    def _no_duplicate_ids(cls, v: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(set(v)) != len(v):
+            raise ValueError("layer_ids must be unique")
+        return v
+
 
 class BulkDeleteLayersFailure(BaseModel):
     """A single layer that could not be deleted."""
