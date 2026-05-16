@@ -346,7 +346,12 @@ describe('applyBasemapConfigToStyle master opacity', () => {
     expect(layer.paint['line-opacity']).toBeCloseTo(0.175, 5);
   });
 
-  it('opacity=1 is a no-op (paint unchanged for raster)', () => {
+  it('opacity=1 writes absolute 1.0 so previously-dimmed values are reset (CR-01)', () => {
+    // After CR-01 fix, master opacity is always absolute (never multiplicative
+    // against live paint). At opacity=1 we write 1.0 explicitly so the map-sync
+    // diff loop can reset any previously-stamped value back to MapLibre default.
+    // Without this, a slider drag down then back up would leave the basemap
+    // stuck at the lower value (the original bug).
     const style: StyleSpecification = {
       version: 8,
       sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
@@ -354,7 +359,36 @@ describe('applyBasemapConfigToStyle master opacity', () => {
     };
     const next = applyBasemapConfigToStyle(style, { opacity: 1 });
     const layer = next.layers[0] as unknown as { paint: { 'raster-opacity': number } };
-    expect(layer.paint['raster-opacity']).toBe(0.8);
+    expect(layer.paint['raster-opacity']).toBe(1);
+  });
+
+  it('master opacity is reversible when reapplied (does not compound — CR-01 regression)', () => {
+    // Regression test for code review CR-01: applying opacity 0.5 then opacity 1
+    // against the same (already-mutated) style must restore raster-opacity to 1,
+    // not stay at 0.5. The previous design multiplied against live paint and
+    // short-circuited at >=1, leaving the slider monotonic-downward.
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+    };
+    const afterFirst = applyBasemapConfigToStyle(style, { opacity: 0.5 });
+    const afterSecond = applyBasemapConfigToStyle(afterFirst, { opacity: 1 });
+    const layer = afterSecond.layers[0] as unknown as { paint: { 'raster-opacity': number } };
+    expect(layer.paint['raster-opacity']).toBeCloseTo(1, 5);
+  });
+
+  it('compound master-opacity drags compose against fresh stamps not stale paint (CR-01 regression)', () => {
+    // Second drag: 0.5 → 0.8 must produce 0.8 (absolute), not 0.5 * 0.8 = 0.4.
+    const style: StyleSpecification = {
+      version: 8,
+      sources: { osm: { type: 'raster', tiles: ['x'], tileSize: 256 } },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+    };
+    const afterFirst = applyBasemapConfigToStyle(style, { opacity: 0.5 });
+    const afterSecond = applyBasemapConfigToStyle(afterFirst, { opacity: 0.8 });
+    const layer = afterSecond.layers[0] as unknown as { paint: { 'raster-opacity': number } };
+    expect(layer.paint['raster-opacity']).toBeCloseTo(0.8, 5);
   });
 
   it('leaves expression-valued *-opacity untouched (no AST surgery)', () => {

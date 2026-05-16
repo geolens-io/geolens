@@ -74,7 +74,19 @@ export function useBuilderLayers(
   const [expandedLayerId, setExpandedLayerId] = useState<string | null>(null);
   const [activeEditorTab, setActiveEditorTab] = useState<'style' | 'filter' | 'labels' | 'popup' | null>(null);
   const [showBasemapLabels, setShowBasemapLabels] = useState(true);
-  const [basemapConfig, setBasemapConfig] = useState<MapBasemapConfig | null>(null);
+  const [basemapConfig, _setBasemapConfigRaw] = useState<MapBasemapConfig | null>(null);
+  // WR-02 (quick-260516-9g9 followup): wrap setBasemapConfig so external callers
+  // get dirty-tracking for free — Option B's single-source-of-truth principle
+  // means basemapConfig writes always imply user intent to persist. The raw
+  // setter is reserved for the load path (line ~120) where the initial
+  // hydration must NOT mark dirty.
+  const setBasemapConfig = useCallback(
+    (next: MapBasemapConfig | null | ((prev: MapBasemapConfig | null) => MapBasemapConfig | null)) => {
+      _setBasemapConfigRaw(next);
+      setHasUnsavedChanges(true);
+    },
+    [],
+  );
   const [localTerrainConfig, setLocalTerrainConfig] = useState<MapTerrainConfig | null>(null);
   const [groupMeta, setGroupMeta] = useState<Record<string, { expanded: boolean }>>({});
   const [localName, setLocalName] = useState('');
@@ -117,7 +129,7 @@ export function useBuilderLayers(
       savedLayerBaselineRef.current = mapData.layers ?? [];
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
-      setBasemapConfig(mapData.basemap_config ?? null);
+      _setBasemapConfigRaw(mapData.basemap_config ?? null);
       setLocalTerrainConfig(mapData.terrain_config ?? null);
       setGroupMeta((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {});
       setLocalName(mapData.name);

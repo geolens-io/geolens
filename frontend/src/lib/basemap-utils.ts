@@ -319,25 +319,48 @@ const OPACITY_PAINT_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   heatmap: ['heatmap-opacity'],
 };
 
-function applyMasterOpacity(layer: StyleLayer, masterOpacity: number): StyleLayer {
-  if (!Number.isFinite(masterOpacity) || masterOpacity >= 1) return layer;
-  if (masterOpacity < 0) return layer;
+// CR-01 fix (quick-260516-9g9 followup): write absolute master-opacity values,
+// composed with prominence stamps applied earlier in the same call.
+//
+// Previous design read `existingPaint[key]` and multiplied — but when
+// applyBasemapConfigToMap feeds map.getStyle() (live, post-mutation) as input,
+// `existing` already contains a prior master-opacity stamp. Compounding occurs
+// and masterOpacity >= 1 short-circuits the reset, leaving the slider monotonic-
+// downward (review finding CR-01).
+//
+// Fix: never read live paint. The `prominenceStamps` map tells us which keys
+// applyProminence set this call (with the canonical subtle values). Other keys
+// default to 1.0 (MapLibre default). We always write `stamp * master` or
+// `master`, so the next setPaintProperty diff correctly restores values when
+// the slider returns to 1.0.
+function applyMasterOpacity(
+  layer: StyleLayer,
+  masterOpacity: number,
+  prominenceStamps: Record<string, number> = {},
+): StyleLayer {
+  if (!Number.isFinite(masterOpacity) || masterOpacity < 0) return layer;
   const type = typeof layer.type === 'string' ? layer.type : '';
   const keys = OPACITY_PAINT_KEYS_BY_TYPE[type];
   if (!keys || keys.length === 0) return layer;
   const existingPaint = (layer.paint ?? {}) as Record<string, unknown>;
   const nextPaint: Record<string, unknown> = { ...existingPaint };
   for (const key of keys) {
-    const existing = existingPaint[key];
-    if (existing == null) {
-      // Layer has no explicit *-opacity set — seed from MapLibre's default
-      // of 1.0 and multiply, so plain layers dim too.
+    const stamp = prominenceStamps[key];
+    if (typeof stamp === 'number' && Number.isFinite(stamp)) {
+      // applyProminence stamped this key this call — compose against the
+      // fresh stamp (not the possibly-stale live paint).
+      nextPaint[key] = stamp * masterOpacity;
+    } else {
+      const existing = existingPaint[key];
+      // Expression / non-number existing values: leave untouched (safest —
+      // multiplying into an interpolate/step expression requires AST surgery).
+      if (existing != null && typeof existing !== 'number') continue;
+      // Numeric or absent: write absolute master (MapLibre default is 1.0).
+      // This guarantees the slider is reversible — at master=1 we write 1.0,
+      // not skip, so the diff loop in map-sync resets any prior compounded
+      // value back to default.
       nextPaint[key] = masterOpacity;
-    } else if (typeof existing === 'number' && Number.isFinite(existing)) {
-      nextPaint[key] = existing * masterOpacity;
     }
-    // Expression/non-number values: leave untouched (safest — multiplying
-    // into an interpolate/step expression requires AST surgery).
   }
   return { ...layer, paint: nextPaint } as StyleLayer;
 }
@@ -352,40 +375,45 @@ function applyBasemapLayerConfig(
   if (isBuildingLayer(next)) {
     next = withVisibility(next, config.building_visibility);
   }
+  // Track which paint keys applyProminence stamped this call so applyMasterOpacity
+  // can compose against the canonical subtle values rather than live-mutated paint
+  // (CR-01 fix — prevents compound stamping on raster + full-mode vector layers).
+  // Only `subtle` mode stamps paint; `hidden` writes layout.visibility and `full`
+  // is a no-op on paint, so prominenceStamps stays empty in those cases.
+  const prominenceStamps: Record<string, number> = {};
   const roadLayer = isRoadLayer(next);
   const boundaryLayer = isBoundaryLayer(next);
   if (roadLayer) {
-    next = applyProminence(
-      next,
-      config.road_visibility,
-      next.type === 'line'
-        ? { 'line-opacity': 0.35 }
-        : { 'text-opacity': 0.45, 'icon-opacity': 0.35 },
-    );
+    const subtle = next.type === 'line'
+      ? { 'line-opacity': 0.35 }
+      : { 'text-opacity': 0.45, 'icon-opacity': 0.35 };
+    next = applyProminence(next, config.road_visibility, subtle);
+    if (config.road_visibility === 'subtle') Object.assign(prominenceStamps, subtle);
   }
   if (boundaryLayer) {
-    next = applyProminence(
-      next,
-      config.boundary_visibility,
-      next.type === 'line' ? { 'line-opacity': 0.4 } : { 'text-opacity': 0.45 },
-    );
+    const subtle = next.type === 'line' ? { 'line-opacity': 0.4 } : { 'text-opacity': 0.45 };
+    next = applyProminence(next, config.boundary_visibility, subtle);
+    if (config.boundary_visibility === 'subtle') Object.assign(prominenceStamps, subtle);
   }
   const sublayerHidden =
     (roadLayer && config.road_visibility === 'hidden') ||
     (boundaryLayer && config.boundary_visibility === 'hidden');
   if (isTextLabelLayer(next) && !sublayerHidden) {
-    next = applyProminence(next, config.label_mode, {
+    const subtle = {
       'text-opacity': 0.55,
       'icon-opacity': 0.45,
       'text-halo-width': 0.8,
-    });
+    };
+    next = applyProminence(next, config.label_mode, subtle);
+    if (config.label_mode === 'subtle') Object.assign(prominenceStamps, subtle);
   }
 
-  // Path R (quick-260516-9g9): master-opacity multiplier applied LAST so it
-  // composes on top of per-sublayer prominence (e.g., subtle road
-  // line-opacity=0.35 * masterOpacity=0.55 = 0.1925). config.opacity is
-  // optional on MapBasemapConfig but always set by normalizeBasemapConfig.
-  next = applyMasterOpacity(next, config.opacity ?? 1);
+  // Path R (quick-260516-9g9): master-opacity applied LAST so it composes on
+  // top of per-sublayer prominence stamps. applyMasterOpacity writes absolute
+  // values (stamp * master, or master if no stamp) — the previous multiplicative
+  // approach compounded on re-entry (CR-01). config.opacity is optional on
+  // MapBasemapConfig but always set by normalizeBasemapConfig.
+  next = applyMasterOpacity(next, config.opacity ?? 1, prominenceStamps);
 
   return next;
 }

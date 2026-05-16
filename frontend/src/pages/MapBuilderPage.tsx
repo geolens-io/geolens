@@ -458,10 +458,10 @@ export function MapBuilderPage() {
   }, []);
 
   const handleResetBasemapAppearance = useCallback(() => {
+    // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
     layers.setBasemapConfig(null);
     setSublayerState({});
-    layers.markDirty(); // basemapConfig reset IS persisted (null → saved)
-  }, [layers.setBasemapConfig, layers.markDirty]);
+  }, [layers.setBasemapConfig]);
 
   // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
@@ -605,6 +605,8 @@ export function MapBuilderPage() {
         const nextConfig = normalizeBasemapConfig(layers.basemapConfig, layers.showBasemapLabels);
         layers.setLocalBasemap(datasetId);
         layers.setShowBasemapLabels(nextConfig.label_mode !== 'hidden');
+        // setBasemapConfig auto-marks dirty (WR-02). Keep markDirty for the
+        // setLocalBasemap + setShowBasemapLabels writes which don't auto-track.
         layers.setBasemapConfig(nextConfig);
         layers.markDirty();
         toast.success(t('toasts.basemapChanged', { name: datasetName }), {
@@ -748,8 +750,8 @@ export function MapBuilderPage() {
         onMasterOpacityChange={(opacity) => {
           const current = layers.basemapConfig
             ?? normalizeBasemapConfig(null, layers.showBasemapLabels);
+          // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
           layers.setBasemapConfig({ ...current, opacity });
-          layers.markDirty();
         }}
       />
     );
@@ -1267,6 +1269,8 @@ export function MapBuilderPage() {
         onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
         onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
         onBasemapConfigChange={(next) => {
+          // setBasemapConfig auto-marks dirty (WR-02). markDirty kept for
+          // setShowBasemapLabels which doesn't auto-track.
           layers.setBasemapConfig(next);
           layers.setShowBasemapLabels(next.label_mode !== 'hidden');
           layers.markDirty();
