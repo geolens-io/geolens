@@ -772,6 +772,102 @@ test.describe.serial('Map Builder', () => {
     expect(postCloseFocus.insideDialog).toBe(false);
   });
 
+  test('popup_config success-path round-trip (FOLLOWUP-01)', async ({ page }) => {
+    const token = getAuthToken();
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    // Get the first layer from the test map
+    const layers = await getMapLayers(mapId, authHeaders);
+    const layer = layers[0];
+    expect(layer).toBeTruthy();
+
+    // Directly patch the layer with an invalid popup_config expression.
+    // This puts the map in a "previously-blocked" state where the frontend
+    // pre-check will surface the named error toast.
+    const patchRes = await fetch(`${BASE_URL}/api/maps/${mapId}/layers/`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        updated: [{
+          id: layer.id,
+          popup_config: {
+            enabled: true,
+            expression: '{{__missing_column__}}',
+            visible_fields: null,
+          },
+        }],
+      }),
+    });
+    // Backend accepts the patch because it only validates shape, not placeholder correctness.
+    expect(patchRes.ok).toBe(true);
+
+    // Open builder — the layer now has an invalid popup expression in local state.
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+
+    // Click Save. The frontend pre-check detects the invalid placeholder and shows
+    // a named error toast (FOLLOWUP-01 surface).
+    await page.getByRole('button', { name: /save/i }).first().click();
+
+    // Assert: error toast with the popup-config-invalid dedupe id appears
+    const popupErrorToast = page.locator('[data-sonner-toast][data-type="error"]');
+    await expect(popupErrorToast).toBeVisible({ timeout: 5_000 });
+    const toastText = await popupErrorToast.textContent();
+    expect(toastText).toMatch(/popup expression|invalid popup|cannot save/i);
+
+    // Fix: open the layer editor → Popup tab and clear the invalid expression.
+    const layerRow = page.locator(`#stack-row-${layer.id}`);
+    await expect(layerRow).toBeVisible();
+    await layerRow.click();
+
+    const editor = page.getByTestId('builder-layer-editor');
+    await expect(editor).toBeVisible({ timeout: 5_000 });
+
+    // Navigate to Popup tab
+    const popupTab = page.getByRole('tab', { name: /popup/i });
+    await expect(popupTab).toBeVisible({ timeout: 5_000 });
+    await popupTab.click();
+
+    // Clear the invalid expression (empty expression = no placeholder validation needed)
+    const exprInput = page.locator('#popup-expression');
+    await expect(exprInput).toBeVisible({ timeout: 5_000 });
+    await exprInput.clear();
+
+    // Save again — no popup-config-invalid toast, success toast appears
+    const saveResponsePromise = page.waitForResponse(
+      (resp) =>
+        (resp.url().includes(`/api/maps/${mapId}`) && resp.request().method() === 'PUT') ||
+        (resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'PATCH'),
+    );
+    await page.getByRole('button', { name: /save/i }).first().click();
+    const saveResp = await saveResponsePromise;
+    expect(saveResp.status()).toBe(200);
+
+    // No popup-config-invalid error toast (may have the old one still from before — check
+    // that a new one is not opened by verifying success toast appears instead)
+    const successToast = page.locator('[data-sonner-toast][data-type="success"]');
+    await expect(successToast).toBeVisible({ timeout: 8_000 });
+
+    // Reload and verify the layer is still present (PUT round-trip persisted)
+    await page.reload();
+    await waitForBuilder(page);
+    const reloadedLayers = await getMapLayers(mapId, authHeaders);
+    expect(reloadedLayers.some((l) => l.id === layer.id)).toBe(true);
+
+    // Restore layer to clean state (remove popup_config) so other tests are unaffected
+    await fetch(`${BASE_URL}/api/maps/${mapId}/layers/`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        updated: [{ id: layer.id, popup_config: null }],
+      }),
+    });
+  });
+
   test('no error toasts from raster tile 404s', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
