@@ -614,7 +614,6 @@
     "mapDuplicated": "Carte dupliquée avec succès",
     "mapDuplicateFailed": "Échec de la duplication de la carte",
     "mapForkedExcluded": "Carte dérivée ! {{count}} couche(s) exclue(s) -- vous n'avez pas accès à ces jeux de données",
-    "popupConfigInvalid": "Impossible d'enregistrer : une ou plusieurs couches ont des expressions de popup invalides",
     "popupConfigInvalidNamed": "Impossible d'enregistrer : la couche \"{{layerName}}\" a une expression de popup invalide.",
     "popupConfigBackendRejected": "Le serveur a rejeté la configuration du popup ({{field}}). Ajustez le modèle de popup de la couche et enregistrez à nouveau.",
     "layerFallbackName": "Couche sans titre"

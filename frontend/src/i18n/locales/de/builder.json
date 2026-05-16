@@ -614,7 +614,6 @@
     "mapDuplicated": "Karte erfolgreich dupliziert",
     "mapDuplicateFailed": "Karte konnte nicht dupliziert werden",
     "mapForkedExcluded": "Karte abgeleitet! {{count}} Layer ausgeschlossen -- Sie haben keinen Zugriff auf diese Datensätze",
-    "popupConfigInvalid": "Speichern nicht möglich: Ein oder mehrere Layer haben ungültige Popup-Ausdrücke",
     "popupConfigInvalidNamed": "Speichern nicht möglich: Layer \"{{layerName}}\" hat einen ungültigen Popup-Ausdruck.",
     "popupConfigBackendRejected": "Der Server hat die Popup-Konfiguration abgelehnt ({{field}}). Passen Sie die Popup-Vorlage des Layers an und speichern Sie erneut.",
     "layerFallbackName": "Unbenannter Layer"

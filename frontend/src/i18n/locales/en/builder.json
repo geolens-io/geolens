@@ -614,7 +614,6 @@
     "mapDuplicated": "Map duplicated successfully",
     "mapDuplicateFailed": "Failed to duplicate map",
     "mapForkedExcluded": "Map forked! {{count}} layer(s) excluded -- you don't have access to those datasets",
-    "popupConfigInvalid": "Cannot save: one or more layers have invalid popup expressions",
     "popupConfigInvalidNamed": "Cannot save: layer \"{{layerName}}\" has an invalid popup expression.",
     "popupConfigBackendRejected": "Server rejected the popup configuration ({{field}}). Adjust the layer's popup template and save again.",
     "layerFallbackName": "Untitled layer"
