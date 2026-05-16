@@ -91,6 +91,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** S (< 2 hours: ~30 min to extract, ~1 hour to test + integration verification)
 - **Phase 1047 mapping:** CODE-03 (duplication remediation)
 
+**Status (Phase 1047):** shipped — see Plan 1047-01 Task 1 (syncLayerFilter helper extracted to shared.ts; 10 duplicate filter-branch call sites replaced across fill, line, circle, heatmap adapters; 5-test vitest suite added; typecheck clean).
+
 #### CB-07 — LayerStyleEditor.tsx is oversized and complex
 - **Dimension:** File size + Complexity
 - **Severity:** P0
@@ -109,6 +111,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
   4. Add per-component unit tests instead of monolithic component test
 - **Est. effort:** M (3-4 hours: split component, add per-component tests, verify no regressions)
 - **Phase 1047 mapping:** CODE-02 (P0 architectural fix), CODE-05 (file-size offender remediation)
+
+**Status (Phase 1047):** shipped — see Plan 1047-05 Tasks 1–3 (LayerStyleEditor.tsx split from 1231→468 LOC; 8 per-render-mode sub-components + RenderModeSwitch lookup table extracted; 29 new per-component tests pass; CD-19 nested-ternary complexity closed simultaneously).
 
 #### CC-15 — Unused `selectedLayerId` parameter in map-sync.ts
 - **Dimension:** Dead code
@@ -164,6 +168,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (2-3 hours: extract template, audit each adapter for deviations, refactor non-deviating adapters)
 - **Phase 1047 mapping:** CODE-03 (duplication remediation)
 
+**Status (Phase 1047):** deferred — Per-adapter deviations (fill has outline+extrusion layers, heatmap has different opacity props, line has arrow companion layer) make a universal AdapterSyncTemplate risky without stronger per-adapter test coverage. Carries to v1010 closeout (Phase 1048) or later milestone when per-adapter tests are in place.
+
 #### CA-03 — Repeated try-catch wrapped setPaintProperty calls
 - **Dimension:** Duplication
 - **Severity:** P1
@@ -206,6 +212,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** S (1-2 hours: extract helper, replace call sites, test)
 - **Phase 1047 mapping:** CODE-03 (duplication remediation)
 
+**Status (Phase 1047):** shipped — see Plan 1047-06 Task 1 (setLayerProperty helper extracted to shared.ts; 5 try-catch wrapped setPaintProperty occurrences in fill-adapter.ts replaced; 4-test vitest suite added; zero remaining try-catch setPaintProperty blocks outside shared.ts in adapter directory).
+
 #### CA-04 — Repeated filter-setting else-clause pattern
 - **Dimension:** Duplication
 - **Severity:** P1
@@ -214,6 +222,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Recommended fix:** The helper from CA-01 (`syncLayerFilter`) handles this correctly: always call `setFilter` (either with filter or `null`), never leave stale filters in place.
 - **Est. effort:** S (< 1 hour, bundled with CA-01 fix)
 - **Phase 1047 mapping:** CODE-03 (duplication remediation)
+
+**Status (Phase 1047):** shipped — subsumed by CA-01. syncLayerFilter handles the null filter branch uniformly; all 10 filter-setting call sites (including the null-reset else-clauses) were replaced in Plan 1047-01 Task 1 across fill, line, circle, heatmap adapters.
 
 #### CA-05 — Outline layer compound opacity scattered across fill-adapter
 - **Dimension:** Duplication
@@ -227,6 +237,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Recommended fix:** Extract outline-layer logic to a dedicated `syncOutlineLayer()` helper that encapsulates color resolution, opacity compounding, and filter sync. Place it in `fill-adapter.ts` alongside the fill adapter definition (not in shared, since outline logic is fill-specific).
 - **Est. effort:** S (1-2 hours: extract helper, verify outline layer state management)
 - **Phase 1047 mapping:** CODE-03 (duplication remediation)
+
+**Status (Phase 1047):** deferred — outline color resolution is duplicated but the two blocks (master fill layer + outline companion layer) differ in property names (fill-opacity vs line-opacity) and color source (fill-color vs outline-color). Extracting a syncOutlineLayer() helper is low-risk but not critical path; deferred to v1010 closeout (Phase 1048) or later.
 
 #### CB-08 — UnifiedStackPanel.tsx exceeds file-size threshold
 - **Dimension:** File size
@@ -247,6 +259,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
   4. Add unit tests for each sub-component
 - **Est. effort:** M (3-4 hours: new hook, component restructure, test coverage)
 - **Phase 1047 mapping:** CODE-02 (P1 structural improvement), CODE-03 (file-size remediation)
+
+**Status (Phase 1047):** deferred — DnD extraction risks regression in v1009 multi-select + drag-from-catalog; defer to v1010 follow-on or after smoke stabilization. Carries to Phase 1048.
 
 #### CB-09 — BuilderMap.tsx mixes tile-signing, feature popup, cluster logic
 - **Dimension:** File size + Complexity
@@ -269,6 +283,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (3-4 hours: new hooks, integration test)
 - **Phase 1047 mapping:** CODE-02 (architectural improvement)
 
+**Status (Phase 1047):** deferred — tile-signing extraction is contained but large; co-located with CD-20 (event nesting); defer together to a dedicated refactor milestone. Carries to Phase 1048.
+
 #### CB-10 — LayerEditorPanel.tsx has 8+ hooks and mixed concerns
 - **Dimension:** File size + Complexity
 - **Severity:** P1
@@ -286,6 +302,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
   3. Move capability-detection logic into the hook
 - **Est. effort:** M (2-3 hours: new hook, simplify component, verify UX)
 - **Phase 1047 mapping:** CODE-02 (architectural improvement)
+
+**Status (Phase 1047):** deferred — tab/scene state machine refactor; preserve Plan 02 lazy-load wins by not touching this file during the perf milestone. Carries to Phase 1048.
 
 #### CB-11 — use-builder-layers.ts is a mega-hook with 12+ useState calls
 - **Dimension:** File size + Complexity
@@ -310,6 +328,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (3-4 hours: refactor hooks, test coverage, verify parent component integration)
 - **Phase 1047 mapping:** CODE-02 (architectural improvement), CODE-05 (file-size remediation)
 
+**Status (Phase 1047):** deferred — already touched in Plan 04 for handleBulkDelete; further mega-hook split risks bulk-op regression close to milestone end. Carries to Phase 1048.
+
 #### CB-12 — map-sync.ts is a dense 718-LOC utility file
 - **Dimension:** File size
 - **Severity:** P1
@@ -331,6 +351,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (2-3 hours: file reorganization, no logic changes, test verification)
 - **Phase 1047 mapping:** CODE-05 (file-size remediation), CODE-06 (test coverage re-verification)
 
+**Status (Phase 1047):** deferred — map-sync is the linchpin; split deferred to a dedicated milestone with full per-module test coverage. Carries to Phase 1048.
+
 #### CB-13 — renderAs.ts has verbose, repetitive RENDERER_CAPABILITIES array
 - **Dimension:** File size
 - **Severity:** P1
@@ -343,6 +365,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (2 hours: refactor data structure, verify no regressions in tests)
 - **Phase 1047 mapping:** CODE-05 (file-size remediation)
 
+**Status (Phase 1047):** deferred — data-driven RENDERER_CAPABILITIES factory is M effort; renderAs.test.ts covers the current structure adequately. Deferred to v1010 closeout (Phase 1048) or later.
+
 #### CD-18 — use-builder-layers handleBulkAction has deep nesting and mixed mutation types
 - **Dimension:** Complexity
 - **Severity:** P1
@@ -354,6 +378,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
   3. Each handler is independently testable and documentable
 - **Est. effort:** M (2-3 hours: refactor handlers, add unit tests)
 - **Phase 1047 mapping:** CODE-02 (architectural improvement)
+
+**Status (Phase 1047):** deferred — Plan 04 rewrote handleBulkDelete; remaining bulk handlers (visibility, opacity, group, ungroup) stay inline because each is short and per-action handler extraction would add boilerplate without reducing complexity. Carries to Phase 1048.
 
 #### CD-19 — LayerStyleEditor has nested ternaries for render-mode UI (200+ LOC)
 - **Dimension:** Complexity
@@ -376,6 +402,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** S (1-2 hours: extract component, verify UX)
 - **Phase 1047 mapping:** CODE-02 (architectural improvement)
 
+**Status (Phase 1047):** shipped — see Plan 1047-05 Task 2 (RenderModeSwitch lookup-table component replaces 200+ LOC nested ternaries; dispatch is now `editorComponents[dispatchKey]` object lookup; CD-19 closed alongside CB-07 P0 fix).
+
 #### CD-20 — BuilderMap mouse/click event handling has deep nesting (4+ levels)
 - **Dimension:** Complexity
 - **Severity:** P1
@@ -388,6 +416,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (2-3 hours: helper extraction, integration test)
 - **Phase 1047 mapping:** CODE-02 (architectural improvement)
 
+**Status (Phase 1047):** deferred — co-located with CB-09 deferral; address together in dedicated refactor milestone. Carries to Phase 1048.
+
 #### CC-16 — getBuilderStyleConfig handles snake_case aliases that are not used in modern builder
 - **Dimension:** Dead code
 - **Severity:** P1
@@ -399,6 +429,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
   3. If retained for migration/compat, add a comment documenting the reason and expected deprecation timeline
 - **Est. effort:** S (< 1 hour: audit call sites, document or remove)
 - **Phase 1047 mapping:** CODE-04 (dead code removal)
+
+**Status (Phase 1047):** deferred — investigation confirmed snake_case keys (fill_disabled, stroke_disabled, heatmap_ramp, height_column, etc.) do not appear in any modern frontend code; modern builder exclusively uses camelCase. However, the aliases serve as backward-compat normalization for old saved maps persisted before the camelCase migration. Removing them risks breaking maps with pre-migration style_config. Retained with this comment; formal deprecation + data migration deferred to Phase 1048 or later.
 
 #### CE-22 — All layer adapters tested via single monolithic test file (1614 LOC)
 - **Dimension:** Test coverage
@@ -421,6 +453,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
 - **Est. effort:** M (3-4 hours: split test file, reorganize test utilities, verify coverage)
 - **Phase 1047 mapping:** CODE-06 (test coverage improvement)
 
+**Status (Phase 1047):** deferred — test file split is M effort; existing monolithic layer-adapters.test.ts (1614 LOC) provides comprehensive coverage. Per-adapter test files for shared.ts behaviors were introduced in Plans 01 and 06. Full split deferred to test-debt sweep. Carries to Phase 1048.
+
 #### CE-23 — Partial test coverage for builder helper functions
 - **Dimension:** Test coverage
 - **Severity:** P1
@@ -437,6 +471,8 @@ findings_by_dimension: { duplication: 6, file_size: 8, dead_code: 3, complexity:
   3. Run coverage tool to confirm >80% line coverage for helpers
 - **Est. effort:** S (1-2 hours: create missing test files, verify coverage)
 - **Phase 1047 mapping:** CODE-06 (test coverage verification)
+
+**Status (Phase 1047):** shipped (partial) — `suggested-datasets.ts` confirmed to have no test file; minimal 3-test stub created at `frontend/src/components/builder/__tests__/suggested-datasets.test.ts` in Plan 1047-06 Task 2 (verifies SUGGESTED_DATASETS is a valid array, each entry has id/name/record_type fields, and isValidUUID passes). All other helpers (selection-utils, label-layer-utils, chat-suggestions, cluster-source) confirmed to have co-located tests.
 
 ---
 
