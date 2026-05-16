@@ -40,21 +40,25 @@ export function useLayerMapSync(
   // sync using the freshly-computed layer.
   const applyLayerUpdate = useCallback(
     (layerId: string, updater: LayerUpdater, applyFn?: LayerSideEffect) => {
-      let updated: MapLayerResponse | undefined;
+      // Pre-check existence against the synchronous ref so we can gate the
+      // dirty-flag BEFORE React schedules the functional setState (whose
+      // callback may not run until the next render). Closes the side-finding
+      // from quick-260516-9g9: previously `setHasUnsavedChanges(true)` fired
+      // unconditionally, which falsely marked dirty when a caller (e.g. the
+      // dead BasemapGroupRow row slider via id="basemap-group") passed an id
+      // that matched no layer.
+      const existing = layersRef.current.find((l) => l.id === layerId);
+      if (!existing) return;
+
+      const updated = updater(existing);
       setLocalLayers((prev) =>
-        prev.map((l) => {
-          if (l.id !== layerId) return l;
-          const next = updater(l);
-          updated = next;
-          return next;
-        }),
+        prev.map((l) => (l.id === layerId ? updated : l)),
       );
       setHasUnsavedChanges(true);
 
       if (!applyFn) return;
       const map = mapInstanceRef.current;
       if (!map || !map.isStyleLoaded()) return;
-      if (!updated) return;
       applyFn(map, updated);
     },
     [setLocalLayers, setHasUnsavedChanges, mapInstanceRef],

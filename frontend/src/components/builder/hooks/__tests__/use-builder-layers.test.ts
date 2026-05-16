@@ -211,6 +211,19 @@ describe('useBuilderLayers', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  it('handleOpacityChange does NOT mark dirty for nonexistent layer id', () => {
+    const layer = makeMockLayer();
+    const mapData = makeMapData([layer]);
+    const { result } = renderBuilderLayers(mapData);
+
+    act(() => {
+      result.current.handleOpacityChange('nonexistent-id', 0.5);
+    });
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    expect(result.current.localLayers[0].opacity).toBe(1);
+  });
+
   it('handlePaintChange updates paint and marks dirty', () => {
     const layer = makeMockLayer();
     const mapData = makeMapData([layer]);
