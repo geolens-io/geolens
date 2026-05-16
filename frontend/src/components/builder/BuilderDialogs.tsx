@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -9,8 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { DatasetSearchPanel } from '@/components/builder/DatasetSearchPanel';
+// PB-07 (Phase 1047 Plan 02): lazy-load DatasetSearchPanel so the ~35 KB chunk only
+// loads when the Add Data dialog opens, not on initial builder mount.
+const DatasetSearchPanel = lazy(() =>
+  import('@/components/builder/DatasetSearchPanel').then((m) => ({ default: m.DatasetSearchPanel }))
+);
 import { ShareDialog } from '@/components/builder/SharePanel';
+import { SceneSpinnerFallback } from '@/components/builder/SceneSpinnerFallback';
 import { VisibilityIcon } from '@/components/maps/VisibilityIcon';
 import { formatRelativeDate } from '@/lib/format';
 import { getVisibilityLabel } from '@/i18n/labels';
@@ -84,19 +90,21 @@ export function BuilderDialogs({
             <DialogTitle>{t('search.title')}</DialogTitle>
             <DialogDescription>{t('search.dialogDescription')}</DialogDescription>
           </DialogHeader>
-          <DatasetSearchPanel
-            onAddDataset={onAddDataset}
-            onDuplicateRendering={onDuplicateRendering}
-            layers={layers}
-            isAdding={isAdding}
-            basemapStyle={basemapStyle}
-            showBasemapLabels={showBasemapLabels}
-            basemapConfig={basemapConfig}
-            onBasemapChange={onBasemapChange}
-            onBasemapLabelsChange={onBasemapLabelsChange}
-            onBasemapConfigChange={onBasemapConfigChange}
-            initialQuery={addDataInitialQuery}
-          />
+          <Suspense fallback={<SceneSpinnerFallback />}>
+            <DatasetSearchPanel
+              onAddDataset={onAddDataset}
+              onDuplicateRendering={onDuplicateRendering}
+              layers={layers}
+              isAdding={isAdding}
+              basemapStyle={basemapStyle}
+              showBasemapLabels={showBasemapLabels}
+              basemapConfig={basemapConfig}
+              onBasemapChange={onBasemapChange}
+              onBasemapLabelsChange={onBasemapLabelsChange}
+              onBasemapConfigChange={onBasemapConfigChange}
+              initialQuery={addDataInitialQuery}
+            />
+          </Suspense>
         </DialogContent>
       </Dialog>
 
