@@ -149,6 +149,24 @@ export async function removeLayerFromMapApi(
   });
 }
 
+/**
+ * Batch-delete multiple layers from a map in a single HTTP call.
+ *
+ * Phase 1047-04 (PERF-03): Replaces the old Promise.allSettled(removeLayerFromMapApi × N)
+ * pattern which fired N sequential DELETEs. This call fires exactly ONE POST request
+ * regardless of how many layers are selected. The backend returns partial-failure details
+ * inline so the caller can surface them without treating the whole operation as failed.
+ */
+export async function bulkDeleteLayersApi(
+  mapId: string,
+  layerIds: string[],
+): Promise<import('@/types/api').MapLayerBulkDeleteResponse> {
+  return apiFetch(`/maps/${mapId}/layers/bulk-delete`, {
+    method: 'POST',
+    body: JSON.stringify({ layer_ids: layerIds }),
+  });
+}
+
 export async function getSharedMap(token: string, apiKey?: string): Promise<SharedMapResponse> {
   const extraHeaders: Record<string, string> = {};
   if (apiKey) {

@@ -115,6 +115,8 @@ interface UnifiedStackPanelProps {
   onBulkGroup?: (ids: Set<string>) => void;
   onBulkUngroup?: (ids: Set<string>) => void;
   onBulkDelete?: (ids: Set<string>) => void;
+  /** Phase 1047-04 (PERF-03): forwarded from useBuilderLayers.isDeleting */
+  isDeleting?: boolean;
   // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
   freshLayerId?: string | null;
 }
@@ -624,6 +626,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onBulkGroup,
   onBulkUngroup,
   onBulkDelete,
+  isDeleting = false,
   freshLayerId = null,
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
@@ -1030,6 +1033,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
           onBulkGroup={onBulkGroup}
           onBulkUngroup={onBulkUngroup}
           onBulkDelete={onBulkDelete}
+          isDeleting={isDeleting}
         />
       )}
     </div>

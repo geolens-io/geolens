@@ -18,7 +18,7 @@ import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-lay
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
-import { removeLayerFromMapApi } from '@/api/maps';
+import { bulkDeleteLayersApi } from '@/api/maps';
 
 /**
  * Frontend-only extension of MapLayerResponse with group-related fields.
@@ -92,6 +92,8 @@ export function useBuilderLayers(
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
+  // Phase 1047-04 (PERF-03): tracks in-flight bulk-delete to gate BulkActionBar spinner
+  const [isDeleting, setIsDeleting] = useState(false);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
 
@@ -540,7 +542,7 @@ export function useBuilderLayers(
 
     const previousLayers = layersRef.current;
     // Filter out frontend-only group container rows — they have no backend record
-    // and would always produce a 404 if sent to removeLayerFromMapApi.
+    // and would produce a not_found error in the bulk-delete endpoint.
     const idsToDelete = Array.from(selectedIds).filter((id) => {
       const layer = previousLayers.find((l) => l.id === id);
       if (!layer) return false;
@@ -559,22 +561,52 @@ export function useBuilderLayers(
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
-    // Fire N parallel DELETEs
-    const results = await Promise.allSettled(
-      idsToDelete.map((id) => removeLayerFromMapApi(mapId, id)),
-    );
+    // Phase 1047-04 (PERF-03): one batched call replaces N sequential DELETEs
+    setIsDeleting(true);
+    try {
+      const result = await bulkDeleteLayersApi(mapId, idsToDelete);
 
-    const anyFailed = results.some((r) => r.status === 'rejected');
-    if (anyFailed) {
-      // Rollback to pre-delete state
-      setLocalLayers(previousLayers);
-      toast.error(t('bulkActions.errorDeleteRolledBack', { count: idsToDelete.length }));
+      if (result.failed.length === 0) {
+        // Full success — optimistic state is already correct
+        await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
+        toast.success(t('bulkActions.deleteSuccess', { count: idsToDelete.length }));
+        return true;
+      }
+
+      if (result.deleted.length === 0) {
+        // Full failure — rollback all layers
+        setLocalLayers(previousLayers);
+        toast.error(t('bulkActions.deleteRollback'));
+        return false;
+      }
+
+      // Partial failure: keep deleted layers removed, restore failed layers
+      const failedIds = new Set(result.failed.map((f) => f.id));
+      setLocalLayers((current) => {
+        // Re-insert failed layers from previousLayers at their original sort_order positions
+        const failedLayers = previousLayers.filter((l) => failedIds.has(l.id));
+        const merged = [...current, ...failedLayers];
+        // Re-sort by original sort_order so failed layers slot back in naturally
+        merged.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        return merged.map((l, i) => ({ ...l, sort_order: i }));
+      });
+      toast.error(
+        t('bulkActions.deletePartialFailure', {
+          deleted: result.deleted.length,
+          count: idsToDelete.length,
+          failed: result.failed.length,
+        }),
+        {
+          action: {
+            label: t('bulkActions.retryAction'),
+            onClick: () => handleBulkDelete(new Set(result.failed.map((f) => f.id))),
+          },
+        },
+      );
       return false;
+    } finally {
+      setIsDeleting(false);
     }
-
-    // Success: invalidate map detail query so layer list is fresh
-    await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
-    return true;
   }, [mapId, t, queryClient]);
 
   const handleAddLayerToExistingGroup = useCallback((layerId: string, groupId: string) => {
@@ -1016,5 +1048,7 @@ export function useBuilderLayers(
     handleBulkGroup,
     handleBulkUngroup,
     handleBulkDelete,
+    // Phase 1047-04 (PERF-03): in-flight state for BulkActionBar spinner
+    isDeleting,
   };
 }

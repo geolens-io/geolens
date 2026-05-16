@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Eye, EyeOff, FolderPlus, FolderMinus, Trash2, MoreHorizontal } from 'lucide-react';
+import { Eye, EyeOff, FolderPlus, FolderMinus, Loader2, Trash2, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -28,6 +28,9 @@ export interface BulkActionBarProps {
   onBulkGroup: (ids: Set<string>) => void;
   onBulkUngroup: (ids: Set<string>) => void;
   onBulkDelete: (ids: Set<string>) => void;
+  /** Phase 1047-04 (PERF-03): true while bulk-delete HTTP call is in flight.
+   *  Swaps Trash2 → Loader2, disables the Delete button, sets aria-busy. */
+  isDeleting?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,6 +53,7 @@ export const BulkActionBar = memo(function BulkActionBar({
   onBulkGroup,
   onBulkUngroup,
   onBulkDelete,
+  isDeleting = false,
 }: BulkActionBarProps) {
   const { t } = useTranslation('builder');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -133,12 +137,37 @@ export const BulkActionBar = memo(function BulkActionBar({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={handleContainerKeyDown}
     >
-      {/* Dedicated sr-only live region — announces only the selection count,
-          not the entire toolbar content. role="toolbar" must not carry aria-live. */}
+      {/* Dedicated sr-only live region — announces selection count during normal
+          state and "Deleting N layers…" when a bulk-delete is in flight.
+          role="toolbar" must not carry aria-live. */}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
-        {t('bulkActions.liveAnnouncement', { count: N })}
+        {isDeleting
+          ? t('bulkActions.deletingLayers', { count: N })
+          : t('bulkActions.liveAnnouncement', { count: N })}
       </span>
-      {confirmingDelete ? (
+      {isDeleting ? (
+        // ------------------------------------------------------------------
+        // Deleting state — spinner replaces the normal / confirmation UI
+        // ------------------------------------------------------------------
+        <div className="flex items-center gap-2 w-full">
+          <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" aria-hidden="true" />
+          <span className="text-sm text-muted-foreground flex-1">
+            {t('bulkActions.deletingLayers', { count: N })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1.5 px-2 shrink-0 text-destructive cursor-not-allowed"
+            disabled={true}
+            aria-busy={true}
+            aria-label={t('bulkActions.deleteAriaLabel', { count: N })}
+          >
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            {t('bulkActions.delete')}
+          </Button>
+        </div>
+      ) : confirmingDelete ? (
         // ------------------------------------------------------------------
         // Confirmation state
         // ------------------------------------------------------------------
@@ -329,4 +358,5 @@ export const BulkActionBar = memo(function BulkActionBar({
       )}
     </div>
   );
+
 });

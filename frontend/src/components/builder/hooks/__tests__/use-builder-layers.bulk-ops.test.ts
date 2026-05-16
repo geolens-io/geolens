@@ -433,13 +433,13 @@ describe('useBuilderLayers — handleBulkUngroup (POL-09)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleBulkDelete (POL-09)
+// handleBulkDelete (POL-09) — updated for Phase 1047-04 batched API
 // ---------------------------------------------------------------------------
 
 describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
-  it('Test 14: Success path: fires parallel removeLayerFromMapApi calls for each id', async () => {
-    const mockedRemove = vi.mocked(removeLayerFromMapApi);
-    mockedRemove.mockResolvedValue(undefined);
+  it('Test 14: Success path: fires bulkDeleteLayersApi (not N separate calls)', async () => {
+    const mockedBulk = vi.mocked(bulkDeleteLayersApi);
+    mockedBulk.mockResolvedValue({ deleted: ['a', 'b', 'c'], failed: [] });
 
     const layerA = makeMockLayer({ id: 'a', sort_order: 0 });
     const layerB = makeMockLayer({ id: 'b', sort_order: 1 });
@@ -452,16 +452,15 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
       ok = await result.current.handleBulkDelete(new Set(['a', 'b', 'c']));
     });
 
-    expect(mockedRemove).toHaveBeenCalledTimes(3);
-    expect(mockedRemove).toHaveBeenCalledWith(MAP_ID, 'a');
-    expect(mockedRemove).toHaveBeenCalledWith(MAP_ID, 'b');
-    expect(mockedRemove).toHaveBeenCalledWith(MAP_ID, 'c');
+    // Phase 1047-04: exactly 1 batched call instead of N individual DELETEs
+    expect(mockedBulk).toHaveBeenCalledTimes(1);
+    expect(mockedBulk).toHaveBeenCalledWith(MAP_ID, expect.arrayContaining(['a', 'b', 'c']));
     expect(ok).toBe(true);
   });
 
   it('Test 15: Success path: optimistically removes layers from localLayers', async () => {
-    const mockedRemove = vi.mocked(removeLayerFromMapApi);
-    mockedRemove.mockResolvedValue(undefined);
+    const mockedBulk = vi.mocked(bulkDeleteLayersApi);
+    mockedBulk.mockResolvedValue({ deleted: ['a', 'b'], failed: [] });
 
     const layerA = makeMockLayer({ id: 'a', sort_order: 0 });
     const layerB = makeMockLayer({ id: 'b', sort_order: 1 });
@@ -482,8 +481,8 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
   });
 
   it('Test 16: Success path: clears expandedLayerId if it was in the selection', async () => {
-    const mockedRemove = vi.mocked(removeLayerFromMapApi);
-    mockedRemove.mockResolvedValue(undefined);
+    const mockedBulk = vi.mocked(bulkDeleteLayersApi);
+    mockedBulk.mockResolvedValue({ deleted: ['a'], failed: [] });
 
     const layerA = makeMockLayer({ id: 'a', sort_order: 0 });
     const layerB = makeMockLayer({ id: 'b', sort_order: 1 });
@@ -503,13 +502,16 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
     expect(result.current.expandedLayerId).toBeNull();
   });
 
-  it('Test 17: Failure path: rolls back to pre-delete state on any rejection', async () => {
-    const mockedRemove = vi.mocked(removeLayerFromMapApi);
-    // First call resolves, second rejects
-    mockedRemove
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('API error'))
-      .mockResolvedValueOnce(undefined);
+  it('Test 17: Failure path: full rollback when all ids in failed[]', async () => {
+    const mockedBulk = vi.mocked(bulkDeleteLayersApi);
+    mockedBulk.mockResolvedValue({
+      deleted: [],
+      failed: [
+        { id: 'a', reason: 'not_found' },
+        { id: 'b', reason: 'not_found' },
+        { id: 'c', reason: 'not_found' },
+      ],
+    });
 
     const layerA = makeMockLayer({ id: 'a', sort_order: 0 });
     const layerB = makeMockLayer({ id: 'b', sort_order: 1 });
@@ -524,7 +526,7 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
       ok = await result.current.handleBulkDelete(new Set(['a', 'b', 'c']));
     });
 
-    // Should return false on failure
+    // Should return false on full failure
     expect(ok).toBe(false);
 
     // Local layers should be rolled back to original state (all 3 present)
@@ -533,9 +535,16 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
     expect(finalIds).toHaveLength(initialIds.length);
   });
 
-  it('Test 18: Failure path: shows exactly one error toast (not N toasts)', async () => {
-    const mockedRemove = vi.mocked(removeLayerFromMapApi);
-    mockedRemove.mockRejectedValue(new Error('Network error'));
+  it('Test 18: Failure path: shows exactly one error toast', async () => {
+    const mockedBulk = vi.mocked(bulkDeleteLayersApi);
+    mockedBulk.mockResolvedValue({
+      deleted: [],
+      failed: [
+        { id: 'a', reason: 'not_found' },
+        { id: 'b', reason: 'not_found' },
+        { id: 'c', reason: 'not_found' },
+      ],
+    });
 
     const errorSpy = vi.spyOn(toast, 'error');
 
@@ -549,13 +558,12 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
       await result.current.handleBulkDelete(new Set(['a', 'b', 'c']));
     });
 
-    // Exactly 1 error toast — not 3 (one per failed DELETE)
+    // Exactly 1 error toast (not 3)
     expect(errorSpy).toHaveBeenCalledOnce();
   });
 
   it('Test 19: Returns false on empty selection (early return guard)', async () => {
-    const mockedRemove = vi.mocked(removeLayerFromMapApi);
-    mockedRemove.mockResolvedValue(undefined);
+    const mockedBulk = vi.mocked(bulkDeleteLayersApi);
 
     const layerA = makeMockLayer({ id: 'a', sort_order: 0 });
     const { result } = renderBuilderLayers(makeMapData([layerA]));
@@ -567,7 +575,7 @@ describe('useBuilderLayers — handleBulkDelete (POL-09)', () => {
     });
 
     expect(ok).toBe(false);
-    expect(mockedRemove).not.toHaveBeenCalled();
+    expect(mockedBulk).not.toHaveBeenCalled();
   });
 });
 

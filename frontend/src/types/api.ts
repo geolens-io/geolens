@@ -1569,3 +1569,14 @@ export interface DatasetRelationship {
   label: string | null;
   target_dataset_title: string | null;
 }
+
+/** Response shape for POST /maps/{id}/layers/bulk-delete (Phase 1047-04 PERF-03). */
+export interface MapLayerBulkDeleteFailure {
+  id: string;
+  reason: string;
+}
+
+export interface MapLayerBulkDeleteResponse {
+  deleted: string[];
+  failed: MapLayerBulkDeleteFailure[];
+}
