@@ -176,7 +176,8 @@ describe('SourcesTab', () => {
   // Backlog items from .planning/backlog/SourcesTab-test-todos.md (Phase 1048, FOLLOWUP-03)
 
   it('renders source table with rows in position order', () => {
-    // Supply sources in reverse order — component should render them in API order (by position)
+    // Supply sources in reverse position order — component should preserve API arrival order
+    // (no client-side sort by position). Sorting, if any, must happen server-side.
     const outOfOrderSources = [
       { dataset_id: 'src-2', title: 'Source COG B', position: 1, band_count: 3, resolution_x: 0.001, resolution_y: 0.001, crs_epsg: 4326, extent_bbox: null },
       { dataset_id: 'src-1', title: 'Source COG A', position: 0, band_count: 3, resolution_x: 0.001, resolution_y: 0.001, crs_epsg: 4326, extent_bbox: null },
@@ -332,8 +333,10 @@ describe('SourcesTab', () => {
     const searchInput = screen.getByPlaceholderText('Search for a COG dataset...');
     fireEvent.change(searchInput, { target: { value: 'cog' } });
 
-    // Wait for the unlinked result to appear in the picker
-    const newResult = await screen.findByText('New COG Dataset');
+    // Wait for the unlinked result to appear in the picker.
+    // Explicit 3 s timeout: the component has a 300 ms debounce before
+    // firing the query, and the default 1000 ms window is too tight on slow CI.
+    const newResult = await screen.findByText('New COG Dataset', {}, { timeout: 3000 });
     expect(newResult).toBeInTheDocument();
 
     // The picker should NOT offer src-1 (already linked) as a button to click
