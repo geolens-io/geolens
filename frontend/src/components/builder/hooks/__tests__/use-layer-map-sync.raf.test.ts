@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync } from '../use-layer-map-sync';
+import { __resetForTest } from '@/lib/builder/raf-coalesce';
 import type { MapLayerResponse } from '@/types/api';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
@@ -125,8 +126,8 @@ describe('useLayerMapSync — rAF paint coalescing (PERF-04)', () => {
   });
 
   afterEach(() => {
-    // Drain any remaining rAF callbacks to avoid bleed-over
-    raf.flush();
+    __resetForTest(); // clear module-level pending + rafHandle (CR-02)
+    raf.flush();      // drain any remaining mock rAF queue entries
     vi.unstubAllGlobals();
   });
 
