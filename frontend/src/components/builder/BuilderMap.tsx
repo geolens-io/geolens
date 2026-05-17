@@ -31,7 +31,7 @@ import {
   reorderBasemapLabels,
   reorderDataLayers,
   applyBasemapConfigToMap,
-  getSourceId,
+  getSourceIdForLayer,
   getLayerId,
   ensureRasterDemTerrainSource,
   isTerrainCapableDemLayer,
@@ -491,7 +491,13 @@ export const BuilderMap = memo(function BuilderMap({
     const byMapId = new Map<string, { layer: MapLayerResponse; sourceId: string }>();
     for (const l of layers) {
       const layerId = getLayerId(l.id);
-      const sourceId = getSourceId(l.id);
+      // CR-02 (Phase 1050-rev): route through getSourceIdForLayer so the
+      // sourceId stored alongside each layer's MapLibre layer id reflects
+      // the SF-04 dedupe contract. Cluster layers stay per-layer (the
+      // helper's branching keeps `source-${id}` for clusters), so
+      // `activateClusterFeature(map, feature, hit.sourceId)` (line 544)
+      // continues to receive the cluster's per-layer source id.
+      const sourceId = getSourceIdForLayer(l);
       const ids = isClusterRenderMode(l) ? clusterInteractiveLayerIds(layerId) : [layerId];
       for (const id of ids) byMapId.set(id, { layer: l, sourceId });
     }
@@ -762,7 +768,14 @@ export const BuilderMap = memo(function BuilderMap({
       const token = tokenMap.get(layer.dataset_id) ?? null;
       // Raster tile URLs use nginx auth-check subrequest — nothing to refresh
       if (token?.kind === 'raster') continue;
-      const sourceId = getSourceId(layer.id);
+      // CR-02 (Phase 1050-rev): route through getSourceIdForLayer so the
+      // deduped vector source (`source-data-${dataset_table_name}`) is
+      // actually located and `setTiles([newUrl])` propagates the refreshed
+      // signed token. Before the fix, every non-cluster vector layer's
+      // tile URL silently fell out of sync once the signed token expired
+      // (~1hr into a session) → MapLibre started emitting 401/403 on every
+      // subsequent tile fetch.
+      const sourceId = getSourceIdForLayer(layer);
       const source = map.getSource(sourceId);
       if (source && source.type === 'vector') {
         const strategy = getClusterSourceStrategy(layer);
