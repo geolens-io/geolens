@@ -12,6 +12,21 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Recent Shipped Milestone: v1010.1 Live Playwright MCP Smoke
+
+**Shipped:** 2026-05-17
+
+**Goal delivered:** Fresh-stack interactive Playwright MCP smoke check against v1010's headline win surfaces caught and fixed 2 P0 + 1 P1 regressions before they shipped to users.
+
+**Delivered:**
+- **SF-01 (P0) — Bulk-delete UI completely unreachable.** Root cause: `UnifiedStackPanel`'s POL-10 outside-click guard treated mousedown inside the BulkActionBar as "outside the listbox" (`stackPanelRef` only scopes the inner `<div role="listbox">`). The bar cleared `selectedIds` on confirm-click mousedown and unmounted via the `size >= 2` gate before React's click handler could dispatch `onBulkDelete(selectedIds)`. Fix: extend guard's in-bounds check with `data-bulk-action-bar` marker; mirrors the SP-01 (Phase 1045) hatch for the Radix DropdownMenu portal. v1010 PERF-03 batched delete restored (commit `c4576717`).
+- **SF-02 (P0) — Render-mode swap Line→Arrow MapLibre validation errors.** Root cause: `LayerEditorPanel`'s "Render as" chip row unsafely cast `option.id as 'points' | 'heatmap' | 'symbol' | 'cluster'` even though the underlying union is `RenderAsId`. `handleRenderModeChange` fell through to its default circle-adapter branch for `arrow`, leaking `line-cap`/`line-join` layout keys into a circle-layer addLayer call. Fix: widen prop type, drop cast, route non-circle modes through `handleRenderAsChange` + `buildRenderAsPatch()` (commit `8713b73f`).
+- **SF-03 (P1) — StyleJsonDialog defective `lazy()`.** Root cause: `MapBuilderPage` rendered the dialog inside `<Suspense>` unconditionally (gated only on `id` truthy, not on `showStyleJson`). React.lazy resolved the import on mount because the component itself was mounted. Fix: gate render on `{id && showStyleJson && (...)}` — chunk now fetches on first dialog open, aligning with the other 4 lazy scenes (commit `3df84554`).
+- **SF-04 (P1) — Duplicate tile sources per layer.** Deferred-with-rationale: refactor exceeds 1hr budget and touches multiple test surfaces (`swapLayerOnMap`, `removeSource`, cluster-source override, dataset token signing). Tracked as `BUILDER-PERF-DEDUPE-SOURCES` tech-debt.
+- **SF-05/06/07/08 (P2 polish noise):** thumbnail blob `ERR_FILE_NOT_FOUND` after login, anonymous pre-auth probes to authed endpoints, 2× initial-load `PUT /thumbnail/`, false-positive "Basemap connection issue" toast on save — all bundled into a future hygiene sweep.
+
+**Milestone close:** 7/7 SMOKE-0X requirements satisfied; single phase (1049), 1 plan, 11 tasks. Post-fix re-smoke verified all 3 inline fixes in the same Playwright session. Backend `bulk-delete` endpoint regression-checked via direct fetch (`200 + {deleted:[3 ids], failed:[]}`). 5/5 v1010 win surfaces confirmed working post-fix.
+
 ## Recent Shipped Milestone: v1010 Builder Performance & Code Quality
 
 **Shipped:** 2026-05-16
@@ -993,4 +1008,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-16 after shipping v1010 Builder Performance & Code Quality*
+*Last updated: 2026-05-17 after shipping v1010.1 Live Playwright MCP Smoke*

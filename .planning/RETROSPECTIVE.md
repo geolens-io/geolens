@@ -2,6 +2,52 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v1010.1 — Live Playwright MCP Smoke
+
+**Shipped:** 2026-05-17
+**Phases:** 1 (1049) | **Plans:** 1 | **Tasks:** 11 | **Requirements:** 7/7
+
+### What Was Built
+
+- Fresh-stack interactive Playwright MCP smoke check (login → builder load → 5 v1010 win-surface passes) executed end-to-end inside the Claude orchestrator context (no executor delegation — Playwright MCP is orchestrator-scoped).
+- `SMOKE-FINDINGS.md` artifact with 8 classified findings (2 P0 / 2 P1 / 4 P2) and per-finding disposition.
+- 3 inline P0/P1 fixes shipped + verified post-fix in the same MCP session:
+  - SF-01: `BulkActionBar` confirm-click reaches `onBulkDelete` (outside-click guard extended via `data-bulk-action-bar` marker).
+  - SF-02: render-mode swap dispatches non-circle modes through `handleRenderAsChange` + `buildRenderAsPatch()` (`LayerEditorPanel` cast removed, `RenderAsId` widened).
+  - SF-03: `StyleJsonDialog` lazy mount gated on `showStyleJson` instead of just `id` truthy.
+- 1 P1 deferred-with-rationale (SF-04 tile source dedup → tracked as `BUILDER-PERF-DEDUPE-SOURCES` tech-debt).
+
+### What Worked
+
+- **Live MCP smoke caught what headless e2e missed.** v1010 closed with green e2e:smoke gates, yet a 30-minute interactive MCP run found 2 P0 regressions in v1010's marquee win surfaces (bulk-delete + render-mode swap). The interactive smoke is now a justified pre-tag gate — not redundant with headless e2e.
+- **Fetch instrumentation via `browser_evaluate` proved decisive for SF-01.** When `performance.getEntriesByType('resource')` showed the bulk-delete POST never fired, monkey-patching `window.fetch` from inside the MCP session gave conclusive evidence (no entries) that ruled out network-layer issues and pointed at React event dispatch. The document-level capture-phase click listener then identified the unmount-before-click race.
+- **Backend regression-check via direct `fetch()` saved diagnostic time.** Confirming the backend bulk-delete endpoint worked end-to-end via in-browser `fetch()` (with the existing auth token from `localStorage`) before deep-diving the frontend chain meant ~5 minutes of bisect instead of an hour.
+- **Hygiene-shape milestone (1 phase, 1 plan, ~30min execution) repeated cleanly.** v1009.1 → v1010.1 cadence confirms the pattern: one smoke pass per major builder milestone, find what slipped, fix-or-defer with disposition.
+
+### What Was Inefficient
+
+- **Initial SF-01 hypothesis (stale closure) was wrong.** Spent ~10min on the prop-closure trail before pivoting to instrumenting the document capture phase. The faster path would have been: instrument document capture FIRST, prove the click isn't reaching React handler, then look at what consumed the event. Add to playbook: "when a click handler appears not to fire, capture-phase document listener before closure analysis."
+- **TaskUpdate hook spam.** Every other turn produced a reminder to update tasks even when work was actively in-flight. Future hygiene smoke runs should pre-create all tasks at start and avoid mid-task captures unless work truly stops.
+
+### Patterns Established
+
+- **The "data-{marker}" hatch for portaled/sticky widgets vs sentinel-ref guards.** First seen for the Radix DropdownMenu portal in SP-01 (Phase 1045), now extended to the sticky-footer BulkActionBar in SF-01. Any future "outside-click should be treated as inside" case should follow this pattern: add `data-{name}="true"` to the widget root, add a `.closest('[data-{name}="true"]')` check in the outside-click handler.
+- **Unsafe enum cast as a smell.** `option.id as 'narrow-subset'` when `option.id` is the full union is a strong signal that the consumer's handler is missing branches for the rest of the union. Fixed in SF-02; worth a follow-up sweep across `handleRenderModeChange`-style narrow-cast call sites.
+- **React.lazy() resolves on component mount, not on what the component returns.** Any `<Suspense><LazyDialog open={false}/></Suspense>` defeats the lazy contract. The right pattern is `{shouldShow && <Suspense><LazyDialog/></Suspense>}`. Update to PB-05 / lazy-load guidance.
+
+### Key Lessons
+
+- Interactive smoke after every major builder milestone catches user-blocking regressions that pass headless gates. Cheap (~30min) for the coverage delta — keep the pattern.
+- When a UI affordance "does nothing," the diagnostic ladder is: (1) capture-phase document listener for the click → (2) instrument the actual handler entry → (3) prop closures last. The reverse takes 3× longer.
+- Verify the backend endpoint independently of the UI before bisecting the frontend chain. Avoids chasing a frontend ghost when the API genuinely changed.
+- For verification milestones, treat Playwright MCP as the orchestrator's primary test surface — don't delegate to a subagent that lacks MCP access.
+
+### Cost Observations
+
+- Single session, ~30min for full discover-fix-reverify cycle on 3 inline fixes.
+- Model: Opus 4.7 1M (driving Playwright MCP directly from orchestrator context).
+- Notable: All 3 fixes diagnosed + shipped + re-smoked without spawning a single subagent — the MCP-driven verification pattern keeps the loop tight.
+
 ## Milestone: v1010 — Builder Performance & Code Quality
 
 **Shipped:** 2026-05-16

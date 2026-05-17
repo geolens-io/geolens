@@ -1,5 +1,15 @@
 # Milestones
 
+## v1010.1 Live Playwright MCP Smoke (Shipped: 2026-05-17)
+
+**Phases completed:** 6 phases, 1 plans, 0 tasks
+
+**Key accomplishments:**
+
+- SF-01 — Bulk-delete confirm click silently no-ops.
+
+---
+
 ## v1010 Builder Performance & Code Quality (Shipped: 2026-05-16)
 
 **Phases completed:** 8 phases, 10 plans, 19 tasks
