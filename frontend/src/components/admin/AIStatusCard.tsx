@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Bot, ArrowRight } from 'lucide-react';
 import { useAIStatus, useEmbeddingStats } from '@/hooks/use-admin';
+import { useAuthStore } from '@/stores/auth-store';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
   Card,
@@ -13,7 +14,12 @@ import { Badge } from '@/components/ui/badge';
 
 export function AIStatusCard() {
   const { t } = useTranslation('admin');
-  const { data: aiStatus, isLoading } = useAIStatus();
+  // SF-06: gate the admin probe at the consumer. An admin endpoint must
+  // never fire from an unauthenticated or non-admin context — mirrors the
+  // consumer-side pattern in use-ai-availability.ts:7.
+  const token = useAuthStore((s) => s.token);
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  const { data: aiStatus, isLoading } = useAIStatus({ enabled: !!token && isAdmin });
   const { data: embeddingStats } = useEmbeddingStats();
 
   if (isLoading || !aiStatus) return null;

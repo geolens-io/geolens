@@ -15,6 +15,7 @@ import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
 import { useAIStatus, useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
+import { useAuthStore } from '@/stores/auth-store';
 import { detectEmbeddingDims } from '@/api/settings';
 import type { SettingItem } from '@/api/settings';
 
@@ -40,8 +41,13 @@ const AI_FIELDS = [
 
 export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, onDirtyChange }: TabProps) {
   const { t } = useTranslation('admin');
+  // SF-06: gate the admin probe at the consumer. An admin endpoint must
+  // never fire from an unauthenticated or non-admin context — mirrors the
+  // consumer-side pattern in use-ai-availability.ts:7.
+  const token = useAuthStore((s) => s.token);
+  const isAdmin = useAuthStore((s) => s.isAdmin());
   const { data: keyStatus } = useApiKeyStatus();
-  const { data: aiStatus } = useAIStatus();
+  const { data: aiStatus } = useAIStatus({ enabled: !!token && isAdmin });
   const { data: embeddingStats } = useEmbeddingStats();
   const backfill = useBackfillEmbeddings();
   const semanticToggle = useUpdateSemanticSearch();
