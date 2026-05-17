@@ -54,7 +54,7 @@ Source: `frontend/src/index.css` — Tailwind spacing utilities used directly.
 **Exceptions:**
 
 - Caret button hit target (UX-01): minimum 24×24 px click/tap area. This is NOT a new spacing token — achieve with `h-6 w-6` (24px) Tailwind classes on the caret `<button>`, overriding the current unsized inline `▸` text element.
-- Row cell grid column `[16px]` for caret column (per sketch 002 A: caret column is ALWAYS reserved at 16px for layout alignment even on non-group rows where the caret is `visibility: hidden`). The hit-target expansion pads INWARD of the 16px column via negative margin or `p-0.5` as needed.
+- Row cell grid column `[16px]` for caret column (per sketch 002 A: caret column is ALWAYS reserved at 16px for layout alignment even on non-group rows where the caret is `visibility: hidden`). The hit-target expansion pads INWARD of the 16px column via negative margin `-mx-1` (achieves the 24px hit target within the 16px column without adding non-grid padding).
 - Widget toggle row height (UX-04): minimum 36px (`h-9`) per existing shadcn Switch row pattern in `SettingsEditorScene.tsx`.
 
 ---
@@ -260,8 +260,8 @@ The existing implementation already uses a `Switch` component (`onCheckedChange=
 - `settings.disableWidget` → "Disable {{name}}"
 - `settings.widgetsAvailabilityNote` → "Controls whether each widget appears on the map."
 
-**Toggle row visual (unchanged from existing shadcn Switch row):**
-- Row: `flex items-center gap-3 py-2` (8px vertical padding — 4px grid compliant; combined with `h-9` achieves ≥36px row height)
+**Toggle row visual (unchanged from existing shadcn Switch row; `gap-3` in the live file is a pre-existing pattern — executor must align to `gap-2` (8px) as part of UX-04 implementation):**
+- Row: `flex items-center gap-2 py-2` (8px gap — canonical locked value; 8px vertical padding — 4px grid compliant; combined with `h-9` achieves ≥36px row height)
 - Icon: `h-4 w-4 text-muted-foreground shrink-0` (16px Lucide, matches line 184)
 - Label: `flex-1 text-xs text-foreground` (matches line 185)
 - Switch: shadcn `<Switch />` — checked = primary blue fill, unchecked = muted background
