@@ -857,12 +857,30 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, [swapLayerOnMap]);
 
-  const handleRenderModeChange = useCallback((layerId: string, mode: 'points' | 'heatmap' | 'symbol' | 'cluster') => {
+  const handleRenderModeChange = useCallback((layerId: string, mode: RenderAsId | 'points') => {
     const layer = layersRef.current.find((l) => l.id === layerId);
     if (!layer) return;
 
-    if (mode === 'cluster') {
-      handleRenderAsChange(layerId, 'cluster');
+    // SF-02 (Phase 1049): renderAsOptions in LayerEditorPanel surfaces ALL RenderAsId
+    // values (arrow / fill / stroke / fill-stroke / extrusion-3d / line plus the
+    // legacy circle quartet handled below). Route everything that isn't a
+    // circle-family transition through handleRenderAsChange + buildRenderAsPatch
+    // so the layout/paint replacement is computed correctly. Without this gate,
+    // line→arrow on a MultiLineString layer was falling through to the `circle`
+    // branch and dispatching addLayer with stale line-cap / line-join layout
+    // keys, which MapLibre rejects with `unknown property` validation errors.
+    if (
+      mode === 'cluster' ||
+      mode === 'arrow' ||
+      mode === 'line' ||
+      mode === 'fill' ||
+      mode === 'stroke' ||
+      mode === 'fill-stroke' ||
+      mode === 'extrusion-3d' ||
+      mode === 'image' ||
+      mode === 'hillshade'
+    ) {
+      handleRenderAsChange(layerId, mode);
       return;
     }
 

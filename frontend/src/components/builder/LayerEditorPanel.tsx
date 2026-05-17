@@ -32,7 +32,11 @@ export interface LayerEditorHandlers {
   onPopupChange: (layerId: string, config: PopupConfig | null) => void;
   onStyleConfigChange: (layerId: string, config: StyleConfig | null, paint: Record<string, unknown>) => void;
   onLayoutChange: (layerId: string, layout: Record<string, unknown>) => void;
-  onRenderModeChange?: (layerId: string, mode: 'points' | 'heatmap' | 'symbol' | 'cluster') => void;
+  // SF-02 (Phase 1049): widened to all RenderAsId values. use-builder-layers'
+  // handleRenderModeChange now dispatches non-circle modes through
+  // handleRenderAsChange to avoid stale layout/paint keys leaking across adapter
+  // boundaries (e.g. line→arrow leaving behind line-cap / line-join).
+  onRenderModeChange?: (layerId: string, mode: import('./renderAs').RenderAsId) => void;
   onRemove: (layerId: string) => void;
 }
 
@@ -353,7 +357,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                           data-active={isActive ? 'true' : 'false'}
                           onClick={() => {
                             if (!isActive) {
-                              handlers.onRenderModeChange?.(layer.id, option.id as 'points' | 'heatmap' | 'symbol' | 'cluster');
+                              handlers.onRenderModeChange?.(layer.id, option.id);
                             }
                           }}
                           className={cn(
