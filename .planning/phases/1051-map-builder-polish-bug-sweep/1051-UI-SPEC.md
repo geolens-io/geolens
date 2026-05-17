@@ -64,17 +64,24 @@ Source: `frontend/src/index.css` — Tailwind spacing utilities used directly.
 Source: `frontend/src/index.css` typography scale comment (lines 13-23).
 All Tailwind `text-*` utilities — no new font sizes or weights for this phase.
 
+Declared weight inventory (2 weights only):
+- 400 regular (`font-normal`)
+- 600 semibold (`font-semibold`)
+
+Any `font-medium` (500) usage in the live codebase is a pre-existing pattern not introduced
+by this phase and is therefore not part of this phase's declared weight inventory.
+
 | Role | Size | Weight | Line Height | Tailwind Class |
 |------|------|--------|-------------|----------------|
 | Body / row labels | 14px (0.875rem) | 400 (regular) | 1.5 | `text-sm` |
 | Semibold labels / group name | 14px (0.875rem) | 600 (semibold) | 1.5 | `text-sm font-semibold` |
-| Micro / badges / chips | 12px (0.75rem) | 500 (medium) | ~1.4 | `text-xs font-medium` |
-| Sub-micro / readouts | 10px (0.625rem) | 400 | ~1.4 | `text-[10px]` or `--text-2xs` |
+| Micro / badges / chips | 12px (0.75rem) | 600 (semibold) | ~1.4 | `text-xs font-semibold` |
+| Sub-micro / readouts | 10px (0.625rem) | 400 (regular) | ~1.4 | `text-[10px]` or `--text-2xs` |
 
 **Heading:** Not applicable to this phase — no new page-level headings.
 
 **New affordance typography (UX-02 SublayerConfigIndicators):**
-- Indicator badge text: `text-[10px] font-medium` (`--text-2xs` custom property)
+- Indicator badge text: `text-[10px] font-semibold` (`--text-2xs` custom property)
 - Indicator icon: 12px Lucide icon (`h-3 w-3`), `text-muted-foreground`
 
 **New affordance typography (UX-04 Widget toggles):**
@@ -205,7 +212,7 @@ interface SublayerConfigIndicatorsProps {
 Show max 4 indicators. If no config conditions are met, render nothing (empty fragment — no placeholder space needed; the row spacing is governed by the row grid, not the indicators).
 
 **Indicator visual:**
-- Container: `flex items-center gap-0.5` (2px gap between badges)
+- Container: `flex items-center gap-1` (4px gap between badges — 4px grid compliant)
 - Each badge: `inline-flex items-center justify-center h-4 w-4 rounded-sm bg-[var(--primary-50)] text-[var(--primary-600)]`
 - Icon inside: Lucide at `h-3 w-3` (12px), `aria-hidden="true"`
 - Accessible label: wrapping `<span className="sr-only">{ariaLabel}</span>` adjacent to each icon
@@ -254,7 +261,7 @@ The existing implementation already uses a `Switch` component (`onCheckedChange=
 - `settings.widgetsAvailabilityNote` → "Controls whether each widget appears on the map."
 
 **Toggle row visual (unchanged from existing shadcn Switch row):**
-- Row: `flex items-center gap-3 py-1.5` (24px height minimum, 36px preferred with padding)
+- Row: `flex items-center gap-3 py-2` (8px vertical padding — 4px grid compliant; combined with `h-9` achieves ≥36px row height)
 - Icon: `h-4 w-4 text-muted-foreground shrink-0` (16px Lucide, matches line 184)
 - Label: `flex-1 text-xs text-foreground` (matches line 185)
 - Switch: shadcn `<Switch />` — checked = primary blue fill, unchecked = muted background
