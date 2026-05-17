@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
 status: planning
-last_updated: "2026-05-17T19:07:39.689Z"
+last_updated: "2026-05-17T19:30:00.000Z"
 last_activity: 2026-05-17
 progress:
-  total_phases: 0
+  total_phases: 1
   completed_phases: 0
-  total_plans: 0
+  total_plans: 13
   completed_plans: 0
   percent: 0
 ---
@@ -17,56 +17,65 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-17 — Milestone v1011 started
+Phase: 1051 — map-builder-polish-bug-sweep
+Plan: Not started (roadmap just created)
+Status: Roadmap created; awaiting plan-phase or autonomous executor
+Last activity: 2026-05-17 — ROADMAP.md authored for v1011 (1 phase, 13 plans, 13/13 reqs mapped)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1010.2 Builder Smoke Carryover)
+See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1011 Map Builder Polish & Bug Sweep)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1050 — builder-smoke-carryover
+**Current focus:** Phase 1051 — map-builder-polish-bug-sweep (hygiene close of 11 user-reported items + INV-01 + EMRG-01 + CTRL-01)
 
 ## Last Shipped Milestone
 
-**Version:** v1010.1 Live Playwright MCP Smoke
+**Version:** v1010.2 Builder Smoke Carryover
 **Shipped:** 2026-05-17
-**Phases:** 1049 (1 phase, 1 plan, 7/7 SMOKE-0X reqs)
-**Tag:** v1010.1 (local)
-**Archive:** `.planning/milestones/v1010.1-ROADMAP.md`
+**Phases:** 1050 (1 phase, 6 plans, 5/5 SMOKE-08..12 reqs + 7 inline code-review fixes)
+**Tag:** v1010.2 (local)
+**Archive:** `.planning/milestones/v1010.2-ROADMAP.md`
 
 ## Accumulated Context
 
 ### Decisions
 
-- **v1010.2 is a hygiene-close milestone.** Single phase (1050), 6 sequential plans (5 SF closures + 1 CTRL-01 close gate). Mirrors v1009.1 Phase 1045 and v1010.1 Phase 1049 shape per `feedback_hygiene_milestone_pattern.md`.
-- **Phase numbering continues at 1050.** v1010.1 ended at Phase 1049.
-- **Plan 01 (SMOKE-08 / SF-04) is the largest scope** — only P1 in the milestone; touches `use-builder-layers.ts`, `swapLayerOnMap`, `removeSource`, cluster-source override, and tile-token signing. Migration may be needed if source-id keying contract changes.
-- **Plans 02-05 are P2 polish noise closures** from v1010.1 SF-05..08 — small surface-area fixes.
-- **Plan 06 (CTRL-01) is the close gate** — typecheck / vitest / e2e:smoke:builder / Playwright MCP re-verify of all 5 SF surfaces against fresh stack. CHANGELOG `[Unreleased]` note lives here, not as a separate plan.
-- **Out of scope:** SP-03 / M-02 (fresh-add maplibre sync race, v1009.1 escalation, predates v1010.1); SP-07 backend `has_quicklook` predicate; SP-12 representative-fraction pane (new feature); any new feature work.
-- [Phase ?]: 1050-02: Copied use-quicklook.ts:67-74 useEffect cleanup verbatim to use-map-thumbnail.ts; revoke fires on data change AND unmount; closes SF-05.
-- [Phase ?]: 1050-03: SF-06 anonymous probes closed — useSavedSearches gated on !!token (use-saved-searches.ts:13); useAIStatus consumer-side gated on { enabled: !!token && isAdmin } (AIStatusCard.tsx:22, SettingsAITab.tsx:50). Hook signature use-admin.ts:186 unchanged per caller-controlled contract.
-- [Phase 1050-04]: SF-07 double-PUT closed — Fix Option C (module-level `autoCapturedMapIds: Set<string>` guard in use-builder-save.ts:142). Root cause: Vite-dev StrictMode unmounts/remounts the hook, the per-instance `thumbCaptured` ref resets to false, and the module-level `pendingCaptures` Map was already cleared by the first capture's setTimeout — so the second hook instance fires a second PUT. The new module-level guard survives hook remount. 3 new tests (1259 lines total in use-builder-save.test.ts).
-- [Phase 1050-05]: SF-08 false-positive basemap toast closed — `basemapLoadedAtRef: useRef<number | null>(null)` latch in BuilderMap.tsx (declared next to errorHandlerRef line 91, reset at style-fetch effect start line 149, set in .then success branch line 161, suppression check in errorHandlerRef 5xx branch line 409). Latch resets on basemap change so a new basemap's first-load failure still surfaces. The setBasemapNotice('style') first-load failure path is NOT gated (latch never gets set on failure). 3 new tests in BuilderMap.a11y.test.tsx; pattern mirrors errorHandlerRef cross-effect ref in same file. Commit 9fe0b4ec.
-- [Phase 1050-01]: SF-04 dedupe MapLibre vector tile sources closed — getSourceIdForLayer helper in map-sync.ts — Cluster keying preserved as source-${layer.id} (not source-cluster-${id} per plan, would have broken existing cluster test); non-cluster vector layers share source-data-${dataset_table_name}; use-builder-layers.swapLayerOnMap + handleAiRemoveLayer + use-layer-map-sync.ts (4 sites — Rule 3 scope expansion) all consume the helper; removeSource teardown delegated to removeStaleSourcesAndLayers desired-set prune. Verification: 8/8 dedupe tests + 26/26 e2e:smoke:builder + 1909/1909 vitest. Commits a1d5a2b9, cab57a32, bc92617a, c1c84cc7.
+- **v1011 is a hygiene-close milestone.** Single phase (1051), 13 sequential plans (11 user-reported items + 1 emergent-findings triage + 1 CTRL-01 close gate). Mirrors v1009.1 Phase 1045, v1010.1 Phase 1049, and v1010.2 Phase 1050 per `feedback_hygiene_milestone_pattern.md`.
+- **Phase numbering continues at 1051.** v1010.2 ended at Phase 1050.
+- **Execution path:** `/gsd-autonomous` with Playwright MCP orchestrator-scoped verification against live `localhost:8080` stack. MCP verification steps marked `checkpoint:orchestrator` so the autonomous executor hands back per `project_demo_uat_resume.md` and the v1010.1 lesson (MCP is orchestrator-scoped, NOT executor-spawnable).
+- **Plan granularity:** atomic — one plan per requirement (favoring clean revert/audit over plan consolidation). RESP-01/02/03 kept atomic even though they share a responsive-layout theme, because their fixes likely touch different files (`NavigationControl` positioning vs `MapCoordReadout` positioning vs flyout chrome).
+- **Plan 06 (UX-03 draggable basemap) is the largest scope** — touches DnD setup, basemap-as-group drag semantics, saved-map normalizer, MapLibre layer-order loop, and round-trip persistence. May need a new field on the saved-map schema (minimum surface per Out-of-Scope row 6). All other plans are tight-scope symptom fixes.
+- **Plan 11 (INV-01) is a disposition plan** — investigation-then-decision. Orchestrator decides REMOVE vs FIX based on grep + Playwright MCP findings. Disposition recorded in commit message + CHANGELOG.
+- **Plan 12 (EMRG-01) opens with placeholder content** and is updated as findings land during plans 01-11. If zero emergent findings, FINDINGS.md is still authored with explicit "0 emergent" note.
+- **Per-plan verification:** Each user-reported plan includes (a) Playwright MCP pre-fix repro, (b) implementation, (c) vitest regression (where applicable — pure-CSS responsive fixes use manual MCP verify only), (d) Playwright MCP post-fix verify. Atomic commits.
+- **Single CTRL-01 close gate at Plan 13** — batched typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify of all 11 items + CHANGELOG `[Unreleased]` population. Per `feedback_review_findings_inline.md`: any code-review findings surface during gate get fixed inline before close, not deferred to v1011.1.
+
+### Out of Scope (per REQUIREMENTS.md)
+
+- New Map Builder features beyond the 11 polish items (no renderer expansion, AI capability, time-series, collaboration)
+- Backend/API changes outside what's strictly required to fix the 11 items (scope minimum API surface for any backend touch)
+- Refactoring `MapBuilderPage`, builder hooks, or layer-adapters except where directly required (no v1010-style code-quality audit)
+- Mobile-phone optimization (<800 px portrait) — v1011 small-screen targets tablet and narrow desktop
+- New i18n keys beyond what fixes/conversions strictly require
+- New saved-map schema fields beyond what UX-03 strictly requires
 
 ### Pending Todos
 
-None at roadmap creation.
+None at roadmap creation. EMRG-01 may produce new pending todos for defer-disposition findings.
 
 ### Blockers/Concerns
 
-None at roadmap creation. Source-of-scope (v1010.1 SMOKE-FINDINGS.md SF-04..08) has root cause + recommended fix already documented for each item.
+None at roadmap creation. All 11 user-reported items have either a clear repro URL (BUG-01) or a clear symptom to verify against Playwright MCP. INV-01 has an explicit disposition flow. EMRG-01 has a written-down triage protocol.
 
 ## Session Continuity
 
-Last session: 2026-05-17T16:28:33.186Z
-Stopped at: Completed 1050-06-PLAN.md (CTRL-01 close gate; Playwright MCP re-verify pending orchestrator)
-Resume file: Playwright MCP re-verify (Task 2) — orchestrator-scoped
+Last session: 2026-05-17T19:30:00.000Z
+Stopped at: Roadmap authored (ROADMAP.md, REQUIREMENTS.md traceability filled, STATE.md updated)
+Resume file: `/gsd:plan-phase 1051` OR `/gsd-autonomous --from 1051` (orchestrator drives Playwright MCP verification)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Begin Phase 1051 via `/gsd:plan-phase 1051` to author per-plan implementation specs, OR
+- Begin Phase 1051 via `/gsd-autonomous --from 1051` for end-to-end execution with orchestrator-scoped Playwright MCP verification at each `checkpoint:orchestrator` step
+- Ensure `docker compose up -d --build` stack is healthy before starting (5/5 services); Playwright MCP needs `http://localhost:8080` reachable
