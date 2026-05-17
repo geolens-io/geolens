@@ -90,7 +90,7 @@ Driven by the orchestrator on the live 5/5-healthy stack (Docker Compose, 17h up
 | SF-02 (v1010.1) render-mode swap | ✅ PASS | Covered by `e2e:smoke:builder` 26/26 green; no regression to v1010.1 inline fix `8713b73f`. |
 | SF-03 (v1010.1) StyleJsonDialog lazy | ✅ PASS | 0 `StyleJsonDialog` chunk fetches on map mount confirmed via network log filter; no regression to v1010.1 inline fix `3df84554`. |
 
-Evidence screenshot: `.playwright-mcp/v1010.2-smoke-verify-final.png`.
+Evidence screenshot: `v1010.2-smoke-verify-final.png` (repo root).
 
 ### Task 3 — CHANGELOG `[Unreleased]` populated (COMPLETE)
 

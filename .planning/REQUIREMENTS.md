@@ -48,9 +48,9 @@
 
 | REQ-ID | Phase | Plan(s) | Status |
 |--------|-------|---------|--------|
-| SMOKE-08 | 1050 | 01 | Open |
-| SMOKE-09 | 1050 | 02 | Open |
-| SMOKE-10 | 1050 | 03 | Open |
+| SMOKE-08 | 1050 | 01 | Complete (cab57a32, c1c84cc7) |
+| SMOKE-09 | 1050 | 02 | Complete (4473d21e) |
+| SMOKE-10 | 1050 | 03 | Complete (912458e8, aca42c99, d6b0b9c6) |
 | SMOKE-11 | 1050 | 04 | Complete (37fee435) |
 | SMOKE-12 | 1050 | 05 | Complete (9fe0b4ec) |
 
