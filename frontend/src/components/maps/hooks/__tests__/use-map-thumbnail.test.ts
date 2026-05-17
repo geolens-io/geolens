@@ -121,4 +121,52 @@ describe('useMapThumbnail', () => {
       { cache: 'reload' },
     );
   });
+
+  // SF-05: Blob URL lifecycle — revoke on data change AND unmount.
+  // Mirrors use-quicklook.ts:67-74 cleanup pattern.
+  it('calls revokeObjectURL when the query key changes', async () => {
+    mockApiFetchBlob.mockResolvedValue(fakeBlob);
+
+    const { rerender } = renderHook(
+      ({ url }: { url: string }) => useMapThumbnail(url),
+      { initialProps: { url: '/api/maps/1/thumbnail/' }, wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(1));
+
+    rerender({ url: '/api/maps/2/thumbnail/' });
+
+    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(2));
+
+    // revokeObjectURL was called when the query key changed (data changed)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
+  });
+
+  it('calls revokeObjectURL on unmount', async () => {
+    mockApiFetchBlob.mockResolvedValueOnce(fakeBlob);
+
+    const { result, unmount } = renderHook(
+      () => useMapThumbnail('/api/maps/1/thumbnail/'),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb'));
+
+    unmount();
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
+  });
+
+  it('does NOT call revokeObjectURL when data is undefined', () => {
+    // No mock resolution — query stays in loading state with undefined data
+    mockApiFetchBlob.mockImplementation(() => new Promise(() => {}));
+
+    const { result } = renderHook(
+      () => useMapThumbnail('/api/maps/1/thumbnail/'),
+      { wrapper: createWrapper() },
+    );
+
+    expect(result.current).toBeNull();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
 });
