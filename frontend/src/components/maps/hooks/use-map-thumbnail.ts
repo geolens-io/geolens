@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetchBlob } from '@/api/client';
 
@@ -12,6 +13,17 @@ function withThumbnailVersion(
   return `${thumbnailUrl}${separator}v=${encodeURIComponent(version)}`;
 }
 
+/**
+ * useMapThumbnail — fetch an authenticated map thumbnail and return it as a
+ * blob URL.
+ *
+ * Routes the request through apiFetchBlob (which attaches the Bearer token
+ * from useAuthStore automatically) so authed thumbnails work as <img src>.
+ *
+ * Blob URL lifecycle: URL.revokeObjectURL is called on unmount AND on
+ * mapId change (via the useEffect cleanup on [data]) to prevent memory
+ * leaks and post-redirect ERR_FILE_NOT_FOUND console errors (SF-05).
+ */
 export function useMapThumbnail(
   thumbnailUrl: string | null | undefined,
   version?: string | null,
@@ -28,6 +40,15 @@ export function useMapThumbnail(
     staleTime: 60 * 1000, // 1 minute: thumbnails regenerate on re-capture
     gcTime: 10 * 60_000,
   });
+
+  // Revoke blob URL when data changes (new mapId) or on unmount
+  useEffect(() => {
+    if (typeof src === 'string') {
+      return () => {
+        URL.revokeObjectURL(src);
+      };
+    }
+  }, [src]);
 
   return src;
 }

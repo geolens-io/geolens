@@ -126,20 +126,24 @@ describe('useMapThumbnail', () => {
   // Mirrors use-quicklook.ts:67-74 cleanup pattern.
   it('calls revokeObjectURL when the query key changes', async () => {
     mockApiFetchBlob.mockResolvedValue(fakeBlob);
+    // Distinct URLs per createObjectURL call so the cleanup fires on src change.
+    vi.mocked(URL.createObjectURL)
+      .mockReturnValueOnce('blob:http://localhost/thumb-1')
+      .mockReturnValueOnce('blob:http://localhost/thumb-2');
 
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ url }: { url: string }) => useMapThumbnail(url),
       { initialProps: { url: '/api/maps/1/thumbnail/' }, wrapper: createWrapper() },
     );
 
-    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb-1'));
 
     rerender({ url: '/api/maps/2/thumbnail/' });
 
-    await waitFor(() => expect(mockApiFetchBlob).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current).toBe('blob:http://localhost/thumb-2'));
 
     // revokeObjectURL was called when the query key changed (data changed)
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/thumb-1');
   });
 
   it('calls revokeObjectURL on unmount', async () => {
