@@ -1,27 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1010.1
-milestone_name: Live Playwright MCP Smoke
-status: Awaiting next milestone
-stopped_at: "Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)"
-last_updated: "2026-05-17T11:42:14.779Z"
-last_activity: 2026-05-17 — Milestone v1010.1 completed and archived
+milestone: v1010.2
+milestone_name: Builder Smoke Carryover
+status: planning
+last_updated: "2026-05-17T15:00:28.918Z"
+last_activity: 2026-05-17
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 17
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1010.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-17 — Milestone v1010.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-17 — Milestone v1010.2 started
 
 ## Project Reference
 

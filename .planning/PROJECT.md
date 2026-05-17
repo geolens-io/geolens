@@ -12,6 +12,23 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1010.2 Builder Smoke Carryover
+
+**Goal:** Close the 5 carried-forward items from v1010.1's Playwright MCP smoke (1 P1 + 4 P2) so the Map Builder ships clean of all 2026-05-17 smoke findings.
+
+**Target items (v1010.1 carryover):**
+- SF-04 (P1) — `BUILDER-PERF-DEDUPE-SOURCES`: dedupe MapLibre sources across layers sharing the same `dataset_table_name`; touches `use-builder-layers.ts` source registration, `swapLayerOnMap`, per-layer `removeSource`, dataset/tile-token signing, and the `cluster-source.ts` override.
+- SF-05 (P2) — Thumbnail blob `ERR_FILE_NOT_FOUND` on post-login redirect; defer `URL.revokeObjectURL()` to unmount or longer timeout.
+- SF-06 (P2) — Anonymous pre-auth probes to authed endpoints (`auth/me`, `auth/me/permissions`, `admin/ai-status`, `search/saved`, `auth/refresh`) — gate behind `isAuthenticated`.
+- SF-07 (P2) — Two `PUT /api/maps/{id}/thumbnail/` on initial mount; audit 500ms debounce in `use-builder-save.ts` (debounce the effect, not the click handler).
+- SF-08 (P2) — False-positive "Basemap connection issue" toast on save when basemap had loaded successfully.
+
+**Shape:** Hygiene close — single phase, ~5 sequential plans (one per SF) + CTRL-01 smoke gate. Phase numbering continues at 1050.
+
+**Out of scope:** SP-03 / M-02 (fresh-add maplibre sync race, escalated from v1009.1, NOT v1010.1); SP-07 (backend `has_quicklook` predicate, escalated from v1009.1, NOT v1010.1); any new feature work.
+
+---
+
 ## Recent Shipped Milestone: v1010.1 Live Playwright MCP Smoke
 
 **Shipped:** 2026-05-17
@@ -1008,4 +1025,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 after shipping v1010.1 Live Playwright MCP Smoke*
+*Last updated: 2026-05-17 — opened milestone v1010.2 Builder Smoke Carryover*
