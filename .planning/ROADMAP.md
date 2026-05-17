@@ -84,31 +84,73 @@
 ## Phase Details
 
 ### Phase 1051: map-builder-polish-bug-sweep
+
 **Goal**: Close 11 user-reported Map Builder polish/bug items (BUG-01..03, UX-01..04, RESP-01..03) via Playwright MCP inspect-verify-fix loop on live `localhost:8080` stack; triage emergent issues found in flight (EMRG-01); resolve INV-01 DETAIL LEVEL disposition; gate close with batched typecheck/vitest/e2e:smoke:builder/MCP re-verify (CTRL-01).
 **Depends on**: Nothing (v1010.2 already shipped + tagged; v1010 baseline in place)
 **Requirements**: BUG-01, BUG-02, BUG-03, UX-01, UX-02, UX-03, UX-04, RESP-01, RESP-02, RESP-03, INV-01, EMRG-01, CTRL-01
 **Success Criteria** (what must be TRUE):
+
   1. All 13 REQ-IDs (BUG-01..03, UX-01..04, RESP-01..03, INV-01, EMRG-01, CTRL-01) have status `Complete` in REQUIREMENTS.md traceability.
   2. Playwright MCP re-verify on a fresh `docker compose up` stack confirms all 11 user-reported items fixed (BUG-01..03, UX-01..04, RESP-01..03) — repros at the cited URL no longer reproduce; observed pre-fix behaviors no longer surface.
   3. INV-01 disposition (remove DETAIL LEVEL vs fix DETAIL LEVEL) is recorded in the commit message AND in the CHANGELOG `[Unreleased]` entry with rationale.
   4. `EMRG-01` `FINDINGS.md` exists at `.planning/phases/1051-map-builder-polish-bug-sweep/FINDINGS.md` with per-finding triage (severity, scope, fix-now-vs-defer decision, rationale). Even if zero emergent findings, an explicit "0 emergent" note is recorded.
   5. CHANGELOG.md `[Unreleased]` section populated with one bullet per fixed item (BUG/UX/RESP/INV) plus the EMRG-01 triage outcome and the CTRL-01 gate evidence.
+
 **Plans**: 13 plans (11 user-reported fixes + 1 emergent triage + 1 CTRL-01 close gate)
 
 Plans:
+**Wave 1**
+
 - [ ] 1051-01-bug-layer-visibility-toggle-PLAN.md — BUG-01: regular layer visibility toggle is a no-op (repro at `/maps/c868cc3a-a3a0-4714-b559-67b3f2b478e2`)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 1051-02-bug-delete-layer-PLAN.md — BUG-02: delete-layer is a no-op
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 1051-03-bug-rename-group-autofocus-PLAN.md — BUG-03: rename-group text input does not autofocus
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 1051-04-ux-group-expand-caret-PLAN.md — UX-01: layer-group expand caret too small for comfortable tap
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 1051-05-ux-sublayer-config-indicators-PLAN.md — UX-02: replace per-sublayer opacity slider with config-state indicators
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 1051-06-ux-draggable-basemap-row-PLAN.md — UX-03: basemap row draggable in layer order + saved-map persistence
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 1051-07-ux-widgets-enable-disable-PLAN.md — UX-04: Map Settings → Widgets converts to enable/disable availability toggles
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [ ] 1051-08-resp-sidebar-zoom-collision-PLAN.md — RESP-01: collapsed right sidebar overlaps MapLibre zoom controls at narrow viewports
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 1051-09-resp-coord-readout-overlap-PLAN.md — RESP-02: coord readout pill overlaps map-widget container at narrow viewports
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
 - [ ] 1051-10-resp-duplicate-close-button-PLAN.md — RESP-03: basemap selector + right-sidebar elements audit for duplicate close-button bug
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
 - [ ] 1051-11-inv-detail-level-disposition-PLAN.md — INV-01: investigate DETAIL LEVEL toggle, decide remove-vs-fix, record disposition
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
 - [ ] 1051-12-emergent-findings-triage-PLAN.md — EMRG-01: triage any additional issues surfaced during Playwright MCP inspection
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
 - [ ] 1051-13-close-gate-PLAN.md — CTRL-01: smoke gate (typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify) + CHANGELOG
+
 **UI hint**: yes
 
 #### Plan 01 — BUG-01: Regular layer visibility toggle is a no-op
@@ -118,6 +160,7 @@ Plans:
 **Requirements**: BUG-01
 
 **Touches** (suspected — confirm via Playwright MCP + codebase grep):
+
 - `frontend/src/components/builder/StackRow.tsx` — visibility toggle button handler
 - `frontend/src/components/builder/UnifiedStackPanel.tsx` — visibility prop wiring
 - `frontend/src/components/builder/hooks/use-builder-layers.ts` — `setLayerVisibility` or equivalent
@@ -125,6 +168,7 @@ Plans:
 - Adapter chain (`fill-adapter`, `line-adapter`, `circle-adapter`, etc.) — confirm no adapter is short-circuiting the visibility patch
 
 **Tasks**:
+
 1. Playwright MCP repro at the cited URL — capture pre-fix behavior (selector, network calls, console state). `checkpoint:orchestrator`
 2. Trace the toggle handler call chain via grep; identify where the visibility intent stops propagating
 3. Implement fix (likely a missing `map.setLayoutProperty(layerId, 'visibility', ...)` call OR a stale-closure on the toggle handler)
@@ -133,6 +177,7 @@ Plans:
 6. Atomic commit: `fix(builder): layer visibility toggle now dispatches to maplibre (BUG-01)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Clicking the visibility eye on a regular layer at the repro URL toggles the layer's MapLibre `visibility` layout property between `visible` and `none` on every click.
 2. Vitest regression case fails before fix and passes after fix.
 3. No regression to basemap-sublayer visibility toggles or bulk-visibility-toggle behavior (v1009 POL-multi-select).
@@ -146,12 +191,14 @@ Plans:
 **Requirements**: BUG-02
 
 **Touches** (suspected — confirm via Playwright MCP + codebase grep):
+
 - `frontend/src/components/builder/StackRow.tsx` OR `LayerEditorPanel.tsx` — delete action handler
 - `frontend/src/components/builder/hooks/use-builder-layers.ts` — `removeLayer` / `deleteLayer`
 - `frontend/src/components/builder/map-sync.ts` — `map.removeLayer()` + `removeStaleSourcesAndLayers` companion sweep
 - Verify the layer is removed from saved-map state (not just visually hidden)
 
 **Tasks**:
+
 1. Playwright MCP repro — open a map with ≥2 layers, click delete on one, capture network + console state + sidebar state. `checkpoint:orchestrator`
 2. Trace the delete-layer call chain; identify where the deletion intent stops short
 3. Implement fix (possibly a missing `map.removeLayer()` call OR a state update that doesn't propagate to the layer list OR a `PATCH /api/maps/{id}/layers/{layerId}` that 404s silently)
@@ -160,6 +207,7 @@ Plans:
 6. Atomic commit: `fix(builder): delete layer removes from stack and map (BUG-02)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Deleting a layer removes it from the sidebar StackRow list immediately.
 2. Deleting a layer removes the corresponding MapLibre layer + (if no other layer references it) the source.
 3. Reload of the map confirms the deletion persisted to the saved-map JSON.
@@ -175,10 +223,12 @@ Plans:
 **Requirements**: BUG-03
 
 **Touches** (suspected):
+
 - `frontend/src/components/builder/BasemapGroupRow.tsx` OR `StackRow.tsx` group-row variant — rename action
 - The rename input component (likely an inline `<input>` swap or a popover) — add `autoFocus` prop OR `useRef` + `useEffect` `inputRef.current?.focus()`
 
 **Tasks**:
+
 1. Playwright MCP repro — click "Rename group" on a basemap row, capture focus state (no focus on input). `checkpoint:orchestrator`
 2. Implement fix — add `autoFocus` to the rename input OR wire a `useRef` + `useEffect` focus call on mount of the rename UI
 3. Add vitest regression case — render the rename UI and assert `document.activeElement === inputRef.current` after mount
@@ -186,6 +236,7 @@ Plans:
 5. Atomic commit: `fix(builder): rename-group input autofocuses on open (BUG-03)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Clicking "Rename group" on any group row gives the rename input focus.
 2. Typing immediately enters the rename input without an extra click.
 3. Vitest regression confirms focus on mount.
@@ -199,11 +250,13 @@ Plans:
 **Requirements**: UX-01
 
 **Touches**:
+
 - `frontend/src/components/builder/BasemapGroupRow.tsx` OR `StackRow.tsx` group-row variant — caret component
 - Caret glyph component (likely Lucide `ChevronRight` / `ChevronDown`) — size prop + hit-target padding
 - `frontend/src/lib/icons` — confirm size convention before deviating
 
 **Tasks**:
+
 1. Playwright MCP capture — measure current caret hit-target bounding box via MCP element inspection. `checkpoint:orchestrator`
 2. Audit `frontend/src/lib/icons` for existing icon-size constants (e.g. `ICON_SM = 16`); pick the right token
 3. Implement fix — increase caret padding to ≥24×24 hit area; bump glyph to ≥16 px
@@ -212,6 +265,7 @@ Plans:
 6. Atomic commit: `fix(builder): group-row expand caret meets 24px touch target (UX-01)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Caret button bounding box is ≥24×24 px.
 2. Caret glyph is ≥16 px (or follows `frontend/src/lib/icons` convention).
 3. No regression to caret column alignment in non-group rows (caret column stays reserved per sketch 002 A "A-strict" decision).
@@ -225,11 +279,13 @@ Plans:
 **Requirements**: UX-02
 
 **Touches**:
+
 - `frontend/src/components/builder/BasemapGroupRow.tsx` — sublayer row rendering (the sublayer list inside the expanded basemap group)
 - Possibly a new `SublayerConfigIndicators.tsx` component that takes a `Layer` and renders 0-N badges/icons
 - LayerEditorPanel flyout — confirm opacity field is reachable from a sublayer click (should already be — sublayers are layers per sketch 004)
 
 **Tasks**:
+
 1. Playwright MCP capture — current sublayer row UI with opacity slider; identify which fields would have high-impact indicators (consult `frontend/src/components/builder/LayerEditorPanel.tsx` for the full editable surface)
 2. Decide indicator set (recommend: labels-present, filter-present, data-driven-paint-present, plus any obvious overlay like locked/visibility-overridden); 3-5 indicators max to avoid row clutter. Document the chosen set in the commit message.
 3. Remove the per-sublayer opacity slider from `BasemapGroupRow.tsx` sublayer rendering
@@ -241,6 +297,7 @@ Plans:
 9. Atomic commit: `refactor(builder): sublayer rows show config-state indicators instead of opacity slider (UX-02)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Basemap sublayer rows have NO opacity slider.
 2. Each sublayer row shows config-state indicators (3-5 indicators max) reflecting live config.
 3. Opacity editing remains accessible via the LayerEditorPanel flyout opened from the sublayer.
@@ -256,6 +313,7 @@ Plans:
 **Requirements**: UX-03
 
 **Touches**:
+
 - `frontend/src/components/builder/UnifiedStackPanel.tsx` — DnD setup; currently basemap row is likely sortable-locked or excluded
 - `frontend/src/components/builder/BasemapGroupRow.tsx` — confirm group acts as a single drag unit (sublayers move with parent)
 - Saved-map normalizer — likely `frontend/src/lib/normalize-saved-map.ts` or equivalent — encode basemap position (consider a single `basemap_position` field on the map root OR derive from the basemap row's index in the unified stack)
@@ -263,6 +321,7 @@ Plans:
 - `frontend/src/components/builder/hooks/use-builder-save.ts` — confirm save flow round-trips the basemap position
 
 **Tasks**:
+
 1. Playwright MCP capture — confirm basemap row is currently non-draggable; identify the DnD constraint
 2. Lift the constraint in `UnifiedStackPanel.tsx`; allow basemap row to participate in the DnD reorder
 3. Confirm basemap-as-group drag semantics: dragging the basemap row also moves all sublayers (sketch 007 A: group rows drag as a unit). Verify in the same vitest suite as Plan 04.
@@ -274,6 +333,7 @@ Plans:
 9. Atomic commit: `feat(builder): basemap row is draggable in layer order with saved-map persistence (UX-03)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Basemap row participates in the unified stack DnD reorder.
 2. Dragging the basemap row moves all sublayers as a unit (group semantics preserved).
 3. Saved-map round-trip preserves basemap position (top, bottom, or arbitrary mid-stack index).
@@ -290,12 +350,14 @@ Plans:
 **Requirements**: UX-04
 
 **Touches**:
+
 - Map Settings scene — find via `git grep -l "widgets" frontend/src/components/builder/` (likely `MapSettingsScene.tsx` or equivalent)
 - Widget registry / availability state — likely a slice of map state or a context
 - On-map widget renderer — gate widget rendering on `availability.enabled === true`
 - i18n: any new "Enable widget" / "Disable widget" labels need en/de/es/fr translations
 
 **Tasks**:
+
 1. Playwright MCP capture — open Map Settings → Widgets; confirm current duplicate-controls UI. `checkpoint:orchestrator`
 2. Identify the set of widgets covered (likely: coord readout, scale, zoom controls, geolocate, fullscreen — confirm by inspecting on-map widget renderer)
 3. Refactor Map Settings → Widgets: replace each duplicate control with a single on/off toggle labeled "Enable [widget name]" (i18n keys)
@@ -307,6 +369,7 @@ Plans:
 9. Atomic commit: `refactor(builder): Map Settings Widgets section now enables/disables widget availability (UX-04)`
 
 **Success Criteria** (what must be TRUE):
+
 1. Map Settings → Widgets section contains one on/off toggle per widget (no duplicate controls).
 2. Toggles are labeled clearly (e.g. "Enable coord readout") and translated en/de/es/fr.
 3. Toggling a widget off removes it from the on-map render entirely; toggling on restores it.
@@ -322,12 +385,14 @@ Plans:
 **Requirements**: RESP-01
 
 **Touches** (suspected):
+
 - `frontend/src/pages/MapBuilderPage.tsx` — responsive layout breakpoints
 - `frontend/src/components/builder/BuilderMap.tsx` — MapLibre `NavigationControl` position/positioning
 - Sidebar collapse styling — likely Tailwind responsive utilities
 - Possibly a new CSS variable (`--builder-map-edge-padding`) or repositioning of `NavigationControl`
 
 **Tasks**:
+
 1. Playwright MCP capture — emulate viewport widths (1024, 900, 800), screenshot the collision; identify exact breakpoint where overlap begins. `checkpoint:orchestrator`
 2. Choose fix strategy: (a) reposition zoom controls to a corner that doesn't collide, (b) push controls in from the edge with margin, OR (c) constrain sidebar collapse footprint
 3. Implement fix (likely a responsive margin/padding on `NavigationControl` OR a Tailwind responsive class on the sidebar collapse wrapper)
@@ -336,6 +401,7 @@ Plans:
 6. Atomic commit: `fix(builder): collapsed sidebar no longer overlaps MapLibre zoom controls at narrow viewports (RESP-01)`
 
 **Success Criteria** (what must be TRUE):
+
 1. At viewport widths between the identified breakpoint and 800 px, the collapsed sidebar does NOT visually overlap the MapLibre zoom in/out controls.
 2. Wider viewports (>1100 px per sketch 008 A) are unaffected.
 3. Zoom controls remain clickable / hover-affordant — not just visually un-overlapping but functionally reachable.
@@ -349,11 +415,13 @@ Plans:
 **Requirements**: RESP-02
 
 **Touches**:
+
 - `frontend/src/components/map/MapCoordReadout.tsx` — coord pill position
 - Map-widget container — find via grep; likely a positioned overlay
 - Responsive utilities to reflow OR reposition
 
 **Tasks**:
+
 1. Playwright MCP capture — emulate viewport widths, screenshot the overlap. `checkpoint:orchestrator`
 2. Choose fix strategy: reflow (vertical stack), reposition (different corner), OR z-order one above the other with clear non-overlap
 3. Implement fix
@@ -362,6 +430,7 @@ Plans:
 6. Atomic commit: `fix(builder): coord readout pill no longer overlaps map-widget container at narrow viewports (RESP-02)`
 
 **Success Criteria** (what must be TRUE):
+
 1. At narrow viewport widths, the coord readout pill does NOT overlap the map-widget container.
 2. Both elements remain visible/legible.
 3. Wider viewports are unaffected.
@@ -375,12 +444,14 @@ Plans:
 **Requirements**: RESP-03
 
 **Touches**:
+
 - Basemap selector flyout component — find via grep on the close-button render path
 - LayerEditorPanel flyout — confirm close-button handling
 - Settings drawer / Sheet overlay (per sketch 008 A `<800px` behavior) — confirm close-button handling
 - Possibly a shared flyout chrome component that's double-rendering the close button at certain breakpoints
 
 **Tasks**:
+
 1. Playwright MCP audit — at narrow viewport widths, open each right-sidebar-opened element (basemap selector, LayerEditorPanel flyout, Map Settings drawer if any others); inventory which render duplicate close buttons. `checkpoint:orchestrator`
 2. Identify the root cause (likely a shared flyout chrome component that adds a close button + the inner component also adds its own)
 3. Implement fix — deduplicate the close button at the shared chrome layer OR at each inner component
@@ -390,6 +461,7 @@ Plans:
 7. Atomic commit: `fix(builder): right-sidebar flyouts render exactly one close button at narrow viewports (RESP-03)`
 
 **Success Criteria** (what must be TRUE):
+
 1. The basemap selector flyout renders exactly ONE close button at all viewport widths.
 2. Any other right-sidebar-opened element found with the same duplicate-close bug also renders exactly ONE close button.
 3. Inventory of audited flyouts is recorded in the commit message (for future-reference).
@@ -404,12 +476,14 @@ Plans:
 **Requirements**: INV-01
 
 **Touches** (TBD — depends on disposition):
+
 - `git grep -l "DETAIL LEVEL\|detail.*level\|detailLevel" frontend/src/` — find all references
 - LayerEditorPanel flyout (likely surface for the toggle per sketch 004 basemap-sublayer pill strip)
 - If REMOVE: delete the toggle component, prop, state, and any handlers
 - If FIX: wire the missing consumer
 
 **Tasks**:
+
 1. Playwright MCP — open the LayerEditorPanel for a basemap sublayer, locate the DETAIL LEVEL toggle, screenshot. `checkpoint:orchestrator`
 2. Codebase grep — `git grep -in "detail.level\|detaillevel\|DETAIL LEVEL" frontend/src/` (case-insensitive across naming variants); enumerate every reference + its file:line
 3. Trace prop wiring from the toggle UI to its intended consumer; identify whether the consumer exists, is dead-wired, or is unrecoverable
@@ -422,6 +496,7 @@ Plans:
 10. Atomic commit: `[fix|refactor](builder): DETAIL LEVEL [removed (no consumer)|fixed: <intent description>] (INV-01)`
 
 **Success Criteria** (what must be TRUE):
+
 1. INV-01 disposition is recorded (REMOVE vs FIX) with rationale in the commit message.
 2. If REMOVE: no `DETAIL LEVEL` references remain in `frontend/src/` (grep returns 0); no orphan i18n keys.
 3. If FIX: the toggle's intended behavior is observable in Playwright MCP re-verify; vitest covers the consumer.
@@ -436,6 +511,7 @@ Plans:
 **Requirements**: EMRG-01
 
 **Tasks**:
+
 1. Aggregate emergent findings discovered during plans 01-11 (each plan's Playwright MCP step should surface unrelated issues to a running scratch list — orchestrator maintains)
 2. Create / update `.planning/phases/1051-map-builder-polish-bug-sweep/FINDINGS.md` with per-finding entries: id (EMRG-FN-01, EMRG-FN-02, ...), title, severity (P0/P1/P2), scope, fix-now-vs-defer decision, rationale, follow-up disposition (commit hash if fix-now, target file if defer)
 3. For each FIX-NOW finding: implement the fix as an additional commit, cross-link from FINDINGS.md to commit
@@ -444,6 +520,7 @@ Plans:
 6. Atomic commit per fix-now finding; one summary commit for FINDINGS.md + defer entries: `chore(1051): EMRG-01 emergent-findings triage (N fix-now, M defer)`
 
 **Success Criteria** (what must be TRUE):
+
 1. `FINDINGS.md` exists at `.planning/phases/1051-map-builder-polish-bug-sweep/FINDINGS.md`.
 2. Every finding has a per-finding triage entry (severity, scope, fix-now-vs-defer, rationale).
 3. Every fix-now finding has an inline commit referenced from FINDINGS.md.
@@ -459,6 +536,7 @@ Plans:
 **Requirements**: CTRL-01
 
 **Tasks**:
+
 1. Frontend typecheck clean (`npx tsc --noEmit`)
 2. Frontend vitest: full builder vitest run + targeted suites for files touched in plans 01-11
 3. `npm run e2e:smoke:builder` green (no new failures vs. v1010.2 baseline of 26/26)
@@ -484,6 +562,7 @@ Plans:
 6. If code review surfaces additional findings during gate, fix them inline per `feedback_review_findings_inline.md`; do NOT defer to v1011.1
 
 **Success Criteria** (what must be TRUE):
+
 1. Smoke gate is green across typecheck, vitest, and `e2e:smoke:builder`.
 2. Playwright MCP re-verify confirms all 11 user-reported items are now fixed on a fresh stack.
 3. CHANGELOG records the close with one bullet per fixed item + INV-01 disposition + EMRG-01 outcome + gate evidence.
@@ -584,6 +663,7 @@ Hygiene milestone shape: single phase, three sequential plans by severity (A: BL
 No tenant-scoping infrastructure exists today — `User` has no tenant column, all catalog tables sit in single `catalog` schema, no request-context middleware. Required before the future **Cloud (multi-tenant SaaS) tier** can launch — vendor-operated deployment hosting many customer orgs with isolated data, users, audit, billing, and quotas. Touches identity, catalog, audit, and embed-token domains; needs migration plan + query-injection callback registry + tenant-context propagation. **Priority:** blocks Cloud launch, not next Enterprise sale.
 
 Plans:
+
 - [ ] TBD (promote with /gsd-review-backlog when ready)
 
 ---
@@ -596,6 +676,7 @@ Plans:
 **Tier:** Enterprise — stored credentials + scheduled mirroring is an explicit Enterprise paywall per `docs-internal/GTM/free-vs-enterprise.md` §6.
 
 Plans:
+
 - [ ] TBD
 
 ---
@@ -607,6 +688,7 @@ Plans:
 **Estimated effort:** 1–2 weeks
 
 Plans:
+
 - [ ] TBD
 
 ---
@@ -618,6 +700,7 @@ Plans:
 **Estimated effort:** 1 week
 
 Plans:
+
 - [ ] TBD
 
 ---
@@ -630,4 +713,5 @@ Plans:
 **Unblocks:** Schema-validator OSS adoption beyond GeoLens consumers; reusable wedge for FAIR-aligned tooling.
 
 Plans:
+
 - [ ] TBD

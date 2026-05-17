@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
-status: Roadmap created; awaiting plan-phase or autonomous executor
+status: executing
 stopped_at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
-last_updated: "2026-05-17T22:56:12.856Z"
-last_activity: 2026-05-17 — ROADMAP.md authored for v1011 (1 phase, 13 plans, 13/13 reqs mapped)
+last_updated: "2026-05-17T23:35:29.943Z"
+last_activity: 2026-05-17 -- Phase 1051 planning complete
 progress:
-  total_phases: 1
+  total_phases: 6
   completed_phases: 0
   total_plans: 13
   completed_plans: 0
@@ -20,8 +20,8 @@ progress:
 
 Phase: 1051 — map-builder-polish-bug-sweep
 Plan: Not started (roadmap just created)
-Status: Roadmap created; awaiting plan-phase or autonomous executor
-Last activity: 2026-05-17 — ROADMAP.md authored for v1011 (1 phase, 13 plans, 13/13 reqs mapped)
+Status: Ready to execute
+Last activity: 2026-05-17 -- Phase 1051 planning complete
 
 ## Project Reference
 
