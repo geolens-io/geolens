@@ -14,7 +14,7 @@
 
 ### Smoke Carryover (5 reqs)
 
-- [ ] **SMOKE-08**: Map Builder deduplicates MapLibre vector tile sources across layers that share the same `dataset_table_name` — opening a saved map with N layers backed by M unique datasets (M < N) fires roughly N→M unique tile URLs on initial load, not N copies of the same URL. Closes SF-04 / `BUILDER-PERF-DEDUPE-SOURCES`. Touches: `frontend/src/components/builder/hooks/use-builder-layers.ts` source registration, `swapLayerOnMap`, per-layer `removeSource` path, cluster-source override (`cluster-source.ts`), dataset/tile-token signing. Migration: coordinated update to saved-map layer rows if source-id keying contract changes.
+- [x] **SMOKE-08**: Map Builder deduplicates MapLibre vector tile sources across layers that share the same `dataset_table_name` — opening a saved map with N layers backed by M unique datasets (M < N) fires roughly N→M unique tile URLs on initial load, not N copies of the same URL. Closes SF-04 / `BUILDER-PERF-DEDUPE-SOURCES`. Touches: `frontend/src/components/builder/hooks/use-builder-layers.ts` source registration, `swapLayerOnMap`, per-layer `removeSource` path, cluster-source override (`cluster-source.ts`), dataset/tile-token signing. Migration: coordinated update to saved-map layer rows if source-id keying contract changes.
 
 - [x] **SMOKE-09**: Post-login redirect to `/` produces zero `net::ERR_FILE_NOT_FOUND` console errors for `blob:` thumbnail URLs. Closes SF-05. Fix path: defer `URL.revokeObjectURL(blob)` until the `<img>` finishes loading OR move revoke to component unmount cleanup. Locate via `git grep "revokeObjectURL" frontend/src`.
 

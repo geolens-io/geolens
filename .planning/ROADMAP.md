@@ -96,7 +96,7 @@
 **Plans**: 6 plans (5 SF closures + 1 CTRL-01 close gate)
 
 Plans:
-- [ ] 1050-01-dedupe-maplibre-sources-PLAN.md — SF-04 / SMOKE-08: dedupe MapLibre vector tile sources per dataset_table_name
+- [x] 1050-01-dedupe-maplibre-sources-PLAN.md — SF-04 / SMOKE-08: dedupe MapLibre vector tile sources per dataset_table_name
 - [x] 1050-02-defer-blob-revoke-PLAN.md — SF-05 / SMOKE-09: defer thumbnail blob URL revoke until image loads / unmount
 - [x] 1050-03-gate-anonymous-probes-PLAN.md — SF-06 / SMOKE-10: gate anonymous pre-auth probes (enabled: !!token + isAdmin)
 - [x] 1050-04-debounce-thumbnail-put-PLAN.md — SF-07 / SMOKE-11: debounce thumbnail PUT on effect, not click handler
