@@ -276,11 +276,17 @@ export function useRevokeApiKey() {
 }
 
 // Embedding stats
-export function useEmbeddingStats() {
+// CR-03/WR-04 (Phase 1050-rev): accept the same options shape as
+// useAIStatus so consumers can gate the admin probe with
+// `{ enabled: !!token && isAdmin }`. Without the gate, anonymous and
+// non-admin authed pages (including the admin → logout transition frame)
+// fire GET /admin/embedding-stats/ → 401, defeating SF-06.
+export function useEmbeddingStats(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.admin.embeddingStats,
     queryFn: getEmbeddingStats,
     staleTime: 30_000,
+    enabled: options?.enabled,
   });
 }
 

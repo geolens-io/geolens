@@ -20,7 +20,11 @@ export function AIStatusCard() {
   const token = useAuthStore((s) => s.token);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const { data: aiStatus, isLoading } = useAIStatus({ enabled: !!token && isAdmin });
-  const { data: embeddingStats } = useEmbeddingStats();
+  // CR-03/WR-04 (Phase 1050-rev): gate the embedding-stats probe with the
+  // same `!!token && isAdmin` predicate as useAIStatus. SF-06 only gated
+  // useAIStatus consumer-side; useEmbeddingStats was firing unconditionally
+  // → 401 from any non-admin authed page AND during admin logout transition.
+  const { data: embeddingStats } = useEmbeddingStats({ enabled: !!token && isAdmin });
 
   if (isLoading || !aiStatus) return null;
 
