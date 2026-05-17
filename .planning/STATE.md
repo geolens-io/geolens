@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1010.2
 milestone_name: Builder Smoke Carryover
 status: executing
-stopped_at: Completed 1050-04-PLAN.md
-last_updated: "2026-05-17T15:50:00.000Z"
+stopped_at: Completed 1050-05-PLAN.md
+last_updated: "2026-05-17T15:56:11.000Z"
 last_activity: 2026-05-17
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -19,7 +19,7 @@ progress:
 ## Current Position
 
 Phase: 1050 (builder-smoke-carryover) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-05-17
 
@@ -51,6 +51,7 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1010.2 Build
 - [Phase ?]: 1050-02: Copied use-quicklook.ts:67-74 useEffect cleanup verbatim to use-map-thumbnail.ts; revoke fires on data change AND unmount; closes SF-05.
 - [Phase ?]: 1050-03: SF-06 anonymous probes closed — useSavedSearches gated on !!token (use-saved-searches.ts:13); useAIStatus consumer-side gated on { enabled: !!token && isAdmin } (AIStatusCard.tsx:22, SettingsAITab.tsx:50). Hook signature use-admin.ts:186 unchanged per caller-controlled contract.
 - [Phase 1050-04]: SF-07 double-PUT closed — Fix Option C (module-level `autoCapturedMapIds: Set<string>` guard in use-builder-save.ts:142). Root cause: Vite-dev StrictMode unmounts/remounts the hook, the per-instance `thumbCaptured` ref resets to false, and the module-level `pendingCaptures` Map was already cleared by the first capture's setTimeout — so the second hook instance fires a second PUT. The new module-level guard survives hook remount. 3 new tests (1259 lines total in use-builder-save.test.ts).
+- [Phase 1050-05]: SF-08 false-positive basemap toast closed — `basemapLoadedAtRef: useRef<number | null>(null)` latch in BuilderMap.tsx (declared next to errorHandlerRef line 91, reset at style-fetch effect start line 149, set in .then success branch line 161, suppression check in errorHandlerRef 5xx branch line 409). Latch resets on basemap change so a new basemap's first-load failure still surfaces. The setBasemapNotice('style') first-load failure path is NOT gated (latch never gets set on failure). 3 new tests in BuilderMap.a11y.test.tsx; pattern mirrors errorHandlerRef cross-effect ref in same file. Commit 9fe0b4ec.
 
 ### Pending Todos
 
@@ -62,8 +63,8 @@ None at roadmap creation. Source-of-scope (v1010.1 SMOKE-FINDINGS.md SF-04..08) 
 
 ## Session Continuity
 
-Last session: 2026-05-17T15:50:00.000Z
-Stopped at: Completed 1050-04-PLAN.md
+Last session: 2026-05-17T15:56:11.000Z
+Stopped at: Completed 1050-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

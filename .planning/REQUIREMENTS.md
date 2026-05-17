@@ -22,7 +22,7 @@
 
 - [x] **SMOKE-11**: Initial map mount fires exactly ONE `PUT /api/maps/{id}/thumbnail/` request, not two. Closes SF-07. Audit the 500ms debounce in `use-builder-save.ts` (added in v1009.1 SP-16): confirm the debounce wraps the effect-triggered side effect, not just the click-handler path; initial-mount paint events may currently bypass the debounce window.
 
-- [ ] **SMOKE-12**: Saving a map whose basemap loaded successfully on mount does NOT surface a "Basemap connection issue" toast. Closes SF-08. Fix path: re-evaluate basemap-connection check on save so it does NOT fire when the basemap was previously confirmed loaded; likely in `frontend/src/components/builder/hooks/use-builder-save.ts` or `BuilderMap.tsx` error handler. Transient style-fetch errors during save should not surface as user-visible basemap outages.
+- [x] **SMOKE-12**: Saving a map whose basemap loaded successfully on mount does NOT surface a "Basemap connection issue" toast. Closes SF-08. Fix path: re-evaluate basemap-connection check on save so it does NOT fire when the basemap was previously confirmed loaded; likely in `frontend/src/components/builder/hooks/use-builder-save.ts` or `BuilderMap.tsx` error handler. Transient style-fetch errors during save should not surface as user-visible basemap outages.
 
 ---
 
@@ -52,6 +52,6 @@
 | SMOKE-09 | 1050 | 02 | Open |
 | SMOKE-10 | 1050 | 03 | Open |
 | SMOKE-11 | 1050 | 04 | Complete (37fee435) |
-| SMOKE-12 | 1050 | 05 | Open |
+| SMOKE-12 | 1050 | 05 | Complete (9fe0b4ec) |
 
 *(Plan 06 — CTRL-01 — is the close gate; verifies SMOKE-08..12 collectively, no direct REQ mapping.)*
