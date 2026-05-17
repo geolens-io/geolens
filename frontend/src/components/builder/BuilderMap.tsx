@@ -88,6 +88,8 @@ export const BuilderMap = memo(function BuilderMap({
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
+  // SF-08: latch first-load success so transient 5xx during save don't surface as outage
+  const basemapLoadedAtRef = useRef<number | null>(null);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
   const [tilesLoading, setTilesLoading] = useState(false);
@@ -146,6 +148,10 @@ export const BuilderMap = memo(function BuilderMap({
       ],
     });
 
+    // SF-08: reset latch on basemap change so a new basemap's first-load failure
+    // surfaces correctly.
+    basemapLoadedAtRef.current = null;
+
     fetch(styleValue, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Basemap style request failed: ${response.status}`);
@@ -155,6 +161,9 @@ export const BuilderMap = memo(function BuilderMap({
         if (!cancelled) {
           setMapStyle(sanitizeMaplibreStyle(style));
           setBasemapNotice(null);
+          // SF-08: latch first-load success so transient 5xx during save don't
+          // surface as outage.
+          basemapLoadedAtRef.current = Date.now();
         }
       })
       .catch((error: unknown) => {
@@ -395,6 +404,9 @@ export const BuilderMap = memo(function BuilderMap({
         // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
         if (!status || status >= 500) {
+          // SF-08: suppress transient connection-issue toast if the basemap
+          // already loaded successfully in this session.
+          if (basemapLoadedAtRef.current !== null) return;
           setBasemapNotice('tiles');
           toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
             id: 'builder-map-error',
