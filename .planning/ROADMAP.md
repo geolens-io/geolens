@@ -101,7 +101,7 @@ Plans:
 - [x] 1050-03-gate-anonymous-probes-PLAN.md — SF-06 / SMOKE-10: gate anonymous pre-auth probes (enabled: !!token + isAdmin)
 - [x] 1050-04-debounce-thumbnail-put-PLAN.md — SF-07 / SMOKE-11: debounce thumbnail PUT on effect, not click handler
 - [x] 1050-05-basemap-toast-latch-PLAN.md — SF-08 / SMOKE-12: latch basemap-loaded; suppress transient toast post-load
-- [ ] 1050-06-close-gate-PLAN.md — CTRL-01: smoke gate (typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify) + CHANGELOG
+- [x] 1050-06-close-gate-PLAN.md — CTRL-01: smoke gate (typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify) + CHANGELOG
 **UI hint**: yes
 
 #### Plan 01 — SMOKE-08 / SF-04: Dedupe MapLibre vector tile sources
