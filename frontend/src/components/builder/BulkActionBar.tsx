@@ -126,6 +126,12 @@ export const BulkActionBar = memo(function BulkActionBar({
     <div
       role="toolbar"
       aria-label={t('bulkActions.toolbarLabel', { count: N })}
+      // SF-01 (Phase 1049): marker for UnifiedStackPanel's outside-click guard.
+      // Without it, clicking the inline "Delete N layers" confirm button fires the
+      // document-level mousedown listener BEFORE the React click handler, clearing
+      // selection + unmounting the bar — so the onClick that calls onBulkDelete
+      // never runs against a populated selection set.
+      data-bulk-action-bar="true"
       className={cn(
         'sticky bottom-0 flex items-center gap-2 px-3',
         'h-12 bg-[var(--surface-2)] border-t border-[var(--border)]',

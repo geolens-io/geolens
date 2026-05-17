@@ -652,6 +652,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // unmount the BulkActionBar via the `selectedIds.size >= 2` gate before
   // Delete's confirmation dialog can appear).
   //
+  // SF-01 (Phase 1049): also skip the clear when the click lands inside the
+  // BulkActionBar itself. stackPanelRef points to the inner listbox only; the
+  // BulkActionBar is rendered as a sticky sibling below it. Without this guard,
+  // mousedown on the inline "Delete N layers" confirm button clears selection
+  // BEFORE the React click handler fires, so onBulkDelete sees an empty Set
+  // and silently no-ops (bulk-delete completely broken in the UI). The bar's
+  // own onPointerDown stopPropagation does NOT help because document-level
+  // listeners fire in capture phase regardless.
+  //
   // Effect mounts only when selection is non-empty (keyed on size > 0 via early-return).
   useEffect(() => {
     if (selectedIds.size === 0) return;
@@ -660,6 +669,8 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       if (stackPanelRef.current?.contains(target)) return;
       // Portal-rendered bulk-action overflow menu — treat as in-bounds.
       if ((target as Element | null)?.closest?.('[data-bulk-action-menu="true"]')) return;
+      // BulkActionBar sticky footer (sibling of the listbox) — treat as in-bounds.
+      if ((target as Element | null)?.closest?.('[data-bulk-action-bar="true"]')) return;
       onClearSelection?.();
     }
     document.addEventListener('mousedown', handleMouseDown);
