@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
+import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('@/api/saved-searches', () => ({
   fetchSavedSearches: vi.fn(),
@@ -15,7 +16,29 @@ const mockCreateSavedSearch = vi.mocked(createSavedSearch);
 const mockDeleteSavedSearch = vi.mocked(deleteSavedSearch);
 
 describe('useSavedSearches', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default to authed state so the existing happy-path tests fire the query.
+    useAuthStore.setState({ token: 'test-token', refreshToken: null, expiresAt: null, user: null });
+  });
+
+  it('does not fire fetchSavedSearches when token is null (SF-06 anonymous gate)', () => {
+    useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+
+    renderHook(() => useSavedSearches());
+
+    expect(mockFetchSavedSearches).not.toHaveBeenCalled();
+  });
+
+  it('fires fetchSavedSearches when token is present', async () => {
+    const data = { searches: [{ id: 's1', name: 'My Search', params: { q: 'test' } }], total: 1 };
+    mockFetchSavedSearches.mockResolvedValueOnce(data as never);
+
+    const { result } = renderHook(() => useSavedSearches());
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetchSavedSearches).toHaveBeenCalled();
+  });
 
   it('fetches saved searches', async () => {
     const data = { searches: [{ id: 's1', name: 'My Search', params: { q: 'test' } }], total: 1 };
