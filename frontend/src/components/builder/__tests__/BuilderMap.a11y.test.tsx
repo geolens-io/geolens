@@ -265,6 +265,59 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
     expect(mapErrorCalls.length).toBeGreaterThan(0);
   });
 
+  // WR-02 (Phase 1050-rev): the latch must NOT permanently suppress 5xx
+  // errors. After ~3s post-load, a 5xx is no longer "transient save-time
+  // basemap reload" — it's an ongoing tile-server outage, and the user
+  // must see a banner + toast so they know the system is degraded.
+  it('still surfaces tile error toast when 5xx arrives well after latch arming (WR-02)', async () => {
+    vi.useFakeTimers();
+    try {
+      const validStyle = { version: 8, sources: {}, layers: [] };
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(validStyle),
+        } as Response),
+      ) as typeof fetch;
+
+      render(
+        <BuilderMap
+          layers={[]}
+          basemapStyle="openfreemap-positron"
+        />,
+      );
+
+      // Walk the timers / microtasks far enough for the style fetch to
+      // resolve and arm the latch (basemapLoadedAtRef = Date.now()).
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Confirm error handler registered.
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+
+      // Jump well past the 3000 ms suppression window — any 5xx now must
+      // be a real outage signal, not a save-time transient.
+      vi.advanceTimersByTime(10000);
+
+      mapState.fakeMap.emit('error', { error: { status: 503, message: 'Service Unavailable' } });
+
+      // Banner SHOULD appear; toast.error SHOULD be called with the
+      // builder-map-error id (real outage signal must not be silenced).
+      // Pump the React state update so the banner renders.
+      vi.useRealTimers();
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toHaveTextContent('Basemap connection issue');
+      });
+      const mapErrorCalls = toastErrorSpy.mock.calls.filter(
+        ([, options]) => (options as { id?: string } | undefined)?.id === 'builder-map-error',
+      );
+      expect(mapErrorCalls.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resets latch on basemap change so new basemap first-load failure still surfaces', async () => {
     // First fetch resolves (latch set), second fetch rejects (latch should reset → null).
     let fetchCallCount = 0;

@@ -404,9 +404,17 @@ export const BuilderMap = memo(function BuilderMap({
         // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
         if (!status || status >= 500) {
-          // SF-08: suppress transient connection-issue toast if the basemap
-          // already loaded successfully in this session.
-          if (basemapLoadedAtRef.current !== null) return;
+          // SF-08: suppress the transient connection-issue toast that fires
+          // for a few hundred ms immediately after a successful basemap load
+          // (MapLibre raises a stale tile error while it transitions between
+          // styles). WR-02 (Phase 1050-rev): narrow the suppression to a
+          // bounded window after the latch was armed so ongoing tile-server
+          // outages (basemap loaded OK → tile CDN goes down 30 min later)
+          // still surface a toast / banner. 3000 ms covers the worst-case
+          // post-load transient window observed in MCP smoke without
+          // masking ongoing outages.
+          const loadedAt = basemapLoadedAtRef.current;
+          if (loadedAt !== null && Date.now() - loadedAt < 3000) return;
           setBasemapNotice('tiles');
           toast.error(t('builderMap.mapError', { defaultValue: 'Map tile error — some layers may not render correctly.' }), {
             id: 'builder-map-error',
