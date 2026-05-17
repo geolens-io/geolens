@@ -48,10 +48,10 @@
 
 | REQ-ID | Phase | Plan(s) | Status |
 |--------|-------|---------|--------|
-| SMOKE-08 | TBD | TBD | Open |
-| SMOKE-09 | TBD | TBD | Open |
-| SMOKE-10 | TBD | TBD | Open |
-| SMOKE-11 | TBD | TBD | Open |
-| SMOKE-12 | TBD | TBD | Open |
+| SMOKE-08 | 1050 | 01 | Open |
+| SMOKE-09 | 1050 | 02 | Open |
+| SMOKE-10 | 1050 | 03 | Open |
+| SMOKE-11 | 1050 | 04 | Open |
+| SMOKE-12 | 1050 | 05 | Open |
 
-*(Filled by roadmapper.)*
+*(Plan 06 — CTRL-01 — is the close gate; verifies SMOKE-08..12 collectively, no direct REQ mapping.)*

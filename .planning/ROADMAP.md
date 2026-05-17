@@ -68,8 +68,154 @@
 - ✅ **v1009.1 Builder Smoke Polish** — Phase 1045 (shipped 2026-05-15) — see [archive](milestones/v1009.1-ROADMAP.md)
 - ✅ **v1010 Builder Performance & Code Quality** — Phases 1046-1048 (shipped 2026-05-16) — see [archive](milestones/v1010-ROADMAP.md)
 - ✅ **v1010.1 Live Playwright MCP Smoke** — Phase 1049 (shipped 2026-05-17) — see [archive](milestones/v1010.1-ROADMAP.md)
+- 🚧 **v1010.2 Builder Smoke Carryover** — Phase 1050 (in progress)
 
 ## Phases
+
+### 🚧 v1010.2 Builder Smoke Carryover (Phase 1050)
+
+**Milestone Goal:** Close all 5 v1010.1 carried-forward smoke findings (SF-04..08) so the Map Builder ships clean of all 2026-05-17 smoke noise. Single-phase hygiene close, sequential plans per finding, single CTRL-01 batch gate.
+
+**Shape:** Hygiene close — single phase, 6 sequential plans (5 SF closures + 1 CTRL-01 close gate). No new features, no research, no AI integration, no UI design contracts. Mirrors v1009.1 Phase 1045 and v1010.1 Phase 1049.
+
+- [ ] **Phase 1050: builder-smoke-carryover** — Close all 5 v1010.1 carried-forward smoke findings (SF-04..08) inline; ship CHANGELOG note + green smoke gate.
+
+## Phase Details
+
+### Phase 1050: builder-smoke-carryover
+**Goal**: All 5 v1010.1 carried-forward smoke findings (SF-04 dedupe MapLibre sources, SF-05 blob revoke timing, SF-06 anonymous pre-auth probes, SF-07 double initial thumbnail PUT, SF-08 false-positive basemap toast) ship with code-level fixes; v1010.1 SMOKE-FINDINGS.md "Observed" surfaces re-verify clean against a fresh stack; CHANGELOG `[Unreleased]` records the close; smoke gate (typecheck / vitest / e2e:smoke:builder / Playwright MCP re-verify) is green.
+**Depends on**: Nothing (v1010.1 already shipped + tagged; v1010 baseline in place)
+**Requirements**: SMOKE-08, SMOKE-09, SMOKE-10, SMOKE-11, SMOKE-12
+**Success Criteria** (what must be TRUE):
+  1. Opening the v1010.1 smoke test map (`c868cc3a-a3a0-4714-b559-67b3f2b478e2` or an equivalent N-layer / M-dataset saved map with M < N) fires roughly M unique tile URLs on initial load, not N copies of the same URL — vector tile dedupe observable in network log per dataset.
+  2. Post-login redirect to `/` produces zero `blob:` `net::ERR_FILE_NOT_FOUND` console errors; thumbnail blob URLs survive until their `<img>` actually loads.
+  3. Visiting `/login` while unauthenticated fires zero 401-error console noise for `/api/auth/me/`, `/api/auth/me/permissions/`, `/api/admin/ai-status/`, `/api/search/saved/`, `/api/auth/refresh/`.
+  4. Initial map mount fires exactly ONE `PUT /api/maps/{id}/thumbnail/` request (not two).
+  5. Saving a map whose basemap loaded successfully on mount does NOT surface a "Basemap connection issue" toast.
+  6. CHANGELOG.md `[Unreleased]` records the v1010.2 close with measured before/after numbers where applicable; smoke gate evidence captured.
+**Plans**: 6 plans (5 SF closures + 1 CTRL-01 close gate)
+**UI hint**: yes
+
+#### Plan 01 — SMOKE-08 / SF-04: Dedupe MapLibre vector tile sources
+
+**Goal**: Map Builder reuses one MapLibre vector source per unique `dataset_table_name` across all layers that share it, so an M-dataset / N-layer saved map fires roughly M unique tile URLs at initial load instead of N. Closes SF-04 / `BUILDER-PERF-DEDUPE-SOURCES`. This is the only P1 in the milestone and the largest scope.
+
+**Requirements**: SMOKE-08
+
+**Touches**:
+- `frontend/src/components/builder/hooks/use-builder-layers.ts` — source registration on mount-add, per-layer `addSource` path
+- `frontend/src/components/builder/hooks/use-builder-layers.ts:760` — `swapLayerOnMap` source-id keying contract
+- per-layer `removeSource` cleanup path (must not remove a source still referenced by another layer)
+- `frontend/src/components/builder/cluster-source.ts` — cluster-source override (cluster sources are per-layer by design — confirm dedupe scoping)
+- dataset/tile-token signing scope — signed `sig=...` URLs must remain stable across deduped consumers
+- saved-map layer rows — if the source-id keying contract changes shape, coordinate any normalizer / migration
+
+**Success Criteria** (what must be TRUE):
+1. Opening the test map (8 layers, 2 unique datasets) fires ≤ ~24 vector tile requests at initial paint, not ~80 (target: ~M × tiles-per-viewport, not N × tiles-per-viewport).
+2. `map.getSource(sourceId)` returns the same `Source` instance for every layer that shares a `dataset_table_name`.
+3. Toggling a layer's visibility on/off does not call `removeSource` if any other layer still references that source (no MapLibre `there is no source with this ID` errors on subsequent re-add).
+4. Cluster layers continue to render correctly — `cluster-source.ts` per-layer cluster scoping is preserved (cluster sources MAY remain per-layer because cluster radius / minPoints are per-layer settings).
+5. Saved-map round-trip is clean — open, save, re-open the test map and the layer stack + style JSON match the pre-fix snapshot.
+6. Targeted vitest suites for `use-builder-layers`, `swapLayerOnMap`, and `cluster-source` pass; no new failures in `e2e:smoke:builder`.
+
+---
+
+#### Plan 02 — SMOKE-09 / SF-05: Defer blob URL revoke until image loads
+
+**Goal**: Eliminate the 4× `net::ERR_FILE_NOT_FOUND` `blob:` console errors that fire on post-login redirect to `/`. Closes SF-05.
+
+**Requirements**: SMOKE-09
+
+**Touches**:
+- Locate via `git grep "revokeObjectURL" frontend/src` — most likely thumbnail blob lifecycle in search-result cards or builder thumbnail components
+- Either defer `URL.revokeObjectURL(blob)` until the `<img>` `onLoad`/`onError` fires, OR move the revoke to component unmount cleanup, OR extend the revoke timeout window so it doesn't race the React unmount caused by route change
+
+**Success Criteria** (what must be TRUE):
+1. Logging in via `/login`, completing form-encoded POST, and following the redirect to `/` produces zero `blob:` `net::ERR_FILE_NOT_FOUND` console errors.
+2. Thumbnails that were visible pre-login remain visible / re-render cleanly post-login redirect (no broken-image placeholders).
+3. The revoke still fires eventually — no permanent blob-URL leak on unmount of the owning component.
+
+---
+
+#### Plan 03 — SMOKE-10 / SF-06: Gate anonymous pre-auth probes
+
+**Goal**: Visiting `/login` unauthenticated stops firing 401-error console noise to `/api/auth/me/`, `/api/auth/me/permissions/`, `/api/admin/ai-status/`, `/api/search/saved/`, `/api/auth/refresh/`. Closes SF-06. The `/api/admin/ai-status/` probe from an anonymous page is the most egregious — admin endpoints should not be hit unless the user is admin-authed.
+
+**Requirements**: SMOKE-10
+
+**Touches**:
+- React Query hooks that fetch the 5 above endpoints — gate their `enabled` flag on `useAuthStore().isAuthenticated` (or equivalent), OR
+- The React Query global error handler — suppress error-level logging on these specific 401s on anonymous routes, OR
+- Both (preferred: gate the request itself so we don't even send a 401-bound fetch from an anonymous page)
+
+**Success Criteria** (what must be TRUE):
+1. Loading `/login` fresh (no cookies, no token in `geolens-auth`) fires zero requests to `/api/auth/me/`, `/api/auth/me/permissions/`, `/api/admin/ai-status/`, `/api/search/saved/`, `/api/auth/refresh/`.
+2. After a successful login the same hooks fire normally — gating is on `isAuthenticated`, not blanket-disabled.
+3. Admin-only `/api/admin/ai-status/` only fires when `user.is_admin` is truthy (not just on any authed page).
+4. No 401-error console entries on the `/login` route in a fresh-stack Playwright MCP run.
+
+---
+
+#### Plan 04 — SMOKE-11 / SF-07: Debounce thumbnail PUT on effect, not click handler
+
+**Goal**: Initial map mount fires exactly ONE `PUT /api/maps/{id}/thumbnail/` request, not two. Closes SF-07. v1009.1 SP-16 added a 500ms trailing debounce expecting one PUT; the doubling means initial-mount paint events bypass the debounce window.
+
+**Requirements**: SMOKE-11
+
+**Touches**:
+- `frontend/src/components/builder/hooks/use-builder-save.ts` — confirm the 500ms debounce wraps the effect-triggered side effect (paint-settle, tile-loaded, idle), NOT just the click-handler path
+- Audit which effects fire the thumbnail PUT and whether the debounce key (map id, dirty state) is shared across them
+
+**Success Criteria** (what must be TRUE):
+1. Hard-reloading `/maps/{id}` fires exactly ONE `PUT /api/maps/{id}/thumbnail/` (verified via network log filter on `thumbnail`).
+2. The debounce still collapses bursts during interaction (e.g. dragging zoom slider doesn't fire one PUT per repaint).
+3. No regression to manual save behavior — `⌘S` still produces the expected thumbnail PUT after the debounce window settles.
+
+---
+
+#### Plan 05 — SMOKE-12 / SF-08: Don't fire basemap-issue toast when basemap loaded successfully
+
+**Goal**: Saving a map whose basemap had already loaded successfully on mount does NOT surface a false-positive "Basemap connection issue" toast. Closes SF-08.
+
+**Requirements**: SMOKE-12
+
+**Touches**:
+- `frontend/src/components/builder/hooks/use-builder-save.ts` save flow — re-evaluate the basemap-connection check
+- OR `frontend/src/components/builder/BuilderMap.tsx` basemap error handler — gate the toast on "basemap was NOT previously confirmed loaded" rather than "any style-fetch error during save"
+- Likely fix: track `basemapLoadedAt: number | null` on first successful style load; suppress the connection-issue toast for transient style-fetch errors that occur after `basemapLoadedAt` is set
+
+**Success Criteria** (what must be TRUE):
+1. Saving a map whose basemap is fully loaded (visible tiles, no prior style error) produces only the "Map saved" success toast — no "Basemap connection issue" toast.
+2. Saving a map where the basemap actually IS broken (e.g. unreachable basemap URL on save) still fires the "Basemap connection issue" toast — the warning is preserved for real outages, not removed.
+3. Round-trip: open → edit a layer's paint → save → reload → verify no spurious toast on next save.
+
+---
+
+#### Plan 06 — CTRL-01: Smoke gate + CHANGELOG + MCP re-verify
+
+**Goal**: Single CTRL-01 batch gate confirms all 5 SF closures shipped clean; CHANGELOG `[Unreleased]` populated; v1010.1 SMOKE-FINDINGS.md "Observed" evidence re-verified against the fresh stack via Playwright MCP for SF-04..08.
+
+**Requirements**: (gate plan — no direct requirement mapping; verifies SMOKE-08..12 collectively)
+
+**Tasks**:
+- Frontend typecheck clean
+- Frontend vitest: targeted suites for `use-builder-layers`, `swapLayerOnMap`, `cluster-source`, `use-builder-save`, plus full builder vitest run
+- `npm run e2e:smoke:builder` green (no new failures vs. v1010.1 baseline)
+- Playwright MCP re-verify against fresh `docker compose down -v && up -d --build` stack:
+  - SF-04: open test map → confirm tile-URL dedupe in network log
+  - SF-05: login → redirect → confirm zero `blob:` `ERR_FILE_NOT_FOUND` in console
+  - SF-06: visit `/login` fresh → confirm zero 401-noise to 5 authed endpoints
+  - SF-07: hard-reload `/maps/{id}` → confirm exactly 1 `PUT /thumbnail/`
+  - SF-08: save a clean-basemap map → confirm only "Map saved" toast, no basemap-issue toast
+- CHANGELOG.md `[Unreleased]` populated with the close note (5 fixes + measured numbers where applicable, e.g. tile-request counts before/after for SF-04)
+
+**Success Criteria** (what must be TRUE):
+1. Smoke gate is green across typecheck, vitest, and `e2e:smoke:builder`.
+2. Playwright MCP re-verify confirms all 5 observed surfaces from v1010.1 SMOKE-FINDINGS.md are now clean.
+3. CHANGELOG records the close with measurable evidence (tile-URL counts for SF-04, console-error count deltas for SF-05/06, PUT count for SF-07, toast inventory for SF-08).
+4. No regression in the 5 v1010 win surfaces previously re-verified by v1010.1 (lazy-load, debounce/rAF, bulk-delete, render-mode swap, popup_config error toast).
+
+---
 
 <details>
 <summary>✅ v1010.1 Live Playwright MCP Smoke (Phase 1049) — SHIPPED 2026-05-17</summary>
@@ -112,7 +258,7 @@ Full details: [milestones/v1010-ROADMAP.md](milestones/v1010-ROADMAP.md).
 
 - [x] **Phase 1045: builder-smoke-polish** — completed 2026-05-15 (3 plans, 16 tasks, 24 commits)
 
-Hygiene milestone shape: single phase, three sequential plans by severity (A: BLOCKER+MAJORs, B: MINORs, C: POLISH+HOUSEKEEPING), single CTRL-01 batch gate at end. Full details: [milestones/v1009.1-ROADMAP.md](milestones/v1009.1-ROADMAP.md).
+Hygiene milestone shape: single phase, three sequential plans by severity (A: BLOCKER+MAJORs, B: MINORs, C: POLISH+HOUSEKEEPING), single CTRL-01 batch gate at phase end. Full details: [milestones/v1009.1-ROADMAP.md](milestones/v1009.1-ROADMAP.md).
 
 **Open followups (escalated from milestone):**
 - SP-03 / M-02 race — B-01 fix incomplete; needs quick task investigating `syncInputs` memo closure or `mapReady` timing

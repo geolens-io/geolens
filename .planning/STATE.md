@@ -17,53 +17,52 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-17 — Milestone v1010.2 started
+Phase: 1050 builder-smoke-carryover (next up — roadmap created, ready for `/gsd:plan-phase 1050`)
+Plan: — (6 plans defined in ROADMAP.md: 01 SMOKE-08, 02 SMOKE-09, 03 SMOKE-10, 04 SMOKE-11, 05 SMOKE-12, 06 CTRL-01)
+Status: Roadmap created — awaiting plan-phase
+Last activity: 2026-05-17 — ROADMAP.md written for v1010.2 (single phase, 6 sequential plans, hygiene-close shape mirrors v1009.1 / v1010.1)
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-16 after shipping v1010)
+See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1010.2 Builder Smoke Carryover)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1010.1 Phase 1049 — fresh-stack Playwright MCP smoke verification
+**Current focus:** v1010.2 Phase 1050 — close 5 carried-forward smoke findings (SF-04..08) from v1010.1
 
 ## Last Shipped Milestone
 
-**Version:** v1010 Builder Performance & Code Quality
-**Shipped:** 2026-05-16
-**Phases:** 1046-1048 (3 phases, 12 plans, 17/17 reqs)
-**Tag:** v1010 (local)
-**Archive:** `.planning/milestones/v1010-ROADMAP.md`
+**Version:** v1010.1 Live Playwright MCP Smoke
+**Shipped:** 2026-05-17
+**Phases:** 1049 (1 phase, 1 plan, 7/7 SMOKE-0X reqs)
+**Tag:** v1010.1 (local)
+**Archive:** `.planning/milestones/v1010.1-ROADMAP.md`
 
 ## Accumulated Context
 
 ### Decisions
 
-- **v1010 audit-first sequencing.** Phase 1046 leads with BUILDER-CODE-AUDIT.md + BUILDER-PERF-BASELINE.md because all six PERF requirements and the CODE-02..06 fixes need the baseline to scope plans and measure before/after. Mirrors v1009 Phase 1039 pattern.
-- **FOLLOWUP-01..03 bundled in closeout phase.** Per user choice: not high-risk, ride alongside CLOSE-01/CLOSE-02 hygiene in Phase 1048.
-- **Phase numbering continues at 1046.** v1009.1 ended at Phase 1045.
-- **CA-03 setLayerProperty extracted to shared.ts.** Centralized paint/layout setter with DEV-mode error logging eliminates 5 try-catch blocks in fill-adapter.ts (Plan 06 T1).
-- **12 P1 findings deferred to Phase 1048.** Per-finding rationales in 1047-06-AUDIT-CLOSEOUT.md; CODE-03 satisfied (no silent skips, all 14 P1s annotated).
-- **PERF-05 partial (233.10 KB vs 211 KB target).** Plan 02 achieved 230.98 KB; Plan 05 sub-component extraction added ~2 KB back. Stretch target not met; still -17.3% vs Phase 1046 baseline.
-- **PERF-01..03 runtime measurements deferred to Phase 1048 handoff.** Playwright assertions wired; Docker stack required for live measurement.
-- [Phase ?]: 1048-03
+- **v1010.2 is a hygiene-close milestone.** Single phase (1050), 6 sequential plans (5 SF closures + 1 CTRL-01 close gate). Mirrors v1009.1 Phase 1045 and v1010.1 Phase 1049 shape per `feedback_hygiene_milestone_pattern.md`.
+- **Phase numbering continues at 1050.** v1010.1 ended at Phase 1049.
+- **Plan 01 (SMOKE-08 / SF-04) is the largest scope** — only P1 in the milestone; touches `use-builder-layers.ts`, `swapLayerOnMap`, `removeSource`, cluster-source override, and tile-token signing. Migration may be needed if source-id keying contract changes.
+- **Plans 02-05 are P2 polish noise closures** from v1010.1 SF-05..08 — small surface-area fixes.
+- **Plan 06 (CTRL-01) is the close gate** — typecheck / vitest / e2e:smoke:builder / Playwright MCP re-verify of all 5 SF surfaces against fresh stack. CHANGELOG `[Unreleased]` note lives here, not as a separate plan.
+- **Out of scope:** SP-03 / M-02 (fresh-add maplibre sync race, v1009.1 escalation, predates v1010.1); SP-07 backend `has_quicklook` predicate; SP-12 representative-fraction pane (new feature); any new feature work.
 
 ### Pending Todos
 
-None.
+None at roadmap creation.
 
 ### Blockers/Concerns
 
-None at roadmap creation.
+None at roadmap creation. Source-of-scope (v1010.1 SMOKE-FINDINGS.md SF-04..08) has root cause + recommended fix already documented for each item.
 
 ## Session Continuity
 
-Last session: 2026-05-16T22:53:21.981Z
-Stopped at: Phase 1047 Plan 06 — checkpoint:human-verify (Task 4 — Docker smoke gate)
+Last session: 2026-05-17 — milestone v1010.2 opened; REQUIREMENTS.md authored; ROADMAP.md written
+Stopped at: Roadmap created; ready for `/gsd:plan-phase 1050`
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan Phase 1050: `/gsd:plan-phase 1050`
+- After planning: execute plans 01..05 sequentially (one per SF carryover), then run Plan 06 CTRL-01 batch gate.
