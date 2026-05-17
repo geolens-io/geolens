@@ -28,7 +28,12 @@ findings:
   warning: 4
   info: 3
   total: 10
-status: issues_found
+status: fixed
+fixed_at: 2026-05-17T00:00:00Z
+fixes_applied:
+  critical: 3
+  warning: 4
+  info: 0
 ---
 
 # Phase 1050: Code Review Report
@@ -437,3 +442,45 @@ phrasing since it implies more than the helper provides.
 _Reviewed: 2026-05-17_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+---
+
+## Fixes Applied
+
+**Fixed at:** 2026-05-17
+**Mode:** `--fix auto` (review-fix)
+**Scope:** All 3 BLOCKERs + 4 WARNINGs (Info findings deferred — naming hygiene only)
+
+### Summary
+- BLOCKERs fixed: **3/3** (CR-01, CR-02, CR-03)
+- WARNINGs fixed: **4/4** (WR-01, WR-02, WR-03, WR-04 — merged into CR-03)
+- Info deferred: **3** (IN-01..IN-03 — naming/comment hygiene, no behaviour change)
+- Test suite: **1913/1913 PASS** (baseline 1909, +4 regression tests added)
+- Typecheck: **0 new errors** (pre-existing LayerEditorPanel.tsx:413,694 + 4 TS6133 unchanged)
+
+### Commits
+| Finding | Commit | Summary |
+|---------|--------|---------|
+| CR-01 | `516c9ae5` | Route `waitForVisibleLayerSources` through `getSourceIdForLayer` so auto-capture no longer waits the full 5s deadline for every deduped vector layer |
+| CR-02 | `fd149688` | Route BuilderMap token-refresh + popup `layerByMapIdRef` through `getSourceIdForLayer` so `setTiles([newUrl])` actually propagates refreshed signed tokens to deduped vector sources |
+| CR-03 / WR-04 | `d6b0b9c6` | Extend `useEmbeddingStats({ enabled })` signature and gate both consumers (`AIStatusCard`, `SettingsAITab`) with `!!token && isAdmin`, completing SF-06's anonymous + non-admin + logout-transition coverage |
+| WR-01 | `8b791a08` | Factor `removePerLayerCompanions(map, ids)` helper; call from `handleRemove` and `handleBulkDelete` BEFORE the mutation/API call so per-layer companion MapLibre layers (outline/label/extrusion/arrow/cluster-circle/cluster-count + main) vanish in lockstep with the optimistic state update; sources untouched (next sync's reference-count-aware desired-set prune owns teardown) |
+| WR-02 | `0f0290ba` | Narrow SF-08 basemap latch to a 3000 ms window after load: `if (loadedAt !== null && Date.now() - loadedAt < 3000) return;` — silences the transient post-load 5xx (the case SF-08 was added for) without masking ongoing tile-CDN outages |
+| WR-03 | `0451657f` | Correct misleading `autoCapturedMapIds` comment; the set is deliberately write-only in production (an unmount cleanup would re-introduce the SF-07 StrictMode duplicate-capture bug). Trade-off documented; only recovery from server-side thumbnail deletion is a hard reload |
+
+### Regression Tests Added
+1. `use-builder-save.test.ts > CR-01: resolves source-readiness on the deduped source id before the 5s deadline` — seeds `source-data-{table}` after the debounce, asserts the idle listener registers within 100 ms (not after the 5000 ms deadline), AND asserts the legacy `source-{id}` key is never queried.
+2. `use-builder-layers.dedupe.test.ts > handleRemove imperatively removes per-layer companions (WR-01)` — seeds all 7 companion suffixes on the mock map, asserts each one is torn down by the imperative path.
+3. `use-builder-layers.dedupe.test.ts > handleBulkDelete imperatively removes per-layer companions for every id in the batch (WR-01)` — bulk-delete variant.
+4. `BuilderMap.a11y.test.tsx > still surfaces tile error toast when 5xx arrives well after latch arming (WR-02)` — advances fake timers 10 s past latch arming, asserts the `builder-map-error` toast AND `Basemap connection issue` banner both surface.
+
+### Notes on CR-02 Manual Verification
+The CR-02 fix mirrors CR-01 exactly (same `getSourceId` → `getSourceIdForLayer` swap), and CR-01 has a strong regression test. CR-02's runtime path (token expiry → refresh → `setTiles` on a deduped source) is harder to unit-test without mounting the full BuilderMap with a 1-hour token-expiry simulation. Manual verification: live MCP smoke check, or wait ~1 hr in a session and confirm vector layers continue to render after `useTileTokens` issues a fresh `tokenSig`. The 731 builder vitest suite remains green.
+
+### Deferred (Info)
+- **IN-01** rename `__resetThumbnailDebounceForTests` → `__resetCaptureModuleStateForTests` (naming hygiene, no behaviour change). Defer.
+- **IN-02** add explicit "DEM raster layer keeps per-layer source" assertion to `map-sync.dedupe.test.ts`. Defer — coverage exists implicitly via the raster fall-through branch.
+- **IN-03** tighten the `use-builder-layers.ts:724-731` comment to acknowledge per-layer companion teardown is now imperative. **Partially addressed** by WR-01's comment update on `handleAiRemoveLayer` (now references `removePerLayerCompanions` factoring).
+
+_Fixed: 2026-05-17_
+_Fixer: Claude (gsd-code-fixer)_
