@@ -129,6 +129,20 @@ function runCaptureNow(
 const THUMBNAIL_DEBOUNCE_MS = 500;
 const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
 
+/** SF-07 (Phase 1050-04): module-level guard that tracks per-mapId
+ *  auto-capture initiation. Survives Vite-dev StrictMode hook unmount /
+ *  remount cycles where the per-hook-instance `thumbCaptured` ref would
+ *  otherwise reset to false and allow a second PUT after the first
+ *  capture's debounce window has already fired. The module-level
+ *  `pendingCaptures` Map alone is not sufficient: it's cleared the
+ *  moment the trailing-edge setTimeout fires, so a second hook instance
+ *  arriving even one ms later sees `pendingCaptures.get(mapId) ===
+ *  undefined` and schedules a fresh capture. We need a separate set that
+ *  remembers "an auto-capture has already been initiated for this map in
+ *  this session" until either an explicit reset or the user navigates
+ *  to a different map. */
+const autoCapturedMapIds = new Set<string>();
+
 function captureThumbnail(
   map: MaplibreMap,
   mapId: string,
@@ -149,11 +163,26 @@ function captureThumbnail(
   pendingCaptures.set(mapId, timer);
 }
 
-/** Test helper — clear any pending debounced captures so module-level state
- *  doesn't leak across vitest cases. Called from `beforeEach`. */
+/** SF-07 (Phase 1050-04): module-scoped predicate that decides whether an
+ *  auto-capture should be initiated for this mapId in this session.
+ *  Returns true on the FIRST call for a given mapId (and marks the id as
+ *  taken); returns false on every subsequent call until the guard is
+ *  cleared. Callers should run this BEFORE `captureThumbnail()` so a
+ *  StrictMode-driven remount cannot bypass it. The trailing-edge debounce
+ *  in `captureThumbnail` still applies for the legitimate first call. */
+function shouldAutoCapture(mapId: string): boolean {
+  if (autoCapturedMapIds.has(mapId)) return false;
+  autoCapturedMapIds.add(mapId);
+  return true;
+}
+
+/** Test helper — clear any pending debounced captures AND the SF-07
+ *  module-level auto-capture guard so module-level state doesn't leak
+ *  across vitest cases. Called from `beforeEach`. */
 export function __resetThumbnailDebounceForTests(): void {
   for (const timer of pendingCaptures.values()) clearTimeout(timer);
   pendingCaptures.clear();
+  autoCapturedMapIds.clear();
 }
 
 function resolveWidgetsPayload(
@@ -533,6 +562,15 @@ export function useBuilderSave(state: SaveState) {
 
   const maybeAutoCaptureThumbnail = useCallback((map: MaplibreMap) => {
     if (thumbCaptured.current || state.hasThumbnail !== false || !state.mapId) return;
+    // SF-07: the per-instance `thumbCaptured` ref doesn't survive a
+    // Vite-dev StrictMode hook unmount / remount, so a second hook
+    // instance for the same mapId can re-enter here with a fresh ref.
+    // The module-level `shouldAutoCapture` guard owns the
+    // "already initiated for this mapId this session" invariant.
+    if (!shouldAutoCapture(state.mapId)) {
+      thumbCaptured.current = true; // keep the instance ref consistent
+      return;
+    }
     thumbCaptured.current = true;
     captureSignalRef.current = { cancelled: false };
     captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current);
