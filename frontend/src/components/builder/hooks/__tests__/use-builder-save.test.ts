@@ -1120,5 +1120,140 @@ describe('useBuilderSave', () => {
 
       createElementSpy.mockRestore();
     });
+
+    // SF-07 (Phase 1050-04): in Vite dev StrictMode (and any case where the
+    // ref-callback in MapBuilderPage fires twice for the same `map`), the
+    // per-hook-instance `thumbCaptured` guard resets on remount, letting a
+    // second auto-capture slip through after the first's debounce window has
+    // already fired and the PUT has been issued. The fix tracks per-mapId
+    // auto-capture initiation at module scope so a second hook instance for
+    // the same map is idempotent.
+    describe('SF-07 — single PUT per initial map mount', () => {
+      const origCreateElement = document.createElement.bind(document);
+      let createElementSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+          if (tag === 'canvas') {
+            return createMockCanvas() as unknown as HTMLCanvasElement;
+          }
+          return origCreateElement(tag, options);
+        });
+      });
+
+      afterEach(() => {
+        createElementSpy.mockRestore();
+      });
+
+      it('collapses two synchronous maybeAutoCaptureThumbnail calls into exactly one PUT', async () => {
+        vi.useFakeTimers();
+        const mockMap = createMockMap({ loaded: true });
+        const state = makeSaveState({
+          hasThumbnail: false,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+
+        const { result } = renderHook(() => useBuilderSave(state));
+
+        act(() => {
+          result.current.maybeAutoCaptureThumbnail(mockMap as never);
+          result.current.maybeAutoCaptureThumbnail(mockMap as never);
+        });
+
+        act(() => { vi.advanceTimersByTime(500); });
+
+        // Exactly one render-frame registration — the debounce collapses
+        // both calls into one capture.
+        const renderCalls = mockMap.once.mock.calls.filter((c: unknown[]) => c[0] === 'render');
+        expect(renderCalls).toHaveLength(1);
+
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+      });
+
+      it('survives a StrictMode-style hook remount (second hook instance for the same mapId does NOT fire a second PUT)', async () => {
+        vi.useFakeTimers();
+        const mockMap = createMockMap({ loaded: true });
+        const state1 = makeSaveState({
+          hasThumbnail: false,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+
+        // First hook instance fires auto-capture
+        const { result: result1, unmount: unmount1 } = renderHook(() => useBuilderSave(state1));
+        act(() => { result1.current.maybeAutoCaptureThumbnail(mockMap as never); });
+
+        // Let the first capture's debounce settle and issue its PUT before remount.
+        act(() => { vi.advanceTimersByTime(500); });
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+        // Snapshot how many render-frame registrations have happened so we
+        // can detect any extra ones from the second hook instance.
+        const renderCallsAfterFirst = mockMap.once.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'render',
+        ).length;
+
+        // Simulate StrictMode unmount + remount of the hook (component-level
+        // `thumbCaptured` ref resets), with a fresh second hook instance for
+        // the SAME mapId being asked to auto-capture again.
+        unmount1();
+        const state2 = makeSaveState({
+          hasThumbnail: false,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+        vi.useFakeTimers();
+        const { result: result2 } = renderHook(() => useBuilderSave(state2));
+        act(() => { result2.current.maybeAutoCaptureThumbnail(mockMap as never); });
+        act(() => { vi.advanceTimersByTime(1000); });
+
+        // Module-level guard must prevent a second capture for this mapId,
+        // even though the new hook instance has a fresh thumbCaptured ref.
+        // Verify via render-frame registrations (the deterministic signal
+        // before the async fireRenderCallback step would otherwise lift the
+        // PUT count).
+        const renderCallsAfterSecond = mockMap.once.mock.calls.filter(
+          (c: unknown[]) => c[0] === 'render',
+        ).length;
+        expect(renderCallsAfterSecond).toBe(renderCallsAfterFirst);
+
+        vi.useRealTimers();
+        await act(async () => { await Promise.resolve(); });
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+      });
+
+      it('reset helper clears the module-level guard so a fresh test (or page) can auto-capture again', async () => {
+        vi.useFakeTimers();
+        const mockMap = createMockMap({ loaded: true });
+        const state = makeSaveState({
+          hasThumbnail: false,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+
+        const { result } = renderHook(() => useBuilderSave(state));
+        act(() => { result.current.maybeAutoCaptureThumbnail(mockMap as never); });
+        act(() => { vi.advanceTimersByTime(500); });
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+        // After clearing the module-level guard, a fresh hook instance for
+        // the same mapId may auto-capture again (mirrors the page-navigation
+        // / new-session reload case where the in-memory module re-evaluates).
+        __resetThumbnailDebounceForTests();
+
+        vi.useFakeTimers();
+        const { result: result2 } = renderHook(() => useBuilderSave(state));
+        act(() => { result2.current.maybeAutoCaptureThumbnail(mockMap as never); });
+        act(() => { vi.advanceTimersByTime(500); });
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+        expect(mockUploadThumbnail).toHaveBeenCalledTimes(2);
+      });
+    });
   });
 });
