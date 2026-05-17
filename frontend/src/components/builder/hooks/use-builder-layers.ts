@@ -31,6 +31,37 @@ type GroupedLayer = Omit<MapLayerResponse, 'layer_type'> & {
   parent_group_id?: string | null;
 };
 
+/**
+ * WR-01 (Phase 1050-rev): imperatively remove per-layer companion MapLibre
+ * layers (label / outline / extrusion / arrow / cluster-circle / cluster-count
+ * + main `layer-${id}`) when a layer is removed. Required because
+ * `removeStaleSourcesAndLayers` in map-sync.ts derives companion ids by
+ * stripping the source prefix — that path no longer produces correct layer
+ * ids under the SF-04 dedupe contract (the stripped value is
+ * `data-${dataset_table_name}`, not the real layer id). Without this
+ * imperative cleanup, every non-AI removal path (handleRemove,
+ * handleBulkDelete) leaks the companion layers until basemap-switch or
+ * page reload.
+ *
+ * Sources are intentionally NOT removed here — the next syncFromState
+ * invocation's reference-count-aware `removeStaleSourcesAndLayers`
+ * desired-set prune handles source teardown correctly (deduped sources
+ * stay if siblings still reference them).
+ */
+function removePerLayerCompanions(
+  map: MaplibreMap | null,
+  layerIds: Iterable<string>,
+): void {
+  if (!map || !map.isStyleLoaded()) return;
+  const suffixes = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'];
+  for (const id of layerIds) {
+    for (const suffix of suffixes) {
+      const lid = `layer-${id}${suffix}`;
+      if (map.getLayer(lid)) map.removeLayer(lid);
+    }
+  }
+}
+
 export function buildDuplicateRenderingInput(
   layer: MapLayerResponse,
   currentLayers: MapLayerResponse[],
@@ -285,6 +316,12 @@ export function useBuilderLayers(
   const handleRemove = useCallback((layerId: string) => {
     if (!mapId) return;
     setExpandedLayerId((prev) => prev === layerId ? null : prev);
+    // WR-01 (Phase 1050-rev): imperatively clean per-layer companions
+    // BEFORE the mutation so the visual artifacts (outline/label/extrusion/
+    // arrow/cluster glyphs) disappear in lockstep with the user action.
+    // Deduped sources are left in place for the next syncFromState to prune
+    // via the reference-count-aware desired-set logic.
+    removePerLayerCompanions(mapInstanceRef.current, [layerId]);
     removeLayerMutation.mutate(
       { mapId, layerId },
       {
@@ -296,7 +333,7 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [mapId, removeLayerMutation, t]);
+  }, [mapId, mapInstanceRef, removeLayerMutation, t]);
 
   // --- Folder-group handlers ---
   // These operate on the in-memory localLayers array. Group layers are encoded
@@ -563,6 +600,13 @@ export function useBuilderLayers(
         .map((l, i) => ({ ...l, sort_order: i })),
     );
 
+    // WR-01 (Phase 1050-rev): imperatively clean per-layer companions for
+    // every id in the batch so visual artifacts vanish in lockstep with the
+    // optimistic state update. removeStaleSourcesAndLayers cannot derive
+    // these ids under the SF-04 dedupe contract — the stripped source id
+    // produces `data-${dataset_table_name}`, not the real per-layer id.
+    removePerLayerCompanions(mapInstanceRef.current, idsToDelete);
+
     // Phase 1047-04 (PERF-03): one batched call replaces N sequential DELETEs
     setIsDeleting(true);
     try {
@@ -615,7 +659,7 @@ export function useBuilderLayers(
     } finally {
       setIsDeleting(false);
     }
-  }, [mapId, t, queryClient]);
+  }, [mapId, mapInstanceRef, t, queryClient]);
 
   const handleAddLayerToExistingGroup = useCallback((layerId: string, groupId: string) => {
     setLocalLayers((prev) => {
@@ -731,22 +775,13 @@ export function useBuilderLayers(
   // layers still reference it.
   const handleAiRemoveLayer = useCallback((layerId: string) => {
     setLocalLayers((prev) => prev.filter((l) => l.id !== layerId));
-    // Clean up MapLibre layers imperatively (per-layer companions still apply)
-    const map = mapInstanceRef.current;
-    if (map && map.isStyleLoaded()) {
-      const ids = [
-        `layer-${layerId}`, `layer-${layerId}-outline`,
-        `layer-${layerId}-label`, `layer-${layerId}-extrusion`,
-        `layer-${layerId}-arrow`,
-      ];
-      for (const id of ids) {
-        if (map.getLayer(id)) map.removeLayer(id);
-      }
-      // Do NOT call map.removeSource here — the deduped source may still be
-      // shared by sibling layers, and the legacy per-layer `source-${id}`
-      // key may collide with a sibling's dedupe artifact. The desired-set
-      // prune in the next sync correctly removes only truly-orphaned sources.
-    }
+    // Clean up MapLibre per-layer companions imperatively. WR-01 (Phase
+    // 1050-rev) factored this into removePerLayerCompanions so handleRemove
+    // and handleBulkDelete now use the same helper. Sources are NOT
+    // removed here — the deduped source may still be shared by sibling
+    // layers, and the next syncFromState invocation's desired-set prune
+    // correctly removes only truly-orphaned sources.
+    removePerLayerCompanions(mapInstanceRef.current, [layerId]);
     setHasUnsavedChanges(true);
   }, [mapInstanceRef]);
 
