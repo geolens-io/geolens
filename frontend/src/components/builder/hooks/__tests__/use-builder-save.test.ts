@@ -1089,7 +1089,11 @@ describe('useBuilderSave', () => {
       expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
 
       act(() => {
-        sources.set('source-layer-1', { type: 'vector' });
+        // CR-01 (Phase 1050-rev): waitForVisibleLayerSources now routes
+        // through `getSourceIdForLayer`, so non-cluster vector layers with
+        // a `dataset_table_name` resolve to the deduped
+        // `source-data-${table}` key, not the legacy `source-${layer.id}`.
+        sources.set('source-data-layer_1', { type: 'vector' });
         vi.advanceTimersByTime(100);
       });
 
@@ -1254,6 +1258,65 @@ describe('useBuilderSave', () => {
 
         expect(mockUploadThumbnail).toHaveBeenCalledTimes(2);
       });
+    });
+
+    // CR-01 (Phase 1050-rev): regression — verify that the source-readiness
+    // poll resolves on the dedupe-aware key (`source-data-{dataset_table_name}`)
+    // and the render frame fires WITHOUT advancing past the 5000 ms deadline.
+    // Before the fix, `waitForVisibleLayerSources` polled `source-{layer.id}`
+    // (legacy key) and never found the deduped source, causing every
+    // non-cluster vector auto-capture to wait the full 5s timeout.
+    it('CR-01: resolves source-readiness on the deduped source id before the 5s deadline', async () => {
+      vi.useFakeTimers();
+      const origCreateElement = document.createElement.bind(document);
+      const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag === 'canvas') {
+          return createMockCanvas() as unknown as HTMLCanvasElement;
+        }
+        return origCreateElement(tag, options);
+      });
+
+      const sources = new Map<string, object>();
+      const mockMap = createMockMap({ loaded: false });
+      mockMap.getSource.mockImplementation((sourceId: string) => sources.get(sourceId));
+
+      const state = makeSaveState({
+        hasThumbnail: false,
+        // dataset_table_name: 'shared_table' → dedupe key 'source-data-shared_table'
+        localLayers: [makeLayer({ id: 'layer-99', dataset_table_name: 'shared_table' })],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+
+      const { result } = renderHook(() => useBuilderSave(state));
+
+      act(() => {
+        result.current.maybeAutoCaptureThumbnail(mockMap as never);
+      });
+
+      // Walk the trailing-edge debounce (500 ms) so `runCaptureNow` fires
+      // and the source-readiness poll begins.
+      act(() => { vi.advanceTimersByTime(500); });
+      // No idle listener yet — source is not registered yet.
+      expect(mockMap.once).not.toHaveBeenCalledWith('idle', expect.any(Function));
+
+      // Seed the deduped source key (NOT the legacy `source-${id}` key) and
+      // advance 100 ms — the next poll tick should resolve immediately.
+      act(() => {
+        sources.set('source-data-shared_table', { type: 'vector' });
+        vi.advanceTimersByTime(100);
+      });
+
+      // poll has resolved → idle listener registered well before the 5s mark
+      expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+
+      // Sanity: legacy key was NEVER queried after fix
+      const legacyKeyQueried = mockMap.getSource.mock.calls.some(
+        (c: unknown[]) => c[0] === 'source-layer-99',
+      );
+      expect(legacyKeyQueried).toBe(false);
+
+      createElementSpy.mockRestore();
+      vi.useRealTimers();
     });
   });
 });

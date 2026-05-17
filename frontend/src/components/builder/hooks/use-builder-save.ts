@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { getSourceId } from '@/components/builder/map-sync';
+import { getSourceIdForLayer } from '@/components/builder/map-sync';
 import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledWidgets } from '@/hooks/use-settings';
@@ -82,7 +82,7 @@ function waitForVisibleLayerSources(
 ) {
   const visibleSourceIds = layers
     .filter((layer) => layer.visible)
-    .map((layer) => getSourceId(layer.id));
+    .map((layer) => getSourceIdForLayer(layer));
 
   if (visibleSourceIds.length === 0) {
     whenMapIdle(map, fn);
