@@ -285,8 +285,10 @@ describe('syncLayersToMap', () => {
 
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
+    // Phase 1050 SF-04: non-cluster vector layers share a deduped source
+    // keyed by dataset_table_name (`test_table` from the factory).
     expect(map.addSource).toHaveBeenCalledWith(
-      'source-v1',
+      'source-data-test_table',
       expect.objectContaining({ type: 'vector' }),
     );
     // fill layer is added first, then outline layer
@@ -448,9 +450,12 @@ describe('syncLayersToMap', () => {
     });
     const tokenMap = new Map<string, TileToken>([['ds-1', makeVectorToken()]]);
 
-    // Simulate existing source and label layer
+    // Simulate existing source and label layer. Phase 1050 SF-04: non-cluster
+    // vector layers share a deduped source keyed by dataset_table_name (here
+    // `test_table` from the `makeLayer` factory), so the source id is
+    // `source-data-test_table` (not the legacy per-layer `source-lf1`).
     (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
-      if (id === 'source-lf1') return { type: 'vector' };
+      if (id === 'source-data-test_table') return { type: 'vector' };
       return null;
     });
     (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {

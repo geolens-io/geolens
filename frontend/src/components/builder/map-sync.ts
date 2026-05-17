@@ -144,6 +144,10 @@ export interface SyncLayerInput {
   is_dem?: boolean | null;
   is_3d?: boolean | null;
   feature_count?: number | null;
+  /** Source-id dedupe (Phase 1050 SF-04): consumed by `getSourceIdForLayer` to
+   *  keep non-vector layers (raster/hillshade) on a per-layer source key. */
+  layer_type?: string | null;
+  dataset_record_type?: string | null;
 }
 
 /** Options that vary between Builder and Viewer contexts. */
@@ -171,6 +175,8 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     is_dem: layer.is_dem,
     is_3d: layer.is_3d,
     feature_count: layer.dataset_feature_count,
+    layer_type: layer.layer_type,
+    dataset_record_type: layer.dataset_record_type ?? null,
   };
 }
 
@@ -323,6 +329,77 @@ export function getLayerId(layerId: string) {
   return prefixed('layer', layerId);
 }
 
+/**
+ * Derive the MapLibre source id for a given layer.
+ *
+ * Phase 1050 SF-04 dedupe contract:
+ *   - Cluster layers (`getClusterSourceStrategy(layer).kind !== 'fallback'`)
+ *     keep their per-layer source id (`source-${layer.id}`). Cluster radius
+ *     and minPoints are per-layer settings, so two cluster layers on the
+ *     SAME dataset still need separate sources. This preserves the existing
+ *     `source-cluster-1` keying that `map-sync.cluster.test.ts` asserts —
+ *     the test's layer id is literally `cluster-1`, so `source-${id}` already
+ *     produces `source-cluster-1`.
+ *   - Non-cluster VECTOR layers with a `dataset_table_name` share one
+ *     deduped source per dataset (`source-data-${dataset_table_name}`).
+ *     Multiple visual layers on the same dataset_table_name now reuse a
+ *     single MapLibre source, eliminating the per-layer tile-request fanout
+ *     observed in v1010.1 SF-04 (~80 requests collapse to ~M for M datasets).
+ *   - Raster / hillshade / orphan layers (no dataset_table_name) fall back
+ *     to the per-layer key (`source-${layer.id}`). Raster sources are
+ *     already idempotency-guarded by signed-tile-URL shape and don't share
+ *     across layers in practice.
+ *
+ * `prefix` is the optional Viewer/Embed prefix (e.g. `embed-`) used by
+ * `syncLayersToMap`'s `idPrefix` option.
+ */
+/**
+ * Minimal shape accepted by `getSourceIdForLayer`. Compatible with both
+ * `SyncLayerInput` (builder/viewer sync) and `MapLayerResponse` (API). All
+ * fields are optional except `id`, with `dataset_table_name` being the key
+ * input for the dedupe path.
+ */
+export interface SourceIdLayer {
+  id: string;
+  dataset_table_name?: string | null;
+  dataset_geometry_type?: string | null;
+  dataset_record_type?: string | null;
+  style_config?: Pick<StyleConfig, 'render_mode'> | null;
+  feature_count?: number | null;
+  dataset_feature_count?: number | null;
+  is_dem?: boolean | null;
+  layer_type?: string | null;
+}
+
+export function getSourceIdForLayer(
+  layer: SourceIdLayer,
+  prefix?: string,
+) {
+  // Cluster layers stay per-layer — cluster radius/minPoints are per-layer
+  // settings, so two cluster layers on the same dataset_table_name must
+  // each get their own MapLibre source.
+  if (getClusterSourceStrategy(layer).kind !== 'fallback') {
+    return prefixed('source', layer.id, prefix);
+  }
+  // Raster / hillshade / DEM layers also stay per-layer. Their tile URL is
+  // signed and per-dataset, and they can't share a MapLibre source with a
+  // vector layer anyway.
+  if (layer.is_dem === true || layer.layer_type === 'raster_geolens') {
+    return prefixed('source', layer.id, prefix);
+  }
+  // Non-cluster VECTOR layers with a known dataset_table_name share one
+  // source per dataset (the dedupe).
+  if (
+    typeof layer.dataset_table_name === 'string'
+    && layer.dataset_table_name.length > 0
+  ) {
+    const p = prefix ?? '';
+    return `${p}source-data-${layer.dataset_table_name}`;
+  }
+  // Fallback: per-layer key.
+  return prefixed('source', layer.id, prefix);
+}
+
 /** Detect whether any layer using this sourceId needs `lineMetrics: true`.
  *  A layer "needs" the flag when:
  *    - paint['line-gradient'] is set (any value — string, array expression, or object), OR
@@ -332,18 +409,18 @@ export function getLayerId(layerId: string) {
  *  builder UI must serialize stops as `{stops: [...]}` (or similar object wrapper), never as a
  *  bare array. Detection rule per .planning/phases/255-line-gradient-engine-foundation/255-CONTEXT.md D-01.
  *
- *  Implementation note: `lineGradientNeededFor` iterates the full layer list for structural
- *  symmetry with the backend `_layer_uses_line_gradient`. In the current frontend each layer
- *  has its own per-layer source-id (derived from layer.id), so this loop matches at most one
- *  layer in practice. The full-list iteration is intentional forward-compatibility for any
- *  future move to dataset-keyed sources. */
+ *  Phase 1050 SF-04 dedupe: this loop now matches multiple layers in the deduped
+ *  case (two non-cluster vector layers on the same `dataset_table_name` share a
+ *  source). The "any consumer needs it → emit on the shared source" semantics
+ *  is exactly what the forward-compat note anticipated.
+ */
 function lineGradientNeededFor(
   sourceId: string,
   layers: SyncLayerInput[],
   idPrefix: string | undefined,
 ): boolean {
   for (const layer of layers) {
-    if (prefixed('source', layer.id, idPrefix) !== sourceId) continue;
+    if (getSourceIdForLayer(layer, idPrefix) !== sourceId) continue;
     const paint = layer.paint ?? {};
     if (paint['line-gradient'] != null) return true;
     const builder = (layer.style_config as { builder?: { lineGradient?: unknown } } | null | undefined)?.builder;
@@ -613,7 +690,10 @@ export function syncLayersToMap(
 
   for (const layer of layers) {
     try {
-      const sourceId = prefixed('source', layer.id, prefix);
+      // SF-04 dedupe: non-cluster vector layers sharing a dataset_table_name
+      // now resolve to one shared source id; cluster + raster/DEM layers stay
+      // per-layer. Layer ids (per-layer paint/visibility) remain unchanged.
+      const sourceId = getSourceIdForLayer(layer, prefix);
       const layerId = prefixed('layer', layer.id, prefix);
       const sourceLayer = `data.${layer.dataset_table_name}`;
       const token = tokenMap.get(layer.dataset_id) ?? null;

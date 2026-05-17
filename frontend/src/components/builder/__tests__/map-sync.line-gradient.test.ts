@@ -14,9 +14,17 @@ Object.defineProperty(window, 'location', {
 });
 
 function makeMockMap() {
+  // Phase 1050 SF-04: with deduped sources, the mock must track addSource
+  // calls so that `if (!map.getSource(sourceId))` correctly returns falsy
+  // for already-added sources within a single sync — otherwise two layers
+  // sharing a dataset both pass the idempotency guard and addSource fires
+  // twice (instrumentation artifact, not a real bug).
+  const sources = new Map<string, unknown>();
   return {
-    getSource: vi.fn(() => null),
-    addSource: vi.fn(),
+    getSource: vi.fn((id: string) => sources.get(id) ?? null),
+    addSource: vi.fn((id: string, spec: unknown) => {
+      sources.set(id, spec);
+    }),
     addLayer: vi.fn(),
     getLayer: vi.fn(() => null),
     setLayoutProperty: vi.fn(),
@@ -26,7 +34,7 @@ function makeMockMap() {
     getFilter: vi.fn().mockReturnValue(null),
     setFilter: vi.fn(),
     removeLayer: vi.fn(),
-    removeSource: vi.fn(),
+    removeSource: vi.fn((id: string) => { sources.delete(id); }),
     isStyleLoaded: vi.fn(() => true),
     getStyle: vi.fn(() => ({ layers: [] })),
     moveLayer: vi.fn(),
@@ -69,6 +77,11 @@ function tokens(layer: SyncLayerInput) {
 }
 
 describe('syncLayersToMap line-gradient lineMetrics emission', () => {
+  // Phase 1050 SF-04: non-cluster vector layers now share a deduped source
+  // keyed by dataset_table_name. The factory default is `roads`, so the
+  // source id is `source-data-roads` (not the legacy per-layer key).
+  const SHARED_SRC = 'source-data-roads';
+
   it('emits lineMetrics: true when a line layer has line-gradient paint set', () => {
     const map = makeMockMap();
     const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
@@ -78,7 +91,7 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c: unknown[]) => c[0] === 'source-l-grad',
+      (c: unknown[]) => c[0] === SHARED_SRC,
     );
     expect(calls.length).toBe(1);
     expect(calls[0][1]).toMatchObject({ type: 'vector', lineMetrics: true });
@@ -97,7 +110,7 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c: unknown[]) => c[0] === 'source-l-intent',
+      (c: unknown[]) => c[0] === SHARED_SRC,
     );
     expect(calls.length).toBe(1);
     expect(calls[0][1]).toMatchObject({ type: 'vector', lineMetrics: true });
@@ -111,7 +124,7 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c: unknown[]) => c[0] === 'source-l-plain',
+      (c: unknown[]) => c[0] === SHARED_SRC,
     );
     expect(calls.length).toBe(1);
     const spec = calls[0][1] as Record<string, unknown>;
@@ -139,39 +152,31 @@ describe('syncLayersToMap line-gradient lineMetrics emission', () => {
     });
     syncLayersToMap(map, [layer], tokens(layer), undefined, { current: new Set() }, { current: '' });
     const calls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c: unknown[]) => c[0] === 'source-l-array-intent',
+      (c: unknown[]) => c[0] === SHARED_SRC,
     );
     expect(calls.length).toBe(1);
     const spec = calls[0][1] as Record<string, unknown>;
     expect(spec).not.toHaveProperty('lineMetrics');
   });
 
-  it('emits lineMetrics: true once when two layers share a source and one needs it', () => {
+  it('emits lineMetrics: true on the deduped shared source when ANY consumer needs it (SF-04)', () => {
     const map = makeMockMap();
     const sharedDatasetId = 'ds-shared';
     const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    // Phase 1050 SF-04: two layers sharing dataset_table_name now share ONE
+    // MapLibre source. If ANY consumer needs lineMetrics, the shared source
+    // gets it — exactly what `lineGradientNeededFor`'s full-list iteration
+    // was designed for (see map-sync.ts line 336 forward-compat comment).
     const layerA = makeLayer({ id: 'a', dataset_id: sharedDatasetId, paint: { 'line-color': '#000', 'line-width': 2 } });
     const layerB = makeLayer({ id: 'b', dataset_id: sharedDatasetId, paint: { 'line-color': '#000', 'line-width': 2, 'line-gradient': gradient } });
-    // Both layers share dataset_id but each layer gets its own sourceId via prefixed('source', layer.id).
-    // In the current map-sync model, each layer has its own source — so the shared-source case is when
-    // two SyncLayerInput entries have the SAME id (which is impossible by construction). The realistic
-    // shared case is two map layers pointing at the same dataset_id but distinct layer ids; each gets
-    // its own source. This test asserts that EACH source is independently evaluated, and the gradient
-    // layer's source emits lineMetrics: true while the plain layer's source does not.
     syncLayersToMap(map, [layerA, layerB], new Map([
       [sharedDatasetId, VECTOR_TOKEN],
     ]), undefined, { current: new Set() }, { current: '' });
-    const callA = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c: unknown[]) => c[0] === 'source-a',
+    // Only one addSource call for the shared deduped source.
+    const sharedCalls = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => c[0] === SHARED_SRC,
     );
-    const callB = (map.addSource as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c: unknown[]) => c[0] === 'source-b',
-    );
-    expect(callA).toBeDefined();
-    expect(callB).toBeDefined();
-    const specA = callA![1] as Record<string, unknown>;
-    const specB = callB![1] as Record<string, unknown>;
-    expect(specA).not.toHaveProperty('lineMetrics');
-    expect(specB).toMatchObject({ lineMetrics: true });
+    expect(sharedCalls.length).toBe(1);
+    expect(sharedCalls[0][1]).toMatchObject({ type: 'vector', lineMetrics: true });
   });
 });
