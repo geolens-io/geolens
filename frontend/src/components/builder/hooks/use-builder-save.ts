@@ -139,8 +139,19 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  arriving even one ms later sees `pendingCaptures.get(mapId) ===
  *  undefined` and schedules a fresh capture. We need a separate set that
  *  remembers "an auto-capture has already been initiated for this map in
- *  this session" until either an explicit reset or the user navigates
- *  to a different map. */
+ *  this session" until an explicit reset.
+ *
+ *  WR-03 (Phase 1050-rev): this set is deliberately WRITE-ONLY in
+ *  production code. We do NOT clear it on hook unmount or mapId change,
+ *  because doing so re-introduces the SF-07 duplicate-capture bug under
+ *  Vite-dev StrictMode (unmount → remount → guard cleared → second PUT
+ *  fires after the first's debounce has already settled). The only
+ *  in-app recovery path is a hard reload (which re-evaluates the
+ *  module). Server-side thumbnail deletion or admin re-trigger therefore
+ *  requires the user to reload the editor; this is a deliberate
+ *  trade-off favouring the more-frequent StrictMode-safety case. The
+ *  `__resetThumbnailDebounceForTests` helper clears the set in vitest
+ *  setup. */
 const autoCapturedMapIds = new Set<string>();
 
 function captureThumbnail(
