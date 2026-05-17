@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
-status: planning
-last_updated: "2026-05-17T19:30:00.000Z"
-last_activity: 2026-05-17
+status: Roadmap created; awaiting plan-phase or autonomous executor
+stopped_at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
+last_updated: "2026-05-17T22:56:12.856Z"
+last_activity: 2026-05-17 — ROADMAP.md authored for v1011 (1 phase, 13 plans, 13/13 reqs mapped)
 progress:
   total_phases: 1
   completed_phases: 0
@@ -70,9 +71,11 @@ None at roadmap creation. All 11 user-reported items have either a clear repro U
 
 ## Session Continuity
 
-Last session: 2026-05-17T19:30:00.000Z
-Stopped at: Roadmap authored (ROADMAP.md, REQUIREMENTS.md traceability filled, STATE.md updated)
-Resume file: `/gsd:plan-phase 1051` OR `/gsd-autonomous --from 1051` (orchestrator drives Playwright MCP verification)
+Last session: 2026-05-17T22:56:12.852Z
+Stopped at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
+Resume file: .planning/phases/1051-map-builder-polish-bug-sweep/1051-UI-SPEC.md
+
+Session resumed: 2026-05-17 — proceeding to `/gsd:plan-phase 1051` (user chose plan-phase over autonomous execute).
 
 ## Operator Next Steps
 
