@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1010.2
 milestone_name: Builder Smoke Carryover
-status: planning
-last_updated: "2026-05-17T15:00:28.918Z"
+status: executing
+stopped_at: "Roadmap created; ready for `/gsd:plan-phase 1050`"
+last_updated: "2026-05-17T15:34:59.632Z"
 last_activity: 2026-05-17
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 6
+  completed_plans: 1
   percent: 0
 ---
 
@@ -17,17 +18,17 @@ progress:
 
 ## Current Position
 
-Phase: 1050 builder-smoke-carryover (next up — roadmap created, ready for `/gsd:plan-phase 1050`)
-Plan: — (6 plans defined in ROADMAP.md: 01 SMOKE-08, 02 SMOKE-09, 03 SMOKE-10, 04 SMOKE-11, 05 SMOKE-12, 06 CTRL-01)
-Status: Roadmap created — awaiting plan-phase
-Last activity: 2026-05-17 — ROADMAP.md written for v1010.2 (single phase, 6 sequential plans, hygiene-close shape mirrors v1009.1 / v1010.1)
+Phase: 1050 (builder-smoke-carryover) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-05-17
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1010.2 Builder Smoke Carryover)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1010.2 Phase 1050 — close 5 carried-forward smoke findings (SF-04..08) from v1010.1
+**Current focus:** Phase 1050 — builder-smoke-carryover
 
 ## Last Shipped Milestone
 
@@ -47,6 +48,7 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1010.2 Build
 - **Plans 02-05 are P2 polish noise closures** from v1010.1 SF-05..08 — small surface-area fixes.
 - **Plan 06 (CTRL-01) is the close gate** — typecheck / vitest / e2e:smoke:builder / Playwright MCP re-verify of all 5 SF surfaces against fresh stack. CHANGELOG `[Unreleased]` note lives here, not as a separate plan.
 - **Out of scope:** SP-03 / M-02 (fresh-add maplibre sync race, v1009.1 escalation, predates v1010.1); SP-07 backend `has_quicklook` predicate; SP-12 representative-fraction pane (new feature); any new feature work.
+- [Phase ?]: 1050-02: Copied use-quicklook.ts:67-74 useEffect cleanup verbatim to use-map-thumbnail.ts; revoke fires on data change AND unmount; closes SF-05.
 
 ### Pending Todos
 
@@ -58,7 +60,7 @@ None at roadmap creation. Source-of-scope (v1010.1 SMOKE-FINDINGS.md SF-04..08) 
 
 ## Session Continuity
 
-Last session: 2026-05-17 — milestone v1010.2 opened; REQUIREMENTS.md authored; ROADMAP.md written
+Last session: 2026-05-17T15:34:51.955Z
 Stopped at: Roadmap created; ready for `/gsd:plan-phase 1050`
 Resume file: None
 
