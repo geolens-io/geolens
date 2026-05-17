@@ -1336,7 +1336,11 @@ export function MapBuilderPage() {
 
       </DndContext>{/* close Phase 1040 DndContext */}
 
-      {id && (
+      {/* SF-03 (Phase 1049): gate the StyleJsonDialog mount on `showStyleJson`,
+          not just on `id`. The previous form always mounted the dialog (it just
+          returned null when closed), which made React.lazy() resolve the import
+          on initial builder paint — defeating the whole PB-05 lazy-load split. */}
+      {id && showStyleJson && (
         <LazyLoadErrorBoundary>
           <Suspense fallback={null}>
             <StyleJsonDialog
