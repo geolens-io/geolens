@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, resolveAdapterType, getCompoundOpacity } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
@@ -111,7 +111,9 @@ export function useLayerMapSync(
             paint: newPaint,
             layout: layer.layout ?? {},
             filter: layer.filter ?? null,
-            sourceId: `source-${layerId}`,
+            // SF-04 dedupe: source id is per-dataset for non-cluster vector
+            // layers, per-layer for cluster/raster/hillshade.
+            sourceId: getSourceIdForLayer(layer),
             layerId: mapLayerId,
             sourceLayer: `data.${layer.dataset_table_name}`,
             tileUrl: '',
@@ -154,7 +156,9 @@ export function useLayerMapSync(
           const nextConfig = layer.style_config;
           const adapterType = resolveLayerAdapterType(layer, paint, nextConfig);
           const adapter = getAdapter(adapterType);
-          const sourceId = `source-${layerId}`;
+          // SF-04 dedupe: read from the shared per-dataset source for
+          // non-cluster vector layers so tile URL inheritance still works.
+          const sourceId = getSourceIdForLayer(layer);
           const existingSource = map.getSource(sourceId) as { tiles?: string[] } | undefined;
           const rawTileUrl = existingSource?.tiles?.[0] ?? '';
           const tileUrl = rawTileUrl.startsWith(window.location.origin)
@@ -219,7 +223,9 @@ export function useLayerMapSync(
               paint: layer.paint ?? {},
               layout: layer.layout ?? {},
               filter: layer.filter ?? null,
-              sourceId: `source-${layerId}`,
+              // SF-04: cluster layers keep their per-layer source id; the
+              // helper routes them through the cluster branch.
+              sourceId: getSourceIdForLayer(layer),
               layerId: mapLayerId,
               sourceLayer: `data.${layer.dataset_table_name}`,
               tileUrl: '',
@@ -382,7 +388,8 @@ export function useLayerMapSync(
           // Add new label layer
           if (!layer) return;
 
-          const sourceId = `source-${layerId}`;
+          // SF-04 dedupe: read from the shared per-dataset source.
+          const sourceId = getSourceIdForLayer(layer);
           if (!map.getSource(sourceId)) return;
 
           const sourceLayer = `data.${layer.dataset_table_name}`;

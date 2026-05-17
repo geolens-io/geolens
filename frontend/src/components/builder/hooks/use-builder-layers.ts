@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useQueryClient } from '@tanstack/react-query';
-import { getLayerType, reorderDataLayers } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, reorderDataLayers } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -719,10 +719,19 @@ export function useBuilderLayers(
     [mapId, addLayerMutation, t, handleAddLayerToExistingGroup],
   );
 
-  // AI-specific remove: removes locally (persisted on Save)
+  // AI-specific remove: removes locally (persisted on Save).
+  //
+  // Phase 1050 SF-04: per-layer companion layers (label/outline/extrusion/
+  // arrow + main layer-{id}) are still cleaned up imperatively because they
+  // remain per-layer in the new keying scheme. Source teardown, however, is
+  // delegated to the next `syncFromState` invocation's
+  // `removeStaleSourcesAndLayers` desired-set prune — which is reference-
+  // count-aware via `desiredSources.add(sourceId)` and will correctly leave
+  // a deduped `source-data-${dataset_table_name}` in place while sibling
+  // layers still reference it.
   const handleAiRemoveLayer = useCallback((layerId: string) => {
     setLocalLayers((prev) => prev.filter((l) => l.id !== layerId));
-    // Clean up MapLibre layers imperatively
+    // Clean up MapLibre layers imperatively (per-layer companions still apply)
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
       const ids = [
@@ -733,8 +742,10 @@ export function useBuilderLayers(
       for (const id of ids) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
-      const sourceId = `source-${layerId}`;
-      if (map.getSource(sourceId)) map.removeSource(sourceId);
+      // Do NOT call map.removeSource here — the deduped source may still be
+      // shared by sibling layers, and the legacy per-layer `source-${id}`
+      // key may collide with a sibling's dedupe artifact. The desired-set
+      // prune in the next sync correctly removes only truly-orphaned sources.
     }
     setHasUnsavedChanges(true);
   }, [mapInstanceRef]);
@@ -748,7 +759,14 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, []);
 
-  /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle <-> heatmap). */
+  /** Swap the MapLibre layer for a given dataset between adapter types (e.g. circle <-> heatmap).
+   *
+   *  Phase 1050 SF-04: sourceId now routes through `getSourceIdForLayer` so
+   *  non-cluster vector layers correctly inherit the deduped
+   *  `source-data-${dataset_table_name}` source's tile URL. Cluster and
+   *  raster/hillshade layers keep their per-layer source id via the helper's
+   *  branching contract.
+   */
   const swapLayerOnMap = useCallback((
     layer: MapLayerResponse,
     adapterType: RenderAsAdapterType,
@@ -758,7 +776,7 @@ export function useBuilderLayers(
     if (!map || !map.isStyleLoaded()) return;
 
     const mapLayerId = `layer-${layer.id}`;
-    const sourceId = `source-${layer.id}`;
+    const sourceId = getSourceIdForLayer(layer);
     const labelId = `layer-${layer.id}-label`;
 
     // Remove old layer
@@ -777,6 +795,9 @@ export function useBuilderLayers(
     if (map.getLayer(arrowId)) {
       map.removeLayer(arrowId);
     }
+    // Per-layer raster/hillshade source removal — these layer types keep
+    // their per-layer source id via `getSourceIdForLayer`'s raster branch,
+    // so this is still safe (no sibling layer shares it).
     if ((adapterType === 'raster' || adapterType === 'hillshade') && map.getSource(sourceId)) {
       map.removeSource(sourceId);
     }
