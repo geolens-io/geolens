@@ -11,6 +11,104 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Builder smoke carryover (v1010.2 — closes Phase 1050)
+
+Closed all 5 carried-forward smoke findings from v1010.1's 2026-05-17
+Playwright MCP smoke (1 P1 + 4 P2). Map Builder now ships clean of all
+2026-05-17 smoke noise. Single phase (1050), 6 sequential plans, 12 task
+commits across 5 SF closures + 1 CTRL-01 close gate.
+
+- **SF-04 / SMOKE-08 — Dedupe MapLibre vector tile sources**
+  (commits `cab57a32` initial dedupe + `c1c84cc7` scope expansion):
+  Non-cluster vector layers now share a MapLibre source per unique
+  `dataset_table_name` via the new `getSourceIdForLayer(layer)` helper
+  in `frontend/src/components/builder/map-sync.ts` (3-branch contract:
+  cluster → per-layer; raster/DEM → per-layer; non-cluster vector with
+  `dataset_table_name` → `source-data-${dataset_table_name}`). Predicted
+  measurable impact on the v1010.1 8-layer / 2-dataset test map: initial-
+  paint vector tile requests drop **from ~80 to ~16-24** per the SF-04
+  evidence in `1049-SMOKE-FINDINGS.md` (live re-count pending Plan 06
+  Playwright MCP re-verify). Cluster sources remain per-layer (cluster
+  radius / minPoints are per-layer settings). `swapLayerOnMap` +
+  `handleAiRemoveLayer` route through the helper; per-layer
+  `removeSource` calls replaced by desired-set prune in
+  `removeStaleSourcesAndLayers` (reference-count-safe by construction).
+  4 hooks call sites in `use-layer-map-sync.ts` were swept under Rule 3
+  scope expansion. 8 new dedupe tests + 2 handleAiRemoveLayer tests
+  added; existing `map-sync.cluster.test.ts` and
+  `map-sync.line-gradient.test.ts` rekeyed.
+
+- **SF-05 / SMOKE-09 — Defer thumbnail blob revoke** (commit `4473d21e`):
+  Post-login redirect to `/`: predicted **4 → 0** `blob:`
+  `net::ERR_FILE_NOT_FOUND` console errors. `use-map-thumbnail.ts`
+  mirrors the `use-quicklook.ts:67-74` cleanup pattern — `useEffect`
+  cleanup keyed on the React Query `data` string fires
+  `URL.revokeObjectURL(data)` on data change AND component unmount, not
+  on cache eviction without `<img>` teardown. 3 new vitest cases (revoke
+  on key change, revoke on unmount, no revoke when data undefined); 9
+  total tests in the suite (up from 6).
+
+- **SF-06 / SMOKE-10 — Gate anonymous pre-auth probes**
+  (commits `912458e8` + `aca42c99`): Predicted **5 → 0** 401-error
+  console entries on `/login` for `/api/auth/me/`,
+  `/api/auth/me/permissions/`, `/api/admin/ai-status/`,
+  `/api/search/saved/`, `/api/auth/refresh/`. `useSavedSearches` gated
+  on `!!token` (`use-saved-searches.ts:13`); `useAIStatus` consumers
+  (`AIStatusCard`, `SettingsAITab`) pass
+  `{ enabled: !!token && isAdmin }` — admin probe never fires from
+  anonymous OR non-admin authed pages. Hook signature
+  (`use-admin.ts:186`) preserved per caller-controlled contract; the
+  existing `use-ai-availability.ts:7` precedent was the analog.
+
+- **SF-07 / SMOKE-11 — Single thumbnail PUT on mount** (commit
+  `37fee435`): Hard-reload of `/maps/{id}`: predicted **2 → 1**
+  `PUT /api/maps/{id}/thumbnail/` requests. Root cause was different
+  than first guess: per-instance `thumbCaptured` ref doesn't survive
+  Vite-dev StrictMode unmount/remount, and the module-level
+  `pendingCaptures` Map was already cleared by the first capture's
+  trailing-edge `setTimeout` — so the second hook instance fired a
+  second PUT. Fix Option C: added module-scoped `autoCapturedMapIds:
+  Set<string>` guard + `shouldAutoCapture(mapId)` helper that survives
+  hook remount; `maybeAutoCaptureThumbnail` consults the new guard
+  BEFORE invoking `captureThumbnail`. The v1009.1 SP-16 module-level
+  debounce (`captureThumbnail`) was already correct; the fix was
+  upstream of it at the auto-capture entry point. 3 new vitest cases
+  including a StrictMode-style hook remount reproducer (asserts
+  render-frame registration count `expected 2 to be 1` pre-fix → 1
+  post-fix).
+
+- **SF-08 / SMOKE-12 — Suppress false-positive basemap toast** (commit
+  `9fe0b4ec`): Saving a clean-basemap map: 2 toasts → 1 toast
+  (`'Basemap connection issue'` suppressed; `'Map saved'` preserved).
+  `basemapLoadedAtRef: useRef<number | null>(null)` latch added in
+  `BuilderMap.tsx` next to `errorHandlerRef` (line 91); reset at the
+  start of the basemap style-fetch effect (line 149) so a basemap
+  change re-arms first-load failure detection; set in the `.then()`
+  success branch (line 161); consulted in the `errorHandlerRef` 5xx
+  branch (line 409) to suppress the toast for transient post-load
+  errors. Real first-load failures still surface
+  (`setBasemapNotice('style')` path NOT gated). 3 new vitest cases in
+  `BuilderMap.a11y.test.tsx` (loaded-then-error suppressed, never-
+  loaded-then-error surfaces, basemap-change resets latch).
+
+### Smoke gate evidence (Phase 1050 CTRL-01)
+
+- **Frontend typecheck (`tsc --noEmit`):** 0 errors
+- **Frontend vitest (full suite):** 1909 / 1909 passing (194 test files,
+  12.71s). Matches v1010.1 baseline plus the new Plan 02/03/04/05 tests
+  accommodated within the suite total.
+- **Targeted vitest sweep (9 touched test surfaces):** 132 / 132
+  passing in 1.40s.
+- **`e2e:smoke:builder`:** 26 / 26 passing in 1.5 min — matches v1010.1
+  baseline.
+- **Playwright MCP re-verify:** orchestrator-scoped; runs against a
+  fresh `docker compose down -v && up -d --build` stack to confirm all
+  5 SF surfaces clean against v1010.1 SMOKE-FINDINGS "Observed"
+  evidence + 3 v1010.1 inline fixes (SF-01 bulk-delete, SF-02 render-
+  mode swap, SF-03 StyleJsonDialog lazy) show no regression.
+
+---
+
 > v1010 Builder Performance & Code Quality milestone — large-map performance
 > wins (bulk-op batching, MapLibre paint coalescing, builder entry chunk
 > reduction), code-quality refactor of the unified-stack Map Builder
