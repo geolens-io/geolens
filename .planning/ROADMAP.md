@@ -99,7 +99,7 @@ Plans:
 - [ ] 1050-01-dedupe-maplibre-sources-PLAN.md — SF-04 / SMOKE-08: dedupe MapLibre vector tile sources per dataset_table_name
 - [x] 1050-02-defer-blob-revoke-PLAN.md — SF-05 / SMOKE-09: defer thumbnail blob URL revoke until image loads / unmount
 - [x] 1050-03-gate-anonymous-probes-PLAN.md — SF-06 / SMOKE-10: gate anonymous pre-auth probes (enabled: !!token + isAdmin)
-- [ ] 1050-04-debounce-thumbnail-put-PLAN.md — SF-07 / SMOKE-11: debounce thumbnail PUT on effect, not click handler
+- [x] 1050-04-debounce-thumbnail-put-PLAN.md — SF-07 / SMOKE-11: debounce thumbnail PUT on effect, not click handler
 - [ ] 1050-05-basemap-toast-latch-PLAN.md — SF-08 / SMOKE-12: latch basemap-loaded; suppress transient toast post-load
 - [ ] 1050-06-close-gate-PLAN.md — CTRL-01: smoke gate (typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify) + CHANGELOG
 **UI hint**: yes

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1010.2
 milestone_name: Builder Smoke Carryover
 status: executing
-stopped_at: Completed 1050-03-PLAN.md
-last_updated: "2026-05-17T15:41:08.843Z"
+stopped_at: Completed 1050-04-PLAN.md
+last_updated: "2026-05-17T15:50:00.000Z"
 last_activity: 2026-05-17
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -19,7 +19,7 @@ progress:
 ## Current Position
 
 Phase: 1050 (builder-smoke-carryover) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-05-17
 
@@ -50,6 +50,7 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1010.2 Build
 - **Out of scope:** SP-03 / M-02 (fresh-add maplibre sync race, v1009.1 escalation, predates v1010.1); SP-07 backend `has_quicklook` predicate; SP-12 representative-fraction pane (new feature); any new feature work.
 - [Phase ?]: 1050-02: Copied use-quicklook.ts:67-74 useEffect cleanup verbatim to use-map-thumbnail.ts; revoke fires on data change AND unmount; closes SF-05.
 - [Phase ?]: 1050-03: SF-06 anonymous probes closed — useSavedSearches gated on !!token (use-saved-searches.ts:13); useAIStatus consumer-side gated on { enabled: !!token && isAdmin } (AIStatusCard.tsx:22, SettingsAITab.tsx:50). Hook signature use-admin.ts:186 unchanged per caller-controlled contract.
+- [Phase 1050-04]: SF-07 double-PUT closed — Fix Option C (module-level `autoCapturedMapIds: Set<string>` guard in use-builder-save.ts:142). Root cause: Vite-dev StrictMode unmounts/remounts the hook, the per-instance `thumbCaptured` ref resets to false, and the module-level `pendingCaptures` Map was already cleared by the first capture's setTimeout — so the second hook instance fires a second PUT. The new module-level guard survives hook remount. 3 new tests (1259 lines total in use-builder-save.test.ts).
 
 ### Pending Todos
 
@@ -61,8 +62,8 @@ None at roadmap creation. Source-of-scope (v1010.1 SMOKE-FINDINGS.md SF-04..08) 
 
 ## Session Continuity
 
-Last session: 2026-05-17T15:41:08.839Z
-Stopped at: Completed 1050-03-PLAN.md
+Last session: 2026-05-17T15:50:00.000Z
+Stopped at: Completed 1050-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
