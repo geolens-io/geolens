@@ -12,22 +12,30 @@ Milestones are delivered through v1008 Map Builder Sidebar Redesign (shipped 202
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1010.2 Builder Smoke Carryover
+## Recent Shipped Milestone: v1010.2 Builder Smoke Carryover
 
-**Goal:** Close the 5 carried-forward items from v1010.1's Playwright MCP smoke (1 P1 + 4 P2) so the Map Builder ships clean of all 2026-05-17 smoke findings.
+**Shipped:** 2026-05-17
 
-**Target items (v1010.1 carryover):**
-- SF-04 (P1) — `BUILDER-PERF-DEDUPE-SOURCES`: dedupe MapLibre sources across layers sharing the same `dataset_table_name`; touches `use-builder-layers.ts` source registration, `swapLayerOnMap`, per-layer `removeSource`, dataset/tile-token signing, and the `cluster-source.ts` override.
-- SF-05 (P2) — Thumbnail blob `ERR_FILE_NOT_FOUND` on post-login redirect; defer `URL.revokeObjectURL()` to unmount or longer timeout.
-- SF-06 (P2) — Anonymous pre-auth probes to authed endpoints (`auth/me`, `auth/me/permissions`, `admin/ai-status`, `search/saved`, `auth/refresh`) — gate behind `isAuthenticated`.
-- SF-07 (P2) — Two `PUT /api/maps/{id}/thumbnail/` on initial mount; audit 500ms debounce in `use-builder-save.ts` (debounce the effect, not the click handler).
-- SF-08 (P2) — False-positive "Basemap connection issue" toast on save when basemap had loaded successfully.
+**Goal delivered:** Closed all 5 v1010.1 carried-forward smoke findings (SF-04 dedupe MapLibre sources, SF-05 blob revoke timing, SF-06 anonymous pre-auth probes, SF-07 double initial thumbnail PUT, SF-08 false-positive basemap toast). Map Builder ships clean of all 2026-05-17 smoke noise.
 
-**Shape:** Hygiene close — single phase, ~5 sequential plans (one per SF) + CTRL-01 smoke gate. Phase numbering continues at 1050.
+**Delivered:**
+- **SF-04 / SMOKE-08 — Dedupe MapLibre vector sources (P1).** `getSourceIdForLayer(layer)` helper in `frontend/src/components/builder/map-sync.ts:374` keys non-cluster vector sources by `dataset_table_name`; cluster sources stay per-layer via `source-cluster-{id}`. Rewired 5 call sites in `use-builder-layers.ts` + 4 in `use-layer-map-sync.ts` through the helper. Playwright MCP confirmed: 24 unique tile URLs for 2-dataset map (no per-layer duplication). Commits `cab57a32`, `c1c84cc7`.
+- **SF-05 / SMOKE-09 — Defer blob URL revoke (P2).** `useEffect` cleanup in `frontend/src/components/maps/hooks/use-map-thumbnail.ts:45-50` defers `URL.revokeObjectURL()` until data change or unmount. Mirrors `use-quicklook.ts:67-74` analog. 0 `blob:` errors on post-login redirect confirmed. Commit `4473d21e`.
+- **SF-06 / SMOKE-10 — Gate anonymous pre-auth probes (P2).** `useSavedSearches` gated on `!!token`; `useAIStatus` + `useEmbeddingStats` consumer-gated with `{ enabled: !!token && isAdmin }` in both `AIStatusCard.tsx` and `SettingsAITab.tsx`. 0 401-noise on anonymous `/login` confirmed. Commits `912458e8`, `aca42c99`, `d6b0b9c6`.
+- **SF-07 / SMOKE-11 — Single thumbnail PUT on mount (P2).** Module-level `autoCapturedMapIds: Set<string>` + `shouldAutoCapture()` predicate at `frontend/src/components/builder/hooks/use-builder-save.ts:155, 184` survives Vite StrictMode hook unmount/remount. vitest `use-builder-save.test.ts` SF-07 case verifies double-fire is gone. Commit `37fee435`.
+- **SF-08 / SMOKE-12 — Basemap toast latch (P2).** `basemapLoadedAtRef` latch at `frontend/src/components/builder/BuilderMap.tsx:91`; set on first successful style load (line 161), checked in `errorHandlerRef` at line 417 (narrowed to 3000ms save-flow window post-WR-02 fix). Preserves toast for actually-broken basemaps. vitest 3/3. Commits `9fe0b4ec`, `0f0290ba`.
 
-**Out of scope:** SP-03 / M-02 (fresh-add maplibre sync race, escalated from v1009.1, NOT v1010.1); SP-07 (backend `has_quicklook` predicate, escalated from v1009.1, NOT v1010.1); any new feature work.
+**Post-shipping code review (3 BLOCKER + 4 WARNING — all fixed inline):**
+- CR-01: `waitForVisibleLayerSources` polled legacy `getSourceId(layer.id)` → 5s thumbnail upload latency after dedupe (`516c9ae5`)
+- CR-02: `BuilderMap.tsx:765` token-refresh `setTiles` legacy lookup → vector layers 401 ~1hr into session (`fd149688`)
+- CR-03 + WR-04: `useEmbeddingStats` was ungated, even after SF-06 gated `useAIStatus` (`d6b0b9c6`)
+- WR-01: `removeStaleSourcesAndLayers` companion-layer leak from dedupe-keyed source ids (`8b791a08`)
+- WR-02: SF-08 latch permanent-suppression too wide → narrowed to 3000ms save-flow window (`0f0290ba`)
+- WR-03: misleading comment about `autoCapturedMapIds` navigation cleanup that doesn't exist (`0451657f`)
 
----
+**Milestone close:** 5/5 SMOKE-08..12 requirements satisfied; single phase (1050), 6 plans, 9 tasks. Smoke gate: typecheck 0; vitest 1913/1913 (+4 regression tests from code-fix loop); `e2e:smoke:builder` 26/26; Playwright MCP re-verify 5/5 SF surfaces + 3/3 v1010.1 regression checks against live 5/5-healthy stack. Audit: PASSED (11/11 must-haves).
+
+**Lesson reinforced:** Post-implementation code review caught 7 secondary findings that the planner's deep_work rules didn't pre-empt — the SF-04 dedupe contract leaked outside `map-sync.ts` to 3 callers (`use-builder-save`, `BuilderMap` token-refresh, `removeStaleSourcesAndLayers`), and SF-06 gating gap missed `useEmbeddingStats` because the plan named only `useAIStatus`. The `feedback_review_findings_inline.md` "default to fixing all inline" pattern was the right call — these would have been v1010.3 carryforward otherwise.
 
 ## Recent Shipped Milestone: v1010.1 Live Playwright MCP Smoke
 
@@ -1025,4 +1033,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 — opened milestone v1010.2 Builder Smoke Carryover*
+*Last updated: 2026-05-17 — shipped milestone v1010.2 Builder Smoke Carryover*

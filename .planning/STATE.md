@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1010.2
 milestone_name: Builder Smoke Carryover
-status: verifying
-stopped_at: Completed 1050-06-PLAN.md (Phase 1050 auto-gates green; Playwright MCP re-verify pending orchestrator)
-last_updated: "2026-05-17T16:28:39.547Z"
-last_activity: 2026-05-17
+status: Awaiting next milestone
+stopped_at: Completed 1050-06-PLAN.md (CTRL-01 close gate; Playwright MCP re-verify pending orchestrator)
+last_updated: "2026-05-17T17:05:34.302Z"
+last_activity: 2026-05-17 — Milestone v1010.2 completed and archived
 progress:
   total_phases: 6
   completed_phases: 1
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1050 (builder-smoke-carryover) — VERIFYING
-Plan: 6 of 6 (all plans complete; Playwright MCP re-verify pending)
-Status: Phase complete (auto-gates green); ready for orchestrator MCP re-verify → /gsd-complete-milestone v1010.2
-Last activity: 2026-05-17
+Phase: Milestone v1010.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-17 — Milestone v1010.2 completed and archived
 
 ## Project Reference
 
@@ -70,5 +70,4 @@ Resume file: Playwright MCP re-verify (Task 2) — orchestrator-scoped
 
 ## Operator Next Steps
 
-- Run Playwright MCP re-verify (Task 2 of Plan 1050-06) against fresh `docker compose down -v && up -d --build` stack — 5 SF surfaces (SF-04..08) plus 3 v1010.1 regression checks (SF-01 bulk-delete, SF-02 render-mode swap, SF-03 StyleJsonDialog lazy). See `1050-06-close-gate-PLAN.md` <how-to-verify> for the checklist.
-- After MCP re-verify approves: `/gsd-complete-milestone v1010.2` to tag + close milestone.
+- Start the next milestone with /gsd-new-milestone

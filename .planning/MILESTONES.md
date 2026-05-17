@@ -1,5 +1,20 @@
 # Milestones
 
+## v1010.2 Builder Smoke Carryover (Shipped: 2026-05-17)
+
+**Phases completed:** 6 phases, 6 plans, 9 tasks
+
+**Key accomplishments:**
+
+- MapLibre vector tile sources now share one source per `dataset_table_name` for non-cluster layers, cutting initial-paint tile requests from ~N per layer to ~M per dataset (M < N) while preserving cluster per-layer scoping and raster per-layer source isolation.
+- 1. [out-of-scope] Pre-existing typecheck errors in `LayerEditorPanel.tsx`
+- `useSavedSearches` token-gated and `useAIStatus` admin-gated at the consumer so `/login` no longer fires `/api/search/saved/` or `/api/admin/ai-status/` requests pre-auth (closes SF-06).
+- One-liner:
+- Suppress false-positive "Basemap connection issue" toast on save by latching basemap-loaded success in a useRef; transient 5xx tile errors after first load are now silent, while real first-load failures still surface.
+- Single CTRL-01 batch gate confirms all 5 SF closures (Plans 01–05) shipped clean; CHANGELOG `[Unreleased]` populated with v1010.2 close note; automated smoke gate green; Playwright MCP re-verify pending orchestrator drive-through.
+
+---
+
 ## v1010.1 Live Playwright MCP Smoke (Shipped: 2026-05-17)
 
 **Phases completed:** 6 phases, 1 plans, 0 tasks
