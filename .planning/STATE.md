@@ -1,27 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1010.2
-milestone_name: Builder Smoke Carryover
-status: Awaiting next milestone
-stopped_at: Completed 1050-06-PLAN.md (CTRL-01 close gate; Playwright MCP re-verify pending orchestrator)
-last_updated: "2026-05-17T17:05:34.302Z"
-last_activity: 2026-05-17 — Milestone v1010.2 completed and archived
+milestone: v1011
+milestone_name: Map Builder Polish & Bug Sweep
+status: planning
+last_updated: "2026-05-17T19:07:39.689Z"
+last_activity: 2026-05-17
 progress:
-  total_phases: 6
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 17
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1010.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-17 — Milestone v1010.2 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-17 — Milestone v1011 started
 
 ## Project Reference
 
