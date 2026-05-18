@@ -70,101 +70,50 @@
 - ✅ **v1010.1 Live Playwright MCP Smoke** — Phase 1049 (shipped 2026-05-17) — see [archive](milestones/v1010.1-ROADMAP.md)
 - ✅ **v1010.2 Builder Smoke Carryover** — Phase 1050 (shipped 2026-05-17) — see [archive](milestones/v1010.2-ROADMAP.md)
 - ✅ **v1011 Map Builder Polish & Bug Sweep** — Phase 1051 (shipped 2026-05-18) — see [archive](milestones/v1011-ROADMAP.md)
+- 🚧 **v1011.1 Builder Hygiene Carryover** — Phase 1052 (in progress)
 
 ## Phases
 
-<details>
-<summary>✅ v1011 Map Builder Polish & Bug Sweep (Phase 1051) — SHIPPED 2026-05-18</summary>
+### 🚧 v1011.1 Builder Hygiene Carryover (Phase 1052)
 
-**Goal:** Close 11 user-reported Map Builder polish/bug items (5 broken affordances, 3 small-screen layout collisions, 3 UX decisions, 1 investigation-then-decision) via Playwright MCP inspect-verify-fix loop on live `localhost:8080` stack; triage emergent issues found in flight.
+**Milestone Goal:** Close all 4 EMRG-FN findings carried forward from v1011 Phase 1051 Plan 12 (EMRG-01 triage) — settle the Phase 1038 `BasemapSublayerEditorScene` dead-stub disposition (Path A REMOVE vs Path B FIX, decided in `/gsd-discuss-phase`), drop the orphan `settings.toggleWidget` i18n key from all 4 locales, prune the 2 pre-existing UnifiedStackPanel.tsx unused-eslint-disable warnings from Phase 1041, and explicitly close out the `SublayerConfigIndicators` `layer={null}` branch.
 
-**Requirements:** 13/13 complete (BUG-01..03, UX-01..04, RESP-01..03, INV-01, EMRG-01, CTRL-01)
+**Shape:** Hygiene close — single phase, sequential plans (TBD via `/gsd-plan-phase`; expected 1 plan per EMRG-FN + 1 CTRL-01 close gate), single CTRL-01 batched gate at phase end. No new features, no research, no AI integration. Mirrors v1009.1 Phase 1045, v1010.1 Phase 1049, v1010.2 Phase 1050, and v1011 Phase 1051 per `feedback_hygiene_milestone_pattern.md`.
 
-- [x] **Phase 1051: map-builder-polish-bug-sweep** — completed 2026-05-18 (13 plans, 65 commits)
+- [ ] **Phase 1052: builder-hygiene-carryover** — Close all 4 EMRG-FN carryforward findings + CTRL-01 close gate; ship CHANGELOG note + green smoke gate.
 
-**Headline wins:** BUG-01 adapter-contract fix + defense-in-depth syncVisibility; BUG-02 handleRemove optimistic + rollback; BUG-03 Radix rAF-deferred focus + onSelect-no-preventDefault; UX-01 24×24 caret via `-mx-1` negative-margin overflow; UX-02 SublayerConfigIndicators pure-derivation badges; UX-03 jsonb-additive `basemap_position` + `reorderBasemapAboveData` MapLibre helper; UX-04 state-specific Enable/Disable aria-labels; RESP-01 NavigationControl `top-left`; RESP-02 docstring contract codification + RESP-02-FOLLOWUP `data-builder-canvas` CSS scope (commit `4f4a9917`); RESP-03 `<SheetContent showCloseButton={false}>` opt-out + NEGATIVE-CONTROL bug-shape pin; INV-01 DETAIL LEVEL removed (dead-wired since v1008); CTRL-01 inline gate-fix `befe6a3b` for dnd-kit collision regression.
+## Phase Details
 
-Hygiene milestone shape: single phase, 13 sequential plans (11 user-reported items + 1 EMRG-01 triage + 1 CTRL-01 close gate), single batched close gate at phase end. 21 inline code-review fixes (iter-1: 17 + iter-2: 4). Full details: [milestones/v1011-ROADMAP.md](milestones/v1011-ROADMAP.md).
+### Phase 1052: builder-hygiene-carryover
+**Goal**: All 4 EMRG-FN findings carried forward from v1011 EMRG-01 triage ship with code-level closures (regardless of EMRG-FN-01 Path A REMOVE vs Path B FIX disposition); CHANGELOG `[Unreleased]` records the close; full smoke gate (typecheck / vitest / e2e:smoke:builder / i18n parity / Playwright MCP re-verify of any user-visible UI surface changed by Path A vs Path B) is green; local `v1011.1` tag created.
+**Depends on**: Nothing (v1011 already shipped + tagged locally; v1010-v1011 baseline in place)
+**Requirements**: EMRG-FN-01, EMRG-FN-02, EMRG-FN-03, EMRG-FN-04, CTRL-01
+**Success Criteria** (what must be TRUE):
+  1. The Phase 1038 `BasemapSublayerEditorScene` dead-stub disposition is closed via one of two dispositioned paths: (Path A REMOVE) the 5 sibling no-op callbacks at `MapBuilderPage.tsx:845-850` (`onStrokeColorChange` / `onStrokeWidthChange` / `onCasingColorChange` / `onCasingWidthChange` / `onZoomChange`) + matching props + JSX `<section>` blocks + entire `editorScene === 'basemap-sublayer'` branch + 6 i18n keys × 4 locales + referencing vitest cases are removed, AND a REMOVE-disposition regression test asserts via positive-form `queryBy*` that the surface stays gone, AND an inline disposition comment block at the removal site documents the WHY per the INV-01 pattern; OR (Path B FIX) `stroke_color` / `stroke_width` / `casing_color` / `casing_width` / `min_zoom` / `max_zoom` per-sublayer styling persists round-trip via `MapBasemapConfig.sublayer_overrides[sublayerId]` jsonb-additive storage (zero backend migration), each callback wires through `setBasemapConfig` (auto-marks dirty via WR-02), and live MapLibre dispatch through `applyBasemapConfigToMap` in `map-sync.ts:222` is observable via Playwright MCP across the basemap-preset-aware sublayer style filtering.
+  2. The `settings.toggleWidget` orphan i18n key is absent from all 4 locale files (`frontend/src/i18n/locales/{en,de,es,fr}/builder.json`); i18n parity check still passes 2/2.
+  3. `frontend/src/components/builder/UnifiedStackPanel.tsx` lints with 0 warnings on the affected lines (Phase 1041 pre-existing unused-eslint-disable warnings at lines 679 + 720 removed); frontend lint pass is clean for this file.
+  4. The `SublayerConfigIndicators` `layer={null}` branch is explicitly closed — auto-resolved as a side effect of EMRG-FN-01 Path A removal (no callsite passes `layer={null}` anymore, eliminating the null branch by construction), OR if Path B lands, an explicit regression test asserts `SublayerConfigIndicators` safely renders nothing (or appropriate fallback) when `layer={null}`.
+  5. Single batched CTRL-01 close gate passes green: `typecheck` 0 errors; `vitest` full suite green (including any new regression tests added by EMRG-FN-01 chosen path or EMRG-FN-04); `e2e:smoke:builder` ≥26/26 (may grow if Path A adds REMOVE-disposition regression spec); `i18n` parity 2/2; Playwright MCP re-verify of any user-visible UI surface changed by EMRG-FN-01 Path A vs Path B (basemap-sublayer flyout if Path A removed it; live style mutation evidence if Path B); CHANGELOG `[Unreleased]` populated with v1011.1 close notes; per `feedback_review_findings_inline.md`, any code-review findings surfaced during gate get fixed inline before close, not deferred to v1011.2; local `v1011.1` tag created.
+**Plans**: 7 sequential plans (one per requirement + 1 CTRL-01 close gate); Path A REMOVE LOCKED per CONTEXT.md
+**UI hint**: yes
 
-</details>
+Plans:
+- [x] 1052-01-PLAN.md — EMRG-FN-01 Path A REMOVE: surface deletion (STROKE section + zoom inputs + 5 dead-stub callbacks; preserve live opacity + Reset)
+- [ ] 1052-02-PLAN.md — EMRG-FN-01 Path A REMOVE: orphan basemapSublayer i18n key cleanup (5 keys x 4 locales)
+- [ ] 1052-03-PLAN.md — EMRG-FN-01 Path A REMOVE: vitest cleanup + Test 14 REMOVE-disposition regression pin
+- [ ] 1052-04-PLAN.md — EMRG-FN-02: remove orphan settings.toggleWidget i18n key (4 locales)
+- [ ] 1052-05-PLAN.md — EMRG-FN-03: remove 2 unused eslint-disable-next-line directives from UnifiedStackPanel.tsx
+- [ ] 1052-06-PLAN.md — EMRG-FN-04: SublayerConfigIndicators layer={null} closure documentation (CONTEXT.md auto-resolution claim corrected)
+- [ ] 1052-07-PLAN.md — CTRL-01: batched close gate (typecheck + vitest + e2e + i18n + MCP re-verify) + CHANGELOG + STATE + v1011.1 tag
 
-<details>
-<summary>✅ v1010.2 Builder Smoke Carryover (Phase 1050) — SHIPPED 2026-05-17</summary>
+## Progress
 
-**Goal:** Close all 5 v1010.1 carried-forward smoke findings (SF-04..08) so the Map Builder ships clean of all 2026-05-17 smoke noise.
+**Execution Order:**
+Phase 1052 is the single phase in v1011.1. Plans 01-07 run sequentially (Plan 01 → 02 → 03 → 04 → 05 → 06 → 07), each shipping an atomic commit.
 
-**Requirements:** 5/5 complete (SMOKE-08..12)
-
-- [x] **Phase 1050: builder-smoke-carryover** — completed 2026-05-17 (6 plans, 9 tasks; 7 secondary findings from post-shipping code review all fixed inline)
-
-**Headline wins:** SF-04 vector tile source dedupe (`getSourceIdForLayer` helper in `map-sync.ts:374`); SF-05 blob revoke `useEffect` cleanup; SF-06 anonymous probe gating; SF-07 module-level `autoCapturedMapIds: Set<string>` survives StrictMode unmount/remount; SF-08 `basemapLoadedAtRef` latch with 3000ms save-flow window.
-
-Full details: [milestones/v1010.2-ROADMAP.md](milestones/v1010.2-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v1010.1 Live Playwright MCP Smoke (Phase 1049) — SHIPPED 2026-05-17</summary>
-
-**Goal:** Drive a fresh-stack, interactive Playwright MCP smoke check against v1010's headline win surfaces; classify findings P0/P1/P2; ship P0/P1 inline or defer-with-rationale.
-
-**Requirements:** 7/7 complete (SMOKE-01..07)
-
-- [x] **Phase 1049: mcp-smoke-verification** — completed 2026-05-17 (1 plan, 11 tasks; 8 findings classified — 3 P0/P1 shipped inline, 1 P1 deferred-with-rationale, 4 P2 deferred)
-
-**Headline wins:** Inline fix for v1010 PERF-03 bulk-delete UI regression (`c4576717`); inline fix for render-mode swap leaking line layout keys into the circle adapter (`8713b73f`); inline fix for StyleJsonDialog defective `lazy()` (`3df84554`). Full details: [milestones/v1010.1-ROADMAP.md](milestones/v1010.1-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v1010 Builder Performance & Code Quality (Phases 1046-1048) — SHIPPED 2026-05-16</summary>
-
-**Goal:** Improve Map Builder performance under load (large saved maps, bulk-ops, MapLibre repaint, bundle weight) and lock in code-quality wins via an audit-first sweep — while clearing three carried-forward builder follow-ups.
-
-**Requirements:** 17/17 complete (PERF-01..06, CODE-01..06, FOLLOWUP-01..03, CLOSE-01..02)
-
-- [x] **Phase 1046: builder-perf-and-code-audit** — completed 2026-05-16 (2 plans; 24 code findings + 8 perf bottlenecks)
-- [x] **Phase 1047: perf-and-code-quality-fixes** — completed 2026-05-16 (6 plans, 6 waves)
-- [x] **Phase 1048: followups-and-closeout** — completed 2026-05-16 (4 plans, 4 waves)
-
-**Audit:** passed (17/17 requirements). Smoke gate: typecheck 0 errors; vitest 1887/1887; e2e:smoke:builder 26/26; e2e:smoke:perf PERF-02 p50=4.9ms (target ≤30ms); backend pytest test_maps_bulk_layers 8/8; backend ruff 0 errors; i18n parity (en/de/es/fr at 781 keys).
-
-**Headline wins:** MapBuilderPage entry chunk 281.76 → 233.10 KB (-17.3%); LayerStyleEditor 1231 → 468 LOC (-62%); bulk-delete 50 sequential → 1 batched HTTP (-98%); rAF coalescing collapses paint updates to 1/frame; popup_config invalid save surfaces named error toast.
-
-Full details: [milestones/v1010-ROADMAP.md](milestones/v1010-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v1009.1 Builder Smoke Polish (Phase 1045) — SHIPPED 2026-05-15</summary>
-
-**Goal:** Close the 17 non-B-01 findings from the 2026-05-15 Map Builder Playwright smoke check. B-01 itself shipped ahead of milestone open at commit `85738f1c`.
-
-**Requirements:** 18/18 accounted for — 16 PASS + 1 PARTIAL-PASS (SP-07) + 1 ESCALATE (SP-03) + 1 SKIPPED-with-rationale (SP-12)
-
-- [x] **Phase 1045: builder-smoke-polish** — completed 2026-05-15 (3 plans, 16 tasks, 24 commits)
-
-Hygiene milestone shape: single phase, three sequential plans by severity (A: BLOCKER+MAJORs, B: MINORs, C: POLISH+HOUSEKEEPING), single CTRL-01 batch gate at phase end. Full details: [milestones/v1009.1-ROADMAP.md](milestones/v1009.1-ROADMAP.md).
-
-</details>
-
-<details>
-<summary>✅ v1009 Map Builder v1.5 (Polish) (Phases 1039-1044) — SHIPPED 2026-05-15</summary>
-
-**Goal:** Polish the v1008 unified-stack Map Builder — add the two highest-value v1008 deferrals (drag-from-catalog-into-stack, multi-layer selection / bulk ops), sweep the entire builder surface for modern/sleek/intuitive presentation, and close out pre-existing builder test drift.
-
-**Requirements:** 25/25 complete; 25/25 mapped (POL-01..25)
-
-- [x] **Phase 1039: ux-audit-and-test-debt-closeout** — completed 2026-05-14
-- [x] **Phase 1040: drag-from-catalog-into-stack** — completed 2026-05-14
-- [x] **Phase 1041: multi-layer-selection-and-bulk-ops** — completed 2026-05-14
-- [x] **Phase 1042: spacing-density-states-polish** — completed 2026-05-15
-- [x] **Phase 1043: error-empty-states-and-ia-cleanup** — completed 2026-05-15
-- [x] **Phase 1044: cross-cutting-closeout** — completed 2026-05-15
-
-25/25 v1009 requirements satisfied across 22 plans. Audit: passed / GO. Smoke gate: typecheck 0 errors; vitest 799/799 + 54/54 pages; i18n 2/2; e2e:smoke:builder 25/25; locales en/de/es/fr at 770 keys parity. 1 BLOCKER (B-01 freshLayerId wiring) found and fixed inline during audit. Full details: [milestones/v1009-ROADMAP.md](milestones/v1009-ROADMAP.md).
-
-</details>
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1052. builder-hygiene-carryover | 1/7 | In Progress|  |
 
 ## Backlog
 

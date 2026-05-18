@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: ""
-status: between_milestones
-stopped_at: ""
-last_updated: 2026-05-18T12:00:00.000Z
-last_activity: "2026-05-18 -- v1011 Map Builder Polish & Bug Sweep archived and tagged. 13/13 requirements satisfied across Phase 1051; 65 commits 2026-05-17 → 2026-05-18; 21 inline code-review fixes + 2 in-flight regression fixes (CTRL-01 gate-fix `befe6a3b` + RESP-02-FOLLOWUP `4f4a9917`); live MCP 11/11 PASS. Milestone archived at .planning/milestones/v1011-ROADMAP.md + v1011-REQUIREMENTS.md + v1011-MILESTONE-AUDIT.md + v1011-phases/1051-map-builder-polish-bug-sweep/. ROADMAP.md collapsed; REQUIREMENTS.md deleted (fresh for next milestone). Run /gsd-new-milestone when ready."
+milestone: v1011.1
+milestone_name: Builder Hygiene Carryover
+status: Roadmap created — ready for `/gsd-discuss-phase`
+stopped_at: Roadmap for v1011.1 written — Phase 1052 + 5 success criteria + traceability table populated.
+last_updated: "2026-05-18T17:32:50.850Z"
+last_activity: 2026-05-18 — Roadmap created for v1011.1 (5 reqs → Phase 1052)
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 7
+  completed_plans: 1
   percent: 0
 ---
 
@@ -18,17 +18,19 @@ progress:
 
 ## Current Position
 
-Phase: None (between milestones)
-Plan: None
-Status: Awaiting next milestone definition
-Last activity: 2026-05-18 — v1011 archived + tagged
+Phase: 1052 (builder-hygiene-carryover) — single phase in v1011.1
+Plan: — (TBD via `/gsd-plan-phase` after `/gsd-discuss-phase` settles EMRG-FN-01 Path A vs Path B)
+Status: Roadmap created — ready for `/gsd-discuss-phase`
+Last activity: 2026-05-18 — Roadmap created for v1011.1 (5 reqs → Phase 1052)
+
+Progress: [█░░░░░░░░░] 14%
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-18 — v1011 Map Builder Polish & Bug Sweep shipped)
+See: .planning/PROJECT.md (updated 2026-05-18 — v1011 Map Builder Polish & Bug Sweep shipped, v1011.1 milestone scoped)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone — run `/gsd-new-milestone` to scope the next milestone.
+**Current focus:** v1011.1 Phase 1052 — close 4 EMRG-FN carryforward findings + CTRL-01 close gate.
 
 ## Last Shipped Milestone
 
@@ -40,21 +42,39 @@ See: .planning/PROJECT.md (updated 2026-05-18 — v1011 Map Builder Polish & Bug
 
 ## Accumulated Context
 
-### Open candidate themes for next milestone
+### Decisions
 
-- **Phase 1038 dead-stub cleanup** (EMRG-FN-01 from v1011) — REMOVE the 5 sibling `BasemapSublayerEditorScene` no-op callbacks on the INV-01 precedent (~10min, Path A), OR FIX them by wiring real basemap-sublayer styling persistence (~3-5 days, Path B). Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`.
-- **v1.7 Marketplace & Distribution unpause** — paused at Phase 40 (AWS AMI Build).
-- **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping (backlogged, Cloud-tier blocker).
-- **Enterprise feature backlog** — Phase 999.13 connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM, Phase 999.16 schemas package extraction.
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- v1011 Phase 1051 CTRL-01: defer all 4 EMRG-FN findings to v1011.1 hygiene milestone (P2-defer; outside v1011 scope-boundary).
+- v1011.1 milestone scope: single hygiene phase, sequential plans, single CTRL-01 close gate per `feedback_hygiene_milestone_pattern.md`. Mirrors v1009.1 / v1010.1 / v1010.2 / v1011 hygiene precedent.
+- EMRG-FN-01 Path A REMOVE vs Path B FIX decision deferred to `/gsd-discuss-phase` — phase goal accommodates either path.
 
 ### Pending Todos
 
-- **EMRG-FN-01 — BasemapSublayerEditorScene Phase 1038 dead-stub cleanup** (from v1011 EMRG-01 triage). The 5 sibling no-op callbacks at `MapBuilderPage.tsx:845-850` (`onStrokeColorChange` / `onStrokeWidthChange` / `onCasingColorChange` / `onCasingWidthChange` / `onZoomChange`) all bear identical `TODO(BUILDER-SUBLAYER-PERSIST)` markers. Todo at `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md` documents REMOVE (Path A, ~10min) and FIX (Path B, ~3-5 days) paths; recommendation is REMOVE on the INV-01 precedent.
-- **EMRG-FN-02 — settings.toggleWidget orphan i18n key** (4 locales × 1 key from Plan 07 UX-04). Cleanup is trivial (4 file edits, no tests) and should ride with the next i18n sweep that touches `frontend/src/i18n/locales/{en,de,es,fr}/builder.json` for an unrelated reason.
-- **EMRG-FN-03 — Pre-existing UnifiedStackPanel.tsx unused-eslint-disable warnings** (lines 679 + 720 from Phase 1041). Single-file 2-line removal, trivial to bundle into any future UnifiedStackPanel edit.
-- **EMRG-FN-04 — SublayerConfigIndicators receives layer=null for basemap sublayers** (Plan 05 UX-02 deferred enhancement). Dependent on EMRG-FN-01 resolution or an independent product decision to enable basemap sublayer styling.
+- **EMRG-FN-01 — BasemapSublayerEditorScene Phase 1038 dead-stub cleanup** (from v1011 EMRG-01 triage). Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`. Path A REMOVE (~10min, mirror INV-01 precedent) vs Path B FIX (~3-5 days, implement Phase 1038 sublayer styling persistence).
+- **EMRG-FN-02 — `settings.toggleWidget` orphan i18n key** (4 locales × 1 key from Plan 07 UX-04). Trivial 4-file edit, no tests.
+- **EMRG-FN-03 — UnifiedStackPanel.tsx unused-eslint-disable warnings** (lines 679 + 720 from Phase 1041). Single-file 2-line removal.
+- **EMRG-FN-04 — SublayerConfigIndicators `layer=null` branch** (Plan 05 UX-02 deferred enhancement). Auto-resolved by EMRG-FN-01 Path A or covered by explicit regression test under Path B.
 
-## Operator Next Steps
+### Blockers/Concerns
 
-- Run `/gsd-new-milestone` to scope the next milestone (or `/gsd-explore` for socratic ideation if direction is unclear).
-- Optionally push the local `v1011` tag: `git push origin v1011`.
+None. v1011 baseline is green; EMRG-FN-01 path decision is a planning conversation, not a blocker.
+
+## Deferred Items
+
+Items acknowledged and carried forward from v1011 milestone close:
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| EMRG-FN | BasemapSublayerEditorScene Phase 1038 dead-stub callbacks | In v1011.1 scope (EMRG-FN-01) | 2026-05-18 (v1011 close) |
+| EMRG-FN | `settings.toggleWidget` orphan i18n key | In v1011.1 scope (EMRG-FN-02) | 2026-05-18 (v1011 close) |
+| EMRG-FN | UnifiedStackPanel.tsx unused-eslint-disable warnings | In v1011.1 scope (EMRG-FN-03) | 2026-05-18 (v1011 close) |
+| EMRG-FN | SublayerConfigIndicators `layer=null` branch | In v1011.1 scope (EMRG-FN-04) | 2026-05-18 (v1011 close) |
+
+## Session Continuity
+
+Last session: 2026-05-18T17:32:50.845Z
+Stopped at: Roadmap for v1011.1 written — Phase 1052 + 5 success criteria + traceability table populated.
+Resume file: None
