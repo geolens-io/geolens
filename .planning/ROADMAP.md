@@ -121,7 +121,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 1051-06-ux-draggable-basemap-row-PLAN.md — UX-03: basemap row draggable in layer order + saved-map persistence
+- [x] 1051-06-ux-draggable-basemap-row-PLAN.md — UX-03: basemap row draggable in layer order + saved-map persistence — ✅ SHIPPED 2026-05-18 (commit `0957cf6d`)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
