@@ -177,7 +177,11 @@ export const BuilderMap = memo(function BuilderMap({
         if (import.meta.env.DEV) console.warn('[BuilderMap] Basemap style sanitization failed:', error);
         if (!cancelled) {
           setBasemapNotice('style');
-          setMapStyle(styleValue);
+          // Phase 1051 WR-06: keep the placeholder background style on fetch
+          // failure. Previously we passed the raw URL string to MapGL, which
+          // triggered a second (uncancelable) fetch and could flash a different
+          // intermediate state. The user already sees the toast surfaced by
+          // errorHandlerRef + the basemapNotice banner.
         }
       });
 
