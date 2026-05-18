@@ -1,5 +1,38 @@
 # Milestones
 
+## v1011 Map Builder Polish & Bug Sweep (Shipped: 2026-05-18)
+
+**Phase:** 1051 (single-phase hygiene close)
+**Plans:** 13 / 13 complete
+**Requirements:** 13/13 satisfied (BUG-01..03, UX-01..04, RESP-01..03, INV-01, EMRG-01, CTRL-01)
+**Audit:** passed (derived from Phase 1051 VERIFICATION.md — see `.planning/milestones/v1011-MILESTONE-AUDIT.md`)
+**Tag:** `v1011` (local)
+
+**Key accomplishments:**
+
+1. **Layer affordance contract integrity (BUG-01..03)** — visibility toggle, delete-layer, rename-group autofocus all dispatch correctly with defense-in-depth adapter contracts + optimistic state + rollback + Radix rAF focus.
+2. **Sublayer UX (UX-01..02)** — group-row expand carets meet 24×24 px hit target with Lucide ChevronRight; new `SublayerConfigIndicators` pure-derivation component renders up to 4 badges (Labels / Filter / DataDriven / OpacityModified); per-sublayer opacity slider removed (still editable in LayerEditorPanel flyout).
+3. **Basemap layering (UX-03)** — basemap row now draggable in unified stack; `MapBasemapConfig.basemap_position` jsonb-additive (zero backend migration); new `reorderBasemapAboveData(map, position, sourcePrefix)` map-sync helper inverts MapLibre layer order when basemap is at top.
+4. **Map Settings widgets (UX-04)** — state-specific aria-labels ("Enable {{name}}" off / "Disable {{name}}" on) replace composite template; duplicate-controls audit found 0 actual duplicates (SettingsEditorScene is availability source, MapToolbar is live-interaction).
+5. **Small-screen resilience (RESP-01..03)** — NavigationControl moved to `position="top-left"`; MapCoordReadout cross-context offset codified in docstring; `<SheetContent showCloseButton={false}>` opt-out on both editor + mobile-rail Sheet wrappers (8 regression tests including a NEGATIVE-CONTROL bug-shape pin).
+6. **DETAIL LEVEL removed (INV-01)** — dead-wired since v1008; REMOVE disposition over FIX (FIX requires 3-5 days MapLibre style-mutation work — out of v1011 scope). 7 files changed (+28/-153); 6 i18n keys × 4 locales = 24 entries cleaned.
+7. **Triage + close gate (EMRG-01 + CTRL-01)** — FINDINGS.md with 4 P2-defer emergent findings (Phase 1038 sibling dead-stubs + 3 minor cleanups); CHANGELOG `[Unreleased]` populated; inline gate-fix `befe6a3b` for Plan-06-introduced dnd-kit collision regression; RESP-02-FOLLOWUP `4f4a9917` for boundary regression caught live during MCP re-verify.
+
+**Smoke gate:** typecheck 0 errors / vitest 1981/1981 (builder 982/982) / e2e:smoke:builder 26/26 / i18n parity 2/2.
+**Live MCP re-verify:** 11/11 PASS + v1010.2 SF-04..08 spot-check + RESP-02-FOLLOWUP fixed inline.
+**Inline review fixes:** 21 (iter-1: 17 / iter-2: 4) per `feedback_review_findings_inline.md`. Zero v1011.1 deferrals.
+
+**Known deferred items at close (4 P2/defer emergent findings, all tracked):**
+
+- EMRG-FN-01: BasemapSublayerEditorScene Phase 1038 sibling no-op callbacks (5 callbacks at `MapBuilderPage.tsx:845-850`) — tracking via pending todo `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`
+- EMRG-FN-02: `settings.toggleWidget` orphan i18n key × 4 locales from Plan 07 — rides next i18n sweep
+- EMRG-FN-03: pre-existing UnifiedStackPanel unused-eslint-disable warnings from Phase 1041 — SCOPE BOUNDARY-correct deferral
+- EMRG-FN-04: SublayerConfigIndicators receives `layer=null` for basemap sublayers — dependent on EMRG-FN-01 resolution
+
+See `.planning/milestones/v1011-ROADMAP.md` for full details.
+
+---
+
 ## v1010.2 Builder Smoke Carryover (Shipped: 2026-05-17)
 
 **Phases completed:** 6 phases, 6 plans, 9 tasks
