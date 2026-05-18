@@ -79,6 +79,40 @@ describe('buildSignedTileUrl', () => {
   });
 });
 
+describe('buildSignedTileUrl extraCols edge cases', () => {
+  const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
+
+  it('omits &cols= when extraCols contains only whitespace', () => {
+    // normalizeExtraCols filters entries that are falsy or whitespace-only.
+    // A caller passing ['   '] (e.g. from a stale state value) must not
+    // produce ?cols= in the URL, which would confuse the tile server.
+    const url = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, ['   ']);
+    expect(url).not.toContain('cols=');
+  });
+
+  it('omits &cols= when extraCols contains only falsy entries', () => {
+    // Explicit null/undefined entries that somehow end up in the extraCols
+    // array (TypeScript coercion) must be stripped.  Distinct from the
+    // existing empty-array case (lines 66-73) which covers [] / null / undefined
+    // at the array level — this covers falsy items INSIDE a non-empty array.
+    const url = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, [
+      undefined as unknown as string,
+      null as unknown as string,
+    ]);
+    expect(url).not.toContain('cols=');
+  });
+
+  it('URL-encodes the comma separator as %2C when multiple cols are present', () => {
+    // appendTileParams (tile-utils.ts:65) encodes the comma between column
+    // names as %2C so the URL is safe for HTTP transport.
+    // The existing test at line 63 asserts `.toContain('cols=a%2Cb')` using
+    // single-char names; this assertion uses full-word column names to confirm
+    // the encoding is not accidentally bypassed for multi-char names.
+    const url = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, ['col_a', 'col_b']);
+    expect(url).toContain('cols=col_a%2Ccol_b');
+  });
+});
+
 describe('buildClusterTileUrl', () => {
   const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
 
