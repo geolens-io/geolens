@@ -54,19 +54,8 @@ function defaultProps(
   return {
     sublayerId: 'roads',
     sublayerName: 'Roads',
-    strokeColor: '#FF0000',
-    strokeWidth: 2,
-    casingColor: '#000000',
-    casingWidth: 1,
     opacity: 1,
-    minZoom: 0,
-    maxZoom: 22,
-    onStrokeColorChange: vi.fn(),
-    onStrokeWidthChange: vi.fn(),
-    onCasingColorChange: vi.fn(),
-    onCasingWidthChange: vi.fn(),
     onOpacityChange: vi.fn(),
-    onZoomChange: vi.fn(),
     onResetSublayer: vi.fn(),
     ...overrides,
   };
@@ -79,60 +68,20 @@ describe('BasemapSublayerEditorScene', () => {
   // regression guard for the REMOVE disposition is Test 13 below — asserts no
   // radiogroup, no `DETAIL LEVEL` heading, and no `currently customized` hint
   // text are rendered.
+  //
+  // Phase 1052 Plan 03 (EMRG-FN-01): STROKE section + zoom range inputs
+  // removed — Tests 5-7 (STROKE field rendering, color picker / slider
+  // counts, width slider → onStrokeWidthChange) and the zoom-input
+  // assertions in Test 8 deleted alongside their production surface.
+  // Test 14 below is the EMRG-FN-01 REMOVE-disposition regression pin
+  // (positive-form queryBy* — mirrors Test 13's INV-01 pattern).
 
-  it('Test 5: STROKE section renders 4 fields in a field grid', () => {
+  it('Test 8: VISIBILITY section renders opacity slider', () => {
     render(<BasemapSublayerEditorScene {...defaultProps()} />);
-
-    // Check labels exist
-    expect(screen.getByText('STROKE')).toBeInTheDocument();
-    expect(screen.getByText('Color')).toBeInTheDocument();
-    expect(screen.getByText('Width')).toBeInTheDocument();
-    expect(screen.getByText('Casing color')).toBeInTheDocument();
-    expect(screen.getByText('Casing width')).toBeInTheDocument();
-  });
-
-  it('Test 6: Color/Casing-color fields render StyleColorPicker; Width/Casing-width render Slider', () => {
-    const { container } = render(<BasemapSublayerEditorScene {...defaultProps({ strokeWidth: 3, casingWidth: 1.5 })} />);
-
-    // 2 color pickers
-    const colorPickers = screen.getAllByTestId('color-picker');
-    expect(colorPickers.length).toBeGreaterThanOrEqual(2);
-
-    // At least 2 sliders (width + casing width + possible opacity)
-    const sliders = screen.getAllByRole('slider');
-    expect(sliders.length).toBeGreaterThanOrEqual(2);
-
-    // Check that width slider has expected range (0-8px)
-    const widthSlider = sliders.find((s) => s.getAttribute('aria-label')?.toLowerCase().includes('stroke width') || s.getAttribute('aria-valuemin') === '0' && s.getAttribute('aria-valuemax') === '8');
-    expect(widthSlider).toBeTruthy();
-
-    // Suppress unused warning
-    void container;
-  });
-
-  it('Test 7: width slider value change calls onStrokeWidthChange(value); value label has tabular-nums class', () => {
-    const onStrokeWidthChange = vi.fn();
-    render(<BasemapSublayerEditorScene {...defaultProps({ strokeWidth: 2, onStrokeWidthChange })} />);
-
-    // Find value span with tabular-nums
-    const valueSpan = document.querySelector('.tabular-nums');
-    expect(valueSpan).toBeTruthy();
-  });
-
-  it('Test 8: VISIBILITY section renders opacity slider + min/max zoom inputs', () => {
-    render(<BasemapSublayerEditorScene {...defaultProps({ minZoom: 3, maxZoom: 18 })} />);
 
     // Opacity slider
     const opacitySlider = screen.getByRole('slider', { name: /Opacity/i });
     expect(opacitySlider).toBeInTheDocument();
-
-    // Zoom inputs
-    const minZoomInput = screen.getByRole('spinbutton', { name: /Minimum zoom/i });
-    const maxZoomInput = screen.getByRole('spinbutton', { name: /Maximum zoom/i });
-    expect(minZoomInput).toBeInTheDocument();
-    expect(maxZoomInput).toBeInTheDocument();
-    expect(minZoomInput).toHaveValue(3);
-    expect(maxZoomInput).toHaveValue(18);
   });
 
   it('Test 9: RESET section is collapsed by default; collapsed state shows hint', () => {
@@ -233,5 +182,23 @@ describe('BasemapSublayerEditorScene', () => {
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
     expect(screen.queryByText(/DETAIL LEVEL/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/currently customized/i)).not.toBeInTheDocument();
+  });
+
+  it('Test 14: STROKE section + zoom range inputs are removed (Phase 1052 EMRG-FN-01 REMOVE disposition pin)', () => {
+    // Regression guard for the REMOVE disposition shipped in Phase 1052 Plan 01:
+    // the dead-stub STROKE section (color/width/casing color/casing width
+    // controls) and VISIBILITY zoom range inputs (min/max) must not be
+    // reintroduced without real consumers for sublayer style mutation. If
+    // a future feature needs these surfaces, it should re-add the props +
+    // JSX AND wire real onStrokeColorChange / onZoomChange handlers that
+    // mutate MapLibre style at the same time — this test exists to make
+    // that intent explicit at the call site.
+    render(<BasemapSublayerEditorScene {...defaultProps({ sublayerName: 'Roads' })} />);
+
+    expect(screen.queryByText(/^STROKE$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Stroke color$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Casing color$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: /Minimum zoom/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton', { name: /Maximum zoom/i })).not.toBeInTheDocument();
   });
 });
