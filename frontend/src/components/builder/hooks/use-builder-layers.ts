@@ -861,7 +861,15 @@ export function useBuilderLayers(
     };
 
     try {
-      getAdapter(adapterType).addLayers(map, adapterInput);
+      const adapter = getAdapter(adapterType);
+      adapter.addLayers(map, adapterInput);
+      // BUG-01: explicitly re-assert visibility after addLayers. The adapter
+      // contract honors `input.visible` at initial add (defense-in-depth in
+      // each adapter), and calling syncVisibility here also covers companion
+      // layers (e.g. fill outline / cluster count) so the freshly-swapped
+      // layer cannot become a "ghost visible" layer when the user is on a
+      // hidden render-mode source.
+      adapter.syncVisibility(map, adapterInput);
     } catch (e) {
       toast.error(t('toasts.renderModeSwitchFailed'));
       if (import.meta.env.DEV) console.error('[builder] swapLayerOnMap failed:', e);

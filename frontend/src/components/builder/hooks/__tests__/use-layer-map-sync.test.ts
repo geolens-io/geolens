@@ -305,3 +305,147 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
     rafSpy.mockRestore();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Adapter addLayers visibility regression (BUG-01 follow-up)
+//
+// Diagnosis: the eye toggle handler is wired correctly, but a layer can drift
+// out of sync with the map when ANY non-sync code path calls `adapter.addLayers`
+// (e.g. `swapLayerOnMap` for render-mode switches, or the raster re-add branch
+// in `handleStyleConfigChange`). Those call sites do NOT then call
+// `adapter.syncVisibility`, so a layer with `visible=false` is silently rendered
+// on the map until the next React-triggered runSync. The user then perceives
+// the next eye click as a no-op because the map is already at the "wrong"
+// visibility — clicking flips React state (visible=false → true) and the
+// handler dispatches `setLayoutProperty('visibility', 'visible')`, which is a
+// MapLibre no-op because the layer was already visible.
+//
+// Fix surface: every adapter's `addLayers` must honor `input.visible` so that
+// any caller (sync or swap) gets a layer in the correct initial visibility
+// state without depending on a follow-up `syncVisibility` call.
+// ---------------------------------------------------------------------------
+describe('adapter.addLayers respects input.visible (BUG-01 root cause)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  function makeAddLayerMap() {
+    const layerSpecs = new Map<string, { layout?: Record<string, unknown> }>();
+    const sources = new Map<string, unknown>();
+    const layoutProps = new Map<string, Record<string, unknown>>();
+    return {
+      addLayer: vi.fn((layer: { id: string; layout?: Record<string, unknown> }) => {
+        layerSpecs.set(layer.id, { layout: layer.layout });
+        if (layer.layout) layoutProps.set(layer.id, { ...layer.layout });
+      }),
+      getLayer: vi.fn((id: string) => (layerSpecs.has(id) ? { id } : null)),
+      addSource: vi.fn((id: string, spec: unknown) => { sources.set(id, spec); }),
+      getSource: vi.fn((id: string) => sources.get(id) ?? null),
+      removeLayer: vi.fn(),
+      removeSource: vi.fn(),
+      setPaintProperty: vi.fn(),
+      setLayoutProperty: vi.fn((id: string, prop: string, value: unknown) => {
+        const props = layoutProps.get(id) ?? {};
+        props[prop] = value;
+        layoutProps.set(id, props);
+      }),
+      getLayoutProperty: vi.fn((id: string, prop: string) => layoutProps.get(id)?.[prop]),
+      setFilter: vi.fn(),
+      setLayerZoomRange: vi.fn(),
+      hasImage: vi.fn(() => false),
+      addImage: vi.fn(),
+      getSprite: vi.fn(() => []),
+      addSprite: vi.fn(),
+      isStyleLoaded: vi.fn(() => true),
+      __layerSpecs: layerSpecs,
+      __layoutProps: layoutProps,
+    } as unknown as MaplibreMap & {
+      __layerSpecs: Map<string, { layout?: Record<string, unknown> }>;
+      __layoutProps: Map<string, Record<string, unknown>>;
+    };
+  }
+
+  function commonInput(layerId: string, visible: boolean) {
+    return {
+      id: layerId,
+      dataset_table_name: 'shared',
+      dataset_geometry_type: 'Polygon',
+      opacity: 1,
+      visible,
+      paint: {},
+      layout: {},
+      filter: null,
+      sourceId: `source-${layerId}`,
+      layerId: `layer-${layerId}`,
+      sourceLayer: 'data.shared',
+      tileUrl: '/tiles/shared/{z}/{x}/{y}.pbf',
+    };
+  }
+
+  it('fillAdapter.addLayers with visible=false ends with main layer visibility "none"', async () => {
+    const { fillAdapter } = await import('@/components/builder/layer-adapters/fill-adapter');
+    const map = makeAddLayerMap();
+    const input = commonInput('hidden-fill', false);
+
+    fillAdapter.addLayers(map as unknown as MaplibreMap, input as never);
+
+    const vis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
+      .getLayoutProperty('layer-hidden-fill', 'visibility');
+    expect(vis).toBe('none');
+
+    // Outline companion must also be hidden (it shares the parent's visibility).
+    const outlineVis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
+      .getLayoutProperty('layer-hidden-fill-outline', 'visibility');
+    expect(outlineVis).toBe('none');
+  });
+
+  it('fillAdapter.addLayers with visible=true ends with main layer visibility "visible"', async () => {
+    const { fillAdapter } = await import('@/components/builder/layer-adapters/fill-adapter');
+    const map = makeAddLayerMap();
+    const input = commonInput('shown-fill', true);
+
+    fillAdapter.addLayers(map as unknown as MaplibreMap, input as never);
+
+    const vis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
+      .getLayoutProperty('layer-shown-fill', 'visibility');
+    // Either explicit 'visible' or undefined (MapLibre default) is acceptable.
+    expect(vis === 'visible' || vis === undefined).toBe(true);
+  });
+
+  it('lineAdapter.addLayers with visible=false ends with main layer visibility "none"', async () => {
+    const { lineAdapter } = await import('@/components/builder/layer-adapters/line-adapter');
+    const map = makeAddLayerMap();
+    const input = { ...commonInput('hidden-line', false), dataset_geometry_type: 'LineString' };
+
+    lineAdapter.addLayers(map as unknown as MaplibreMap, input as never);
+
+    const vis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
+      .getLayoutProperty('layer-hidden-line', 'visibility');
+    expect(vis).toBe('none');
+  });
+
+  it('circleAdapter.addLayers with visible=false ends with main layer visibility "none"', async () => {
+    const { circleAdapter } = await import('@/components/builder/layer-adapters/circle-adapter');
+    const map = makeAddLayerMap();
+    const input = { ...commonInput('hidden-circle', false), dataset_geometry_type: 'Point' };
+
+    circleAdapter.addLayers(map as unknown as MaplibreMap, input as never);
+
+    const vis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
+      .getLayoutProperty('layer-hidden-circle', 'visibility');
+    expect(vis).toBe('none');
+  });
+
+  it('heatmapAdapter.addLayers with visible=false ends with main layer visibility "none"', async () => {
+    const { heatmapAdapter } = await import('@/components/builder/layer-adapters/heatmap-adapter');
+    const map = makeAddLayerMap();
+    const input = { ...commonInput('hidden-heatmap', false), dataset_geometry_type: 'Point' };
+
+    heatmapAdapter.addLayers(map as unknown as MaplibreMap, input as never);
+
+    const vis = (map as unknown as { getLayoutProperty: (id: string, prop: string) => unknown })
+      .getLayoutProperty('layer-hidden-heatmap', 'visibility');
+    expect(vis).toBe('none');
+  });
+});

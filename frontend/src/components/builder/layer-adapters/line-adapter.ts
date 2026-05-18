@@ -112,7 +112,7 @@ export const lineAdapter: LayerAdapter = {
   type: 'line',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout: storedLayout, opacity, filter } = input;
+    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout: storedLayout, opacity, filter, visible } = input;
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
@@ -144,6 +144,8 @@ export const lineAdapter: LayerAdapter = {
           'line-cap': 'round',
           'line-join': 'round',
           ...restLayout,
+          // BUG-01: honor input.visible at initial add — see fill-adapter for rationale.
+          ...(visible === false ? { visibility: 'none' as const } : {}),
         },
       });
       finalizeLayer(map, layerId, rawPaint, 'line', opacity ?? 1, filter, hasExpressions);

@@ -37,7 +37,7 @@ export const fillAdapter: LayerAdapter = {
   type: 'fill',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter } = input;
+    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter, visible } = input;
     const builder = getBuilderStyleConfig(input);
     const outlineId = `${input.layerId}-outline`;
     const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
@@ -56,13 +56,24 @@ export const fillAdapter: LayerAdapter = {
       if (strokeDisabled) {
         effectiveFillPaint['fill-outline-color'] = 'rgba(0,0,0,0)';
       }
+      // BUG-01: honor input.visible at initial add so callers that don't
+      // immediately follow up with syncVisibility (e.g. swapLayerOnMap for
+      // render-mode switches, the raster re-add branch in
+      // handleStyleConfigChange) still produce a layer in the correct visual
+      // state. Without this, a hidden layer becomes inadvertently visible on
+      // the map after re-add, which the user perceives as the eye toggle
+      // being a no-op (the next click flips React state but the map was
+      // already at the new visibility — no observable change).
+      const initialLayout = visible === false
+        ? { ...layout, visibility: 'none' as const }
+        : layout;
       map.addLayer({
         id: layerId,
         type: 'fill',
         source: sourceId,
         ...(input.sourceType !== 'geojson' && { 'source-layer': sourceLayer }),
         paint: effectiveFillPaint,
-        layout,
+        layout: initialLayout,
       });
       finalizeLayer(map, layerId, rawPaint, 'fill', opacity ?? 1, filter, hasExpressions);
 
@@ -83,8 +94,13 @@ export const fillAdapter: LayerAdapter = {
           'line-color': (typeof outlineColor === 'string' ? outlineColor : null) ?? MAP_COLORS.default.stroke,
           'line-width': outlineWidth ?? 1,
         },
+        ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
       });
       map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
+      // strokeDisabled hides the outline regardless of layer visibility.
+      // When the layer is hidden we leave the outline hidden too (it cannot be
+      // visible while its parent is none); when the layer is visible, we
+      // restore the outline to follow the stroke-disabled rule.
       if (strokeDisabled) {
         map.setLayoutProperty(outlineId, 'visibility', 'none');
       }

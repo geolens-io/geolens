@@ -185,6 +185,13 @@ export function useLayerMapSync(
             if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
             if (map.getSource(sourceId)) map.removeSource(sourceId);
             adapter.addLayers(map, input);
+            // BUG-01: re-assert visibility after the raster re-add. The
+            // adapter's addLayers honors input.visible (raster-adapter:76-78),
+            // but this defense-in-depth call mirrors the swapLayerOnMap fix
+            // and guarantees the swap path never produces a layer in the
+            // wrong visibility state — even if a future adapter forgets the
+            // contract.
+            adapter.syncVisibility(map, input);
           } else {
             adapter.syncPaint(map, input);
           }

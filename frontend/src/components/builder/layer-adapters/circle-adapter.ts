@@ -7,11 +7,15 @@ export const circleAdapter: LayerAdapter = {
   type: 'circle',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter } = input;
+    const { layerId, sourceId, sourceLayer, paint: rawPaint, layout, opacity, filter, visible } = input;
     const hasExpressions = Object.values(rawPaint).some(Array.isArray);
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
       const circlePaint = filterPaintForLayerType(basePaint, 'circle');
+      // BUG-01: honor input.visible at initial add — see fill-adapter for rationale.
+      const initialLayout = visible === false
+        ? { ...layout, visibility: 'none' as const }
+        : layout;
       map.addLayer({
         id: layerId,
         type: 'circle',
@@ -23,7 +27,7 @@ export const circleAdapter: LayerAdapter = {
           'circle-stroke-color': MAP_COLORS.default.stroke,
           'circle-stroke-width': 1,
         },
-        layout,
+        layout: initialLayout,
       });
       finalizeLayer(map, layerId, rawPaint, 'circle', opacity ?? 1, filter, hasExpressions);
     } catch (e) {

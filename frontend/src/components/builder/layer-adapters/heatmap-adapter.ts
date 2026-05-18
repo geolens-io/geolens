@@ -34,7 +34,7 @@ export const heatmapAdapter: LayerAdapter = {
   type: 'heatmap',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, sourceLayer, paint: rawPaint, filter, opacity } = input;
+    const { layerId, sourceId, sourceLayer, paint: rawPaint, filter, opacity, visible } = input;
     const builder = getBuilderStyleConfig(input);
 
     // Extract heatmap-specific props from paint, falling back to defaults
@@ -59,6 +59,8 @@ export const heatmapAdapter: LayerAdapter = {
           'heatmap-color': heatmapColor,
           'heatmap-opacity': heatmapOpacity,
         } as Record<string, unknown>,
+        // BUG-01: honor input.visible at initial add — see fill-adapter for rationale.
+        ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
       });
 
       syncLayerFilter(map, layerId, filter);
