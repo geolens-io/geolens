@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
 status: executing
-stopped_at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
-last_updated: "2026-05-17T23:35:29.943Z"
-last_activity: 2026-05-17 -- Phase 1051 planning complete
+stopped_at: Phase 1051 Plan 01 (BUG-01) complete — visibility-toggle adapter contract fixed
+last_updated: "2026-05-18T00:36:18.024Z"
+last_activity: 2026-05-17 -- Phase 1051 Plan 01 (BUG-01) shipped via adapter.addLayers contract fix
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 8
 ---
 
 # State
@@ -19,9 +19,9 @@ progress:
 ## Current Position
 
 Phase: 1051 — map-builder-polish-bug-sweep
-Plan: Not started (roadmap just created)
-Status: Ready to execute
-Last activity: 2026-05-17 -- Phase 1051 planning complete
+Plan: 1051-02 (BUG-02 delete-layer) — next to start
+Status: 1/13 plans complete (Plan 01 BUG-01 shipped at commit 8c6de63)
+Last activity: 2026-05-17 -- Phase 1051 Plan 01 (BUG-01) shipped via adapter.addLayers contract fix
 
 ## Project Reference
 
@@ -51,6 +51,7 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1011 Map Bui
 - **Plan 12 (EMRG-01) opens with placeholder content** and is updated as findings land during plans 01-11. If zero emergent findings, FINDINGS.md is still authored with explicit "0 emergent" note.
 - **Per-plan verification:** Each user-reported plan includes (a) Playwright MCP pre-fix repro, (b) implementation, (c) vitest regression (where applicable — pure-CSS responsive fixes use manual MCP verify only), (d) Playwright MCP post-fix verify. Atomic commits.
 - **Single CTRL-01 close gate at Plan 13** — batched typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify of all 11 items + CHANGELOG `[Unreleased]` population. Per `feedback_review_findings_inline.md`: any code-review findings surface during gate get fixed inline before close, not deferred to v1011.1.
+- **Phase 1051 Plan 01 (BUG-01)**: Fix at adapter.addLayers level + defense-in-depth syncVisibility calls. Root cause was non-sync re-add paths (`swapLayerOnMap`, raster re-add in `handleStyleConfigChange`) skipping syncVisibility, exposing an adapter contract gap where fill/line/circle/heatmap addLayers ignored input.visible (unlike raster/hillshade/symbol/cluster which did). Fixed at BOTH levels: adapters honor input.visible directly, AND every non-sync caller explicitly invokes syncVisibility after addLayers. Shipped at commit `8c6de63` with 5 new vitest regression cases (13/13 in target file, 889/889 in builder suite, 0 tsc errors).
 
 ### Out of Scope (per REQUIREMENTS.md)
 
