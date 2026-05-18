@@ -373,7 +373,10 @@ export function useBuilderLayers(
 
   const handleCreateGroupWithLayer = useCallback((layerId: string) => {
     // Generate id OUTSIDE the updater so both setters share the same value.
-    const groupId = `group-${Date.now()}`;
+    // Phase 1051 WR-01: crypto.randomUUID is collision-safe across bulk +
+    // single create paths firing in the same millisecond. The prior
+    // `group-${Date.now()}` form collided under rapid bulk operations.
+    const groupId = `group-${crypto.randomUUID()}`;
 
     setLocalLayers((prev) => {
       const idx = prev.findIndex((l) => l.id === layerId);
@@ -547,7 +550,9 @@ export function useBuilderLayers(
     );
     if (selectedLayers.length !== selectedIds.size || selectedLayers.length < 2) return;
 
-    const groupId = `group-${Date.now()}`;
+    // Phase 1051 WR-01: crypto.randomUUID is collision-safe — see
+    // handleCreateGroupWithLayer for the bulk + single race rationale.
+    const groupId = `group-${crypto.randomUUID()}`;
     const existingGroupCount = current.filter(
       (l) => (l as GroupedLayer).layer_type === 'group:folder',
     ).length;
