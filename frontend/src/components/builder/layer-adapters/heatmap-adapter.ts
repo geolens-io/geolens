@@ -41,7 +41,14 @@ export const heatmapAdapter: LayerAdapter = {
     const heatmapRadius = rawPaint['heatmap-radius'] ?? 30;
     const heatmapWeight = rawPaint['heatmap-weight'] ?? 1;
     const heatmapIntensity = rawPaint['heatmap-intensity'] ?? 1;
-    const heatmapOpacity = (opacity ?? 1) * 0.8;
+    // Phase 1051 CR-04: read stored heatmap-opacity (matching syncPaint formula
+    // at line 91) and compound with master opacity. Previously hard-coded 0.8 at
+    // add-time, which overwrote persisted heatmap-opacity on every page load,
+    // render-mode swap, or basemap switch — producing a visible flash and silent
+    // drift until any subsequent paint sync. Mirrors the rawPaint['heatmap-*']
+    // ?? default pattern used for radius/weight/intensity above.
+    const storedHeatmapOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
+    const heatmapOpacity = storedHeatmapOpacity * (opacity ?? 1);
 
     // Use stored color expression or build the default
     const heatmapColor: unknown = rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP);
