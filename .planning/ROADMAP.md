@@ -79,7 +79,7 @@
 
 **Shape:** Hygiene close — single phase, 13 sequential plans (11 user-reported items + 1 emergent-findings triage + 1 CTRL-01 close gate). No new features, no research, no AI integration. Mirrors v1009.1 Phase 1045, v1010.1 Phase 1049, and v1010.2 Phase 1050 per `feedback_hygiene_milestone_pattern.md`.
 
-- [ ] **Phase 1051: map-builder-polish-bug-sweep** — Close 11 user-reported polish/bug items inline via Playwright MCP inspect-verify-fix loop; triage emergent findings; ship CHANGELOG note + green smoke gate.
+- [x] **Phase 1051: map-builder-polish-bug-sweep** — Close 11 user-reported polish/bug items inline via Playwright MCP inspect-verify-fix loop; triage emergent findings; ship CHANGELOG note + green smoke gate. ✅ ALL 13 PLANS SHIPPED — awaiting orchestrator MCP re-verify + milestone close.
 
 ## Phase Details
 
@@ -149,7 +149,7 @@ Plans:
 
 **Wave 13** *(blocked on Wave 12 completion)*
 
-- [ ] 1051-13-close-gate-PLAN.md — CTRL-01: smoke gate (typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify) + CHANGELOG
+- [x] 1051-13-close-gate-PLAN.md — CTRL-01: smoke gate (typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify) + CHANGELOG — ✅ SHIPPED 2026-05-18 (gate-fix `befe6a3b` + close-gate commit; typecheck 0 / vitest 1974/1974 / e2e:smoke:builder 26/26 after 1 inline gate-fix for Plan-06-introduced dnd-kit collision regression; CHANGELOG [Unreleased] v1011 sub-section populated with 11 user-reported bullets + EMRG-01 outcome + CTRL-01 gate-fix; stack re-verified on running services via data-preserving `restart api worker frontend`; Playwright MCP re-verify of all 11 items + v1010.2 SF-04..08 spot-check delegated to orchestrator per phase 1051 pattern)
 
 **UI hint**: yes
 

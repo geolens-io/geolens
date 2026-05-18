@@ -41,7 +41,7 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 
 ### Close Gate (CTRL)
 
-- [ ] **CTRL-01**: Single batched close gate runs at end of phase: `typecheck`, `vitest`, `e2e:smoke:builder`, and Playwright MCP re-verify of all 11 fixed items against fresh `docker compose up` stack. CHANGELOG `[Unreleased]` populated with v1011 fix notes (one bullet per BUG/UX/RESP/INV requirement). Per `feedback_review_findings_inline.md`: any code-review findings surfaced during gate get fixed inline before close, not deferred to v1011.1.
+- [x] **CTRL-01**: Single batched close gate runs at end of phase: `typecheck`, `vitest`, `e2e:smoke:builder`, and Playwright MCP re-verify of all 11 fixed items against fresh `docker compose up` stack. CHANGELOG `[Unreleased]` populated with v1011 fix notes (one bullet per BUG/UX/RESP/INV requirement). Per `feedback_review_findings_inline.md`: any code-review findings surfaced during gate get fixed inline before close, not deferred to v1011.1. — ✅ SHIPPED 2026-05-18 (gate-fix commit `befe6a3b` + close-gate commit; typecheck 0 / vitest 1974/1974 / e2e:smoke:builder 26/26 after 1 inline gate-fix for Plan-06-introduced dnd-kit collision regression at `e2e/builder-v1-5.spec.ts:152` — disable basemap-group droppable for catalog non-basemap drags; Playwright MCP re-verify of 11 user-reported items + v1010.2 SF-04..08 spot-check delegated to orchestrator per phase 1051 pattern)
 
 ## Out of Scope
 
@@ -74,7 +74,7 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | RESP-03 | Phase 1051 | Complete (commit `0a72cb58`) |
 | INV-01 | Phase 1051 | Complete |
 | EMRG-01 | Phase 1051 | Complete |
-| CTRL-01 | Phase 1051 | Pending |
+| CTRL-01 | Phase 1051 | Complete (gate-fix commit `befe6a3b` + close-gate commit) |
 
 **Coverage:**
 - v1011 requirements: 13 total
