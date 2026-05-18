@@ -259,6 +259,25 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onResetAppearance,
   isMultiSelectionActive,
 }: BasemapGroupRowWrapperProps) {
+  // Phase 1051 Plan 13 (CTRL-01 gate-fix): when a NON-basemap catalog item is
+  // being dragged, disable the basemap-group sortable so dnd-kit's collision
+  // detection does not resolve to basemap-group via closestCenter fallback.
+  // The shadcn Dialog backdrop (`fixed inset-0 z-50`) intercepts pointer events
+  // over the sidebar listbox, which makes `pointerWithin` return empty hits and
+  // forces the fallback to closestCenter — and closestCenter can rank the
+  // basemap row as nearest even when the user pointer is clearly over an
+  // overlay row. Since handleDragEnd in MapBuilderPage silent-rejects this
+  // exact combo (Case 3 at line 647), short-circuiting it here gives the same
+  // semantics but allows dnd-kit to land the drop on the actual overlay row
+  // target. Basemap catalog drags (recordType === 'basemap') still need
+  // basemap-group as a drop target — keep the sortable enabled for those.
+  const { active } = useDndContext();
+  const activeData = active?.data?.current as
+    | { source?: string; recordType?: string }
+    | undefined;
+  const disableForCatalogNonBasemap =
+    activeData?.source === 'catalog' && activeData?.recordType !== 'basemap';
+
   const {
     attributes,
     listeners,
@@ -271,6 +290,15 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   } = useSortable({
     id: group.id,
     data: { source: 'stack', kind: 'basemap-group' },
+    // Only disable the DROPPABLE side; keep draggable enabled so the basemap
+    // row can still be dragged out (basemap reposition). When a non-basemap
+    // catalog drag is active, this prevents dnd-kit from picking basemap-group
+    // via the closestCenter fallback when shadcn Dialog's backdrop blocks
+    // pointerWithin hits.
+    disabled: {
+      draggable: false,
+      droppable: disableForCatalogNonBasemap,
+    },
   });
 
   const style = {
