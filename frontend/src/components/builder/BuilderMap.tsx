@@ -709,13 +709,22 @@ export const BuilderMap = memo(function BuilderMap({
   // Structural key: only changes when layers are added/removed/reordered/toggled —
   // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).
   // Also drives popup clearing on visibility changes (P-17: single key replaces separate visibilityKey).
+  // Phase 1051 WR-08: also include dataset_table_name (mid-session rename safety)
+  // and the active render mode's primary style_config.builder field (heatmapRamp,
+  // heightColumn) so non-cluster modes invalidate when their structural style
+  // shifts (popup should clear after heatmap-ramp change, height-column rebind).
   const structuralKey = useMemo(
     () => layers.map((l) => {
       const builder = l.style_config?.builder;
-      const clusterKey = l.style_config?.render_mode === 'cluster'
-        ? `:${builder?.clusterRadius ?? ''}:${builder?.clusterMaxZoom ?? ''}`
-        : '';
-      return `${l.id}:${l.visible}:${l.dataset_id}${clusterKey}`;
+      const renderMode = l.style_config?.render_mode;
+      const extras = renderMode === 'cluster'
+        ? `:cl:${builder?.clusterRadius ?? ''}:${builder?.clusterMaxZoom ?? ''}`
+        : renderMode === 'heatmap'
+          ? `:hm:${builder?.heatmapRamp ?? ''}`
+          : builder?.heightColumn
+            ? `:hc:${builder.heightColumn}`
+            : '';
+      return `${l.id}:${l.visible}:${l.dataset_id}:${l.dataset_table_name ?? ''}${extras}`;
     }).join(','),
     [layers],
   );
