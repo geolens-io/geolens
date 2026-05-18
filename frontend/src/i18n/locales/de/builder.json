@@ -744,7 +744,8 @@
     "dragPickup": "{{name}} aufgenommen. Pfeiltasten zum Wählen einer Position verwenden, Eingabe zum Ablegen, Escape zum Abbrechen.",
     "dragPosition": "Aktuelle Position: {{n}} von {{total}}",
     "dragDropped": "Abgelegt. {{name}} an Position {{n}} hinzugefügt.",
-    "dragCancelled": "Ablegen abgebrochen."
+    "dragCancelled": "Ablegen abgebrochen.",
+    "basemapPositionChanged": "Basiskarte nach {{position}} verschoben"
   },
   "styleJson": {
     "title": "Stil-JSON",
@@ -838,6 +839,7 @@
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Benutzerdefinierte Basiskarte hinzufügen…",
+    "dragHandle": "Basiskarte ziehen, um sie neu anzuordnen",
     "masterOpacity": "Deckkraft gesamt",
     "presetSectionLabel": "VORGABE",
     "railLabel": "Basiskarten-Gruppe",

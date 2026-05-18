@@ -29,6 +29,7 @@ import {
   syncLayersToMap,
   toSyncInput,
   reorderBasemapLabels,
+  reorderBasemapAboveData,
   reorderDataLayers,
   applyBasemapConfigToMap,
   getSourceIdForLayer,
@@ -445,8 +446,9 @@ export const BuilderMap = memo(function BuilderMap({
       // tokenMap dep — no separate retry needed.
       if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl });
+      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position });
       applyBasemapConfigToMap(map, bc, sbl);
+      reorderBasemapAboveData(map, bc?.basemap_position);
       applyTerrainConfig();
       refreshQueryLayerIds();
     };
@@ -483,10 +485,10 @@ export const BuilderMap = memo(function BuilderMap({
    * SP-03 / B-01-followup quick task for why this pattern is required.
    */
   const runSync = useCallback((map: MaplibreMap) => {
-    const { layers: ls, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
+    const { layers: ls, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
     const syncInputs = ls.map(toSyncInput);
-    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl });
+    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position });
     applyTerrainConfig();
     refreshQueryLayerIds();
   }, [applyTerrainConfig, refreshQueryLayerIds]);
@@ -742,7 +744,10 @@ export const BuilderMap = memo(function BuilderMap({
       return () => { map.off('idle', retry); };
     }
     runSync(map);
-  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, clusterGeoJsonVersion, runSync]);
+    // UX-03 (Phase 1051): include basemap_position so dragging basemap top↔bottom
+    // re-runs the sync's reorder pipeline (the orderKey check inside
+    // syncLayersToMap also includes basemap_position to avoid the no-change skip).
+  }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, basemapConfig?.basemap_position, clusterGeoJsonVersion, runSync]);
 
   useEffect(() => {
     applyTerrainConfig();
@@ -758,12 +763,19 @@ export const BuilderMap = memo(function BuilderMap({
 
   // Reorder and restyle basemap labels/details when appearance controls change.
   // Data labels must be re-stacked above basemap labels after toggling.
+  //
+  // UX-03 (Phase 1051 Plan 06): if basemap_position='top', run the
+  // reorderBasemapAboveData pass LAST so basemap fill/raster layers end up
+  // ABOVE data geometry in the MapLibre stack. The standard pipeline above
+  // assumes basemap-below-data (the 'bottom' default + legacy behaviour) —
+  // when the user drags basemap to top, that ordering must be reversed.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
     reorderBasemapLabels(map, showBasemapLabels);
     applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels);
     reorderDataLayers(map, layersRef.current.map((l) => ({ id: l.id })));
+    reorderBasemapAboveData(map, basemapConfig?.basemap_position);
   }, [basemapConfig, showBasemapLabels, mapReady]);
 
   // Update tile URLs in-place when tokens refresh (vector only)

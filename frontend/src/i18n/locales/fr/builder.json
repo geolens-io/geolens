@@ -744,7 +744,8 @@
     "dragPickup": "{{name}} saisi. Utilisez les flèches pour choisir une position, Entrée pour déposer, Échap pour annuler.",
     "dragPosition": "Position actuelle : {{n}} sur {{total}}",
     "dragDropped": "Déposé. {{name}} ajouté à la position {{n}}.",
-    "dragCancelled": "Dépôt annulé."
+    "dragCancelled": "Dépôt annulé.",
+    "basemapPositionChanged": "Fond de carte déplacé vers {{position}}"
   },
   "styleJson": {
     "title": "JSON de style",
@@ -838,6 +839,7 @@
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Ajouter un fond de carte personnalisé…",
+    "dragHandle": "Glisser pour réorganiser le fond de carte",
     "masterOpacity": "Opacité globale",
     "presetSectionLabel": "PRÉRÉGLAGE",
     "railLabel": "Groupe de fond de carte",

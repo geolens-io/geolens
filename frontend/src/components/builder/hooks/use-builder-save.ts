@@ -430,6 +430,12 @@ export function useBuilderSave(state: SaveState) {
     const bearing = map?.getBearing();
     const pitch = map?.getPitch();
 
+    // Phase 1051 UX-03: basemap_position is encoded as a field on basemapConfig
+    // (MapBasemapConfig.basemap_position jsonb), so it round-trips through the
+    // wholesale basemap_config pass-through below without a dedicated field.
+    // Legacy maps load with basemap_position=undefined and default to 'bottom'
+    // on the read path (see use-builder-layers.ts handleReorder + the
+    // UnifiedStackPanel basemapPosition default).
     const metadataPayload: MapUpdateRequest = {
       name: localName || undefined,
       description: localDescription.trim() || null,

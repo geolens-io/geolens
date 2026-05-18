@@ -3,7 +3,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   DragOverlay,
   useDndContext,
-  useDroppable,
 } from '@dnd-kit/core';
 import type { DraggableAttributes } from '@dnd-kit/core';
 import {
@@ -119,6 +118,10 @@ interface UnifiedStackPanelProps {
   isDeleting?: boolean;
   // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
   freshLayerId?: string | null;
+  /** Phase 1051 UX-03: basemap position in the unified stack. 'top' renders
+   *  basemap row above data layers; 'bottom' (default) renders below. Persisted
+   *  via MapBasemapConfig.basemap_position. */
+  basemapPosition?: 'top' | 'bottom';
 }
 
 // ---------------------------------------------------------------------------
@@ -236,11 +239,14 @@ interface BasemapGroupRowWrapperProps {
   isMultiSelectionActive?: boolean;
 }
 
-// Basemap group is a drop target only — Phase 1040 replaced the no-op useSortable
-// with useDroppable per AUD-04. Drag-out of basemap is intentionally not supported
-// (basemap is pinned). The basemap row was previously registered via useSortable but
-// excluded from sortableIds, making drag attempts a silent no-op. useDroppable gives
-// it proper drop-target semantics for catalog basemap drops in Plan 02.
+// UX-03 (Phase 1051 Plan 06): basemap group is now SORTABLE — was useDroppable-only
+// in Phase 1040 (AUD-04 pinned it to bottom). Lifted to useSortable mirroring
+// FolderGroupRowWrapper (lines 312-389) so the user can drag the basemap between
+// top and bottom positions in the layer stack. The `data` option preserves the
+// catalog drop-target semantics (handleDragEnd in MapBuilderPage still reads
+// `over.id === basemapGroup.id` for catalog basemap-swap drops at line 623).
+// Persistence: position is encoded in MapBasemapConfig.basemap_position (jsonb,
+// no migration) and serialized via use-builder-save.ts.
 const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   group,
   selected,
@@ -253,10 +259,24 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   onResetAppearance,
   isMultiSelectionActive,
 }: BasemapGroupRowWrapperProps) {
-  const { setNodeRef, isOver } = useDroppable({
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+    isOver,
+  } = useSortable({
     id: group.id,
     data: { source: 'stack', kind: 'basemap-group' },
   });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   const handleSelectGroup = useCallback(
     (id: string) => onSelectGroup(id),
@@ -264,7 +284,12 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
   );
 
   return (
-    <div ref={setNodeRef} data-basemap-drop-target={isOver ? 'true' : undefined}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-basemap-drop-target={isOver ? 'true' : undefined}
+      data-row-id={group.id}
+    >
       <BasemapGroupRow
         groupId={group.id}
         presetName={group.presetName}
@@ -272,9 +297,9 @@ const BasemapGroupRowWrapper = memo(function BasemapGroupRowWrapper({
         visible={group.visible}
         selected={selected}
         isExpanded={isExpanded}
-        isDragging={false}
+        isDragging={isDragging}
         visibilityDisabled={visibilityDisabled}
-        dragHandleProps={{ attributes: {} as DraggableAttributes, listeners: undefined, setActivatorNodeRef: NOOP }}
+        dragHandleProps={{ attributes, listeners, setActivatorNodeRef }}
         onSelectGroup={handleSelectGroup}
         onToggleExpand={onToggleExpand}
         onToggleVisibility={onToggleVisibility}
@@ -629,6 +654,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onBulkDelete,
   isDeleting = false,
   freshLayerId = null,
+  basemapPosition = 'bottom',
 }: UnifiedStackPanelProps) {
   const { t } = useTranslation('builder');
 
@@ -720,15 +746,20 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds.size + selectableRowIds trigger remount; callbacks are stable
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
-  // SortableContext items: all layer ids only.
-  // basemapGroup is excluded: it is pinned at the top and cannot be reordered.
-  // Including it previously made the row visually draggable but the drag was a
-  // silent no-op because handleDragEnd searches only the layers array.
+  // SortableContext items: all layer ids + the basemap-group id.
+  // UX-03 (Phase 1051 Plan 06): basemap is no longer excluded — it participates
+  // in the sortable list so the user can drag it between 'top' and 'bottom'
+  // positions. Insert order matches the render order: basemap at position 0 when
+  // basemap_position='top' (renders first), at end when 'bottom' (renders last).
+  // handleDragEnd in MapBuilderPage detects basemap drags via the special id and
+  // updates basemap_position on MapBasemapConfig instead of mutating localLayers.
   const sortableIds = useMemo(() => {
-    const ids: string[] = [];
-    for (const l of layers) ids.push(l.id);
-    return ids;
-  }, [layers]);
+    const layerIds: string[] = layers.map((l) => l.id);
+    if (!basemapGroup) return layerIds;
+    return basemapPosition === 'top'
+      ? [basemapGroup.id, ...layerIds]
+      : [...layerIds, basemapGroup.id];
+  }, [layers, basemapGroup, basemapPosition]);
 
   // Build the render plan: group children by parent for O(N) pass
   const childrenByGroup = useMemo(() => {
@@ -895,8 +926,13 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
               items={sortableIds}
               strategy={verticalListSortingStrategy}
             >
-              {/* 1. Basemap group (always at top when present) */}
-              {renderBasemapDockRow(false)}
+              {/* 1. Basemap group — UX-03: position controlled by basemapPosition.
+                  When 'top' (default historically 'bottom' was hard-coded), the
+                  basemap row renders FIRST (visually above all data layers in
+                  the stack); when 'bottom', it renders LAST (below all data
+                  layers). Reordering happens via the drag handle on the basemap
+                  row; persistence via MapBasemapConfig.basemap_position. */}
+              {basemapPosition === 'top' && renderBasemapDockRow(false)}
 
               {/* 2. User folder groups + loose layers (in saved order) */}
               {layers.map((layer) => {
@@ -987,6 +1023,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                   />
                 );
               })}
+
+              {/* 3. Basemap group at BOTTOM when basemapPosition='bottom'
+                  (default + legacy behaviour). */}
+              {basemapPosition === 'bottom' && renderBasemapDockRow(false)}
             </SortableContext>
             {/* DragOverlay: ghost follows pointer during drag (BSR-24 VIS-01) */}
             {/* Plan 04: branched — catalog drags render CatalogDragGhost pill;

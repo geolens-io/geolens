@@ -156,6 +156,10 @@ export interface SyncOptions {
   idPrefix?: string;
   /** When provided, run basemap label reorder using this source prefix after layer order changes */
   showBasemapLabels?: boolean;
+  /** Phase 1051 UX-03: when 'top', move basemap fill/raster layers ABOVE data
+   *  layers after the standard reorder pass. When 'bottom' (default + legacy),
+   *  the standard reorder pipeline already produces data-above-basemap. */
+  basemapPosition?: 'top' | 'bottom';
 }
 
 /** Convert a MapLayerResponse (builder context) to a SyncLayerInput. */
@@ -216,6 +220,42 @@ function changedPaintKeys(
 ) {
   if (!after) return [];
   return Object.keys(after).filter((key) => before?.[key] !== after[key]);
+}
+
+/** UX-03 (Phase 1051 Plan 06): when `basemap_position === 'top'`, move all
+ *  basemap-loaded style layers (anything whose source DOES NOT start with the
+ *  data sourcePrefix) ABOVE the data layers in the MapLibre stack. MapLibre
+ *  renders layers in order — last-in-array is painted on top — so calling
+ *  `map.moveLayer(id)` with NO `beforeId` moves the layer to the top of the
+ *  rendering order.
+ *
+ *  When `basemap_position === 'bottom'` (default + legacy), do NOTHING — the
+ *  existing `reorderDataGeometry` + `reorderDataLabels` already place data
+ *  layers above the basemap. Calling this helper in the bottom case would
+ *  silently undo that placement.
+ *
+ *  Idempotent — safe to call from the basemap effect on every render. */
+export function reorderBasemapAboveData(
+  map: MaplibreMap,
+  position: 'top' | 'bottom' | undefined,
+  sourcePrefix = 'source-',
+) {
+  if (position !== 'top') return;
+  const style = map.getStyle();
+  if (!style?.layers) return;
+  for (const layer of style.layers) {
+    // basemap layers do NOT have a source matching the data sourcePrefix.
+    // 'source' may be undefined for some background-style layers — those count
+    // as basemap layers too.
+    const src = ('source' in layer) ? String(layer.source ?? '') : '';
+    if (src.startsWith(sourcePrefix)) continue;
+    if (!map.getLayer(layer.id)) continue;
+    try {
+      map.moveLayer(layer.id);
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn('[map-sync] reorderBasemapAboveData moveLayer failed', layer.id, err);
+    }
+  }
 }
 
 /** Apply curated basemap appearance controls to the loaded MapLibre style. */
@@ -738,8 +778,11 @@ export function syncLayersToMap(
 
   // Only reorder when layer order actually changed (not on every paint/visibility sync).
   // Include total style layer count so basemap switches invalidate the key.
+  // UX-03 (Phase 1051 Plan 06): include basemap_position so dragging basemap
+  // top↔bottom invalidates the orderKey and re-runs the reorder pipeline.
   const orderKey = layers.map((l) => l.id).join(',')
     + (options?.showBasemapLabels !== undefined ? `|${String(options.showBasemapLabels)}` : '')
+    + (options?.basemapPosition !== undefined ? `|bp:${options.basemapPosition}` : '')
     + `|${map.getStyle()?.layers?.length ?? 0}`;
   if (orderKey !== lastOrderKeyRef.current) {
     lastOrderKeyRef.current = orderKey;
@@ -749,6 +792,9 @@ export function syncLayersToMap(
       reorderBasemapLabels(map, options.showBasemapLabels, sourcePrefix);
     }
     reorderDataLabels(map, layers, prefix);
+    // UX-03: basemap-above-data inversion runs LAST so it overrides the
+    // standard data-above-basemap stack ordering when position='top'.
+    reorderBasemapAboveData(map, options?.basemapPosition, sourcePrefix);
   }
 }
 

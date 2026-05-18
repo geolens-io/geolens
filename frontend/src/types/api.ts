@@ -16,6 +16,13 @@ export interface MapTerrainConfig {
 export type MapBasemapVisibilityMode = 'full' | 'subtle' | 'hidden';
 export type MapBasemapLandWaterTone = 'default' | 'muted' | 'contrast' | 'monochrome';
 export type MapBasemapReliefContrast = 'soft' | 'standard' | 'strong';
+/** Phase 1051 UX-03: position of the basemap row in the unified stack.
+ *  - 'bottom' (default, legacy) — basemap renders BELOW data layers.
+ *  - 'top' — basemap renders ABOVE data layers; useful for 3D maps showing
+ *    elevation through a translucent basemap.
+ *  Stored on the `MapBasemapConfig` jsonb so no backend schema migration is
+ *  required — legacy maps load with `undefined` and default to 'bottom'. */
+export type MapBasemapPosition = 'top' | 'bottom';
 
 export interface MapBasemapConfig {
   label_mode: MapBasemapVisibilityMode;
@@ -25,6 +32,9 @@ export interface MapBasemapConfig {
   land_water_tone: MapBasemapLandWaterTone;
   relief_contrast?: MapBasemapReliefContrast | null;
   opacity?: number;
+  /** Phase 1051 UX-03: 'top' renders basemap above data; 'bottom' (default)
+   *  renders below. See `MapBasemapPosition` above. */
+  basemap_position?: MapBasemapPosition;
 }
 
 export interface TokenResponse {

@@ -667,7 +667,44 @@ export function MapBuilderPage() {
 
     // --- Intra-stack reorder (unchanged from Plan 01) ---
     if (active.id === over.id) return;
+
+    // UX-03 (Phase 1051 Plan 06): basemap row drag — encode position in
+    // MapBasemapConfig.basemap_position. Basemap is not in localLayers, so the
+    // standard arrayMove path below cannot reorder it. Determine the new
+    // position by comparing the drop target's index to the basemap's current
+    // position:
+    //   - basemap dragged onto ANY layer when currently 'bottom' → 'top'
+    //   - basemap dragged onto ANY layer when currently 'top' → 'bottom'
+    // This 2-position toggle matches the design contract; for visual feedback
+    // the basemap row jumps to the opposite end of the stack on drop.
     const currentLayers = layers.localLayers;
+    if (basemapGroup && active.id === basemapGroup.id) {
+      // Sliding the basemap onto itself is a no-op (early-returned by the
+      // active.id === over.id check above), so here we know `over.id` is some
+      // other row id.
+      const currentPosition = layers.basemapConfig?.basemap_position ?? 'bottom';
+      const nextPosition = currentPosition === 'top' ? 'bottom' : 'top';
+      layers.setBasemapConfig((prev) => ({
+        // setBasemapConfig auto-marks dirty (WR-02 in use-builder-layers.ts).
+        // Preserve all other curated controls (label_mode, road_visibility, …)
+        // and only update basemap_position.
+        ...(prev ?? {
+          label_mode: 'full' as const,
+          road_visibility: 'full' as const,
+          boundary_visibility: 'full' as const,
+          building_visibility: true,
+          land_water_tone: 'default' as const,
+        }),
+        basemap_position: nextPosition,
+      }));
+      announce(t('a11y.basemapPositionChanged', {
+        defaultValue: 'Basemap moved to {{position}}',
+        position: nextPosition,
+      }));
+      return;
+    }
+
+    // Standard intra-stack reorder for non-basemap drags.
     const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
@@ -1069,6 +1106,7 @@ export function MapBuilderPage() {
               onBulkDelete={handleBulkDelete}
               isDeleting={layers.isDeleting}
               freshLayerId={layers.freshLayerId}
+              basemapPosition={layers.basemapConfig?.basemap_position ?? 'bottom'}
             />
           )}
         </aside>

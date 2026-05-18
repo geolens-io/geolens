@@ -155,7 +155,15 @@ export function useBuilderLayers(
     handlePopupChange,
   } = useLayerMapSync(localLayers, setLocalLayers, setHasUnsavedChanges, mapInstanceRef);
 
-  // Initialize local state from API data (once)
+  // Initialize local state from API data (once).
+  //
+  // Phase 1051 UX-03: mapData.basemap_config may include the new
+  // `basemap_position: 'top' | 'bottom'` field (jsonb additive, no migration).
+  // We load it transparently via _setBasemapConfigRaw — downstream consumers
+  // (UnifiedStackPanel `basemapPosition` prop, BuilderMap `reorderBasemapAboveData`
+  // effect, MapBuilderPage `handleDragEnd` for basemap drag) read the field via
+  // `basemapConfig?.basemap_position ?? 'bottom'` so legacy maps without the
+  // field default to 'bottom' (the historical behaviour).
   useEffect(() => {
     if (mapData && !initializedRef.current) {
       setLocalLayers(mapData.layers ?? []);

@@ -744,7 +744,8 @@
     "dragPickup": "Se tomó {{name}}. Use las teclas de flecha para elegir una posición, Intro para soltar, Escape para cancelar.",
     "dragPosition": "Posición actual: {{n}} de {{total}}",
     "dragDropped": "Soltado. {{name}} agregado en la posición {{n}}.",
-    "dragCancelled": "Soltar cancelado."
+    "dragCancelled": "Soltar cancelado.",
+    "basemapPositionChanged": "Mapa base movido a {{position}}"
   },
   "styleJson": {
     "title": "JSON de estilo",
@@ -838,6 +839,7 @@
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Agregar mapa base personalizado…",
+    "dragHandle": "Arrastrar para reordenar el mapa base",
     "masterOpacity": "Opacidad general",
     "presetSectionLabel": "PREAJUSTE",
     "railLabel": "Grupo de mapa base",

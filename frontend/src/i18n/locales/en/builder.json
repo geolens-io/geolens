@@ -744,7 +744,8 @@
     "dragPickup": "Picked up {{name}}. Use arrow keys to choose a position, Enter to drop, Escape to cancel.",
     "dragPosition": "Current position: {{n}} of {{total}}",
     "dragDropped": "Dropped. {{name}} added at position {{n}}.",
-    "dragCancelled": "Drop cancelled."
+    "dragCancelled": "Drop cancelled.",
+    "basemapPositionChanged": "Basemap moved to {{position}}"
   },
   "styleJson": {
     "title": "Style JSON",
@@ -838,6 +839,7 @@
   },
   "basemapGroup": {
     "addCustomBasemap": "＋ Add custom basemap…",
+    "dragHandle": "Drag to reorder basemap",
     "masterOpacity": "Master opacity",
     "presetSectionLabel": "PRESET",
     "railLabel": "Basemap group",

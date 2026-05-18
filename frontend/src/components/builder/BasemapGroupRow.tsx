@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { ChevronRight, Eye, EyeOff, MoreVertical } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,7 +46,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   isExpanded,
   isDragging = false,
   visibilityDisabled = false,
-  dragHandleProps: _dragHandleProps,
+  dragHandleProps,
   onSelectGroup,
   onToggleExpand,
   onToggleVisibility,
@@ -109,8 +109,29 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         <ChevronRight className="h-4 w-4" aria-hidden="true" />
       </button>
 
-      {/* Cell 2: Grip — hidden: basemap group is not user-draggable (AUD-04) */}
-      <span aria-hidden="true" className="h-[14px] w-[14px]" />
+      {/* Cell 2: Grip — UX-03 (Phase 1051 Plan 06): basemap group IS user-draggable
+          for top/bottom reordering. AUD-04's "pinned-at-bottom" decision is reversed
+          per sketch findings (3D maps need basemap rendered above data). Mirrors
+          FolderGroupRow.tsx:196-210 grip pattern. When isMultiSelectionActive is
+          true, the listeners are suppressed (drag + multi-select are mutually
+          exclusive per UI-SPEC §"Cross-Plan Visual Conflict Check"). */}
+      <button
+        ref={dragHandleProps.setActivatorNodeRef}
+        type="button"
+        {...dragHandleProps.attributes}
+        {...(isMultiSelectionActive ? {} : dragHandleProps.listeners)}
+        aria-label={t('basemapGroup.dragHandle', { defaultValue: 'Drag to reorder basemap' })}
+        data-testid="basemap-drag-handle"
+        className={cn(
+          'flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing',
+          isMultiSelectionActive && 'cursor-not-allowed opacity-20',
+        )}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
 
       {/* Cell 3: Eye visibility toggle.
           SP-13: when visibilityDisabled (current v1 behavior), render a non-interactive
