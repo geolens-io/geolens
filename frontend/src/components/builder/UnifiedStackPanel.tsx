@@ -16,10 +16,10 @@ import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, GripVertical, Plus, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
 import { StackRow } from '@/components/builder/StackRow';
 import { BasemapGroupRow } from '@/components/builder/BasemapGroupRow';
 import { FolderGroupRow } from '@/components/builder/FolderGroupRow';
+import { SublayerConfigIndicators } from '@/components/builder/SublayerConfigIndicators';
 import { EmptyStackState, eyebrowClassName } from '@/components/builder/EmptyStackState';
 import { BulkActionBar } from '@/components/builder/BulkActionBar';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
@@ -397,20 +397,23 @@ interface SublayerRowProps {
   selected: boolean;
   onSelectLayer: (id: string | null) => void;
   onToggleSublayerVisibility: (sublayerId: string) => void;
-  onSublayerOpacityChange: (sublayerId: string, opacity: number) => void;
 }
 
+// Phase 1051 UX-02: per-row opacity slider removed in favour of
+// SublayerConfigIndicators. Opacity editing now lives exclusively in the
+// LayerEditorPanel flyout (BasemapSublayerEditorScene opacity slider).
+// Cell 6 grid column kept at 76px (was 60px) to fit up to 4 × 16px badges
+// + 3 × 4px gaps without truncation. SublayerRow no longer consumes
+// onSublayerOpacityChange — the prop survives on UnifiedStackPanelProps for
+// the LayerEditorPanel flyout consumer (BasemapGroupEditorScene + MapBuilderPage).
 const SublayerRow = memo(function SublayerRow({
   sublayer,
   selected,
   onSelectLayer,
   onToggleSublayerVisibility,
-  onSublayerOpacityChange,
 }: SublayerRowProps) {
   // Basemap sublayers CANNOT be dragged out of the group — useSortable disabled
   const { setNodeRef } = useSortable({ id: sublayer.id, disabled: true });
-
-  const safeOpacity = typeof sublayer.opacity === 'number' && Number.isFinite(sublayer.opacity) ? sublayer.opacity : 1;
 
   return (
     <div
@@ -420,7 +423,7 @@ const SublayerRow = memo(function SublayerRow({
       aria-selected={selected}
       tabIndex={0}
       className={cn(
-        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_60px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
+        'group/row grid grid-cols-[16px_14px_22px_22px_1fr_76px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
         !selected && 'hover:bg-[var(--surface-2,theme(colors.accent.DEFAULT))]',
         selected && 'bg-[var(--primary-50,theme(colors.accent.DEFAULT))] shadow-[inset_2px_0_0_var(--primary)]',
@@ -487,25 +490,15 @@ const SublayerRow = memo(function SublayerRow({
         <span className="truncate text-sm block">{sublayer.name}</span>
       </div>
 
-      {/* Cell 6: Opacity slider */}
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
-      <div
-        className="flex items-center"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Slider
-          aria-label={`Opacity for ${sublayer.name}`}
-          aria-valuetext={`${Math.round(safeOpacity * 100)}%`}
-          value={[safeOpacity]}
-          min={0}
-          max={1}
-          step={0.05}
-          className="w-[60px]"
-          onValueChange={([value]) => {
-            onSublayerOpacityChange(sublayer.id, Number((value ?? safeOpacity).toFixed(2)));
-          }}
-        />
+      {/* Cell 6: Config-state indicators (Phase 1051 UX-02 — replaces opacity slider) */}
+      {/* Indicators derive from full MapLayerResponse config (label_config, filter,
+          data-driven paint, opacity). BasemapSublayerInfo only carries id/name/visible/
+          opacity/kind, so per UI-SPEC §UX-02 footnote the indicator strip renders empty
+          for basemap sublayers in this build (acceptable — opacity-only diffs surface
+          via the LayerEditorPanel flyout). Plumbing the full layer through is a
+          deferred enhancement once basemap sublayers gain user-editable filter/label. */}
+      <div className="flex items-center">
+        <SublayerConfigIndicators layer={null} />
       </div>
 
       {/* Cell 7: Kebab — hidden for basemap sublayers (per UI-SPEC) */}
@@ -590,6 +583,15 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // StackRow no longer renders a row slider (quick task 260515-rdn). The prop is
   // kept in the interface for call-site compatibility (MapBuilderPage still
   // passes it, and `handlers.onOpacityChange` still feeds LayerEditorPanel).
+  //
+  // onSublayerOpacityChange is also intentionally not destructured here as of
+  // Phase 1051 UX-02 — the per-sublayer-row Slider was removed in favour of
+  // SublayerConfigIndicators. Opacity editing now happens in the LayerEditorPanel
+  // flyout (BasemapSublayerEditorScene + BasemapGroupEditorScene), and MapBuilderPage
+  // passes the handler directly to those scenes. The prop is kept in the
+  // UnifiedStackPanelProps interface for call-site compatibility (MapBuilderPage
+  // still passes it through; removing the prop pass is a follow-up cleanup that
+  // would touch MapBuilderPage and is intentionally out of scope for this plan).
   onRemove,
   onRename,
   onDuplicate,
@@ -603,7 +605,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   basemapGroup = null,
   isBasemapExpanded = false,
   onToggleSublayerVisibility,
-  onSublayerOpacityChange,
   onSwapBasemap,
   onResetBasemapAppearance,
   onRenameGroup,
@@ -744,7 +745,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // Noop fallbacks for optional handlers — use module-level NOOP so references
   // are stable and do not defeat memo() on children.
   const safeToggleSublayerVisibility = onToggleSublayerVisibility ?? NOOP;
-  const safeSublayerOpacityChange = onSublayerOpacityChange ?? NOOP;
+  // safeSublayerOpacityChange removed — Phase 1051 UX-02 (see destructure comment above).
   const safeSwapBasemap = onSwapBasemap ?? NOOP;
   const safeResetBasemapAppearance = onResetBasemapAppearance ?? NOOP;
   const safeRenameGroup = onRenameGroup ?? NOOP;
@@ -806,7 +807,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                 selected={sub.id === selectedLayerId}
                 onSelectLayer={onSelectLayer}
                 onToggleSublayerVisibility={safeToggleSublayerVisibility}
-                onSublayerOpacityChange={safeSublayerOpacityChange}
               />
             ))}
           </div>
