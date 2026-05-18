@@ -57,7 +57,14 @@ export function SublayerConfigIndicators({ layer }: Props) {
   }
 
   const paint = layer.paint ?? {};
-  const dataDriven = Object.values(paint).some((value) => Array.isArray(value));
+  // Phase 1051 CR-01: MapLibre expressions are arrays whose first element is a string
+  // operator name (e.g. ['get', 'foo'], ['interpolate', ...], ['case', ...]).
+  // Plain numeric arrays like line-dasharray=[2,2] or circle-translate=[0,0] are
+  // NOT data-driven — their first element is a number. Detecting "any array" produces
+  // false positives on every layer that just has a dash pattern set.
+  const isExpressionValue = (value: unknown): boolean =>
+    Array.isArray(value) && typeof value[0] === 'string';
+  const dataDriven = Object.values(paint).some(isExpressionValue);
   if (dataDriven) {
     indicators.push({
       id: 'dataDriven',
