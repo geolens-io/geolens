@@ -928,6 +928,14 @@ export const BuilderMap = memo(function BuilderMap({
     <div
       className="relative h-full w-full"
       data-tiles-loaded={tilesIdle ? 'true' : 'false'}
+      // RESP-02-FOLLOWUP (Phase 1051): marker consumed by the
+      // `[data-builder-canvas="true"] .maplibregl-ctrl-top-left` rule in
+      // `index.css`. Pushes the top-left NavigationControl down below the
+      // MapCoordReadout pill at the 800px boundary, where the map column
+      // compresses to ~316px and the pill's ~237px width can stretch
+      // leftward into the zoom-control zone. Scoped via data-attribute so
+      // ViewerMap (NavigationControl `top-right`) is unaffected.
+      data-builder-canvas="true"
     >
       {tilesLoading && (
         <div className="absolute top-0 left-0 right-0 z-10 h-0.5 bg-primary/60 animate-pulse" />

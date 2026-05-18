@@ -450,6 +450,29 @@
   line-height: 14px;
 }
 
+/* ── BuilderMap NavigationControl offset (RESP-02-FOLLOWUP, Phase 1051) ───
+ * In `BuilderMap.tsx` the NavigationControl is anchored `top-left` (post-W8
+ * RESP-01 fix in commit 391459bb) and the `MapCoordReadout` pill sits at
+ * `top-2 right-14` with showScale on. At the 800px viewport boundary the
+ * map column compresses to ~316px wide and the pill's ~237px width stretches
+ * leftward enough to invade the zoom-control's top-left zone, producing a
+ * ~20×16 px overlap (MCP-measured 2026-05-18).
+ *
+ * MapLibre's default `.maplibregl-ctrl-top-left` margin is 10px, putting the
+ * control's top edge at ~10px from the container top — directly under the
+ * pill's ~26px bottom edge once the pill widens horizontally past the
+ * NavigationControl's left margin. Pushing the control's top margin to 32px
+ * clears the pill at every supported width including 800px (6px gap).
+ *
+ * Scoped via the `data-builder-canvas="true"` marker on `BuilderMap`'s outer
+ * wrapper so `ViewerMap` (NavigationControl `top-right`, no scale-segment) is
+ * unaffected — the load-bearing `right-14` offset on `MapCoordReadout` keeps
+ * its viewer-context collision contract intact.
+ */
+[data-builder-canvas="true"] .maplibregl-ctrl-top-left {
+  margin-top: 32px;
+}
+
 /* ── MapLibre Popup Styling ─────────────────────────── */
 .maplibregl-popup-content {
   background: var(--popover);
