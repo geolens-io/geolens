@@ -855,17 +855,12 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Back to basemap group",
-    "casingColor": "Casing color",
-    "casingWidth": "Casing width",
     "footerBack": "Back to basemap",
     "resetConfirmAction": "Reset",
     "resetConfirmCancel": "Keep customization",
     "resetConfirmMessage": "This will remove all custom appearance for {{sublayer}}.",
     "resetHint": "Reset to preset default",
-    "resetLabel": "RESET",
-    "strokeColor": "Stroke color",
-    "strokeLabel": "STROKE",
-    "strokeWidth": "Stroke width"
+    "resetLabel": "RESET"
   },
   "demEditor": {
     "renderAsLabel": "RENDER AS",

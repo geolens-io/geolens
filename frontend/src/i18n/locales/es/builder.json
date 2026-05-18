@@ -855,17 +855,12 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Volver al grupo de mapa base",
-    "casingColor": "Color de carcasa",
-    "casingWidth": "Ancho de carcasa",
     "footerBack": "Volver al mapa base",
     "resetConfirmAction": "Restablecer",
     "resetConfirmCancel": "Mantener personalización",
     "resetConfirmMessage": "Se eliminará toda la apariencia personalizada de {{sublayer}}.",
     "resetHint": "Restablecer al preajuste predeterminado",
-    "resetLabel": "RESTABLECER",
-    "strokeColor": "Color de trazo",
-    "strokeLabel": "TRAZO",
-    "strokeWidth": "Ancho de trazo"
+    "resetLabel": "RESTABLECER"
   },
   "demEditor": {
     "renderAsLabel": "RENDERIZAR COMO",

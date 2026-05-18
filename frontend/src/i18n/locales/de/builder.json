@@ -855,17 +855,12 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",
-    "casingColor": "Außenrahmenfarbe",
-    "casingWidth": "Außenrahmenbreite",
     "footerBack": "Zurück zur Basiskarte",
     "resetConfirmAction": "Zurücksetzen",
     "resetConfirmCancel": "Anpassung behalten",
     "resetConfirmMessage": "Alle benutzerdefinierten Darstellungen für {{sublayer}} werden entfernt.",
     "resetHint": "Auf Vorgabe zurücksetzen",
-    "resetLabel": "ZURÜCKSETZEN",
-    "strokeColor": "Konturfarbe",
-    "strokeLabel": "KONTUR",
-    "strokeWidth": "Konturbreite"
+    "resetLabel": "ZURÜCKSETZEN"
   },
   "demEditor": {
     "renderAsLabel": "DARSTELLUNG",
