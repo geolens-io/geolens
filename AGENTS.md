@@ -22,6 +22,18 @@ Use 4 spaces for Python and keep code inside existing backend domain boundaries.
 
 Frontend code uses TypeScript, React, ESLint, React Hooks rules, and JSX accessibility checks. Prefer `PascalCase` components, `use*` hooks, and existing primitives from `frontend/src/components/ui/`. Prefix intentionally unused variables or parameters with `_`.
 
+### Inline review-comment convention
+
+When leaving an in-source comment that references a finding from a code review, audit, or smoke check, qualify the finding id with the phase id so future readers can locate the context:
+
+```
+// Phase {PHASE-ID} {FINDING-ID}: <one-line context>
+// Phase 1050-rev WR-01: imperative companion sweep — getSourceIdForLayer …
+// Phase 1051 CR-02: suppress basemap row click during multi-selection
+```
+
+Bare `// WR-02: …` references (without a phase id) are ambiguous because finding ids are scoped per phase. Prefer the qualified form in all new code; opportunistically upgrade legacy bare references when editing nearby code.
+
 ## Testing Guidelines
 
 Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has a 58.5% minimum. For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
