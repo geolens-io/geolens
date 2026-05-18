@@ -116,6 +116,41 @@ describe('BasemapGroupRow', () => {
     expect(onSelectGroup).toHaveBeenCalledWith('grp-3');
   });
 
+  // Phase 1051 CR-02 regression coverage (Phase 1051 iter-3 WR-02):
+  // The CR-02 fix guards handleRowClick + onKeyDown against firing onSelectGroup
+  // during multi-selection (which would unmount the BulkActionBar mid-selection).
+  // These tests pin that contract so a future refactor cannot silently re-introduce
+  // the bug by removing the isMultiSelectionActive branch.
+  it('Test 4b: Phase 1051 CR-02 row click during multi-selection does NOT fire onSelectGroup', () => {
+    const onSelectGroup = vi.fn();
+    render(
+      <BasemapGroupRow
+        {...defaultProps({ groupId: 'grp-ms', onSelectGroup, isMultiSelectionActive: true })}
+      />,
+    );
+
+    const nameSpan = screen.getByText(/Basemap · Positron/);
+    fireEvent.click(nameSpan);
+
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
+  it('Test 4c: Phase 1051 CR-02 Enter/Space keydown during multi-selection does NOT fire onSelectGroup', () => {
+    const onSelectGroup = vi.fn();
+    render(
+      <BasemapGroupRow
+        {...defaultProps({ groupId: 'grp-ms', onSelectGroup, isMultiSelectionActive: true })}
+      />,
+    );
+
+    const row = document.getElementById('stack-row-grp-ms')!;
+    expect(row).toBeInTheDocument();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+
+    expect(onSelectGroup).not.toHaveBeenCalled();
+  });
+
   it('Test 5: kebab menu contains exactly "Swap basemap" and "Reset appearance" only', () => {
     render(<BasemapGroupRow {...defaultProps()} />);
 
