@@ -1,6 +1,12 @@
 {
   "title": "Constructor de mapas",
   "mapBuilder": "Constructor de mapas",
+  "indicators": {
+    "labels": "Etiquetas activadas",
+    "filter": "Filtro aplicado",
+    "dataDriven": "Estilo basado en datos",
+    "opacityModified": "Opacidad ajustada"
+  },
   "map": {
     "ariaLabel": "Constructor de mapas"
   },

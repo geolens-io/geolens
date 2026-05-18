@@ -1,6 +1,12 @@
 {
   "title": "Karten-Editor",
   "mapBuilder": "Karten-Editor",
+  "indicators": {
+    "labels": "Beschriftungen aktiv",
+    "filter": "Filter angewendet",
+    "dataDriven": "Datenbasierter Stil",
+    "opacityModified": "Deckkraft angepasst"
+  },
   "map": {
     "ariaLabel": "Kartenerstellung"
   },

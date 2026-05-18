@@ -1,6 +1,12 @@
 {
   "title": "Constructeur de cartes",
   "mapBuilder": "Constructeur de cartes",
+  "indicators": {
+    "labels": "Étiquettes activées",
+    "filter": "Filtre appliqué",
+    "dataDriven": "Style basé sur les données",
+    "opacityModified": "Opacité ajustée"
+  },
   "map": {
     "ariaLabel": "Constructeur de carte"
   },

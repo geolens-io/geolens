@@ -1,6 +1,12 @@
 {
   "title": "Map Builder",
   "mapBuilder": "Map Builder",
+  "indicators": {
+    "labels": "Labels enabled",
+    "filter": "Filter applied",
+    "dataDriven": "Data-driven style",
+    "opacityModified": "Opacity adjusted"
+  },
   "map": {
     "ariaLabel": "Map builder"
   },
