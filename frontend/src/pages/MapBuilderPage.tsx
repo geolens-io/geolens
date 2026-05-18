@@ -266,8 +266,8 @@ export function MapBuilderPage() {
   // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
   const { data: basemaps = [] } = useBasemaps();
 
-  // Phase 1035: in-memory sublayer state (persistence via basemap_config is a Phase 1038 follow-up)
-  // TODO(Phase 1038): include sublayerState in the save payload via basemap_config round-trip.
+  // Phase 1035: in-memory sublayer state (persistence is open per follow-up tracker).
+  // TODO(BUILDER-SUBLAYER-PERSIST): include sublayerState in the save payload via basemap_config round-trip.
   const [sublayerState, setSublayerState] = useState<Record<string, { visible: boolean; opacity: number }>>({});
 
   // Phase 1035: basemap group display object derived from localBasemap + showBasemapLabels
@@ -463,9 +463,10 @@ export function MapBuilderPage() {
         opacity: prev[sublayerId]?.opacity ?? 1,
       },
     }));
-    // TODO(Phase 1038): call markDirty() here once sublayerState is included in the
-    // save payload via basemap_config round-trip. Until then, omitting markDirty()
-    // prevents the unsaved-changes badge from making a false promise to the user.
+    // TODO(BUILDER-SUBLAYER-PERSIST): call markDirty() here once sublayerState is
+    // included in the save payload via basemap_config round-trip. Until then,
+    // omitting markDirty() prevents the unsaved-changes badge from making a
+    // false promise to the user.
   }, [layers.setShowBasemapLabels, layers.showBasemapLabels]);
 
   const handleSublayerOpacityChange = useCallback((sublayerId: string, opacity: number) => {
@@ -473,7 +474,7 @@ export function MapBuilderPage() {
       ...prev,
       [sublayerId]: { visible: prev[sublayerId]?.visible ?? true, opacity },
     }));
-    // TODO(Phase 1038): call markDirty() once sublayerState is persisted.
+    // TODO(BUILDER-SUBLAYER-PERSIST): call markDirty() once sublayerState is persisted.
   }, []);
 
   const handleResetBasemapAppearance = useCallback(() => {
@@ -840,19 +841,19 @@ export function MapBuilderPage() {
               opacity={sublayer.opacity}
               minZoom={0}
               maxZoom={22}
-              onStrokeColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-              onStrokeWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-              onCasingColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
-              onCasingWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
+              onStrokeColorChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
+              onStrokeWidthChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
+              onCasingColorChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
+              onCasingWidthChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
               onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
-              onZoomChange={() => { /* TODO(Phase 1038): markDirty() once sublayer zoom range is persisted */ }}
+              onZoomChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer zoom range is persisted */ }}
               onResetSublayer={() => {
                 setSublayerState((prev) => {
                   const next = { ...prev };
                   delete next[sublayer.id];
                   return next;
                 });
-                // TODO(Phase 1038): markDirty() once sublayerState is persisted
+                // TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayerState is persisted
               }}
             />
           </Suspense>
