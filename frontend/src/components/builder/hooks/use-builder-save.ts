@@ -14,6 +14,7 @@ import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { useWidgetStore } from '@/stores/map-widget-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
 
 /** Crop and resize the map canvas to a 400x250 JPEG, then upload it.
@@ -152,7 +153,11 @@ const pendingCaptures = new Map<string, ReturnType<typeof setTimeout>>();
  *  trade-off favouring the more-frequent StrictMode-safety case. The
  *  `__resetThumbnailDebounceForTests` helper clears the set in vitest
  *  setup. */
-const autoCapturedMapIds = new Set<string>();
+/** Phase 1051 WR-07: keyed by `userId:mapId` so a cross-user session does NOT
+ *  inherit the previous user's guard entry. Previously keyed by `mapId` only,
+ *  which leaked across auth-switch and blocked legitimate auto-captures after
+ *  the same browser logged in as a different user with access to the same map. */
+const autoCapturedKeys = new Set<string>();
 
 function captureThumbnail(
   map: MaplibreMap,
@@ -181,9 +186,13 @@ function captureThumbnail(
  *  cleared. Callers should run this BEFORE `captureThumbnail()` so a
  *  StrictMode-driven remount cannot bypass it. The trailing-edge debounce
  *  in `captureThumbnail` still applies for the legitimate first call. */
-function shouldAutoCapture(mapId: string): boolean {
-  if (autoCapturedMapIds.has(mapId)) return false;
-  autoCapturedMapIds.add(mapId);
+function shouldAutoCapture(mapId: string, userId: string | null): boolean {
+  // Phase 1051 WR-07: key by both userId and mapId. anon users (token only,
+  // no resolvable user) collapse to a stable 'anon' bucket so anonymous
+  // sessions still benefit from StrictMode dedupe within a single tab.
+  const key = `${userId ?? 'anon'}:${mapId}`;
+  if (autoCapturedKeys.has(key)) return false;
+  autoCapturedKeys.add(key);
   return true;
 }
 
@@ -193,7 +202,7 @@ function shouldAutoCapture(mapId: string): boolean {
 export function __resetThumbnailDebounceForTests(): void {
   for (const timer of pendingCaptures.values()) clearTimeout(timer);
   pendingCaptures.clear();
-  autoCapturedMapIds.clear();
+  autoCapturedKeys.clear();
 }
 
 function resolveWidgetsPayload(
@@ -584,7 +593,11 @@ export function useBuilderSave(state: SaveState) {
     // instance for the same mapId can re-enter here with a fresh ref.
     // The module-level `shouldAutoCapture` guard owns the
     // "already initiated for this mapId this session" invariant.
-    if (!shouldAutoCapture(state.mapId)) {
+    // Phase 1051 WR-07: pass the current user id so the guard key is scoped per
+    // user. The previous mapId-only key persisted across logout/login and blocked
+    // legitimate captures after auth switch.
+    const userId = useAuthStore.getState().user?.id ?? null;
+    if (!shouldAutoCapture(state.mapId, userId)) {
       thumbCaptured.current = true; // keep the instance ref consistent
       return;
     }
