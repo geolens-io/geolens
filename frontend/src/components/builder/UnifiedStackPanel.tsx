@@ -109,11 +109,13 @@ interface UnifiedStackPanelProps {
   /** Called when outside-click or Escape should clear the multi-selection set */
   onClearSelection?: () => void;
   // Phase 1041-02: bulk action handlers (no-op stubs in MapBuilderPage until Plan 03 wires real ops)
-  onBulkVisibility?: (ids: Set<string>) => void;
-  onBulkOpacity?: (ids: Set<string>, opacity: number) => void;
-  onBulkGroup?: (ids: Set<string>) => void;
-  onBulkUngroup?: (ids: Set<string>) => void;
-  onBulkDelete?: (ids: Set<string>) => void;
+  // Phase 1051 WR-02: required so a partial wiring at the call site fails at
+  // compile-time instead of silently unmounting the BulkActionBar at runtime.
+  onBulkVisibility: (ids: Set<string>) => void;
+  onBulkOpacity: (ids: Set<string>, opacity: number) => void;
+  onBulkGroup: (ids: Set<string>) => void;
+  onBulkUngroup: (ids: Set<string>) => void;
+  onBulkDelete: (ids: Set<string>) => void;
   /** Phase 1047-04 (PERF-03): forwarded from useBuilderLayers.isDeleting */
   isDeleting?: boolean;
   // Phase 1042 POL-15: freshLayerId — id of most recently added layer for entry animation
@@ -1103,7 +1105,10 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       {/* Phase 1041-02: BulkActionBar — sticky footer, visible only when 2+ rows selected.
           SP-15: also hide when the global Settings scene is open. Selection state persists
           in the parent (selectedIds), so when Settings closes the bar reappears unchanged. */}
-      {!isSettingsOpen && selectedIds.size >= 2 && onBulkVisibility && onBulkOpacity && onBulkGroup && onBulkUngroup && onBulkDelete && (
+      {/* Phase 1051 WR-02: handler props are now required (see interface above),
+          so the runtime presence checks have been dropped — TypeScript enforces
+          that the call site wires all five handlers. */}
+      {!isSettingsOpen && selectedIds.size >= 2 && (
         <BulkActionBar
           selectedIds={selectedIds}
           layers={layers}

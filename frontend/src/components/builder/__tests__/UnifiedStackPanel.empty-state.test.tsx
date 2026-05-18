@@ -163,6 +163,12 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
     onCreateGroupWithLayer: vi.fn(),
     onMoveLayerOutOfGroup: vi.fn(),
     existingFolderGroups: [],
+    // Phase 1051 WR-02: bulk handlers are required props on UnifiedStackPanel.
+    onBulkVisibility: vi.fn(),
+    onBulkOpacity: vi.fn(),
+    onBulkGroup: vi.fn(),
+    onBulkUngroup: vi.fn(),
+    onBulkDelete: vi.fn(),
     ...overrides,
   };
 }
