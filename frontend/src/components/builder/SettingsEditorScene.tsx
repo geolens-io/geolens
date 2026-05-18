@@ -169,33 +169,39 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               {t('settings.noWidgets', { defaultValue: 'No widgets available.' })}
             </p>
           ) : (
-            <div role="group" aria-label={t('settings.widgetsGroupAria', { defaultValue: 'Widgets' })}>
-              {widgets.map((widget) => {
-                const isEnabled = activeWidgetIds.has(widget.id);
-                const widgetLabel = t(widget.labelKey, { defaultValue: widget.id });
-                const action = isEnabled
-                  ? t('settings.disableAction', { defaultValue: 'Disable' })
-                  : t('settings.enableAction', { defaultValue: 'Enable' });
-                return (
-                  <div
-                    key={widget.id}
-                    className="flex h-9 items-center gap-2 px-4 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))]"
-                  >
-                    <widget.icon className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
-                    <span className="flex-1 text-xs text-foreground">{widgetLabel}</span>
-                    <Switch
-                      checked={isEnabled}
-                      onCheckedChange={() => onToggleWidget(widget.id)}
-                      aria-label={t('settings.toggleWidget', {
-                        defaultValue: '{{action}} {{name}} widget',
-                        action,
-                        name: widgetLabel,
-                      })}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              {/* UX-04: clarify that this section controls AVAILABILITY (vs live interaction on the map). */}
+              <p className="px-4 pt-2 pb-1 text-[11px] text-muted-foreground">
+                {t('settings.widgetsAvailabilityNote', {
+                  defaultValue: 'Controls whether each widget appears on the map.',
+                })}
+              </p>
+              <div role="group" aria-label={t('settings.widgetsGroupAria', { defaultValue: 'Widgets' })}>
+                {widgets.map((widget) => {
+                  const isEnabled = activeWidgetIds.has(widget.id);
+                  const widgetLabel = t(widget.labelKey, { defaultValue: widget.id });
+                  // UX-04: state-specific aria labels — "Enable {name}" / "Disable {name}" —
+                  // replace the older "{action} {name} widget" composite key.
+                  const switchAriaLabel = isEnabled
+                    ? t('settings.disableWidget', { defaultValue: 'Disable {{name}}', name: widgetLabel })
+                    : t('settings.enableWidget', { defaultValue: 'Enable {{name}}', name: widgetLabel });
+                  return (
+                    <div
+                      key={widget.id}
+                      className="flex h-9 items-center gap-2 px-4 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))]"
+                    >
+                      <widget.icon className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+                      <span className="flex-1 text-xs text-foreground">{widgetLabel}</span>
+                      <Switch
+                        checked={isEnabled}
+                        onCheckedChange={() => onToggleWidget(widget.id)}
+                        aria-label={switchAriaLabel}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </CollapsibleContent>
       </Collapsible>

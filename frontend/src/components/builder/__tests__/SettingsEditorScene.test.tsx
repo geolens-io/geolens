@@ -166,7 +166,7 @@ describe('SettingsEditorScene', () => {
     expect(onExaggerationChange).toHaveBeenCalledWith(2.0);
   });
 
-  // Test 5: Widget toggles render with correct aria-label
+  // Test 5: Widget toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")
   it('widget toggle rows render with correct aria-label based on active state', () => {
     render(
       <SettingsEditorScene
@@ -175,10 +175,10 @@ describe('SettingsEditorScene', () => {
     );
 
     // The t() mock resolves labelKey with defaultValue=widget.id, so labels render as the widget id
-    const measurementSwitch = screen.getByRole('switch', { name: /Enable measurement widget/i });
+    const measurementSwitch = screen.getByRole('switch', { name: 'Enable measurement' });
     expect(measurementSwitch).toBeInTheDocument();
 
-    const legendSwitch = screen.getByRole('switch', { name: /Disable legend widget/i });
+    const legendSwitch = screen.getByRole('switch', { name: 'Disable legend' });
     expect(legendSwitch).toBeInTheDocument();
   });
 
@@ -191,7 +191,7 @@ describe('SettingsEditorScene', () => {
       />,
     );
 
-    const measurementSwitch = screen.getByRole('switch', { name: /Enable measurement widget/i });
+    const measurementSwitch = screen.getByRole('switch', { name: 'Enable measurement' });
     fireEvent.click(measurementSwitch);
 
     expect(onToggleWidget).toHaveBeenCalledOnce();
