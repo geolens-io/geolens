@@ -688,13 +688,11 @@ export function MapBuilderPage() {
         // setBasemapConfig auto-marks dirty (WR-02 in use-builder-layers.ts).
         // Preserve all other curated controls (label_mode, road_visibility, …)
         // and only update basemap_position.
-        ...(prev ?? {
-          label_mode: 'full' as const,
-          road_visibility: 'full' as const,
-          boundary_visibility: 'full' as const,
-          building_visibility: true,
-          land_water_tone: 'default' as const,
-        }),
+        // Phase 1051 CR-03: reuse normalizeBasemapConfig instead of an inline
+        // default literal so future MapBasemapConfig fields (opacity, relief_contrast,
+        // …) cannot silently drift between this drag handler and the canonical
+        // normalizer at lines 624 and 810.
+        ...(prev ?? normalizeBasemapConfig(null, layers.showBasemapLabels)),
         basemap_position: nextPosition,
       }));
       announce(t('a11y.basemapPositionChanged', {
