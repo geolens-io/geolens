@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
-import { Eye, EyeOff, MoreVertical } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, MoreVertical } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,7 +85,11 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
         }
       }}
     >
-      {/* Cell 1: Caret — visible and functional for basemap group */}
+      {/* Cell 1: Caret — visible and functional for basemap group.
+          UX-01 (Phase 1051 Plan 04): h-6 w-6 (24×24 hit target) + -mx-1 extends the visual
+          box 4px past each side of the 16px grid column without altering the grid template
+          (sketch 002 A "A-strict"). ChevronRight Lucide icon at h-4 w-4 (16px visible glyph)
+          replaces the Unicode ▸ text character. */}
       <button
         type="button"
         aria-expanded={isExpanded}
@@ -95,12 +99,14 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           onToggleExpand(groupId);
         }}
         className={cn(
-          'text-xs text-muted-foreground transition-transform duration-[--motion-fast] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded',
+          'flex items-center justify-center h-6 w-6 -mx-1 rounded text-muted-foreground',
+          'transition-transform duration-[--motion-fast]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           isExpanded && 'rotate-90',
         )}
         aria-label={t('basemapGroup.toggleExpand', { defaultValue: 'Toggle basemap group' })}
       >
-        ▸
+        <ChevronRight className="h-4 w-4" aria-hidden="true" />
       </button>
 
       {/* Cell 2: Grip — hidden: basemap group is not user-draggable (AUD-04) */}

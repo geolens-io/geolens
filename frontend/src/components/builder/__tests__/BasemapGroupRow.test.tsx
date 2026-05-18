@@ -242,4 +242,71 @@ describe('BasemapGroupRow', () => {
     const row = document.getElementById('stack-row-focus-group');
     expect(row).toBeInTheDocument();
   });
+
+  // UX-01 (Phase 1051 Plan 04): caret hit-target ≥24×24 via h-6 w-6 + -mx-1, ChevronRight Lucide glyph.
+  // jsdom cannot measure getBoundingClientRect reliably (per critical_planning_directive #10);
+  // tests assert className tokens and SVG presence — Playwright MCP measures actual rendered geometry.
+  describe('UX-01: caret hit-target & icon', () => {
+    it('Test 13: caret button has h-6 w-6 (≥24px hit area) and -mx-1 (negative margin overflow within 16px grid column)', () => {
+      render(<BasemapGroupRow {...defaultProps()} />);
+      const caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toBeTruthy();
+      // Hit target dimensions
+      expect(caretBtn!.className).toContain('h-6');
+      expect(caretBtn!.className).toContain('w-6');
+      // Negative horizontal margin extends visual box within 16px grid column (sketch 002 A "A-strict")
+      expect(caretBtn!.className).toContain('-mx-1');
+      // Flex centering for icon alignment within hit target
+      expect(caretBtn!.className).toContain('flex');
+      expect(caretBtn!.className).toContain('items-center');
+      expect(caretBtn!.className).toContain('justify-center');
+    });
+
+    it('Test 14: caret button renders a Lucide ChevronRight SVG (not the ▸ text glyph)', () => {
+      render(<BasemapGroupRow {...defaultProps()} />);
+      const caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toBeTruthy();
+      // Lucide icons render as <svg class="lucide lucide-chevron-right ...">
+      const svg = caretBtn!.querySelector('svg');
+      expect(svg).toBeTruthy();
+      expect(svg!.getAttribute('class')).toMatch(/lucide-chevron-right/);
+      // ≥16 px visible glyph
+      expect(svg!.getAttribute('class')).toMatch(/h-4/);
+      expect(svg!.getAttribute('class')).toMatch(/w-4/);
+      // Text glyph removed
+      expect(caretBtn!.textContent?.trim()).not.toContain('▸');
+    });
+
+    it('Test 15: caret still rotates 90deg when isExpanded=true (animation preserved)', () => {
+      const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
+      let caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn?.className).not.toContain('rotate-90');
+
+      rerender(<BasemapGroupRow {...defaultProps({ isExpanded: true })} />);
+      caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn?.className).toContain('rotate-90');
+    });
+
+    it('Test 16: caret aria-expanded reflects isExpanded state', () => {
+      const { rerender } = render(<BasemapGroupRow {...defaultProps({ isExpanded: false })} />);
+      let caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toHaveAttribute('aria-expanded', 'false');
+
+      rerender(<BasemapGroupRow {...defaultProps({ isExpanded: true })} />);
+      caretBtn = screen
+        .getAllByRole('button')
+        .find((b) => b.hasAttribute('aria-expanded'));
+      expect(caretBtn).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
 });
