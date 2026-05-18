@@ -59,6 +59,11 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   const rowName = `Basemap · ${presetName}`;
 
   function handleRowClick(_e: React.MouseEvent) {
+    // Phase 1051 CR-02: cursor-not-allowed at line 78 + suppressed drag listeners
+    // at line 122 advertise the row as non-interactive during multi-selection.
+    // Without this guard, the click still fires onSelectGroup, unmounting the
+    // BulkActionBar mid-selection — a UX contract violation.
+    if (isMultiSelectionActive) return;
     onSelectGroup(groupId);
   }
 
@@ -79,6 +84,9 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       )}
       onClick={handleRowClick}
       onKeyDown={(e) => {
+        // Phase 1051 CR-02: mirror handleRowClick — keyboard activation must
+        // honor the multi-selection boundary, matching the visual signal.
+        if (isMultiSelectionActive) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelectGroup(groupId);
