@@ -939,7 +939,6 @@
     "widgetsGroupAria": "Widgets",
     "disableAction": "Désactiver",
     "enableAction": "Activer",
-    "toggleWidget": "{{action}} le widget {{name}}",
     "enableWidget": "Activer {{name}}",
     "disableWidget": "Désactiver {{name}}",
     "widgetsAvailabilityNote": "Détermine si chaque widget apparaît sur la carte.",
