@@ -27,7 +27,7 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 
 ### Small-Screen Responsive Layout (RESPONSIVE)
 
-- [ ] **RESP-01**: At narrow viewport widths (≤1024 px viewport, exact breakpoint identified in flight via Playwright MCP), the collapsed right sidebar does NOT visually overlap or obscure the MapLibre zoom in/out controls. Either reflow the zoom controls, push them in from the edge, or constrain the sidebar collapse footprint.
+- [x] **RESP-01**: At narrow viewport widths (≤1024 px viewport, exact breakpoint identified in flight via Playwright MCP), the collapsed right sidebar does NOT visually overlap or obscure the MapLibre zoom in/out controls. Either reflow the zoom controls, push them in from the edge, or constrain the sidebar collapse footprint.
 - [ ] **RESP-02**: At narrow viewport widths, the lat/long/zoom coordinate readout pill does NOT overlap the map-widget container. Reflow, reposition, or z-order one above the other with clear non-overlap.
 - [ ] **RESP-03**: At narrow viewport widths, the basemap selector flyout renders exactly ONE "X" close button (not two stacked). Audit other right-sidebar-opened elements (LayerEditorPanel flyout, settings drawer, etc.) for the same duplicate-close bug and fix any other occurrences found.
 
@@ -69,7 +69,7 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | UX-02 | Phase 1051 | Complete (commits `79b0c0c6` + `a69d00ac`) |
 | UX-03 | Phase 1051 | Complete (commit `0957cf6d`) |
 | UX-04 | Phase 1051 | Complete (commit `57d88d01`) |
-| RESP-01 | Phase 1051 | Pending |
+| RESP-01 | Phase 1051 | Complete (commit `391459bb`) |
 | RESP-02 | Phase 1051 | Pending |
 | RESP-03 | Phase 1051 | Pending |
 | INV-01 | Phase 1051 | Pending |

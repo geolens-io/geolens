@@ -129,7 +129,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 1051-08-resp-sidebar-zoom-collision-PLAN.md — RESP-01: collapsed right sidebar overlaps MapLibre zoom controls at narrow viewports
+- [x] 1051-08-resp-sidebar-zoom-collision-PLAN.md — RESP-01: collapsed right sidebar overlaps MapLibre zoom controls at narrow viewports — ✅ SHIPPED 2026-05-18 (commit `391459bb`)
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
