@@ -19,27 +19,6 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('../StyleColorPicker', () => ({
-  StyleColorPicker: ({
-    color,
-    onChange,
-    label,
-  }: {
-    color: string;
-    onChange: (hex: string) => void;
-    label: string;
-  }) => (
-    <button
-      data-testid="color-picker"
-      data-color={color}
-      data-label={label}
-      onClick={() => onChange('#ABCDEF')}
-    >
-      color
-    </button>
-  ),
-}));
-
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class ResizeObserver {
     observe() {}
