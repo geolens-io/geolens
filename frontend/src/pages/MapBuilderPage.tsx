@@ -834,26 +834,14 @@ export function MapBuilderPage() {
             <BasemapSublayerEditorScene
               sublayerId={sublayer.id}
               sublayerName={sublayer.name}
-              strokeColor="#888888"
-              strokeWidth={1}
-              casingColor="#FFFFFF"
-              casingWidth={0}
               opacity={sublayer.opacity}
-              minZoom={0}
-              maxZoom={22}
-              onStrokeColorChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
-              onStrokeWidthChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
-              onCasingColorChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
-              onCasingWidthChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer styling is persisted */ }}
               onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
-              onZoomChange={() => { /* TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayer zoom range is persisted */ }}
               onResetSublayer={() => {
                 setSublayerState((prev) => {
                   const next = { ...prev };
                   delete next[sublayer.id];
                   return next;
                 });
-                // TODO(BUILDER-SUBLAYER-PERSIST): markDirty() once sublayerState is persisted
               }}
             />
           </Suspense>

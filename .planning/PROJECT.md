@@ -12,14 +12,23 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Next Milestone Goals
+## Current Milestone: v1011.1 Builder Hygiene Carryover
 
-To be defined via `/gsd:new-milestone`. Open candidate themes from v1011 close + earlier deferrals:
+**Goal:** Close all 4 EMRG-FN findings carried forward from v1011 Phase 1051 Plan 12 (EMRG-01 triage) — settle the Phase 1038 `BasemapSublayerEditorScene` dead-stub disposition, drop the orphan i18n key, prune the pre-existing eslint-disable noise, and explicitly close out the `SublayerConfigIndicators` null branch.
 
-- **Phase 1038 dead-stub cleanup** (EMRG-FN-01 from v1011) — REMOVE the 5 sibling `BasemapSublayerEditorScene` no-op callbacks (`onStrokeColorChange` / `onStrokeWidthChange` / `onCasingColorChange` / `onCasingWidthChange` / `onZoomChange`) on the INV-01 precedent, OR FIX them by wiring real basemap-sublayer styling persistence (~3-5 days). Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`.
+**Target features:**
+
+- **EMRG-FN-01 BasemapSublayerEditorScene dead-stub resolution** — settle Path A (REMOVE, mirror INV-01 precedent, ~1 plan) vs Path B (FIX, implement Phase 1038 styling persistence, ~3-5 days) during `/gsd-discuss-phase`; deliver chosen path with regression-pin coverage. Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`.
+- **EMRG-FN-02 settings.toggleWidget orphan i18n key cleanup** — remove the dead key from `frontend/src/i18n/locales/{en,de,es,fr}/builder.json` (4 file edits, no tests).
+- **EMRG-FN-03 UnifiedStackPanel.tsx unused-eslint-disable removal** — drop the 2 pre-existing unused-eslint-disable warnings (lines 679 + 720) from Phase 1041.
+- **EMRG-FN-04 SublayerConfigIndicators null close-out** — explicit verification step (auto-resolved if EMRG-FN-01 lands Path A and the scene is removed; explicit regression coverage if Path B).
+
+**Out-of-scope candidates carried forward to next milestone:**
+
 - **v1.7 Marketplace & Distribution unpause** — phases 36-42 paused at Phase 40 (AWS AMI Build).
 - **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping infrastructure (backlogged, Cloud-tier blocker).
 - **Enterprise feature backlog** — Phase 999.13 persistent connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas package extraction.
+- **Recreate public repo before launch** — pending todo from 2026-05-05.
 
 ## Recent Shipped Milestone: v1011 Map Builder Polish & Bug Sweep
 
@@ -794,13 +803,17 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ Users can create and independently configure multiple renderings of the same dataset from either sidebar row actions or the Add Dataset modal — v1003 (DUP-01..05)
 - ✓ Basemap and terrain controls write only existing `Map` fields and survive save/reload/public-viewer round trips — v1003 (MAPCTL-01..05, ROUND-01..03)
 - ✓ Focused Vitest, Playwright builder smoke, Playwright accessibility, Playwright MCP manual checks, lint, and build are documented at milestone close — v1003 (ADDH-01..05, ROUND-04)
+- ✓ Map Builder broken-affordance fixes: regular layer visibility toggle, delete layer, rename-group autofocus all dispatch correctly via adapter-contract honor of `input.visible` + defense-in-depth `syncVisibility`, optimistic-state + rollback delete, and Radix DropdownMenu rAF-deferred focus; DETAIL LEVEL disposition resolved (REMOVE — dead-wired since v1008) — v1011 (BUG-01..03, INV-01)
+- ✓ Map Builder UX clarifications: 24×24 px expand caret with Lucide ChevronRight, new `SublayerConfigIndicators` pure-derivation badges (Labels / Filter / DataDriven / OpacityModified) replacing per-sublayer opacity slider, basemap row draggable via `MapBasemapConfig.basemap_position` jsonb-additive + `reorderBasemapAboveData` map-sync helper, Map Settings Widgets state-specific aria-labels with 0-duplicates audit — v1011 (UX-01..04)
+- ✓ Map Builder small-screen layout resilience: NavigationControl repositioned `top-right` → `top-left` with `data-builder-canvas` CSS scope, MapCoordReadout cross-context `right-14` offset codified in docstring, `<SheetContent showCloseButton={false}>` opt-out on both Sheet wrappers + NEGATIVE-CONTROL bug-shape regression pin — v1011 (RESP-01..03)
+- ✓ Emergent-findings triage + close-gate: FINDINGS.md with fix-now vs defer-with-rationale disposition; 4 P2 deferred items tracked via pending todo + SUMMARY cross-references; 21 inline code-review fixes (iter-1 17 / iter-2 4) + 2 in-flight regression fixes (CTRL-01 gate-fix `befe6a3b` + RESP-02-FOLLOWUP `4f4a9917`) shipped before tag — v1011 (EMRG-01, CTRL-01)
 
 ### Active
 
-- [ ] v1011 Map Builder broken-affordance fixes: regular layer visibility toggle, delete layer, rename-group focus-on-input, and DETAIL LEVEL toggle disposition (investigate → remove or fix) all verified working via Playwright MCP on `localhost:8080`.
-- [ ] v1011 Map Builder UX clarifications: layer-group expand caret enlarged to meet touch-target size, per-sublayer opacity slider replaced with high-impact config-state indicators (label/filters/etc.), basemap row draggable in layer order (top for 3D, bottom for 2D), Map Settings Widgets section converted to enable/disable availability toggles instead of duplicating on-map controls.
-- [ ] v1011 Map Builder small-screen layout resilience: right sidebar does not collapse over zoom controls; lat/long/zoom pill does not overlap map-widget container; basemap selector + other right-sidebar surfaces do not stack duplicate "X" close buttons at narrow breakpoints.
-- [ ] v1011 Emergent-findings triage: any additional issues surfaced during Playwright MCP inspection are documented in FINDINGS.md with fix-now vs defer-with-rationale disposition; deferred items get tech-debt entries or new pending todos.
+- [ ] v1011.1 EMRG-FN-01 BasemapSublayerEditorScene dead-stub resolution: settle Path A (REMOVE, ~1 plan, ~10 min executor, mirror INV-01 precedent) vs Path B (FIX, ~3-5 days, implement Phase 1038 styling persistence via `MapBasemapConfig.sublayer_overrides` jsonb-additive + per-preset MapLibre style dispatch) during `/gsd-discuss-phase`; deliver chosen path with regression-pin test.
+- [ ] v1011.1 EMRG-FN-02 settings.toggleWidget orphan i18n key cleanup: remove the dead key from `frontend/src/i18n/locales/{en,de,es,fr}/builder.json` (4 file edits, no tests).
+- [ ] v1011.1 EMRG-FN-03 UnifiedStackPanel.tsx unused-eslint-disable removal: drop the 2 pre-existing unused-eslint-disable warnings at lines 679 + 720 from Phase 1041.
+- [ ] v1011.1 EMRG-FN-04 SublayerConfigIndicators null close-out: explicit verification step — auto-resolved if EMRG-FN-01 lands Path A (scene + its `layer={null}` callsite both removed); explicit regression test asserting safe-render with `layer={null}` if Path B.
 
 ### Out of Scope
 
@@ -1072,4 +1085,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-17 — opened milestone v1011 Map Builder Polish & Bug Sweep*
+*Last updated: 2026-05-18 — opened milestone v1011.1 Builder Hygiene Carryover*

@@ -8,9 +8,7 @@ import {
 } from '@/components/ui/collapsible';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 import { cn } from '@/lib/utils';
 
 // Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip removed — dead wiring.
@@ -19,23 +17,21 @@ import { cn } from '@/lib/utils';
 // detail-level style mutation. Removed rather than fix because a real consumer
 // requires a multi-day MapLibre style-mutation implementation (out of v1011 scope
 // per REQUIREMENTS.md Out-of-Scope row 1).
+//
+// Phase 1052 Plan 01 (EMRG-FN-01): STROKE section + zoom range inputs + 5
+// stub callbacks removed. Same Phase 1038 root cause — onStrokeColorChange,
+// onStrokeWidthChange, onCasingColorChange, onCasingWidthChange, and
+// onZoomChange were all `TODO(BUILDER-SUBLAYER-PERSIST)` no-ops. Path A
+// REMOVE chosen for v1011.1 hygiene close (Path B FIX is a 3-5 day feature
+// phase per REQUIREMENTS.md Out of Scope). Live consumers preserved:
+// opacity slider (onOpacityChange → handleSublayerOpacityChange) and Reset
+// section (onResetSublayer → setSublayerState mutation).
 
 export interface BasemapSublayerEditorSceneProps {
   sublayerId: string;
   sublayerName: string;
-  strokeColor: string;
-  strokeWidth: number;
-  casingColor: string;
-  casingWidth: number;
   opacity: number;
-  minZoom: number;
-  maxZoom: number;
-  onStrokeColorChange: (color: string) => void;
-  onStrokeWidthChange: (width: number) => void;
-  onCasingColorChange: (color: string) => void;
-  onCasingWidthChange: (width: number) => void;
   onOpacityChange: (opacity: number) => void;
-  onZoomChange: (min: number, max: number) => void;
   onResetSublayer: () => void;
 }
 
@@ -46,19 +42,8 @@ export interface BasemapSublayerEditorFooterProps {
 export function BasemapSublayerEditorScene({
   sublayerId,
   sublayerName,
-  strokeColor,
-  strokeWidth,
-  casingColor,
-  casingWidth,
   opacity,
-  minZoom,
-  maxZoom,
-  onStrokeColorChange,
-  onStrokeWidthChange,
-  onCasingColorChange,
-  onCasingWidthChange,
   onOpacityChange,
-  onZoomChange,
   onResetSublayer,
 }: BasemapSublayerEditorSceneProps) {
   const { t } = useTranslation('builder');
@@ -79,79 +64,7 @@ export function BasemapSublayerEditorScene({
 
   return (
     <>
-      {/* 1. Stroke section — always expanded */}
-      <section className="border-b">
-        <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
-            {t('basemapSublayer.strokeLabel', { defaultValue: 'STROKE' })}
-          </p>
-          <div className="space-y-3">
-            {/* Color field */}
-            <div className="grid grid-cols-[110px_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground">
-                {t('basemapSublayer.strokeColor', { defaultValue: 'Color' })}
-              </Label>
-              <StyleColorPicker
-                label={t('basemapSublayer.strokeColor', { defaultValue: 'Color' })}
-                color={strokeColor}
-                onChange={onStrokeColorChange}
-              />
-            </div>
-
-            {/* Width field */}
-            <div className="grid grid-cols-[110px_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground">
-                {t('basemapSublayer.strokeWidth', { defaultValue: 'Width' })}
-              </Label>
-              <Slider
-                aria-label={t('basemapSublayer.strokeWidthLabel', { defaultValue: 'Stroke width' })}
-                aria-valuetext={`${strokeWidth}px`}
-                value={[strokeWidth]}
-                min={0}
-                max={8}
-                step={0.5}
-                onValueChange={([v]) => onStrokeWidthChange(v)}
-              />
-              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {strokeWidth}px
-              </span>
-            </div>
-
-            {/* Casing color field */}
-            <div className="grid grid-cols-[110px_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground">
-                {t('basemapSublayer.casingColor', { defaultValue: 'Casing color' })}
-              </Label>
-              <StyleColorPicker
-                label={t('basemapSublayer.casingColor', { defaultValue: 'Casing color' })}
-                color={casingColor}
-                onChange={onCasingColorChange}
-              />
-            </div>
-
-            {/* Casing width field */}
-            <div className="grid grid-cols-[110px_1fr_auto] gap-2 items-center">
-              <Label className="text-xs text-muted-foreground">
-                {t('basemapSublayer.casingWidth', { defaultValue: 'Casing width' })}
-              </Label>
-              <Slider
-                aria-label={t('basemapSublayer.casingWidthLabel', { defaultValue: 'Casing width' })}
-                aria-valuetext={`${casingWidth}px`}
-                value={[casingWidth]}
-                min={0}
-                max={4}
-                step={0.5}
-                onValueChange={([v]) => onCasingWidthChange(v)}
-              />
-              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-                {casingWidth}px
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. Visibility section — opacity + zoom range */}
+      {/* 1. Visibility section — opacity only */}
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -176,66 +89,11 @@ export function BasemapSublayerEditorScene({
                 }}
               />
             </div>
-            {/* Zoom range */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <Label
-                  htmlFor={`${sublayerId}-minzoom`}
-                  className="text-xs text-muted-foreground"
-                >
-                  {t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
-                </Label>
-                <Input
-                  id={`${sublayerId}-minzoom`}
-                  type="number"
-                  min={0}
-                  max={22}
-                  value={minZoom}
-                  onChange={(e) => {
-                    // Phase 1051 WR-05: validate in the handler and clamp inverted
-                    // bounds rather than constraining the input range to maxZoom-1.
-                    // The strict input-attribute clamp made it impossible to set
-                    // min==max (single zoom level) and could be bypassed by paste.
-                    const newMin = Number(e.target.value);
-                    if (!Number.isFinite(newMin)) return;
-                    const clamped = Math.min(22, Math.max(0, newMin));
-                    onZoomChange(clamped, Math.max(clamped, maxZoom));
-                  }}
-                  className="h-8 text-xs"
-                  aria-label={t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label
-                  htmlFor={`${sublayerId}-maxzoom`}
-                  className="text-xs text-muted-foreground"
-                >
-                  {t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
-                </Label>
-                <Input
-                  id={`${sublayerId}-maxzoom`}
-                  type="number"
-                  min={0}
-                  max={22}
-                  value={maxZoom}
-                  onChange={(e) => {
-                    // Phase 1051 WR-05: see minZoom handler — clamp instead of
-                    // refusing input. Inverted bounds collapse to a single zoom.
-                    const newMax = Number(e.target.value);
-                    if (!Number.isFinite(newMax)) return;
-                    const clamped = Math.min(22, Math.max(0, newMax));
-                    onZoomChange(Math.min(clamped, minZoom), clamped);
-                  }}
-                  className="h-8 text-xs"
-                  aria-label={t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
-                />
-              </div>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* 4. Reset section — collapsed by default */}
+      {/* 2. Reset section — collapsed by default */}
       <Collapsible
         open={resetOpen}
         onOpenChange={(open) => {
