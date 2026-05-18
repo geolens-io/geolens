@@ -1181,6 +1181,14 @@ export function MapBuilderPage() {
           >
             <SheetContent
               side="right"
+              showCloseButton={false}
+              /* RESP-03 (Phase 1051 Plan 10): suppress shadcn Sheet's
+                 built-in auto-close X. The wrapped LayerEditorPanel already
+                 owns its canonical close affordance (header X at
+                 LayerEditorPanel.tsx:316-325 with aria-label
+                 "Close layer editor"). Pre-fix this overlay rendered TWO
+                 close buttons. See regression test
+                 MapBuilderPage.sheet-close-button.test.tsx. */
               className="w-full max-w-[380px] p-0 flex flex-col"
             >
               <SheetHeader className="sr-only">
@@ -1316,7 +1324,15 @@ export function MapBuilderPage() {
       {/* Mobile rail as Sheet overlay */}
       {isEditorHidden && railPanel && (
         <Sheet open={!!railPanel} onOpenChange={(open) => { if (!open) setRailPanel(null); }}>
-          <SheetContent side="right" className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col">
+          <SheetContent
+            side="right"
+            showCloseButton={false}
+            /* RESP-03 (Phase 1051 Plan 10): suppress shadcn Sheet's
+               built-in auto-close X. The wrapped BuilderRail expanded panel
+               already owns its canonical close affordance (ChevronRight at
+               BuilderRail.tsx:125-132 with aria-label "Close panel"). */
+            className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
+          >
             <SheetHeader className="sr-only">
               <SheetTitle>{railSheetTitle}</SheetTitle>
               <SheetDescription>{railSheetDescription}</SheetDescription>
