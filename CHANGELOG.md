@@ -203,7 +203,7 @@ the v1009.1 / v1010.1 / v1010.2 / v1011 hygiene shape per
   of basemap sublayer flyout (STROKE / Stroke color / Casing color / Minimum
   zoom / Maximum zoom absent; opacity slider + Reset section live; sublayer
   rows render cleanly) is orchestrator-scoped (Half B). Tag `v1011.1` (local).
-  Commit `<CTRL-01-hash>`.
+  Commit `e1d3d093`.
 
 ### Builder smoke carryover (v1010.2 — closes Phase 1050)
 
