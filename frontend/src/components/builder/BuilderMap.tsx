@@ -33,6 +33,7 @@ import {
   reorderDataLayers,
   applyBasemapConfigToMap,
   getSourceIdForLayer,
+  getDataDrivenColumnsForSource,
   getLayerId,
   ensureRasterDemTerrainSource,
   isTerrainCapableDemLayer,
@@ -833,12 +834,18 @@ export const BuilderMap = memo(function BuilderMap({
       if (source && source.type === 'vector') {
         const strategy = getClusterSourceStrategy(layer);
         const builder = layer.style_config?.builder;
+        // Mirror map-sync.ts: include data-driven cols from every layer
+        // sharing this source so the token-refresh URL is identical in shape
+        // (just with a fresh sig/exp) and MapLibre's tile cache stays warm.
+        const sharedSourceCols = strategy.kind === 'server-tile'
+          ? null
+          : getDataDrivenColumnsForSource(sourceId, layers);
         const newUrl = strategy.kind === 'server-tile'
           ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, {
               clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
               clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
             })
-          : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
+          : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }

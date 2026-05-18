@@ -411,6 +411,63 @@ export interface SourceIdLayer {
   layer_type?: string | null;
 }
 
+/** Extract column names a layer needs in MVT tiles to drive paint expressions.
+ *
+ * The tile server (Phase 269 H-23) projects no attribute columns at z<10 by
+ * default, which breaks data-driven styling at zoomed-out views. Listing the
+ * referenced columns here lets `buildSignedTileUrl` opt them into the tile
+ * via the `cols=` query param so categorical / graduated / heatmap-weight /
+ * height-extrusion expressions evaluate against real data at any zoom.
+ *
+ * Sources considered:
+ *  - `style_config.column` — categorical / graduated styling
+ *  - paint `_heatmap-weight-column` — heatmap weighting (custom builder prop)
+ *  - paint `_height_column` — 3D fill-extrusion height (custom builder prop)
+ *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
+ */
+export function getDataDrivenColumnsForLayer(
+  layer: { style_config?: StyleConfig | null; paint?: Record<string, unknown> },
+): string[] {
+  const cols = new Set<string>();
+  const styleCol = layer.style_config?.column;
+  if (typeof styleCol === 'string' && styleCol) cols.add(styleCol);
+  const paint = layer.paint ?? {};
+  const heatmapWeight = paint['_heatmap-weight-column'];
+  if (typeof heatmapWeight === 'string' && heatmapWeight) cols.add(heatmapWeight);
+  const heightCol = paint['_height_column'];
+  if (typeof heightCol === 'string' && heightCol) cols.add(heightCol);
+  // Walk paint expressions for `["get", "<name>"]` references.
+  // ["get", x] is the canonical MapLibre way to read a feature property.
+  function walk(node: unknown): void {
+    if (!Array.isArray(node) || node.length === 0) return;
+    if (node[0] === 'get' && typeof node[1] === 'string') {
+      cols.add(node[1]);
+      return;
+    }
+    for (const child of node) walk(child);
+  }
+  for (const val of Object.values(paint)) walk(val);
+  return Array.from(cols);
+}
+
+/** Union of data-driven columns across every layer sharing a source. */
+export function getDataDrivenColumnsForSource(
+  sourceId: string,
+  layers: SourceIdLayer[],
+  prefix?: string,
+): string[] {
+  const cols = new Set<string>();
+  for (const layer of layers) {
+    if (getSourceIdForLayer(layer, prefix) !== sourceId) continue;
+    const layerWithStyle = layer as SourceIdLayer & {
+      style_config?: StyleConfig | null;
+      paint?: Record<string, unknown>;
+    };
+    for (const c of getDataDrivenColumnsForLayer(layerWithStyle)) cols.add(c);
+  }
+  return Array.from(cols);
+}
+
 export function getSourceIdForLayer(
   layer: SourceIdLayer,
   prefix?: string,
@@ -545,9 +602,15 @@ function syncVectorLayer(
   const adapter = getAdapter(type);
   const filter = adapterInput.filter;
   const clusterOptions = getClusterSourceOptions(adapterInput);
+  // Gather data-driven columns from every layer sharing this source. The
+  // tile server's z<10 attribute budget would otherwise strip them, breaking
+  // categorical / graduated / heatmap / 3D-extrusion paint at low zooms.
+  const sharedSourceCols = canUseServerCluster
+    ? null
+    : getDataDrivenColumnsForSource(sourceId, allLayers, prefix);
   adapterInput.tileUrl = canUseServerCluster
     ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, clusterOptions)
-    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl);
+    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, undefined, sharedSourceCols);
 
   // GeoJSON branch: 3D small datasets and eligible Cluster layers use GeoJSON
   // sources instead of the normal vector-tile path.

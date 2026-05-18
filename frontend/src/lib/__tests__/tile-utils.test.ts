@@ -50,6 +50,33 @@ describe('buildSignedTileUrl', () => {
     const url = buildSignedTileUrl('tbl', mockToken, 'https://cdn.example.com');
     expect(url).not.toContain('_v=');
   });
+
+  it('appends cols= when extraCols is provided', () => {
+    const url = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, ['economy']);
+    expect(url).toBe('https://cdn.example.com/tiles/data.tbl/{z}/{x}/{y}.pbf?cols=economy');
+  });
+
+  it('sorts and dedupes cols for stable cache keys', () => {
+    const url1 = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, ['b', 'a', 'a']);
+    const url2 = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, ['a', 'b']);
+    expect(url1).toBe(url2);
+    expect(url1).toContain('cols=a%2Cb');
+  });
+
+  it('omits cols= when extraCols is empty / null / undefined', () => {
+    const url1 = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, []);
+    const url2 = buildSignedTileUrl('tbl', null, 'https://cdn.example.com', null, null);
+    const url3 = buildSignedTileUrl('tbl', null, 'https://cdn.example.com');
+    expect(url1).not.toContain('cols=');
+    expect(url2).not.toContain('cols=');
+    expect(url3).not.toContain('cols=');
+  });
+
+  it('combines cols with signed params', () => {
+    const url = buildSignedTileUrl('tbl', mockToken, 'https://cdn.example.com', null, ['pop']);
+    expect(url).toContain('sig=abc123');
+    expect(url).toContain('cols=pop');
+  });
 });
 
 describe('buildClusterTileUrl', () => {

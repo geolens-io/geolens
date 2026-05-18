@@ -71,9 +71,18 @@ class TileCacheProvider:
     def __init__(self, url: str) -> None:
         self._client = redis_async.from_url(url, decode_responses=False)
 
-    async def get(self, table: str, z: int, x: int, y: int) -> bytes | None:
-        """Return cached tile bytes or None on miss/error."""
-        key = f"tile:{table}:{z}:{x}:{y}"
+    async def get(
+        self, table: str, z: int, x: int, y: int, cols_key: str = ""
+    ) -> bytes | None:
+        """Return cached tile bytes or None on miss/error.
+
+        `cols_key` differentiates tiles for the same table/z/x/y but with
+        different additional column projections (data-driven styling).
+        Empty string preserves the original cache key shape for callers
+        that don't pass additional columns.
+        """
+        suffix = f":{cols_key}" if cols_key else ""
+        key = f"tile:{table}:{z}:{x}:{y}{suffix}"
         label = _safe_label(table)
         try:
             data = await self._client.get(key)
@@ -95,9 +104,11 @@ class TileCacheProvider:
         y: int,
         data: bytes,
         ttl: int = 300,
+        cols_key: str = "",
     ) -> None:
         """Store tile bytes with TTL. Silent on failure."""
-        key = f"tile:{table}:{z}:{x}:{y}"
+        suffix = f":{cols_key}" if cols_key else ""
+        key = f"tile:{table}:{z}:{x}:{y}{suffix}"
         try:
             await self._client.set(key, data, ex=ttl)
         except Exception:  # broad: redis client surfaces pool/timeout/io errors as varied types; cache write is non-fatal
@@ -144,9 +155,12 @@ class InMemoryTileCacheProvider:
         # Stores (data: bytes, expires_at_monotonic: float) tuples.
         self._cache: LRUCache[str, tuple[bytes, float]] = LRUCache(maxsize=max_entries)
 
-    async def get(self, table: str, z: int, x: int, y: int) -> bytes | None:
+    async def get(
+        self, table: str, z: int, x: int, y: int, cols_key: str = ""
+    ) -> bytes | None:
         """Return cached tile bytes or None on miss / TTL expiry."""
-        key = f"tile:{table}:{z}:{x}:{y}"
+        suffix = f":{cols_key}" if cols_key else ""
+        key = f"tile:{table}:{z}:{x}:{y}{suffix}"
         label = _safe_label(table)
         entry = self._cache.get(key)
         if entry is None:
@@ -169,9 +183,11 @@ class InMemoryTileCacheProvider:
         y: int,
         data: bytes,
         ttl: int = 300,
+        cols_key: str = "",
     ) -> None:
         """Store tile bytes with TTL. LRU evicts oldest when at capacity."""
-        key = f"tile:{table}:{z}:{x}:{y}"
+        suffix = f":{cols_key}" if cols_key else ""
+        key = f"tile:{table}:{z}:{x}:{y}{suffix}"
         self._cache[key] = (data, time.monotonic() + ttl)
 
     async def invalidate_table(self, table: str) -> None:

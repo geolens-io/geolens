@@ -30,7 +30,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed } from '@/components/builder/map-sync';
+import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
@@ -627,12 +627,20 @@ export const ViewerMap = memo(function ViewerMap({
       if (source && source.type === 'vector') {
         const strategy = getClusterSourceStrategy(layer);
         const builder = layer.style_config?.builder;
+        // Per-layer source in viewer context (no dedupe by table_name), so
+        // the column set comes from THIS layer only.
+        const cols = strategy.kind === 'server-tile'
+          ? null
+          : getDataDrivenColumnsForLayer({
+              style_config: layer.style_config ?? null,
+              paint: (layer.paint as Record<string, unknown> | undefined) ?? {},
+            });
         const newUrl = strategy.kind === 'server-tile'
           ? buildClusterTileUrl(layer.table_name, token, tileBaseUrl, undefined, {
               clusterRadius: typeof builder?.clusterRadius === 'number' ? builder.clusterRadius : 48,
               clusterMaxZoom: typeof builder?.clusterMaxZoom === 'number' ? builder.clusterMaxZoom : 14,
             })
-          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl);
+          : buildSignedTileUrl(layer.table_name, token, tileBaseUrl, undefined, cols);
         (source as VectorTileSource).setTiles([newUrl]);
       }
     }

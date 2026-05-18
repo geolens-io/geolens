@@ -117,3 +117,73 @@ def test_build_tile_query_uses_pruned_columns():
     query = _build_tile_query("perf_test", columns)
     assert "t.name" in query
     assert "t.category" in query
+
+
+def test_additional_columns_unioned_below_zoom_threshold():
+    """Data-driven styling columns flow through at z<10 via `additional_columns`."""
+    result = _select_tile_columns(
+        _DATASET_COLUMNS,
+        2,
+        tile_columns=None,
+        additional_columns=["population"],
+    )
+    names = [c["name"] for c in result]
+    assert names == ["population"], (
+        "additional_columns must override the default no-attrs-below-z10 budget"
+    )
+
+
+def test_additional_columns_unioned_with_empty_allowlist():
+    """admin allowlist=[] still allows runtime opt-in via additional_columns."""
+    result = _select_tile_columns(
+        _DATASET_COLUMNS,
+        14,
+        tile_columns=[],
+        additional_columns=["name", "population"],
+    )
+    names = [c["name"] for c in result]
+    # Order matches dataset column_info iteration, not the additional_columns argument
+    assert names == ["name", "population"]
+
+
+def test_additional_columns_dedupes_against_base_selection():
+    """A column already in the base allowlist isn't duplicated when also in additional_columns."""
+    result = _select_tile_columns(
+        _DATASET_COLUMNS,
+        14,
+        tile_columns=["name", "category"],
+        additional_columns=["name", "population"],
+    )
+    names = [c["name"] for c in result]
+    # name stays (already allowlisted), population added (additional), category preserved
+    assert names == ["name", "category", "population"]
+
+
+def test_additional_columns_drops_unknown_and_invalid_names():
+    """additional_columns is validated against column_info AND the column-name regex."""
+    result = _select_tile_columns(
+        _DATASET_COLUMNS,
+        2,
+        tile_columns=None,
+        additional_columns=[
+            "population",  # valid
+            "no_such_col",  # in regex but not in dataset → dropped
+            "drop table;",  # fails regex → dropped
+            "1invalid",  # fails regex (digit start) → dropped
+            "",  # empty → dropped
+        ],
+    )
+    names = [c["name"] for c in result]
+    assert names == ["population"]
+
+
+def test_additional_columns_none_or_empty_preserves_legacy_behavior():
+    """None / [] for additional_columns must not alter the prior selection."""
+    base_z2 = _select_tile_columns(_DATASET_COLUMNS, 2, tile_columns=None)
+    assert base_z2 == []
+    assert _select_tile_columns(
+        _DATASET_COLUMNS, 2, tile_columns=None, additional_columns=None
+    ) == []
+    assert _select_tile_columns(
+        _DATASET_COLUMNS, 2, tile_columns=None, additional_columns=[]
+    ) == []

@@ -864,6 +864,7 @@ async def tile_endpoint(
     sig: str | None = None,
     exp: int | None = None,
     scope: str | None = None,
+    cols: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve a vector tile as gzipped MVT binary.
@@ -872,6 +873,15 @@ async def tile_endpoint(
 
     Non-public datasets require valid HMAC signature params (sig, exp, scope).
     Public datasets can be accessed without any signature.
+
+    `cols` is a runtime opt-in for additional attribute columns the client
+    needs at all zooms (e.g. data-driven styling columns referenced by
+    MapLibre paint expressions). Format: comma-separated column names.
+    Each name is validated against the dataset column list before it
+    flows into the MVT projection; invalid names are silently dropped.
+    Does not need to be signed — `sig` already authorizes dataset
+    access and `cols` can only project columns the caller already has
+    REST access to.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -885,6 +895,19 @@ async def tile_endpoint(
         scope=scope,
     )
 
+    # Parse `cols` query param into a validated, deduped, sorted list.
+    # Validation against the dataset's column_info happens inside
+    # _select_tile_columns; here we just normalize so the cache key is
+    # deterministic across permutations (`cols=a,b` and `cols=b,a` hit
+    # the same cache entry).
+    additional_columns: list[str] | None = None
+    cols_cache_key = ""
+    if cols:
+        raw = [c.strip() for c in cols.split(",") if c.strip()]
+        if raw:
+            additional_columns = sorted(set(raw))
+            cols_cache_key = ",".join(additional_columns)
+
     # Get column info for attribute selection
     columns = meta.column_info
 
@@ -894,7 +917,7 @@ async def tile_endpoint(
     # Check tile cache before hitting PostGIS
     tile_cache = get_tile_cache()
     if tile_cache is not None:
-        cached = await tile_cache.get(table_name, z, x, y)
+        cached = await tile_cache.get(table_name, z, x, y, cols_key=cols_cache_key)
         if cached is not None:
             if len(cached) == 0:
                 # Empty sentinel — tile was previously confirmed empty
@@ -932,6 +955,7 @@ async def tile_endpoint(
             y,
             columns,
             tile_columns=meta.tile_columns,
+            additional_columns=additional_columns,
         )
     except asyncio.TimeoutError:
         logger.warning(
@@ -963,7 +987,9 @@ async def tile_endpoint(
     if tile_data is None:
         # Cache empty tiles to avoid repeated PostGIS queries for sparse datasets
         if tile_cache is not None:
-            await tile_cache.set(table_name, z, x, y, b"", ttl=cache_ttl)
+            await tile_cache.set(
+                table_name, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
+            )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # Log successful tile access
@@ -982,7 +1008,9 @@ async def tile_endpoint(
 
     # Cache the compressed tile bytes for subsequent requests
     if tile_cache is not None:
-        await tile_cache.set(table_name, z, x, y, compressed, ttl=cache_ttl)
+        await tile_cache.set(
+            table_name, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
+        )
 
     return Response(
         content=compressed,

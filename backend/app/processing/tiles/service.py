@@ -49,6 +49,7 @@ def _select_tile_columns(
     z: int,
     *,
     tile_columns: list[str] | None = None,
+    additional_columns: list[str] | None = None,
 ) -> list[dict]:
     """Apply Phase 269 H-23 column allowlist + per-zoom defaults.
 
@@ -58,19 +59,41 @@ def _select_tile_columns(
     * `tile_columns == []`             → never project attributes.
     * `tile_columns` non-empty         → admin-curated allowlist; only the
       listed columns flow into MVT properties at any zoom.
+
+    `additional_columns` (2026-05-18): runtime opt-in for columns the
+    requesting client knows it needs — typically data-driven styling
+    columns (e.g. `style_config.column`) that must be present at every
+    zoom to drive categorical / graduated paint expressions. These are
+    UNIONED into the result regardless of the zoom budget or allowlist,
+    but still validated against `columns` so callers cannot project
+    arbitrary attributes that don't exist on the table. Names that fail
+    `_COLUMN_NAME_RE` or aren't in `columns` are silently dropped.
     """
     if tile_columns is not None:
         if not tile_columns:
-            return []
-        # Filter `columns` by the allowlist while preserving column order
-        # and dict shape (dtype, etc.) — also re-validate names.
-        allowlist = {name for name in tile_columns if _COLUMN_NAME_RE.match(name)}
-        return [c for c in columns if c.get("name") in allowlist]
+            base = []
+        else:
+            # Filter `columns` by the allowlist while preserving column
+            # order and dict shape (dtype, etc.) — also re-validate names.
+            allowlist = {name for name in tile_columns if _COLUMN_NAME_RE.match(name)}
+            base = [c for c in columns if c.get("name") in allowlist]
+    elif z < _DEFAULT_NO_ATTR_BELOW_ZOOM:
+        base = []
+    else:
+        base = columns
 
-    # Default behavior: per-zoom budget.
-    if z < _DEFAULT_NO_ATTR_BELOW_ZOOM:
-        return []
-    return columns
+    if additional_columns:
+        valid_extra = {
+            name for name in additional_columns
+            if isinstance(name, str) and _COLUMN_NAME_RE.match(name)
+        }
+        if valid_extra:
+            already = {c.get("name") for c in base}
+            for col in columns:
+                name = col.get("name")
+                if name in valid_extra and name not in already:
+                    base.append(col)
+    return base
 
 
 def _build_attr_columns(columns: list[dict]) -> str:
@@ -278,6 +301,7 @@ async def get_tile(
     columns: list[dict],
     *,
     tile_columns: list[str] | None = None,
+    additional_columns: list[str] | None = None,
 ) -> bytes | None:
     """Execute a tile query and return MVT bytes, or None if empty.
 
@@ -289,13 +313,21 @@ async def get_tile(
         y: Tile row
         columns: Column info list from dataset (dicts with 'name' key)
         tile_columns: Phase 269 H-23 allowlist override (None / [] / list).
+        additional_columns: Runtime opt-in columns the caller needs at all
+            zooms (e.g. data-driven styling columns). Unioned with the
+            base selection; validated against `columns`.
 
     Returns:
         MVT binary data, or None if the tile contains no features.
     """
     _validate_tile_table_name(table_name)
 
-    selected_columns = _select_tile_columns(columns, z, tile_columns=tile_columns)
+    selected_columns = _select_tile_columns(
+        columns,
+        z,
+        tile_columns=tile_columns,
+        additional_columns=additional_columns,
+    )
     query = _build_tile_query(table_name, selected_columns)
     layer_name = f"data.{table_name}"
 
