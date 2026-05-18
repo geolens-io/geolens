@@ -706,14 +706,25 @@ export const BuilderMap = memo(function BuilderMap({
     };
   }, [mapReady, t, lookupHitLayer, onFeatureSelect]);
 
-  // Structural key: only changes when layers are added/removed/reordered/toggled —
-  // NOT on paint/filter edits (those are handled incrementally by use-layer-map-sync).
-  // Also drives popup clearing on visibility changes (P-17: single key replaces separate visibilityKey).
+  // Popup invalidation key: changes whenever any structural property of the
+  // layers list shifts (add/remove/reorder/visibility toggle, dataset rename,
+  // render-mode-specific style fields). The popup must be cleared on any of
+  // these because the feature it references may no longer exist, may be hidden,
+  // or may be re-keyed against a different source.
+  //
   // Phase 1051 WR-08: also include dataset_table_name (mid-session rename safety)
   // and the active render mode's primary style_config.builder field (heatmapRamp,
   // heightColumn) so non-cluster modes invalidate when their structural style
   // shifts (popup should clear after heatmap-ramp change, height-column rebind).
-  const structuralKey = useMemo(
+  //
+  // Phase 1051 IN-01 (iter-2 re-review): renamed from `structuralKey` to make
+  // its single consumer (popup-clear) explicit. The auto-fit effect at line
+  // ~882 no longer reads this key — it gates on `layerCountChanged`, which
+  // depends only on `layers.length` (already in its dep array). Reading the
+  // full invalidation key there caused harmless extra effect runs that
+  // misleadingly suggested the auto-fit responds to heatmap-ramp/height-column
+  // edits (it doesn't — those short-circuit at `if (!layerCountChanged) return`).
+  const popupInvalidationKey = useMemo(
     () => layers.map((l) => {
       const builder = l.style_config?.builder;
       const renderMode = l.style_config?.render_mode;
@@ -729,10 +740,11 @@ export const BuilderMap = memo(function BuilderMap({
     [layers],
   );
 
-  // Clear popup when layer visibility changes
+  // Clear popup when any structural layer property changes (visibility,
+  // ordering, dataset rename, render-mode-specific style shifts).
   useEffect(() => {
     setPopupInfo(null);
-  }, [structuralKey]);
+  }, [popupInvalidationKey]);
 
   // Sync layers to map — runs on structural changes (add/remove/visibility) and token refresh.
   // Paint/filter/opacity edits are handled imperatively by use-layer-map-sync.ts.
@@ -882,8 +894,13 @@ export const BuilderMap = memo(function BuilderMap({
     if (map.getZoom() < 2) {
       map.setZoom(2);
     }
+  // Phase 1051 IN-01 (iter-2): no longer reads popupInvalidationKey — the
+  // effect short-circuits on `!layerCountChanged`, so it only needs
+  // `layers.length` to detect add/remove. Including the full invalidation
+  // key here previously caused harmless but misleading extra effect runs
+  // on heatmap-ramp / height-column edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hasSavedView/layers read from refs, not reactive deps
-  }, [layers.length, structuralKey, mapReady]);
+  }, [layers.length, mapReady]);
 
   // Cleanup on unmount
   useEffect(() => {
