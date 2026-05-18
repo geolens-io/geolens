@@ -28,7 +28,7 @@ Each item is a discrete deliverable carried forward from v1011 Phase 1051 Plan 1
 
 - [x] **EMRG-FN-03**: Pre-existing UnifiedStackPanel.tsx unused-eslint-disable warnings at lines 679 + 720 (from Phase 1041, SCOPE BOUNDARY-correct deferral) are removed. Single-file 2-line removal. Frontend lint passes with 0 warnings on the affected file.
 
-- [ ] **EMRG-FN-04**: `SublayerConfigIndicators` `layer={null}` branch is explicitly closed out.
+- [x] **EMRG-FN-04**: `SublayerConfigIndicators` `layer={null}` branch is explicitly closed out.
   - Auto-resolved if EMRG-FN-01 lands **Path A** (BasemapSublayerEditorScene removed → no callsite passes `layer={null}` to SublayerConfigIndicators anymore).
   - If EMRG-FN-01 lands **Path B**, add an explicit regression test asserting `SublayerConfigIndicators` safely renders nothing (or appropriate fallback) when `layer={null}`.
 

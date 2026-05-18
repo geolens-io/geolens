@@ -103,7 +103,7 @@ Plans:
 - [x] 1052-03-PLAN.md — EMRG-FN-01 Path A REMOVE: vitest cleanup + Test 14 REMOVE-disposition regression pin
 - [x] 1052-04-PLAN.md — EMRG-FN-02: remove orphan settings.toggleWidget i18n key (4 locales)
 - [x] 1052-05-PLAN.md — EMRG-FN-03: remove 2 unused eslint-disable-next-line directives from UnifiedStackPanel.tsx
-- [ ] 1052-06-PLAN.md — EMRG-FN-04: SublayerConfigIndicators layer={null} closure documentation (CONTEXT.md auto-resolution claim corrected)
+- [x] 1052-06-PLAN.md — EMRG-FN-04: SublayerConfigIndicators layer={null} closure documentation (CONTEXT.md auto-resolution claim corrected)
 - [ ] 1052-07-PLAN.md — CTRL-01: batched close gate (typecheck + vitest + e2e + i18n + MCP re-verify) + CHANGELOG + STATE + v1011.1 tag
 
 ## Progress
@@ -113,7 +113,7 @@ Phase 1052 is the single phase in v1011.1. Plans 01-07 run sequentially (Plan 01
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1052. builder-hygiene-carryover | 5/7 | In Progress|  |
+| 1052. builder-hygiene-carryover | 6/7 | In Progress|  |
 
 ## Backlog
 
