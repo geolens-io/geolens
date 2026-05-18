@@ -11,6 +11,146 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Map Builder polish & bug sweep (v1011 — closes Phase 1051)
+
+Closed all 11 user-reported Map Builder polish/bug items in a single hygiene
+phase with 13 sequential plans (11 user-reported + INV-01 disposition + EMRG-01
+triage + CTRL-01 close gate). Mirrors the v1009.1 / v1010.1 / v1010.2 hygiene
+shape per `feedback_hygiene_milestone_pattern.md`. Playwright MCP re-verify of
+each item is orchestrator-scoped per the v1010.1 lesson and runs against the
+live `localhost:8080` stack as the tag gate.
+
+#### Fixed
+
+- **BUG-01: Layer visibility eye toggle now dispatches to MapLibre.** Root cause
+  was non-sync re-add paths (`swapLayerOnMap`, raster re-add in
+  `handleStyleConfigChange`) skipping `syncVisibility`, plus an adapter contract
+  gap where fill/line/circle/heatmap `addLayers` ignored `input.visible`. Fixed
+  at both levels: adapters now honor `input.visible` directly, and every
+  non-sync caller explicitly invokes `syncVisibility` after `addLayers`. 5 new
+  vitest regression cases. Commits `ea56ae78` + `8c6de637`.
+- **BUG-02: Delete-layer now removes the layer from the sidebar and the map
+  render**, with optimistic state update + rollback on error (mirrors the
+  `handleBulkDelete` pattern). Pre-fix: user clicked delete and the sidebar row
+  stayed visible until full page reload because the React-Query invalidation
+  refetch was gated by the `!hasUnsavedChanges` resync useEffect. 5 new vitest
+  regression cases. Commit `eeeb8be8`.
+- **BUG-03: Rename-group input now autofocuses on open** (DropdownMenu
+  `restoreFocus` race fixed via rAF-deferred focus + removal of the kebab
+  `onSelect` `_e.preventDefault()` that kept the menu open during the input
+  mount). Defense in depth — a regression on either lever alone won't
+  re-introduce the bug. 7 new vitest regression cases. Commit `80bddc14`.
+- **RESP-01: Collapsed right sidebar no longer overlaps the MapLibre
+  NavigationControl** at 800–1099px viewports. `NavigationControl` repositioned
+  from `position="top-right"` to `position="top-left"` in `BuilderMap.tsx` —
+  pure-positioning fix (no conditional dispatch) since the colliding sibling
+  (BuilderRail) is rendered at all viewports ≥800px. Commit `391459bb`.
+- **RESP-02: Coordinate readout pill no longer overlaps the top-right widget
+  zone** at narrow viewports. RESP-01's NavigationControl move freed the
+  top-right zone in `BuilderMap` context, but the `MapCoordReadout` pill's
+  56px `right-14` offset is **load-bearing in ViewerMap context** (which keeps
+  NavigationControl top-right). Resolution-by-upstream-wave: docstring
+  contract codified at the shared component to prevent a future "clean up dead
+  clearance" refactor from breaking the viewer. Commit `c6ab4fbd`.
+- **RESP-03: Right-sidebar Sheet overlays render exactly one close button at
+  <800px viewport.** Both `<SheetContent>` instances in `MapBuilderPage.tsx`
+  (editor flyout + mobile-rail flyout) gain `showCloseButton={false}` so the
+  wrapped inner panels' canonical close affordances (LayerEditorPanel's X +
+  BuilderRail's ChevronRight) become the single source of truth. Includes a
+  NEGATIVE-CONTROL bug-shape regression pin against shadcn Sheet default-
+  behavior drift. 8 new vitest regression cases. Commit `0a72cb58`.
+
+#### Changed
+
+- **UX-01: Layer-group expand caret meets 24×24 px touch target.** Caret button
+  in `BasemapGroupRow` and `FolderGroupRow` swapped from `text-xs` Unicode `▸`
+  to a `<ChevronRight h-4 w-4>` (Lucide) inside a `h-6 w-6 -mx-1` button. The
+  `-mx-1` negative margin extends the visual hit-box 24px without altering the
+  locked 16px grid-cell column. 4 new vitest regression cases. Commit
+  `278e8933`.
+- **UX-02: Basemap sublayer rows now show config-state indicator badges
+  instead of a per-row opacity slider.** New `SublayerConfigIndicators`
+  component renders 0–4 derived Lucide-icon badges (Labels / Filter /
+  DataDriven / OpacityModified) based on live `MapLayerResponse` config. Pure
+  derivation — no internal state. Opacity editing for basemap sublayers
+  remains canonical via the `LayerEditorPanel` flyout. 16 new i18n entries
+  (4 keys × en/de/es/fr). 8 + 32 regression cases in the new and updated
+  test files. Commits `79b0c0c6` + `a69d00ac`.
+- **UX-03: Basemap row is now draggable in the layer order with saved-map
+  persistence.** `BasemapGroupRowWrapper` lifted from `useDroppable` to
+  `useSortable`; new `MapBasemapConfig.basemap_position?: 'top' | 'bottom'`
+  field (jsonb-additive, zero backend migration); `reorderBasemapAboveData`
+  map-sync helper performs the inversion when position='top'. Legacy maps
+  load with `undefined` and default to 'bottom'. 14 new vitest regression
+  cases + 2 new i18n keys × 4 locales. Commit `0957cf6d`.
+- **UX-04: Map Settings → Widgets section now uses state-specific
+  Enable/Disable labels** ("Enable {{name}}" when off / "Disable {{name}}"
+  when on) instead of the composite `{action} {name} widget` template —
+  better screen-reader semantics + per-locale word-order grammar. Adds a
+  descriptive note paragraph ("Controls whether each widget appears on the
+  map."). Audit confirmed zero duplicate Widget-Availability toggles
+  (SettingsEditorScene is the single source of truth). 12 new i18n entries
+  (3 keys × 4 locales). 5 new vitest regression cases. Commit `57d88d01`.
+
+#### Removed
+
+- **INV-01: DETAIL LEVEL toggle removed from BasemapSublayerEditorScene.**
+  Disposition was REMOVE (not FIX). Investigation confirmed dead wiring since
+  v1008 — `MapBuilderPage.tsx` passed hardcoded `activeDetailLevel="default"` +
+  `isCustomized={false}` + `onDetailLevelChange={() => { /* Phase 1038 TODO */ }}`,
+  with no consumer ever mutating MapLibre style. FIX requires 3–5 days of
+  MapLibre style-mutation work across basemap presets — out of v1011 scope.
+  REMOVE pattern includes an inline disposition comment + a removed-feature
+  regression pin. 6 i18n keys × 4 locales = 24 entries cleaned up; locale
+  parity preserved. Sibling Phase 1038 TODO no-op callbacks
+  (`onStrokeColorChange`/`onStrokeWidthChange`/`onCasingColorChange`/
+  `onCasingWidthChange`/`onZoomChange`) deliberately NOT touched per plan
+  directive; flagged for EMRG-FN-01 follow-up todo. Commit `6078b82a`.
+
+#### Internal
+
+- **EMRG-01: 4 emergent findings triaged, all P2/defer.** FINDINGS.md authored
+  at `.planning/phases/1051-map-builder-polish-bug-sweep/FINDINGS.md` (108
+  lines, v1009.1 reference shape). **EMRG-FN-01:** BasemapSublayerEditorScene
+  5 sibling Phase 1038 no-op callbacks (tracking artifact: new pending todo at
+  `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`
+  documenting REMOVE / FIX decision tree). **EMRG-FN-02:** `settings.toggleWidget`
+  orphan i18n key × 4 locales (tracking via 1051-07-SUMMARY cross-reference).
+  **EMRG-FN-03:** pre-existing UnifiedStackPanel.tsx unused-eslint-disable
+  warnings from Phase 1041 (SCOPE BOUNDARY-correct deferral). **EMRG-FN-04:**
+  `SublayerConfigIndicators` receives `layer=null` for basemap sublayers
+  (dependent on EMRG-FN-01 resolution). Zero fix-now per plan directive —
+  default-defer rule prevented scope expansion. Commit `60b0f536`.
+- **CTRL-01 inline gate-fix:** disable `basemap-group` droppable for catalog
+  non-basemap drags. Surfaced by `e2e/builder-v1-5.spec.ts:152`
+  ("drag-from-catalog happy") regressing 25/26 → 26/26 against the v1010.2
+  baseline. Root cause: Plan 06's `useSortable` lift on the basemap row made
+  it a `closestCenter` collision target when shadcn Dialog's overlay backdrop
+  intercepts `pointerWithin` over the sidebar. Fix uses the sortable
+  `disabled: { droppable: ... }` option so basemap-group is invisible to
+  collision detection during a non-basemap catalog drag while staying
+  draggable. Per `feedback_review_findings_inline.md` — fixed inline at the
+  close gate, not deferred to v1011.1. Commit `befe6a3b`.
+
+#### Smoke gate evidence (Phase 1051 CTRL-01)
+
+- **Frontend typecheck (`tsc --noEmit`):** 0 errors
+- **Frontend vitest (full suite):** 1974 / 1974 passing (200 test files,
+  13.09s). Above v1010.2 baseline (1909) by 65 cases from new regression
+  pins across Plans 01/02/03/04/05/06/07/10/11.
+- **`e2e:smoke:builder`:** 26 / 26 passing in 1.4 min — matches v1010.2
+  baseline.
+- **i18n parity (`test:i18n`):** 2 / 2 passing — locale parity preserved
+  across en/de/es/fr after 16 + 2 + 12 + (−24) net key changes.
+- **Stack restart for re-verify:** `docker compose restart api worker frontend`
+  (less-destructive than `down -v && up -d --build` since pgdata volume
+  contains user maps + datasets — no backend image rebuild needed because
+  v1011 touched only frontend code). All 5/5 services healthy post-restart.
+- **Playwright MCP re-verify:** orchestrator-scoped; runs against the live
+  `http://localhost:8080` stack to confirm all 11 user-reported items +
+  v1010.2 SF-04..08 surfaces clean. See FINDINGS.md § Orchestrator-Deferred
+  MCP Backlog appendix table for the 11-row per-plan checklist.
+
 ### Builder smoke carryover (v1010.2 — closes Phase 1050)
 
 Closed all 5 carried-forward smoke findings from v1010.1's 2026-05-17
