@@ -28,8 +28,8 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 ### Small-Screen Responsive Layout (RESPONSIVE)
 
 - [x] **RESP-01**: At narrow viewport widths (≤1024 px viewport, exact breakpoint identified in flight via Playwright MCP), the collapsed right sidebar does NOT visually overlap or obscure the MapLibre zoom in/out controls. Either reflow the zoom controls, push them in from the edge, or constrain the sidebar collapse footprint.
-- [ ] **RESP-02**: At narrow viewport widths, the lat/long/zoom coordinate readout pill does NOT overlap the map-widget container. Reflow, reposition, or z-order one above the other with clear non-overlap.
-- [ ] **RESP-03**: At narrow viewport widths, the basemap selector flyout renders exactly ONE "X" close button (not two stacked). Audit other right-sidebar-opened elements (LayerEditorPanel flyout, settings drawer, etc.) for the same duplicate-close bug and fix any other occurrences found.
+- [x] **RESP-02**: At narrow viewport widths, the lat/long/zoom coordinate readout pill does NOT overlap the map-widget container. Reflow, reposition, or z-order one above the other with clear non-overlap.
+- [x] **RESP-03**: At narrow viewport widths, the basemap selector flyout renders exactly ONE "X" close button (not two stacked). Audit other right-sidebar-opened elements (LayerEditorPanel flyout, settings drawer, etc.) for the same duplicate-close bug and fix any other occurrences found.
 
 ### Investigation-Then-Decision (INVESTIGATE)
 
@@ -70,8 +70,8 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | UX-03 | Phase 1051 | Complete (commit `0957cf6d`) |
 | UX-04 | Phase 1051 | Complete (commit `57d88d01`) |
 | RESP-01 | Phase 1051 | Complete (commit `391459bb`) |
-| RESP-02 | Phase 1051 | Pending |
-| RESP-03 | Phase 1051 | Pending |
+| RESP-02 | Phase 1051 | Complete (commit `c6ab4fbd`) |
+| RESP-03 | Phase 1051 | Complete (commit `0a72cb58`) |
 | INV-01 | Phase 1051 | Pending |
 | EMRG-01 | Phase 1051 | Pending |
 | CTRL-01 | Phase 1051 | Pending |

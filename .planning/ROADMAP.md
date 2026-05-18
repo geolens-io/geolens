@@ -137,7 +137,7 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 1051-10-resp-duplicate-close-button-PLAN.md — RESP-03: basemap selector + right-sidebar elements audit for duplicate close-button bug
+- [x] 1051-10-resp-duplicate-close-button-PLAN.md — RESP-03: basemap selector + right-sidebar elements audit for duplicate close-button bug — ✅ SHIPPED 2026-05-18 (commit `0a72cb58`; both `<SheetContent>` instances in MapBuilderPage.tsx — editor flyout at line 1182 + mobile-rail flyout at line 1325 — gain `showCloseButton={false}` opt-out; wrapped LayerEditorPanel + BuilderRail canonical close affordances preserved; 8 regression tests including a NEGATIVE-CONTROL bug-shape pin in MapBuilderPage.sheet-close-button.test.tsx; BasemapPicker.tsx confirmed dead per PATTERNS.md finding #6)
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
