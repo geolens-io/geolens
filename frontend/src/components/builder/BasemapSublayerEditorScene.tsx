@@ -189,9 +189,18 @@ export function BasemapSublayerEditorScene({
                   id={`${sublayerId}-minzoom`}
                   type="number"
                   min={0}
-                  max={Math.max(0, maxZoom - 1)}
+                  max={22}
                   value={minZoom}
-                  onChange={(e) => onZoomChange(Number(e.target.value), maxZoom)}
+                  onChange={(e) => {
+                    // Phase 1051 WR-05: validate in the handler and clamp inverted
+                    // bounds rather than constraining the input range to maxZoom-1.
+                    // The strict input-attribute clamp made it impossible to set
+                    // min==max (single zoom level) and could be bypassed by paste.
+                    const newMin = Number(e.target.value);
+                    if (!Number.isFinite(newMin)) return;
+                    const clamped = Math.min(22, Math.max(0, newMin));
+                    onZoomChange(clamped, Math.max(clamped, maxZoom));
+                  }}
                   className="h-8 text-xs"
                   aria-label={t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
                 />
@@ -206,10 +215,17 @@ export function BasemapSublayerEditorScene({
                 <Input
                   id={`${sublayerId}-maxzoom`}
                   type="number"
-                  min={Math.min(22, minZoom + 1)}
+                  min={0}
                   max={22}
                   value={maxZoom}
-                  onChange={(e) => onZoomChange(minZoom, Number(e.target.value))}
+                  onChange={(e) => {
+                    // Phase 1051 WR-05: see minZoom handler — clamp instead of
+                    // refusing input. Inverted bounds collapse to a single zoom.
+                    const newMax = Number(e.target.value);
+                    if (!Number.isFinite(newMax)) return;
+                    const clamped = Math.min(22, Math.max(0, newMax));
+                    onZoomChange(Math.min(clamped, minZoom), clamped);
+                  }}
                   className="h-8 text-xs"
                   aria-label={t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
                 />
