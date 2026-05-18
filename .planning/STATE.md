@@ -4,13 +4,13 @@ milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
 status: executing
 stopped_at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
-last_updated: "2026-05-18T00:06:40.695Z"
-last_activity: 2026-05-18
+last_updated: "2026-05-17T23:35:29.943Z"
+last_activity: 2026-05-17 -- Phase 1051 planning complete
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 1
+  completed_plans: 0
   percent: 0
 ---
 
@@ -18,17 +18,17 @@ progress:
 
 ## Current Position
 
-Phase: 1051 (map-builder-polish-bug-sweep) — EXECUTING
-Plan: 2 of 13
+Phase: 1051 — map-builder-polish-bug-sweep
+Plan: Not started (roadmap just created)
 Status: Ready to execute
-Last activity: 2026-05-18
+Last activity: 2026-05-17 -- Phase 1051 planning complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1011 Map Builder Polish & Bug Sweep)
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1051 — map-builder-polish-bug-sweep
+**Current focus:** Phase 1051 — map-builder-polish-bug-sweep (hygiene close of 11 user-reported items + INV-01 + EMRG-01 + CTRL-01)
 
 ## Last Shipped Milestone
 
@@ -51,7 +51,6 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1011 Map Bui
 - **Plan 12 (EMRG-01) opens with placeholder content** and is updated as findings land during plans 01-11. If zero emergent findings, FINDINGS.md is still authored with explicit "0 emergent" note.
 - **Per-plan verification:** Each user-reported plan includes (a) Playwright MCP pre-fix repro, (b) implementation, (c) vitest regression (where applicable — pure-CSS responsive fixes use manual MCP verify only), (d) Playwright MCP post-fix verify. Atomic commits.
 - **Single CTRL-01 close gate at Plan 13** — batched typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify of all 11 items + CHANGELOG `[Unreleased]` population. Per `feedback_review_findings_inline.md`: any code-review findings surface during gate get fixed inline before close, not deferred to v1011.1.
-- [Phase ?]: BUG-01: regression test added; static-analysis chain intact, no production diff; live MCP verify deferred to orchestrator
 
 ### Out of Scope (per REQUIREMENTS.md)
 
@@ -72,9 +71,9 @@ None at roadmap creation. All 11 user-reported items have either a clear repro U
 
 ## Session Continuity
 
-Last session: 2026-05-18T00:06:28.235Z
+Last session: 2026-05-17T22:56:12.852Z
 Stopped at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
-Resume file: None
+Resume file: .planning/phases/1051-map-builder-polish-bug-sweep/1051-UI-SPEC.md
 
 Session resumed: 2026-05-17 — proceeding to `/gsd:plan-phase 1051` (user chose plan-phase over autonomous execute).
 

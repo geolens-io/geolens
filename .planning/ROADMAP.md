@@ -101,7 +101,7 @@
 Plans:
 **Wave 1**
 
-- [x] 1051-01-bug-layer-visibility-toggle-PLAN.md — BUG-01: regular layer visibility toggle is a no-op (repro at `/maps/c868cc3a-a3a0-4714-b559-67b3f2b478e2`)
+- [ ] 1051-01-bug-layer-visibility-toggle-PLAN.md — BUG-01: regular layer visibility toggle is a no-op (repro at `/maps/c868cc3a-a3a0-4714-b559-67b3f2b478e2`)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
