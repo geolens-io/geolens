@@ -80,10 +80,17 @@ export const heatmapAdapter: LayerAdapter = {
     const { layerId, paint: rawPaint, filter } = input;
     if (!map.getLayer(layerId)) return;
 
-    // Sync only heatmap-* properties, skip custom props
+    // Sync only heatmap-* properties, skip custom props.
+    // Phase 1051 WR-01 (iter-2): skip 'heatmap-opacity' inside the generic loop —
+    // the compounded write below owns this property. Previously, this loop wrote
+    // the *raw* stored value (e.g. 0.8) before the post-loop block immediately
+    // overrode it with the compounded value (e.g. 0.4 when master_opacity=0.5),
+    // producing a transient flash to full saturation on every paint sync. CR-04
+    // fixed the same defect at add-time; this is its sync-time twin.
     for (const [prop, val] of Object.entries(rawPaint)) {
       if (CUSTOM_PAINT_PROPS.has(prop)) continue;
       if (!prop.startsWith('heatmap-')) continue;
+      if (prop === 'heatmap-opacity') continue;
       try {
         const current = map.getPaintProperty(layerId, prop);
         if (paintValueChanged(current, val)) {
@@ -94,7 +101,8 @@ export const heatmapAdapter: LayerAdapter = {
       }
     }
 
-    // Compound stored heatmap-opacity with master opacity
+    // Compound stored heatmap-opacity with master opacity. Single source of
+    // truth — the loop above intentionally skips 'heatmap-opacity'.
     const storedOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
     map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
 
