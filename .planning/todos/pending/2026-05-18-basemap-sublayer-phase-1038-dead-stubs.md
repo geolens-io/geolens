@@ -3,6 +3,7 @@ created: 2026-05-18T22:30:00Z
 title: Basemap sublayer editor — Phase 1038 dead-wired callbacks (stroke/casing/zoom)
 area: frontend / map-builder
 source: v1011 Phase 1051 Plan 12 (EMRG-01) — EMRG-FN-01
+resolves_phase: 1052
 related:
   - v1011 Phase 1051 Plan 11 (INV-01) — DETAIL LEVEL removed via REMOVE disposition at commit 6078b82a
 files:

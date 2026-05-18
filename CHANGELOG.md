@@ -151,6 +151,60 @@ live `localhost:8080` stack as the tag gate.
   v1010.2 SF-04..08 surfaces clean. See FINDINGS.md § Orchestrator-Deferred
   MCP Backlog appendix table for the 11-row per-plan checklist.
 
+### Builder hygiene carryover (v1011.1 — closes Phase 1052)
+
+Closed all 4 EMRG-FN findings carried forward from v1011 Phase 1051 Plan 12
+(EMRG-01 triage) in a single hygiene phase with 7 sequential plans. Mirrors
+the v1009.1 / v1010.1 / v1010.2 / v1011 hygiene shape per
+`feedback_hygiene_milestone_pattern.md`.
+
+#### Removed
+
+- **EMRG-FN-01: BasemapSublayerEditorScene STROKE section + zoom range
+  inputs removed** (Path A REMOVE — mirror INV-01 precedent at v1011 commit
+  `6078b82a`). The 5 sibling no-op `TODO(BUILDER-SUBLAYER-PERSIST)` callbacks
+  (`onStrokeColorChange`, `onStrokeWidthChange`, `onCasingColorChange`,
+  `onCasingWidthChange`, `onZoomChange`) were dead-wired since v1008. Path B
+  (FIX — implement sublayer styling persistence with
+  `MapBasemapConfig.sublayer_overrides[sublayerId]`) deferred as a 3-5 day
+  feature phase. Live consumers preserved: opacity slider (`onOpacityChange`
+  → `handleSublayerOpacityChange`) and Reset section (`onResetSublayer` →
+  `setSublayerState` mutation). Test 14 added as REMOVE-disposition regression
+  pin mirroring v1011 Plan 11's Test 13. Commits `3629ec04` (surface deletion)
+  + `3e48d331` (orphan i18n keys) + `e8748d9b` (vitest cleanup + Test 14).
+- **EMRG-FN-02: orphan `settings.toggleWidget` i18n key removed** from all 4
+  locales (en/de/es/fr). The v1011 Phase 1051 Plan 07 UX-04 replaced the
+  composite template with state-specific `enableWidget`/`disableWidget` keys;
+  the old key was left behind in the locale JSON files. Commit `205e5a70`.
+
+#### Changed
+
+- **EMRG-FN-03: 2 unused `eslint-disable-next-line react-hooks/exhaustive-deps`
+  directives removed** from `UnifiedStackPanel.tsx` (lines 735 + 776 at
+  execution time; Phase 1041 SCOPE-BOUNDARY-correct deferral). Verified inert
+  via `npx eslint --report-unused-disable-directives` before removal — both
+  directives were flagged as unused (no rule would fire on the target dep
+  arrays). No behavioral change. Commit `a299f5ee`.
+
+#### Internal
+
+- **EMRG-FN-04: SublayerConfigIndicators `layer={null}` branch closure**
+  documented in `SublayerConfigIndicators.test.tsx`. The live caller is
+  `UnifiedStackPanel.tsx:556` (basemap sublayer row); `BasemapSublayerInfo`
+  only carries id/name/visible/opacity/kind, so per UI-SPEC §UX-02 footnote
+  the indicator strip renders empty for basemap sublayers. Test 1 ("renders
+  nothing when layer is null") is the canonical regression pin (shipped in
+  v1011 Phase 1051 Plan 05 UX-02). The original CONTEXT.md claim that Plan 01
+  Path A would auto-resolve EMRG-FN-04 was incorrect — the `layer={null}`
+  callsite is in UnifiedStackPanel, not BasemapSublayerEditorScene. Closure is
+  documentation-shaped (no production code change). Commit `06fbe98f`.
+- **CTRL-01: close gate** — typecheck 0 errors; vitest 1979/1979 (201 test
+  files); e2e:smoke:builder 26/26; i18n parity 2/2. Playwright MCP re-verify
+  of basemap sublayer flyout (STROKE / Stroke color / Casing color / Minimum
+  zoom / Maximum zoom absent; opacity slider + Reset section live; sublayer
+  rows render cleanly) is orchestrator-scoped (Half B). Tag `v1011.1` (local).
+  Commit `<CTRL-01-hash>`.
+
 ### Builder smoke carryover (v1010.2 — closes Phase 1050)
 
 Closed all 5 carried-forward smoke findings from v1010.1's 2026-05-17

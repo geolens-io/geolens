@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1011.1
 milestone_name: Builder Hygiene Carryover
-status: Roadmap created — ready for `/gsd-discuss-phase`
-stopped_at: Roadmap for v1011.1 written — Phase 1052 + 5 success criteria + traceability table populated.
-last_updated: "2026-05-18T17:49:54.389Z"
-last_activity: 2026-05-18 — Roadmap created for v1011.1 (5 reqs → Phase 1052)
+status: Phase 1052 complete — v1011.1 shipped (Half B MCP re-verify + tag pending orchestrator)
+stopped_at: Phase 1052 Plan 07 close-gate (deterministic half) complete — awaiting orchestrator Playwright MCP re-verify (Half B) before tagging.
+last_updated: "2026-05-18T14:00:00.000Z"
+last_activity: 2026-05-18 — Phase 1052 complete; CTRL-01 deterministic gate passed (typecheck 0 / vitest 1979/1979 / e2e 26/26 / i18n 2/2); CHANGELOG [Unreleased] v1011.1 block written; local v1011.1 tag created.
 progress:
-  total_phases: 6
-  completed_phases: 0
+  total_phases: 1
+  completed_phases: 1
   total_plans: 7
-  completed_plans: 6
-  percent: 0
+  completed_plans: 7
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1052 (builder-hygiene-carryover) — single phase in v1011.1
-Plan: — (TBD via `/gsd-plan-phase` after `/gsd-discuss-phase` settles EMRG-FN-01 Path A vs Path B)
-Status: Roadmap created — ready for `/gsd-discuss-phase`
-Last activity: 2026-05-18 — Roadmap created for v1011.1 (5 reqs → Phase 1052)
+Phase: 1052 (builder-hygiene-carryover) — COMPLETE
+Plan: 07 (CTRL-01 close gate) — deterministic half complete; Half B (Playwright MCP re-verify) pending orchestrator
+Status: Phase 1052 complete — v1011.1 shipped (Half B MCP re-verify + tag pending orchestrator)
+Last activity: 2026-05-18 — Phase 1052 all 7 plans complete; CTRL-01 deterministic gate green
 
-Progress: [█████████░] 86%
+Progress: [██████████] 100%
 
 ## Project Reference
 
@@ -34,7 +34,13 @@ See: .planning/PROJECT.md (updated 2026-05-18 — v1011 Map Builder Polish & Bug
 
 ## Last Shipped Milestone
 
-**Version:** v1011 Map Builder Polish & Bug Sweep
+**Version:** v1011.1 Builder Hygiene Carryover
+**Shipped:** 2026-05-18
+**Phase:** 1052 (1 phase, 7 plans, 5/5 reqs: EMRG-FN-01..04 + CTRL-01)
+**Tag:** v1011.1 (local — Half B Playwright MCP re-verify pending orchestrator before push)
+**Gate:** typecheck 0 / vitest 1979/1979 / e2e:smoke:builder 26/26 / i18n 2/2
+
+**Previous:** v1011 Map Builder Polish & Bug Sweep
 **Shipped:** 2026-05-18
 **Phase:** 1051 (1 phase, 13 plans, 13/13 BUG/UX/RESP/INV/EMRG/CTRL reqs + 21 inline code-review fixes + 2 in-flight regression fixes)
 **Tag:** v1011 (local)
@@ -54,10 +60,9 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- **EMRG-FN-01 — BasemapSublayerEditorScene Phase 1038 dead-stub cleanup** (from v1011 EMRG-01 triage). Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`. Path A REMOVE (~10min, mirror INV-01 precedent) vs Path B FIX (~3-5 days, implement Phase 1038 sublayer styling persistence).
-- **EMRG-FN-02 — `settings.toggleWidget` orphan i18n key** (4 locales × 1 key from Plan 07 UX-04). Trivial 4-file edit, no tests.
-- **EMRG-FN-03 — UnifiedStackPanel.tsx unused-eslint-disable warnings** (lines 679 + 720 from Phase 1041). Single-file 2-line removal.
-- **EMRG-FN-04 — SublayerConfigIndicators `layer=null` branch** (Plan 05 UX-02 deferred enhancement). Auto-resolved by EMRG-FN-01 Path A or covered by explicit regression test under Path B.
+None — all EMRG-FN-01..04 findings from v1011 closed by Phase 1052. Path B
+(BasemapSublayerEditorScene full sublayer styling persistence) remains a
+deferred feature phase (3-5 day scope); tracked separately if/when prioritized.
 
 ### Blockers/Concerns
 
@@ -65,14 +70,9 @@ None. v1011 baseline is green; EMRG-FN-01 path decision is a planning conversati
 
 ## Deferred Items
 
-Items acknowledged and carried forward from v1011 milestone close:
-
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| EMRG-FN | BasemapSublayerEditorScene Phase 1038 dead-stub callbacks | In v1011.1 scope (EMRG-FN-01) | 2026-05-18 (v1011 close) |
-| EMRG-FN | `settings.toggleWidget` orphan i18n key | In v1011.1 scope (EMRG-FN-02) | 2026-05-18 (v1011 close) |
-| EMRG-FN | UnifiedStackPanel.tsx unused-eslint-disable warnings | In v1011.1 scope (EMRG-FN-03) | 2026-05-18 (v1011 close) |
-| EMRG-FN | SublayerConfigIndicators `layer=null` branch | In v1011.1 scope (EMRG-FN-04) | 2026-05-18 (v1011 close) |
+| Feature | BasemapSublayerEditorScene Path B FIX (full sublayer styling persistence) | Out of v1011.1 scope — 3-5 day feature phase; prioritize separately | 2026-05-18 (v1011.1 EMRG-FN-01 REMOVE close) |
 
 ## Session Continuity
 
