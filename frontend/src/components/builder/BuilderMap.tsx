@@ -93,6 +93,11 @@ export const BuilderMap = memo(function BuilderMap({
   const basemapLoadedAtRef = useRef<number | null>(null);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  // Phase 1051 WR-04: state mirror of mapRef.current so MapCoordReadout consumes
+  // the map via state, not by reading a ref during render. Refs don't trigger
+  // re-renders, so passing mapRef.current directly relied on setMapReady firing
+  // in the same render cycle — a fragile implicit coupling.
+  const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
   const [tilesLoading, setTilesLoading] = useState(false);
   const [basemapNotice, setBasemapNotice] = useState<'style' | 'tiles' | null>(null);
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
@@ -363,6 +368,9 @@ export const BuilderMap = memo(function BuilderMap({
     (e: MapLibreEvent) => {
       const map = e.target;
       mapRef.current = map;
+      // Phase 1051 WR-04: keep state mirror in sync with the ref so consumers
+      // (e.g. MapCoordReadout) re-render when the map binds.
+      setMapInstance(map);
       setMapReady(true);
 
       // `idle` fires when no tiles are loading, no transitions are in
@@ -870,6 +878,8 @@ export const BuilderMap = memo(function BuilderMap({
       if (mapRef.current && errorHandlerRef.current) {
         mapRef.current.off('error', errorHandlerRef.current);
       }
+      // Phase 1051 WR-04: keep state mirror in sync on teardown.
+      setMapInstance(null);
       onMapRef?.(null);
     };
   }, [onMapRef]);
@@ -936,7 +946,7 @@ export const BuilderMap = memo(function BuilderMap({
           />
         )}
       </MapGL>
-      <MapCoordReadout map={mapRef.current} showScale />
+      <MapCoordReadout map={mapInstance} showScale />
       {!mapReady && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
           <div className="text-sm text-muted-foreground animate-pulse">{t('builderMap.loading', { defaultValue: 'Loading map…' })}</div>
