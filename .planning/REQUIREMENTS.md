@@ -37,7 +37,7 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 
 ### Emergent Findings (EMERGENT)
 
-- [ ] **EMRG-01**: Any additional Map Builder issues surfaced during Playwright MCP inspection of the 11 above are documented in `.planning/phases/1051-*/FINDINGS.md` with per-finding triage: severity, scope, fix-now-vs-defer decision, and rationale. Fix-now items become inline commits in the relevant plan; defer items become tech-debt entries in PROJECT.md Out-of-Scope or new pending todos in `.planning/todos/pending/` with the v1011 source citation.
+- [x] **EMRG-01**: Any additional Map Builder issues surfaced during Playwright MCP inspection of the 11 above are documented in `.planning/phases/1051-*/FINDINGS.md` with per-finding triage: severity, scope, fix-now-vs-defer decision, and rationale. Fix-now items become inline commits in the relevant plan; defer items become tech-debt entries in PROJECT.md Out-of-Scope or new pending todos in `.planning/todos/pending/` with the v1011 source citation.
 
 ### Close Gate (CTRL)
 
@@ -73,7 +73,7 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | RESP-02 | Phase 1051 | Complete (commit `c6ab4fbd`) |
 | RESP-03 | Phase 1051 | Complete (commit `0a72cb58`) |
 | INV-01 | Phase 1051 | Complete |
-| EMRG-01 | Phase 1051 | Pending |
+| EMRG-01 | Phase 1051 | Complete |
 | CTRL-01 | Phase 1051 | Pending |
 
 **Coverage:**

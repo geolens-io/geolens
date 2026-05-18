@@ -145,7 +145,7 @@ Plans:
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
-- [ ] 1051-12-emergent-findings-triage-PLAN.md — EMRG-01: triage any additional issues surfaced during Playwright MCP inspection
+- [x] 1051-12-emergent-findings-triage-PLAN.md — EMRG-01: triage any additional issues surfaced during Playwright MCP inspection
 
 **Wave 13** *(blocked on Wave 12 completion)*
 
