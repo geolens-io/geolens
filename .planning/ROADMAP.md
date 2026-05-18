@@ -133,7 +133,7 @@ Plans:
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
-- [ ] 1051-09-resp-coord-readout-overlap-PLAN.md — RESP-02: coord readout pill overlaps map-widget container at narrow viewports
+- [x] 1051-09-resp-coord-readout-overlap-PLAN.md — RESP-02: coord readout pill overlaps map-widget container at narrow viewports — ✅ SHIPPED 2026-05-18 (commit `c6ab4fbd`; original collision provably eliminated by Plan 08 / commit `391459bb` in BuilderMap context, ViewerMap `right-14` offset codified as load-bearing via MapCoordReadout docstring extension; Strategy D documentation-only resolution; no className/behavioral change)
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
