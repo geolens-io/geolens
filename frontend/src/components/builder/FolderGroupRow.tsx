@@ -77,10 +77,18 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     setConfirmingDelete(false);
   }, [groupId]);
 
-  // Auto-select input text when entering edit mode
+  // Auto-focus + select input text when entering edit mode.
+  // Defer to requestAnimationFrame so we win the focus race vs Radix DropdownMenu's
+  // `restoreFocus` (which synchronously returns focus to the kebab trigger when the
+  // menu closes after the rename item is selected). BUG-03 fix.
   useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.select();
+    if (editing) {
+      requestAnimationFrame(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      });
     }
   }, [editing]);
 
@@ -290,8 +298,11 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
-                onSelect={(_e) => {
-                  _e.preventDefault(); // keep menu open while we set editing=true
+                onSelect={() => {
+                  // BUG-03 fix: do NOT call preventDefault — let Radix close the menu
+                  // cleanly. The rename input mounts in the next render; the editing
+                  // useEffect re-focuses via requestAnimationFrame to outrun Radix's
+                  // restoreFocus on menu close.
                   handleStartRename();
                 }}
               >

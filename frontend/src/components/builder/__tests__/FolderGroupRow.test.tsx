@@ -343,4 +343,127 @@ describe('FolderGroupRow', () => {
     const row = document.getElementById('stack-row-folder-abc');
     expect(row).toBeInTheDocument();
   });
+
+  describe('BUG-03: rename-group autofocus', () => {
+    // Helper: flush a queued requestAnimationFrame callback synchronously in jsdom.
+    // The fix uses rAF to outrun Radix DropdownMenu's restoreFocus on menu close.
+    async function flushRaf() {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+
+    it('Test 19: BUG-03 — entering rename mode focuses the rename input (rAF-deferred focus wins focus race)', async () => {
+      render(<FolderGroupRow {...defaultProps({ groupName: 'My Group' })} />);
+
+      // Use the double-click path which exercises the same `handleStartRename` →
+      // `setEditing(true)` → editing useEffect → rAF-deferred focus + select path
+      // that the kebab → Rename click uses. Radix DropdownMenu in jsdom does not
+      // reliably round-trip onSelect callbacks once preventDefault is removed,
+      // but the underlying focus contract is identical.
+      const nameSpan = screen.getByText('My Group');
+      fireEvent.dblClick(nameSpan);
+
+      const input = (await screen.findByRole('textbox', { name: /Group name/i })) as HTMLInputElement;
+      // Flush the queued requestAnimationFrame so the deferred focus + select fires.
+      await flushRaf();
+
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('Test 20: BUG-03 — existing-name text is selected on rename input mount', async () => {
+      render(<FolderGroupRow {...defaultProps({ groupName: 'My Group' })} />);
+
+      const nameSpan = screen.getByText('My Group');
+      fireEvent.dblClick(nameSpan);
+
+      const input = (await screen.findByRole('textbox', { name: /Group name/i })) as HTMLInputElement;
+      await flushRaf();
+
+      expect(input.selectionStart).toBe(0);
+      expect(input.selectionEnd).toBe('My Group'.length);
+    });
+
+    it('Test 21: BUG-03 — kebab onSelect for Rename no longer calls preventDefault() (source assertion)', () => {
+      // Source-level guarantee that the kebab Rename onSelect does NOT invoke
+      // preventDefault() — verified by reading the component's onSelect implementation
+      // via Function.prototype.toString. This catches a regression at the unit-test
+      // level without depending on Radix portal behavior in jsdom.
+      // FolderGroupRow is wrapped in React.memo, so reach the inner function via `.type`.
+      const inner = (FolderGroupRow as unknown as { type: (...args: unknown[]) => unknown }).type;
+      const source = inner.toString();
+      // Locate the Rename group menu item block (anchored on the i18n key).
+      expect(source).toContain('kebabRenameGroup');
+      const renameBlockStart = source.indexOf('kebabRenameGroup');
+      expect(renameBlockStart).toBeGreaterThan(-1);
+      const window = source.slice(Math.max(0, renameBlockStart - 400), renameBlockStart);
+      // Strip both line-comments (`// ...`) and block-comments (`/* ... */`) before
+      // asserting — comments may legitimately reference preventDefault for context.
+      const codeOnly = window
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      // Look for actual invocations: `.preventDefault(` (function call), not the word in comments.
+      expect(codeOnly).not.toMatch(/\.preventDefault\(/);
+    });
+
+    it('Test 22: BUG-03 — Escape inside the rename input cancels editing (no regression)', async () => {
+      const onRenameGroup = vi.fn();
+      render(<FolderGroupRow {...defaultProps({ onRenameGroup, groupName: 'Old Name' })} />);
+
+      const nameSpan = screen.getByText('Old Name');
+      fireEvent.dblClick(nameSpan);
+
+      const input = await screen.findByRole('textbox', { name: /Group name/i });
+      await flushRaf();
+
+      fireEvent.change(input, { target: { value: 'Changed' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+
+      expect(onRenameGroup).not.toHaveBeenCalled();
+      expect(screen.getByText('Old Name')).toBeInTheDocument();
+    });
+
+    it('Test 23: BUG-03 — Enter inside the rename input commits via onRenameGroup (no regression)', async () => {
+      const onRenameGroup = vi.fn();
+      render(<FolderGroupRow {...defaultProps({ onRenameGroup, groupName: 'Old Name' })} />);
+
+      const nameSpan = screen.getByText('Old Name');
+      fireEvent.dblClick(nameSpan);
+
+      const input = await screen.findByRole('textbox', { name: /Group name/i });
+      await flushRaf();
+
+      fireEvent.change(input, { target: { value: 'New Name' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onRenameGroup).toHaveBeenCalledOnce();
+      expect(onRenameGroup).toHaveBeenCalledWith('group-1', 'New Name');
+    });
+
+    it('Test 24: BUG-03 — blur on the rename input commits via onRenameGroup (no regression)', async () => {
+      const onRenameGroup = vi.fn();
+      render(<FolderGroupRow {...defaultProps({ onRenameGroup, groupName: 'Old Name' })} />);
+
+      const nameSpan = screen.getByText('Old Name');
+      fireEvent.dblClick(nameSpan);
+
+      const input = await screen.findByRole('textbox', { name: /Group name/i });
+      await flushRaf();
+
+      fireEvent.change(input, { target: { value: 'Blurred Name' } });
+      fireEvent.blur(input);
+
+      expect(onRenameGroup).toHaveBeenCalledOnce();
+      expect(onRenameGroup).toHaveBeenCalledWith('group-1', 'Blurred Name');
+    });
+
+    it('Test 25: BUG-03 — the editing useEffect schedules its focus call via requestAnimationFrame (source assertion)', () => {
+      // Defense-in-depth: the rAF-deferred focus is what wins the race vs Radix
+      // restoreFocus in production. A regression that drops the rAF wrapper would
+      // re-introduce the focus-race bug. This source assertion catches that.
+      const inner = (FolderGroupRow as unknown as { type: (...args: unknown[]) => unknown }).type;
+      const source = inner.toString();
+      expect(source).toContain('requestAnimationFrame');
+    });
+  });
 });
