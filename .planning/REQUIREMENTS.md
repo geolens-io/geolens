@@ -22,8 +22,8 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 
 - [x] **UX-01**: Layer-group expand caret meets touch-target size (≥24×24 px hit area; visible glyph ≥16 px or follows existing icon-size convention from `frontend/src/lib/icons` if larger). Current caret is too small to comfortably tap, especially on tablet.
 - [x] **UX-02**: Sublayer rows replace the per-row opacity slider with config-state indicators (badge/icon for: has labels, has filters, has data-driven styling, any other high-impact config). Opacity edits remain available through the LayerEditorPanel flyout. Indicators reflect live config state (mount-time + react to edits).
-- [ ] **UX-03**: Basemap row is draggable in the layer order — user can position basemap at top of stack (for 3D maps showing elevation rendered above basemap context) OR bottom (default 2D map). Drag preserves the basemap-as-group semantics (basemap sublayers move with parent). Saved-map JSON encodes the basemap position.
-- [ ] **UX-04**: Map Settings → Widgets section converts from duplicate on-map widget controls to enable/disable availability toggles (each widget has an on/off toggle that governs whether the widget renders on the map at all). On-map controls remain for live interaction with enabled widgets. Settings UI labels clearly state "Enable/disable widget" so the purpose is unambiguous.
+- [x] **UX-03**: Basemap row is draggable in the layer order — user can position basemap at top of stack (for 3D maps showing elevation rendered above basemap context) OR bottom (default 2D map). Drag preserves the basemap-as-group semantics (basemap sublayers move with parent). Saved-map JSON encodes the basemap position.
+- [x] **UX-04**: Map Settings → Widgets section converts from duplicate on-map widget controls to enable/disable availability toggles (each widget has an on/off toggle that governs whether the widget renders on the map at all). On-map controls remain for live interaction with enabled widgets. Settings UI labels clearly state "Enable/disable widget" so the purpose is unambiguous.
 
 ### Small-Screen Responsive Layout (RESPONSIVE)
 
@@ -67,8 +67,8 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | BUG-03 | Phase 1051 | Complete (commit `80bddc14`) |
 | UX-01 | Phase 1051 | Complete (commit `278e8933`) |
 | UX-02 | Phase 1051 | Complete (commits `79b0c0c6` + `a69d00ac`) |
-| UX-03 | Phase 1051 | Pending |
-| UX-04 | Phase 1051 | Pending |
+| UX-03 | Phase 1051 | Complete (commit `0957cf6d`) |
+| UX-04 | Phase 1051 | Complete (commit `57d88d01`) |
 | RESP-01 | Phase 1051 | Pending |
 | RESP-02 | Phase 1051 | Pending |
 | RESP-03 | Phase 1051 | Pending |
@@ -83,4 +83,4 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 
 ---
 *Requirements defined: 2026-05-17*
-*Last updated: 2026-05-18 — BUG-02 complete (Plan 1051-02, commit `eeeb8be8`)*
+*Last updated: 2026-05-18 — UX-04 complete (Plan 1051-07, commit `57d88d01`); UX-03 retroactively marked complete (Plan 1051-06, commit `0957cf6d`)*

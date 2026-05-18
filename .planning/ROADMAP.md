@@ -125,7 +125,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 1051-07-ux-widgets-enable-disable-PLAN.md — UX-04: Map Settings → Widgets converts to enable/disable availability toggles
+- [x] 1051-07-ux-widgets-enable-disable-PLAN.md — UX-04: Map Settings → Widgets converts to enable/disable availability toggles — ✅ SHIPPED 2026-05-18 (commit `57d88d01`)
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
