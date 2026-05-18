@@ -40,7 +40,10 @@ interface SliderRowProps {
 
 function SliderRow({ label, value, min, max, step, suffix, onChange, ariaLabel, disabled }: SliderRowProps) {
   return (
-    <div className={cn('grid grid-cols-[110px_1fr_auto] gap-2 items-center', disabled && 'cursor-not-allowed')}>
+    // Phase 1051 WR-03: when disabled, mute the whole row (label + value)
+    // not just the slider, so the visual hierarchy matches behavior. opacity-50
+    // is the standard shadcn disabled-state convention.
+    <div className={cn('grid grid-cols-[110px_1fr_auto] gap-2 items-center', disabled && 'cursor-not-allowed opacity-50')}>
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <Slider
         aria-label={ariaLabel}
