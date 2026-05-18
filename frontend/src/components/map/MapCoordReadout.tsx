@@ -22,6 +22,19 @@ interface MapCoordReadoutProps {
  *                     reflects the viewport instead of stale cursor coords.
  *
  * Uses font-mono for an instrument/cartographic feel.
+ *
+ * Positioning contract (RESP-02 — Phase 1051 Plan 09):
+ *   The pill anchors at `top-2 right-14` (8px from top, 56px from right edge).
+ *   The 56px right offset exists to clear the MapLibre `NavigationControl`
+ *   when it is anchored `top-right` — which is the case in `ViewerMap.tsx`.
+ *   In `BuilderMap.tsx`, Phase 1051 Plan 08 (RESP-01, commit 391459bb) moved
+ *   the NavigationControl to `top-left`, so the original RESP-02 collision
+ *   surface no longer exists in the builder context — but `right-14` is
+ *   load-bearing for the viewer and must NOT be reduced without first
+ *   confirming the NavigationControl position at every call site.
+ *   Top-right WidgetHost slot (`WidgetHost.tsx:17`) sits at `top-12 right-3`
+ *   — 40px below this pill — so there is no vertical collision with any
+ *   floating widget at the same horizontal band.
  */
 export const MapCoordReadout = memo(function MapCoordReadout({
   map,
