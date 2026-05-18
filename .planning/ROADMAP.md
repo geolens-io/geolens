@@ -113,7 +113,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 1051-04-ux-group-expand-caret-PLAN.md — UX-01: layer-group expand caret too small for comfortable tap
+- [x] 1051-04-ux-group-expand-caret-PLAN.md — UX-01: layer-group expand caret too small for comfortable tap — ✅ SHIPPED 2026-05-18 (commit `278e8933`)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 

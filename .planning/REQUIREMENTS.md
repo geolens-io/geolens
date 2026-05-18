@@ -16,11 +16,11 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 
 - [x] **BUG-01**: User can toggle a regular (non-basemap, non-sublayer) layer's visibility on/off and the map reflects the change immediately. Repro before fix: `http://localhost:8080/maps/c868cc3a-a3a0-4714-b559-67b3f2b478e2` — Layer 1 visibility toggle is a no-op. Closes the source report. — ✅ SHIPPED 2026-05-17 (commit `8c6de63`) — adapter.addLayers contract fix + defense-in-depth syncVisibility.
 - [x] **BUG-02**: User can delete a layer from the stack and the layer is removed from both the sidebar list AND the map render. Currently no-op. — ✅ SHIPPED 2026-05-18 (commit `eeeb8be8`) — handleRemove optimistic state update + rollback pattern lifted from handleBulkDelete.
-- [ ] **BUG-03**: User can click "Rename group" on a basemap or group row and the text input receives focus automatically (autofocus on the rename input). Currently focus is not applied — users must click into the input manually.
+- [x] **BUG-03**: User can click "Rename group" on a basemap or group row and the text input receives focus automatically (autofocus on the rename input). Currently focus is not applied — users must click into the input manually.
 
 ### UX Clarifications (UX)
 
-- [ ] **UX-01**: Layer-group expand caret meets touch-target size (≥24×24 px hit area; visible glyph ≥16 px or follows existing icon-size convention from `frontend/src/lib/icons` if larger). Current caret is too small to comfortably tap, especially on tablet.
+- [x] **UX-01**: Layer-group expand caret meets touch-target size (≥24×24 px hit area; visible glyph ≥16 px or follows existing icon-size convention from `frontend/src/lib/icons` if larger). Current caret is too small to comfortably tap, especially on tablet.
 - [ ] **UX-02**: Sublayer rows replace the per-row opacity slider with config-state indicators (badge/icon for: has labels, has filters, has data-driven styling, any other high-impact config). Opacity edits remain available through the LayerEditorPanel flyout. Indicators reflect live config state (mount-time + react to edits).
 - [ ] **UX-03**: Basemap row is draggable in the layer order — user can position basemap at top of stack (for 3D maps showing elevation rendered above basemap context) OR bottom (default 2D map). Drag preserves the basemap-as-group semantics (basemap sublayers move with parent). Saved-map JSON encodes the basemap position.
 - [ ] **UX-04**: Map Settings → Widgets section converts from duplicate on-map widget controls to enable/disable availability toggles (each widget has an on/off toggle that governs whether the widget renders on the map at all). On-map controls remain for live interaction with enabled widgets. Settings UI labels clearly state "Enable/disable widget" so the purpose is unambiguous.
@@ -64,8 +64,8 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 |-------------|-------|--------|
 | BUG-01 | Phase 1051 | Complete (commit `8c6de63`) |
 | BUG-02 | Phase 1051 | Complete (commit `eeeb8be8`) |
-| BUG-03 | Phase 1051 | Pending |
-| UX-01 | Phase 1051 | Pending |
+| BUG-03 | Phase 1051 | Complete (commit `80bddc14`) |
+| UX-01 | Phase 1051 | Complete (commit `278e8933`) |
 | UX-02 | Phase 1051 | Pending |
 | UX-03 | Phase 1051 | Pending |
 | UX-04 | Phase 1051 | Pending |
