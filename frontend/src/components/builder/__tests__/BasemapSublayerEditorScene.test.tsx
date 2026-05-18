@@ -54,8 +54,6 @@ function defaultProps(
   return {
     sublayerId: 'roads',
     sublayerName: 'Roads',
-    activeDetailLevel: 'default' as const,
-    isCustomized: false,
     strokeColor: '#FF0000',
     strokeWidth: 2,
     casingColor: '#000000',
@@ -63,7 +61,6 @@ function defaultProps(
     opacity: 1,
     minZoom: 0,
     maxZoom: 22,
-    onDetailLevelChange: vi.fn(),
     onStrokeColorChange: vi.fn(),
     onStrokeWidthChange: vi.fn(),
     onCasingColorChange: vi.fn(),
@@ -76,70 +73,12 @@ function defaultProps(
 }
 
 describe('BasemapSublayerEditorScene', () => {
-  it('Test 1: DETAIL LEVEL pill strip renders 4 pills with role="radiogroup" and role="radio" with aria-checked', () => {
-    render(<BasemapSublayerEditorScene {...defaultProps({ activeDetailLevel: 'default' })} />);
-
-    const radioGroup = screen.getByRole('radiogroup');
-    expect(radioGroup).toBeInTheDocument();
-
-    const pills = screen.getAllByRole('radio');
-    const pillLabels = pills.map((p) => p.textContent?.trim());
-    expect(pillLabels).toContain('Off');
-    expect(pillLabels).toContain('Minimal');
-    expect(pillLabels).toContain('Default');
-    expect(pillLabels).toContain('Full');
-    expect(pills).toHaveLength(4);
-
-    // aria-checked on active pill
-    const defaultPill = pills.find((p) => p.textContent?.trim() === 'Default');
-    expect(defaultPill).toHaveAttribute('aria-checked', 'true');
-    const offPill = pills.find((p) => p.textContent?.trim() === 'Off');
-    expect(offPill).toHaveAttribute('aria-checked', 'false');
-  });
-
-  it('Test 2: active pill has bg-primary styling; inactive has bg-[var(--surface-2,...)]', () => {
-    render(<BasemapSublayerEditorScene {...defaultProps({ activeDetailLevel: 'minimal' })} />);
-
-    const pills = screen.getAllByRole('radio');
-    const minimalPill = pills.find((p) => p.textContent?.trim() === 'Minimal');
-    const fullPill = pills.find((p) => p.textContent?.trim() === 'Full');
-
-    expect(minimalPill?.className).toContain('bg-primary');
-    expect(fullPill?.className).not.toContain('bg-primary');
-  });
-
-  it('Test 3: clicking an inactive pill calls onDetailLevelChange(pillId)', () => {
-    const onDetailLevelChange = vi.fn();
-    render(
-      <BasemapSublayerEditorScene
-        {...defaultProps({ activeDetailLevel: 'default', onDetailLevelChange })}
-      />,
-    );
-
-    const pills = screen.getAllByRole('radio');
-    const offPill = pills.find((p) => p.textContent?.trim() === 'Off');
-    expect(offPill).toBeTruthy();
-    fireEvent.click(offPill!);
-
-    expect(onDetailLevelChange).toHaveBeenCalledWith('off');
-  });
-
-  it('Test 4: shows customized hint when activeDetailLevel !== "default" AND isCustomized=true', () => {
-    const { rerender } = render(
-      <BasemapSublayerEditorScene
-        {...defaultProps({ activeDetailLevel: 'minimal', isCustomized: true, sublayerName: 'Roads' })}
-      />,
-    );
-    expect(screen.getByText(/Roads is currently customized/)).toBeInTheDocument();
-
-    // Should NOT show when default level
-    rerender(
-      <BasemapSublayerEditorScene
-        {...defaultProps({ activeDetailLevel: 'default', isCustomized: true, sublayerName: 'Roads' })}
-      />,
-    );
-    expect(screen.queryByText(/Roads is currently customized/)).not.toBeInTheDocument();
-  });
+  // Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip removed — dead wiring.
+  // Tests 1-4 (DETAIL LEVEL pill rendering, active pill styling, click dispatch,
+  // customized hint) deleted alongside the production surface they pinned. The
+  // regression guard for the REMOVE disposition is Test 13 below — asserts no
+  // radiogroup, no `DETAIL LEVEL` heading, and no `currently customized` hint
+  // text are rendered.
 
   it('Test 5: STROKE section renders 4 fields in a field grid', () => {
     render(<BasemapSublayerEditorScene {...defaultProps()} />);
@@ -279,5 +218,20 @@ describe('BasemapSublayerEditorScene', () => {
 
     fireEvent.click(backBtn);
     expect(onBackToBasemap).toHaveBeenCalledOnce();
+  });
+
+  it('Test 13: DETAIL LEVEL section is removed (Phase 1051 INV-01 REMOVE disposition pin)', () => {
+    // Regression guard for the REMOVE disposition shipped in Phase 1051 Plan 11:
+    // the dead-wired DETAIL LEVEL pill strip and customized-hint paragraph must
+    // not be reintroduced without a real consumer for sublayer detail-level
+    // style mutation. If a future feature needs this surface, it should re-add
+    // the props + JSX AND wire a real onDetailLevelChange handler that mutates
+    // MapLibre style at the same time — this test exists to make that intent
+    // explicit at the call site.
+    render(<BasemapSublayerEditorScene {...defaultProps({ sublayerName: 'Roads' })} />);
+
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(screen.queryByText(/DETAIL LEVEL/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/currently customized/i)).not.toBeInTheDocument();
   });
 });

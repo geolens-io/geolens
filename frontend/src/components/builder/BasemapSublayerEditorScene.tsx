@@ -13,13 +13,16 @@ import { Label } from '@/components/ui/label';
 import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 import { cn } from '@/lib/utils';
 
-type DetailLevel = 'off' | 'minimal' | 'default' | 'full';
+// Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip removed — dead wiring.
+// The activeDetailLevel/isCustomized/onDetailLevelChange props were always passed
+// hardcoded defaults from MapBuilderPage; no consumer ever implemented sublayer
+// detail-level style mutation. Removed rather than fix because a real consumer
+// requires a multi-day MapLibre style-mutation implementation (out of v1011 scope
+// per REQUIREMENTS.md Out-of-Scope row 1).
 
 export interface BasemapSublayerEditorSceneProps {
   sublayerId: string;
   sublayerName: string;
-  activeDetailLevel: DetailLevel;
-  isCustomized: boolean;
   strokeColor: string;
   strokeWidth: number;
   casingColor: string;
@@ -27,7 +30,6 @@ export interface BasemapSublayerEditorSceneProps {
   opacity: number;
   minZoom: number;
   maxZoom: number;
-  onDetailLevelChange: (level: DetailLevel) => void;
   onStrokeColorChange: (color: string) => void;
   onStrokeWidthChange: (width: number) => void;
   onCasingColorChange: (color: string) => void;
@@ -41,18 +43,9 @@ export interface BasemapSublayerEditorFooterProps {
   onBackToBasemap: () => void;
 }
 
-const DETAIL_LEVELS: { id: DetailLevel; labelKey: string; defaultLabel: string }[] = [
-  { id: 'off', labelKey: 'basemapSublayer.detailLevelOff', defaultLabel: 'Off' },
-  { id: 'minimal', labelKey: 'basemapSublayer.detailLevelMinimal', defaultLabel: 'Minimal' },
-  { id: 'default', labelKey: 'basemapSublayer.detailLevelDefault', defaultLabel: 'Default' },
-  { id: 'full', labelKey: 'basemapSublayer.detailLevelFull', defaultLabel: 'Full' },
-];
-
 export function BasemapSublayerEditorScene({
   sublayerId,
   sublayerName,
-  activeDetailLevel,
-  isCustomized,
   strokeColor,
   strokeWidth,
   casingColor,
@@ -60,7 +53,6 @@ export function BasemapSublayerEditorScene({
   opacity,
   minZoom,
   maxZoom,
-  onDetailLevelChange,
   onStrokeColorChange,
   onStrokeWidthChange,
   onCasingColorChange,
@@ -87,51 +79,7 @@ export function BasemapSublayerEditorScene({
 
   return (
     <>
-      {/* 1. Detail Level section — always expanded */}
-      <section className="border-b">
-        <div className="px-4 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
-            {t('basemapSublayer.detailLevelLabel', { defaultValue: 'DETAIL LEVEL' })}
-          </p>
-          <div role="radiogroup" className="flex flex-wrap gap-1.5">
-            {DETAIL_LEVELS.map((pill) => {
-              const isActive = pill.id === activeDetailLevel;
-              return (
-                <button
-                  key={pill.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={isActive}
-                  data-active={isActive ? 'true' : 'false'}
-                  className={cn(
-                    'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
-                    isActive
-                      ? 'bg-primary text-primary-foreground border-transparent'
-                      : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
-                  )}
-                  onClick={() => {
-                    if (!isActive) {
-                      onDetailLevelChange(pill.id);
-                    }
-                  }}
-                >
-                  {t(pill.labelKey, { defaultValue: pill.defaultLabel })}
-                </button>
-              );
-            })}
-          </div>
-          {activeDetailLevel !== 'default' && isCustomized && (
-            <p className="text-[12px] text-muted-foreground italic mt-2">
-              {t('basemapSublayer.customizedHint', {
-                sublayer: sublayerName,
-                defaultValue: '{{sublayer}} is currently customized',
-              })}
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* 2. Stroke section — always expanded */}
+      {/* 1. Stroke section — always expanded */}
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">

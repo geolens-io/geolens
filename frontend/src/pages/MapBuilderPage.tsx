@@ -835,8 +835,6 @@ export function MapBuilderPage() {
             <BasemapSublayerEditorScene
               sublayerId={sublayer.id}
               sublayerName={sublayer.name}
-              activeDetailLevel="default"
-              isCustomized={false}
               strokeColor="#888888"
               strokeWidth={1}
               casingColor="#FFFFFF"
@@ -844,7 +842,6 @@ export function MapBuilderPage() {
               opacity={sublayer.opacity}
               minZoom={0}
               maxZoom={22}
-              onDetailLevelChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
               onStrokeColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
               onStrokeWidthChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
               onCasingColorChange={() => { /* TODO(Phase 1038): markDirty() once sublayer styling is persisted */ }}
