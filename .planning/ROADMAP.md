@@ -141,7 +141,7 @@ Plans:
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 1051-11-inv-detail-level-disposition-PLAN.md — INV-01: investigate DETAIL LEVEL toggle, decide remove-vs-fix, record disposition
+- [x] 1051-11-inv-detail-level-disposition-PLAN.md — INV-01: investigate DETAIL LEVEL toggle, decide remove-vs-fix, record disposition
 
 **Wave 12** *(blocked on Wave 11 completion)*
 

@@ -33,7 +33,7 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 
 ### Investigation-Then-Decision (INVESTIGATE)
 
-- [ ] **INV-01**: DETAIL LEVEL toggle disposition resolved. Plan opens with a Playwright MCP + codebase-grep investigation step to identify the toggle's intended purpose (consumer, prop wiring, state). Findings surface mid-flight; orchestrator either (a) removes the toggle + its plumbing if no consumer exists or intent is unrecoverable, or (b) fixes the toggle if the consumer can be reconstructed. Disposition recorded in commit message + close-gate notes.
+- [x] **INV-01**: DETAIL LEVEL toggle disposition resolved. Plan opens with a Playwright MCP + codebase-grep investigation step to identify the toggle's intended purpose (consumer, prop wiring, state). Findings surface mid-flight; orchestrator either (a) removes the toggle + its plumbing if no consumer exists or intent is unrecoverable, or (b) fixes the toggle if the consumer can be reconstructed. Disposition recorded in commit message + close-gate notes.
 
 ### Emergent Findings (EMERGENT)
 
@@ -72,7 +72,7 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | RESP-01 | Phase 1051 | Complete (commit `391459bb`) |
 | RESP-02 | Phase 1051 | Complete (commit `c6ab4fbd`) |
 | RESP-03 | Phase 1051 | Complete (commit `0a72cb58`) |
-| INV-01 | Phase 1051 | Pending |
+| INV-01 | Phase 1051 | Complete |
 | EMRG-01 | Phase 1051 | Pending |
 | CTRL-01 | Phase 1051 | Pending |
 
