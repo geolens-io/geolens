@@ -109,7 +109,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 1051-03-bug-rename-group-autofocus-PLAN.md — BUG-03: rename-group text input does not autofocus
+- [x] 1051-03-bug-rename-group-autofocus-PLAN.md — BUG-03: rename-group text input does not autofocus — ✅ SHIPPED 2026-05-18 (commit `80bddc14`)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

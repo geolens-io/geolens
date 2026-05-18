@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
 status: executing
-stopped_at: Phase 1051 Plan 02 (BUG-02) complete — handleRemove optimistic + rollback shipped
-last_updated: "2026-05-18T00:51:18Z"
-last_activity: 2026-05-18 -- Phase 1051 Plan 02 (BUG-02) shipped via handleRemove optimistic + rollback fix
+stopped_at: Phase 1051 Plan 03 (BUG-03) complete — rAF-deferred focus + preventDefault removal shipped
+last_updated: "2026-05-18T01:00:36Z"
+last_activity: 2026-05-18 -- Phase 1051 Plan 03 (BUG-03) shipped via rAF-deferred focus + onSelect preventDefault removal
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -19,9 +19,9 @@ progress:
 ## Current Position
 
 Phase: 1051 — map-builder-polish-bug-sweep
-Plan: 1051-03 (BUG-03 rename-group autofocus) — next to start
-Status: 2/13 plans complete (Plan 01 BUG-01 at 8c6de63, Plan 02 BUG-02 at eeeb8be8)
-Last activity: 2026-05-18 -- Phase 1051 Plan 02 (BUG-02) shipped via handleRemove optimistic + rollback fix
+Plan: 1051-04 (UX-01 caret hit target) — next to start
+Status: 3/13 plans complete (Plan 01 BUG-01 at 8c6de63, Plan 02 BUG-02 at eeeb8be8, Plan 03 BUG-03 at 80bddc14)
+Last activity: 2026-05-18 -- Phase 1051 Plan 03 (BUG-03) shipped via rAF-deferred focus + onSelect preventDefault removal
 
 ## Project Reference
 
@@ -53,6 +53,7 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1011 Map Bui
 - **Single CTRL-01 close gate at Plan 13** — batched typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify of all 11 items + CHANGELOG `[Unreleased]` population. Per `feedback_review_findings_inline.md`: any code-review findings surface during gate get fixed inline before close, not deferred to v1011.1.
 - **Phase 1051 Plan 01 (BUG-01)**: Fix at adapter.addLayers level + defense-in-depth syncVisibility calls. Root cause was non-sync re-add paths (`swapLayerOnMap`, raster re-add in `handleStyleConfigChange`) skipping syncVisibility, exposing an adapter contract gap where fill/line/circle/heatmap addLayers ignored input.visible (unlike raster/hillshade/symbol/cluster which did). Fixed at BOTH levels: adapters honor input.visible directly, AND every non-sync caller explicitly invokes syncVisibility after addLayers. Shipped at commit `8c6de63` with 5 new vitest regression cases (13/13 in target file, 889/889 in builder suite, 0 tsc errors).
 - **Phase 1051 Plan 02 (BUG-02)**: `handleRemove` (use-builder-layers.ts:316-356) gains the optimistic state update + rollback pattern from `handleBulkDelete` (lines 580-661). Pre-fix code called `removePerLayerCompanions` and `removeLayerMutation.mutate` but never updated React state — the user clicked delete and the sidebar row stayed visible until full page reload, because the React-Query invalidation refetch was gated by the `!hasUnsavedChanges` resync useEffect at line 181-186. Fix: capture `previousLayers = layersRef.current` before mutation, `setLocalLayers((prev) => prev.filter(...).map(reindex))` optimistically, `savedLayerBaselineRef.current` sync inside onSuccess (CR-01 pattern), `setLocalLayers(previousLayers)` rollback inside onError. `useRemoveLayer` in use-maps.ts already invalidates — no change there. Shipped at commit `eeeb8be8` with 5 new vitest regression cases (5/5 in new `use-builder-layers.delete.test.ts`, 162/162 in builder hook suite, 0 tsc errors). Tasks 1 + 3 (Playwright MCP gates) deferred to orchestrator per `<lesson_from_wave_1>` (MCP is orchestrator-scoped).
+- **Phase 1051 Plan 03 (BUG-03)**: Fix at TWO levels — `FolderGroupRow.tsx` editing useEffect now wraps `inputRef.current.focus()` + `inputRef.current.select()` in `requestAnimationFrame` so it runs AFTER Radix DropdownMenu's `restoreFocus` fires synchronously on menu close, AND the kebab Rename `DropdownMenuItem` `onSelect` no longer calls `_e.preventDefault()` so the menu closes cleanly. Defense in depth — a regression on either lever alone won't re-introduce the bug. Live MCP-driven repro proved the focus-race nature (focus transiently landed on the input then bounced back to the kebab trigger when the menu closed). Shipped at commit `80bddc14` with 7 new vitest regression cases (Test 19-25: autofocus via double-click rename pipeline + source-level assertions that preventDefault is gone and requestAnimationFrame is wired + Escape/Enter/blur no-regression guards). 25/25 in FolderGroupRow.test.tsx, 939/939 in builder suite, 0 tsc errors. Notable workaround: Radix DropdownMenu's jsdom behavior changes when onSelect no longer calls preventDefault — `fireEvent.pointerDown → fireEvent.click(menuitem)` no longer renders the resulting state change. Switched BUG-03 behavior tests to the double-click path (same `handleStartRename` pipeline, more reliable jsdom surface) and added source-level assertions (`FolderGroupRow.type.toString()` with comment-stripping) for the two contract changes. Tasks 1 + 3 (Playwright MCP gates) deferred to orchestrator per phase 1051 pattern. Pattern reusable: any Radix DropdownMenu item that mounts a new focus target should use rAF-deferred focus to outrun `restoreFocus`.
 
 ### Out of Scope (per REQUIREMENTS.md)
 
@@ -73,11 +74,11 @@ None at roadmap creation. All 11 user-reported items have either a clear repro U
 
 ## Session Continuity
 
-Last session: 2026-05-17T22:56:12.852Z
-Stopped at: Phase 1051 UI-SPEC approved (force-approved on revision 2)
-Resume file: .planning/phases/1051-map-builder-polish-bug-sweep/1051-UI-SPEC.md
+Last session: 2026-05-18T01:00:36Z
+Stopped at: Phase 1051 Plan 03 (BUG-03) complete — commit 80bddc14
+Resume file: .planning/phases/1051-map-builder-polish-bug-sweep/1051-04-ux-group-expand-caret-PLAN.md
 
-Session resumed: 2026-05-17 — proceeding to `/gsd:plan-phase 1051` (user chose plan-phase over autonomous execute).
+Session resumed: 2026-05-18 — Wave 3 (BUG-03) shipped; orchestrator owes Playwright MCP re-verify of the kebab Rename autofocus path before advancing to Wave 4 (UX-01).
 
 ## Operator Next Steps
 
