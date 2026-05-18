@@ -10,6 +10,18 @@ import { cn } from '@/lib/utils';
 import { getWidgets } from '@/components/map-widgets/registry';
 import type { MapTerrainConfig } from '@/types/api';
 
+/**
+ * Phase 1051 IN-03: named cap for the UI exaggeration slider so the magic
+ * number isn't repeated inline.
+ *
+ * NOTE: this is INTENTIONALLY narrower than the backend clamp in
+ * `normalizeTerrainExaggeration` (map-sync.ts), which accepts 0–10. The UI
+ * caps at 3.0 because terrain exaggeration past 3× tends to look surreal and
+ * cause artifacts on most DEM data; values 3.1–10 are still accepted from
+ * the API/AI but are intentionally unreachable from the slider UI.
+ */
+export const TERRAIN_EXAGGERATION_UI_MAX = 3.0;
+
 export interface SettingsEditorSceneProps {
   // Terrain
   terrainConfig: MapTerrainConfig | null;
@@ -121,7 +133,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
               label={t('settings.exaggeration', { defaultValue: 'Exaggeration' })}
               value={exaggerationValue}
               min={0.1}
-              max={3.0}
+              max={TERRAIN_EXAGGERATION_UI_MAX}
               step={0.1}
               suffix="×"
               onChange={onExaggerationChange}
