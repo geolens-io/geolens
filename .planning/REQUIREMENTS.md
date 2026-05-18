@@ -24,7 +24,7 @@ Each item is a discrete deliverable carried forward from v1011 Phase 1051 Plan 1
   - **Path B FIX** (implement Phase 1038): persist `stroke_color` / `stroke_width` / `casing_color` / `casing_width` / `min_zoom` / `max_zoom` per sublayer in `MapBasemapConfig.sublayer_overrides[sublayerId]` (jsonb-additive per Phase 1051 Plan 06 UX-03 precedent — zero backend migration); wire each callback to update the corresponding field via `setBasemapConfig` (auto-marks dirty via WR-02 fix in `use-builder-layers.ts`); plumb each field through `applyBasemapConfigToMap` in `map-sync.ts:222` for live MapLibre dispatch across the basemap-preset-aware sublayer style filtering.
   - **Path decision deferred to `/gsd-discuss-phase`.** Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`.
 
-- [ ] **EMRG-FN-02**: `settings.toggleWidget` orphan i18n key (from Phase 1051 Plan 07 UX-04) is removed from all 4 locales (`frontend/src/i18n/locales/{en,de,es,fr}/builder.json`). Trivial 4-file edit, no tests. i18n parity check passes 2/2.
+- [x] **EMRG-FN-02**: `settings.toggleWidget` orphan i18n key (from Phase 1051 Plan 07 UX-04) is removed from all 4 locales (`frontend/src/i18n/locales/{en,de,es,fr}/builder.json`). Trivial 4-file edit, no tests. i18n parity check passes 2/2.
 
 - [ ] **EMRG-FN-03**: Pre-existing UnifiedStackPanel.tsx unused-eslint-disable warnings at lines 679 + 720 (from Phase 1041, SCOPE BOUNDARY-correct deferral) are removed. Single-file 2-line removal. Frontend lint passes with 0 warnings on the affected file.
 

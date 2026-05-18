@@ -732,7 +732,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     }
     document.addEventListener('mousedown', handleMouseDown);
     return () => document.removeEventListener('mousedown', handleMouseDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds.size is the only reactive dep; onClearSelection is stable from useCallback
   }, [selectedIds.size, onClearSelection]);
 
   // Phase 1041 POL-10 + POL-06: Escape clears selection; Shift+ArrowUp/Down extends selection.
@@ -773,7 +772,6 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
     }
     el.addEventListener('keydown', handleKeyDown);
     return () => el.removeEventListener('keydown', handleKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds.size + selectableRowIds trigger remount; callbacks are stable
   }, [selectedIds.size, selectableRowIds, onClearSelection, onShiftClick]);
 
   // SortableContext items: all layer ids + the basemap-group id.
