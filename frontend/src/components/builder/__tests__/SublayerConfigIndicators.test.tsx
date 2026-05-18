@@ -40,7 +40,27 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 }
 
 describe('SublayerConfigIndicators', () => {
+  // Phase 1052 Plan 06 (EMRG-FN-04): the `layer={null}` branch closure.
+  //
+  // The live consumer is UnifiedStackPanel.tsx (around line 556) — the
+  // basemap sublayer row passes `layer={null}` because BasemapSublayerInfo
+  // only carries id/name/visible/opacity/kind, not the full MapLayerResponse
+  // that SublayerConfigIndicators reads from. Per UI-SPEC §UX-02 footnote,
+  // the indicator strip renders empty for basemap sublayers in this build
+  // (acceptable — opacity-only diffs surface via the LayerEditorPanel
+  // flyout). Plumbing the full layer through is a deferred enhancement
+  // once basemap sublayers gain user-editable filter / label.
+  //
+  // Test 1 below is the canonical regression pin for the null branch. Any
+  // future PR that changes SublayerConfigIndicators' null handling must
+  // pass this test, OR explicitly delete it with a documented rationale
+  // (e.g. "basemap sublayers now carry full MapLayerResponse — null branch
+  // no longer reachable").
+
   it('renders nothing when layer is null', () => {
+    // EMRG-FN-04 closure: the live caller is UnifiedStackPanel.tsx (basemap
+    // sublayer row). The null contract is "render nothing" (no badges, no
+    // wrapper div, no debug text) — container.firstChild === null.
     const { container } = render(<SublayerConfigIndicators layer={null} />);
     expect(container.firstChild).toBeNull();
   });
