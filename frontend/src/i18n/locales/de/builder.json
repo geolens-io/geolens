@@ -714,6 +714,10 @@
     "save": "Speichern",
     "export": "Exportieren"
   },
+  "export": {
+    "legendHeader": "Legende",
+    "poweredBy": "Bereitgestellt von GeoLens"
+  },
   "history": {
     "title": "Verlauf",
     "timelineLabel": "Karten-Bearbeitungsverlauf",

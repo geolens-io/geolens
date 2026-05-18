@@ -714,6 +714,10 @@
     "save": "Enregistrer",
     "export": "Exporter"
   },
+  "export": {
+    "legendHeader": "Légende",
+    "poweredBy": "Propulsé par GeoLens"
+  },
   "history": {
     "title": "Historique",
     "timelineLabel": "Historique de modification de la carte",

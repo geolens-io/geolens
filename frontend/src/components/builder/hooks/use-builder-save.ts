@@ -10,6 +10,8 @@ import { getSourceIdForLayer } from '@/components/builder/map-sync';
 import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledWidgets } from '@/hooks/use-settings';
+import { useEdition } from '@/hooks/use-edition';
+import { getLayerColors } from '@/components/map/layer-icons';
 import { uploadThumbnail } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
@@ -387,6 +389,7 @@ export function useBuilderSave(state: SaveState) {
   const patchMapLayers = usePatchMapLayers();
   const duplicateMutation = useDuplicateMap();
   const [lastSaveFailed, setLastSaveFailed] = useState(false);
+  const { isEnterprise } = useEdition();
   const enabledWidgetsQuery = useEnabledWidgets();
   const enabledWidgetIds = useMemo(
     () => enabledWidgetsQuery.data ?? (enabledWidgetsQuery.isLoading ? [] : null),
@@ -526,14 +529,108 @@ export function useBuilderSave(state: SaveState) {
     if (!map) return;
 
     const doExport = () => {
-      // PERF-08 (Phase 274): force a render frame, then read pixels.
-      // Mirrors the doCapture pattern: the WebGL canvas no longer retains
-      // its drawing buffer, so we register the read on the next render
-      // event tick and trigger an immediate repaint.
+      // PERF-08 (Phase 274): force a render frame, then composite chrome
+      // (title, legend, branding) onto an offscreen canvas. The WebGL canvas
+      // no longer retains its drawing buffer, so we register the read on the
+      // next render event tick and trigger an immediate repaint.
       const onRender = () => {
         try {
-          const canvas = map.getCanvas();
-          canvas.toBlob((blob) => {
+          const srcCanvas = map.getCanvas();
+          const dpr = window.devicePixelRatio || 1;
+          const mapWidth = srcCanvas.width;
+          const mapHeight = srcCanvas.height;
+
+          // All chrome metrics are expressed in srcCanvas pixel space (dpr-scaled).
+          const pad = 20 * dpr;
+          const title = (state.localName || '').trim();
+          const description = (state.localDescription || '').trim();
+          const titleFontPx = 28 * dpr;
+          const descFontPx = 14 * dpr;
+          const titleBlockH = title ? (description ? 84 * dpr : 56 * dpr) : 0;
+
+          const legendLayers = state.localLayers.filter(
+            (l) => l.visible && l.show_in_legend !== false,
+          );
+          const legendHeaderH = legendLayers.length > 0 ? 32 * dpr : 0;
+          const legendRowH = 22 * dpr;
+          const legendBlockH =
+            legendLayers.length > 0
+              ? 12 * dpr + legendHeaderH + legendLayers.length * legendRowH + 12 * dpr
+              : 0;
+
+          const showBranding = !isEnterprise;
+          const footerH = showBranding ? 32 * dpr : 0;
+
+          const totalH = Math.round(titleBlockH + mapHeight + legendBlockH + footerH);
+          const totalW = Math.round(mapWidth);
+
+          const off = document.createElement('canvas');
+          off.width = totalW;
+          off.height = totalH;
+          const ctx = off.getContext('2d');
+          if (!ctx) {
+            toast.error(t('toasts.exportFailed'));
+            return;
+          }
+
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, totalW, totalH);
+
+          let cursorY = 0;
+          ctx.textBaseline = 'top';
+
+          if (title) {
+            ctx.fillStyle = '#0a0a0a';
+            ctx.font = `700 ${titleFontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            ctx.fillText(title, pad, cursorY + pad);
+            if (description) {
+              ctx.fillStyle = '#666666';
+              ctx.font = `400 ${descFontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+              ctx.fillText(description, pad, cursorY + pad + titleFontPx + 8 * dpr);
+            }
+            cursorY += titleBlockH;
+          }
+
+          ctx.drawImage(srcCanvas, 0, cursorY);
+          cursorY += mapHeight;
+
+          if (legendLayers.length > 0) {
+            cursorY += 12 * dpr;
+            ctx.fillStyle = '#0a0a0a';
+            ctx.font = `600 ${14 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            ctx.fillText(t('export.legendHeader', { defaultValue: 'Legend' }), pad, cursorY);
+            cursorY += legendHeaderH;
+            ctx.font = `400 ${13 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            const swatchSize = 14 * dpr;
+            for (const layer of legendLayers) {
+              const colors = getLayerColors(layer);
+              const colorVal = (typeof colors[0] === 'string' && colors[0]) || '#6366f1';
+              const rowY = cursorY + (legendRowH - swatchSize) / 2;
+              ctx.fillStyle = colorVal;
+              ctx.fillRect(pad, rowY, swatchSize, swatchSize);
+              ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+              ctx.lineWidth = Math.max(1, dpr);
+              ctx.strokeRect(pad, rowY, swatchSize, swatchSize);
+              ctx.fillStyle = '#0a0a0a';
+              ctx.fillText(
+                layer.display_name || layer.dataset_name,
+                pad + swatchSize + 10 * dpr,
+                cursorY + (legendRowH - 13 * dpr) / 2,
+              );
+              cursorY += legendRowH;
+            }
+          }
+
+          if (showBranding) {
+            const footerText = t('export.poweredBy', { defaultValue: 'Powered by GeoLens' });
+            ctx.fillStyle = '#999999';
+            ctx.font = `400 ${12 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+            ctx.textBaseline = 'middle';
+            const metrics = ctx.measureText(footerText);
+            ctx.fillText(footerText, totalW - metrics.width - pad, totalH - footerH / 2);
+          }
+
+          off.toBlob((blob) => {
             if (!blob) {
               toast.error(t('toasts.exportFailed'));
               return;

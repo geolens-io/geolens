@@ -714,6 +714,10 @@
     "save": "Save",
     "export": "Export"
   },
+  "export": {
+    "legendHeader": "Legend",
+    "poweredBy": "Powered by GeoLens"
+  },
   "history": {
     "title": "History",
     "timelineLabel": "Map edit history",

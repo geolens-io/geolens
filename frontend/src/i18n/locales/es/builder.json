@@ -714,6 +714,10 @@
     "save": "Guardar",
     "export": "Exportar"
   },
+  "export": {
+    "legendHeader": "Leyenda",
+    "poweredBy": "Desarrollado por GeoLens"
+  },
   "history": {
     "title": "Historial",
     "timelineLabel": "Historial de edición del mapa",
