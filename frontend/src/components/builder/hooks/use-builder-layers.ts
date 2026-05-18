@@ -316,6 +316,21 @@ export function useBuilderLayers(
   const handleRemove = useCallback((layerId: string) => {
     if (!mapId) return;
     setExpandedLayerId((prev) => prev === layerId ? null : prev);
+
+    // BUG-02 (Phase 1051-02): optimistic state update + rollback on error,
+    // mirroring handleBulkDelete (lines 580-661). Without this, the user
+    // clicks delete and nothing visibly happens — the API mutation fires
+    // and onSuccess invalidates the map query, but the resync useEffect at
+    // line 181-186 is gated by `!hasUnsavedChanges`, which is usually false
+    // during the builder editing flow. The sidebar row then stays visible
+    // until a full page reload.
+    const previousLayers = layersRef.current;
+    setLocalLayers((prev) =>
+      prev
+        .filter((l) => l.id !== layerId)
+        .map((l, i) => ({ ...l, sort_order: i })),
+    );
+
     // WR-01 (Phase 1050-rev): imperatively clean per-layer companions
     // BEFORE the mutation so the visual artifacts (outline/label/extrusion/
     // arrow/cluster glyphs) disappear in lockstep with the user action.
@@ -326,9 +341,17 @@ export function useBuilderLayers(
       { mapId, layerId },
       {
         onSuccess: () => {
+          // Sync baseline so a subsequent React-Query refetch is not blocked
+          // by a stale savedLayerBaselineRef (CR-01 from handleBulkDelete).
+          savedLayerBaselineRef.current = savedLayerBaselineRef.current.filter(
+            (l) => l.id !== layerId,
+          );
           toast.success(t('toasts.layerRemoved'));
         },
         onError: () => {
+          // Rollback: restore the prior localLayers snapshot so the user
+          // sees the layer reappear in the sidebar.
+          setLocalLayers(previousLayers);
           toast.error(t('toasts.layerRemoveFailed'));
         },
       },
