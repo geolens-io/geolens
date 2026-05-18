@@ -141,7 +141,10 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing',
           isMultiSelectionActive && 'cursor-not-allowed opacity-20',
         )}
-        onPointerDown={(e) => e.stopPropagation()}
+        // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
+        // dnd-kit's PointerSensor activator (spread above), breaking pointer
+        // drag entirely. onClick stopPropagation alone is enough to suppress
+        // row selection on grip click.
         onClick={(e) => e.stopPropagation()}
       >
         <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />

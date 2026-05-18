@@ -70,6 +70,14 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   const committingRef = useRef(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // BUG-03 follow-up (2026-05-18 MCP smoke): the single-rAF strategy in the
+  // editing useEffect lost the focus race to Radix DropdownMenu's
+  // `restoreFocus` in real browsers (jsdom did not exercise the race, so the
+  // unit test passed). This ref gates Radix's `onCloseAutoFocus` so that
+  // restoreFocus is skipped specifically when the rename item was just
+  // selected; other dismiss paths (Escape, outside click) still restore focus
+  // to the kebab trigger as expected.
+  const skipCloseAutoFocusRef = useRef(false);
 
   // Reset state on groupId change
   useEffect(() => {
@@ -77,10 +85,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
     setConfirmingDelete(false);
   }, [groupId]);
 
-  // Auto-focus + select input text when entering edit mode.
-  // Defer to requestAnimationFrame so we win the focus race vs Radix DropdownMenu's
-  // `restoreFocus` (which synchronously returns focus to the kebab trigger when the
-  // menu closes after the rename item is selected). BUG-03 fix.
+  // Auto-focus + select input text when entering edit mode. The rAF defer is
+  // defense-in-depth alongside the onCloseAutoFocus gate below — without the
+  // gate, Radix's restoreFocus reliably wins the race in real browsers.
   useEffect(() => {
     if (editing) {
       requestAnimationFrame(() => {
@@ -203,7 +210,9 @@ export const FolderGroupRow = memo(function FolderGroupRow({
             name: groupName,
           })}
           className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-          onPointerDown={(e) => e.stopPropagation()}
+          // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
+          // dnd-kit's PointerSensor activator (spread above) and breaks pointer
+          // drag. onClick stopPropagation alone suppresses row selection.
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
@@ -301,13 +310,26 @@ export const FolderGroupRow = memo(function FolderGroupRow({
                 <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent
+              align="end"
+              className="w-44"
+              onCloseAutoFocus={(e) => {
+                // Gate Radix's restoreFocus: when the rename item was just
+                // selected, the editing useEffect's rAF focus should land on
+                // the input — not be overridden back to the kebab trigger.
+                if (skipCloseAutoFocusRef.current) {
+                  e.preventDefault();
+                  skipCloseAutoFocusRef.current = false;
+                }
+              }}
+            >
               <DropdownMenuItem
                 onSelect={() => {
-                  // BUG-03 fix: do NOT call preventDefault — let Radix close the menu
-                  // cleanly. The rename input mounts in the next render; the editing
-                  // useEffect re-focuses via requestAnimationFrame to outrun Radix's
-                  // restoreFocus on menu close.
+                  // Let Radix close the menu cleanly; the rename input mounts
+                  // in the next render and gets focused by the editing
+                  // useEffect. The skipCloseAutoFocusRef flag prevents Radix
+                  // from immediately stealing focus back to the kebab.
+                  skipCloseAutoFocusRef.current = true;
                   handleStartRename();
                 }}
               >

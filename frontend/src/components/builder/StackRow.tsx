@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
@@ -123,6 +123,12 @@ export const StackRow = memo(function StackRow({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const escapeRef = useRef(false);
   const committingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Mirrors FolderGroupRow's BUG-03 follow-up: gate Radix `restoreFocus` so
+  // the rename input keeps focus after the kebab menu closes. The prior
+  // `_e.preventDefault()` strategy kept the menu open and trapped focus inside
+  // it, leaving the input unfocused.
+  const skipCloseAutoFocusRef = useRef(false);
 
   const displayName = layer.display_name ?? layer.dataset_name;
 
@@ -130,6 +136,20 @@ export const StackRow = memo(function StackRow({
     setNameValue(displayName);
     setEditing(true);
   }
+
+  // Focus + select the rename input when entering edit mode. rAF defers the
+  // call so it runs after React commits the input; the onCloseAutoFocus gate
+  // on DropdownMenuContent prevents Radix from stealing focus back.
+  useEffect(() => {
+    if (editing) {
+      requestAnimationFrame(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      });
+    }
+  }, [editing]);
 
   function commitRename() {
     if (escapeRef.current) {
@@ -224,7 +244,10 @@ export const StackRow = memo(function StackRow({
           name: displayName,
         })}
         className="flex items-center justify-center cursor-grab opacity-35 group-hover/row:opacity-70 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded active:cursor-grabbing"
-        onPointerDown={(e) => e.stopPropagation()}
+        // 2026-05-18: do NOT add onPointerDown={stopPropagation} — it overrides
+        // dnd-kit's PointerSensor activator (spread above) and breaks pointer
+        // drag. onClick stopPropagation alone suppresses row selection on grip
+        // click; pointer events don't trigger onClick handlers.
         onClick={(e) => e.stopPropagation()}
       >
         <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
@@ -261,6 +284,7 @@ export const StackRow = memo(function StackRow({
       <div className="min-w-0">
         {editing ? (
           <input
+            ref={inputRef}
             type="text"
             data-testid="stack-row-rename-input"
             className="h-6 w-full min-w-0 border-b border-primary bg-transparent text-sm outline-none focus:ring-1 focus:ring-ring"
@@ -318,10 +342,22 @@ export const StackRow = memo(function StackRow({
               <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuContent
+            align="end"
+            className="w-40"
+            onCloseAutoFocus={(e) => {
+              if (skipCloseAutoFocusRef.current) {
+                e.preventDefault();
+                skipCloseAutoFocusRef.current = false;
+              }
+            }}
+          >
             <DropdownMenuItem
-              onSelect={(_e) => {
-                _e.preventDefault(); // keep menu open while we set editing=true
+              onSelect={() => {
+                // Let the menu close; the editing useEffect's rAF focus +
+                // select runs once Radix unmounts the menu. onCloseAutoFocus
+                // skips restoreFocus so the input keeps focus.
+                skipCloseAutoFocusRef.current = true;
                 handleStartRename();
               }}
             >
