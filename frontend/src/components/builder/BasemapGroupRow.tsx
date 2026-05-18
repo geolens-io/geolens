@@ -56,7 +56,13 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
 }: BasemapGroupRowProps) {
   const { t } = useTranslation('builder');
 
-  const rowName = `Basemap · ${presetName}`;
+  // Phase 1051 IN-01: single source for the display name string. Used by
+  // aria-label (visibility toggle), aria-label (kebab trigger), and the visible
+  // row name in Cell 5 — three call sites that previously drifted independently.
+  const rowName = t('basemapGroup.rowName', {
+    defaultValue: 'Basemap · {{name}}',
+    name: presetName,
+  });
 
   function handleRowClick(_e: React.MouseEvent) {
     // Phase 1051 CR-02: cursor-not-allowed at line 78 + suppressed drag listeners
@@ -200,7 +206,7 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
       {/* Cell 5: Layer name — static, no inline rename for basemap */}
       <div className="min-w-0">
         <span className="truncate text-sm block">
-          Basemap · {presetName}
+          {rowName}
           {providerLabel && (
             <span className="text-muted-foreground"> · {providerLabel}</span>
           )}

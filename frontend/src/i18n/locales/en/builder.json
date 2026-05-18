@@ -845,6 +845,7 @@
     "railLabel": "Basemap group",
     "removeBasemap": "Remove basemap",
     "resetAppearance": "Reset appearance",
+    "rowName": "Basemap · {{name}}",
     "sublayersSectionHint": "Click any sublayer in the sidebar to style it individually.",
     "sublayersSectionLabel": "SUBLAYERS",
     "swapBasemap": "Swap basemap",

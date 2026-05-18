@@ -845,6 +845,7 @@
     "railLabel": "Groupe de fond de carte",
     "removeBasemap": "Supprimer le fond de carte",
     "resetAppearance": "Réinitialiser l'apparence",
+    "rowName": "Fond de carte · {{name}}",
     "sublayersSectionHint": "Cliquez sur une sous-couche dans la barre latérale pour la styliser individuellement.",
     "sublayersSectionLabel": "SOUS-COUCHES",
     "swapBasemap": "Remplacer le fond de carte",

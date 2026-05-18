@@ -845,6 +845,7 @@
     "railLabel": "Grupo de mapa base",
     "removeBasemap": "Eliminar mapa base",
     "resetAppearance": "Restablecer apariencia",
+    "rowName": "Mapa base · {{name}}",
     "sublayersSectionHint": "Haga clic en cualquier subcapa de la barra lateral para darle estilo individualmente.",
     "sublayersSectionLabel": "SUBCAPAS",
     "swapBasemap": "Cambiar mapa base",

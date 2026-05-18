@@ -845,6 +845,7 @@
     "railLabel": "Basiskarten-Gruppe",
     "removeBasemap": "Basiskarte entfernen",
     "resetAppearance": "Darstellung zurücksetzen",
+    "rowName": "Basiskarte · {{name}}",
     "sublayersSectionHint": "Auf einen Sublayer in der Seitenleiste klicken, um ihn einzeln zu gestalten.",
     "sublayersSectionLabel": "SUBLAYER",
     "swapBasemap": "Basiskarte tauschen",
