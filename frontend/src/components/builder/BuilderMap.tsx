@@ -921,7 +921,11 @@ export const BuilderMap = memo(function BuilderMap({
         onLoad={handleLoad}
         aria-label={t('map.ariaLabel', { defaultValue: 'Map builder' })}
       >
-        <NavigationControl position="top-right" />
+        {/* RESP-01 (Phase 1051): NavigationControl anchored top-left so it does not
+            collide with the right-side BuilderRail (Notes/History/Ask AI buttons) at
+            narrow viewports (≤1024px rail mode). ScaleControl stays bottom-left;
+            no vertical overlap with the new NavigationControl placement. */}
+        <NavigationControl position="top-left" />
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
         {popupInfo && (
           <FeaturePopup
