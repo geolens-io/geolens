@@ -15,7 +15,7 @@ Each item is a discrete deliverable. All requirements verified via Playwright MC
 ### Broken Affordances (BUG)
 
 - [x] **BUG-01**: User can toggle a regular (non-basemap, non-sublayer) layer's visibility on/off and the map reflects the change immediately. Repro before fix: `http://localhost:8080/maps/c868cc3a-a3a0-4714-b559-67b3f2b478e2` — Layer 1 visibility toggle is a no-op. Closes the source report. — ✅ SHIPPED 2026-05-17 (commit `8c6de63`) — adapter.addLayers contract fix + defense-in-depth syncVisibility.
-- [ ] **BUG-02**: User can delete a layer from the stack and the layer is removed from both the sidebar list AND the map render. Currently no-op.
+- [x] **BUG-02**: User can delete a layer from the stack and the layer is removed from both the sidebar list AND the map render. Currently no-op. — ✅ SHIPPED 2026-05-18 (commit `eeeb8be8`) — handleRemove optimistic state update + rollback pattern lifted from handleBulkDelete.
 - [ ] **BUG-03**: User can click "Rename group" on a basemap or group row and the text input receives focus automatically (autofocus on the rename input). Currently focus is not applied — users must click into the input manually.
 
 ### UX Clarifications (UX)
@@ -63,7 +63,7 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | BUG-01 | Phase 1051 | Complete (commit `8c6de63`) |
-| BUG-02 | Phase 1051 | Pending |
+| BUG-02 | Phase 1051 | Complete (commit `eeeb8be8`) |
 | BUG-03 | Phase 1051 | Pending |
 | UX-01 | Phase 1051 | Pending |
 | UX-02 | Phase 1051 | Pending |
@@ -83,4 +83,4 @@ All 13 v1011 requirements mapped to Phase 1051 by gsd-roadmapper.
 
 ---
 *Requirements defined: 2026-05-17*
-*Last updated: 2026-05-17 — roadmapper mapped all 13 reqs to Phase 1051*
+*Last updated: 2026-05-18 — BUG-02 complete (Plan 1051-02, commit `eeeb8be8`)*

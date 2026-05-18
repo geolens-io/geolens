@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1011
 milestone_name: Map Builder Polish & Bug Sweep
 status: executing
-stopped_at: Phase 1051 Plan 01 (BUG-01) complete — visibility-toggle adapter contract fixed
-last_updated: "2026-05-18T00:36:18.024Z"
-last_activity: 2026-05-17 -- Phase 1051 Plan 01 (BUG-01) shipped via adapter.addLayers contract fix
+stopped_at: Phase 1051 Plan 02 (BUG-02) complete — handleRemove optimistic + rollback shipped
+last_updated: "2026-05-18T00:51:18Z"
+last_activity: 2026-05-18 -- Phase 1051 Plan 02 (BUG-02) shipped via handleRemove optimistic + rollback fix
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 13
-  completed_plans: 1
-  percent: 8
+  completed_plans: 2
+  percent: 0
 ---
 
 # State
@@ -19,9 +19,9 @@ progress:
 ## Current Position
 
 Phase: 1051 — map-builder-polish-bug-sweep
-Plan: 1051-02 (BUG-02 delete-layer) — next to start
-Status: 1/13 plans complete (Plan 01 BUG-01 shipped at commit 8c6de63)
-Last activity: 2026-05-17 -- Phase 1051 Plan 01 (BUG-01) shipped via adapter.addLayers contract fix
+Plan: 1051-03 (BUG-03 rename-group autofocus) — next to start
+Status: 2/13 plans complete (Plan 01 BUG-01 at 8c6de63, Plan 02 BUG-02 at eeeb8be8)
+Last activity: 2026-05-18 -- Phase 1051 Plan 02 (BUG-02) shipped via handleRemove optimistic + rollback fix
 
 ## Project Reference
 
@@ -52,6 +52,7 @@ See: .planning/PROJECT.md (updated 2026-05-17 — opened milestone v1011 Map Bui
 - **Per-plan verification:** Each user-reported plan includes (a) Playwright MCP pre-fix repro, (b) implementation, (c) vitest regression (where applicable — pure-CSS responsive fixes use manual MCP verify only), (d) Playwright MCP post-fix verify. Atomic commits.
 - **Single CTRL-01 close gate at Plan 13** — batched typecheck + vitest + e2e:smoke:builder + Playwright MCP re-verify of all 11 items + CHANGELOG `[Unreleased]` population. Per `feedback_review_findings_inline.md`: any code-review findings surface during gate get fixed inline before close, not deferred to v1011.1.
 - **Phase 1051 Plan 01 (BUG-01)**: Fix at adapter.addLayers level + defense-in-depth syncVisibility calls. Root cause was non-sync re-add paths (`swapLayerOnMap`, raster re-add in `handleStyleConfigChange`) skipping syncVisibility, exposing an adapter contract gap where fill/line/circle/heatmap addLayers ignored input.visible (unlike raster/hillshade/symbol/cluster which did). Fixed at BOTH levels: adapters honor input.visible directly, AND every non-sync caller explicitly invokes syncVisibility after addLayers. Shipped at commit `8c6de63` with 5 new vitest regression cases (13/13 in target file, 889/889 in builder suite, 0 tsc errors).
+- **Phase 1051 Plan 02 (BUG-02)**: `handleRemove` (use-builder-layers.ts:316-356) gains the optimistic state update + rollback pattern from `handleBulkDelete` (lines 580-661). Pre-fix code called `removePerLayerCompanions` and `removeLayerMutation.mutate` but never updated React state — the user clicked delete and the sidebar row stayed visible until full page reload, because the React-Query invalidation refetch was gated by the `!hasUnsavedChanges` resync useEffect at line 181-186. Fix: capture `previousLayers = layersRef.current` before mutation, `setLocalLayers((prev) => prev.filter(...).map(reindex))` optimistically, `savedLayerBaselineRef.current` sync inside onSuccess (CR-01 pattern), `setLocalLayers(previousLayers)` rollback inside onError. `useRemoveLayer` in use-maps.ts already invalidates — no change there. Shipped at commit `eeeb8be8` with 5 new vitest regression cases (5/5 in new `use-builder-layers.delete.test.ts`, 162/162 in builder hook suite, 0 tsc errors). Tasks 1 + 3 (Playwright MCP gates) deferred to orchestrator per `<lesson_from_wave_1>` (MCP is orchestrator-scoped).
 
 ### Out of Scope (per REQUIREMENTS.md)
 

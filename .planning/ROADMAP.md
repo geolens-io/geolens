@@ -105,7 +105,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 1051-02-bug-delete-layer-PLAN.md — BUG-02: delete-layer is a no-op
+- [x] 1051-02-bug-delete-layer-PLAN.md — BUG-02: delete-layer is a no-op — ✅ SHIPPED 2026-05-18 (commit `eeeb8be8`)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
