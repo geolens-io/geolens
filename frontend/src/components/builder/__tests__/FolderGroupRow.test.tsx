@@ -384,27 +384,11 @@ describe('FolderGroupRow', () => {
       expect(input.selectionEnd).toBe('My Group'.length);
     });
 
-    it('Test 21: BUG-03 — kebab onSelect for Rename no longer calls preventDefault() (source assertion)', () => {
-      // Source-level guarantee that the kebab Rename onSelect does NOT invoke
-      // preventDefault() — verified by reading the component's onSelect implementation
-      // via Function.prototype.toString. This catches a regression at the unit-test
-      // level without depending on Radix portal behavior in jsdom.
-      // FolderGroupRow is wrapped in React.memo, so reach the inner function via `.type`.
-      const inner = (FolderGroupRow as unknown as { type: (...args: unknown[]) => unknown }).type;
-      const source = inner.toString();
-      // Locate the Rename group menu item block (anchored on the i18n key).
-      expect(source).toContain('kebabRenameGroup');
-      const renameBlockStart = source.indexOf('kebabRenameGroup');
-      expect(renameBlockStart).toBeGreaterThan(-1);
-      const window = source.slice(Math.max(0, renameBlockStart - 400), renameBlockStart);
-      // Strip both line-comments (`// ...`) and block-comments (`/* ... */`) before
-      // asserting — comments may legitimately reference preventDefault for context.
-      const codeOnly = window
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/[^\n]*/g, '');
-      // Look for actual invocations: `.preventDefault(` (function call), not the word in comments.
-      expect(codeOnly).not.toMatch(/\.preventDefault\(/);
-    });
+    // Phase 1051 WR-09: removed brittle Function.prototype.toString source-text
+    // assertion. Coverage is provided by behavioral tests 19, 20, and 22 (which
+    // exercise the actual double-click → focus + Escape paths). The source-text
+    // pattern breaks under minification, coverage instrumentation, and trivially
+    // equivalent rewrites like `e['preventDefault']()`.
 
     it('Test 22: BUG-03 — Escape inside the rename input cancels editing (no regression)', async () => {
       const onRenameGroup = vi.fn();
