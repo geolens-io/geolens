@@ -117,7 +117,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 1051-05-ux-sublayer-config-indicators-PLAN.md — UX-02: replace per-sublayer opacity slider with config-state indicators
+- [x] 1051-05-ux-sublayer-config-indicators-PLAN.md — UX-02: replace per-sublayer opacity slider with config-state indicators — ✅ SHIPPED 2026-05-18 (commits `79b0c0c6` + `a69d00ac`)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
