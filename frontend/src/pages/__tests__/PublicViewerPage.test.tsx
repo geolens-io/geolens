@@ -6,6 +6,7 @@ import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
+import { ApiError } from '@/api/client';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { SharedMapResponse } from '@/types/api';
 
@@ -177,6 +178,65 @@ describe('PublicViewerPage', () => {
       basemapConfig: SHARED_MAP.basemap_config,
       terrainConfig: SHARED_MAP.terrain_config,
       showBasemapLabels: true,
+    });
+  });
+
+  describe('ROUTE-04: getSharedMap expected404 quiet path', () => {
+    // Test 1: 404 → null data path: "Map not found" renders, no console.error for 404
+    it('renders Map not found without console.error when getSharedMap returns null (quiet 404)', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockedUseSharedMap.mockReturnValue({
+        data: null,
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as ReturnType<typeof useSharedMap>);
+
+      renderPage('/m/invalid-token-abc');
+
+      // The "Map not found" view renders
+      expect(screen.getByRole('heading', { name: /map not found/i })).toBeInTheDocument();
+
+      // No console.error calls relating to 404 or fetch failure
+      const calls = consoleErrorSpy.mock.calls.map((args) => args.join(' '));
+      const has404Error = calls.some(
+        (msg) => msg.includes('404') || msg.includes('Failed to load'),
+      );
+      expect(has404Error).toBe(false);
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    // Test 2: valid 200 path: viewer renders normally
+    it('renders the viewer map when getSharedMap returns valid data (200 path)', async () => {
+      // beforeEach already sets up a valid SHARED_MAP response
+      renderPage('/m/valid-token');
+
+      await screen.findByTestId('viewer-map');
+
+      expect(screen.queryByRole('heading', { name: /map not found/i })).not.toBeInTheDocument();
+    });
+
+    // Test 3: 410 (expired) path: console.error is NOT silenced, "Link expired" UI shows
+    it('renders Link expired view and does not suppress errors when getSharedMap throws ApiError(410)', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      mockedUseSharedMap.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new ApiError('Gone', 410),
+      } as unknown as ReturnType<typeof useSharedMap>);
+
+      renderPage('/m/expired-token');
+
+      // "Link expired" branch renders (not "Map not found")
+      // The i18n key viewer.linkExpired renders as "This link has expired" in the test environment
+      expect(screen.getByRole('heading', { name: /this link has expired/i })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /map not found/i })).not.toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
     });
   });
 });
