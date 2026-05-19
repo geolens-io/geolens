@@ -96,7 +96,12 @@
   3. The quickstart prerequisites list Python 3.10+ and `httpx` so users know what to install before running seeders.
   4. The quickstart does not claim a specific "1-2 minutes" startup time that lab variance makes false — either the claim is gone, or it describes the range output by `install.sh`.
   5. `.env.example` has a documented `DATABASE_SSL_MODE` line with inline comment explaining `prefer` / `disable` / `require` so future contributors understand the SSL stance.
-**Plans:** TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 1053-01-PLAN.md — EW-04 .env.example SSL mode hint (this repo, in-place defense-in-depth against BU-01 regression)
+- [ ] 1053-02-PLAN.md — DOC-01 + EW-01 add 'Seed sample data' section, demote demo overlay (sibling repo, getgeolens.com)
+- [ ] 1053-03-PLAN.md — DOC-02 + DOC-03 + DOC-05 API-key recipe, Python/httpx prereqs, install.sh credential prompt (sibling repo)
+- [ ] 1053-04-PLAN.md — DOC-04 + BU-03 qualify '1-2 minutes' claim, Apple Silicon platform-mismatch note (sibling repo)
 
 ---
 
@@ -148,7 +153,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1053. Quickstart Docs + Environment Hardening | 0/? | Not started | - |
+| 1053. Quickstart Docs + Environment Hardening | 0/4 | Plans created | - |
 | 1054. Seeder + Console + Route + Import Polish | 0/? | Not started | - |
 | 1055. Reupload Feature | 0/? | Not started | - |
 | 1056. Close Gate | 0/? | Not started | - |
