@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     tile_pool_min_size: int = 2
     tile_pool_max_size: int = 10
 
+    # SEED-02 (Phase 1054): GDAL_HTTP_TIMEOUT for ogr2ogr service ingest, raised
+    # from the 120s hardcoded default that timed out 50% of AGO layers in M001-7n8vpc.
+    # Set INGEST_HTTP_TIMEOUT_SECONDS in the api service env to override.
+    ingest_http_timeout_seconds: int = 300
+
     @field_validator(
         "anthropic_api_key",
         "openai_api_key",

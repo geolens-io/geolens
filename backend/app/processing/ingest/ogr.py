@@ -9,6 +9,52 @@ from typing import TypedDict
 from app.core.config import settings
 
 
+# SEED-04 (Phase 1054): compiled once at module scope to avoid repeated re.compile().
+# Matches GDAL driver-list lines like "  -> 'FITS' (read-only)" or " -> 'PCIDSK' (rw+v)".
+# The trailing mode group (...) is optional — some GDAL builds emit bare driver names
+# without a mode suffix, so the regex accepts " -> 'NAME'" with optional "(...)" after.
+_OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
+
+
+def _strip_ogr_driver_list(stderr_text: str) -> str:
+    """Remove GDAL driver-list lines from ogr2ogr stderr output.
+
+    ogr2ogr emits a 150+ line enumeration of supported drivers before printing
+    the actual error when it cannot open a source. These lines match the pattern
+    "  -> 'DRIVER_NAME' (modes)" and are noise for the caller. This helper
+    strips them so IngestionError messages contain only the actionable line(s).
+
+    Blank lines that result from stripping (i.e., runs of consecutive blank
+    lines) are collapsed to a single blank line. The result is stripped of
+    leading/trailing whitespace.
+
+    Safety: the regex only matches lines with the specific "-> 'NAME' (...)"
+    shape. If GDAL changes its driver-list format in a future version, the worst
+    case is that nothing gets stripped — never that real error content is removed.
+    """
+    if not stderr_text:
+        return stderr_text
+
+    lines = stderr_text.splitlines()
+    kept: list[str] = []
+    for line in lines:
+        if _OGR_DRIVER_LIST_LINE_RE.match(line):
+            continue
+        kept.append(line)
+
+    # Collapse runs of blank lines down to at most one.
+    collapsed: list[str] = []
+    prev_blank = False
+    for line in kept:
+        is_blank = line.strip() == ""
+        if is_blank and prev_blank:
+            continue
+        collapsed.append(line)
+        prev_blank = is_blank
+
+    return "\n".join(collapsed).strip()
+
+
 class OgrinfoResult(TypedDict, total=False):
     srid: int | None
     geometry_type: str | None
@@ -515,7 +561,7 @@ async def run_ogr2ogr_service(
         "YES",
         "--config",
         "GDAL_HTTP_TIMEOUT",
-        "120",
+        str(settings.ingest_http_timeout_seconds),  # SEED-02: configurable, default 300
     ]
 
     if not is_non_spatial:
@@ -559,6 +605,7 @@ async def run_ogr2ogr_service(
     )
 
     if proc.returncode != 0:
+        stripped = _strip_ogr_driver_list(stderr.decode())  # SEED-04: strip driver list noise
         raise IngestionError(
-            f"ogr2ogr failed (exit {proc.returncode}): {stderr.decode().strip()}"
+            f"ogr2ogr failed (exit {proc.returncode}): {stripped.strip()}"
         )
