@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1012
 milestone_name: New-User Hardening + Reupload
-status: "Roadmap defined — ready for `/gsd:plan-phase 1053`"
-last_updated: "2026-05-19T22:24:02.156Z"
-last_activity: 2026-05-19 — v1012 roadmap created (4 phases, 23 requirements)
+status: Awaiting next milestone
+last_updated: "2026-05-19T22:35:41.199Z"
+last_activity: 2026-05-19 — Milestone v1012 completed and archived
 progress:
   total_phases: 9
   completed_phases: 2
@@ -17,14 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1053 (Quickstart Docs + Environment Hardening) — Not started
+Phase: Milestone v1012 complete
 Plan: —
-Status: Roadmap defined — ready for `/gsd:plan-phase 1053`
-Last activity: 2026-05-19 — v1012 roadmap created (4 phases, 23 requirements)
-
-```
-Progress: [█████████░] 94%
-```
+Status: Awaiting next milestone
+Last activity: 2026-05-19 — Milestone v1012 completed and archived
 
 ## Project Reference
 
@@ -82,7 +78,4 @@ See: .planning/PROJECT.md
 
 ## Operator Next Steps
 
-1. Run `/gsd:plan-phase 1053` to generate the plan for Phase 1053 (Quickstart Docs + Environment Hardening). Remember Phase 1053 requires cross-repo coordination with `~/Code/getgeolens.com/.planning/` for DOC-01..05 and EW-01.
-2. Optionally push the local `v1011.1` tag: `git push origin v1011.1`.
-3. Optionally push the local `v1011` tag if not already pushed: `git push origin v1011`.
-4. Address the Dependabot moderate vulnerability surfaced on push (alert 40 at https://github.com/geolens-io/geolens/security/dependabot/40).
+- Start the next milestone with /gsd-new-milestone

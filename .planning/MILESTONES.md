@@ -1,5 +1,30 @@
 # Milestones
 
+## v1012 New-User Hardening + Reupload (Shipped: 2026-05-19)
+
+**Phases completed:** 9 phases, 18 plans, 23 tasks
+
+**Key accomplishments:**
+
+- EW-04 closed — defense-in-depth against BU-01: `.env.example` now documents `prefer` vs `disable` vs `require` per deployment target and names empty-string as the BU-01 root cause.
+- API-seeder path (seed-natural-earth.py + seed-ago-data.py) documented as canonical post-login step in quickstart; demo overlay demoted to an 'Alternative' section with commit d50b9ec on getgeolens.com/main
+- Repository:
+- DOC-04 + BU-03 closed via cross-repo commit `d467a74`. Phase 1053 cross-repo edit lineage complete (3 commits on sibling repo: Plan 02 → Plan 03 → Plan 04).
+- SEED-02 — Configurable GDAL HTTP timeout:
+- Tightened `useAIAvailability` gate from `!!token` to `!!token && isAdmin`, eliminating 401/403 noise on `/api/admin/ai-status/` for anonymous and non-admin sessions across all four dataset-detail consumers.
+- `/admin/saml` now renders a bookmarkable Enterprise Feature notice in community edition — no silent redirect, no vanish, URL stays at `/admin/saml`
+- One-line import of useDocumentTitle into NotFoundPage closes the tab-title gap on 404 routes, with pageTitle.notFound i18n key in all 4 locales and a vitest assertion pinning the behavior.
+- useEffect-gated `toast.info` + `navigate('/')` replaces silent `<Navigate>` on authenticated `/register` access, with `alreadySignedIn` key in 4 locales and 3 regression tests
+- apiFetch extended with expected404 opt-in; getSharedMap now resolves invalid tokens to null instead of throwing ApiError(404), eliminating application-layer console noise for /m/{invalid-token}
+- `pointer-events-none` + `aria-hidden="true"` added to the dashed-ring decorative span in FileDropzone, removing it from the pointer-event hit-test tree without changing visual appearance.
+- React 19 setState-during-render anti-pattern eliminated from UploadForm by consolidating three inline `setPhase` calls inside `setEntries` updaters into a single `useEffect` dep'd on `entries` shape.
+- One-liner:
+- STAC import wizard gains a 'confirm' step that aggregates file:size from the STAC manifest, showing estimated total download size before committing to a potentially multi-GB fetch (EW-05)
+- HTTP 400 guard `_assert_compatible_record_type` blocks vector→raster, raster→vector, and any→VRT file swaps at both multipart and presigned reupload entry points, with record_type-aware error messages.
+- Overflow trigger gets visible "More" label + HTML title tooltips on all 3 overflow items, closing the M001 audit's missed-kebab finding; pinned by a new M001-replay e2e regression test
+
+---
+
 ## v1011.1 Builder Hygiene Carryover (Shipped: 2026-05-18)
 
 **Phase:** 1052 (single-phase hygiene close)
@@ -24,6 +49,7 @@
 **Inline code-review fixes:** 1 WARNING (WR-01) fixed inline; 1 INFO accepted as-is. Zero v1011.2 deferrals.
 
 **Patterns reinforced (not new):**
+
 - **Hygiene-shape carryforward milestone** — 4 EMRG-FN findings from v1011 EMRG-01 triage closed in 1 phase + 7 sequential plans + 1 CTRL-01 close gate (same shape as v1009.1, v1010.1, v1010.2, v1011).
 - **CONTEXT.md correctness gate at planner time** — planner's source-truth grep correctly caught 3 CONTEXT.md inaccuracies (Plan 01 scope was over-broad, EMRG-FN-04 auto-resolution was wrong, EMRG-FN-03 line numbers had drifted). Defending against pre-execution context errors via planner-time grep is the established pattern.
 - **Post-shipping code review catches secondary findings** — even on a tightly-scoped REMOVE phase, code review found 1 WARNING (orphan vi.mock) that Plan 03's executor explicitly deferred. Per `feedback_review_findings_inline.md`, fixing inline (and moving the tag) prevents v1011.2 deferral.

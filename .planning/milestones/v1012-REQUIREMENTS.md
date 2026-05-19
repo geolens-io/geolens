@@ -1,3 +1,12 @@
+# Requirements Archive: v1012 New-User Hardening + Reupload
+
+**Archived:** 2026-05-19
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: GeoLens v1012 New-User Hardening + Reupload
 
 **Defined:** 2026-05-19

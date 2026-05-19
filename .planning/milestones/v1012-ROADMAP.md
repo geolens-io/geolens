@@ -71,35 +71,109 @@
 - ✅ **v1010.2 Builder Smoke Carryover** — Phase 1050 (shipped 2026-05-17) — see [archive](milestones/v1010.2-ROADMAP.md)
 - ✅ **v1011 Map Builder Polish & Bug Sweep** — Phase 1051 (shipped 2026-05-18) — see [archive](milestones/v1011-ROADMAP.md)
 - ✅ **v1011.1 Builder Hygiene Carryover** — Phase 1052 (shipped 2026-05-18) — see [archive](milestones/v1011.1-ROADMAP.md)
-- ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, tag `v1.2.1`) — see [archive](milestones/v1012-ROADMAP.md)
+- 🔄 **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (in progress) — public tag: v1.3.0
 
 ## Phases
 
-<details>
-<summary>✅ v1012 New-User Hardening + Reupload (Phases 1053-1056) — SHIPPED 2026-05-19 (tag v1.2.1)</summary>
+### v1012 New-User Hardening + Reupload (Active)
 
-- [x] Phase 1053: Quickstart Docs + Environment Hardening (4/4 plans) — completed 2026-05-19
-- [x] Phase 1054: Seeder + Console + Route + Import Polish (11/11 plans) — completed 2026-05-19
-- [x] Phase 1055: Reupload Feature (3/3 plans) — completed 2026-05-19
-- [x] Phase 1056: Close Gate (1/1 — CTRL-01 satisfied inline) — completed 2026-05-19
-
-23/23 requirements satisfied. ROUTE-04 marked PARTIAL (browser network log unavoidable; JS-layer fix shipped). Tag bump revised from v1.3.0 (minor) to **v1.2.1 (patch)** — Phase 1055 discovered the Reupload backend was already shipped pre-v1012; Phase 1055 pivoted to cross-record-type defect fix + overflow discoverability hardening + audit-replay e2e regression test.
-
-Full details: [milestones/v1012-ROADMAP.md](milestones/v1012-ROADMAP.md).
-
-</details>
+- [x] **Phase 1053: Quickstart Docs + Environment Hardening** — Fix new-user docs and environment configuration across the two repos (cross-repo: DOC work lands in `getgeolens.com`) (completed 2026-05-19)
+- [x] **Phase 1054: Seeder + Console + Route + Import Polish** — Harden seeders, eliminate anonymous-page 401 noise, fix route edge cases, and clean up upload UX (completed 2026-05-19)
+- [ ] **Phase 1055: Reupload Feature** — Add the Reupload / Replace dataset affordance that drives the v1.3.0 minor bump
+- [ ] **Phase 1056: Close Gate** — Verify all 23 v1012 requirements, populate CHANGELOG, tag v1.3.0
 
 ## Phase Details
 
-<!-- v1012 phase details archived to milestones/v1012-ROADMAP.md -->
+### Phase 1053: Quickstart Docs + Environment Hardening
 
-(No active phases — run `/gsd-new-milestone` to start the next milestone.)
+**Goal:** A new user following `docs.getgeolens.com/guides/quickstart/` can bring up GeoLens and seed initial data without discovering scripts independently or hitting undocumented blockers.
+**Depends on:** Nothing (first phase of v1012)
+**Requirements:** DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, BU-03, EW-01, EW-04
+**Cross-repo note:** DOC-01..05 and EW-01 require PRs in `~/Code/getgeolens.com/.planning/`. Changes track here for traceability but the actual doc edits land in that repo. EW-04 (`.env.example` SSL hint) is a change in this repo.
+**Success Criteria** (what must be TRUE):
+  1. A user reading the quickstart finds a "Seed sample data" section that shows both `seed-natural-earth.py` and `seed-ago-data.py` invocations — they do not need to discover scripts by browsing the repo.
+  2. The quickstart either documents the API-key creation flow needed by `seed-ago-data.py`, or the script accepts `--username/--password` directly — there is no silent dead end.
+  3. The quickstart prerequisites list Python 3.10+ and `httpx` so users know what to install before running seeders.
+  4. The quickstart does not claim a specific "1-2 minutes" startup time that lab variance makes false — either the claim is gone, or it describes the range output by `install.sh`.
+  5. `.env.example` has a documented `DATABASE_SSL_MODE` line with inline comment explaining `prefer` / `disable` / `require` so future contributors understand the SSL stance.
+**Plans:** 4/4 plans complete
+Plans:
+- [x] 1053-01-PLAN.md — EW-04 .env.example SSL mode hint (this repo, in-place defense-in-depth against BU-01 regression)
+- [x] 1053-02-PLAN.md — DOC-01 + EW-01 add 'Seed sample data' section, demote demo overlay (sibling repo, getgeolens.com)
+- [x] 1053-03-PLAN.md — DOC-02 + DOC-03 + DOC-05 API-key recipe, Python/httpx prereqs, install.sh credential prompt (sibling repo)
+- [x] 1053-04-PLAN.md — DOC-04 + BU-03 qualify '1-2 minutes' claim, Apple Silicon platform-mismatch note (sibling repo)
+
+---
+
+### Phase 1054: Seeder + Console + Route + Import Polish
+
+**Goal:** Running GeoLens as a new user produces no unexplained console noise, no silent route failures, and no UI affordances that intercept clicks or emit React warnings.
+**Depends on:** Phase 1053
+**Requirements:** SEED-02, SEED-03, SEED-04, UX-01, CONSOLE-01, ROUTE-01, ROUTE-02, ROUTE-03, ROUTE-04, IMPORT-02, IMPORT-03, IMPORT-05, EW-05
+**Success Criteria** (what must be TRUE):
+  1. The anonymous Search page (`/`) and anonymous `/login` fire zero 401-error console entries — no auth-endpoint hooks fire before the user is authenticated.
+  2. `seed-ago-data.py` can ingest large AGO layers (>120s ogr2ogr transfers) via a configurable timeout or per-layer retry, and upstream data-quality noise is summarized rather than dumped line-by-line; ogr2ogr errors show only the actionable message, not the full driver list.
+  3. `/admin/saml` shows an "Enterprise Feature" placeholder instead of silently redirecting; the 404 page has a proper `<title>`; `/register` for an already-authenticated user shows a visible "Already signed in" banner instead of a silent redirect; `/m/{invalid-token}` renders a clean "Map not found" view.
+  4. The "Choose File" button in the Upload File dropzone is fully clickable — no decorative span intercepts pointer events — and committing a file upload produces zero React `setState during render` warnings.
+  5. The Register Table tab shows "All tables are registered" when no unregistered tables remain, rather than an absence-framed empty state; the STAC import wizard shows expected total bytes and item count before the user commits to a large fetch.
+**Plans:** 11/11 plans complete
+**UI hint**: yes
+Plans:
+- [x] 1054-01-PLAN.md — SEED-02/03/04 backend ogr2ogr timeout + driver-list strip + seeder retry/skip-counter
+- [x] 1054-02-PLAN.md — CONSOLE-01 gate useAIAvailability on !!token && isAdmin (close the audit's /admin/ai-status/ ×3 leak)
+- [x] 1054-03-PLAN.md — ROUTE-01 /admin/saml Enterprise Feature notice replaces silent redirect
+- [x] 1054-04-PLAN.md — ROUTE-02 NotFoundPage useDocumentTitle for 'Page not found - GeoLens'
+- [x] 1054-05-PLAN.md — ROUTE-03 /register authenticated-user toast + visible redirect
+- [x] 1054-06-PLAN.md — ROUTE-04 getSharedMap expected404 opt-in quiets share-token console noise
+- [x] 1054-07-PLAN.md — IMPORT-02 FileDropzone decorative span pointer-events-none + aria-hidden
+- [x] 1054-08-PLAN.md — IMPORT-03 UploadForm setState-in-render removed from three callsites via useEffect
+- [x] 1054-09-PLAN.md — IMPORT-05 Register Table empty state success vs absence framing
+- [x] 1054-10-PLAN.md — EW-05 STAC import size-estimate confirmation step (file:size aggregation)
+- [x] 1054-11-PLAN.md — UX-01 zero-work closure (cross-references Phase 1053 DOC-02 commit 30e9361)
+
+---
+
+### Phase 1055: Reupload Feature
+
+**Goal:** A user on a dataset's detail page can replace that dataset's source file without losing the dataset ID, slug, or associated metadata.
+**Depends on:** Phase 1054
+**Requirements:** IMPORT-04
+**Success Criteria** (what must be TRUE):
+  1. A "Replace file" (or equivalent) button is visible on the dataset detail page for datasets that were imported via file upload.
+  2. Clicking the button opens a file picker; selecting and confirming a new file triggers re-ingestion that preserves the existing dataset ID and slug, regenerates tiles and thumbnail, and writes an audit-log entry.
+  3. After re-ingestion completes, the dataset detail page reflects the updated file without requiring a page reload or manual refresh.
+**Plans:** 2/3 plans executed
+**UI hint**: yes
+**Planning note:** During planning the reupload feature was discovered to be already shipped (backend router at `router_reupload.py` 613 LOC, Celery worker at `tasks_reupload.py`, frontend `ReuploadDialog.tsx` 743 LOC, `DatasetPage.tsx` wiring at lines 391-398, audit emission `reupload.commit` at `tasks_common.py:955`, 30+ pytest cases). The M001-7n8vpc audit missed the affordance because the unlabeled kebab was not visible in the Playwright DOM snapshot. Phase scope therefore narrowed to: (1) close the one real backend gap (cross-record-type guard), (2) harden frontend discoverability so future audits can find the affordance, (3) live-MCP verify the full M001 audit replay against the hardened surface.
+Plans:
+- [x] 1055-01-PLAN.md — Backend cross-record-type guard at reupload entry points + 3 pinned pytest cases (Wave 1, autonomous)
+- [x] 1055-02-PLAN.md — Frontend discoverability hardening (visible "More" label + overflow tooltips) + M001 audit-replay e2e regression test + 4-locale i18n parity (Wave 1, autonomous)
+- [ ] 1055-03-PLAN.md — Live Playwright MCP verification reproducing M001 audit path; writes VERIFY.md with PASS/FAIL per ROADMAP success criterion (Wave 2, checkpoint)
+
+---
+
+### Phase 1056: Close Gate
+
+**Goal:** All 23 v1012 requirements are verified through smoke gates and live stack verification; CHANGELOG is populated; local v1.3.0 tag is created.
+**Depends on:** Phase 1055
+**Requirements:** CTRL-01
+**Success Criteria** (what must be TRUE):
+  1. `typecheck` reports 0 errors; `vitest` is green; `e2e:smoke:builder` is green; i18n parity passes for all 4 locales (en/de/es/fr).
+  2. A fresh `localhost:8080` stack — brought up per the updated quickstart — can complete the new-user flow: login → search → import → register table → seed catalog → dataset detail → replace file.
+  3. CHANGELOG `[Unreleased]` block is populated with all v1012 changes.
+  4. Local `v1.3.0` tag is created (public minor bump, driven by IMPORT-04 feature work).
+**Plans:** TBD
+
+---
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| All v1012 phases (1053-1056) | 19/19 | Complete | 2026-05-19 |
+| 1053. Quickstart Docs + Environment Hardening | 4/4 | Complete   | 2026-05-19 |
+| 1054. Seeder + Console + Route + Import Polish | 11/11 | Complete   | 2026-05-19 |
+| 1055. Reupload Feature | 2/3 | In Progress|  |
+| 1056. Close Gate | 0/? | Not started | - |
 
 ## Backlog
 
