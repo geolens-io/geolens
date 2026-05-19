@@ -151,6 +151,14 @@
     "discovering": "Recherche des tables...",
     "discoverFailed": "Échec de la découverte des tables :",
     "emptyState": "Aucune table non enregistrée trouvée dans la base de données.",
+    "emptyStateAllRegistered": {
+      "title": "Toutes les tables PostGIS sont déjà enregistrées",
+      "body": "Chaque table spatiale dans votre base de données est liée en tant que jeu de données GeoLens. Pour ajouter de nouvelles données, utilisez l'onglet 'Téléverser un fichier' ou importez depuis une URL de service."
+    },
+    "emptyStateNoTables": {
+      "title": "Aucune table spatiale trouvée",
+      "body": "La base de données ne contient aucune table PostGIS enregistrable. Téléversez un fichier ou importez une URL de service pour commencer à construire votre catalogue."
+    },
     "visibilityLabel": "Visibilité",
     "visibilityPrivate": "Privé",
     "visibilityRestricted": "Restreint",

@@ -151,6 +151,14 @@
     "discovering": "Tabellen werden ermittelt...",
     "discoverFailed": "Tabellenerkennung fehlgeschlagen:",
     "emptyState": "Keine nicht registrierten Tabellen in der Datenbank gefunden.",
+    "emptyStateAllRegistered": {
+      "title": "Alle PostGIS-Tabellen sind bereits registriert",
+      "body": "Jede räumliche Tabelle in Ihrer Datenbank ist als GeoLens-Datensatz verknüpft. Um neue Daten hinzuzufügen, verwenden Sie den Tab 'Datei hochladen' oder importieren Sie über eine Dienst-URL."
+    },
+    "emptyStateNoTables": {
+      "title": "Keine räumlichen Tabellen gefunden",
+      "body": "Die Datenbank enthält keine registrierbaren PostGIS-Tabellen. Laden Sie eine Datei hoch oder importieren Sie eine Dienst-URL, um Ihren Katalog aufzubauen."
+    },
     "visibilityLabel": "Sichtbarkeit",
     "visibilityPrivate": "Privat",
     "visibilityRestricted": "Eingeschränkt",

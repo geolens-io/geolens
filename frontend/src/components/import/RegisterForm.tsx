@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useDiscoverTables, useBulkRegister } from '@/components/import/hooks/use-ingest';
+import { useDiscoverTables, useBulkRegister, useDatasetCountHint } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import type { BulkRegisterResult, DiscoveredTable } from '@/types/api';
 import { toast } from 'sonner';
@@ -34,6 +34,9 @@ export function RegisterForm() {
   const [results, setResults] = useState<BulkRegisterResult[] | null>(null);
 
   const tables = data?.tables ?? [];
+  const tablesEmpty = tables.length === 0;
+  const { data: datasetCountHint } = useDatasetCountHint(tablesEmpty && !isLoading);
+
   const filtered = tables.filter((t) =>
     t.table_name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -146,11 +149,26 @@ export function RegisterForm() {
   }
 
   // ── Empty ──
-  if (tables.length === 0) {
+  if (tablesEmpty) {
+    const allRegistered = (datasetCountHint ?? 0) > 0;
     return (
       <div className="rounded-xl border border-border bg-card py-12 text-center">
-        <Database className="mx-auto mb-3 size-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">{t('register.emptyState')}</p>
+        <Database
+          className={cn(
+            'mx-auto mb-3 size-8',
+            allRegistered ? 'text-success' : 'text-muted-foreground',
+          )}
+        />
+        <h3 className="text-base font-medium mb-1.5">
+          {allRegistered
+            ? t('register.emptyStateAllRegistered.title')
+            : t('register.emptyStateNoTables.title')}
+        </h3>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          {allRegistered
+            ? t('register.emptyStateAllRegistered.body')
+            : t('register.emptyStateNoTables.body')}
+        </p>
       </div>
     );
   }

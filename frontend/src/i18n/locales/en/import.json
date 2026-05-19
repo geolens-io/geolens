@@ -151,6 +151,14 @@
     "discovering": "Discovering tables...",
     "discoverFailed": "Failed to discover tables:",
     "emptyState": "No unregistered tables found in the database.",
+    "emptyStateAllRegistered": {
+      "title": "All PostGIS tables are already registered",
+      "body": "Every spatial table in your database is wired up as a GeoLens dataset. To add new data, use the Upload File tab or import from a Service URL."
+    },
+    "emptyStateNoTables": {
+      "title": "No spatial tables found",
+      "body": "The database has no registrable PostGIS tables. Upload a file or import a service URL to start building your catalog."
+    },
     "visibilityLabel": "Visibility",
     "visibilityPrivate": "Private",
     "visibilityRestricted": "Restricted",

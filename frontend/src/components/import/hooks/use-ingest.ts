@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
-import { ApiError } from '@/api/client';
-import type { BulkRegisterRequest, VrtCreateRequest } from '@/types/api';
+import { ApiError, apiFetch } from '@/api/client';
+import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/types/api';
 
 export function useUploadFile() {
   return useMutation({
@@ -62,6 +62,25 @@ export function useDiscoverTables() {
     queryKey: queryKeys.ingest.discoverTables,
     queryFn: discoverTables,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * For IMPORT-05: distinguish 'all registered' (success framing) from
+ * 'no tables exist' (absence framing) in the Register Table empty state.
+ *
+ * Cheap GET with limit=1 — backend returns numberMatched in the response.
+ * Only fires when enabled === true (i.e. tables.length === 0 and not loading).
+ */
+export function useDatasetCountHint(enabled: boolean) {
+  return useQuery({
+    queryKey: ['datasets', 'count-hint'],
+    queryFn: async () => {
+      const data = await apiFetch<SearchResponse>('/search/datasets/?limit=1');
+      return data.numberMatched ?? 0;
+    },
+    enabled,
+    staleTime: 60_000,
   });
 }
 

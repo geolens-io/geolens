@@ -151,6 +151,14 @@
     "discovering": "Descubriendo tablas...",
     "discoverFailed": "Error al descubrir tablas:",
     "emptyState": "No se encontraron tablas sin registrar en la base de datos.",
+    "emptyStateAllRegistered": {
+      "title": "Todas las tablas PostGIS ya están registradas",
+      "body": "Cada tabla espacial en su base de datos está vinculada como un conjunto de datos de GeoLens. Para añadir nuevos datos, use la pestaña 'Subir archivo' o importe desde una URL de servicio."
+    },
+    "emptyStateNoTables": {
+      "title": "No se encontraron tablas espaciales",
+      "body": "La base de datos no tiene tablas PostGIS registrables. Suba un archivo o importe una URL de servicio para comenzar a construir su catálogo."
+    },
     "visibilityLabel": "Visibilidad",
     "visibilityPrivate": "Privado",
     "visibilityRestricted": "Restringido",
