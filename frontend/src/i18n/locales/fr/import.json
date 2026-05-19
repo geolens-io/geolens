@@ -128,7 +128,21 @@
     "assetCount_other": "{{count}} ressources",
     "noCogAsset": "Aucune ressource COG",
     "catalogHelp": "Parcourez et importez des jeux de données raster depuis des catalogues STAC publics tels que",
-    "matchedTotal": "({{count}} au total)"
+    "matchedTotal": "({{count}} au total)",
+    "confirm": {
+      "title": "Vérifier la taille du téléchargement",
+      "description_one": "Vous êtes sur le point d'importer {{count}} élément STAC. Vérifiez le total avant de confirmer.",
+      "description_other": "Vous êtes sur le point d'importer {{count}} éléments STAC. Vérifiez le total avant de confirmer.",
+      "itemsLabel": "Éléments",
+      "totalSizeLabel": "Taille totale estimée",
+      "sizeUnavailable": "Taille non disponible",
+      "partialSizeNote_one": "{{count}} élément n'a pas d'information de taille — le total est une borne inférieure.",
+      "partialSizeNote_other": "{{count}} éléments n'ont pas d'information de taille — le total est une borne inférieure.",
+      "estimateSource": "Estimation basée sur le manifeste STAC (file:size). Le téléchargement réel peut différer.",
+      "backToSelection": "Retour à la sélection",
+      "confirmImport_one": "Confirmer et importer {{count}} élément",
+      "confirmImport_other": "Confirmer et importer {{count}} éléments"
+    }
   },
   "serviceUrl": {
     "label": "URL de service",

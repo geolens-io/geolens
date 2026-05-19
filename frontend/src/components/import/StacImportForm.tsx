@@ -11,7 +11,7 @@ import {
   Image,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatNumber } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/format';
 import { ApiError } from '@/api/client';
 import {
   connectStac,
@@ -33,6 +33,7 @@ type Step =
   | 'collections'
   | 'loading-items'
   | 'items'
+  | 'confirm' // EW-05: size-estimate confirmation before committing to fetch
   | 'importing'
   | 'done';
 
@@ -172,6 +173,66 @@ export function StacImportForm() {
       toast.error(msg);
     }
   };
+
+  // ── Confirm step (EW-05) ──
+  if (step === 'confirm' && selectedCollection && catalogInfo) {
+    const itemsToImport = selectableItems.filter((i) => selectedItems.has(i.id));
+    const itemsWithSize = itemsToImport.filter((i) => typeof i.data_asset_size_bytes === 'number');
+    const totalBytes = itemsWithSize.reduce(
+      (acc, i) => acc + (i.data_asset_size_bytes ?? 0),
+      0,
+    );
+    const unavailableCount = itemsToImport.length - itemsWithSize.length;
+
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-border bg-card p-6">
+          <h3 className="text-base font-medium mb-2">{t('stac.confirm.title')}</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            {t('stac.confirm.description', { count: itemsToImport.length })}
+          </p>
+
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border">
+            <div className="bg-surface-0 px-4 py-3">
+              <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                {t('stac.confirm.itemsLabel')}
+              </dt>
+              <dd className="text-lg font-medium tracking-tight">{itemsToImport.length}</dd>
+            </div>
+            <div className="bg-surface-0 px-4 py-3">
+              <dt className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
+                {t('stac.confirm.totalSizeLabel')}
+              </dt>
+              <dd className="text-lg font-medium tracking-tight">
+                {itemsWithSize.length > 0
+                  ? formatBytes(totalBytes)
+                  : t('stac.confirm.sizeUnavailable')}
+              </dd>
+            </div>
+          </div>
+
+          {unavailableCount > 0 && itemsWithSize.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              {t('stac.confirm.partialSizeNote', { count: unavailableCount })}
+            </p>
+          )}
+
+          <p className="text-xs text-muted-foreground mt-3">
+            {t('stac.confirm.estimateSource')}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="outline" onClick={() => setStep('items')}>
+            {t('stac.confirm.backToSelection')}
+          </Button>
+          <Button onClick={handleImport}>
+            {t('stac.confirm.confirmImport', { count: itemsToImport.length })}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Loading states ──
   if (step === 'connecting' || step === 'loading-items' || step === 'importing') {
@@ -350,7 +411,7 @@ export function StacImportForm() {
           <Button
             size="sm"
             disabled={selectedItems.size === 0}
-            onClick={handleImport}
+            onClick={() => setStep('confirm')}
           >
             {selectedItems.size > 0 ? t('stac.importItems', { count: selectedItems.size }) : t('stac.importLabel')}
           </Button>

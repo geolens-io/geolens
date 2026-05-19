@@ -128,7 +128,21 @@
     "assetCount_other": "{{count}} assets",
     "noCogAsset": "No COG asset",
     "catalogHelp": "Browse and import raster datasets from public STAC catalogs like",
-    "matchedTotal": "({{count}} total)"
+    "matchedTotal": "({{count}} total)",
+    "confirm": {
+      "title": "Review download size",
+      "description_one": "You're about to import {{count}} STAC item. Review the total before committing.",
+      "description_other": "You're about to import {{count}} STAC items. Review the total before committing.",
+      "itemsLabel": "Items",
+      "totalSizeLabel": "Estimated total size",
+      "sizeUnavailable": "Size unavailable",
+      "partialSizeNote_one": "{{count}} item is missing size info — total is a lower bound.",
+      "partialSizeNote_other": "{{count}} items are missing size info — total is a lower bound.",
+      "estimateSource": "Estimate sourced from the STAC manifest (file:size). Actual download may differ.",
+      "backToSelection": "Back to selection",
+      "confirmImport_one": "Confirm and import {{count}} item",
+      "confirmImport_other": "Confirm and import {{count}} items"
+    }
   },
   "serviceUrl": {
     "label": "Service URL",

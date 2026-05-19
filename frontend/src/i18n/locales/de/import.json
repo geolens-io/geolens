@@ -128,7 +128,21 @@
     "assetCount_other": "{{count}} Assets",
     "noCogAsset": "Kein COG-Asset",
     "catalogHelp": "Durchsuchen und importieren Sie Rasterdatensätze aus öffentlichen STAC-Katalogen wie",
-    "matchedTotal": "({{count}} insgesamt)"
+    "matchedTotal": "({{count}} insgesamt)",
+    "confirm": {
+      "title": "Download-Größe überprüfen",
+      "description_one": "Sie sind dabei, {{count}} STAC-Element zu importieren. Überprüfen Sie die Gesamtgröße, bevor Sie bestätigen.",
+      "description_other": "Sie sind dabei, {{count}} STAC-Elemente zu importieren. Überprüfen Sie die Gesamtgröße, bevor Sie bestätigen.",
+      "itemsLabel": "Objekte",
+      "totalSizeLabel": "Geschätzte Gesamtgröße",
+      "sizeUnavailable": "Größe nicht verfügbar",
+      "partialSizeNote_one": "Bei {{count}} Objekt fehlt die Größenangabe — die Gesamtgröße ist eine Untergrenze.",
+      "partialSizeNote_other": "Bei {{count}} Objekten fehlt die Größenangabe — die Gesamtgröße ist eine Untergrenze.",
+      "estimateSource": "Schätzung basiert auf dem STAC-Manifest (file:size). Tatsächlicher Download kann abweichen.",
+      "backToSelection": "Zurück zur Auswahl",
+      "confirmImport_one": "{{count}} Objekt bestätigen und importieren",
+      "confirmImport_other": "{{count}} Objekte bestätigen und importieren"
+    }
   },
   "serviceUrl": {
     "label": "Service-URL",

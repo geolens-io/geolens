@@ -128,7 +128,21 @@
     "assetCount_other": "{{count}} recursos",
     "noCogAsset": "Sin recurso COG",
     "catalogHelp": "Explore e importe conjuntos de datos ráster desde catálogos STAC públicos como",
-    "matchedTotal": "({{count}} en total)"
+    "matchedTotal": "({{count}} en total)",
+    "confirm": {
+      "title": "Revisar tamaño de descarga",
+      "description_one": "Está a punto de importar {{count}} elemento STAC. Revise el total antes de confirmar.",
+      "description_other": "Está a punto de importar {{count}} elementos STAC. Revise el total antes de confirmar.",
+      "itemsLabel": "Elementos",
+      "totalSizeLabel": "Tamaño total estimado",
+      "sizeUnavailable": "Tamaño no disponible",
+      "partialSizeNote_one": "{{count}} elemento no tiene información de tamaño — el total es un límite inferior.",
+      "partialSizeNote_other": "{{count}} elementos no tienen información de tamaño — el total es un límite inferior.",
+      "estimateSource": "Estimación basada en el manifiesto STAC (file:size). La descarga real puede diferir.",
+      "backToSelection": "Volver a la selección",
+      "confirmImport_one": "Confirmar e importar {{count}} elemento",
+      "confirmImport_other": "Confirmar e importar {{count}} elementos"
+    }
   },
   "serviceUrl": {
     "label": "URL de servicio",
