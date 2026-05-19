@@ -15,7 +15,7 @@
 
 ### Documentation (Quickstart Hardening, Cross-Repo with getgeolens.com)
 
-- [ ] **DOC-01**: Quickstart at `docs.getgeolens.com/guides/quickstart/` documents the API-seeder path (`seed-natural-earth.py` + `seed-ago-data.py`) so new users can populate the catalog without discovering scripts independently. (Merges audit DOC-01 + EW-02 — same fix, two angles.)
+- [x] **DOC-01**: Quickstart at `docs.getgeolens.com/guides/quickstart/` documents the API-seeder path (`seed-natural-earth.py` + `seed-ago-data.py`) so new users can populate the catalog without discovering scripts independently. (Merges audit DOC-01 + EW-02 — same fix, two angles.)
 - [ ] **DOC-02**: `seed-ago-data.py` is usable from the quickstart path — either accept `--username/--password` like `seed-natural-earth.py`, OR document the "create your first API key" workflow inline with the seeder docs.
 - [ ] **DOC-03**: Quickstart prerequisites list "Python 3.10+ with `httpx`" (scoped to the seeders section).
 - [ ] **DOC-04**: Quickstart's "1-2 minutes" startup-time claim is replaced with a measured/range expectation that survives variance (or the claim is removed in favor of `install.sh` wait-for-health output).
@@ -55,7 +55,7 @@
 
 ### Easy Wins
 
-- [ ] **EW-01**: Documented bring-up uses a single `docker-compose.yml` path — `docker-compose.demo.yml` is consolidated into the main compose (with profile-gated demo seeders) OR clearly labeled in docs as an optional convenience that the quickstart no longer steers users toward. The new-user quickstart path is single-file.
+- [x] **EW-01**: Documented bring-up uses a single `docker-compose.yml` path — `docker-compose.demo.yml` is consolidated into the main compose (with profile-gated demo seeders) OR clearly labeled in docs as an optional convenience that the quickstart no longer steers users toward. The new-user quickstart path is single-file.
 - [x] **EW-04**: `.env.example` includes a documented `DATABASE_SSL_MODE` line with a comment explaining `prefer` vs `disable` vs `require` for local-dev vs containerized PG vs managed PG. (Defense-in-depth against BU-01 regression.)
 - [ ] **EW-05**: STAC import wizard stages selection and confirms total download size before committing to GB-scale fetches — user sees expected total bytes + per-item count before clicking "Import N items".
 
@@ -109,13 +109,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DOC-01 | Phase 1053 | Pending |
+| DOC-01 | Phase 1053 | Complete |
 | DOC-02 | Phase 1053 | Pending |
 | DOC-03 | Phase 1053 | Pending |
 | DOC-04 | Phase 1053 | Pending |
 | DOC-05 | Phase 1053 | Pending |
 | BU-03 | Phase 1053 | Pending |
-| EW-01 | Phase 1053 | Pending |
+| EW-01 | Phase 1053 | Complete |
 | EW-04 | Phase 1053 | Complete |
 | SEED-02 | Phase 1054 | Pending |
 | SEED-03 | Phase 1054 | Pending |
