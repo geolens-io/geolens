@@ -87,7 +87,10 @@ export function FileDropzone({ onFilesAccepted, disabled, allowedExtensions, max
       <div className="relative mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-surface-0 text-primary">
         <Upload className="size-7" strokeWidth={1.8} />
         {/* Dashed outer ring */}
-        <span className="absolute -inset-1.5 rounded-[20px] border border-dashed border-primary/40" />
+        <span
+          className="absolute -inset-1.5 rounded-[20px] border border-dashed border-primary/40 pointer-events-none"
+          aria-hidden="true"
+        />
       </div>
 
       <h3
