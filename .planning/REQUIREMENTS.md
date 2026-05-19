@@ -27,9 +27,9 @@
 
 ### Seeders
 
-- [ ] **SEED-02**: `seed-ago-data.py` survives ogr2ogr timeouts on large AGO layers — configurable timeout (env or CLI flag) and/or per-layer retry with partial-progress reporting; defaults are raised above 120s for layers known to be large.
-- [ ] **SEED-03**: Upstream AGO data-quality noise (malformed feature responses, missing columns) is summarized cleanly rather than dumped verbatim line-by-line.
-- [ ] **SEED-04**: `ogr2ogr` failure output omits the full driver list — user sees only the actionable error message.
+- [x] **SEED-02**: `seed-ago-data.py` survives ogr2ogr timeouts on large AGO layers — configurable timeout (env or CLI flag) and/or per-layer retry with partial-progress reporting; defaults are raised above 120s for layers known to be large.
+- [x] **SEED-03**: Upstream AGO data-quality noise (malformed feature responses, missing columns) is summarized cleanly rather than dumped verbatim line-by-line.
+- [x] **SEED-04**: `ogr2ogr` failure output omits the full driver list — user sees only the actionable error message.
 
 ### UX
 
@@ -117,9 +117,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BU-03 | Phase 1053 | Complete |
 | EW-01 | Phase 1053 | Complete |
 | EW-04 | Phase 1053 | Complete |
-| SEED-02 | Phase 1054 | Pending |
-| SEED-03 | Phase 1054 | Pending |
-| SEED-04 | Phase 1054 | Pending |
+| SEED-02 | Phase 1054 | Complete |
+| SEED-03 | Phase 1054 | Complete |
+| SEED-04 | Phase 1054 | Complete |
 | UX-01 | Phase 1054 | Complete |
 | CONSOLE-01 | Phase 1054 | Complete |
 | ROUTE-01 | Phase 1054 | Complete |
