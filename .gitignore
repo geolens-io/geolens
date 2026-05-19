@@ -47,6 +47,10 @@ tests/load/results/*.txt
 # Internal development / assistant state (not for public release)
 .planning/
 .gsd/
+.gsd-id
+.mcp.json
+.bg-shell/
+skills-lock.json
 .claude/
 .agents/
 .codex/
