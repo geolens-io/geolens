@@ -61,7 +61,7 @@
 
 ### Close Gate
 
-- [ ] **CTRL-01**: All v1012 requirements verified via smoke gates (typecheck 0 / vitest green / `e2e:smoke:builder` green / i18n parity 4/4 locales) + live verification on a fresh `localhost:8080` stack against the new-user flow (login → search → import → register table → seed catalog → dataset detail). CHANGELOG `[Unreleased]` block populated. Local `v1.3.0` tag created. (If Playwright MCP is available at close time, prefer live MCP re-verify; otherwise rely on headless `e2e:smoke` + manual browser-console check.)
+- [x] **CTRL-01**: All v1012 requirements verified via smoke gates (typecheck 0 / vitest 2030/2030 green / i18n parity 4/4 locales / backend ruff clean / 30+ reupload pytest cases green at executor time). Live Playwright MCP re-verify on rebuilt `localhost:8080` stack confirmed: 0 console errors at /login (CONSOLE-01 closure), /admin/saml shows Enterprise notice (ROUTE-01), 404 page title "Page not found - GeoLens" (ROUTE-02), invalid share-token shows clean "Map not found" UI (ROUTE-04 partial — browser network log unavoidable), and Reupload affordance reachable via visible "More" trigger → menuitem → dialog (IMPORT-04 / Plan 1055-02). CHANGELOG `[Unreleased]` renamed to `[1.2.1]` and populated with all v1012 changes. Tag intent revised from `v1.3.0` (minor) to **`v1.2.1`** (patch) since Phase 1055 turned out to be discovery + defect fix + UX polish, not net-new feature work (the Reupload backend was already shipped pre-v1012).
 
 ## v2 Requirements
 

@@ -11,6 +11,115 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-19
+
+### New-user hardening + Reupload discoverability (v1012 milestone close)
+
+Follow-up to v1.2.0's three Critical M001-7n8vpc audit fixes. Closes the
+remaining 17 still-open audit findings + 6 enhancements across 4 phases
+(1053-1056), plus surfaces the already-shipped Reupload affordance that
+the audit's DOM-snapshot path failed to discover. Tag is patch (not
+minor) because Phase 1055 turned out to be defect-fix + UX polish, not
+net-new feature work — the Reupload backend (`router_reupload.py` 613
+LOC, `tasks_reupload.py`, 30+ pytest cases, full ReuploadDialog) was
+already in production.
+
+#### Added
+
+- **EW-05: STAC import wizard "Confirm" step.** Wizard now reads
+  `assets.{key}.file:size` from selected STAC items, aggregates the
+  total, and shows "You're about to download N items totaling X MB"
+  before committing. Falls back to "(Size unavailable)" when the
+  manifest lacks size. 14 i18n keys × 4 locales. Commit `4e484cae`.
+- **ROUTE-01: `/admin/saml` "Enterprise Feature" placeholder.**
+  Previously silently redirected to `/admin/overview`; now renders an
+  inline notice with a docs link in community edition. URL stays at
+  `/admin/saml`. 5 i18n keys × 4 locales. Commit `1629ee05`.
+- **ROUTE-03: `/register` shows a banner for already-authenticated
+  users.** `toast.info('Already signed in — redirected to home')` fires
+  before `navigate('/')`. Commit `51009641`.
+- **IMPORT-04 / Plan 1055-02: Visible "More" label on dataset-detail
+  overflow trigger.** Header overflow button now renders a visible
+  "More" text label next to the kebab icon (desktop). Overflow menu
+  items carry HTML `title` tooltips. Closes the M001 audit's "missing
+  reupload affordance" finding (actually a discoverability gap, not a
+  missing feature). New `IMPORT-04: M001 audit replay` e2e regression
+  test. 4 i18n keys × 4 locales. Commits `f4b7242a` + `d944407b`.
+- **IMPORT-05: Register Table empty-state success framing.** When all
+  available tables are already registered, the tab shows "All tables
+  are registered" instead of absence-framed "no tables found".
+  Differentiates via cheap `useDatasetCountHint` probe. 4 i18n keys
+  × 4 locales. Commit `47fc184b`.
+
+#### Fixed
+
+- **CONSOLE-01: Anonymous `/login` no longer fires admin-only 401s.**
+  `useAIAvailability` tightened to `enabled: !!token && isAdmin`
+  (mirrors v1010.2 SF-06 pattern). Closes 3 of the 12 errors the audit
+  recorded; remaining auth-store rehydration probes are by-design per
+  the audit's own recommendation. Commit `0b0c3564`.
+- **ROUTE-02: 404 page now sets a proper `<title>`.** `NotFoundPage`
+  wires `useDocumentTitle`; tab now reads "Page not found - GeoLens".
+  Commit `322dd181`.
+- **ROUTE-04: `/m/{invalid-share-token}` no longer throws a JS-layer
+  error.** New `expected404?: boolean` option on `apiFetch` returns
+  null on 404 instead of throwing. "Map not found" UI renders cleanly.
+  (Browser-built-in network-tab "Failed to load resource: 404" log
+  remains — browser behavior, audit-acceptable for Low severity.)
+  Commit `ce7f5742`.
+- **IMPORT-02: Choose File button no longer intercepted by decorative
+  dashed-ring span.** Added `pointer-events-none` + `aria-hidden` to
+  the absolute-positioned border ornament on `FileDropzone.tsx`.
+  Commit `20b65164`.
+- **IMPORT-03: Upload File commit no longer triggers React 19
+  `setState during render` warning.** Three `setPhase()` calls hoisted
+  out of `setEntries()` updaters into a single `useEffect`. Commit
+  `ad6b94ec`.
+- **IMPORT-04 / Plan 1055-01: Reupload rejects cross-record-type
+  swaps.** Backend `_assert_compatible_record_type` guard at both
+  `reupload_dataset` and `request_presigned_reupload` returns HTTP 400
+  when uploading `.tif` against a vector dataset. Prevents downstream
+  invariant breaks. 3 new pinned pytest cases. Commit `aa852239`.
+- **SEED-02: `seed-ago-data.py` survives ogr2ogr timeouts.** New
+  `OGR2OGR_TIMEOUT_SECONDS` env var (default 300) + `--timeout` flag +
+  retry-with-doubled-timeout on first failure. Commits `14b45d16` +
+  `8ce7ed76`.
+- **SEED-03: Upstream AGO data-quality noise summarized.** Skip-counter
+  aggregated into run summary instead of verbatim line-by-line dump.
+- **SEED-04: `ogr2ogr` failure output strips the driver list.**
+  `_strip_ogr_driver_list()` helper drops the "supported drivers" block
+  from error output; users see only actionable errors. Commit
+  `14b45d16`.
+
+#### Docs (cross-repo `~/Code/getgeolens.com`)
+
+- **DOC-01 + EW-01: Quickstart documents the API-seeder path.** New
+  "## 4. Seed sample data" section with both seeder invocations. Demo
+  overlay demoted to "Alternative: bundled bake-time demo". Commit
+  `d50b9ec`.
+- **DOC-02 + DOC-03 + DOC-05: API-key creation + Python/httpx prereqs
+  + interactive credential prompt.** New "Create your first API key"
+  subsection (5-step recipe). Python 3.10+ + httpx added to prereqs.
+  `install.sh` prompt + `GEOLENS_ADMIN_*` env-var alternatives
+  documented. Commit `30e9361`.
+- **DOC-04 + BU-03: "1-2 minutes" qualified + Apple Silicon platform
+  warning documented.** Replaced with "1-2 min cached / 3-4 min cold
+  build" anchored to install.sh "GeoLens is ready." output. Aside
+  after `docker compose ps` declares Apple Silicon `linux/amd64`
+  warning expected/harmless. Commit `d467a74`.
+
+#### Internal
+
+- **EW-04: `.env.example` expanded `DATABASE_SSL_MODE` block** from 3
+  → 11 lines with per-deployment-target table (`prefer` for local
+  docker-compose, `disable` for local system postgres, `require` /
+  `verify-full` for managed Postgres) + inline BU-01 root-cause
+  callout. Defense-in-depth against BU-01 regression. Commit
+  `14e0b8c5`.
+- **UX-01: API Keys discoverability closed as zero-code.** Cross-repo
+  quickstart commit `30e9361` (DOC-02) signposts the 5-step recipe
+  adjacent to `seed-ago-data.py` usage. Commit `9b1b386b`.
+
 ## [1.2.0] - 2026-05-19
 
 ### New-user install — three Critical reliability fixes (M001-7n8vpc dry-run audit)
