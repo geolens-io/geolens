@@ -105,20 +105,27 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     mapId = mapData.id;
     expect(mapId).toBeTruthy();
 
-    // -- 2. Find a vector dataset and add it to the primary map --
+    // -- 2. Find vector datasets and add up to two to the primary map --
+    // Test 1 (drag-reorder) requires ≥2 data rows above basemap-group so the
+    // v1011 `disabled.droppable` per-drag-source contract for basemap-group
+    // does not block ArrowUp/ArrowDown swaps between data layers.
     const dsRes = await fetch(`${BASE_URL}/api/datasets/?limit=20`, { headers });
     expect(dsRes.ok).toBe(true);
     const dsPayload = await dsRes.json() as { datasets?: Array<{ id: string; record_type?: string; is_dem?: boolean }>; items?: Array<{ id: string; record_type?: string; is_dem?: boolean }> };
     const allDatasets = dsPayload.datasets ?? dsPayload.items ?? [];
-    const vectorDataset = allDatasets.find((ds) => ds.record_type === 'vector_dataset') ?? allDatasets[0];
+    const vectorDatasets = allDatasets.filter((ds) => ds.record_type === 'vector_dataset');
+    const layersToAdd = vectorDatasets.length >= 2
+      ? vectorDatasets.slice(0, 2)
+      : (vectorDatasets[0] ? [vectorDatasets[0]] : allDatasets.slice(0, 1));
 
-    if (vectorDataset?.id) {
+    for (const ds of layersToAdd) {
+      if (!ds?.id) continue;
       const layerRes = await fetch(`${BASE_URL}/api/maps/${mapId}/layers/`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ dataset_id: vectorDataset.id }),
+        body: JSON.stringify({ dataset_id: ds.id }),
       });
-      expect(layerRes.ok, `Add vector layer: ${layerRes.status}`).toBe(true);
+      expect(layerRes.ok, `Add data layer: ${layerRes.status}`).toBe(true);
     }
 
     // -- 3. Check for a DEM dataset (test 3 will skip gracefully if absent) --
@@ -198,21 +205,29 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
 
     // Collect the initial row order
     const rows = page.locator('[id^="stack-row-"]');
-    const initialCount = await rows.count();
+    const initialIds = await rows.evaluateAll((els: Element[]) => els.map((e) => e.id));
 
-    if (initialCount < 2) {
-      // Only one layer — cannot test reorder, but still assert no console issues
+    // v1011 disabled.droppable per-drag-source contract: while a data layer is
+    // being dragged, the basemap-group sortable is droppable-disabled so
+    // dnd-kit's closestCenter fallback can't resolve to it. Drag-reorder must
+    // therefore be exercised between two non-basemap rows, not against the
+    // basemap-group row.
+    const dataRowIds = initialIds.filter((id) => id !== 'stack-row-basemap-group');
+
+    if (dataRowIds.length < 2) {
+      // Test env has <2 data layers — cannot exercise data-row drag-reorder.
+      // Assert at least the listbox rendered cleanly and bail out.
+      await expect(rows.first()).toBeVisible();
       assertConsoleClean(gate);
       return;
     }
 
-    const initialIds = await rows.evaluateAll((els: Element[]) => els.map((e) => e.id));
-
     // Use keyboard drag via dnd-kit keyboard sensor:
-    // Focus the drag handle of the second row, press Space, ArrowUp, Space to reorder
-    const secondRowId = initialIds[1].replace('stack-row-', '');
+    // Focus the drag handle of the second data row, press Space, ArrowUp, Space
+    // to swap it with the data row above it.
+    const secondDataRowId = dataRowIds[1].replace('stack-row-', '');
     const dragHandleLocator = page
-      .locator(`#stack-row-${secondRowId}`)
+      .locator(`#stack-row-${secondDataRowId}`)
       .getByRole('button', { name: new RegExp('Drag to reorder', 'i') });
 
     if (await dragHandleLocator.count() === 0) {
@@ -231,8 +246,8 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     await page.waitForTimeout(300);
 
     const reorderedIds = await rows.evaluateAll((els: Element[]) => els.map((e) => e.id));
-    // The second item should now be first (or at minimum the order changed)
-    // Some dnd-kit keyboard implementations move by one step per keypress
+    // The second data row should have swapped with the row above it.
+    // Some dnd-kit keyboard implementations move by one step per keypress.
     expect(reorderedIds).not.toEqual(initialIds);
 
     assertConsoleClean(gate);
@@ -420,13 +435,13 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     const editor = page.getByTestId('builder-layer-editor');
     await expect(editor).toBeVisible({ timeout: 10_000 });
 
-    // Settings panel typically contains Terrain or Widgets or Projection
-    const hasSettingsContent = await editor
-      .getByText(/terrain|widgets|projection/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
-    expect(hasSettingsContent, 'Settings panel should show Terrain/Widgets/Projection content').toBe(true);
+    // Settings panel typically contains Terrain or Widgets or Projection.
+    // The panel is lazy-loaded (v1010 chunking), so explicitly wait for the
+    // content to appear instead of asserting on a pre-resolved isVisible flag.
+    await expect(
+      editor.getByText(/terrain|widgets|projection/i).first(),
+      'Settings panel should show Terrain/Widgets/Projection content',
+    ).toBeVisible({ timeout: 10_000 });
 
     // aria-pressed should now be 'true'
     await expect(cogBtn).toHaveAttribute('aria-pressed', 'true');
@@ -457,11 +472,18 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     const searchInput = emptyRegion.getByRole('searchbox');
     await expect(searchInput, 'Inline search input should be present in empty state').toBeVisible();
 
-    // Suggested datasets list element should exist in the DOM. The list ships
-    // empty by default (operator-curated per deployment) so visibility is not
-    // asserted — only that the empty-state region renders the list scaffold.
+    // EmptyStackState branches: when SUGGESTED_DATASETS is populated it renders
+    // a <ul aria-label="Suggested datasets"> scaffold; when empty (the default
+    // for operator-curated deployments), it renders an empty-help fallback
+    // with a "Browse catalog" CTA. Either branch is valid empty-state UX.
     const suggestedList = emptyRegion.getByRole('list', { name: /suggested datasets/i });
-    await expect(suggestedList).toHaveCount(1);
+    const browseFallback = emptyRegion.getByRole('button', { name: /^browse catalog$/i });
+    const listCount = await suggestedList.count();
+    const fallbackCount = await browseFallback.count();
+    expect(
+      listCount + fallbackCount,
+      'Empty state must render either the suggested-datasets list or the browse-catalog fallback',
+    ).toBeGreaterThanOrEqual(1);
 
     assertConsoleClean(gate);
   });
