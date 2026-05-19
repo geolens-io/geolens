@@ -24,6 +24,17 @@ function makeWrapper(client: QueryClient) {
   };
 }
 
+const adminUser = {
+  id: 'u1',
+  username: 'admin',
+  email: 'admin@x',
+  roles: ['admin'],
+  is_active: true,
+  status: 'active',
+  last_login_at: null,
+  created_at: '',
+};
+
 describe('useAIStatus / useAIAvailability — caching (SP-08)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -31,7 +42,7 @@ describe('useAIStatus / useAIAvailability — caching (SP-08)', () => {
       token: 'test-token',
       refreshToken: null,
       expiresAt: null,
-      user: null,
+      user: adminUser,
     });
     mockGetAIStatus.mockResolvedValue({
       enabled: true,
@@ -98,5 +109,93 @@ describe('useAIStatus / useAIAvailability — caching (SP-08)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('useAIAvailability — CONSOLE-01 gating', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAIStatus.mockResolvedValue({
+      enabled: true,
+      configured: true,
+      provider: 'openai',
+      model: 'gpt-4',
+    } as never);
+  });
+
+  it('anonymous user (no token): does NOT fire getAIStatus — query stays idle', async () => {
+    useAuthStore.setState({
+      token: null,
+      refreshToken: null,
+      expiresAt: null,
+      user: null,
+    });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = makeWrapper(qc);
+
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    // fetchStatus 'idle' means the query is disabled (never fetched)
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+  });
+
+  it('authed non-admin (viewer token, no admin role): does NOT fire getAIStatus — query stays idle', async () => {
+    useAuthStore.setState({
+      token: 'viewer-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'u2',
+        username: 'viewer',
+        email: 'viewer@x',
+        roles: ['viewer'],
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '',
+      },
+    });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = makeWrapper(qc);
+
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockGetAIStatus).not.toHaveBeenCalled();
+  });
+
+  it('authed admin: DOES fire getAIStatus — query is enabled', async () => {
+    useAuthStore.setState({
+      token: 'admin-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: {
+        id: 'u3',
+        username: 'admin',
+        email: 'admin@x',
+        roles: ['admin'],
+        is_active: true,
+        status: 'active',
+        last_login_at: null,
+        created_at: '',
+      },
+    });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = makeWrapper(qc);
+
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.data).toBeDefined();
+    });
+
+    expect(mockGetAIStatus).toHaveBeenCalledTimes(1);
   });
 });
