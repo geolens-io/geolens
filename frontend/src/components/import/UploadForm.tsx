@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/ingest';
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
@@ -70,6 +70,30 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     setEntries([]);
     setAutoOpenVrt(false);
   }, [setPhase]);
+
+  // IMPORT-03 (Phase 1054): phase transitions were inlined inside setEntries
+  // updaters, which violates React 19's "no setState during another
+  // component's render" rule and fires the verbatim warning the audit
+  // captured. Moving them into a single effect dep'd on `entries` runs the
+  // transition AFTER React commits the entries change.
+  useEffect(() => {
+    if (phase === 'reviewing' && entries.length === 0) {
+      setPhase('idle');
+      return;
+    }
+    if (phase === 'reviewing' && entries.length > 0) {
+      const allTerminal = entries.every(
+        (e) =>
+          e.status === 'tracking' ||
+          e.status === 'upload-failed' ||
+          e.status === 'commit-failed',
+      );
+      const hasTracking = entries.some((e) => e.status === 'tracking');
+      if (allTerminal && hasTracking) {
+        setPhase('tracking');
+      }
+    }
+  }, [entries, phase, setPhase]);
 
   const handleFilesAccepted = async (files: File[]) => {
     if (phase !== 'idle') return;
@@ -144,8 +168,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
 
     try {
       await commitImport(entry.jobId, request);
-      setEntries((prev) => {
-        const updated = prev.map((e) =>
+      setEntries((prev) =>
+        prev.map((e) =>
           e.id === entryId ? {
             ...e,
             status: 'tracking' as const,
@@ -153,16 +177,10 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
             submittedVisibility: request.visibility ?? 'private',
             submittedKind: inferImportedKind(e, request),
           } : e,
-        );
-        const allDone = updated.every(
-          (e) =>
-            e.status === 'tracking' ||
-            e.status === 'upload-failed' ||
-            e.status === 'commit-failed',
-        );
-        if (allDone) setPhase('tracking');
-        return updated;
-      });
+        ),
+      );
+      // Phase transition (reviewing → tracking) is handled by the useEffect
+      // dep'd on `entries`; no inline setPhase call here (IMPORT-03).
       toast.success(t('upload.importStarted'));
     } catch (err) {
       updateEntry(entryId, { status: 'commit-failed', error: buildErrorDisplay(err, 'upload.commitFailed', t) });
@@ -204,12 +222,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
       }),
     );
 
-    // Only advance to tracking if at least one entry was committed
-    setEntries((prev) => {
-      const hasTracking = prev.some((e) => e.status === 'tracking');
-      if (hasTracking) setPhase('tracking');
-      return prev;
-    });
+    // Phase transition (reviewing → tracking) is handled by the useEffect
+    // dep'd on `entries` after updateEntry calls settle (IMPORT-03).
   };
 
   const handleCommitAllAsVrt = async () => {
@@ -233,11 +247,9 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   };
 
   const removeEntry = (entryId: string) => {
-    setEntries((prev) => {
-      const updated = prev.filter((e) => e.id !== entryId);
-      if (updated.length === 0) setPhase('idle');
-      return updated;
-    });
+    setEntries((prev) => prev.filter((e) => e.id !== entryId));
+    // Phase transition (reviewing → idle when empty) is handled by the
+    // useEffect dep'd on `entries` (IMPORT-03).
   };
 
   if (phase === 'uploading') {
