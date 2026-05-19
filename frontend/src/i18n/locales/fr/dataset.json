@@ -83,9 +83,13 @@
     "draw": "Dessiner",
     "stopDrawing": "Arrêter le dessin",
     "reupload": "Recharger",
-    "delete": "Supprimer"
+    "reuploadTooltip": "Remplacer le fichier source de ce jeu de données",
+    "createVrtTooltip": "Créer une mosaïque VRT à partir de ce raster",
+    "delete": "Supprimer",
+    "deleteTooltip": "Supprimer ce jeu de données"
   },
   "header": {
+    "more": "Plus",
     "moreActions": "Plus d'actions",
     "subtitle": {
       "owner": "Propriétaire : {{owner}}",

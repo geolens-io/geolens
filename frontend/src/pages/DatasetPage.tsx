@@ -390,6 +390,7 @@ export function DatasetPage() {
     {
       id: 'reupload',
       label: t('actions.reupload'),
+      tooltip: t('actions.reuploadTooltip', { defaultValue: "Replace this dataset's source file" }),
       icon: Upload,
       onSelect: () => setActiveDialog('reupload'),
       priority: 10,
@@ -399,6 +400,7 @@ export function DatasetPage() {
     {
       id: 'create-vrt',
       label: t('actions.createVrt', { defaultValue: 'Create VRT' }),
+      tooltip: t('actions.createVrtTooltip', { defaultValue: 'Create a VRT mosaic from this raster' }),
       icon: Layers,
       onSelect: () => setActiveDialog('vrt'),
       priority: 11,
@@ -407,6 +409,7 @@ export function DatasetPage() {
     {
       id: 'delete',
       label: t('actions.delete'),
+      tooltip: t('actions.deleteTooltip', { defaultValue: 'Delete this dataset' }),
       icon: Trash2,
       onSelect: () => setActiveDialog('delete'),
       priority: 20,

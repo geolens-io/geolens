@@ -83,9 +83,13 @@
     "draw": "Dibujar",
     "stopDrawing": "Dejar de dibujar",
     "reupload": "Volver a subir",
-    "delete": "Eliminar"
+    "reuploadTooltip": "Reemplazar el archivo fuente de este conjunto de datos",
+    "createVrtTooltip": "Crear un mosaico VRT a partir de este ráster",
+    "delete": "Eliminar",
+    "deleteTooltip": "Eliminar este conjunto de datos"
   },
   "header": {
+    "more": "Más",
     "moreActions": "Más acciones",
     "subtitle": {
       "owner": "Propietario: {{owner}}",

@@ -83,9 +83,13 @@
     "draw": "Zeichnen",
     "stopDrawing": "Zeichnen beenden",
     "reupload": "Erneut hochladen",
-    "delete": "Löschen"
+    "reuploadTooltip": "Quelldatei dieses Datensatzes ersetzen",
+    "createVrtTooltip": "VRT-Mosaik aus diesem Raster erstellen",
+    "delete": "Löschen",
+    "deleteTooltip": "Diesen Datensatz löschen"
   },
   "header": {
+    "more": "Mehr",
     "moreActions": "Weitere Aktionen",
     "subtitle": {
       "owner": "Eigentümer: {{owner}}",

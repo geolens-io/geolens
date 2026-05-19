@@ -33,6 +33,9 @@ export interface DatasetDetailHeaderAction {
   visible: boolean;
   disabled?: boolean;
   variant?: ActionVariant;
+  /** HTML tooltip string surfaced on the overflow DropdownMenuItem title attribute.
+   * Allows audit-style DOM snapshots to discover the action without expanding the menu. */
+  tooltip?: string;
 }
 
 export interface DatasetDetailHeaderBreadcrumb {
@@ -161,6 +164,9 @@ export function DatasetDetailHeader({
                     data-testid="dataset-header-overflow-trigger"
                   >
                     <MoreHorizontal className="h-4 w-4" />
+                    <span className="hidden sm:inline">
+                      {t('header.more', { defaultValue: 'More' })}
+                    </span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -170,6 +176,7 @@ export function DatasetDetailHeader({
                       disabled={action.disabled}
                       onSelect={action.onSelect}
                       data-testid={`dataset-header-overflow-${action.id}`}
+                      title={action.tooltip}
                     >
                       <action.icon className="h-4 w-4" />
                       {action.label}

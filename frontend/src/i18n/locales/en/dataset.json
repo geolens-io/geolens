@@ -83,9 +83,13 @@
     "draw": "Draw",
     "stopDrawing": "Stop Drawing",
     "reupload": "Re-Upload",
-    "delete": "Delete"
+    "reuploadTooltip": "Replace this dataset's source file",
+    "createVrtTooltip": "Create a VRT mosaic from this raster",
+    "delete": "Delete",
+    "deleteTooltip": "Delete this dataset"
   },
   "header": {
+    "more": "More",
     "moreActions": "More actions",
     "subtitle": {
       "owner": "Owner: {{owner}}",
