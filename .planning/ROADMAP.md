@@ -77,7 +77,7 @@
 
 ### v1012 New-User Hardening + Reupload (Active)
 
-- [ ] **Phase 1053: Quickstart Docs + Environment Hardening** — Fix new-user docs and environment configuration across the two repos (cross-repo: DOC work lands in `getgeolens.com`)
+- [x] **Phase 1053: Quickstart Docs + Environment Hardening** — Fix new-user docs and environment configuration across the two repos (cross-repo: DOC work lands in `getgeolens.com`) (completed 2026-05-19)
 - [ ] **Phase 1054: Seeder + Console + Route + Import Polish** — Harden seeders, eliminate anonymous-page 401 noise, fix route edge cases, and clean up upload UX
 - [ ] **Phase 1055: Reupload Feature** — Add the Reupload / Replace dataset affordance that drives the v1.3.0 minor bump
 - [ ] **Phase 1056: Close Gate** — Verify all 23 v1012 requirements, populate CHANGELOG, tag v1.3.0
@@ -96,12 +96,12 @@
   3. The quickstart prerequisites list Python 3.10+ and `httpx` so users know what to install before running seeders.
   4. The quickstart does not claim a specific "1-2 minutes" startup time that lab variance makes false — either the claim is gone, or it describes the range output by `install.sh`.
   5. `.env.example` has a documented `DATABASE_SSL_MODE` line with inline comment explaining `prefer` / `disable` / `require` so future contributors understand the SSL stance.
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 - [x] 1053-01-PLAN.md — EW-04 .env.example SSL mode hint (this repo, in-place defense-in-depth against BU-01 regression)
 - [x] 1053-02-PLAN.md — DOC-01 + EW-01 add 'Seed sample data' section, demote demo overlay (sibling repo, getgeolens.com)
 - [x] 1053-03-PLAN.md — DOC-02 + DOC-03 + DOC-05 API-key recipe, Python/httpx prereqs, install.sh credential prompt (sibling repo)
-- [ ] 1053-04-PLAN.md — DOC-04 + BU-03 qualify '1-2 minutes' claim, Apple Silicon platform-mismatch note (sibling repo)
+- [x] 1053-04-PLAN.md — DOC-04 + BU-03 qualify '1-2 minutes' claim, Apple Silicon platform-mismatch note (sibling repo)
 
 ---
 
@@ -153,7 +153,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1053. Quickstart Docs + Environment Hardening | 3/4 | In Progress|  |
+| 1053. Quickstart Docs + Environment Hardening | 4/4 | Complete   | 2026-05-19 |
 | 1054. Seeder + Console + Route + Import Polish | 0/? | Not started | - |
 | 1055. Reupload Feature | 0/? | Not started | - |
 | 1056. Close Gate | 0/? | Not started | - |
