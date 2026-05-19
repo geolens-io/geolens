@@ -116,7 +116,7 @@ Plans:
   3. `/admin/saml` shows an "Enterprise Feature" placeholder instead of silently redirecting; the 404 page has a proper `<title>`; `/register` for an already-authenticated user shows a visible "Already signed in" banner instead of a silent redirect; `/m/{invalid-token}` renders a clean "Map not found" view.
   4. The "Choose File" button in the Upload File dropzone is fully clickable — no decorative span intercepts pointer events — and committing a file upload produces zero React `setState during render` warnings.
   5. The Register Table tab shows "All tables are registered" when no unregistered tables remain, rather than an absence-framed empty state; the STAC import wizard shows expected total bytes and item count before the user commits to a large fetch.
-**Plans:** 6/11 plans executed
+**Plans:** 7/11 plans executed
 **UI hint**: yes
 Plans:
 - [ ] 1054-01-PLAN.md — SEED-02/03/04 backend ogr2ogr timeout + driver-list strip + seeder retry/skip-counter
@@ -127,7 +127,7 @@ Plans:
 - [x] 1054-06-PLAN.md — ROUTE-04 getSharedMap expected404 opt-in quiets share-token console noise
 - [x] 1054-07-PLAN.md — IMPORT-02 FileDropzone decorative span pointer-events-none + aria-hidden
 - [ ] 1054-08-PLAN.md — IMPORT-03 UploadForm setState-in-render removed from three callsites via useEffect
-- [ ] 1054-09-PLAN.md — IMPORT-05 Register Table empty state success vs absence framing
+- [x] 1054-09-PLAN.md — IMPORT-05 Register Table empty state success vs absence framing
 - [ ] 1054-10-PLAN.md — EW-05 STAC import size-estimate confirmation step (file:size aggregation)
 - [x] 1054-11-PLAN.md — UX-01 zero-work closure (cross-references Phase 1053 DOC-02 commit 30e9361)
 
@@ -166,7 +166,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1053. Quickstart Docs + Environment Hardening | 4/4 | Complete   | 2026-05-19 |
-| 1054. Seeder + Console + Route + Import Polish | 6/11 | In Progress|  |
+| 1054. Seeder + Console + Route + Import Polish | 7/11 | In Progress|  |
 | 1055. Reupload Feature | 0/? | Not started | - |
 | 1056. Close Gate | 0/? | Not started | - |
 

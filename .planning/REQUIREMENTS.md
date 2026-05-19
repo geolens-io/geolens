@@ -51,7 +51,7 @@
 - [x] **IMPORT-02**: Choose File button in the Upload File tab dropzone is fully clickable — the decorative `<span class="absolute -inset-1.5 rounded-[20px] border border-dashed border-primary/40">` no longer intercepts pointer events. (Likely `pointer-events: none` on the decorative span.)
 - [ ] **IMPORT-03**: Upload File commit produces zero React `setState during render` warnings — root-cause the offending `setState` call and route it through `useEffect` or `queueMicrotask` per React 19 rules.
 - [ ] **IMPORT-04**: User can re-upload / replace a dataset's source file from the dataset detail page — new UI affordance (button on dataset detail page) + backend re-import flow that preserves dataset ID/slug, regenerates derivatives (tiles, thumbnail, embeddings if applicable), and writes an audit-log entry. *(NEW FEATURE — drives the v1.3.0 minor bump.)*
-- [ ] **IMPORT-05**: Register Table empty state reframes the "no tables found" message — when all PostGIS tables are already registered as datasets, the empty state shows "All tables are registered" (success framing) rather than absence framing. (Merges audit IMPORT-05 + EW-06 — same fix.)
+- [x] **IMPORT-05**: Register Table empty state reframes the "no tables found" message — when all PostGIS tables are already registered as datasets, the empty state shows "All tables are registered" (success framing) rather than absence framing. (Merges audit IMPORT-05 + EW-06 — same fix.)
 
 ### Easy Wins
 
@@ -128,7 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ROUTE-04 | Phase 1054 | Complete |
 | IMPORT-02 | Phase 1054 | Complete |
 | IMPORT-03 | Phase 1054 | Pending |
-| IMPORT-05 | Phase 1054 | Pending |
+| IMPORT-05 | Phase 1054 | Complete |
 | EW-05 | Phase 1054 | Pending |
 | IMPORT-04 | Phase 1055 | Pending |
 | CTRL-01 | Phase 1056 | Pending |
