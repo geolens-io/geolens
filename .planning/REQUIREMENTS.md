@@ -56,7 +56,7 @@
 ### Easy Wins
 
 - [ ] **EW-01**: Documented bring-up uses a single `docker-compose.yml` path — `docker-compose.demo.yml` is consolidated into the main compose (with profile-gated demo seeders) OR clearly labeled in docs as an optional convenience that the quickstart no longer steers users toward. The new-user quickstart path is single-file.
-- [ ] **EW-04**: `.env.example` includes a documented `DATABASE_SSL_MODE` line with a comment explaining `prefer` vs `disable` vs `require` for local-dev vs containerized PG vs managed PG. (Defense-in-depth against BU-01 regression.)
+- [x] **EW-04**: `.env.example` includes a documented `DATABASE_SSL_MODE` line with a comment explaining `prefer` vs `disable` vs `require` for local-dev vs containerized PG vs managed PG. (Defense-in-depth against BU-01 regression.)
 - [ ] **EW-05**: STAC import wizard stages selection and confirms total download size before committing to GB-scale fetches — user sees expected total bytes + per-item count before clicking "Import N items".
 
 ### Close Gate
@@ -116,7 +116,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOC-05 | Phase 1053 | Pending |
 | BU-03 | Phase 1053 | Pending |
 | EW-01 | Phase 1053 | Pending |
-| EW-04 | Phase 1053 | Pending |
+| EW-04 | Phase 1053 | Complete |
 | SEED-02 | Phase 1054 | Pending |
 | SEED-03 | Phase 1054 | Pending |
 | SEED-04 | Phase 1054 | Pending |

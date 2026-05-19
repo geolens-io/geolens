@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1012
 milestone_name: New-User Hardening + Reupload
-status: planning
-last_updated: "2026-05-19T20:37:37.509Z"
-last_activity: 2026-05-19
+status: "Roadmap defined — ready for `/gsd:plan-phase 1053`"
+last_updated: "2026-05-19T21:09:39.792Z"
+last_activity: 2026-05-19 — v1012 roadmap created (4 phases, 23 requirements)
 progress:
-  total_phases: 4
+  total_phases: 9
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,7 +23,7 @@ Status: Roadmap defined — ready for `/gsd:plan-phase 1053`
 Last activity: 2026-05-19 — v1012 roadmap created (4 phases, 23 requirements)
 
 ```
-Progress: [                    ] 0%   0/4 phases
+Progress: [███░░░░░░░] 25%
 ```
 
 ## Project Reference
