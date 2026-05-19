@@ -74,3 +74,18 @@ docs/
 *.png
 !.github/assets/*.png
 !frontend/public/*.png
+
+# ── GSD baseline (auto-generated) ──
+.gsd
+*~
+*.code-workspace
+.next/
+dist/
+build/
+venv/
+target/
+vendor/
+*.log
+coverage/
+.cache/
+tmp/
