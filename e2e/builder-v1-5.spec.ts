@@ -241,7 +241,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
       const handleBox = await handle.boundingBox();
       expect(handleBox, 'Could not get drag handle bounding box').toBeTruthy();
 
-      const stackListbox = page.locator('[role="listbox"][aria-multiselectable="true"]');
+      const stackListbox = page.locator('[aria-label="Map layers"]');
       const stackBox = await stackListbox.boundingBox();
       expect(stackBox, 'Could not get stack listbox bounding box').toBeTruthy();
 
@@ -378,7 +378,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     // of the listbox with id="stack-row-basemap-group" — clicking it would open
     // the basemap editor rather than triggering cmd-click multi-select)
     const overlayRows = page.locator(
-      '[role="listbox"][aria-multiselectable="true"] [id^="stack-row-"]:not(#stack-row-basemap-group)',
+      '[aria-label="Map layers"] [id^="stack-row-"]:not(#stack-row-basemap-group)',
     );
     const overlayCount = await overlayRows.count();
     expect(overlayCount, 'Need at least 2 overlay rows for multi-select test').toBeGreaterThanOrEqual(2);
@@ -457,7 +457,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     // the top of the multi-selectable listbox; clicking it opens the basemap editor
     // rather than toggling cmd-click multi-select.
     const rows = page.locator(
-      '[role="listbox"][aria-multiselectable="true"] [id^="stack-row-"]:not(#stack-row-basemap-group)',
+      '[aria-label="Map layers"] [id^="stack-row-"]:not(#stack-row-basemap-group)',
     );
     const initialCount = await rows.count();
     expect(

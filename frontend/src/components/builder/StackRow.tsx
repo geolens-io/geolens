@@ -185,8 +185,8 @@ export const StackRow = memo(function StackRow({
     {/* Phase 1041: visuallySelected is true for single-select focus OR multi-select membership */}
     <div
       id={`stack-row-${layer.id}`}
-      role="option"
-      aria-selected={selected || isMultiSelected}
+      data-selected={selected || isMultiSelected ? 'true' : undefined}
+      aria-current={selected || isMultiSelected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
         // SP-14: explicit cursor-pointer + hover:bg-[var(--surface-2)] on the row body

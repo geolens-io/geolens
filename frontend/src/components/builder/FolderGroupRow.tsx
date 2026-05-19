@@ -138,8 +138,8 @@ export const FolderGroupRow = memo(function FolderGroupRow({
   return (
     <div
       id={`stack-row-${groupId}`}
-      role="option"
-      aria-selected={selected || isMultiSelected}
+      data-selected={selected || isMultiSelected ? 'true' : undefined}
+      aria-current={selected || isMultiSelected ? 'true' : undefined}
       tabIndex={0}
       className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       onClick={handleRowClick}

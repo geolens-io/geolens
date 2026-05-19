@@ -104,7 +104,9 @@ describe('StackRow', () => {
     const props = defaultProps();
     render(<StackRow {...props} />);
 
-    const row = screen.getByRole('option');
+    // Phase 1052: dropped role="option" from row; locate by id instead.
+    const row = document.getElementById(`stack-row-${props.layer.id}`);
+    expect(row).not.toBeNull();
 
     // Caret should be hidden
     const caret = row.querySelector('[aria-hidden="true"][style*="visibility"]');
@@ -127,14 +129,18 @@ describe('StackRow', () => {
     expect(kebab).toBeInTheDocument();
   });
 
-  it('has aria-selected true when selected, false otherwise', () => {
+  it('reflects selection via aria-current + data-selected (Phase 1052: dropped role=option)', () => {
     const layer = makeLayer({ id: 'test-layer' });
     const { rerender } = render(<StackRow {...defaultProps({ layer, selected: false })} />);
-    const row = screen.getByRole('option');
-    expect(row).toHaveAttribute('aria-selected', 'false');
+    const row = document.getElementById(`stack-row-${layer.id}`);
+    expect(row).not.toBeNull();
+    expect(row).not.toHaveAttribute('aria-current');
+    expect(row).not.toHaveAttribute('data-selected');
 
     rerender(<StackRow {...defaultProps({ layer, selected: true })} />);
-    expect(screen.getByRole('option')).toHaveAttribute('aria-selected', 'true');
+    const selectedRow = document.getElementById(`stack-row-${layer.id}`);
+    expect(selectedRow).toHaveAttribute('aria-current', 'true');
+    expect(selectedRow).toHaveAttribute('data-selected', 'true');
   });
 
   it('clicking the row container calls onSelectLayer(layer.id) once', () => {

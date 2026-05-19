@@ -74,8 +74,6 @@ vi.mock('../BasemapGroupRow', () => ({
       data-testid={`basemap-group-row-${groupId}`}
       data-expanded={isExpanded ? 'true' : 'false'}
       data-multi-selection-active={isMultiSelectionActive ? 'true' : 'false'}
-      role="option"
-      aria-selected="false"
       id={`stack-row-${groupId}`}
       className={isMultiSelectionActive ? 'cursor-not-allowed' : ''}
     >
@@ -120,8 +118,8 @@ vi.mock('../FolderGroupRow', () => ({
       data-testid={`folder-group-row-${groupId}`}
       data-expanded={isExpanded ? 'true' : 'false'}
       data-multi-selected={isMultiSelected ? 'true' : 'false'}
-      role="option"
-      aria-selected={isMultiSelected ? 'true' : 'false'}
+      data-selected={isMultiSelected ? 'true' : undefined}
+      aria-current={isMultiSelected ? 'true' : undefined}
       id={`stack-row-${groupId}`}
       data-row-id={groupId}
     >
@@ -365,7 +363,11 @@ describe('Phase 1041 — visual state (POL-07)', () => {
     expect(checkboxes).toHaveLength(0);
   });
 
-  it('Test 7: aria-selected on row reflects isMultiSelected=true even when selected=false', () => {
+  it('Test 7: aria-current on row reflects isMultiSelected=true even when selected=false', () => {
+    // Phase 1052: replaced aria-selected with aria-current after dropping
+    // role="option" from rows (axe nested-interactive). The mock used in
+    // this test mirrors the production wiring: aria-current="true" when
+    // isMultiSelected, undefined otherwise.
     render(
       <UnifiedStackPanel
         {...defaultProps({
@@ -377,14 +379,17 @@ describe('Phase 1041 — visual state (POL-07)', () => {
     );
 
     const rowA = document.getElementById('stack-row-a');
-    expect(rowA).toHaveAttribute('aria-selected', 'true');
+    expect(rowA).toHaveAttribute('aria-current', 'true');
+    expect(rowA).toHaveAttribute('data-selected', 'true');
   });
 
-  it('Test 8: The listbox element has aria-multiselectable="true"', () => {
+  it('Test 8: The stack panel exposes aria-label="Map layers" (Phase 1052: no role=listbox)', () => {
     render(<UnifiedStackPanel {...defaultProps()} />);
 
-    const listbox = screen.getByRole('listbox', { name: /Map layers/i });
-    expect(listbox).toHaveAttribute('aria-multiselectable', 'true');
+    const panel = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
+    expect(panel).toBeInTheDocument();
+    expect(panel).not.toHaveAttribute('role');
+    expect(panel).not.toHaveAttribute('aria-multiselectable');
   });
 });
 
@@ -405,7 +410,7 @@ describe('Phase 1041 — clearing rules (POL-10)', () => {
     );
 
     // Phase 1042 carry-over: keydown listener is scoped to stackPanelRef (listbox), not document.
-    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'Escape' });
     expect(onClearSelection).toHaveBeenCalledOnce();
   });
@@ -443,7 +448,7 @@ describe('Phase 1041 — clearing rules (POL-10)', () => {
       />
     );
 
-    const listbox = screen.getByRole('listbox', { name: /Map layers/i });
+    const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.mouseDown(listbox);
 
     // Allow microtask flush
@@ -541,7 +546,7 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     act(() => { rowA.focus(); });
 
     // Phase 1042 carry-over: keydown listener is scoped to listbox (stackPanelRef), not document.
-    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: true });
 
     await waitFor(() => {
@@ -568,7 +573,7 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     act(() => { rowA.focus(); });
 
     // Phase 1042 carry-over: keydown listener is scoped to listbox (stackPanelRef).
-    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'ArrowUp', shiftKey: true });
 
     // Wait a tick for any async effects
@@ -594,7 +599,7 @@ describe('Phase 1041 — Shift+Arrow keyboard extension (POL-06)', () => {
     act(() => { rowA.focus(); });
 
     // Plain arrow — no Shift. Phase 1042 carry-over: scoped to listbox.
-    const listbox = document.querySelector('[role="listbox"]') as HTMLElement;
+    const listbox = document.querySelector('[aria-label="Map layers"]') as HTMLElement;
     fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: false });
 
     await act(async () => {});

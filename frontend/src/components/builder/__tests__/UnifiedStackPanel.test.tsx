@@ -59,8 +59,6 @@ vi.mock('../BasemapGroupRow', () => ({
     <div
       data-testid={`basemap-group-row-${groupId}`}
       data-expanded={isExpanded ? 'true' : 'false'}
-      role="option"
-      aria-selected="false"
       aria-expanded={isExpanded}
       id={`stack-row-${groupId}`}
     >
@@ -92,8 +90,6 @@ vi.mock('../FolderGroupRow', () => ({
     <div
       data-testid={`folder-group-row-${groupId}`}
       data-expanded={isExpanded ? 'true' : 'false'}
-      role="option"
-      aria-selected="false"
       id={`stack-row-${groupId}`}
     >
       <span>{groupName}</span>
@@ -236,8 +232,8 @@ describe('UnifiedStackPanel', () => {
     ];
     render(<UnifiedStackPanel {...defaultProps({ layers })} />);
 
-    const rows = screen.getAllByRole('option');
-    // 3 loose layers — each renders as role=option from StackRow
+    // Phase 1052: rows no longer have role="option"; query by id pattern.
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('[id^="stack-row-"]'));
     expect(rows.length).toBeGreaterThanOrEqual(3);
     const ids = rows.map((r) => r.getAttribute('id'));
     expect(ids).toContain('stack-row-layer-a');
@@ -260,8 +256,9 @@ describe('UnifiedStackPanel', () => {
     const layers = [makeLayer({ id: 'l1' }), makeLayer({ id: 'l2' })];
     render(<UnifiedStackPanel {...defaultProps({ layers, onSelectLayer })} />);
 
-    // Verify component renders DndContext children (rows)
-    expect(screen.getAllByRole('option')).toHaveLength(2);
+    // Verify component renders DndContext children (rows). Phase 1052: rows
+    // no longer have role="option"; query by id pattern.
+    expect(document.querySelectorAll('[id^="stack-row-"]')).toHaveLength(2);
 
     // onSelectLayer(null) is called on drag-start; we verify the handler is wired
     // by checking it was NOT called on initial render

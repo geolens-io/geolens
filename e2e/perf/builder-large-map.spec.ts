@@ -151,10 +151,10 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 8_000 });
 
     // Wait for the layer stack to populate
-    await page.waitForSelector('[role="listbox"]', { timeout: 10_000 });
+    await page.waitForSelector('[aria-label="Map layers"]', { timeout: 10_000 });
 
     // Collect hover durations over 10 iterations
-    const stackRows = page.locator('[role="option"]');
+    const stackRows = page.locator('[aria-label="Map layers"] [id^="stack-row-"]');
     const rowCount = await stackRows.count();
     if (rowCount === 0) {
       // Stack not rendered (e.g., different selector) — skip with a console note
@@ -214,7 +214,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
     try {
       await page.goto(`/maps/${testMapId}`);
       await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 8_000 });
-      await page.waitForSelector('[role="listbox"]', { timeout: 10_000 });
+      await page.waitForSelector('[aria-label="Map layers"]', { timeout: 10_000 });
 
       // Track network requests to bulk-delete endpoint
       let bulkDeleteCallCount = 0;
@@ -224,7 +224,7 @@ test.describe('Builder large-map perf — PERF-01..04', () => {
       });
 
       // Select all visible rows via shift-click on first and last
-      const stackRows = page.locator('[role="option"]');
+      const stackRows = page.locator('[aria-label="Map layers"] [id^="stack-row-"]');
       const rowCount = await stackRows.count();
       if (rowCount < 2) {
         console.warn('PERF-03: Fewer than 2 stack rows; skipping');

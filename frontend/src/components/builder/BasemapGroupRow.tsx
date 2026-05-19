@@ -76,8 +76,8 @@ export const BasemapGroupRow = memo(function BasemapGroupRow({
   return (
     <div
       id={`stack-row-${groupId}`}
-      role="option"
-      aria-selected={selected}
+      data-selected={selected ? 'true' : undefined}
+      aria-current={selected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
         'group/row grid grid-cols-[16px_14px_22px_22px_1fr_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',

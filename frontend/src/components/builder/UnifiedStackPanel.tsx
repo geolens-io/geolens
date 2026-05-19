@@ -474,8 +474,8 @@ const SublayerRow = memo(function SublayerRow({
     <div
       ref={setNodeRef}
       id={`stack-row-${sublayer.id}`}
-      role="option"
-      aria-selected={selected}
+      data-selected={selected ? 'true' : undefined}
+      aria-current={selected ? 'true' : undefined}
       tabIndex={0}
       className={cn(
         'group/row grid grid-cols-[16px_14px_22px_22px_1fr_76px_22px] gap-2 items-center py-2 px-2 cursor-pointer select-none',
@@ -694,8 +694,9 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   // Both coexist safely; @dnd-kit supports multiple consumers of the same context.
   const { active } = useDndContext();
 
-  // Phase 1041: ref for the scrollable listbox element — used for outside-click guard
-  // and Shift+Arrow focus management.
+  // Phase 1041: ref for the scrollable stack panel element — used for outside-click guard
+  // and Shift+Arrow focus management. (Phase 1052: was the listbox; now a labelled scroll
+  // region after listbox/option pattern was dropped per axe nested-interactive.)
   const stackPanelRef = useRef<HTMLDivElement>(null);
 
   // Phase 1041 POL-10: outside-click clears selection.
@@ -856,7 +857,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
             id={`basemap-group-children-${basemapGroup.id}`}
             data-testid={`basemap-group-children-${basemapGroup.id}`}
             style={{ marginLeft: '28px', paddingLeft: '12px', borderLeft: '1px dashed var(--border)' }}
-            role="listbox"
+            role="list"
             aria-label="Basemap sublayers"
           >
             {basemapGroup.sublayers.map((sub) => (
@@ -931,13 +932,16 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
       </div>
 
       {/* Scrollable layer list or empty state */}
-      {/* Phase 1041: aria-multiselectable="true" (POL-07); stackPanelRef for outside-click + Shift+Arrow */}
+      {/* Phase 1052: dropped role="listbox" + role="option" from rows — they don't
+          match the WAI-ARIA listbox/option contract because each row contains
+          focusable controls (drag handle, eye toggle, kebab menu). axe flags
+          this as nested-interactive + aria-required-children. Container is now
+          a labelled scroll region; rows are plain divs with tabIndex=0 for
+          keyboard nav + aria-current for selection state. */}
       <div
         ref={stackPanelRef}
         className="flex-1 overflow-y-auto"
-        role="listbox"
         aria-label={t('unifiedStack.listboxLabel', { defaultValue: 'Map layers' })}
-        aria-multiselectable="true"
       >
         {isEmpty ? (
           <>

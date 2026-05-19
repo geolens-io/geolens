@@ -59,8 +59,6 @@ vi.mock('../BasemapGroupRow', () => ({
   }) => (
     <div
       data-testid={`basemap-group-row-${groupId}`}
-      role="option"
-      aria-selected="false"
       id={`stack-row-${groupId}`}
     >
       <span>Basemap · {presetName}</span>
@@ -75,8 +73,6 @@ vi.mock('../FolderGroupRow', () => ({
   }) => (
     <div
       data-testid={`folder-group-row-${groupId}`}
-      role="option"
-      aria-selected="false"
       id={`stack-row-${groupId}`}
     >
       <span>{groupName}</span>

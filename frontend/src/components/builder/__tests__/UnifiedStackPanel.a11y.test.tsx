@@ -1,9 +1,15 @@
 /**
  * Phase 1044-02 — Accessibility contract tests for UnifiedStackPanel (POL-23)
  *
- * Test surface: listbox ARIA role, aria-multiselectable, aria-label, data-row-id
- * presence, Shift+Arrow keyboard extension, Escape-clear, outside-mousedown-clear,
- * and basemap boundary aria-selected non-pollution.
+ * Test surface: panel aria-label, data-row-id presence, Shift+Arrow keyboard
+ * extension, Escape-clear, outside-mousedown-clear, and basemap boundary
+ * aria-current non-pollution.
+ *
+ * Phase 1052: dropped the listbox/option ARIA pattern. The container is now a
+ * labelled scroll region (no role); rows convey selection via `aria-current` +
+ * `data-selected` rather than `aria-selected`. The change resolves axe
+ * `aria-required-children` and `nested-interactive` violations on the
+ * accessibility e2e gate.
  *
  * These tests assert the ARIA contract that assistive technologies rely on.
  * They are intentionally distinct from the selection-model contract in
@@ -80,8 +86,6 @@ vi.mock('../BasemapGroupRow', () => ({
       data-testid={`basemap-group-row-${groupId}`}
       data-expanded={isExpanded ? 'true' : 'false'}
       data-multi-selection-active={isMultiSelectionActive ? 'true' : 'false'}
-      role="option"
-      aria-selected="false"
       id={`stack-row-${groupId}`}
       className={isMultiSelectionActive ? 'cursor-not-allowed' : ''}
     >
@@ -126,8 +130,8 @@ vi.mock('../FolderGroupRow', () => ({
       data-testid={`folder-group-row-${groupId}`}
       data-expanded={isExpanded ? 'true' : 'false'}
       data-multi-selected={isMultiSelected ? 'true' : 'false'}
-      role="option"
-      aria-selected={isMultiSelected ? 'true' : 'false'}
+      data-selected={isMultiSelected ? 'true' : undefined}
+      aria-current={isMultiSelected ? 'true' : undefined}
       id={`stack-row-${groupId}`}
       data-row-id={groupId}
     >
@@ -275,25 +279,38 @@ function defaultProps(overrides: Partial<React.ComponentProps<typeof UnifiedStac
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1044-02 — Listbox ARIA contract (POL-23)
+// Phase 1044-02 — Stack panel ARIA contract (POL-23, updated Phase 1052)
 // ---------------------------------------------------------------------------
 
-describe('Phase 1044-02 — Listbox ARIA contract (POL-23)', () => {
-  it('Test 1: listbox role and label — renders element with role="listbox" and the localized label', () => {
+function findStackPanel(): HTMLElement {
+  // Phase 1052: panel is a labelled scroll region (no role). Locate it by
+  // its accessible name only — match the role="" / no-role contract.
+  const candidate = document.querySelector<HTMLElement>('[aria-label="Map layers"]');
+  if (!candidate) throw new Error('stack panel with aria-label="Map layers" not found');
+  return candidate;
+}
+
+describe('Phase 1044-02 — Stack panel ARIA contract (POL-23)', () => {
+  it('Test 1: panel label — renders element with aria-label resolved from i18n', () => {
     render(<UnifiedStackPanel {...defaultProps()} />);
 
     // The i18n mock resolves "unifiedStack.listboxLabel" → "Map layers".
-    // getByRole asserts both the role AND the accessible name in one call,
-    // catching missing aria-label or broken i18n resolution simultaneously.
-    const listbox = screen.getByRole('listbox', { name: 'Map layers' });
-    expect(listbox).toBeInTheDocument();
+    // Phase 1052: container is no longer role="listbox"; assert aria-label
+    // is present on a discoverable element so SR users can find the region.
+    const panel = findStackPanel();
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveAttribute('aria-label', 'Map layers');
   });
 
-  it('Test 2: aria-multiselectable — listbox element carries aria-multiselectable="true"', () => {
+  it('Test 2: panel has NO role="listbox" — Phase 1052 dropped the listbox/option pattern', () => {
     render(<UnifiedStackPanel {...defaultProps()} />);
 
-    const listbox = screen.getByRole('listbox', { name: 'Map layers' });
-    expect(listbox).toHaveAttribute('aria-multiselectable', 'true');
+    // axe nested-interactive + aria-required-children flagged the listbox/option
+    // pattern. Container is now a plain labelled region; rows convey selection
+    // via aria-current/data-selected instead of aria-selected.
+    const panel = findStackPanel();
+    expect(panel).not.toHaveAttribute('role');
+    expect(panel).not.toHaveAttribute('aria-multiselectable');
   });
 
   it('Test 3: data-row-id presence — every rendered layer row has data-row-id matching its id', () => {
@@ -323,16 +340,16 @@ describe('Phase 1044-02 — Listbox ARIA contract (POL-23)', () => {
       />
     );
 
-    // Focus the inner role="option" tabIndex=0 element (id="stack-row-a").
-    // The keydown handler uses document.activeElement.closest('[data-row-id]') to resolve
-    // the focused row — the role="option" div is a descendant of the data-row-id wrapper.
+    // Focus the inner tabIndex=0 row (id="stack-row-a"). The keydown handler
+    // resolves the focused row via document.activeElement.closest('[data-row-id]'),
+    // independent of the row's role.
     const innerRowA = document.getElementById('stack-row-a') as HTMLElement;
     expect(innerRowA).toBeTruthy();
     act(() => { innerRowA.focus(); });
 
-    // The keydown listener is attached to the listbox div (stackPanelRef) — fire there.
-    const listbox = screen.getByRole('listbox', { name: 'Map layers' });
-    fireEvent.keyDown(listbox, { key: 'ArrowDown', shiftKey: true });
+    // The keydown listener is attached to the stack panel (stackPanelRef) — fire there.
+    const panel = findStackPanel();
+    fireEvent.keyDown(panel, { key: 'ArrowDown', shiftKey: true });
 
     await waitFor(() => {
       expect(onShiftClick).toHaveBeenCalledWith('b');
@@ -355,8 +372,8 @@ describe('Phase 1044-02 — Listbox ARIA contract (POL-23)', () => {
     const innerRowA = document.getElementById('stack-row-a') as HTMLElement;
     act(() => { innerRowA.focus(); });
 
-    const listbox = screen.getByRole('listbox', { name: 'Map layers' });
-    fireEvent.keyDown(listbox, { key: 'ArrowUp', shiftKey: true });
+    const panel = findStackPanel();
+    fireEvent.keyDown(panel, { key: 'ArrowUp', shiftKey: true });
 
     await act(async () => {});
     // Clamped at top — adjacent index === current index, so onShiftClick must NOT fire
@@ -374,9 +391,9 @@ describe('Phase 1044-02 — Listbox ARIA contract (POL-23)', () => {
       />
     );
 
-    // Keydown listener is scoped to the listbox (stackPanelRef)
-    const listbox = screen.getByRole('listbox', { name: 'Map layers' });
-    fireEvent.keyDown(listbox, { key: 'Escape' });
+    // Keydown listener is scoped to the panel (stackPanelRef)
+    const panel = findStackPanel();
+    fireEvent.keyDown(panel, { key: 'Escape' });
 
     expect(onClearSelection).toHaveBeenCalledOnce();
   });
@@ -405,7 +422,7 @@ describe('Phase 1044-02 — Listbox ARIA contract (POL-23)', () => {
     });
   });
 
-  it('Test 8: Basemap row aria-selected isolation — overlay rows can have aria-selected="true" while basemap row stays "false"', () => {
+  it('Test 8: Basemap row selection isolation — overlay rows convey aria-current="true" while basemap row stays unset', () => {
     render(
       <UnifiedStackPanel
         {...defaultProps({
@@ -418,13 +435,16 @@ describe('Phase 1044-02 — Listbox ARIA contract (POL-23)', () => {
       />
     );
 
-    // The basemap group row mock sets aria-selected="false" unconditionally (basemap is
-    // excluded from selectableRowIds and cannot be added to the multi-selection set).
+    // Basemap row mock is excluded from selectableRowIds and the mock no longer
+    // sets aria-current — so the attribute must be absent (or null).
     const basemapRow = screen.getByTestId('basemap-group-row-basemap-group');
-    expect(basemapRow).toHaveAttribute('aria-selected', 'false');
+    expect(basemapRow).not.toHaveAttribute('aria-current');
+    expect(basemapRow).not.toHaveAttribute('data-selected');
 
-    // Overlay rows with matching ids in selectedIds should be aria-selected="true"
+    // Overlay rows in selectedIds carry aria-current="true" (Phase 1052
+    // replacement for aria-selected after dropping role="option").
     const rowA = document.getElementById('stack-row-a');
-    expect(rowA).toHaveAttribute('aria-selected', 'true');
+    expect(rowA).toHaveAttribute('aria-current', 'true');
+    expect(rowA).toHaveAttribute('data-selected', 'true');
   });
 });
