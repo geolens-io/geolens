@@ -1228,6 +1228,14 @@
             "default": "default",
             "description": "Land and water color treatment where supported."
           },
+          "opacity": {
+            "default": 1.0,
+            "description": "Master basemap opacity 0.0-1.0",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Opacity",
+            "type": "number"
+          },
           "relief_contrast": {
             "anyOf": [
               {
@@ -1336,7 +1344,7 @@
         "title": "BasemapSublayerVisibility",
         "type": "string"
       },
-      "Body_login_auth_login__post": {
+      "Body_login_auth_login_post": {
         "properties": {
           "client_id": {
             "anyOf": [
@@ -1392,7 +1400,7 @@
           "username",
           "password"
         ],
-        "title": "Body_login_auth_login__post",
+        "title": "Body_login_auth_login_post",
         "type": "object"
       },
       "Body_reupload_dataset_datasets__dataset_id__reupload_post": {
@@ -1470,6 +1478,71 @@
           "confirm_title"
         ],
         "title": "BulkDeleteItem",
+        "type": "object"
+      },
+      "BulkDeleteLayersFailure": {
+        "description": "A single layer that could not be deleted.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ],
+        "title": "BulkDeleteLayersFailure",
+        "type": "object"
+      },
+      "BulkDeleteLayersRequest": {
+        "description": "Request body for POST /maps/{map_id}/layers/bulk-delete.",
+        "properties": {
+          "layer_ids": {
+            "description": "UUIDs of layers to delete. Must be 1\u2013200 elements (matches _MAX_LAYERS_PER_MAP).",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Layer Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "layer_ids"
+        ],
+        "title": "BulkDeleteLayersRequest",
+        "type": "object"
+      },
+      "BulkDeleteLayersResponse": {
+        "description": "Response body for POST /maps/{map_id}/layers/bulk-delete.",
+        "properties": {
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deleted",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/BulkDeleteLayersFailure"
+            },
+            "title": "Failed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deleted",
+          "failed"
+        ],
+        "title": "BulkDeleteLayersResponse",
         "type": "object"
       },
       "BulkDeleteRequest": {
@@ -13185,6 +13258,18 @@
             "description": "URL of the primary data asset (COG).",
             "title": "Data Asset Href"
           },
+          "data_asset_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.",
+            "title": "Data Asset Size Bytes"
+          },
           "data_asset_type": {
             "anyOf": [
               {
@@ -19290,15 +19375,15 @@
         ]
       }
     },
-    "/auth/login/": {
+    "/auth/login": {
       "post": {
         "description": "Authenticate with username and password, receive a JWT token.",
-        "operationId": "login_auth_login__post",
+        "operationId": "login_auth_login_post",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/Body_login_auth_login__post"
+                "$ref": "#/components/schemas/Body_login_auth_login_post"
               }
             }
           },
@@ -33574,6 +33659,132 @@
         ]
       }
     },
+    "/maps/{map_id}/layers/bulk-delete": {
+      "post": {
+        "description": "Batch-delete multiple layers from a map in a single request.\n\nMilestone exception (v1010 Phase 1047): one additive endpoint permitted\nper REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one\nbatched call for bulk-delete UX (PB-03 / PERF-03).\n\nReturns 200 with deleted/failed arrays in all cases (partial failures\nsurface inline, not as HTTP errors).  Full rollback is the caller's\nresponsibility if all ids fail.",
+        "operationId": "bulk_delete_layers_endpoint_maps__map_id__layers_bulk_delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkDeleteLayersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkDeleteLayersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Bulk Delete Layers Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
     "/maps/{map_id}/layers/{layer_id}": {
       "delete": {
         "description": "Remove a layer from a map.",
@@ -40375,7 +40586,7 @@
     },
     "/tiles/{table_path}/{z}/{x}/{y}.pbf": {
       "get": {
-        "description": "Serve a vector tile as gzipped MVT binary.\n\nURL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf\n\nNon-public datasets require valid HMAC signature params (sig, exp, scope).\nPublic datasets can be accessed without any signature.",
+        "description": "Serve a vector tile as gzipped MVT binary.\n\nURL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf\n\nNon-public datasets require valid HMAC signature params (sig, exp, scope).\nPublic datasets can be accessed without any signature.\n\n`cols` is a runtime opt-in for additional attribute columns the client\nneeds at all zooms (e.g. data-driven styling columns referenced by\nMapLibre paint expressions). Format: comma-separated column names.\nEach name is validated against the dataset column list before it\nflows into the MVT projection; invalid names are silently dropped.\nDoes not need to be signed \u2014 `sig` already authorizes dataset\naccess and `cols` can only project columns the caller already has\nREST access to.",
         "operationId": "tile_endpoint_tiles__table_path___z___x___y__pbf_get",
         "parameters": [
           {
@@ -40460,6 +40671,22 @@
                 }
               ],
               "title": "Scope"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cols",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cols"
             }
           }
         ],
