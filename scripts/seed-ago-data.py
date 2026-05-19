@@ -294,13 +294,18 @@ async def discover_layers(
     item_types: set[str] | None = None,
     search_query: str | None = None,
     token: str | None = None,
-) -> tuple[list[dict], str]:
+) -> tuple[list[dict], str, list[str]]:
     """Discover all downloadable layers in an ArcGIS Online organization.
 
-    Returns (layers_manifest, org_name) where each entry has:
-        service_title, layer_name, layer_id, service_url, summary
+    Returns (layers_manifest, org_name, data_quality_skips) where each manifest
+    entry has: service_title, layer_name, layer_id, service_url, summary.
+    data_quality_skips is a list of service titles skipped due to AGO upstream
+    publishing issues (no URL, failed layer probe, or empty layer list) —
+    summarized in the Import Summary as "Data quality skips: N".
     """
     downloadable = item_types or DEFAULT_ITEM_TYPES
+    # SEED-03: accumulate data-quality skips for summary reporting
+    data_quality_skips: list[str] = []
 
     # Resolve Hub/Open Data sites to their underlying AGO portal
     resolved_org_url = await resolve_org_url(client, org_url)
@@ -346,16 +351,19 @@ async def discover_layers(
 
         if not item_url:
             print(f"Skipping {title} — no service URL")
+            data_quality_skips.append(title)
             continue
 
         try:
             layers = await get_service_layers(client, item_url, token=token)
         except Exception as e:
             print(f"Skipping {title} — failed to get layers: {e}")
+            data_quality_skips.append(title)
             continue
 
         if not layers:
             print(f"Skipping {title} — no layers")
+            data_quality_skips.append(title)
             continue
 
         for layer in layers:
@@ -378,7 +386,7 @@ async def discover_layers(
             )
 
     print(f"\n{len(manifest)} layers discovered across {len(spatial_items)} services")
-    return manifest, org_name
+    return manifest, org_name, data_quality_skips
 
 
 # ---------------------------------------------------------------------------
@@ -726,9 +734,22 @@ async def process_one(
                         )
 
                     if result.get("status") == "failed":
-                        raise RuntimeError(
-                            result.get("error_message", "Unknown ingest error")
-                        )
+                        error_msg = result.get("error_message", "Unknown ingest error")
+                        # SEED-02: single retry on ogr2ogr timeout-shaped failures.
+                        # The backend uses INGEST_HTTP_TIMEOUT_SECONDS (default 300s)
+                        # as GDAL_HTTP_TIMEOUT; set that env var in the api service to
+                        # control the per-HTTP-request timeout. The seeder cannot adjust
+                        # the server-side timeout via the API — it only triggers a retry.
+                        if (
+                            attempt < 2
+                            and re.search(r"timed? ?out|Operation timed out", error_msg, re.IGNORECASE)
+                        ):
+                            print(
+                                f"  {tag} Retry 1/1 for {layer_name} after timeout "
+                                f"(server raised GDAL_HTTP_TIMEOUT — retrying once)"
+                            )
+                            continue
+                        raise RuntimeError(error_msg)
 
                     dataset_id = result.get("dataset_id")
                     action = "updated" if (existing_entry and update_mode) else "succeeded"
@@ -851,7 +872,11 @@ async def assign_collection(
 
 
 def print_summary(
-    total: int, results: list[dict], update_mode: bool, elapsed: float
+    total: int,
+    results: list[dict],
+    update_mode: bool,
+    elapsed: float,
+    data_quality_skips: list[str] | None = None,
 ) -> None:
     succeeded = sum(1 for r in results if r["status"] == "succeeded")
     updated = sum(1 for r in results if r["status"] == "updated")
@@ -871,6 +896,12 @@ def print_summary(
         print(f"  Updated:   {updated}")
     print(f"  Skipped:   {skipped}")
     print(f"  Failed:    {failed}")
+    # SEED-03: surface AGO data-quality skips so users see them at a glance
+    if data_quality_skips:
+        print(
+            f"  Data quality skips: {len(data_quality_skips)} "
+            f"(AGO upstream — see log above)"
+        )
     print(f"  Total:     {total}")
     print(f"  Elapsed:   {_format_elapsed(elapsed)}")
 
@@ -975,7 +1006,7 @@ async def main(args: argparse.Namespace) -> None:
         follow_redirects=True,
     ) as client:
         # Discover layers from ArcGIS
-        manifest, org_name = await discover_layers(
+        manifest, org_name, data_quality_skips = await discover_layers(
             client,
             args.org_url,
             item_types=item_types,
@@ -1068,7 +1099,7 @@ async def main(args: argparse.Namespace) -> None:
         elapsed = time.monotonic() - import_start
 
         # Summary
-        print_summary(total, results, args.update, elapsed)
+        print_summary(total, results, args.update, elapsed, data_quality_skips)
 
         # Assign to collection
         print()
