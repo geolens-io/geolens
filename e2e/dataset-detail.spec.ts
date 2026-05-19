@@ -103,6 +103,38 @@ test.describe('Dataset Detail', () => {
     expect(download.suggestedFilename()).toBeTruthy();
   });
 
+  test('IMPORT-04: M001 audit replay — reupload affordance is reachable via accessible name', async ({
+    page,
+  }) => {
+    await openAdminCountriesDataset(page);
+
+    // Mirror M001 audit method: scan the page for any affordance whose accessible name
+    // mentions Replace / Re-Upload / Reupload / More. If reupload is hidden behind
+    // an unlabeled kebab again, this locator will resolve to the affordance OR fail.
+    const reuploadAffordance = page.getByRole('button', {
+      name: /Re-Upload|Replace|Reupload|More/i,
+    });
+    // First() because there may be both a "More" trigger and a "Re-Upload" item
+    // visible (when overflow is expanded by a previous step).
+    await expect(reuploadAffordance.first()).toBeVisible({ timeout: 5_000 });
+    await reuploadAffordance.first().click();
+
+    // If the click opened the overflow menu, click the Re-Upload menuitem inside it.
+    const reuploadMenuItem = page.getByRole('menuitem', { name: /Re-Upload/i });
+    if (await reuploadMenuItem.isVisible().catch(() => false)) {
+      await reuploadMenuItem.click();
+    }
+
+    // Either path leads to the reupload dialog.
+    await expect(page.getByRole('dialog', { name: /Re-Upload Dataset/i })).toBeVisible({
+      timeout: 5_000,
+    });
+
+    // Close dialog and confirm it's gone (regression for SF-style snapshot leakage).
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: /Re-Upload Dataset/i })).toHaveCount(0);
+  });
+
   // Two tests removed in v13.12 H-33 / v13.13 Phase 278-06 TEST-10 Path B.
   // Coverage moved to vitest (DatasetPage.edit-affordances, PendingEditsBar,
   // EditableFieldShell, ValidationStatus, QualityScoreCard). See
