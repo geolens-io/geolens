@@ -37,6 +37,7 @@ async def _create_dataset(
     created_by: uuid.UUID,
     name: str = "Reupload Test Dataset",
     visibility: str = "public",
+    record_type: str = "vector_dataset",
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
     table_name = f"ds_{uuid.uuid4().hex[:12]}"
@@ -45,6 +46,7 @@ async def _create_dataset(
         summary=f"Test dataset: {name}",
         visibility=visibility,
         record_status="published",
+        record_type=record_type,
         created_by=created_by,
     )
     session.add(record)
@@ -246,6 +248,77 @@ class TestReuploadUpload:
             headers=viewer_auth_header,
         )
         assert resp.status_code == 403
+
+    async def test_reupload_rejects_raster_file_for_vector_dataset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /datasets/{id}/reupload with a .tif file for a vector dataset returns 400."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session, created_by=admin_id, record_type="vector_dataset"
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={"file": ("layer.tif", b"FAKE_TIFF_DATA", "image/tiff")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"].lower()
+        assert "vector dataset" in detail
+        assert ".tif" in detail
+
+    async def test_reupload_rejects_vector_file_for_raster_dataset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /datasets/{id}/reupload with a .geojson file for a raster dataset returns 400."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session, created_by=admin_id, record_type="raster_dataset"
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "data.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"].lower()
+        assert "raster dataset" in detail
+
+    async def test_reupload_rejects_any_file_for_vrt_dataset(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """POST /datasets/{id}/reupload with any file for a vrt dataset returns 400."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session, created_by=admin_id, record_type="vrt_dataset"
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={"file": ("layer.tif", b"FAKE_TIFF_DATA", "image/tiff")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"].lower()
+        assert "vrt" in detail
+        assert "membership" in detail
 
 
 # ---------------------------------------------------------------------------
