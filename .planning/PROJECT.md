@@ -12,30 +12,50 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1012 New-User Hardening + Reupload
+## Current Milestone: v1013 Ingest Hardening
 
-**Goal:** Make the literal new-user install and first-hour exploration of GeoLens work end-to-end with no rough edges. Close the 17 still-open M001-7n8vpc audit findings + 6 enhancements (EW-01..06) and ship the missing Reupload affordance (IMPORT-04).
+**Goal:** Close all 7 candidate findings from the 2026-05-19 v1012 post-ship smoke (Service URL ingest reliability + multi-layer GPKG handling), ship the deferred Basemap Sublayer Path B FIX (full per-sublayer styling persistence), and clean up the fixture datasets used as smoke repros.
 
-**Public tag:** v1.3.0 (minor bump — IMPORT-04 is feature work, follows v1.2.0 precedent of "minor when features ship").
+**Public tag:** v1.4.0 (minor bump — Findings 1 + 3 add new layer-select / multi-commit affordances; BSE-01 adds per-sublayer styling persistence. Mirrors v1012's v1.3.0 precedent of "minor when features ship").
 
-**Target features (8 buckets):**
+**Target features (4 buckets):**
 
-- **Quickstart docs (cross-repo)** — DOC-01..05. Quickstart-to-seeder path, `seed-ago-data.py` API-key discovery, `httpx` prereq, "1-2 minutes" claim, interactive credential prompt. Cross-repo: requirements tracked here, doc PRs land in `~/Code/getgeolens.com/.planning/`.
-- **Bring-up polish** — BU-03. Apple Silicon platform-mismatch warning.
-- **Seeders** — SEED-02..04. AGO ogr2ogr 120s timeout, upstream data quality noise, driver-list error spam.
-- **UX discovery** — UX-01. API Keys workflow is 3 clicks deep from login and undocumented.
-- **Console hygiene** — CONSOLE-01. Anonymous Search page fires 12× 401s (partial regression of v1010.2 SF-06).
-- **Routes** — ROUTE-01..04. `/admin/saml` silent redirect, 404 page missing `<title>`, `/register` redirect for authed users, `/m/{invalid-token}` console leak.
-- **Import operations** — IMPORT-02..05. Choose-File overlay intercepted by decorative span, React setState-during-render warning, **Reupload/Replace dataset affordance (feature)**, Register Table empty-state messaging.
-- **Easy wins (EW)** — EW-01 consolidate to single compose, EW-02 add API-seeder path to quickstart (overlaps DOC-01), EW-04 surface `DATABASE_SSL_MODE=disable` in `.env.example`, EW-05 STAC stage-and-confirm before GB-scale downloads, EW-06 reframe Register Table empty state. (EW-03 install.sh wait-for-health already shipped at `b4ad03d9` — credit-only.)
+- **Service URL Reliability** — WFS-04, PROBE-05, CRS-06, CLASS-07. Map abstract OGC geometry types (`MultiSurface` → `MultiPolygon`, `MultiCurve` → `MultiLineString`, `CompoundSurface` → `MultiPolygon`, etc.) on column creation OR drop subtype constraint OR detect concrete subtype during probe; short-circuit `try_all_probes()` on first success (currently 63s when adapter succeeded in 1.5s); parse URI-form CRS references (`http://www.opengis.net/def/crs/OGC/1.3/CRS84` → EPSG:4326) for OGC API Features; fall back to VEC when probe response is missing `geometry_type` (currently defaults to RAS).
+- **Multi-Layer GPKG Handling** — GPKG-01, GPKG-02, GPKG-03. Add layer-select step to Reupload File path mirroring the Service URL flow (currently silently picks `layers[0]`, ignoring `dataset.source_layer`); surface chosen layer name + column-level schema diff + schema-change warning in Reupload preview pane (Service URL preview is the design reference); allow multi-commit / "ingest all layers as separate datasets" path in Bulk Review for multi-layer GPKG.
+- **Basemap Sublayer Editor (Path B FIX)** — BSE-01. Full per-sublayer styling persistence (3-5 day feature phase). Restores the styling surface left as REMOVE in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or similar).
+- **Hygiene** — CLEAN-01. Delete the 3 smoke repro datasets from the catalog after milestone close: `ec18b546-d86d-4375-8e1f-8564b6a75687` (reupload sandbox), `54763119-0cf4-448e-a950-81551d090267` (AGO Wildfire), `667a6c65-cdbc-4158-87f2-21a7e791ba7c` (OGC API Large Lakes).
 
-**Deferred candidates from v1011.1 close (still open, not in v1012 scope):**
+**Source of truth for findings:** `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`. Each REQ-ID maps to a Finding (1-7) in that report.
 
-- **BasemapSublayerEditorScene Path B FIX** — full per-sublayer styling persistence (3-5 day feature phase; prioritize only if/when basemap-sublayer styling becomes a real user need).
+**Deferred candidates (still open, not in v1013 scope):**
+
 - **v1.7 Marketplace & Distribution unpause** — phases 36-42 paused at Phase 40 (AWS AMI Build).
 - **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping.
 - **Enterprise feature backlog** — Phase 999.13 connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas extraction.
 - **Recreate public repo before launch** — pending todo from 2026-05-05.
+
+## Recent Shipped Milestone: v1012 New-User Hardening + Reupload
+
+**Shipped:** 2026-05-19
+
+**Goal delivered:** Made the literal new-user install and first-hour exploration of GeoLens work end-to-end. Closed the 17 still-open M001-7n8vpc audit findings + 6 enhancements (EW-01..06) and shipped the missing Reupload affordance (IMPORT-04). Public tag `v1.3.0`.
+
+**Delivered (23/23 reqs, verified live MCP smoke):**
+
+- **Quickstart docs (cross-repo)** — DOC-01..05 closed via PRs in `~/Code/getgeolens.com/` (commits including `d50b9ec` + `d467a74`). API-seeder path (seed-natural-earth.py + seed-ago-data.py) documented as canonical post-login step; demo overlay demoted to an "Alternative" section.
+- **Bring-up polish** — BU-03 Apple Silicon platform-mismatch warning closed via cross-repo quickstart docs (commit `d467a74`).
+- **Seeders** — SEED-02 configurable GDAL HTTP timeout, SEED-03 upstream data quality filter, SEED-04 driver-list error suppression.
+- **UX discovery** — UX-01 API Keys signposted via Phase 1053 DOC-02 seeder docs (discovery requirement, not UI relocation).
+- **Console hygiene** — CONSOLE-01 anonymous Search page 401-noise fixed by tightening `useAIAvailability` gate from `!!token` to `!!token && isAdmin` across all 4 dataset-detail consumers.
+- **Routes** — ROUTE-01 `/admin/saml` Enterprise Feature notice (URL preserved); ROUTE-02 404 page `<title>` via `useDocumentTitle` + `pageTitle.notFound` i18n key × 4 locales; ROUTE-03 authenticated `/register` toast + redirect; ROUTE-04 `/m/{invalid-token}` console clean via `apiFetch` `expected404` opt-in.
+- **Import operations** — IMPORT-02 Choose-File overlay `pointer-events-none` + `aria-hidden`; IMPORT-03 React 19 setState-during-render fix in `UploadForm`; IMPORT-04 Reupload feature (File path + Service URL path + version-bump + ID/slug preservation); IMPORT-05 Register Table empty-state framing.
+- **Easy wins** — EW-01 single-compose path (`docker-compose.demo.yml` demoted to `-f` opt-in overlay); EW-02 API-seeder docs (folded into DOC-01); EW-04 `.env.example` SSL mode hardening with BU-01 root-cause note; EW-05 STAC stage-and-confirm before commit; EW-06 Register Table empty-state reframe.
+- **Cross-record-type reupload guard** — HTTP 400 `_assert_compatible_record_type` blocks vector→raster, raster→vector, and any→VRT file swaps at both multipart and presigned reupload entry points.
+- **Overflow kebab "More" label + tooltips** — pinned by M001-replay e2e regression test.
+
+**Live smoke (2026-05-19):** Orchestrator-driven Playwright MCP sweep against live `localhost:8080` confirmed 23/23 reqs PASS + Service URL addendum (AGO / GeoServer WFS / OGC API / Reupload-via-URL paths). 7 candidate findings surfaced as v1013 seeds (1× P0 WFS commit failure, 1× P0 GPKG silent layer-pickup, 2× P1, 3× P2).
+
+**Milestone close:** 23/23 reqs satisfied; 9 phases (1053-1056 in this repo + cross-repo doc PRs), 18 plans, 23 tasks. Tag `v1012` archived 2026-05-19 at commit `7262bdea`. Smoke report at `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`.
 
 ## Recent Shipped Milestone: v1011.1 Builder Hygiene Carryover
 
@@ -1118,4 +1138,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 — started milestone v1012 New-User Hardening + Reupload (audit follow-up to v1.2.0)*
+*Last updated: 2026-05-19 — started milestone v1013 Ingest Hardening (Service URL reliability + multi-layer GPKG + Basemap Sublayer Path B FIX, v1012 smoke carryforward)*
