@@ -195,6 +195,14 @@ async def search_stac_items(
         dt_start = props.get("start_datetime") or dt
         dt_end = props.get("end_datetime") or dt
 
+        # EW-05: surface STAC file:size (when present) so the frontend can show
+        # an estimated download size before the user commits to a multi-GB fetch.
+        data_asset_size_bytes = (
+            data_asset.get("file:size") if data_asset else None
+        )
+        if not isinstance(data_asset_size_bytes, int):
+            data_asset_size_bytes = None  # be defensive — bad-shape values become None
+
         items.append(
             {
                 "id": f.get("id"),
@@ -209,6 +217,7 @@ async def search_stac_items(
                 "cloud_cover": props.get("eo:cloud_cover"),
                 "data_asset_href": data_asset.get("href") if data_asset else None,
                 "data_asset_type": data_asset.get("type") if data_asset else None,
+                "data_asset_size_bytes": data_asset_size_bytes,
                 "thumbnail_href": thumbnail.get("href") if thumbnail else None,
                 "asset_count": len(assets),
             }

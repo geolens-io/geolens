@@ -1,4 +1,4 @@
-import { formatDateTimeSmart } from '@/lib/format';
+import { formatDateTimeSmart, formatBytes } from '@/lib/format';
 
 describe('formatDateTimeSmart', () => {
   beforeEach(() => {
@@ -45,5 +45,27 @@ describe('formatDateTimeSmart', () => {
     // Should use formatDate output (month short, day, year)
     expect(result).toContain('2024');
     expect(result).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+});
+
+describe('formatBytes', () => {
+  it('returns N/A for null', () => {
+    expect(formatBytes(null)).toBe('N/A');
+  });
+
+  it('returns "0 B" for zero bytes', () => {
+    expect(formatBytes(0)).toBe('0 B');
+  });
+
+  it('returns a KB value for 1500 bytes', () => {
+    expect(formatBytes(1500)).toContain('KB');
+  });
+
+  it('returns an MB value for 1_500_000 bytes', () => {
+    expect(formatBytes(1_500_000)).toContain('MB');
+  });
+
+  it('returns a GB value for 2_500_000_000 bytes', () => {
+    expect(formatBytes(2_500_000_000)).toContain('GB');
   });
 });

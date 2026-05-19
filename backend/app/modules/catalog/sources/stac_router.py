@@ -202,6 +202,10 @@ class StacItemSummary(BaseModel):
     data_asset_type: str | None = Field(
         default=None, description="Media type of the data asset."
     )
+    data_asset_size_bytes: int | None = Field(
+        default=None,
+        description="Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.",
+    )
     thumbnail_href: str | None = Field(
         default=None, description="Thumbnail URL if available."
     )

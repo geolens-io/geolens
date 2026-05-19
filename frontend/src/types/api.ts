@@ -1533,6 +1533,7 @@ export interface StacItemSummary {
   cloud_cover: number | null;
   data_asset_href: string | null;
   data_asset_type: string | null;
+  data_asset_size_bytes: number | null; // EW-05: STAC file:size extension
   thumbnail_href: string | null;
   asset_count: number;
 }
