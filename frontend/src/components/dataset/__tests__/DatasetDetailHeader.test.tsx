@@ -185,4 +185,56 @@ describe('DatasetDetailHeader', () => {
     expect(actionContainer).not.toHaveClass('flex-shrink-0');
     expect(actionContainer).toHaveClass('flex-wrap');
   });
+
+  it('overflow trigger renders with visible More label and aria-label', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DatasetDetailHeader
+        title="Test Dataset"
+        actions={[
+          createAction('edit', 1, vi.fn()),
+          createAction('delete', 2, vi.fn()),
+        ]}
+      />,
+    );
+
+    // edit is primary (priority 1), delete goes to overflow
+    // The trigger must be queryable by aria-label "More actions"
+    const trigger = screen.getByRole('button', { name: /more actions/i });
+    expect(trigger).toBeInTheDocument();
+
+    // The trigger must also have visible text "More" (desktop label)
+    expect(trigger).toHaveTextContent('More');
+  });
+
+  it('overflow menu items carry tooltip title attributes', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DatasetDetailHeader
+        title="Test Dataset"
+        actions={[
+          createAction('edit', 1, vi.fn()),
+          createAction('delete', 3, vi.fn(), {
+            tooltip: 'Delete this dataset',
+          }),
+          createAction('draw', 2, vi.fn(), {
+            tooltip: 'Draw on this dataset',
+          }),
+        ]}
+      />,
+    );
+
+    // Open the overflow menu
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
+
+    // Overflow items must carry title attributes so audit-style DOM snapshots
+    // surface the action even without expanding the menu.
+    const deleteItem = screen.getByRole('menuitem', { name: 'DELETE' });
+    expect(deleteItem).toHaveAttribute('title', 'Delete this dataset');
+
+    const drawItem = screen.getByRole('menuitem', { name: 'DRAW' });
+    expect(drawItem).toHaveAttribute('title', 'Draw on this dataset');
+  });
 });
