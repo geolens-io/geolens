@@ -42,7 +42,7 @@
 ### Routes
 
 - [ ] **ROUTE-01**: `/admin/saml` renders an "Enterprise Feature" placeholder/notice page in community edition (with brief explainer + docs link), instead of silently redirecting to `/admin/overview` with no signal.
-- [ ] **ROUTE-02**: 404 page (`NotFoundPage`) sets a proper `<title>` (e.g. "Page not found · GeoLens") instead of inheriting the default app title.
+- [x] **ROUTE-02**: 404 page (`NotFoundPage`) sets a proper `<title>` (e.g. "Page not found · GeoLens") instead of inheriting the default app title.
 - [ ] **ROUTE-03**: `/register` for already-authenticated users redirects to `/` with a visible info banner/toast ("Already signed in — redirected to home") instead of silently redirecting with no UI feedback.
 - [ ] **ROUTE-04**: `/m/{invalid-share-token}` renders a clean 404 / "Map not found" view without leaking the underlying API 404 to the browser console.
 
@@ -123,7 +123,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UX-01 | Phase 1054 | Complete |
 | CONSOLE-01 | Phase 1054 | Pending |
 | ROUTE-01 | Phase 1054 | Pending |
-| ROUTE-02 | Phase 1054 | Pending |
+| ROUTE-02 | Phase 1054 | Complete |
 | ROUTE-03 | Phase 1054 | Pending |
 | ROUTE-04 | Phase 1054 | Pending |
 | IMPORT-02 | Phase 1054 | Complete |
