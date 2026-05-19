@@ -142,8 +142,13 @@ Plans:
   1. A "Replace file" (or equivalent) button is visible on the dataset detail page for datasets that were imported via file upload.
   2. Clicking the button opens a file picker; selecting and confirming a new file triggers re-ingestion that preserves the existing dataset ID and slug, regenerates tiles and thumbnail, and writes an audit-log entry.
   3. After re-ingestion completes, the dataset detail page reflects the updated file without requiring a page reload or manual refresh.
-**Plans:** TBD
+**Plans:** 3 plans
 **UI hint**: yes
+**Planning note:** During planning the reupload feature was discovered to be already shipped (backend router at `router_reupload.py` 613 LOC, Celery worker at `tasks_reupload.py`, frontend `ReuploadDialog.tsx` 743 LOC, `DatasetPage.tsx` wiring at lines 391-398, audit emission `reupload.commit` at `tasks_common.py:955`, 30+ pytest cases). The M001-7n8vpc audit missed the affordance because the unlabeled kebab was not visible in the Playwright DOM snapshot. Phase scope therefore narrowed to: (1) close the one real backend gap (cross-record-type guard), (2) harden frontend discoverability so future audits can find the affordance, (3) live-MCP verify the full M001 audit replay against the hardened surface.
+Plans:
+- [ ] 1055-01-PLAN.md — Backend cross-record-type guard at reupload entry points + 3 pinned pytest cases (Wave 1, autonomous)
+- [ ] 1055-02-PLAN.md — Frontend discoverability hardening (visible "More" label + overflow tooltips) + M001 audit-replay e2e regression test + 4-locale i18n parity (Wave 1, autonomous)
+- [ ] 1055-03-PLAN.md — Live Playwright MCP verification reproducing M001 audit path; writes VERIFY.md with PASS/FAIL per ROADMAP success criterion (Wave 2, checkpoint)
 
 ---
 
@@ -167,7 +172,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1053. Quickstart Docs + Environment Hardening | 4/4 | Complete   | 2026-05-19 |
 | 1054. Seeder + Console + Route + Import Polish | 11/11 | Complete   | 2026-05-19 |
-| 1055. Reupload Feature | 0/? | Not started | - |
+| 1055. Reupload Feature | 0/3 | Plans created | - |
 | 1056. Close Gate | 0/? | Not started | - |
 
 ## Backlog
