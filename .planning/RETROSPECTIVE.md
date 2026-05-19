@@ -2,6 +2,56 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v1011.1 — Builder Hygiene Carryover
+
+**Shipped:** 2026-05-18
+**Phases:** 1 (1052) | **Plans:** 7 | **Requirements:** 5/5 | **Tag:** `v1011.1` (local at `567c701e`)
+
+### What Was Built
+
+Closed all 4 EMRG-FN findings carried forward from v1011 Phase 1051 Plan 12 (EMRG-01 triage) in a single hygiene phase:
+
+- **EMRG-FN-01 Path A REMOVE**: BasemapSublayerEditorScene STROKE section + zoom inputs + 5 dead-stub callbacks deleted; live opacity slider + Reset section preserved (planner narrowed CONTEXT.md's over-broad scope). 5 orphan basemapSublayer i18n keys × 4 locales removed. Test 14 regression pin added (5 positive-form `queryBy*` assertions). Inline disposition comment per INV-01 pattern.
+- **EMRG-FN-02**: `settings.toggleWidget` orphan i18n key removed from all 4 locales.
+- **EMRG-FN-03**: 2 unused `eslint-disable-next-line` directives removed from `UnifiedStackPanel.tsx` (planner-time grep caught line drift 679→735, 720→776).
+- **EMRG-FN-04**: SublayerConfigIndicators `layer={null}` closure documented via Test 1 docstring extension (CONTEXT.md auto-resolution claim was wrong — Plan 06 caught + corrected; live callsite remains at `UnifiedStackPanel.tsx:556`).
+- **CTRL-01**: typecheck 0 / vitest 1979/1979 / e2e:smoke:builder 26/26 / i18n 2/2; CHANGELOG `[Unreleased]` v1011.1 block; inline WR-01 fix (orphan vi.mock removed); local tag `v1011.1` at `567c701e`.
+- **Live Playwright MCP re-verify**: orchestrator drove against `localhost:8080` — 6/6 surface checks pass, 0 console errors.
+
+### What Worked
+
+- **Hygiene-shape carryforward pattern at 5th iteration**: v1009.1 → v1010.1 → v1010.2 → v1011 → v1011.1. The pattern is now reflex — single phase, sequential plans, single CTRL-01 close gate. No new decisions needed at milestone-shaping time.
+- **Planner-time grep gate caught 3 CONTEXT.md inaccuracies before execution**: (1) Plan 01 REMOVE scope was over-broad in CONTEXT.md (would have deleted live opacity + Reset); (2) EMRG-FN-04 auto-resolution claim was wrong (live callsite at `UnifiedStackPanel.tsx:556` remains post-Path A); (3) EMRG-FN-03 line numbers had drifted (REQUIREMENTS cited 679+720; actual 735+776). Each correction was encoded in the plan files so the executor never re-introduced the original mistake.
+- **CTRL-01 Half A / Half B split**: deterministic gates (typecheck/vitest/e2e/i18n/CHANGELOG/tag) delegated to executor; orchestrator-only MCP re-verify ran inline after code-review. Clean division of labor.
+- **Post-shipping code review caught 1 WARNING + 1 INFO**: WR-01 (orphan `vi.mock('../StyleColorPicker')` factory) had been explicitly deferred by Plan 03's executor as "orphaned but harmless." Per `feedback_review_findings_inline.md`, fixed inline (and moved the tag) — zero v1011.2 deferrals.
+- **Live MCP re-verify as pre-tag gate**: vitest JSDOM-render confirmed component-level absence of removed surfaces, but live MCP confirmed the production page never paints the surfaces on real basemap sublayer click. Same axis of confidence as v1010.1 / v1010.2 / v1011 MCP runs.
+
+### What Was Inefficient
+
+- **CONTEXT.md drafted in early planning had 3 inaccuracies**. The planner-time grep gate caught all 3, but the orchestrator could have caught them at CONTEXT-authoring time by running a quick grep before locking the decision. Cost: ~5 min of planner work to encode corrections; cost-saving if caught earlier: 0 (planner catches it for free).
+- **Plan 07 executor created the `v1011.1` tag prematurely** at `017af020` instead of waiting for orchestrator's "all clear" after Half B. Tag had to be moved to `567c701e` after WR-01 fix. Not catastrophic (tag operations are cheap), but breaks the implicit contract that the tag commit is the final HEAD. Next time: explicitly instruct executor to STAGE the tag (write a TAG-CANDIDATE.md note) instead of creating it.
+- **191 stale historical quick-task artifacts surfaced at pre-close audit**. These are pre-existing repo noise (not v1011.1-introduced), but the `audit-open` output dwarfed the actual v1011.1 close items. A periodic `.planning/quick/` cleanup pass would shrink the audit signal-to-noise ratio.
+
+### Patterns Established
+
+- **Planner-time correction encoded in plan files** — when the planner catches a CONTEXT.md inaccuracy, the plan file documents the correction so the executor cannot re-introduce the original mistake. (3 examples from Plan 01 / 05 / 06.)
+- **Sticky basemap LIVE behaviors during sublayer scope reduction** — when removing dead UI from a shared scene (e.g., BasemapSublayerEditorScene), the planner must verify which sections remain live before approving deletion. Opacity + Reset were the load-bearing survivors here.
+- **`layer={null}` as a deliberate production case** — the SublayerConfigIndicators contract treats `layer={null}` as "render nothing" specifically for basemap sublayer rows in UnifiedStackPanel; this is intentional, not an oversight. Documented inline at Test 1.
+
+### Key Lessons
+
+- **Run grep before locking CONTEXT.md decisions.** Catching CONTEXT.md inaccuracies at authoring time is cheaper than planner-time correction encoding — and dramatically cheaper than executor-time deviation handling.
+- **Live MCP re-verify is justified pre-tag overhead** for any UI REMOVE work. JSDOM tests prove the component-level absence; only MCP proves the production page never paints the removed surfaces on real interaction.
+- **"Orphaned but harmless" deferrals invite WARNING-level code-review findings.** If a test mock survives a production removal, fix it inline at removal time — don't write a SUMMARY note saying "harmless." The next code reviewer (human or agent) will flag it and the tag will move.
+
+### Cost Observations
+
+- Model mix: opus (planner) + sonnet (executors × 7, verifier, code reviewer, code fixer) + sonnet (orchestrator)
+- Sessions: 1 (this end-to-end /gsd-autonomous run)
+- Notable: planner correction work added ~15 min vs locked-CONTEXT.md flow, but saved at least 1 executor deviation cycle per correction caught.
+
+---
+
 ## Milestone: v1010.1 — Live Playwright MCP Smoke
 
 **Shipped:** 2026-05-17

@@ -1,5 +1,39 @@
 # Milestones
 
+## v1011.1 Builder Hygiene Carryover (Shipped: 2026-05-18)
+
+**Phase:** 1052 (single-phase hygiene close)
+**Plans:** 7 / 7 complete
+**Requirements:** 5/5 satisfied (EMRG-FN-01..04 + CTRL-01)
+**Audit:** passed (5/5 must-haves — see `.planning/milestones/v1011.1-MILESTONE-AUDIT.md`)
+**Tag:** `v1011.1` (local, at `567c701e` post-WR-01 inline fix)
+
+**Key accomplishments:**
+
+1. **EMRG-FN-01 Path A REMOVE** — `BasemapSublayerEditorScene` STROKE section + zoom range inputs + 5 dead-stub callbacks (`onStrokeColorChange` / `onStrokeWidthChange` / `onCasingColorChange` / `onCasingWidthChange` / `onZoomChange`) deleted; live opacity slider + Reset section preserved. Mirrors v1011 INV-01 precedent (commit `6078b82a`). Inline disposition comment extended at removal site. Commits `3629ec04` + `e8748d9b` + WR-01 fix `567c701e`.
+2. **EMRG-FN-01 i18n cleanup** — 5 orphan `basemapSublayer.*` keys removed × 4 locales (en/de/es/fr builder.json), 20 entries total. i18n parity 2/2. Commit `3e48d331`.
+3. **EMRG-FN-01 vitest + REMOVE-disposition regression pin** — vitest cases referencing removed surfaces deleted; Test 14 added with 5 positive-form `queryBy*` assertions that the surface stays gone (mirrors v1011 INV-01 Test 13). Commit `e8748d9b`.
+4. **EMRG-FN-02** — Orphan `settings.toggleWidget` i18n key removed from all 4 locales. Commit `205e5a70`.
+5. **EMRG-FN-03** — 2 unused `eslint-disable-next-line react-hooks/exhaustive-deps` directives removed from `UnifiedStackPanel.tsx` (actual lines 735+776, drifted from REQUIREMENTS-cited 679+720). ESLint clean on file. Commit `a299f5ee`.
+6. **EMRG-FN-04** — `SublayerConfigIndicators` `layer={null}` closure documented via docstring extension. CONTEXT.md auto-resolution claim was wrong (live callsite at `UnifiedStackPanel.tsx:556` remains post-Path A); Plan 06 caught + corrected, used existing Test 1 as regression pin. Commit `06fbe98f`.
+7. **CTRL-01 batched close gate** — typecheck 0; vitest 1979/1979 (baseline 1981 − 3 deleted + 1 added); e2e:smoke:builder 26/26; i18n parity 2/2; CHANGELOG `[Unreleased]` v1011.1 block populated (Removed / Changed / Internal). Commits `e1d3d093` + `017af020`. Local `v1011.1` tag created.
+8. **Inline code-review fix (WR-01)** — Orphan `vi.mock('../StyleColorPicker', ...)` factory deleted from `BasemapSublayerEditorScene.test.tsx:22-41` (Plan 03 explicitly deferred as "orphaned but harmless"; code-review caught as misleading-to-future-readers). Vitest 7/7 confirmed. Tag moved from `017af020` → `567c701e`. Commit `567c701e`.
+
+**Smoke gate:** typecheck 0 errors / vitest 1979/1979 / e2e:smoke:builder 26/26 / i18n parity 2/2.
+**Live Playwright MCP re-verify:** orchestrator drove against 5/5-healthy `localhost:8080` stack — all 6 surface checks pass (STROKE/CASING/ZOOM ABSENT in basemap sublayer editor; opacity + Reset PRESENT; sublayer rows render cleanly with `layer={null}`; 0 console errors).
+**Inline code-review fixes:** 1 WARNING (WR-01) fixed inline; 1 INFO accepted as-is. Zero v1011.2 deferrals.
+
+**Patterns reinforced (not new):**
+- **Hygiene-shape carryforward milestone** — 4 EMRG-FN findings from v1011 EMRG-01 triage closed in 1 phase + 7 sequential plans + 1 CTRL-01 close gate (same shape as v1009.1, v1010.1, v1010.2, v1011).
+- **CONTEXT.md correctness gate at planner time** — planner's source-truth grep correctly caught 3 CONTEXT.md inaccuracies (Plan 01 scope was over-broad, EMRG-FN-04 auto-resolution was wrong, EMRG-FN-03 line numbers had drifted). Defending against pre-execution context errors via planner-time grep is the established pattern.
+- **Post-shipping code review catches secondary findings** — even on a tightly-scoped REMOVE phase, code review found 1 WARNING (orphan vi.mock) that Plan 03's executor explicitly deferred. Per `feedback_review_findings_inline.md`, fixing inline (and moving the tag) prevents v1011.2 deferral.
+
+**Known deferred items at close:** None for v1011.1 work itself. Pre-existing repo-wide audit-open noise: 191 historical quick-task artifacts + 1 unrelated 2026-05-05 "recreate-public-repo-before-launch" pending todo (not v1011.1 scope).
+
+See `.planning/milestones/v1011.1-ROADMAP.md` for full details.
+
+---
+
 ## v1011 Map Builder Polish & Bug Sweep (Shipped: 2026-05-18)
 
 **Phase:** 1051 (single-phase hygiene close)

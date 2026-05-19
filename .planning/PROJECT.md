@@ -12,23 +12,39 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1011.1 Builder Hygiene Carryover
+## Next Milestone Goals
 
-**Goal:** Close all 4 EMRG-FN findings carried forward from v1011 Phase 1051 Plan 12 (EMRG-01 triage) — settle the Phase 1038 `BasemapSublayerEditorScene` dead-stub disposition, drop the orphan i18n key, prune the pre-existing eslint-disable noise, and explicitly close out the `SublayerConfigIndicators` null branch.
+To be defined via `/gsd-new-milestone`. Open candidate themes from v1011.1 close + earlier deferrals:
 
-**Target features:**
-
-- **EMRG-FN-01 BasemapSublayerEditorScene dead-stub resolution** — settle Path A (REMOVE, mirror INV-01 precedent, ~1 plan) vs Path B (FIX, implement Phase 1038 styling persistence, ~3-5 days) during `/gsd-discuss-phase`; deliver chosen path with regression-pin coverage. Tracking: `.planning/todos/pending/2026-05-18-basemap-sublayer-phase-1038-dead-stubs.md`.
-- **EMRG-FN-02 settings.toggleWidget orphan i18n key cleanup** — remove the dead key from `frontend/src/i18n/locales/{en,de,es,fr}/builder.json` (4 file edits, no tests).
-- **EMRG-FN-03 UnifiedStackPanel.tsx unused-eslint-disable removal** — drop the 2 pre-existing unused-eslint-disable warnings (lines 679 + 720) from Phase 1041.
-- **EMRG-FN-04 SublayerConfigIndicators null close-out** — explicit verification step (auto-resolved if EMRG-FN-01 lands Path A and the scene is removed; explicit regression coverage if Path B).
-
-**Out-of-scope candidates carried forward to next milestone:**
-
+- **BasemapSublayerEditorScene Path B FIX** — full per-sublayer styling persistence (jsonb-additive `MapBasemapConfig.sublayer_overrides`; live MapLibre dispatch through `applyBasemapConfigToMap` with basemap-preset-aware sublayer style filtering). Explicitly deferred from v1011.1 EMRG-FN-01 (Path A REMOVE chosen instead). 3-5 day feature phase; prioritize only if/when basemap-sublayer styling becomes a real user need.
 - **v1.7 Marketplace & Distribution unpause** — phases 36-42 paused at Phase 40 (AWS AMI Build).
 - **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping infrastructure (backlogged, Cloud-tier blocker).
 - **Enterprise feature backlog** — Phase 999.13 persistent connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas package extraction.
 - **Recreate public repo before launch** — pending todo from 2026-05-05.
+
+## Recent Shipped Milestone: v1011.1 Builder Hygiene Carryover
+
+**Shipped:** 2026-05-18
+
+**Goal delivered:** Closed all 4 EMRG-FN findings carried forward from v1011 Phase 1051 Plan 12 (EMRG-01 triage) in a single hygiene phase. Path A REMOVE chosen for EMRG-FN-01 (mirroring v1011 INV-01 precedent at commit `6078b82a`); auto-resolution of EMRG-FN-04 was DISPROVEN at planner time (live `<SublayerConfigIndicators layer={null} />` callsite at `UnifiedStackPanel.tsx:556` remains post-Path A) — handled via docstring closure instead. Live Playwright MCP re-verify on `localhost:8080` confirmed Path A REMOVE intent matches shipped state (6/6 surface checks pass; 0 console errors).
+
+**Delivered:**
+
+- **EMRG-FN-01 Path A REMOVE.** `BasemapSublayerEditorScene` STROKE section + zoom range inputs + 5 dead-stub callbacks (`onStrokeColorChange` / `onStrokeWidthChange` / `onCasingColorChange` / `onCasingWidthChange` / `onZoomChange`) deleted; live opacity slider + Reset section preserved (planner caught CONTEXT.md over-broad scope, narrowed Plan 01 to STROKE + zoom only). Inline disposition comment block extended at removal site per INV-01 pattern. Commits `3629ec04` (surface deletion) + `3e48d331` (i18n cleanup, 5 keys × 4 locales = 20 entries) + `e8748d9b` (vitest cleanup + Test 14 regression pin with 5 positive-form `queryBy*` assertions) + `567c701e` (WR-01 orphan vi.mock inline fix).
+- **EMRG-FN-02 orphan i18n key cleanup.** `settings.toggleWidget` removed from all 4 locales (en/de/es/fr builder.json). Commit `205e5a70`.
+- **EMRG-FN-03 unused-eslint-disable removal.** 2 unused `eslint-disable-next-line react-hooks/exhaustive-deps` directives removed from `UnifiedStackPanel.tsx` at actual lines 735+776 (planner-time grep caught line drift from REQUIREMENTS-cited 679+720). ESLint clean on file. Commit `a299f5ee`.
+- **EMRG-FN-04 SublayerConfigIndicators null close-out.** Docstring extension to existing Test 1 documents the live `layer={null}` contract; CONTEXT.md auto-resolution claim was wrong (planner caught + Plan 06 corrected). No production code change. Commit `06fbe98f`.
+- **CTRL-01 close gate.** typecheck 0 / vitest 1979/1979 / e2e:smoke:builder 26/26 / i18n parity 2/2. CHANGELOG `[Unreleased]` v1011.1 block populated (Removed / Changed / Internal). Inline code-review fix applied (WR-01 orphan `vi.mock('../StyleColorPicker')` factory deleted; Plan 03 had explicitly deferred as "orphaned but harmless"). Local `v1011.1` tag at `567c701e` (moved from `017af020` after WR-01 fix). Commits `e1d3d093` + `017af020` (CHANGELOG backfill) + `567c701e` (WR-01).
+- **Live Playwright MCP re-verify.** Orchestrator drove against 5/5-healthy `localhost:8080` stack — basemap sublayer editor: STROKE/CASING/ZOOM ABSENT ✓, opacity slider PRESENT ✓, Reset section PRESENT ✓, sublayer rows render cleanly with `layer={null}` (no artifacts) ✓; 0 console errors ✓.
+
+**Patterns reinforced (not new):**
+
+- **Hygiene-shape carryforward milestone** — 4 EMRG-FN findings closed in 1 phase + 7 sequential plans + 1 CTRL-01 batched close gate; same shape as v1009.1 / v1010.1 / v1010.2 / v1011 per `feedback_hygiene_milestone_pattern.md`.
+- **Planner-time grep gate catches CONTEXT.md inaccuracies** — the planner caught 3 errors in CONTEXT.md before execution started (Plan 01 scope over-broad; EMRG-FN-04 auto-resolution claim wrong; EMRG-FN-03 line numbers drifted). Defending against pre-execution context drift via source-truth grep is the established pattern.
+- **Post-shipping code review catches secondary findings** — even a tightly-scoped REMOVE phase produced 1 WARNING + 1 INFO; the WARNING was an orphan vi.mock block that Plan 03 explicitly deferred. Per `feedback_review_findings_inline.md`, the fix landed inline (and the tag moved) rather than waiting for v1011.2.
+- **Live Playwright MCP re-verify as pre-tag gate** — orchestrator-scoped MCP verify on `localhost:8080` is the appropriate proof for REMOVE-disposition claims; vitest JSDOM-render confirms component-level absence but live MCP confirms the production page never paints the removed surface.
+
+**Milestone close:** 5/5 requirements satisfied; single phase (1052), 7 plans, 15 commits 2026-05-18 (8 source + 7 docs/state + 1 inline review fix). Smoke gate: typecheck 0 / vitest 1979/1979 / e2e:smoke:builder 26/26 / i18n parity 2/2. Live MCP re-verify 6/6 surface checks pass. Audit: PASSED (5/5 must-haves). Tag `v1011.1` local at `567c701e`. Zero v1011.2 deferrals.
 
 ## Recent Shipped Milestone: v1011 Map Builder Polish & Bug Sweep
 
@@ -807,13 +823,15 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 - ✓ Map Builder UX clarifications: 24×24 px expand caret with Lucide ChevronRight, new `SublayerConfigIndicators` pure-derivation badges (Labels / Filter / DataDriven / OpacityModified) replacing per-sublayer opacity slider, basemap row draggable via `MapBasemapConfig.basemap_position` jsonb-additive + `reorderBasemapAboveData` map-sync helper, Map Settings Widgets state-specific aria-labels with 0-duplicates audit — v1011 (UX-01..04)
 - ✓ Map Builder small-screen layout resilience: NavigationControl repositioned `top-right` → `top-left` with `data-builder-canvas` CSS scope, MapCoordReadout cross-context `right-14` offset codified in docstring, `<SheetContent showCloseButton={false}>` opt-out on both Sheet wrappers + NEGATIVE-CONTROL bug-shape regression pin — v1011 (RESP-01..03)
 - ✓ Emergent-findings triage + close-gate: FINDINGS.md with fix-now vs defer-with-rationale disposition; 4 P2 deferred items tracked via pending todo + SUMMARY cross-references; 21 inline code-review fixes (iter-1 17 / iter-2 4) + 2 in-flight regression fixes (CTRL-01 gate-fix `befe6a3b` + RESP-02-FOLLOWUP `4f4a9917`) shipped before tag — v1011 (EMRG-01, CTRL-01)
+- ✓ EMRG-FN-01 Path A REMOVE: `BasemapSublayerEditorScene` STROKE section + zoom range inputs + 5 dead-stub callbacks deleted (mirroring INV-01 precedent); live opacity slider + Reset section preserved; 5 orphan basemapSublayer i18n keys × 4 locales removed; Test 14 regression pin added with 5 positive-form `queryBy*` assertions; inline disposition comment block at removal site — v1011.1 (EMRG-FN-01)
+- ✓ EMRG-FN-02 orphan i18n key cleanup: `settings.toggleWidget` removed from all 4 locales (en/de/es/fr builder.json) — v1011.1 (EMRG-FN-02)
+- ✓ EMRG-FN-03 unused-eslint-disable cleanup: 2 stale `eslint-disable-next-line react-hooks/exhaustive-deps` directives removed from `UnifiedStackPanel.tsx` (actual lines 735+776 after planner-time grep caught REQUIREMENTS-cited 679+720 line drift); ESLint clean on file — v1011.1 (EMRG-FN-03)
+- ✓ EMRG-FN-04 SublayerConfigIndicators `layer={null}` closure: docstring extension to existing Test 1 documents the live callsite at `UnifiedStackPanel.tsx:556` (CONTEXT.md auto-resolution claim was wrong — planner caught + Plan 06 corrected); existing test is the regression pin — v1011.1 (EMRG-FN-04)
+- ✓ CTRL-01 batched close gate + live Playwright MCP re-verify: typecheck 0 / vitest 1979/1979 / e2e:smoke:builder 26/26 / i18n parity 2/2; orchestrator-driven MCP verify on `localhost:8080` confirmed Path A REMOVE intent matches shipped state (6/6 surface checks pass, 0 console errors); CHANGELOG `[Unreleased]` v1011.1 block populated; inline code-review fix (WR-01 orphan vi.mock) applied; local `v1011.1` tag at `567c701e` — v1011.1 (CTRL-01)
 
 ### Active
 
-- [ ] v1011.1 EMRG-FN-01 BasemapSublayerEditorScene dead-stub resolution: settle Path A (REMOVE, ~1 plan, ~10 min executor, mirror INV-01 precedent) vs Path B (FIX, ~3-5 days, implement Phase 1038 styling persistence via `MapBasemapConfig.sublayer_overrides` jsonb-additive + per-preset MapLibre style dispatch) during `/gsd-discuss-phase`; deliver chosen path with regression-pin test.
-- [ ] v1011.1 EMRG-FN-02 settings.toggleWidget orphan i18n key cleanup: remove the dead key from `frontend/src/i18n/locales/{en,de,es,fr}/builder.json` (4 file edits, no tests).
-- [ ] v1011.1 EMRG-FN-03 UnifiedStackPanel.tsx unused-eslint-disable removal: drop the 2 pre-existing unused-eslint-disable warnings at lines 679 + 720 from Phase 1041.
-- [ ] v1011.1 EMRG-FN-04 SublayerConfigIndicators null close-out: explicit verification step — auto-resolved if EMRG-FN-01 lands Path A (scene + its `layer={null}` callsite both removed); explicit regression test asserting safe-render with `layer={null}` if Path B.
+(None — v1011.1 shipped 2026-05-18. Run `/gsd-new-milestone` to scope the next milestone.)
 
 ### Out of Scope
 
@@ -1085,4 +1103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 — opened milestone v1011.1 Builder Hygiene Carryover*
+*Last updated: 2026-05-18 — shipped milestone v1011.1 Builder Hygiene Carryover*
