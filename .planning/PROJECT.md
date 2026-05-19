@@ -12,14 +12,29 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Next Milestone Goals
+## Current Milestone: v1012 New-User Hardening + Reupload
 
-To be defined via `/gsd-new-milestone`. Open candidate themes from v1011.1 close + earlier deferrals:
+**Goal:** Make the literal new-user install and first-hour exploration of GeoLens work end-to-end with no rough edges. Close the 17 still-open M001-7n8vpc audit findings + 6 enhancements (EW-01..06) and ship the missing Reupload affordance (IMPORT-04).
 
-- **BasemapSublayerEditorScene Path B FIX** — full per-sublayer styling persistence (jsonb-additive `MapBasemapConfig.sublayer_overrides`; live MapLibre dispatch through `applyBasemapConfigToMap` with basemap-preset-aware sublayer style filtering). Explicitly deferred from v1011.1 EMRG-FN-01 (Path A REMOVE chosen instead). 3-5 day feature phase; prioritize only if/when basemap-sublayer styling becomes a real user need.
+**Public tag:** v1.3.0 (minor bump — IMPORT-04 is feature work, follows v1.2.0 precedent of "minor when features ship").
+
+**Target features (8 buckets):**
+
+- **Quickstart docs (cross-repo)** — DOC-01..05. Quickstart-to-seeder path, `seed-ago-data.py` API-key discovery, `httpx` prereq, "1-2 minutes" claim, interactive credential prompt. Cross-repo: requirements tracked here, doc PRs land in `~/Code/getgeolens.com/.planning/`.
+- **Bring-up polish** — BU-03. Apple Silicon platform-mismatch warning.
+- **Seeders** — SEED-02..04. AGO ogr2ogr 120s timeout, upstream data quality noise, driver-list error spam.
+- **UX discovery** — UX-01. API Keys workflow is 3 clicks deep from login and undocumented.
+- **Console hygiene** — CONSOLE-01. Anonymous Search page fires 12× 401s (partial regression of v1010.2 SF-06).
+- **Routes** — ROUTE-01..04. `/admin/saml` silent redirect, 404 page missing `<title>`, `/register` redirect for authed users, `/m/{invalid-token}` console leak.
+- **Import operations** — IMPORT-02..05. Choose-File overlay intercepted by decorative span, React setState-during-render warning, **Reupload/Replace dataset affordance (feature)**, Register Table empty-state messaging.
+- **Easy wins (EW)** — EW-01 consolidate to single compose, EW-02 add API-seeder path to quickstart (overlaps DOC-01), EW-04 surface `DATABASE_SSL_MODE=disable` in `.env.example`, EW-05 STAC stage-and-confirm before GB-scale downloads, EW-06 reframe Register Table empty state. (EW-03 install.sh wait-for-health already shipped at `b4ad03d9` — credit-only.)
+
+**Deferred candidates from v1011.1 close (still open, not in v1012 scope):**
+
+- **BasemapSublayerEditorScene Path B FIX** — full per-sublayer styling persistence (3-5 day feature phase; prioritize only if/when basemap-sublayer styling becomes a real user need).
 - **v1.7 Marketplace & Distribution unpause** — phases 36-42 paused at Phase 40 (AWS AMI Build).
-- **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping infrastructure (backlogged, Cloud-tier blocker).
-- **Enterprise feature backlog** — Phase 999.13 persistent connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas package extraction.
+- **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping.
+- **Enterprise feature backlog** — Phase 999.13 connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas extraction.
 - **Recreate public repo before launch** — pending todo from 2026-05-05.
 
 ## Recent Shipped Milestone: v1011.1 Builder Hygiene Carryover
@@ -1103,4 +1118,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 — shipped milestone v1011.1 Builder Hygiene Carryover*
+*Last updated: 2026-05-19 — started milestone v1012 New-User Hardening + Reupload (audit follow-up to v1.2.0)*

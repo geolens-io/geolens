@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: ""
-status: between_milestones
-stopped_at: ""
-last_updated: 2026-05-19T20:30:00.000Z
-last_activity: "2026-05-19 — Ran M001-7n8vpc GeoLens New-User Dry-Run Audit (gsd-pi origin, executed in Claude Code). All 5 slices completed (S01 reset+bring-up, S02 seeders, S03 28-route sweep, S04 import-ops matrix, S05 consolidation). 20 defect findings + 6 enhancements catalogued in .planning/M001-7n8vpc-dry-run-audit.md (gitignored; 815 lines). Zero new tracked-file changes from the audit itself. Then fixed all 3 Critical findings (3 atomic commits 7b168bde, b4ad03d9, 787f4e43) and pushed to origin/main: BU-01 compose default DATABASE_SSL_MODE to prefer (one-char fix; verified migrate clean on fresh `up -d`); BU-02 install.sh wait_for_healthy gate (~50 lines; surfaces migrate failures with logs + exits non-zero; healthy-path live test prints 'GeoLens is ready.'); SEED-01 drop trailing slash on seed-natural-earth.py login URL (2 lines; verified `--username admin --password admin` bootstrap works end-to-end including cleanup_bootstrap_key). Audit artifacts cleaned up: audit-test + Private Bus Lines datasets deleted (113 → 111), audit-test-map deleted, 3 audit API keys deactivated, .env workaround reverted. Discovered safety pattern worth noting: DELETE /datasets/{id} requires `confirm_title` body matching the dataset title."
+milestone: v1012
+milestone_name: New-User Hardening + Reupload
+status: planning
+last_updated: "2026-05-19T20:37:37.509Z"
+last_activity: 2026-05-19
 progress:
   total_phases: 0
   completed_phases: 0
@@ -18,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: None (between milestones)
-Plan: None
-Status: Awaiting next milestone definition
-Last activity: 2026-05-19 — Ran M001-7n8vpc new-user dry-run audit (gsd-pi origin, 5 slices) → 20 findings catalogued in `.planning/M001-7n8vpc-dry-run-audit.md` → 3 Critical fixes shipped to origin/main (BU-01 compose SSL default, BU-02 install.sh wait-for-health, SEED-01 seeder login URL).
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-19 — Milestone v1012 started
 
 ## Project Reference
 
