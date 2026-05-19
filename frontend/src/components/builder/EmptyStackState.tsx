@@ -157,8 +157,18 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
   const [addedIds, setAddedIds] = useState<Set<string>>(() => new Set());
 
   function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && inlineQuery.trim()) {
-      onOpenAddData(inlineQuery.trim());
+    if (e.key === 'Enter') {
+      // Read from the DOM target rather than the React state closure: under
+      // Playwright the keydown can fire before React reconciles the prior
+      // change event, so the closure-captured `inlineQuery` may still be ''.
+      const value = e.currentTarget.value.trim();
+      if (value) {
+        // preventDefault prevents the synthesized keyup → click on whatever
+        // element Radix Dialog autofocuses (the close X when the lazy panel
+        // is still suspending), which would close the modal we just opened.
+        e.preventDefault();
+        onOpenAddData(value);
+      }
     }
     if (e.key === 'Escape') {
       setInlineQuery('');
