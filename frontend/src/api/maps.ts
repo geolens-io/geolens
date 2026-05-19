@@ -167,12 +167,29 @@ export async function bulkDeleteLayersApi(
   });
 }
 
-export async function getSharedMap(token: string, apiKey?: string): Promise<SharedMapResponse> {
+/**
+ * Fetch a shared map by its share token.
+ *
+ * Returns `null` when the token does not exist (404) — this is treated as an
+ * expected/quiet outcome (ROUTE-04). The caller (`useSharedMap` → `PublicViewerPage`)
+ * handles `data === null` via the existing `isError || !data` branch, rendering
+ * the "Map not found" view without any application-layer error surface.
+ *
+ * Other error statuses (403, 410 expired, 500) still throw ApiError normally so
+ * that they surface correctly (e.g. the "Link expired" view for 410).
+ */
+export async function getSharedMap(token: string, apiKey?: string): Promise<SharedMapResponse | null> {
   const extraHeaders: Record<string, string> = {};
   if (apiKey) {
     extraHeaders['X-Api-Key'] = apiKey;
   }
-  const resp = await apiFetch<SharedMapResponse>(`/maps/shared/${token}`, { headers: extraHeaders });
+  const resp = await apiFetch<SharedMapResponse | null>(`/maps/shared/${token}`, {
+    headers: extraHeaders,
+    expected404: true,
+  });
+  if (resp === null) {
+    return null;
+  }
   if (resp.layers) {
     for (const l of resp.layers) {
       const normalized = normalizeLayerStyleState(l.style_config, l.paint, l.geometry_type);

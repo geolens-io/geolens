@@ -120,15 +120,33 @@ async function authenticatedFetch(
   return response;
 }
 
+/**
+ * Fetch wrapper that converts auth/network/HTTP errors into ApiError.
+ *
+ * When `expected404` is set, a 404 response resolves to `null` instead
+ * of throwing — for endpoints where 404 is a normal/handled outcome
+ * (e.g. share-token lookup with a possibly-invalid token). The caller's
+ * TypeScript signature should reflect the nullable shape.
+ *
+ * Important: `expected404` does NOT bypass the 401→refresh→retry flow in
+ * `authenticatedFetch`. The quiet path only fires AFTER `authenticatedFetch`
+ * returns a final response with status 404. Other error statuses (403, 410,
+ * 500, …) still throw ApiError normally.
+ */
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit & { expected404?: boolean } = {},
 ): Promise<T> {
-  const response = await authenticatedFetch(path, options, (headers) => {
-    if (!headers.has('Content-Type') && !(options.body instanceof URLSearchParams) && !(options.body instanceof FormData)) {
+  const { expected404, ...fetchOptions } = options;
+  const response = await authenticatedFetch(path, fetchOptions, (headers) => {
+    if (!headers.has('Content-Type') && !(fetchOptions.body instanceof URLSearchParams) && !(fetchOptions.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
   });
+
+  if (response.status === 404 && expected404) {
+    return null as T;
+  }
 
   if (!response.ok) {
     let detail: string = response.statusText;
