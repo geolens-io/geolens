@@ -37,7 +37,7 @@
 
 ### Console Hygiene
 
-- [ ] **CONSOLE-01**: Anonymous Search page (`/`) and anonymous `/login` fire ZERO 401-error console noise — close the partial regression of v1010.2 SF-06 by gating any remaining authed-endpoint hooks (`/api/auth/refresh/` ×2, `/api/auth/me/` ×2, `/api/auth/me/permissions/` ×3, `/api/admin/ai-status/` ×3, etc.).
+- [x] **CONSOLE-01**: Anonymous Search page (`/`) and anonymous `/login` fire ZERO 401-error console noise — close the partial regression of v1010.2 SF-06 by gating any remaining authed-endpoint hooks (`/api/auth/refresh/` ×2, `/api/auth/me/` ×2, `/api/auth/me/permissions/` ×3, `/api/admin/ai-status/` ×3, etc.).
 
 ### Routes
 
@@ -121,7 +121,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEED-03 | Phase 1054 | Pending |
 | SEED-04 | Phase 1054 | Pending |
 | UX-01 | Phase 1054 | Complete |
-| CONSOLE-01 | Phase 1054 | Pending |
+| CONSOLE-01 | Phase 1054 | Complete |
 | ROUTE-01 | Phase 1054 | Pending |
 | ROUTE-02 | Phase 1054 | Complete |
 | ROUTE-03 | Phase 1054 | Pending |
