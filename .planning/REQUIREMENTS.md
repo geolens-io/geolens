@@ -16,10 +16,10 @@
 ### Documentation (Quickstart Hardening, Cross-Repo with getgeolens.com)
 
 - [x] **DOC-01**: Quickstart at `docs.getgeolens.com/guides/quickstart/` documents the API-seeder path (`seed-natural-earth.py` + `seed-ago-data.py`) so new users can populate the catalog without discovering scripts independently. (Merges audit DOC-01 + EW-02 — same fix, two angles.)
-- [ ] **DOC-02**: `seed-ago-data.py` is usable from the quickstart path — either accept `--username/--password` like `seed-natural-earth.py`, OR document the "create your first API key" workflow inline with the seeder docs.
-- [ ] **DOC-03**: Quickstart prerequisites list "Python 3.10+ with `httpx`" (scoped to the seeders section).
+- [x] **DOC-02**: `seed-ago-data.py` is usable from the quickstart path — either accept `--username/--password` like `seed-natural-earth.py`, OR document the "create your first API key" workflow inline with the seeder docs.
+- [x] **DOC-03**: Quickstart prerequisites list "Python 3.10+ with `httpx`" (scoped to the seeders section).
 - [ ] **DOC-04**: Quickstart's "1-2 minutes" startup-time claim is replaced with a measured/range expectation that survives variance (or the claim is removed in favor of `install.sh` wait-for-health output).
-- [ ] **DOC-05**: Quickstart documents the interactive credential prompt that `install.sh` raises (and/or the `GEOLENS_ADMIN_USERNAME` / `GEOLENS_ADMIN_PASSWORD` env-var alternative).
+- [x] **DOC-05**: Quickstart documents the interactive credential prompt that `install.sh` raises (and/or the `GEOLENS_ADMIN_USERNAME` / `GEOLENS_ADMIN_PASSWORD` env-var alternative).
 
 ### Bring-Up
 
@@ -110,10 +110,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DOC-01 | Phase 1053 | Complete |
-| DOC-02 | Phase 1053 | Pending |
-| DOC-03 | Phase 1053 | Pending |
+| DOC-02 | Phase 1053 | Complete |
+| DOC-03 | Phase 1053 | Complete |
 | DOC-04 | Phase 1053 | Pending |
-| DOC-05 | Phase 1053 | Pending |
+| DOC-05 | Phase 1053 | Complete |
 | BU-03 | Phase 1053 | Pending |
 | EW-01 | Phase 1053 | Complete |
 | EW-04 | Phase 1053 | Complete |
