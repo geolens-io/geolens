@@ -116,7 +116,7 @@ export const RENDERER_CAPABILITIES: readonly RendererCapability[] = [
     viewerSupport: 'native',
     styleJsonSupport: 'native',
   }),
-  capability('symbol', 'Symbol', 'vector-point', {
+  capability('symbol', 'Labels', 'vector-point', {
     backend: 'maplibre',
     sourceRequirement: 'vector-tile',
     companionLayers: [],

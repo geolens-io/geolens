@@ -832,7 +832,10 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
       />,
     );
 
-    expect(screen.getAllByText('Symbol').length).toBeGreaterThan(0);
+    // 'Symbol' was renamed to 'Labels' in the Render-as dropdown to match the
+    // v3 design language (cartographers say "labels"). The symbol style_config
+    // shape is unchanged — only the UI string.
+    expect(screen.getAllByText('Labels').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Icon')).toHaveValue('marker');
     expect(screen.getByRole('slider', { name: 'Size' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Rotation' })).toBeInTheDocument();
@@ -1114,7 +1117,6 @@ describe('LayerEditorPanel — layer switch state isolation (WR-01)', () => {
         handlers={handlers}
         onClose={vi.fn()}
         isDrillDown={true}
-        enableLegacyTabs={true}
       />,
     );
 

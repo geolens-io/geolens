@@ -204,7 +204,7 @@
     "maxZoom": "Zoom max",
     "renderAs": "Afficher comme",
     "renderPoints": "Points",
-    "renderSymbol": "Symbole",
+    "renderSymbol": "Étiquettes",
     "renderHeatmap": "Carte de chaleur",
     "renderCluster": "Agrégat",
     "none": "Aucun",
@@ -893,6 +893,7 @@
   },
   "layerEditor": {
     "close": "Fermer l'éditeur de couche",
+    "tabsLabel": "Onglets de l'éditeur de couche",
     "section": {
       "renderAs": "Afficher comme",
       "appearance": "Apparence",
@@ -916,13 +917,24 @@
       "delete": "Supprimer",
       "keep": "Conserver la couche"
     },
+    "confirmRenderAs": {
+      "message": "Changer de mode de rendu réinitialisera le style actuel. Continuer ?",
+      "confirm": "Changer de mode",
+      "cancel": "Conserver le style"
+    },
     "visibility": {
       "opacity": "Opacité",
       "minZoom": "Zoom minimum",
       "maxZoom": "Zoom maximum"
     },
     "source": {
-      "noColumns": "Aucune colonne interrogeable indexée pour cette couche."
+      "noColumns": "Aucune colonne interrogeable indexée pour cette couche.",
+      "menuLabel": "Source",
+      "dataset": "Jeu de données",
+      "features": "Entités",
+      "type": "Type",
+      "geometry": "Géométrie",
+      "columns": "Colonnes"
     }
   },
   "settings": {

@@ -527,4 +527,45 @@ describe('Add to group sub-flow', () => {
     expect(onSelectLayer).toHaveBeenCalledOnce();
     expect(onSelectLayer).toHaveBeenCalledWith('regression-layer');
   });
+
+  // ---------------------------------------------------------------------------
+  // v3 design — Source moved from panel section into row kebab menu
+  // ---------------------------------------------------------------------------
+  describe('Source info in kebab menu', () => {
+    it('opens kebab and shows the Source info block with dataset metadata', () => {
+      const layer = makeLayer({
+        id: 'src-layer',
+        dataset_name: 'Reefs (10m)',
+        dataset_feature_count: 1043,
+        dataset_geometry_type: 'MULTILINESTRING',
+      });
+      render(<StackRow {...defaultProps({ layer })} />);
+
+      fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+      const sourceBlock = screen.getByTestId('stack-row-kebab-source');
+      expect(sourceBlock).toBeInTheDocument();
+      expect(sourceBlock).toHaveTextContent('Reefs (10m)');
+      expect(sourceBlock).toHaveTextContent('1,043');
+      expect(sourceBlock).toHaveTextContent('MULTILINESTRING');
+    });
+
+    it('Source block renders column count when dataset_column_info is non-empty', () => {
+      const layer = makeLayer({
+        id: 'cols-layer',
+        dataset_column_info: [
+          { name: 'a', type: 'text' },
+          { name: 'b', type: 'integer' },
+          { name: 'c', type: 'numeric' },
+        ],
+      });
+      render(<StackRow {...defaultProps({ layer })} />);
+
+      fireEvent.pointerDown(screen.getByRole('button', { name: /Layer options for/i }), { button: 0, ctrlKey: false });
+
+      const sourceBlock = screen.getByTestId('stack-row-kebab-source');
+      // Columns line shows the count (3)
+      expect(sourceBlock).toHaveTextContent('3');
+    });
+  });
 });

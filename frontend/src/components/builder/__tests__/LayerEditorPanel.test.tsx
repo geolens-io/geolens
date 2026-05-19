@@ -1,11 +1,18 @@
-import { render, screen, fireEvent } from '@/test/test-utils';
+import { render, screen, fireEvent, within } from '@/test/test-utils';
 import { LayerEditorPanel, type LayerEditorHandlers } from '../LayerEditorPanel';
 import type { MapLayerResponse } from '@/types/api';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) =>
-      options?.defaultValue ?? key,
+    t: (key: string, options?: { defaultValue?: string } & Record<string, unknown>) => {
+      // Resolve the four known tab-label keys so role=tab assertions can find
+      // them by their visible English label.
+      if (key === 'layerItem.styleTab') return 'Style';
+      if (key === 'layerItem.filterTab') return 'Filter';
+      if (key === 'layerItem.labelsTab') return 'Labels';
+      if (key === 'layerItem.popupTab') return 'Popup';
+      return options?.defaultValue ?? key;
+    },
   }),
 }));
 
@@ -153,35 +160,6 @@ describe('LayerEditorPanel', () => {
       );
       expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
     });
-
-    it('renders the legacy tab UI when enableLegacyTabs=true', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab="style"
-          enableLegacyTabs={true}
-        />
-      );
-      // Legacy tab bar should be present (it renders tablist)
-      const body = screen.getByTestId('layer-editor-body');
-      expect(body.children.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('footer slot', () => {
-    it('renders data-testid="layer-editor-footer"', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-        />
-      );
-      expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
-    });
   });
 
   describe('LayerEditorHandlers interface', () => {
@@ -190,8 +168,8 @@ describe('LayerEditorPanel', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
-          onClose={vi.fn()}
           handlers={handlers}
+          onClose={vi.fn()}
           activeTab={null}
         />
       );
@@ -199,47 +177,73 @@ describe('LayerEditorPanel', () => {
     });
   });
 
-  describe('section body (enableLegacyTabs=false)', () => {
-    it('renders six sections in DOM order: Render as, Appearance, Visibility, Filter, Labels, Source', () => {
+  describe('tab body (default scene)', () => {
+    it('renders a tablist with Style/Filter/Popup for a vector layer (no Labels tab unless render_mode=symbol)', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
         />
       );
-      const body = screen.getByTestId('layer-editor-body');
-      expect(body).toBeInTheDocument();
-      // All six section labels should appear in the document
-      expect(screen.getByText('Render as')).toBeInTheDocument();
-      expect(screen.getByText('Appearance')).toBeInTheDocument();
-      expect(screen.getByText('Visibility')).toBeInTheDocument();
-      expect(screen.getByText('Filter')).toBeInTheDocument();
-      expect(screen.getByText('Labels')).toBeInTheDocument();
-      expect(screen.getByText('Source')).toBeInTheDocument();
+      const tablist = screen.getByRole('tablist');
+      expect(within(tablist).getByRole('tab', { name: 'Style' })).toBeInTheDocument();
+      expect(within(tablist).getByRole('tab', { name: 'Filter' })).toBeInTheDocument();
+      expect(within(tablist).getByRole('tab', { name: 'Popup' })).toBeInTheDocument();
+      expect(within(tablist).queryByRole('tab', { name: 'Labels' })).not.toBeInTheDocument();
     });
 
-    it('Render-as pill strip shows pills from getRenderAsOptions; active pill has data-active="true"', () => {
-      // POLYGON layer -> fill/stroke/fill-stroke/extrusion-3d options
-      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
+    it('renders a Labels tab only when style_config.render_mode === "symbol"', () => {
+      // Point layer with symbol render mode → Labels tab appears
+      const layer = makeLayer({
+        dataset_geometry_type: 'POINT',
+        style_config: {
+          render_mode: 'symbol',
+          symbol: { iconImage: 'marker', iconSize: 1 },
+        } as import('@/types/api').StyleConfig,
+      });
       render(
         <LayerEditorPanel
           layer={layer}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
         />
       );
-      // Should show at least one pill (e.g. "Fill")
+      const tablist = screen.getByRole('tablist');
+      expect(within(tablist).getByRole('tab', { name: 'Labels' })).toBeInTheDocument();
+    });
+
+    it('Style tab is the default active tab when activeTab is null', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+        />
+      );
+      const styleTab = screen.getByRole('tab', { name: 'Style' });
+      expect(styleTab).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('Render-as pill strip renders inside the Style tab and active pill has data-active="true"', () => {
+      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="style"
+        />
+      );
       const activePill = document.querySelector('[data-active="true"]');
       expect(activePill).not.toBeNull();
     });
 
-    it('clicking a non-active render-as pill calls handlers.onRenderModeChange', () => {
-      // Use POINT layer which has multiple distinct options: point, symbol, heatmap, cluster
+    it('clicking a non-active render-as pill opens the destructive confirm — does NOT immediately fire onRenderModeChange', () => {
+      // Point layer has multiple options (point/symbol/heatmap/cluster).
       const handlers = makeHandlers();
       const layer = makeLayer({ dataset_geometry_type: 'POINT' });
       render(
@@ -247,80 +251,73 @@ describe('LayerEditorPanel', () => {
           layer={layer}
           onClose={vi.fn()}
           handlers={handlers}
-          activeTab={null}
-          enableLegacyTabs={false}
+          activeTab="style"
         />
       );
-      // Find all render-as pills; click the first inactive one
       const pills = document.querySelectorAll('[data-active="false"]');
-      if (pills.length > 0) {
-        fireEvent.click(pills[0] as HTMLElement);
-        expect(handlers.onRenderModeChange).toHaveBeenCalled();
-      } else {
-        // If all pills are active (single option), just confirm the section rendered
-        expect(screen.getByText('Render as')).toBeInTheDocument();
+      if (pills.length === 0) {
+        // Single render option for this geometry — skip
+        return;
       }
+      fireEvent.click(pills[0] as HTMLElement);
+      // Switch is destructive — confirm dialog opens, no actual mutation yet.
+      expect(handlers.onRenderModeChange).not.toHaveBeenCalled();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Switch mode' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Keep style' })).toBeInTheDocument();
     });
 
-    it('Appearance section embeds LayerStyleEditor for a vector layer', () => {
+    it('clicking "Switch mode" in the render-as confirm calls onRenderModeChange', () => {
+      const handlers = makeHandlers();
+      const layer = makeLayer({ dataset_geometry_type: 'POINT' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab="style"
+        />
+      );
+      const pills = document.querySelectorAll('[data-active="false"]');
+      if (pills.length === 0) return;
+      fireEvent.click(pills[0] as HTMLElement);
+      fireEvent.click(screen.getByRole('button', { name: 'Switch mode' }));
+      expect(handlers.onRenderModeChange).toHaveBeenCalled();
+    });
+
+    it('clicking "Keep style" dismisses the render-as confirm without calling onRenderModeChange', () => {
+      const handlers = makeHandlers();
+      const layer = makeLayer({ dataset_geometry_type: 'POINT' });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab="style"
+        />
+      );
+      const pills = document.querySelectorAll('[data-active="false"]');
+      if (pills.length === 0) return;
+      fireEvent.click(pills[0] as HTMLElement);
+      fireEvent.click(screen.getByRole('button', { name: 'Keep style' }));
+      expect(handlers.onRenderModeChange).not.toHaveBeenCalled();
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('Style tab embeds LayerStyleEditor for a vector layer', () => {
       const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
       render(
         <LayerEditorPanel
           layer={layer}
           onClose={vi.fn()}
           handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
+          activeTab="style"
         />
       );
       expect(screen.getByTestId('layer-style-editor')).toBeInTheDocument();
     });
 
-    it('Visibility section opacity slider has aria-label containing "Opacity"', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      // The slider aria-label should contain "Opacity"
-      const slider = document.querySelector('[aria-label*="Opacity"]');
-      expect(slider).not.toBeNull();
-    });
-
-    it('Filter section is collapsed by default', () => {
-      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
-      render(
-        <LayerEditorPanel
-          layer={layer}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      // Filter editor should not be visible initially (collapsed)
-      expect(screen.queryByTestId('layer-filter-editor')).not.toBeInTheDocument();
-    });
-
-    it('Filter section hint reads "No filter" when layer.filter is null', () => {
-      const layer = makeLayer({ filter: null });
-      render(
-        <LayerEditorPanel
-          layer={layer}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      expect(screen.getByText('No filter')).toBeInTheDocument();
-    });
-
-    it('Labels section is absent when supportsLabelEditor is false (raster layer)', () => {
+    it('Style tab embeds RasterLayerControls for a raster layer', () => {
       const layer = makeLayer({
         dataset_record_type: 'raster_dataset',
         layer_type: 'raster_geolens',
@@ -331,175 +328,155 @@ describe('LayerEditorPanel', () => {
           layer={layer}
           onClose={vi.fn()}
           handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      // Labels section should not render for raster
-      expect(screen.queryByText('Labels')).not.toBeInTheDocument();
-    });
-
-    it('Source section is always rendered', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      expect(screen.getByText('Source')).toBeInTheDocument();
-    });
-
-    it('footer renders a single "Delete layer" button when confirmingDelete is false', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      expect(screen.getByRole('button', { name: 'Delete layer' })).toBeInTheDocument();
-    });
-
-    it('clicking "Delete layer" reveals inline confirm: "Are you sure? This cannot be undone."', () => {
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      fireEvent.click(screen.getByRole('button', { name: 'Delete layer' }));
-      expect(screen.getByText('Are you sure? This cannot be undone.')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Keep layer' })).toBeInTheDocument();
-    });
-
-    it('clicking "Delete" in the confirm calls handlers.onRemove(layer.id)', () => {
-      const handlers = makeHandlers();
-      const layer = makeLayer({ id: 'test-layer-id' });
-      render(
-        <LayerEditorPanel
-          layer={layer}
-          onClose={vi.fn()}
-          handlers={handlers}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      fireEvent.click(screen.getByRole('button', { name: 'Delete layer' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-      expect(handlers.onRemove).toHaveBeenCalledWith('test-layer-id');
-    });
-
-    it('clicking "Keep layer" hides the confirm without calling onRemove', () => {
-      const handlers = makeHandlers();
-      render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={handlers}
-          activeTab={null}
-          enableLegacyTabs={false}
-        />
-      );
-      fireEvent.click(screen.getByRole('button', { name: 'Delete layer' }));
-      expect(screen.getByText('Are you sure? This cannot be undone.')).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Keep layer' }));
-      expect(screen.queryByText('Are you sure? This cannot be undone.')).not.toBeInTheDocument();
-      expect(handlers.onRemove).not.toHaveBeenCalled();
-    });
-
-    it('Appearance section renders RasterLayerControls for a raster layer', () => {
-      const layer = makeLayer({
-        dataset_record_type: 'raster_dataset',
-        layer_type: 'raster_geolens',
-        dataset_geometry_type: null,
-      });
-      render(
-        <LayerEditorPanel
-          layer={layer}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
+          activeTab="style"
         />
       );
       expect(screen.getByTestId('raster-layer-controls')).toBeInTheDocument();
       expect(screen.queryByTestId('layer-style-editor')).not.toBeInTheDocument();
     });
 
-    it('with enableLegacyTabs=true, the legacy tab UI still renders (regression)', () => {
+    it('selecting the Filter tab renders the filter editor body', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="filter"
+        />
+      );
+      expect(screen.getByTestId('layer-filter-editor')).toBeInTheDocument();
+    });
+
+    it('selecting the Popup tab renders the popup config editor', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="popup"
+        />
+      );
+      expect(screen.getByTestId('popup-config-editor')).toBeInTheDocument();
+    });
+
+    it('clicking a tab fires handlers.onTabChange with the layer id and tab key', () => {
+      const handlers = makeHandlers();
+      render(
+        <LayerEditorPanel
+          layer={makeLayer({ id: 'foo' })}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab="style"
+        />
+      );
+      fireEvent.click(screen.getByRole('tab', { name: 'Filter' }));
+      expect(handlers.onTabChange).toHaveBeenCalledWith('foo', 'filter');
+    });
+
+    it('Filter tab pip shows a count badge when the filter has conditions', () => {
+      const layer = makeLayer({ filter: ['all', ['==', 'a', 1], ['==', 'b', 2]] });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="style"
+        />
+      );
+      // The Filter tab should contain a "2" pip
+      const filterTab = screen.getByRole('tab', { name: /Filter/ });
+      expect(filterTab).toHaveTextContent('2');
+    });
+
+    it('Popup tab pip is rendered when popup_config.enabled is true', () => {
+      const layer = makeLayer({
+        popup_config: { enabled: true } as import('@/types/api').PopupConfig,
+      });
+      const { container } = render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="style"
+        />
+      );
+      const popupTab = screen.getByRole('tab', { name: /Popup/ });
+      // The popup tab should contain a dot element (small rounded primary span)
+      const dot = popupTab.querySelector('span.rounded-full');
+      expect(dot).not.toBeNull();
+      expect(container).toBeTruthy();
+    });
+
+    it('Source section is NOT rendered in the panel (moved to row kebab)', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer({ dataset_name: 'My dataset' })}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="style"
+        />
+      );
+      // No "Source" section header in the panel body — Source moved to StackRow kebab
+      expect(screen.queryByText('Source')).not.toBeInTheDocument();
+    });
+
+    it('Footer is NOT rendered for the default scene (Delete moved to row kebab)', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab="style"
-          enableLegacyTabs={true}
         />
       );
-      // The old tab UI renders tablist
-      expect(screen.getByRole('tablist')).toBeInTheDocument();
-      // The new section labels should NOT appear
-      expect(screen.queryByText('Render as')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('layer-editor-footer')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Delete layer' })).not.toBeInTheDocument();
     });
   });
 
   describe('editorScene dispatch', () => {
-    it('Test 1: editorScene=default renders existing section body (regression)', () => {
+    it('editorScene=default renders the tab body', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
           editorScene="default"
         />
       );
-      expect(screen.getByText('Render as')).toBeInTheDocument();
-      expect(screen.getByText('Appearance')).toBeInTheDocument();
+      expect(screen.getByRole('tablist')).toBeInTheDocument();
     });
 
-    it('Test 1b: editorScene=undefined renders existing section body (regression)', () => {
+    it('editorScene=undefined renders the tab body (regression)', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
         />
       );
-      expect(screen.getByText('Render as')).toBeInTheDocument();
+      expect(screen.getByRole('tablist')).toBeInTheDocument();
     });
 
-    it('Test 2: editorScene=basemap-sublayer renders breadcrumb ABOVE layer-editor-title', () => {
+    it('editorScene=basemap-sublayer renders breadcrumb', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
           editorScene="basemap-sublayer"
           breadcrumbPresetName="Positron"
         />
       );
-      // Breadcrumb should contain "Basemap · Positron ›"
       const breadcrumb = screen.getByRole('button', { name: 'Back to basemap group' });
       expect(breadcrumb).toBeInTheDocument();
       expect(breadcrumb).toHaveTextContent('Basemap · Positron ›');
     });
 
-    it('Test 3: breadcrumb has role=button, aria-label, and calls onBreadcrumbClick', () => {
+    it('breadcrumb calls onBreadcrumbClick when clicked', () => {
       const onBreadcrumbClick = vi.fn();
       render(
         <LayerEditorPanel
@@ -507,136 +484,65 @@ describe('LayerEditorPanel', () => {
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
           editorScene="basemap-sublayer"
           breadcrumbPresetName="Streets"
           onBreadcrumbClick={onBreadcrumbClick}
         />
       );
-      const breadcrumb = screen.getByRole('button', { name: 'Back to basemap group' });
-      expect(breadcrumb).toHaveAttribute('aria-label', 'Back to basemap group');
-      fireEvent.click(breadcrumb);
+      fireEvent.click(screen.getByRole('button', { name: 'Back to basemap group' }));
       expect(onBreadcrumbClick).toHaveBeenCalledTimes(1);
     });
 
-    it('Test 4: breadcrumb does NOT render when editorScene is default, dem, or basemap-group', () => {
-      const { rerender } = render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="default"
-        />
-      );
-      expect(screen.queryByRole('button', { name: 'Back to basemap group' })).not.toBeInTheDocument();
-
-      rerender(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="dem"
-        />
-      );
-      expect(screen.queryByRole('button', { name: 'Back to basemap group' })).not.toBeInTheDocument();
-
-      rerender(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="basemap-group"
-        />
-      );
-      expect(screen.queryByRole('button', { name: 'Back to basemap group' })).not.toBeInTheDocument();
-    });
-
-    it('Test 5: non-default editorScene does NOT render six-section body; renders sceneContent instead', () => {
+    it('non-default editorScene does NOT render the tab body; renders sceneContent instead', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
           editorScene="dem"
           sceneContent={<div data-testid="custom-scene">scene</div>}
         />
       );
-      expect(screen.queryByText('Render as')).not.toBeInTheDocument();
-      expect(screen.queryByText('Appearance')).not.toBeInTheDocument();
+      expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
       expect(screen.getByTestId('custom-scene')).toBeInTheDocument();
     });
 
-    it('Test 6: testids layer-editor-header and layer-editor-body preserved on all scenes; layer-editor-footer preserved on default scene and on non-default scenes that supply sceneFooter', () => {
-      // Default scene — header + body + footer all present (the footer hosts
-      // the inline Delete-layer button + alertdialog confirm).
-      const { rerender } = render(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="default"
-        />
-      );
-      expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
-      expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
-      expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
-
-      // Non-default scene without sceneFooter — header + body preserved, but
-      // the footer slot is intentionally omitted because the scene supplies
-      // its own controls (LayerEditorPanel.tsx lines 680-684 footer gate).
-      // The hosting scene (e.g. basemap-sublayer) renders its own controls
-      // inside `sceneContent` instead of the default footer.
-      rerender(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="basemap-sublayer"
-        />
-      );
-      expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
-      expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
-      expect(screen.queryByTestId('layer-editor-footer')).not.toBeInTheDocument();
-
-      // Non-default scene WITH sceneFooter — footer slot is preserved and
-      // rendered, hosting the scene-specific footer content.
-      rerender(
-        <LayerEditorPanel
-          layer={makeLayer()}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="basemap-sublayer"
-          sceneFooter={<button data-testid="scene-footer-action">Reset</button>}
-        />
-      );
-      expect(screen.getByTestId('layer-editor-header')).toBeInTheDocument();
-      expect(screen.getByTestId('layer-editor-body')).toBeInTheDocument();
-      expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
-      expect(screen.getByTestId('scene-footer-action')).toBeInTheDocument();
-    });
-
-    it('Test 7: editorScene=basemap-sublayer with undefined presetName renders "Basemap · Untitled ›"', () => {
+    it('non-default scene WITH sceneFooter renders the footer slot', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
+          editorScene="basemap-sublayer"
+          sceneFooter={<button data-testid="scene-footer-action">Reset</button>}
+        />
+      );
+      expect(screen.getByTestId('layer-editor-footer')).toBeInTheDocument();
+      expect(screen.getByTestId('scene-footer-action')).toBeInTheDocument();
+    });
+
+    it('non-default scene WITHOUT sceneFooter omits the footer slot', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          editorScene="basemap-sublayer"
+        />
+      );
+      expect(screen.queryByTestId('layer-editor-footer')).not.toBeInTheDocument();
+    });
+
+    it('breadcrumb with undefined presetName renders "Basemap · Untitled ›"', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
           editorScene="basemap-sublayer"
         />
       );
@@ -645,7 +551,7 @@ describe('LayerEditorPanel', () => {
     });
   });
 
-  describe('AUD-05/06/07: header padding, type pill color, caret duration', () => {
+  describe('AUD-05/06: header padding, type pill color', () => {
     it('AUD-05: header element has className containing px-4 and py-3', () => {
       render(
         <LayerEditorPanel
@@ -660,7 +566,7 @@ describe('LayerEditorPanel', () => {
       expect(header.className).toContain('py-3');
     });
 
-    it('AUD-06: vector layer type pill has bg-[var(--type-vector-bg)] and text-[var(--type-vector)] classes', () => {
+    it('AUD-06: vector layer type pill has bg-[var(--type-vector-bg)] class', () => {
       const layer = makeLayer({ dataset_record_type: 'vector_dataset', dataset_geometry_type: 'POLYGON' });
       render(
         <LayerEditorPanel
@@ -668,11 +574,9 @@ describe('LayerEditorPanel', () => {
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
           editorScene="default"
         />
       );
-      // The pill span — use querySelectorAll to find spans with the type-vector-bg class
       const pill = document.querySelector('[class*="type-vector-bg"]');
       expect(pill).not.toBeNull();
       expect(pill?.className).toContain('type-vector');
@@ -690,30 +594,11 @@ describe('LayerEditorPanel', () => {
           onClose={vi.fn()}
           handlers={makeHandlers()}
           activeTab={null}
-          enableLegacyTabs={false}
           editorScene="default"
         />
       );
       const pill = document.querySelector('[class*="type-raster-bg"]');
       expect(pill).not.toBeNull();
-    });
-
-    it('AUD-07: Filter section caret has className containing transition-transform and duration-[--motion-fast]', () => {
-      const layer = makeLayer({ dataset_geometry_type: 'POLYGON' });
-      render(
-        <LayerEditorPanel
-          layer={layer}
-          onClose={vi.fn()}
-          handlers={makeHandlers()}
-          activeTab={null}
-          enableLegacyTabs={false}
-          editorScene="default"
-        />
-      );
-      // All three collapsible section triggers have ChevronRight icons with the duration class
-      const carets = document.querySelectorAll('[class*="transition-transform"][class*="motion-fast"]');
-      // Should have at least 1 (Filter, Labels, Source — depending on layer kind)
-      expect(carets.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

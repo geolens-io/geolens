@@ -1145,7 +1145,6 @@ export function MapBuilderPage() {
                 isDrillDown={false}
                 handlers={layerEditorHandlers}
                 activeTab={layers.activeEditorTab}
-                enableLegacyTabs={false}
                 editorScene={editorScene}
                 sceneContent={sceneContent ?? undefined}
                 sceneFooter={sceneFooter ?? undefined}
@@ -1226,8 +1225,7 @@ export function MapBuilderPage() {
                   isDrillDown={true}
                   handlers={layerEditorHandlers}
                   activeTab={layers.activeEditorTab}
-                  enableLegacyTabs={false}
-                  editorScene={editorScene}
+                    editorScene={editorScene}
                   sceneContent={sceneContent ?? undefined}
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}

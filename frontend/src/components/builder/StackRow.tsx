@@ -344,7 +344,7 @@ export const StackRow = memo(function StackRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-40"
+            className="w-56"
             onCloseAutoFocus={(e) => {
               if (skipCloseAutoFocusRef.current) {
                 e.preventDefault();
@@ -352,6 +352,66 @@ export const StackRow = memo(function StackRow({
               }
             }}
           >
+            {/* Source info — read-only dataset metadata. Per v3 design,
+                Source is no longer a panel section; the layer-row (···) menu
+                is the right home for read-only layer-scoped info. */}
+            {(() => {
+              const caps = getLayerCapabilities(layer);
+              const showSource =
+                !!layer.dataset_name
+                || layer.dataset_feature_count != null
+                || !!layer.dataset_geometry_type;
+              if (!showSource) return null;
+              const columnCount = layer.dataset_column_info?.length ?? 0;
+              return (
+                <>
+                  <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground px-2 pt-2 pb-1">
+                    {t('layerEditor.source.menuLabel', { defaultValue: 'Source' })}
+                  </DropdownMenuLabel>
+                  <div className="px-2 pb-2 text-xs space-y-1" data-testid="stack-row-kebab-source">
+                    {layer.dataset_name && (
+                      <div className="flex justify-between gap-2 min-w-0">
+                        <span className="text-muted-foreground shrink-0">
+                          {t('layerEditor.source.dataset', { defaultValue: 'Dataset' })}
+                        </span>
+                        <span className="truncate font-medium">{layer.dataset_name}</span>
+                      </div>
+                    )}
+                    {layer.dataset_feature_count != null && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          {t('layerEditor.source.features', { defaultValue: 'Features' })}
+                        </span>
+                        <span className="font-medium">{layer.dataset_feature_count.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        {t('layerEditor.source.type', { defaultValue: 'Type' })}
+                      </span>
+                      <span className="font-medium">{caps.kind}</span>
+                    </div>
+                    {layer.dataset_geometry_type && (
+                      <div className="flex justify-between gap-2 min-w-0">
+                        <span className="text-muted-foreground shrink-0">
+                          {t('layerEditor.source.geometry', { defaultValue: 'Geometry' })}
+                        </span>
+                        <span className="truncate font-medium">{layer.dataset_geometry_type}</span>
+                      </div>
+                    )}
+                    {columnCount > 0 && (
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground">
+                          {t('layerEditor.source.columns', { defaultValue: 'Columns' })}
+                        </span>
+                        <span className="font-medium">{columnCount}</span>
+                      </div>
+                    )}
+                  </div>
+                  <DropdownMenuSeparator />
+                </>
+              );
+            })()}
             <DropdownMenuItem
               onSelect={() => {
                 // Let the menu close; the editing useEffect's rAF focus +

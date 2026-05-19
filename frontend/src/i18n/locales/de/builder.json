@@ -204,7 +204,7 @@
     "maxZoom": "Max. Zoom",
     "renderAs": "Darstellung",
     "renderPoints": "Punkte",
-    "renderSymbol": "Symbol",
+    "renderSymbol": "Beschriftungen",
     "renderHeatmap": "Heatmap",
     "renderCluster": "Cluster",
     "none": "Keine",
@@ -893,6 +893,7 @@
   },
   "layerEditor": {
     "close": "Layer-Editor schließen",
+    "tabsLabel": "Layer-Editor-Tabs",
     "section": {
       "renderAs": "Darstellung",
       "appearance": "Darstellung",
@@ -916,13 +917,24 @@
       "delete": "Löschen",
       "keep": "Layer behalten"
     },
+    "confirmRenderAs": {
+      "message": "Beim Wechsel des Darstellungsmodus wird der aktuelle Stil zurückgesetzt. Fortfahren?",
+      "confirm": "Modus wechseln",
+      "cancel": "Stil behalten"
+    },
     "visibility": {
       "opacity": "Deckkraft",
       "minZoom": "Minimaler Zoom",
       "maxZoom": "Maximaler Zoom"
     },
     "source": {
-      "noColumns": "Keine abfragbaren Spalten für diesen Layer indiziert."
+      "noColumns": "Keine abfragbaren Spalten für diesen Layer indiziert.",
+      "menuLabel": "Quelle",
+      "dataset": "Datensatz",
+      "features": "Features",
+      "type": "Typ",
+      "geometry": "Geometrie",
+      "columns": "Spalten"
     }
   },
   "settings": {

@@ -138,7 +138,6 @@ function renderEditorSheet({
           isDrillDown={true}
           handlers={makeHandlers()}
           activeTab="style"
-          enableLegacyTabs={false}
           editorScene="default"
         />
       </SheetContent>
@@ -271,7 +270,6 @@ describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays)
         isDrillDown={false}
         handlers={makeHandlers()}
         activeTab="style"
-        enableLegacyTabs={false}
         editorScene="default"
       />
     );
@@ -335,8 +333,7 @@ describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays)
             isDrillDown={true}
             handlers={makeHandlers()}
             activeTab="style"
-            enableLegacyTabs={false}
-            editorScene="default"
+              editorScene="default"
           />
         </SheetContent>
       </Sheet>

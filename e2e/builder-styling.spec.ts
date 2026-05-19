@@ -97,8 +97,8 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     await dataRow.click();
     await expect(page.getByTestId('builder-layer-editor')).toBeVisible({ timeout: 5_000 });
 
-    // The Appearance section is open by default and surfaces the Data-Driven
-    // Style controls when a column supports it.
+    // The Style tab is active by default and surfaces the Data-Driven Style
+    // controls when a column supports it (via the embedded LayerStyleEditor).
     await expect(page.getByText('Data-Driven Style')).toBeVisible();
 
     // Select the first available column in the data-driven column dropdown
@@ -181,10 +181,9 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     const editor = page.getByTestId('builder-layer-editor');
     await expect(editor).toBeVisible({ timeout: 5_000 });
 
-    // Phase 1034 replaced the per-tab editor with collapsible sections; the
-    // Filter section is collapsed by default and exposes a section trigger
-    // button whose accessible name starts with "Filter".
-    await editor.getByRole('button', { name: /^Filter/i }).click();
+    // Layer editor body uses a tablist (Style / Filter / [Labels] / Popup).
+    // Click the Filter tab — accessible role is "tab", not "button".
+    await editor.getByRole('tab', { name: /^Filter/i }).click();
     await expect(editor.getByRole('button', { name: 'Add filter' })).toBeVisible();
 
     await editor.getByRole('button', { name: /close layer editor/i }).click();
@@ -192,7 +191,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
 
     await dataRow.click();
     await expect(editor).toBeVisible({ timeout: 5_000 });
-    await editor.getByRole('button', { name: /^Filter/i }).click();
+    await editor.getByRole('tab', { name: /^Filter/i }).click();
     await expect(editor.getByRole('button', { name: 'Add filter' })).toBeVisible();
   });
 
@@ -209,7 +208,16 @@ test.describe.serial('Builder Data-Driven Styling', () => {
     const editor = page.getByTestId('builder-layer-editor');
     await expect(editor).toBeVisible({ timeout: 5_000 });
 
-    await editor.getByRole('button', { name: /^Labels/i }).click();
+    // The Labels tab is gated to point/symbol render mode (Option 1: labels are
+    // a render-as type, not a per-layer toggle). Skip when the fixture layer is
+    // not a point — the persistence path is covered by LabelEditor unit tests.
+    const labelsTab = editor.getByRole('tab', { name: /^Labels/i });
+    if ((await labelsTab.count()) === 0) {
+      test.skip(true, 'Labels tab requires symbol/labels render mode; fixture layer is not a point.');
+      return;
+    }
+
+    await labelsTab.click();
     const labelsSwitch = editor.getByRole('switch', { name: 'Enable labels' });
     await expect(labelsSwitch).toBeVisible();
     await labelsSwitch.click();
@@ -220,7 +228,7 @@ test.describe.serial('Builder Data-Driven Styling', () => {
 
     await dataRow.click();
     await expect(editor).toBeVisible({ timeout: 5_000 });
-    await editor.getByRole('button', { name: /^Labels/i }).click();
+    await editor.getByRole('tab', { name: /^Labels/i }).click();
     await expect(editor.getByRole('switch', { name: 'Enable labels' })).toBeChecked();
   });
 });

@@ -469,8 +469,9 @@ test.describe.serial('Map Builder', () => {
     await page.goto(`/maps/${mapId}`);
     await waitForBuilder(page);
 
-    // Phase 1034 moved the zoom-range controls into the LayerEditorPanel's
-    // always-expanded Visibility section; access them by opening the flyout.
+    // v3 tabs redesign: zoom range moved from explicit number inputs into the
+    // Style tab's sliders (Min zoom / Max zoom). Drive them via keyboard from
+    // the Home/End anchors so the test is robust to the layer's seed value.
     const layerRow = page.locator(`#stack-row-${layer!.id}`);
     await expect(layerRow).toBeVisible();
     await layerRow.click();
@@ -478,12 +479,21 @@ test.describe.serial('Map Builder', () => {
     const editor = page.getByTestId('builder-layer-editor');
     await expect(editor).toBeVisible({ timeout: 5_000 });
 
-    const minInput = editor.getByLabel('Minimum zoom', { exact: true });
-    const maxInput = editor.getByLabel('Maximum zoom', { exact: true });
-    await minInput.fill('2');
-    await maxInput.fill('18');
-    await expect(minInput).toHaveValue('2');
-    await expect(maxInput).toHaveValue('18');
+    // Default scene lands on Style tab — the LayerStyleEditor's zoom range
+    // sliders are inside this tab body.
+    const minSlider = editor.getByRole('slider', { name: 'Min zoom' });
+    const maxSlider = editor.getByRole('slider', { name: 'Max zoom' });
+    await minSlider.focus();
+    await page.keyboard.press('Home'); // anchor to 0
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight'); // 0 -> 2
+    await maxSlider.focus();
+    await page.keyboard.press('End'); // anchor to 22
+    for (let i = 0; i < 4; i += 1) {
+      await page.keyboard.press('ArrowLeft'); // 22 -> 18
+    }
+    await expect(minSlider).toHaveAttribute('aria-valuenow', '2');
+    await expect(maxSlider).toHaveAttribute('aria-valuenow', '18');
 
     const layerPatchPromise = page.waitForResponse(
       (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'PATCH',
@@ -512,8 +522,8 @@ test.describe.serial('Map Builder', () => {
     await page.locator(`#stack-row-${layer!.id}`).click();
     const reloadedEditor = page.getByTestId('builder-layer-editor');
     await expect(reloadedEditor).toBeVisible({ timeout: 5_000 });
-    await expect(reloadedEditor.getByLabel('Minimum zoom', { exact: true })).toHaveValue('2');
-    await expect(reloadedEditor.getByLabel('Maximum zoom', { exact: true })).toHaveValue('18');
+    await expect(reloadedEditor.getByRole('slider', { name: 'Min zoom' })).toHaveAttribute('aria-valuenow', '2');
+    await expect(reloadedEditor.getByRole('slider', { name: 'Max zoom' })).toHaveAttribute('aria-valuenow', '18');
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
@@ -675,10 +685,9 @@ test.describe.serial('Map Builder', () => {
     const backBtn = sheet.getByRole('button', { name: /back to layers/i });
     await expect(backBtn).toBeVisible();
 
-    // Phase 1034 replaced per-tab navigation with collapsible Filter/Labels
-    // sections inside the editor body.
-    await expect(sheet.getByRole('button', { name: /^Filter/i })).toBeVisible();
-    await expect(sheet.getByRole('button', { name: /^Labels/i })).toBeVisible();
+    // Layer editor body uses a tablist (Style / Filter / [Labels] / Popup).
+    // Filter is always available; Labels appears only for symbol/labels render mode.
+    await expect(sheet.getByRole('tab', { name: /^Filter/i })).toBeVisible();
 
     await backBtn.click();
     await expect(sheet).not.toBeVisible();
@@ -696,7 +705,7 @@ test.describe.serial('Map Builder', () => {
     const editor = page.getByTestId('builder-layer-editor');
     await expect(editor).toBeVisible({ timeout: 5_000 });
 
-    await editor.getByRole('button', { name: /^Filter/i }).click();
+    await editor.getByRole('tab', { name: /^Filter/i }).click();
     await editor.getByRole('button', { name: /add filter/i }).click();
 
     const fieldTrigger = editor.getByTestId('filter-field-row').locator('[role="combobox"]').first();

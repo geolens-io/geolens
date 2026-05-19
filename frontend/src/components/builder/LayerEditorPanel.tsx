@@ -1,30 +1,23 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, X } from 'lucide-react';
 import { LayerStyleEditor } from './LayerStyleEditor';
 import { LayerFilterEditor } from './LayerFilterEditor';
 import { LabelEditor } from './LabelEditor';
 import { PopupConfigEditor } from './PopupConfigEditor';
 import { RasterLayerControls } from './RasterLayerControls';
-import { ColumnsReference } from './ColumnsReference';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
-import { getRenderAsOptions, getCurrentRenderAs } from './renderAs';
+import { getRenderAsOptions, getCurrentRenderAs, type RenderAsId } from './renderAs';
 import { ColorizedGeometryIcon, getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 
+export type LayerEditorTab = 'style' | 'filter' | 'labels' | 'popup';
+
 export interface LayerEditorHandlers {
-  onTabChange: (layerId: string, tab: 'style' | 'filter' | 'labels' | 'popup') => void;
+  onTabChange: (layerId: string, tab: LayerEditorTab) => void;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
   onOpacityChange: (layerId: string, opacity: number) => void;
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
@@ -36,7 +29,7 @@ export interface LayerEditorHandlers {
   // handleRenderModeChange now dispatches non-circle modes through
   // handleRenderAsChange to avoid stale layout/paint keys leaking across adapter
   // boundaries (e.g. line→arrow leaving behind line-cap / line-join).
-  onRenderModeChange?: (layerId: string, mode: import('./renderAs').RenderAsId) => void;
+  onRenderModeChange?: (layerId: string, mode: RenderAsId) => void;
   onRemove: (layerId: string) => void;
 }
 
@@ -45,34 +38,26 @@ interface LayerEditorPanelProps {
   /**
    * SP-05 (Phase 1045): server-state baseline for `layer`. When set, the
    * embedded LayerStyleEditor gates its "Pending style preview" banner on a
-   * deep-equal diff against this baseline. Caller (MapBuilderPage) looks the
-   * baseline up from useBuilderLayers().savedLayerBaseline by id.
+   * deep-equal diff against this baseline.
    */
   savedLayer?: MapLayerResponse;
-  activeTab?: 'style' | 'filter' | 'labels' | 'popup' | null;
+  activeTab?: LayerEditorTab | null;
   handlers: LayerEditorHandlers;
   /** New: closes the flyout and deselects the row */
   onClose: () => void;
   /** When true, shows a leading ‹ back arrow (used at <800px drill-down mode) */
   isDrillDown?: boolean;
   /**
-   * When false (Plan 03 default), renders the new section-based body.
-   * When true, renders the legacy tab-based body for backward compat.
-   */
-  enableLegacyTabs?: boolean;
-  /**
    * Editor scene variant. Controls which content renders in the body slot.
-   * - 'default' (or undefined): existing section-based body
-   * - 'dem': caller supplies sceneContent rendering DEMEditorScene (Plan 04)
-   * - 'basemap-group': caller supplies sceneContent rendering BasemapGroupEditorScene (Plan 02)
-   * - 'basemap-sublayer': caller supplies sceneContent rendering BasemapSublayerEditorScene (Plan 02); header shows breadcrumb
+   * - 'default' (or undefined): tab-based body (Style/Filter/[Labels]/Popup)
+   * - 'dem' / 'basemap-group' / 'basemap-sublayer' / 'settings': caller supplies sceneContent
    */
   editorScene?: 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings';
-  /** Caller-supplied body content for non-default scenes (Plans 02/03/04 pass their scene component). */
+  /** Caller-supplied body content for non-default scenes. */
   sceneContent?: React.ReactNode;
   /** Caller-supplied footer content for non-default scenes. */
   sceneFooter?: React.ReactNode;
-  /** Display name shown in the breadcrumb when editorScene === 'basemap-sublayer'. Falls back to "Untitled". */
+  /** Display name shown in the breadcrumb when editorScene === 'basemap-sublayer'. */
   breadcrumbPresetName?: string;
   /** Click handler for the breadcrumb element when editorScene === 'basemap-sublayer'. */
   onBreadcrumbClick?: () => void;
@@ -108,17 +93,49 @@ function LayerEditorTypePill({ layer }: { layer: MapLayerResponse }) {
   );
 }
 
-function clampZoom(v: number): number {
-  return Math.max(0, Math.min(22, Math.round(v)));
+// ---------------------------------------------------------------------------
+// Pip — tab status indicator (count badge or on/off dot)
+// ---------------------------------------------------------------------------
+function Pip({ count, on }: { count?: number | null; on?: boolean }) {
+  if (typeof count === 'number') {
+    return (
+      <span
+        aria-hidden="true"
+        className="inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground"
+      >
+        {count}
+      </span>
+    );
+  }
+  if (!on) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block h-1.5 w-1.5 rounded-full bg-primary"
+    />
+  );
 }
 
-function layerLayout(layer: MapLayerResponse): Record<string, unknown> {
-  return { ...(layer.layout ?? {}) };
-}
-
-function zoomValue(value: unknown, fallback: number): number {
-  if (typeof value === 'number' && !Number.isNaN(value)) return clampZoom(value);
-  return fallback;
+// ---------------------------------------------------------------------------
+// Filter condition counter — best-effort: handles {match,conditions[]} shape
+// and raw maplibre expression arrays. Falls back to "1" for any non-null/empty
+// filter so the pip never lies in the false-negative direction.
+// ---------------------------------------------------------------------------
+function countFilterConditions(filter: FilterSpecification | null | undefined): number {
+  if (filter == null) return 0;
+  if (typeof filter === 'object' && !Array.isArray(filter)) {
+    const conditions = (filter as { conditions?: unknown[] }).conditions;
+    if (Array.isArray(conditions)) return conditions.length;
+    return 1;
+  }
+  if (Array.isArray(filter)) {
+    const head = filter[0];
+    // ["all", ...subExpressions] or ["any", ...]
+    if (head === 'all' || head === 'any') return Math.max(0, filter.length - 1);
+    // Single comparison like ["==", "col", value]
+    return 1;
+  }
+  return 1;
 }
 
 export const LayerEditorPanel = memo(function LayerEditorPanel({
@@ -128,7 +145,6 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   handlers,
   onClose,
   isDrillDown = false,
-  enableLegacyTabs = false,
   editorScene = 'default',
   sceneContent,
   sceneFooter,
@@ -156,27 +172,40 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const currentRenderAs = useMemo(() => getCurrentRenderAs(layer), [layer]);
 
   const layerName = layer.display_name ?? layer.dataset_name;
-  const resolvedActiveTab = activeTab ?? 'style';
   const isPureSettings = editorScene === 'settings';
+  const isDefaultScene = editorScene === 'default' || editorScene === undefined;
 
-  // Section open/close state — Filter, Labels, Source are collapsed by default
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [labelsOpen, setLabelsOpen] = useState(false);
-  const [sourceOpen, setSourceOpen] = useState(false);
+  // Which tabs are available for this layer? Style is always present.
+  // Filter / Labels / Popup depend on layer capabilities. Source is gone — it
+  // lives in the row (···) menu in StackRow.
+  const availableTabs = useMemo<LayerEditorTab[]>(() => {
+    const tabs: LayerEditorTab[] = ['style'];
+    if (caps.supportsFilterEditor) tabs.push('filter');
+    // Labels tab is only meaningful when the layer is rendered as a Labels-mode
+    // (symbol render_mode). Per the v3 design, Labels is no longer a peer
+    // section — it's a render-as choice that surfaces its own tab.
+    const showLabelsTab = caps.supportsLabelEditor && !isHeatmap && currentRenderAs === 'symbol';
+    if (showLabelsTab) tabs.push('labels');
+    if (caps.supportsFilterEditor || caps.supportsLabelEditor) tabs.push('popup');
+    return tabs;
+  }, [caps.supportsFilterEditor, caps.supportsLabelEditor, isHeatmap, currentRenderAs]);
 
-  // Footer delete confirm state
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Resolve the active tab against availability — fall back to 'style' if the
+  // requested tab vanished (e.g. layer changed render mode and Labels tab went away).
+  const resolvedActiveTab: LayerEditorTab = useMemo(() => {
+    if (activeTab && availableTabs.includes(activeTab)) return activeTab;
+    return 'style';
+  }, [activeTab, availableTabs]);
 
-  // Reset all local state when the layer changes. This is defensive: the
-  // production caller passes key={editingLayer.id} which remounts the panel,
-  // but any future caller that omits the key would otherwise carry over stale
-  // confirmingDelete=true from a prior layer — causing the destructive dialog
-  // to appear immediately for the newly-selected layer.
+  // Destructive render-as switch — when the user clicks a different render-as
+  // pill, hold the intended target until they confirm. null = no pending switch.
+  const [pendingRenderAs, setPendingRenderAs] = useState<RenderAsId | null>(null);
+
+  // Reset local state when the layer changes (defensive — keyed remount upstream
+  // is the primary mechanism, but a future caller that omits the key would
+  // otherwise carry over stale pendingRenderAs).
   useEffect(() => {
-    setConfirmingDelete(false);
-    setFilterOpen(false);
-    setLabelsOpen(false);
-    setSourceOpen(false);
+    setPendingRenderAs(null);
   }, [layer.id, editorScene]);
 
   // POL-18: Scroll + focus preservation across scene transitions
@@ -211,33 +240,30 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
     prevSceneRef.current = editorScene;
   }, [editorScene]);
 
-  // Zoom range from layout
-  const layout = layerLayout(layer);
-  const minZoom = zoomValue(layout._minzoom, 0);
-  const maxZoom = zoomValue(layout._maxzoom, 22);
+  // Pip data per tab — see commentary above availableTabs.
+  const filterCount = countFilterConditions(layer.filter);
+  const popupOn = layer.popup_config?.enabled === true;
+  const labelsOn = layer.label_config != null;
 
-  function handleZoomChange(nextMin: number, nextMax: number) {
-    const min = clampZoom(Math.min(nextMin, nextMax - 1));
-    const max = clampZoom(Math.max(nextMax, nextMin + 1));
-    handlers.onLayoutChange(layer.id, {
-      ...layout,
-      _minzoom: min,
-      _maxzoom: max,
-    });
+  function handleRenderAsClick(target: RenderAsId) {
+    if (target === currentRenderAs) return;
+    // Destructive switch — confirm before applying. Always confirm: switching
+    // render-as resets the paint properties owned by the prior mode (line color
+    // & width when going line→arrow → fill color when going fill→3D, etc.),
+    // and we'd rather force a deliberate click than silently nuke styling.
+    setPendingRenderAs(target);
   }
 
-  // Filter hint: count of conditions or "No filter"
-  const filterHint = layer.filter == null
-    ? t('layerEditor.filter.noFilter', { defaultValue: 'No filter' })
-    : t('layerEditor.filter.active', { defaultValue: 'Active' });
+  function confirmRenderAsSwitch() {
+    if (pendingRenderAs) {
+      handlers.onRenderModeChange?.(layer.id, pendingRenderAs);
+      setPendingRenderAs(null);
+    }
+  }
 
-  // Labels hint
-  const labelsHint = layer.label_config == null
-    ? t('layerEditor.labels.off', { defaultValue: 'Off' })
-    : String(layer.label_config.column || 'On');
-
-  // Source hint: layer kind
-  const sourceHint = caps.kind;
+  function cancelRenderAsSwitch() {
+    setPendingRenderAs(null);
+  }
 
   return (
     <div
@@ -266,63 +292,58 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
             </button>
           </div>
         )}
-        {/* Title row: back (drill-down only) | type icon | layer name | close × */}
         <div className="flex items-center gap-2">
-        {/* Back arrow: only shown in <800px drill-down mode */}
-        {isDrillDown && (
+          {isDrillDown && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
+              title={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
+              className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ChevronLeft className="h-4 w-4 rtl-mirror" />
+            </button>
+          )}
+
+          {!isPureSettings && (
+            <ColorizedGeometryIcon
+              geometryType={layer.dataset_geometry_type}
+              colors={layerColors}
+              layerId={layer.id}
+              layerType={caps.kind}
+              styleHints={styleHints}
+            />
+          )}
+
+          <div className="flex flex-col min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                id="layer-editor-title"
+                className="text-sm font-semibold truncate min-w-0"
+              >
+                {isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName}
+              </span>
+              {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (
+                <LayerEditorTypePill layer={layer} />
+              )}
+            </div>
+            {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (layer.dataset_geometry_type || caps.kind === 'raster' || caps.kind === 'vrt') && (
+              <span className="text-[11px] text-muted-foreground truncate">
+                {layer.dataset_geometry_type ?? (caps.kind === 'raster' || caps.kind === 'vrt' ? '1 band' : '')}
+              </span>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={onClose}
-            aria-label={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
-            title={t('layerItem.backToLayers', { defaultValue: 'Back to layers' })}
+            aria-label={isPureSettings
+              ? t('settings.closePanel', { defaultValue: 'Close settings' })
+              : t('layerEditor.close', { defaultValue: 'Close layer editor' })}
             className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ChevronLeft className="h-4 w-4 rtl-mirror" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
-        )}
-
-        {/* Type icon — suppressed for settings scene */}
-        {!isPureSettings && (
-          <ColorizedGeometryIcon
-            geometryType={layer.dataset_geometry_type}
-            colors={layerColors}
-            layerId={layer.id}
-            layerType={caps.kind}
-            styleHints={styleHints}
-          />
-        )}
-
-        {/* Layer name / Settings title + type pill + subtitle */}
-        <div className="flex flex-col min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              id="layer-editor-title"
-              className="text-sm font-semibold truncate min-w-0"
-            >
-              {isPureSettings ? t('settings.panelTitle', { defaultValue: 'Settings' }) : layerName}
-            </span>
-            {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (
-              <LayerEditorTypePill layer={layer} />
-            )}
-          </div>
-          {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (layer.dataset_geometry_type || caps.kind === 'raster' || caps.kind === 'vrt') && (
-            <span className="text-[11px] text-muted-foreground truncate">
-              {layer.dataset_geometry_type ?? (caps.kind === 'raster' || caps.kind === 'vrt' ? '1 band' : '')}
-            </span>
-          )}
-        </div>
-
-        {/* Close × button */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={isPureSettings
-            ? t('settings.closePanel', { defaultValue: 'Close settings' })
-            : t('layerEditor.close', { defaultValue: 'Close layer editor' })}
-          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-2)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
         </div>
       </header>
 
@@ -332,496 +353,222 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
         data-testid="layer-editor-body"
         className="flex-1 overflow-y-auto"
       >
-        {!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined) && (
+        {isDefaultScene && (
           <>
-            {/* 1. Render as — always expanded */}
-            <section
-              aria-labelledby={`section-renderas-${layer.id}`}
-              className="border-b"
+            {/* Tab strip — Style / Filter / [Labels] / Popup */}
+            <div
+              role="tablist"
+              aria-label={t('layerEditor.tabsLabel', { defaultValue: 'Layer editor tabs' })}
+              className="flex gap-1 overflow-x-auto px-3 border-b shrink-0 sticky top-0 bg-background z-10"
             >
-              <div className="px-4 py-2">
-                <p
-                  id={`section-renderas-${layer.id}`}
-                  className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+              {availableTabs.map((tab) => {
+                const isActive = resolvedActiveTab === tab;
+                let pip: React.ReactNode = null;
+                if (tab === 'filter' && filterCount > 0) pip = <Pip count={filterCount} />;
+                if (tab === 'labels' && labelsOn) pip = <Pip on />;
+                if (tab === 'popup' && popupOn) pip = <Pip on />;
+                return (
+                  <button
+                    key={tab}
+                    id={`tab-${layer.id}-${tab}`}
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls={`tabpanel-${layer.id}-${tab}`}
+                    tabIndex={isActive ? 0 : -1}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 h-9 shrink-0 cursor-pointer rounded-t-sm px-2.5 text-xs font-semibold uppercase tracking-[0.04em] transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                      isActive
+                        ? 'text-foreground border-b-2 border-primary -mb-px'
+                        : 'text-muted-foreground hover:text-foreground border-b-2 border-transparent',
+                    )}
+                    onClick={() => handlers.onTabChange(layer.id, tab)}
+                  >
+                    <span>{t(`layerItem.${tab}Tab`)}</span>
+                    {pip}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tab panels */}
+            <div className="p-3">
+              {resolvedActiveTab === 'style' && (
+                <div
+                  role="tabpanel"
+                  id={`tabpanel-${layer.id}-style`}
+                  aria-labelledby={`tab-${layer.id}-style`}
+                  className="space-y-3"
                 >
-                  {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
-                </p>
-                {renderAsOptions.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {renderAsOptions.map((option) => {
-                      const isActive = option.id === currentRenderAs;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          data-active={isActive ? 'true' : 'false'}
-                          onClick={() => {
-                            if (!isActive) {
-                              handlers.onRenderModeChange?.(layer.id, option.id);
-                            }
-                          }}
-                          className={cn(
-                            'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
-                            isActive
-                              ? 'bg-primary text-primary-foreground border-transparent'
-                              : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
-                          )}
+                  {/* Render-as pill row — destructive switch with inline confirm */}
+                  {renderAsOptions.length > 0 && (
+                    <section
+                      aria-labelledby={`section-renderas-${layer.id}`}
+                      className="rounded-md border bg-muted/25 p-3"
+                    >
+                      <p
+                        id={`section-renderas-${layer.id}`}
+                        className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                      >
+                        {t('layerEditor.section.renderAs', { defaultValue: 'Render as' })}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {renderAsOptions.map((option) => {
+                          const isActive = option.id === currentRenderAs;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              data-active={isActive ? 'true' : 'false'}
+                              onClick={() => handleRenderAsClick(option.id)}
+                              className={cn(
+                                'rounded-full border border-transparent px-[10px] py-[5px] text-[12px] transition-colors',
+                                isActive
+                                  ? 'bg-primary text-primary-foreground border-transparent'
+                                  : 'bg-[var(--surface-2,theme(colors.muted.DEFAULT))] text-foreground hover:bg-[var(--surface-3,theme(colors.muted.DEFAULT))]',
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {pendingRenderAs && (
+                        <div
+                          role="alertdialog"
+                          aria-labelledby={`confirm-render-as-${layer.id}`}
+                          className="mt-3 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2"
                         >
-                          {option.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">—</p>
-                )}
-              </div>
-            </section>
+                          <p
+                            id={`confirm-render-as-${layer.id}`}
+                            className="text-xs text-foreground"
+                          >
+                            {t('layerEditor.confirmRenderAs.message', {
+                              defaultValue: 'Switching render mode will reset the current style. Continue?',
+                            })}
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="flex-1"
+                              onClick={confirmRenderAsSwitch}
+                            >
+                              {t('layerEditor.confirmRenderAs.confirm', { defaultValue: 'Switch mode' })}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="flex-1"
+                              onClick={cancelRenderAsSwitch}
+                              // eslint-disable-next-line jsx-a11y/no-autofocus -- safe action so Enter dismisses, not destroys
+                              autoFocus
+                            >
+                              {t('layerEditor.confirmRenderAs.cancel', { defaultValue: 'Keep style' })}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+                  )}
 
-            {/* 2. Appearance — always expanded */}
-            <section
-              aria-labelledby={`section-appearance-${layer.id}`}
-              className="border-b"
-            >
-              <div className="px-4 py-2">
-                <p
-                  id={`section-appearance-${layer.id}`}
-                  className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
+                  {/* Style body: raster controls or vector style editor.
+                      For vectors the editor handles its own opacity + zoom + advanced JSON. */}
+                  {isRaster ? (
+                    <RasterLayerControls
+                      paint={layer.paint ?? {}}
+                      onPaintChange={(nextPaint) => handlers.onPaintChange(layer.id, nextPaint)}
+                      opacity={layer.opacity ?? 1}
+                      onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
+                      isDem={layer.is_dem}
+                      styleConfig={layer.style_config}
+                      onStyleConfigChange={(nextConfig, nextPaint) =>
+                        handlers.onStyleConfigChange(layer.id, nextConfig, nextPaint)
+                      }
+                    />
+                  ) : (
+                    <LayerStyleEditor
+                      key={layer.id}
+                      layer={layer}
+                      savedLayer={savedLayer}
+                      onPaintChange={handlers.onPaintChange}
+                      onOpacityChange={handlers.onOpacityChange}
+                      onStyleConfigChange={handlers.onStyleConfigChange}
+                      onLayoutChange={handlers.onLayoutChange}
+                      // PointRenderMode uses legacy 'points' (plural) while
+                      // our handler expects RenderAsId ('point'); adapt at the
+                      // call site so the dropdown wiring stays clean.
+                      onRenderModeChange={(id, mode) =>
+                        handlers.onRenderModeChange?.(
+                          id,
+                          (mode === 'points' ? 'point' : mode) as RenderAsId,
+                        )
+                      }
+                    />
+                  )}
+                </div>
+              )}
+
+              {resolvedActiveTab === 'filter' && caps.supportsFilterEditor && (
+                <div
+                  role="tabpanel"
+                  id={`tabpanel-${layer.id}-filter`}
+                  aria-labelledby={`tab-${layer.id}-filter`}
                 >
-                  {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
-                </p>
-                {/* onOpacityChange intentionally omitted: opacity is owned by Visibility §3 */}
-                {isRaster ? (
-                  <RasterLayerControls
-                    paint={layer.paint ?? {}}
-                    onPaintChange={(nextPaint) => handlers.onPaintChange(layer.id, nextPaint)}
-                    opacity={layer.opacity ?? 1}
-                    isDem={layer.is_dem}
-                    styleConfig={layer.style_config}
-                    onStyleConfigChange={(nextConfig, nextPaint) =>
-                      handlers.onStyleConfigChange(layer.id, nextConfig, nextPaint)
-                    }
+                  <LayerFilterEditor
+                    columnInfo={columns}
+                    filter={layer.filter ?? null}
+                    layerName={layerName}
+                    onFilterChange={(expr) => handlers.onFilterChange(layer.id, expr)}
                   />
-                ) : (
-                  <LayerStyleEditor
+                </div>
+              )}
+
+              {resolvedActiveTab === 'labels' && (
+                <div
+                  role="tabpanel"
+                  id={`tabpanel-${layer.id}-labels`}
+                  aria-labelledby={`tab-${layer.id}-labels`}
+                >
+                  <LabelEditor
+                    columns={columns}
+                    labelConfig={layer.label_config ?? null}
+                    onLabelChange={(config) => handlers.onLabelChange(layer.id, config)}
+                    geometryType={layer.dataset_geometry_type}
+                  />
+                </div>
+              )}
+
+              {resolvedActiveTab === 'popup' && (caps.supportsFilterEditor || caps.supportsLabelEditor) && (
+                <div
+                  role="tabpanel"
+                  id={`tabpanel-${layer.id}-popup`}
+                  aria-labelledby={`tab-${layer.id}-popup`}
+                >
+                  <PopupConfigEditor
                     key={layer.id}
-                    layer={layer}
-                    savedLayer={savedLayer}
-                    onPaintChange={handlers.onPaintChange}
-                    onStyleConfigChange={handlers.onStyleConfigChange}
-                    onLayoutChange={handlers.onLayoutChange}
-                    onRenderModeChange={handlers.onRenderModeChange}
+                    columns={columns}
+                    popupConfig={layer.popup_config ?? null}
+                    onPopupChange={(config) => handlers.onPopupChange(layer.id, config)}
                   />
-                )}
-              </div>
-            </section>
-
-            {/* 3. Visibility — always expanded: opacity slider + zoom range */}
-            <section
-              aria-labelledby={`section-visibility-${layer.id}`}
-              className="border-b"
-            >
-              <div className="px-4 py-2">
-                <p
-                  id={`section-visibility-${layer.id}`}
-                  className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2"
-                >
-                  {t('layerEditor.section.visibility', { defaultValue: 'Visibility' })}
-                </p>
-                <div className="space-y-3">
-                  {/* Opacity slider */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">
-                      {t('layerEditor.visibility.opacity', { defaultValue: 'Opacity' })}
-                    </Label>
-                    <Slider
-                      aria-label={t('layerEditor.visibility.opacity', { defaultValue: 'Opacity' })}
-                      aria-valuetext={`${Math.round((layer.opacity ?? 1) * 100)}%`}
-                      value={[layer.opacity ?? 1]}
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      className="w-full"
-                      onValueChange={([value]) => {
-                        handlers.onOpacityChange(layer.id, Number((value ?? layer.opacity ?? 1).toFixed(2)));
-                      }}
-                    />
-                  </div>
-                  {/* Zoom range */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label
-                        htmlFor={`${layer.id}-section-minzoom`}
-                        className="text-xs text-muted-foreground"
-                      >
-                        {t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
-                      </Label>
-                      <Input
-                        id={`${layer.id}-section-minzoom`}
-                        type="number"
-                        min={0}
-                        max={Math.max(0, maxZoom - 1)}
-                        value={minZoom}
-                        onChange={(e) => handleZoomChange(Number(e.target.value), maxZoom)}
-                        className="h-8 text-xs"
-                        aria-label={t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label
-                        htmlFor={`${layer.id}-section-maxzoom`}
-                        className="text-xs text-muted-foreground"
-                      >
-                        {t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
-                      </Label>
-                      <Input
-                        id={`${layer.id}-section-maxzoom`}
-                        type="number"
-                        min={Math.min(22, minZoom + 1)}
-                        max={22}
-                        value={maxZoom}
-                        onChange={(e) => handleZoomChange(minZoom, Number(e.target.value))}
-                        className="h-8 text-xs"
-                        aria-label={t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
-                      />
-                    </div>
-                  </div>
                 </div>
-              </div>
-            </section>
-
-            {/* 4. Filter — collapsed by default, only for filterable layers */}
-            {caps.supportsFilterEditor && (
-              <Collapsible open={filterOpen} onOpenChange={setFilterOpen}>
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
-                  >
-                    <ChevronRight
-                      className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', filterOpen && 'rotate-90')}
-                      aria-hidden="true"
-                    />
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                      {t('layerEditor.section.filter', { defaultValue: 'Filter' })}
-                    </span>
-                    {!filterOpen && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {filterHint}
-                      </span>
-                    )}
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="px-4 py-2 border-b">
-                    <LayerFilterEditor
-                      columnInfo={columns}
-                      filter={layer.filter ?? null}
-                      layerName={layerName}
-                      onFilterChange={(expr) => handlers.onFilterChange(layer.id, expr)}
-                    />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            )}
-
-            {/* 5. Labels — collapsed by default, only for labelable layers (not heatmap) */}
-            {caps.supportsLabelEditor && !isHeatmap && (
-              <Collapsible open={labelsOpen} onOpenChange={setLabelsOpen}>
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
-                  >
-                    <ChevronRight
-                      className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', labelsOpen && 'rotate-90')}
-                      aria-hidden="true"
-                    />
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                      {t('layerEditor.section.labels', { defaultValue: 'Labels' })}
-                    </span>
-                    {!labelsOpen && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {labelsHint}
-                      </span>
-                    )}
-                  </button>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="px-4 py-2 border-b">
-                    <LabelEditor
-                      columns={columns}
-                      labelConfig={layer.label_config ?? null}
-                      onLabelChange={(config) => handlers.onLabelChange(layer.id, config)}
-                      geometryType={layer.dataset_geometry_type}
-                    />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            )}
-
-            {/* 6. Source — collapsed by default, always rendered */}
-            <Collapsible open={sourceOpen} onOpenChange={setSourceOpen}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
-                >
-                  <ChevronRight
-                    className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', sourceOpen && 'rotate-90')}
-                    aria-hidden="true"
-                  />
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    {t('layerEditor.section.source', { defaultValue: 'Source' })}
-                  </span>
-                  {!sourceOpen && (
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {sourceHint}
-                    </span>
-                  )}
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-4 py-2 space-y-2 border-b">
-                  {layer.dataset_name && (
-                    <div>
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Dataset</span>
-                      <p className="text-xs truncate">{layer.dataset_name}</p>
-                    </div>
-                  )}
-                  {layer.dataset_feature_count != null && (
-                    <div>
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Features</span>
-                      <p className="text-xs">{layer.dataset_feature_count.toLocaleString()}</p>
-                    </div>
-                  )}
-                  {layer.dataset_record_type && (
-                    <div>
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Type</span>
-                      <p className="text-xs">{layer.dataset_record_type}</p>
-                    </div>
-                  )}
-                  {layer.dataset_geometry_type && (
-                    <div>
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-[0.08em]">Geometry</span>
-                      <p className="text-xs">{layer.dataset_geometry_type}</p>
-                    </div>
-                  )}
-                  {columns.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('layerEditor.source.noColumns', { defaultValue: 'No queryable columns indexed for this layer.' })}
-                    </p>
-                  )}
-                  {columns.length > 0 && (
-                    <ColumnsReference columns={columns} />
-                  )}
-                  {(caps.supportsFilterEditor || caps.supportsLabelEditor) && (
-                    <PopupConfigEditor
-                      columns={columns}
-                      popupConfig={layer.popup_config ?? null}
-                      onPopupChange={(config) => handlers.onPopupChange(layer.id, config)}
-                    />
-                  )}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
+              )}
+            </div>
           </>
         )}
 
         {/* Non-default scene body — Plans 02/03/04 pass their scene component via sceneContent */}
-        {!enableLegacyTabs && editorScene && editorScene !== 'default' && sceneContent}
-
-        {/* Legacy tab-based body — preserved for backward compat */}
-        {enableLegacyTabs && (
-          <>
-            {/* Raster: simple opacity control */}
-            {isRaster && (
-              <div className="p-3">
-                <RasterLayerControls
-                  paint={layer.paint ?? {}}
-                  onPaintChange={(nextPaint) => handlers.onPaintChange(layer.id, nextPaint)}
-                  opacity={layer.opacity ?? 1}
-                  onOpacityChange={(v) => handlers.onOpacityChange(layer.id, v)}
-                  isDem={layer.is_dem}
-                  styleConfig={layer.style_config}
-                  onStyleConfigChange={(nextConfig, nextPaint) => handlers.onStyleConfigChange(layer.id, nextConfig, nextPaint)}
-                />
-              </div>
-            )}
-
-            {/* Vector: tabbed editor */}
-            {!isRaster && (
-              <>
-                <div className="flex gap-1 overflow-x-auto px-3.5 border-b shrink-0" role="tablist">
-                  {(['style', 'filter', 'labels', 'popup'] as const)
-                    .filter((tab) => {
-                      if (tab === 'filter') return caps.supportsFilterEditor;
-                      if (tab === 'labels') return caps.supportsLabelEditor && !isHeatmap;
-                      if (tab === 'popup') return caps.supportsFilterEditor || caps.supportsLabelEditor;
-                      return true;
-                    })
-                    .map((tab) => (
-                    <button
-                      key={tab}
-                      id={`tab-${layer.id}-${tab}`}
-                      role="tab"
-                      aria-selected={resolvedActiveTab === tab}
-                      aria-controls={`tabpanel-${layer.id}-${tab}`}
-                      className={cn(
-                        'h-9 shrink-0 cursor-pointer rounded-t-sm px-2.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-                        resolvedActiveTab === tab
-                          ? 'text-foreground border-b-2 border-primary'
-                          : 'text-muted-foreground hover:text-foreground'
-                      )}
-                      onClick={() => handlers.onTabChange(layer.id, tab)}
-                    >
-                      {t(`layerItem.${tab}Tab`)}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex-1 p-3">
-                  {resolvedActiveTab === 'style' && (
-                    <div role="tabpanel" id={`tabpanel-${layer.id}-style`} aria-labelledby={`tab-${layer.id}-style`}>
-                      <LayerStyleEditor
-                        key={layer.id}
-                        layer={layer}
-                        savedLayer={savedLayer}
-                        onPaintChange={handlers.onPaintChange}
-                        onOpacityChange={handlers.onOpacityChange}
-                        onStyleConfigChange={handlers.onStyleConfigChange}
-                        onLayoutChange={handlers.onLayoutChange}
-                        onRenderModeChange={handlers.onRenderModeChange}
-                      />
-                      {columns.length > 0 && (
-                        <ColumnsReference columns={columns} />
-                      )}
-                    </div>
-                  )}
-                  {resolvedActiveTab === 'filter' && (
-                    <div role="tabpanel" id={`tabpanel-${layer.id}-filter`} aria-labelledby={`tab-${layer.id}-filter`}>
-                      <LayerFilterEditor
-                        columnInfo={columns}
-                        filter={layer.filter ?? null}
-                        layerName={layerName}
-                        onFilterChange={(expr) => handlers.onFilterChange(layer.id, expr)}
-                      />
-                    </div>
-                  )}
-                  {resolvedActiveTab === 'labels' && (
-                    <div role="tabpanel" id={`tabpanel-${layer.id}-labels`} aria-labelledby={`tab-${layer.id}-labels`}>
-                      <LabelEditor
-                        columns={columns}
-                        labelConfig={layer.label_config ?? null}
-                        onLabelChange={(config) => handlers.onLabelChange(layer.id, config)}
-                        geometryType={layer.dataset_geometry_type}
-                      />
-                    </div>
-                  )}
-                  {resolvedActiveTab === 'popup' && (
-                    <div role="tabpanel" id={`tabpanel-${layer.id}-popup`} aria-labelledby={`tab-${layer.id}-popup`}>
-                      <PopupConfigEditor
-                        key={layer.id}
-                        columns={columns}
-                        popupConfig={layer.popup_config ?? null}
-                        onPopupChange={(config) => handlers.onPopupChange(layer.id, config)}
-                      />
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </>
-        )}
+        {!isDefaultScene && sceneContent}
       </div>
 
-      {/* Footer — Delete button + inline confirm (default scene) or sceneFooter (non-default) */}
-      {((!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined)) ||
-        enableLegacyTabs ||
-        (!enableLegacyTabs && editorScene && editorScene !== 'default' && !!sceneFooter)) && (
-      <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
-        {(!enableLegacyTabs && (editorScene === 'default' || editorScene === undefined)) && (
-          <>
-            {!confirmingDelete ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
-                onClick={() => setConfirmingDelete(true)}
-              >
-                {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
-              </Button>
-            ) : (
-              <div role="alertdialog" aria-labelledby={`confirm-delete-${layer.id}`} className="space-y-2">
-                <p id={`confirm-delete-${layer.id}`} className="text-sm text-destructive text-center">
-                  {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => handlers.onRemove(layer.id)}
-                  >
-                    {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="flex-1"
-                    onClick={() => setConfirmingDelete(false)}
-                    // eslint-disable-next-line jsx-a11y/no-autofocus -- moves focus to safe action so Enter dismisses, not destroys (AUD-09)
-                    autoFocus
-                  >
-                    {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-        {enableLegacyTabs && (
-          <>
-            {!confirmingDelete ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full text-destructive hover:bg-[oklch(0.97_0.02_27)] hover:text-destructive"
-                onClick={() => setConfirmingDelete(true)}
-              >
-                {t('layerEditor.footer.deleteLayer', { defaultValue: 'Delete layer' })}
-              </Button>
-            ) : (
-              <div role="alertdialog" aria-labelledby={`confirm-delete-${layer.id}`} className="space-y-2">
-                <p id={`confirm-delete-${layer.id}`} className="text-sm text-destructive text-center">
-                  {t('layerEditor.confirmDelete.message', { defaultValue: 'Are you sure? This cannot be undone.' })}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => handlers.onRemove(layer.id)}
-                  >
-                    {t('layerEditor.confirmDelete.delete', { defaultValue: 'Delete' })}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="flex-1"
-                    onClick={() => setConfirmingDelete(false)}
-                    // eslint-disable-next-line jsx-a11y/no-autofocus -- moves focus to safe action so Enter dismisses, not destroys (AUD-09)
-                    autoFocus
-                  >
-                    {t('layerEditor.confirmDelete.keep', { defaultValue: 'Keep layer' })}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-        {!enableLegacyTabs && editorScene && editorScene !== 'default' && sceneFooter}
-      </footer>
+      {/* Footer — only rendered for non-default scenes that supply a sceneFooter.
+          Per v3 design, Delete moved into the row (···) menu (StackRow). */}
+      {!isDefaultScene && !!sceneFooter && (
+        <footer data-testid="layer-editor-footer" className="shrink-0 border-t p-3">
+          {sceneFooter}
+        </footer>
       )}
     </div>
   );

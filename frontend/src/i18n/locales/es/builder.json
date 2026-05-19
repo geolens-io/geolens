@@ -204,7 +204,7 @@
     "maxZoom": "Zoom máximo",
     "renderAs": "Renderizar como",
     "renderPoints": "Puntos",
-    "renderSymbol": "Símbolo",
+    "renderSymbol": "Etiquetas",
     "renderHeatmap": "Mapa de calor",
     "renderCluster": "Agrupación",
     "none": "Ninguno",
@@ -893,6 +893,7 @@
   },
   "layerEditor": {
     "close": "Cerrar editor de capa",
+    "tabsLabel": "Pestañas del editor de capa",
     "section": {
       "renderAs": "Renderizar como",
       "appearance": "Apariencia",
@@ -916,13 +917,24 @@
       "delete": "Eliminar",
       "keep": "Conservar capa"
     },
+    "confirmRenderAs": {
+      "message": "Cambiar el modo de renderizado restablecerá el estilo actual. ¿Continuar?",
+      "confirm": "Cambiar modo",
+      "cancel": "Conservar estilo"
+    },
     "visibility": {
       "opacity": "Opacidad",
       "minZoom": "Zoom mínimo",
       "maxZoom": "Zoom máximo"
     },
     "source": {
-      "noColumns": "No hay columnas consultables indexadas para esta capa."
+      "noColumns": "No hay columnas consultables indexadas para esta capa.",
+      "menuLabel": "Fuente",
+      "dataset": "Conjunto de datos",
+      "features": "Entidades",
+      "type": "Tipo",
+      "geometry": "Geometría",
+      "columns": "Columnas"
     }
   },
   "settings": {

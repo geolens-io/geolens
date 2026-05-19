@@ -204,7 +204,7 @@
     "maxZoom": "Max zoom",
     "renderAs": "Render as",
     "renderPoints": "Points",
-    "renderSymbol": "Symbol",
+    "renderSymbol": "Labels",
     "renderHeatmap": "Heatmap",
     "renderCluster": "Cluster",
     "none": "None",
@@ -893,6 +893,7 @@
   },
   "layerEditor": {
     "close": "Close layer editor",
+    "tabsLabel": "Layer editor tabs",
     "section": {
       "renderAs": "Render as",
       "appearance": "Appearance",
@@ -916,13 +917,24 @@
       "delete": "Delete",
       "keep": "Keep layer"
     },
+    "confirmRenderAs": {
+      "message": "Switching render mode will reset the current style. Continue?",
+      "confirm": "Switch mode",
+      "cancel": "Keep style"
+    },
     "visibility": {
       "opacity": "Opacity",
       "minZoom": "Minimum zoom",
       "maxZoom": "Maximum zoom"
     },
     "source": {
-      "noColumns": "No queryable columns indexed for this layer."
+      "noColumns": "No queryable columns indexed for this layer.",
+      "menuLabel": "Source",
+      "dataset": "Dataset",
+      "features": "Features",
+      "type": "Type",
+      "geometry": "Geometry",
+      "columns": "Columns"
     }
   },
   "settings": {
