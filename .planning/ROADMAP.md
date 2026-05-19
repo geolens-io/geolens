@@ -116,8 +116,20 @@ Plans:
   3. `/admin/saml` shows an "Enterprise Feature" placeholder instead of silently redirecting; the 404 page has a proper `<title>`; `/register` for an already-authenticated user shows a visible "Already signed in" banner instead of a silent redirect; `/m/{invalid-token}` renders a clean "Map not found" view.
   4. The "Choose File" button in the Upload File dropzone is fully clickable — no decorative span intercepts pointer events — and committing a file upload produces zero React `setState during render` warnings.
   5. The Register Table tab shows "All tables are registered" when no unregistered tables remain, rather than an absence-framed empty state; the STAC import wizard shows expected total bytes and item count before the user commits to a large fetch.
-**Plans:** TBD
+**Plans:** 11 plans
 **UI hint**: yes
+Plans:
+- [ ] 1054-01-PLAN.md — SEED-02/03/04 backend ogr2ogr timeout + driver-list strip + seeder retry/skip-counter
+- [ ] 1054-02-PLAN.md — CONSOLE-01 gate useAIAvailability on !!token && isAdmin (close the audit's /admin/ai-status/ ×3 leak)
+- [ ] 1054-03-PLAN.md — ROUTE-01 /admin/saml Enterprise Feature notice replaces silent redirect
+- [ ] 1054-04-PLAN.md — ROUTE-02 NotFoundPage useDocumentTitle for 'Page not found - GeoLens'
+- [ ] 1054-05-PLAN.md — ROUTE-03 /register authenticated-user toast + visible redirect
+- [ ] 1054-06-PLAN.md — ROUTE-04 getSharedMap expected404 opt-in quiets share-token console noise
+- [ ] 1054-07-PLAN.md — IMPORT-02 FileDropzone decorative span pointer-events-none + aria-hidden
+- [ ] 1054-08-PLAN.md — IMPORT-03 UploadForm setState-in-render removed from three callsites via useEffect
+- [ ] 1054-09-PLAN.md — IMPORT-05 Register Table empty state success vs absence framing
+- [ ] 1054-10-PLAN.md — EW-05 STAC import size-estimate confirmation step (file:size aggregation)
+- [ ] 1054-11-PLAN.md — UX-01 zero-work closure (cross-references Phase 1053 DOC-02 commit 30e9361)
 
 ---
 
