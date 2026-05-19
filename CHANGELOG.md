@@ -11,6 +11,148 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-19
+
+### New-user install — three Critical reliability fixes (M001-7n8vpc dry-run audit)
+
+A full new-user dry-run audit (`.planning/M001-7n8vpc-dry-run-audit.md`)
+surfaced three independent Critical blockers preventing a literal first
+install following the public quickstart. All three are fixed in this
+release.
+
+#### Fixed
+
+- **BU-01: Compose SSL default no longer kills `migrate` on a fresh
+  install.** `docker-compose.yml`'s `x-db-ssl-env` anchor fell back to
+  `""` instead of the documented `"prefer"` when `DATABASE_SSL_MODE`
+  was unset. Pydantic Settings treated the empty string as an explicit
+  override, skipped the field default, and landed in the strict-SSL
+  branch — which the bundled postgres image (no SSL configured)
+  rejected. The migrate one-shot died with
+  `ConnectionError: PostgreSQL server at "db:5432" rejected SSL upgrade`,
+  and api / worker / frontend cascaded into `Created` state and never
+  started. One-char fix: `${DATABASE_SSL_MODE:-prefer}`. Existing
+  deployments that set `DATABASE_SSL_MODE` explicitly (e.g. `disable`
+  for local dev, `require` for cloud Postgres) are unaffected. Commit
+  `7b168bde`.
+- **BU-02: `scripts/install.sh` now waits for stack health and surfaces
+  failed services with logs.** Previously install.sh printed
+  `"GeoLens is starting."` and exited 0 immediately after `docker
+  compose up -d` returned, with no awareness of post-up failures. The
+  worst kind of false success signal: clean shell prompt on a dead
+  stack. New `wait_for_healthy` polls up to 90s (18 × 5s); if the
+  migrate one-shot exits non-zero, the last 30 log lines are surfaced
+  and install.sh exits non-zero immediately. On all-healthy, prints
+  `"GeoLens is ready."` and the documented UI/API URLs as before.
+  Healthy-stack path is unchanged in behavior. Commit `b4ad03d9`.
+- **SEED-01: `scripts/seed-natural-earth.py` `--username/--password`
+  bootstrap now works.** `bootstrap_api_key()` and
+  `cleanup_bootstrap_key()` POSTed to `/api/auth/login/` (trailing
+  slash) — but the route is registered without it. The proxy
+  307-redirected to the internal Docker hostname
+  `http://api:8000/auth/login`, and httpx (which follows redirects by
+  default) tried to resolve `api` on the host and died with
+  `httpx.ConnectError: [Errno 8] nodename nor servname provided`. The
+  documented `--username admin --password admin` happy path was
+  unusable; only the explicit `--api-key` flag worked. Other endpoints
+  the seeder touches (`/api/auth/api-keys/`, `/api/datasets/`,
+  `/api/ingest/*`, etc.) use the trailing-slash form that matches
+  their registered routes, so only the two login calls needed the fix.
+  Commit `787f4e43`.
+
+### Map Builder — tabbed LayerEditorPanel + composite map export
+
+#### Added
+
+- **Composite map export (PNG) with title, description, legend, and
+  edition mark.** `handleExportPNG` now composites map chrome around
+  the WebGL canvas capture on an offscreen 2D canvas — title
+  (28px bold) + description (14px muted) + legend (one swatch per
+  visible `show_in_legend !== false` layer) + `"Powered by GeoLens"`
+  mark on community edition. All metrics expressed in srcCanvas pixel
+  space (dpr-scaled) so text stays crisp on retina. New i18n keys
+  `export.legendHeader` + `export.poweredBy` across en/de/es/fr.
+  Commit `8370e19e`.
+
+#### Changed
+
+- **`LayerEditorPanel` switched from section-based body to a
+  4-tab tablist** (Style / Filter / Labels / Popup), matching the v3
+  design. Style tab embeds Render-as pills plus LayerStyleEditor (or
+  RasterLayerControls). Tab pips surface a filter-count badge and
+  labels/popup on-dots. Destructive render-mode switches now go through
+  an inline alertdialog. Drop the dead `enableLegacyTabs` prop and the
+  panel-footer Delete affordance (Delete already lives in StackRow
+  kebab). `StackRow` gains a read-only Source info block at the top of
+  the (···) kebab (Dataset / Features / Type / Geometry / Columns
+  count). Point `symbol` capability label renamed `Symbol → Labels` to
+  match the new tab vocabulary; i18n updated in all four locales with
+  new keys for `layerEditor.tabsLabel`, `layerEditor.confirmRenderAs.*`,
+  `layerEditor.source.*`. Tests rewritten from section-based to
+  tab-based assertions. Commit `b285f305`.
+
+#### Fixed
+
+- **Pointer drag across all draggable rows** (`BasemapGroupRow`,
+  `FolderGroupRow`, `StackRow`) was silently broken because
+  `onPointerDown={stopPropagation}` declared AFTER
+  `{...dragHandleProps.listeners}` overrode dnd-kit's PointerSensor
+  activator (JSX last-wins). Only the KeyboardSensor still worked,
+  which hid the regression from anyone using ArrowUp/ArrowDown. Fix:
+  drop the pointerdown override on the grip. Sibling `onClick`
+  stopPropagation alone handles row-selection suppression. Also fixes
+  the rename-input focus race that lost to Radix `restoreFocus` in
+  real browsers — gate `restoreFocus` deterministically via
+  `onCloseAutoFocus` controlled by a `skipCloseAutoFocusRef` flag.
+  Commit `c2b65176`.
+- **Empty-state inline-search Enter** now reliably opens the Add Data
+  modal. Two converging bugs: handler read `inlineQuery` from a stale
+  React state closure (replaced with `e.currentTarget.value`); and the
+  Enter keyup synthesized a click on the lazy Dialog's only focusable
+  element (the close X button while the panel was still suspending),
+  closing the dialog ~500ms after opening. `preventDefault` on the
+  keydown suppresses the synthesized activation. Commit `0ab1b512`.
+- **Layer rows no longer claim `role="listbox"` / `role="option"`** —
+  the pattern produced axe `aria-required-children` and
+  `nested-interactive` violations (rows had `role="option"
+  tabindex="0"` while also containing focusable buttons: drag handle,
+  eye, kebab, expand toggle). Rows aren't selection-widget options;
+  they're rich cards with multiple controls each, so the WAI-ARIA
+  listbox/option contract doesn't fit and is dropped. Selection now
+  conveyed via `data-selected` + `aria-current="true"`. `tabIndex={0}`
+  and Enter/Space keyboard activation preserved. E2E queries updated
+  to `[aria-label="Map layers"]` / `[id^="stack-row-"]`. Commit
+  `fdefd7f0`.
+- **Three pre-existing builder-unified-stack e2e failures fixed**
+  (drag-reorder filtering out basemap-group from drag candidates;
+  settings panel awaits the lazy chunk; empty-state accepts either
+  "Suggested datasets" or "Browse catalog" depending on
+  `SUGGESTED_DATASETS` config). Commit `b06c204e`.
+
+### Vector tiles — data-driven styling at all zooms (?cols= opt-in)
+
+#### Fixed
+
+- **Phase 269 H-23's `_DEFAULT_NO_ATTR_BELOW_ZOOM=10` no longer breaks
+  categorical/graduated paint at low zooms.** Tiles can now opt in to
+  attribute columns at any zoom via `?cols=<comma-separated>` query
+  param (auth-unsigned, allowlisted). Frontend's
+  `getDataDrivenColumnsForSource` appends the right cols per layer in
+  both `BuilderMap` and `ViewerMap`, including the `/m/<token>` and
+  `?embed=1&token=...` shared/embed surfaces. Cache key includes the
+  cols set so cached tiles don't leak attribute data across requests.
+  6 backend integration tests + 22 frontend unit tests (heatmap-shape
+  + extraCols edge cases). Commits `c8c9d08f` + `911061d1` +
+  `46d11f7b` + `414c7ff7`.
+
+### Dependencies
+
+- Bump `brace-expansion` 5.0.5 → 5.0.6 to clear moderate DoS advisory
+  GHSA-jxxr-4gwj-5jf2 (CVE-2026-45149). Transitive dev dep via
+  `typescript-eslint -> minimatch@10`. The older 1.1.13 copy on the
+  `eslint-plugin-jsx-a11y -> minimatch@3` path is outside the
+  advisory's vulnerable range. Commit `409c0e93`.
+
 ### Map Builder polish & bug sweep (v1011 — closes Phase 1051)
 
 Closed all 11 user-reported Map Builder polish/bug items in a single hygiene
