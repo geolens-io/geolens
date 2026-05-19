@@ -269,7 +269,7 @@ async def bootstrap_api_key(
     """
     # Step 1: Login -- form-encoded body for the OAuth-style endpoint.
     login_resp = await client.post(
-        f"{base_url}/api/auth/login/",
+        f"{base_url}/api/auth/login",
         data={"username": username, "password": password},
     )
     if login_resp.status_code != 200:
@@ -314,7 +314,7 @@ async def cleanup_bootstrap_key(
     """
     try:
         login_resp = await client.post(
-            f"{base_url}/api/auth/login/",
+            f"{base_url}/api/auth/login",
             data={"username": username, "password": password},
         )
         login_resp.raise_for_status()
