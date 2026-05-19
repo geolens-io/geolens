@@ -71,6 +71,87 @@
 - ✅ **v1010.2 Builder Smoke Carryover** — Phase 1050 (shipped 2026-05-17) — see [archive](milestones/v1010.2-ROADMAP.md)
 - ✅ **v1011 Map Builder Polish & Bug Sweep** — Phase 1051 (shipped 2026-05-18) — see [archive](milestones/v1011-ROADMAP.md)
 - ✅ **v1011.1 Builder Hygiene Carryover** — Phase 1052 (shipped 2026-05-18) — see [archive](milestones/v1011.1-ROADMAP.md)
+- 🔄 **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (in progress) — public tag: v1.3.0
+
+## Phases
+
+### v1012 New-User Hardening + Reupload (Active)
+
+- [ ] **Phase 1053: Quickstart Docs + Environment Hardening** — Fix new-user docs and environment configuration across the two repos (cross-repo: DOC work lands in `getgeolens.com`)
+- [ ] **Phase 1054: Seeder + Console + Route + Import Polish** — Harden seeders, eliminate anonymous-page 401 noise, fix route edge cases, and clean up upload UX
+- [ ] **Phase 1055: Reupload Feature** — Add the Reupload / Replace dataset affordance that drives the v1.3.0 minor bump
+- [ ] **Phase 1056: Close Gate** — Verify all 23 v1012 requirements, populate CHANGELOG, tag v1.3.0
+
+## Phase Details
+
+### Phase 1053: Quickstart Docs + Environment Hardening
+
+**Goal:** A new user following `docs.getgeolens.com/guides/quickstart/` can bring up GeoLens and seed initial data without discovering scripts independently or hitting undocumented blockers.
+**Depends on:** Nothing (first phase of v1012)
+**Requirements:** DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, BU-03, EW-01, EW-04
+**Cross-repo note:** DOC-01..05 and EW-01 require PRs in `~/Code/getgeolens.com/.planning/`. Changes track here for traceability but the actual doc edits land in that repo. EW-04 (`.env.example` SSL hint) is a change in this repo.
+**Success Criteria** (what must be TRUE):
+  1. A user reading the quickstart finds a "Seed sample data" section that shows both `seed-natural-earth.py` and `seed-ago-data.py` invocations — they do not need to discover scripts by browsing the repo.
+  2. The quickstart either documents the API-key creation flow needed by `seed-ago-data.py`, or the script accepts `--username/--password` directly — there is no silent dead end.
+  3. The quickstart prerequisites list Python 3.10+ and `httpx` so users know what to install before running seeders.
+  4. The quickstart does not claim a specific "1-2 minutes" startup time that lab variance makes false — either the claim is gone, or it describes the range output by `install.sh`.
+  5. `.env.example` has a documented `DATABASE_SSL_MODE` line with inline comment explaining `prefer` / `disable` / `require` so future contributors understand the SSL stance.
+**Plans:** TBD
+
+---
+
+### Phase 1054: Seeder + Console + Route + Import Polish
+
+**Goal:** Running GeoLens as a new user produces no unexplained console noise, no silent route failures, and no UI affordances that intercept clicks or emit React warnings.
+**Depends on:** Phase 1053
+**Requirements:** SEED-02, SEED-03, SEED-04, UX-01, CONSOLE-01, ROUTE-01, ROUTE-02, ROUTE-03, ROUTE-04, IMPORT-02, IMPORT-03, IMPORT-05, EW-05
+**Success Criteria** (what must be TRUE):
+  1. The anonymous Search page (`/`) and anonymous `/login` fire zero 401-error console entries — no auth-endpoint hooks fire before the user is authenticated.
+  2. `seed-ago-data.py` can ingest large AGO layers (>120s ogr2ogr transfers) via a configurable timeout or per-layer retry, and upstream data-quality noise is summarized rather than dumped line-by-line; ogr2ogr errors show only the actionable message, not the full driver list.
+  3. `/admin/saml` shows an "Enterprise Feature" placeholder instead of silently redirecting; the 404 page has a proper `<title>`; `/register` for an already-authenticated user shows a visible "Already signed in" banner instead of a silent redirect; `/m/{invalid-token}` renders a clean "Map not found" view.
+  4. The "Choose File" button in the Upload File dropzone is fully clickable — no decorative span intercepts pointer events — and committing a file upload produces zero React `setState during render` warnings.
+  5. The Register Table tab shows "All tables are registered" when no unregistered tables remain, rather than an absence-framed empty state; the STAC import wizard shows expected total bytes and item count before the user commits to a large fetch.
+**Plans:** TBD
+**UI hint**: yes
+
+---
+
+### Phase 1055: Reupload Feature
+
+**Goal:** A user on a dataset's detail page can replace that dataset's source file without losing the dataset ID, slug, or associated metadata.
+**Depends on:** Phase 1054
+**Requirements:** IMPORT-04
+**Success Criteria** (what must be TRUE):
+  1. A "Replace file" (or equivalent) button is visible on the dataset detail page for datasets that were imported via file upload.
+  2. Clicking the button opens a file picker; selecting and confirming a new file triggers re-ingestion that preserves the existing dataset ID and slug, regenerates tiles and thumbnail, and writes an audit-log entry.
+  3. After re-ingestion completes, the dataset detail page reflects the updated file without requiring a page reload or manual refresh.
+**Plans:** TBD
+**UI hint**: yes
+
+---
+
+### Phase 1056: Close Gate
+
+**Goal:** All 23 v1012 requirements are verified through smoke gates and live stack verification; CHANGELOG is populated; local v1.3.0 tag is created.
+**Depends on:** Phase 1055
+**Requirements:** CTRL-01
+**Success Criteria** (what must be TRUE):
+  1. `typecheck` reports 0 errors; `vitest` is green; `e2e:smoke:builder` is green; i18n parity passes for all 4 locales (en/de/es/fr).
+  2. A fresh `localhost:8080` stack — brought up per the updated quickstart — can complete the new-user flow: login → search → import → register table → seed catalog → dataset detail → replace file.
+  3. CHANGELOG `[Unreleased]` block is populated with all v1012 changes.
+  4. Local `v1.3.0` tag is created (public minor bump, driven by IMPORT-04 feature work).
+**Plans:** TBD
+
+---
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1053. Quickstart Docs + Environment Hardening | 0/? | Not started | - |
+| 1054. Seeder + Console + Route + Import Polish | 0/? | Not started | - |
+| 1055. Reupload Feature | 0/? | Not started | - |
+| 1056. Close Gate | 0/? | Not started | - |
 
 ## Backlog
 

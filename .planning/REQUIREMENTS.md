@@ -109,35 +109,35 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DOC-01 | TBD | Pending |
-| DOC-02 | TBD | Pending |
-| DOC-03 | TBD | Pending |
-| DOC-04 | TBD | Pending |
-| DOC-05 | TBD | Pending |
-| BU-03 | TBD | Pending |
-| SEED-02 | TBD | Pending |
-| SEED-03 | TBD | Pending |
-| SEED-04 | TBD | Pending |
-| UX-01 | TBD | Pending |
-| CONSOLE-01 | TBD | Pending |
-| ROUTE-01 | TBD | Pending |
-| ROUTE-02 | TBD | Pending |
-| ROUTE-03 | TBD | Pending |
-| ROUTE-04 | TBD | Pending |
-| IMPORT-02 | TBD | Pending |
-| IMPORT-03 | TBD | Pending |
-| IMPORT-04 | TBD | Pending |
-| IMPORT-05 | TBD | Pending |
-| EW-01 | TBD | Pending |
-| EW-04 | TBD | Pending |
-| EW-05 | TBD | Pending |
-| CTRL-01 | TBD | Pending |
+| DOC-01 | Phase 1053 | Pending |
+| DOC-02 | Phase 1053 | Pending |
+| DOC-03 | Phase 1053 | Pending |
+| DOC-04 | Phase 1053 | Pending |
+| DOC-05 | Phase 1053 | Pending |
+| BU-03 | Phase 1053 | Pending |
+| EW-01 | Phase 1053 | Pending |
+| EW-04 | Phase 1053 | Pending |
+| SEED-02 | Phase 1054 | Pending |
+| SEED-03 | Phase 1054 | Pending |
+| SEED-04 | Phase 1054 | Pending |
+| UX-01 | Phase 1054 | Pending |
+| CONSOLE-01 | Phase 1054 | Pending |
+| ROUTE-01 | Phase 1054 | Pending |
+| ROUTE-02 | Phase 1054 | Pending |
+| ROUTE-03 | Phase 1054 | Pending |
+| ROUTE-04 | Phase 1054 | Pending |
+| IMPORT-02 | Phase 1054 | Pending |
+| IMPORT-03 | Phase 1054 | Pending |
+| IMPORT-05 | Phase 1054 | Pending |
+| EW-05 | Phase 1054 | Pending |
+| IMPORT-04 | Phase 1055 | Pending |
+| CTRL-01 | Phase 1056 | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0 (roadmapper will fill this)
-- Unmapped: 23 ⚠️ (to be resolved by roadmap creation)
+- Mapped to phases: 23
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-19*
-*Last updated: 2026-05-19 after initial definition*
+*Last updated: 2026-05-19 — traceability table filled by roadmapper*

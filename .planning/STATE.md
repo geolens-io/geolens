@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-19T20:37:37.509Z"
 last_activity: 2026-05-19
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,21 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 1053 (Quickstart Docs + Environment Hardening) — Not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-19 — Milestone v1012 started
+Status: Roadmap defined — ready for `/gsd:plan-phase 1053`
+Last activity: 2026-05-19 — v1012 roadmap created (4 phases, 23 requirements)
+
+```
+Progress: [                    ] 0%   0/4 phases
+```
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-18 — v1011.1 Builder Hygiene Carryover shipped)
+See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone — run `/gsd-new-milestone` to scope the next milestone.
+**Current focus:** v1012 New-User Hardening + Reupload (Phases 1053-1056, public tag v1.3.0)
 
 ## Last Shipped Milestone
 
@@ -39,22 +43,30 @@ See: .planning/PROJECT.md (updated 2026-05-18 — v1011.1 Builder Hygiene Carryo
 
 **Previous:** v1011 Map Builder Polish & Bug Sweep (shipped 2026-05-18, tag `v1011` local, archive `.planning/milestones/v1011-ROADMAP.md`)
 
+## v1012 Phase Map
+
+| Phase | Name | Requirements | Status |
+|-------|------|--------------|--------|
+| 1053 | Quickstart Docs + Environment Hardening | DOC-01..05, BU-03, EW-01, EW-04 | Not started |
+| 1054 | Seeder + Console + Route + Import Polish | SEED-02..04, UX-01, CONSOLE-01, ROUTE-01..04, IMPORT-02, IMPORT-03, IMPORT-05, EW-05 | Not started |
+| 1055 | Reupload Feature | IMPORT-04 | Not started |
+| 1056 | Close Gate | CTRL-01 | Not started |
+
+**Cross-repo:** DOC-01..05 and EW-01 (Phase 1053) require PRs in `~/Code/getgeolens.com/.planning/`. Track here for traceability; actual doc edits land in that repo.
+
 ## Accumulated Context
 
-### Open candidate themes for next milestone
+### Active Milestone Notes
 
-- **M001-7n8vpc audit follow-up milestone (17 remaining findings)** — 4 High + 7 Medium + 6 Low captured in `.planning/M001-7n8vpc-dry-run-audit.md`. Top High items: BU-02 already shipped; DOC-02 (`seed-ago-data.py` needs pre-created API key, no docs); CONSOLE-01 (12 401 errors on anonymous Search page — partial regression of v1010.2 SF-06); IMPORT-03 (React setState-during-render warning on every Upload File commit). Natural fit as a hygiene-shape milestone (v1011.2 or similar).
-- **6 audit enhancements (EW-01..06)** — consolidate-to-single-compose, add seeder path to quickstart, `.env.example` SSL hint, STAC stage-and-confirm, reframe Register Table empty state. Most are docs/config edits.
-- **Post-v1011.1 informal commits to formalize** — the 8 commits between v1011.1 (`567c701e`) and these audit fixes include 2 feature commits (`b285f305` tabbed LayerEditorPanel, `8370e19e` composite map export) + several bug fixes. Currently informal on main; either tag as a release or fold into the next milestone.
-- **v1.7 Marketplace & Distribution unpause** — paused at Phase 40 (AWS AMI Build).
-- **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping (backlogged, Cloud-tier blocker).
-- **Enterprise feature backlog** — Phase 999.13 connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM, Phase 999.16 schemas package extraction.
-- **Public-repo recreate** — 2026-05-05 pending todo.
-- **BasemapSublayerEditorScene Path B FIX** — full per-sublayer styling persistence (jsonb-additive `MapBasemapConfig.sublayer_overrides`; live MapLibre dispatch through `applyBasemapConfigToMap`). 3-5 day feature phase; explicitly deferred from v1011.1 EMRG-FN-01 (Path A REMOVE chosen instead). Prioritize separately if/when basemap-sublayer styling is a real user need.
+- **3 Critical fixes already shipped on `main`** — BU-01 (`7b168bde`), BU-02 (`b4ad03d9`), SEED-01 (`787f4e43`), folded into `[1.2.0]` CHANGELOG via `89f37cca`. v1012 starts after v1.2.0 tag.
+- **Source of truth for all findings:** `.planning/M001-7n8vpc-dry-run-audit.md` (gitignored, 815 lines). Each REQ-ID maps to a finding ID in that report. Executor agents should reference it during plan-phase.
+- **IMPORT-04 Reupload** is the only net-new feature — needs new backend endpoint(s) + frontend UI affordance on dataset detail page. All other requirements are audit-cleanup or docs.
+- **Phase 1053 cross-repo dependency:** getgeolens.com docs PRs must be coordinated. EW-04 (`.env.example`) lives in this repo.
+- **v1.3.0 public tag** created at CTRL-01 close (Phase 1056). Minor bump justified by IMPORT-04 feature.
 
 ### Pending Todos
 
-- **Recreate public repo before launch** (2026-05-05) — `.planning/todos/pending/2026-05-05-recreate-public-repo-before-launch.md`. Outside v1011.1 scope.
+- **Recreate public repo before launch** (2026-05-05) — `.planning/todos/pending/2026-05-05-recreate-public-repo-before-launch.md`. Outside v1012 scope.
 
 ### Quick Tasks Completed
 
@@ -70,8 +82,7 @@ See: .planning/PROJECT.md (updated 2026-05-18 — v1011.1 Builder Hygiene Carryo
 
 ## Operator Next Steps
 
-- Decide whether to tag today's 3 Critical fixes as a `v1.1.2` patch release (or hold for a larger v1011.2 milestone that bundles them with the post-v1011.1 informal commits and the 17 remaining audit findings).
-- Run `/gsd-new-milestone` to scope the next milestone. The M001-7n8vpc audit findings make a strong candidate scope (4 High + 7 Medium + 6 Low + 6 enhancements — fits a hygiene-shape milestone).
-- Optionally push the local `v1011.1` tag: `git push origin v1011.1`.
-- Optionally push the local `v1011` tag if not already pushed: `git push origin v1011`.
-- Address the Dependabot moderate vulnerability surfaced on push (alert 40 at https://github.com/geolens-io/geolens/security/dependabot/40).
+1. Run `/gsd:plan-phase 1053` to generate the plan for Phase 1053 (Quickstart Docs + Environment Hardening). Remember Phase 1053 requires cross-repo coordination with `~/Code/getgeolens.com/.planning/` for DOC-01..05 and EW-01.
+2. Optionally push the local `v1011.1` tag: `git push origin v1011.1`.
+3. Optionally push the local `v1011` tag if not already pushed: `git push origin v1011`.
+4. Address the Dependabot moderate vulnerability surfaced on push (alert 40 at https://github.com/geolens-io/geolens/security/dependabot/40).
