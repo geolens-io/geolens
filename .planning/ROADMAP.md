@@ -116,14 +116,14 @@ Plans:
   3. `/admin/saml` shows an "Enterprise Feature" placeholder instead of silently redirecting; the 404 page has a proper `<title>`; `/register` for an already-authenticated user shows a visible "Already signed in" banner instead of a silent redirect; `/m/{invalid-token}` renders a clean "Map not found" view.
   4. The "Choose File" button in the Upload File dropzone is fully clickable — no decorative span intercepts pointer events — and committing a file upload produces zero React `setState during render` warnings.
   5. The Register Table tab shows "All tables are registered" when no unregistered tables remain, rather than an absence-framed empty state; the STAC import wizard shows expected total bytes and item count before the user commits to a large fetch.
-**Plans:** 4/11 plans executed
+**Plans:** 5/11 plans executed
 **UI hint**: yes
 Plans:
 - [ ] 1054-01-PLAN.md — SEED-02/03/04 backend ogr2ogr timeout + driver-list strip + seeder retry/skip-counter
 - [x] 1054-02-PLAN.md — CONSOLE-01 gate useAIAvailability on !!token && isAdmin (close the audit's /admin/ai-status/ ×3 leak)
 - [ ] 1054-03-PLAN.md — ROUTE-01 /admin/saml Enterprise Feature notice replaces silent redirect
 - [x] 1054-04-PLAN.md — ROUTE-02 NotFoundPage useDocumentTitle for 'Page not found - GeoLens'
-- [ ] 1054-05-PLAN.md — ROUTE-03 /register authenticated-user toast + visible redirect
+- [x] 1054-05-PLAN.md — ROUTE-03 /register authenticated-user toast + visible redirect
 - [ ] 1054-06-PLAN.md — ROUTE-04 getSharedMap expected404 opt-in quiets share-token console noise
 - [x] 1054-07-PLAN.md — IMPORT-02 FileDropzone decorative span pointer-events-none + aria-hidden
 - [ ] 1054-08-PLAN.md — IMPORT-03 UploadForm setState-in-render removed from three callsites via useEffect
@@ -166,7 +166,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1053. Quickstart Docs + Environment Hardening | 4/4 | Complete   | 2026-05-19 |
-| 1054. Seeder + Console + Route + Import Polish | 4/11 | In Progress|  |
+| 1054. Seeder + Console + Route + Import Polish | 5/11 | In Progress|  |
 | 1055. Reupload Feature | 0/? | Not started | - |
 | 1056. Close Gate | 0/? | Not started | - |
 
