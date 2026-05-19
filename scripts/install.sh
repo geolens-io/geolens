@@ -220,8 +220,59 @@ check_port "$fe_port"
 say "Starting GeoLens..."
 docker compose up -d
 
+# Wait up to 90s for the stack to become healthy. The migrate one-shot must
+# exit 0; every healthcheck-having service must report (healthy). If migrate
+# fails or the wait times out, surface the failing service with its log tail
+# and exit non-zero — silent "Starting..." on a dead stack is the worst kind
+# of false success signal.
+wait_for_healthy() {
+  attempts=18
+  sleep_s=5
+  i=0
+  while [ "$i" -lt "$attempts" ]; do
+    i=$((i + 1))
+
+    migrate_cid=$(docker compose ps -aq migrate 2>/dev/null | head -n 1)
+    if [ -n "$migrate_cid" ]; then
+      migrate_state=$(docker inspect --format '{{.State.Status}}' "$migrate_cid" 2>/dev/null || printf '')
+      if [ "$migrate_state" = "exited" ]; then
+        migrate_exit=$(docker inspect --format '{{.State.ExitCode}}' "$migrate_cid" 2>/dev/null || printf '?')
+        if [ "$migrate_exit" != "0" ]; then
+          printf '\n' >&2
+          warn "migrate one-shot exited with code $migrate_exit. Last 30 log lines:"
+          docker compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
+          return 1
+        fi
+      fi
+    fi
+
+    unhealthy=$(docker compose ps --format '{{.Service}}|{{.Status}}' 2>/dev/null | grep -v '|.*(healthy)' | grep -v '^$' || true)
+    if [ -z "$unhealthy" ]; then
+      printf '\n'
+      return 0
+    fi
+
+    if [ "$i" -eq 1 ]; then
+      printf 'Waiting for services to become healthy'
+    else
+      printf '.'
+    fi
+    sleep "$sleep_s"
+  done
+
+  printf '\n' >&2
+  warn "timed out after $((attempts * sleep_s))s waiting for services. Current status:"
+  docker compose ps 2>&1 | sed 's/^/  /' >&2
+  warn "Inspect with: docker compose ps  /  docker compose logs <service>"
+  return 1
+}
+
+if ! wait_for_healthy; then
+  fail "GeoLens did not come up cleanly. See the failing service output above."
+fi
+
 say ""
-say "GeoLens is starting."
+say "GeoLens is ready."
 say "UI:  http://localhost:${fe_port}"
 say "API: http://localhost:${api_port}"
 say ""
