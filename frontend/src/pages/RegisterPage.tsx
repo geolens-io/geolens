@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { Link, Navigate } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
@@ -23,6 +24,15 @@ export function RegisterPage() {
   useDocumentTitle(t('common:pageTitle.register'));
   const [submitted, setSubmitted] = useState(false);
   const token = useAuthStore((s) => s.token);
+  const navigate = useNavigate();
+
+  // ROUTE-03: emit a one-time info toast before redirecting so the user
+  // understands why they were bounced instead of silently landing on "/".
+  useEffect(() => {
+    if (!token) return;
+    toast.info(t('alreadySignedIn'));
+    navigate('/', { replace: true });
+  }, [token, navigate, t]);
 
   const { data: config, isLoading, isError: configError } = useQuery({
     queryKey: queryKeys.authConfig.config,
@@ -30,7 +40,8 @@ export function RegisterPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  if (token) return <Navigate to="/" replace />;
+  // Render nothing while the effect redirects (prevents flash of register form).
+  if (token) return null;
 
   if (isLoading) {
     return (
