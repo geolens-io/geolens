@@ -13,6 +13,7 @@ import pytest
 from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.ogr import (
     _extract_common_layer_metadata,
+    _strip_ogr_driver_list,
     extract_srid_from_json,
     _parse_text_ogrinfo,
     _resolve_source_path,
@@ -889,3 +890,47 @@ class TestParseTemporalFields:
         assert "temporal_start" in errors
         # Truncated str() representation of the int input
         assert errors["temporal_start"] == "12345"
+
+
+class TestStripOgrDriverList:
+    """SEED-04: driver-list stripping helper — removes GDAL driver enumeration
+    from ogr2ogr stderr so IngestionError messages show only actionable lines.
+    """
+
+    def test_strips_driver_list_lines_and_keeps_error(self):
+        """Core case: contiguous driver-list lines removed; ERROR line preserved."""
+        stderr = "blah\n -> 'FITS' (read-only)\n -> 'PCIDSK'\nERROR 1: real error"
+        result = _strip_ogr_driver_list(stderr)
+        assert "ERROR 1: real error" in result
+        assert "-> 'FITS'" not in result
+        assert "-> 'PCIDSK'" not in result
+
+    def test_no_driver_list_returns_unchanged(self):
+        """When no driver-list lines are present, the string is returned as-is."""
+        stderr = "ERROR 1: timeout after 120002ms"
+        result = _strip_ogr_driver_list(stderr)
+        assert result == "ERROR 1: timeout after 120002ms"
+
+    def test_empty_string_returns_empty(self):
+        """Empty input is safe and returns empty string."""
+        assert _strip_ogr_driver_list("") == ""
+
+    def test_strips_leading_blank_line_between_driver_list_and_error(self):
+        """Blank lines between the driver list and the error line are collapsed."""
+        stderr = (
+            "  -> 'XYZ' (rw+v)\n"
+            "  -> 'OGR_GMT' (rw+v)\n"
+            "\n"
+            "ERROR 6: Unable to load shared library"
+        )
+        result = _strip_ogr_driver_list(stderr)
+        assert result.startswith("ERROR 6:")
+        assert "-> 'XYZ'" not in result
+        assert "-> 'OGR_GMT'" not in result
+
+    def test_settings_has_ingest_http_timeout_seconds_default_300(self):
+        """Settings field ingest_http_timeout_seconds exists and defaults to 300."""
+        from app.core.config import settings
+
+        assert hasattr(settings, "ingest_http_timeout_seconds")
+        assert settings.ingest_http_timeout_seconds == 300
