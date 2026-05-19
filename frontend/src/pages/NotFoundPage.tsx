@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 
 export function NotFoundPage() {
   const { t } = useTranslation('common');
+  useDocumentTitle(t('common:pageTitle.notFound'));
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">

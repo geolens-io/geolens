@@ -343,6 +343,7 @@
     "dataset": "Dataset",
     "collection": "Collection",
     "mapBuilder": "Map Builder",
+    "notFound": "Page not found",
     "sharedMap": "Shared Map",
     "map": "Map",
     "adminOverview": "Admin Overview",

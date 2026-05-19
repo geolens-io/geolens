@@ -343,6 +343,7 @@
     "dataset": "Jeu de données",
     "collection": "Collection",
     "mapBuilder": "Éditeur de carte",
+    "notFound": "Page introuvable",
     "sharedMap": "Carte partagée",
     "map": "Carte",
     "adminOverview": "Aperçu admin",

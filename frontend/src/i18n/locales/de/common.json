@@ -343,6 +343,7 @@
     "dataset": "Datensatz",
     "collection": "Sammlung",
     "mapBuilder": "Karten-Editor",
+    "notFound": "Seite nicht gefunden",
     "sharedMap": "Geteilte Karte",
     "map": "Karte",
     "adminOverview": "Admin-Übersicht",
