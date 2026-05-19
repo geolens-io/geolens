@@ -33,7 +33,7 @@
 
 ### UX
 
-- [ ] **UX-01**: API Keys workflow is reachable from login within 1-2 clicks via primary admin nav, OR is signposted from the seeder docs so new users running `seed-ago-data.py` know exactly where to mint a key. (Discovery requirement, not a UI relocation requirement.)
+- [x] **UX-01**: API Keys workflow is reachable from login within 1-2 clicks via primary admin nav, OR is signposted from the seeder docs so new users running `seed-ago-data.py` know exactly where to mint a key. (Discovery requirement, not a UI relocation requirement.)
 
 ### Console Hygiene
 
@@ -120,7 +120,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEED-02 | Phase 1054 | Pending |
 | SEED-03 | Phase 1054 | Pending |
 | SEED-04 | Phase 1054 | Pending |
-| UX-01 | Phase 1054 | Pending |
+| UX-01 | Phase 1054 | Complete |
 | CONSOLE-01 | Phase 1054 | Pending |
 | ROUTE-01 | Phase 1054 | Pending |
 | ROUTE-02 | Phase 1054 | Pending |
