@@ -600,6 +600,13 @@
   "saml": {
     "title": "SSO SAML",
     "description": "Configurez les fournisseurs d'identité SAML 2.0 pour l'authentification unique d'entreprise. Disponible avec la couche GeoLens Enterprise.",
+    "enterpriseOnly": {
+      "title": "SSO SAML",
+      "description": "Disponible avec la couche GeoLens Enterprise.",
+      "heading": "Il s'agit d'une fonctionnalité Enterprise",
+      "body": "L'authentification unique SAML 2.0 fait partie de l'édition GeoLens Enterprise. L'édition communautaire prend en charge les comptes locaux et les fournisseurs OAuth (Google, GitHub, OIDC générique) sans configuration supplémentaire.",
+      "docsLink": "En savoir plus sur SAML dans la documentation Enterprise →"
+    },
     "addProvider": "Ajouter un fournisseur SAML",
     "loading": "Chargement des fournisseurs SAML...",
     "loadFailed": "Échec du chargement des fournisseurs SAML",

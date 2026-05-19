@@ -600,6 +600,13 @@
   "saml": {
     "title": "SAML SSO",
     "description": "Configure SAML 2.0 identity providers for enterprise single sign-on. Available with the GeoLens Enterprise overlay.",
+    "enterpriseOnly": {
+      "title": "SAML SSO",
+      "description": "Available with the GeoLens Enterprise overlay.",
+      "heading": "This is an Enterprise feature",
+      "body": "SAML 2.0 single sign-on is part of the GeoLens Enterprise edition. The community edition supports local accounts and OAuth providers (Google, GitHub, generic OIDC) out of the box.",
+      "docsLink": "Read more about SAML in the Enterprise docs →"
+    },
     "addProvider": "Add SAML Provider",
     "loading": "Loading SAML providers...",
     "loadFailed": "Failed to load SAML providers",
