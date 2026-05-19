@@ -55,6 +55,55 @@ PresignedUploadRequest = _catalog_port.presigned_upload_request_model()
 PresignedUploadResponse = _catalog_port.presigned_upload_response_model()
 UploadResponse = _catalog_port.upload_response_model()
 
+# Extension sets used for cross-record-type validation.
+# Do NOT depend on the runtime allowed_extensions config (which merges all types).
+_RASTER_EXTENSIONS: frozenset[str] = frozenset({".tif", ".tiff"})
+_VECTOR_EXTENSIONS: frozenset[str] = frozenset({
+    ".zip", ".gpkg", ".geojson", ".json", ".csv", ".xlsx", ".xls"
+})
+
+
+def _assert_compatible_record_type(dataset, filename: str | None) -> None:
+    """Raise HTTP 400 when the file extension is incompatible with dataset.record.record_type.
+
+    Called from both reupload_dataset (multipart) and request_presigned_reupload (S3)
+    after dataset lookup, before extension validation, so the user sees the precise
+    cross-record-type message rather than a generic "extension not allowed" error.
+
+    Audit action `reupload.commit` is shipped — see test_provenance_attribution.py.
+    Do not rename to `dataset.reupload`.
+    """
+    record_type: str = dataset.record.record_type
+    ext: str = Path(filename or "").suffix.lower()
+
+    if record_type == "vrt_dataset":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "VRT datasets do not support file reupload — "
+                "edit the VRT membership instead."
+            ),
+        )
+
+    if record_type in ("vector_dataset", "table") and ext in _RASTER_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"This dataset is a {record_type.replace('_', ' ')}; "
+                f"{ext} files are not supported for reupload. "
+                "Cross-record-type swaps are not allowed."
+            ),
+        )
+
+    if record_type == "raster_dataset" and ext in _VECTOR_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This dataset is a raster dataset; "
+                "only .tif/.tiff files are supported for reupload."
+            ),
+        )
+
 
 @router.post(
     "/{dataset_id}/reupload",
@@ -74,6 +123,8 @@ async def reupload_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
+
+    _assert_compatible_record_type(dataset, file.filename)
 
     try:
         allowed_list = await get_allowed_extensions_list(db)
@@ -466,6 +517,8 @@ async def request_presigned_reupload(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
+
+    _assert_compatible_record_type(dataset, request.filename)
 
     try:
         allowed_list = await get_allowed_extensions_list(db)
