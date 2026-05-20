@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: in_progress
-last_updated: "2026-05-20T20:28:00.000Z"
-last_activity: 2026-05-20 -- Phase 1062 Plan 02 complete (SEC-S10 + SEC-S11 rate limiting)
+last_updated: "2026-05-20T20:44:08.000Z"
+last_activity: 2026-05-20 -- Phase 1062 Plan 03 complete (SEC-S12 simple-regconfig GIN index + SEC-S13 /search/facets/ max_length)
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
-  percent: 14
+  completed_plans: 10
+  percent: 17
 ---
 
 # State
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1062 — IN PROGRESS
-Plan: 02 (complete)
-Status: Phase 1062 Plan 02 complete — SEC-S10 (basemap api_key docstring + rate limit) + SEC-S11 (per-route rate limits on search/related)
-Last activity: 2026-05-20 -- Phase 1062 Plan 02 complete (SEC-S10 + SEC-S11 rate limiting)
+Plan: 03 (complete)
+Status: Phase 1062 Plan 03 complete — SEC-S12 (simple-regconfig GIN index on records) + SEC-S13 (/search/facets/ max_length=1000)
+Last activity: 2026-05-20 -- Phase 1062 Plan 03 complete (SEC-S12 simple-regconfig GIN index + SEC-S13 /search/facets/ max_length)
 
 ## Project Reference
 
@@ -112,6 +112,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - [Phase ?]: Phase 1061 Plan 05: SEC-S07 MinIO :?required fail-closed expansion; minio-setup sources creds via $$VAR double-dollar not hardcoded literals
 - **Phase 1062 Plan 01:** SEC-S15 JWT revocation — create_access_token made async to embed token_version+jti; revoke_all_tokens atomically bumps token_version; get_current_user/get_optional_user reject stale JWTs; logout+change-password call revoke_all_tokens. SEC-S16 password complexity — password_policy.py with configurable 12-char + 3-of-4 class diversity wired to all 4 entry points; PASSWORD_MIN_LENGTH/PASSWORD_REQUIRE_CLASSES env-configurable; Field(min_length=8) fast-fail floor kept per plan note.
 - **Phase 1062 Plan 02:** SEC-S11 per-route rate limits applied per-IP — 30/min for semantic search (/search/datasets/, /search/facets/, /datasets/{id}/related/), 120/min for basemap proxy (/settings/basemaps/). _sync_rate_limit_cache accessor pattern reused from existing login/global infrastructure. Per-token caps deferred to SEC-FU Phase 1063. SEC-S10 docstring added to get_basemaps documenting public api_key resolution model.
+- **Phase 1062 Plan 03:** SEC-S12 GIN index ix_records_simple_search_vector on simple-regconfig tsvector (migration 0020); catalog.immutable_text_array_join IMMUTABLE wrapper for array_to_string (concat_ws is STABLE, cannot appear in functional index); service_filters.py runtime expression updated from concat_ws to || operator to match index expression tree. SEC-S13 max_length=1000 on /search/facets/?q= matching peer /search/datasets/.
 
 ## Operator Next Steps
 
