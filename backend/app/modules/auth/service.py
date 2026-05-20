@@ -54,7 +54,12 @@ class AuthService:
         result = await self.db.execute(
             select(User.token_version).where(User.id == identity.user_id)
         )
-        token_version: int = result.scalar_one_or_none() or 1
+        # WR-04: use an explicit None check rather than `or 1` so a DB row with
+        # token_version=0 is not silently coerced to 1. In normal operation
+        # token_version starts at 1 (migration server_default="1"), so 0 is
+        # unreachable — but explicit intent is clearer than relying on falsiness.
+        _raw_version = result.scalar_one_or_none()
+        token_version: int = _raw_version if _raw_version is not None else 1
 
         payload = {
             "sub": str(identity.user_id),
