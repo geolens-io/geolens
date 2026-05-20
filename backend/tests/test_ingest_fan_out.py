@@ -333,6 +333,162 @@ class TestFanOutEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# CR-01 regression test: preview must stamp all_layers before fan-out validates
+# ---------------------------------------------------------------------------
+
+
+class TestCR01PreviewStampsAllLayers:
+    """Verify the CR-01 fix: /preview/{job_id} persists all_layers into
+    job.user_metadata so the fan-out validation has a non-empty known set.
+
+    Unlike the other tests that use _make_pending_job (which injects all_layers
+    directly), this test starts with a job that has NO all_layers in
+    user_metadata, calls /preview to trigger the stamping, then calls
+    /commit-fan-out — which must succeed (not 422) because preview stamped
+    the layers.
+    """
+
+    async def test_preview_stamps_all_layers_enabling_fan_out(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Full path: create job without all_layers → call preview → call fan-out.
+
+        The fan-out must accept the layer name that preview returned, proving
+        that the preview endpoint now stamps all_layers into user_metadata.
+        """
+        uid = await _admin_user_id(test_db_session)
+
+        # Create a job WITHOUT all_layers in user_metadata (simulates real upload).
+        job = IngestJob(
+            source_filename="multi.gpkg",
+            file_path="/tmp/fake-multi.gpkg",
+            status="pending",
+            created_by=uid,
+            user_metadata={"file_type": "vector"},  # no all_layers
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        # Mock run_ogrinfo_preview to return a 2-layer GPKG response.
+        fake_preview_result = {
+            "columns": [{"name": "id", "type": "Integer"}],
+            "srid": 4326,
+            "geometry_type": "Point",
+            "feature_count": 10,
+            "sample_rows": [],
+            "layer_name": "rivers",
+            "all_layers": [
+                {"name": "rivers", "feature_count": 10},
+                {"name": "lakes", "feature_count": 5},
+            ],
+        }
+
+        with patch(
+            "app.processing.ingest.router.run_ogrinfo_preview",
+            new_callable=AsyncMock,
+            return_value=fake_preview_result,
+        ):
+            preview_resp = await client.get(
+                f"/ingest/preview/{job.id}",
+                headers=admin_auth_header,
+            )
+
+        assert preview_resp.status_code == 200, preview_resp.text
+        preview_data = preview_resp.json()
+        assert preview_data["layers"] is not None
+        assert len(preview_data["layers"]) == 2
+
+        # Confirm all_layers was stamped into user_metadata by the preview endpoint.
+        await test_db_session.refresh(job)
+        assert job.user_metadata is not None
+        assert "all_layers" in job.user_metadata, (
+            "CR-01: preview did not stamp all_layers into job.user_metadata"
+        )
+        assert len(job.user_metadata["all_layers"]) == 2
+
+        # Now call commit-fan-out WITHOUT _make_pending_job bypass.
+        # This must succeed (not 422) because preview stamped the layers.
+        fan_out_resp = await client.post(
+            f"/ingest/commit-fan-out/{job.id}",
+            json={"layers": [{"layer_name": "rivers"}, {"layer_name": "lakes"}]},
+            headers=admin_auth_header,
+        )
+        assert fan_out_resp.status_code == 202, (
+            f"CR-01 regression: fan-out rejected layers that preview returned. "
+            f"Response: {fan_out_resp.text}"
+        )
+        data = fan_out_resp.json()
+        assert len(data["results"]) == 2
+
+    async def test_fan_out_rejects_unknown_layer_after_preview_stamps(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """After preview stamps all_layers, the 422 guard must be functional.
+
+        This is the complementary test: the validation guard that was previously
+        a no-op (because all_layers was empty) must now correctly reject unknown
+        layer names.
+        """
+        uid = await _admin_user_id(test_db_session)
+
+        job = IngestJob(
+            source_filename="two-layer.gpkg",
+            file_path="/tmp/fake-two.gpkg",
+            status="pending",
+            created_by=uid,
+            user_metadata={"file_type": "vector"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        fake_preview_result = {
+            "columns": [{"name": "id", "type": "Integer"}],
+            "srid": 4326,
+            "geometry_type": "Point",
+            "feature_count": 3,
+            "sample_rows": [],
+            "layer_name": "alpha",
+            "all_layers": [
+                {"name": "alpha", "feature_count": 3},
+                {"name": "beta", "feature_count": 7},
+            ],
+        }
+
+        with patch(
+            "app.processing.ingest.router.run_ogrinfo_preview",
+            new_callable=AsyncMock,
+            return_value=fake_preview_result,
+        ):
+            await client.get(
+                f"/ingest/preview/{job.id}",
+                headers=admin_auth_header,
+            )
+
+        # Requesting a layer not in all_layers must now return 422 (not silently
+        # pass because known_layer_names was an empty set).
+        fan_out_resp = await client.post(
+            f"/ingest/commit-fan-out/{job.id}",
+            json={"layers": [{"layer_name": "gamma"}]},  # not in the file
+            headers=admin_auth_header,
+        )
+        assert fan_out_resp.status_code == 422, (
+            "CR-01 regression: fan-out should reject unknown layer after preview stamps all_layers"
+        )
+        detail = fan_out_resp.json()["detail"]
+        assert "gamma" in detail["unknown_layers"]
+        assert "alpha" in detail["available_layers"]
+        assert "beta" in detail["available_layers"]
+
+
+# ---------------------------------------------------------------------------
 # Unit tests for _user_safe_error (T-1058D-04)
 # ---------------------------------------------------------------------------
 
