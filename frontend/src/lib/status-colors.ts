@@ -16,6 +16,7 @@ export const jobStatusColors: Record<string, string> = {
   running: semanticBadgeColors.info,
   complete: semanticBadgeColors.success,
   failed: semanticBadgeColors.destructive,
+  fanned_out: semanticBadgeColors.success,
 };
 
 export const userStatusColors: Record<string, string> = {

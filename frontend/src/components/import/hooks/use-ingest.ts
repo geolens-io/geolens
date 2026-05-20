@@ -18,7 +18,9 @@ export function useJobStatus(jobId: string | null) {
     staleTime: 2000,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === 'complete' || status === 'failed') return false;
+      // 'fanned_out' is terminal — the parent never transitions again; children
+      // (with their own job IDs) carry forward progress. See SMOKE-v1013-F1.
+      if (status === 'complete' || status === 'failed' || status === 'fanned_out') return false;
       return 2000;
     },
   });

@@ -65,9 +65,16 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     }];
   });
 
+  // 'fanned_out' parents have no further status to display — children carry
+  // forward progress under their own job IDs (the per-layer modal already shown).
+  // Treat fanned_out as terminal so the parent doesn't sit in "Active and recent
+  // jobs" forever. See SMOKE-v1013-F1.
+  const isTerminal = (status: string | undefined) =>
+    status === 'complete' || status === 'fanned_out';
+
   const activeEntries = trackable.filter((_, index) => {
     const job = jobQueries[index]?.data;
-    return job?.status !== 'complete';
+    return !isTerminal(job?.status);
   });
 
   const inProgressCount = trackable.filter((_, index) => {
@@ -75,7 +82,13 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
     return status === 'pending' || status === 'running';
   }).length;
 
-  const allDone = completedEntries.length === trackable.length && trackable.length > 0;
+  // Fan-out parents count as "done" for the all-done check — their per-layer
+  // outcome was already shown via the FanOutResults modal in UploadForm.
+  const doneCount = trackable.filter((_, index) => {
+    const status = jobQueries[index]?.data?.status;
+    return isTerminal(status);
+  }).length;
+  const allDone = doneCount === trackable.length && trackable.length > 0;
 
   useEffect(() => {
     if (

@@ -76,6 +76,30 @@ class TestGetJobStatus:
         resp = await client.get(f"/jobs/{uuid.uuid4()}", headers=admin_auth_header)
         assert resp.status_code == 404
 
+    async def test_get_job_status_fanned_out_returns_200(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """GET /jobs/{id} for a fanned_out parent returns 200 with status='fanned_out'.
+
+        Regression for SMOKE-v1013-F1: JobStatusResponse.status Literal was missing
+        'fanned_out' (the terminal status set by POST /ingest/commit-fan-out after
+        N child tasks are dispatched), causing Pydantic ValidationError → HTTP 500
+        on every poll. The DB CHECK constraint accepts 'fanned_out'; the API
+        response model must too.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="fanned_out",
+        )
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "fanned_out"
+        assert data["id"] == str(job.id)
+
     async def test_get_job_unauthenticated(self, client: AsyncClient):
         """GET /jobs/{id} without auth returns 401."""
         resp = await client.get(f"/jobs/{uuid.uuid4()}")
