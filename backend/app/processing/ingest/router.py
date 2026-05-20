@@ -704,8 +704,6 @@ async def commit_fan_out(
 
     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
     """
-    from datetime import datetime, timezone
-
     job = await get_job_or_404(db, job_id, user)
 
     if job.status != "pending":
