@@ -768,7 +768,9 @@ export function ReuploadDialog({
                     >
                       <TableCell className="max-w-[300px] truncate">{layer.name}</TableCell>
                       <TableCell>-</TableCell>
-                      <TableCell>{formatNumber(layer.feature_count)}</TableCell>
+                      <TableCell>
+                        {layer.feature_count !== null ? formatNumber(layer.feature_count) : '—'}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
