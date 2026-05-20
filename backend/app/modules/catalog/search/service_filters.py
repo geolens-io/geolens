@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal, TypedDict
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, func, literal_column, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core.geo import make_bbox_filter
@@ -75,14 +75,22 @@ def _build_text_filter(q: str):
     ts_query_en = func.websearch_to_tsquery("english", query_text)
     ts_query_simple = func.websearch_to_tsquery("simple", query_text)
     ts_query = ts_query_en.bool_op("||")(ts_query_simple)
+    # Use || (IMMUTABLE) instead of concat_ws (STABLE) so this expression
+    # matches the functional GIN index ix_records_simple_search_vector
+    # created by migration 0020_records_simple_search_vector_idx.
+    # catalog.immutable_text_array_join is the IMMUTABLE wrapper around
+    # array_to_string defined by the same migration.
     record_simple_vector = func.to_tsvector(
         "simple",
-        func.concat_ws(
-            " ",
-            func.coalesce(Record.title, ""),
-            func.coalesce(Record.summary, ""),
-            func.coalesce(Record.lineage_summary, ""),
-            func.coalesce(func.array_to_string(Record.theme_category, " "), ""),
+        func.coalesce(Record.title, "")
+        + " "
+        + func.coalesce(Record.summary, "")
+        + " "
+        + func.coalesce(Record.lineage_summary, "")
+        + " "
+        + func.coalesce(
+            literal_column("catalog.immutable_text_array_join(theme_category, ' ')"),
+            "",
         ),
     )
 
