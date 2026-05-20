@@ -94,7 +94,7 @@
 | # | Phase | Reqs | Severity | Estimate |
 |---|-------|------|----------|----------|
 | 1061 | HIGH severity findings + AGENTS.md guardrail | 6/6 | Complete   | 2026-05-20 |
-| 1062 | MEDIUM severity findings | 5/6 | In Progress|  |
+| 1062 | MEDIUM severity findings | 6/6 | Complete   | 2026-05-20 |
 | 1063 | LOW follow-up tickets | SEC-FU-01..FU-10 (10) | LOW | ~2-3 days |
 | 1064 | Close gate (regression suite + CHANGELOG + tag) | SEC-CTRL-01 (1) | Gate | ~0.5 day |
 
@@ -164,7 +164,7 @@ Plans: 6 plans
 - [x] 1062-03-PLAN.md — SEC-S12 + SEC-S13: simple-regconfig GIN index + /search/facets/?q max_length=1000 (wave 1, 3 tasks)
 - [x] 1062-04-PLAN.md — SEC-S09: ogr2ogr -where sqlglot AST validator (wave 1, 3 tasks)
 - [x] 1062-05-PLAN.md — SEC-S08: per-token frame-ancestors CSP on /api/maps/shared/{token} + nginx /m/ XFO removal (wave 1, 3 tasks)
-- [ ] 1062-06-PLAN.md — SEC-S14: ESLint no-restricted-syntax guard + httpOnly migration plan documented (wave 1, 4 tasks)
+- [x] 1062-06-PLAN.md — SEC-S14: ESLint no-restricted-syntax guard + httpOnly migration plan documented (wave 1, 4 tasks)
 
 ### Phase 1063: LOW follow-up tickets
 
@@ -181,9 +181,14 @@ Plans: 6 plans
 4. Column DDL change observability added (pg_audit or per-table change log).
 5. nginx + `.env.example` operator-facing hardening documented.
 
+**Plans:** 4 plans (wave 1, no overlap → parallel-safe)
+
 Plans:
 
-- [ ] TBD (run `/gsd:plan-phase 1063`)
+- [ ] 1063-01-PLAN.md — SEC-FU-01 + SEC-FU-08: STAC 5xx-mutation pytest fixture + audit_logs column-DDL feed endpoint (wave 1, 3 tasks)
+- [ ] 1063-02-PLAN.md — SEC-FU-02 + SEC-FU-09 + SEC-FU-10: DEMO_JWT_SECRET literal pin + nginx server_tokens off + .env.example Postgres least-privilege docs (wave 1, 3 tasks)
+- [ ] 1063-03-PLAN.md — SEC-FU-03 + SEC-FU-04: eslint-plugin-react react/no-danger + GDAL Authorization base64url charset sanitizer (wave 1, 2 tasks)
+- [ ] 1063-04-PLAN.md — SEC-FU-05 + SEC-FU-06 + SEC-FU-07: STAC intersects max_length=10000 + parse_bbox isfinite + service_crud.py ILIKE %/_ escape (wave 1, 3 tasks)
 
 ### Phase 1064: Close gate
 
