@@ -134,7 +134,7 @@
   3. User opening a saved map with sublayer overrides in the viewer (`/m/{id}`), shared link (`/m/{token}`), or embed (`/embed/{token}`) sees the same sublayer styling rendered — round-trip parity across all 4 render contexts.
   4. Overrides persist additively through `MapBasemapConfig.sublayer_overrides` jsonb (or equivalent additive path); legacy saved maps without overrides continue to render with default basemap styling (zero-migration backward compat).
 **Plans**: 4 plans
-- [ ] 1059-01-PLAN.md — Backend persistence: Pydantic SublayerOverride model + BasemapConfig.sublayer_overrides field (jsonb-additive, zero-migration) + 14-test pytest covering validation, round-trip, legacy compat
+- [x] 1059-01-PLAN.md — Backend persistence: Pydantic SublayerOverride model + BasemapConfig.sublayer_overrides field (jsonb-additive, zero-migration) + 14-test pytest covering validation, round-trip, legacy compat
 - [ ] 1059-02-PLAN.md — Frontend MapLibre integration: applySublayerOverrides helper at frontend/src/lib/builder/basemap-style-mutation.ts with idle-retry recovery; wires into BuilderMap.tsx (2 sites) + ViewerMap.tsx (1 site, serves viewer + shared + embed routes); 14+ unit tests
 - [ ] 1059-03-PLAN.md — Frontend editor UI: Restore STROKE/CASING/ZOOM sections in BasemapSublayerEditorScene.tsx (5 sections D-09 order); invert Test 14 EMRG-FN-01 regression pin; wire MapBuilderPage callbacks to useMapBuilderStore.basemap_config.sublayer_overrides patches; English i18n
 - [ ] 1059-04-PLAN.md — Cross-context tests + i18n: Extend ViewerMap.basemap-config.test with 5 new applySublayerOverrides assertions + new sublayer_overrides.round-trip.test with 7 tests; de/es/fr locale parity for 9 new basemapSublayer.* keys
@@ -164,7 +164,7 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 |-------|----------------|--------|-----------|
 | 1057. Service URL Reliability | 3/3 | Complete |  |
 | 1058. Multi-Layer GPKG Handling | 3/3 | Partial (T-1058C-03 backend gap documented) |  |
-| 1059. Basemap Sublayer Editor (Path B FIX) | 0/4 | Planned (Waves 1-3: A→B+C→D) | - |
+| 1059. Basemap Sublayer Editor (Path B FIX) | 1/4 | In Progress (Wave 1 complete: backend schema) | - |
 | 1060. Close Gate | 0/? | Not started | - |
 
 ## Backlog

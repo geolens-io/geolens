@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
 status: completed
-last_updated: "2026-05-20T02:49:00.000Z"
-last_activity: "2026-05-20 — Phase 1058 Plan 04 executed; GPKG-03 backend fan-out endpoint; 53/53 backend + 31/31 frontend tests pass; T-1058C-03 closed"
+last_updated: "2026-05-20T03:44:05.250Z"
+last_activity: 2026-05-20 — Phase 1059 Plan 01 executed; SublayerOverride Pydantic model + BasemapConfig.sublayer_overrides field; 22/22 backend tests pass; zero-migration jsonb-additive
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 11
-  completed_plans: 11
-  percent: 22
+  completed_plans: 9
+  percent: 25
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1058 Multi-Layer GPKG Handling — Plan 04 complete (all 4 plans done: 01 GPKG-01, 02 GPKG-02, 03 GPKG-03-UI, 04 GPKG-03-backend-fanout)
-Plan: 04 / 4 (GPKG-03 backend fan-out endpoint — POST /ingest/commit-fan-out/{job_id})
-Status: Phase 1058 all 4 plans complete — GPKG-01 (layer-select state machine + backend), GPKG-02 (preview pane parity), GPKG-03 UI (ingest-all-layers fan-out + results modal), GPKG-03 backend (fan-out endpoint closes T-1058C-03)
-Last activity: 2026-05-20 — Phase 1058 Plan 04 executed; GPKG-03 backend fan-out endpoint; migration 0017; 53/53 backend + 31/31 frontend tests pass
+Phase: 1059 Basemap Sublayer Editor (Path B FIX) — Plan 01 complete (backend Pydantic SublayerOverride + persistence)
+Plan: 01 / 4 (backend schema: SublayerOverride model + BasemapConfig.sublayer_overrides field + 22 backend tests)
+Status: Phase 1059 Plan 01 complete — SublayerOverride Pydantic model with 7 nullable fields, hex validator, numeric clamps, extra=forbid; BasemapConfig.sublayer_overrides dict field; zero Alembic migration; 22 tests pass
+Last activity: 2026-05-20 — Phase 1059 Plan 01 executed; SublayerOverride Pydantic model + BasemapConfig.sublayer_overrides field; 22/22 backend tests pass; zero-migration jsonb-additive
 
 ## Project Reference
 
