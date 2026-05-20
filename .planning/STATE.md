@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: executing
-last_updated: "2026-05-20T18:21:35.655Z"
-last_activity: "2026-05-20 — Completed 1061-02: SEC-S02 + SEC-S03 IDOR fix (dataset metadata + column DDL)"
+last_updated: "2026-05-20T18:25:48Z"
+last_activity: "2026-05-20 — Completed 1061-03: SEC-S05 pgvector /related/ seed visibility fix"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1061-security-audit-2026-05-19-remediation
-Plan: 02 (complete)
+Plan: 03 (complete)
 Status: In Progress
-Last activity: 2026-05-20 — Completed 1061-02: SEC-S02 + SEC-S03 IDOR fix (dataset metadata + column DDL)
+Last activity: 2026-05-20 — Completed 1061-03: SEC-S05 pgvector /related/ seed visibility fix
 
 ## Project Reference
 
@@ -106,6 +106,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1059 Plan 02:** Exported StyleLayer, isRoadLayer, isBoundaryLayer, isBuildingLayer, isTextLabelLayer, SUBLAYER_CLASSIFIERS from basemap-utils.ts. applySublayerOverrides uses idle-retry recovery (map.once('idle', retry)). casing_color applied via line-color on layers with 'casing' in id (openfreemap-positron heuristic). ViewerMap.tsx serves viewer/shared/embed — 2 wire-up sites covers all 4 render contexts.
 - **Phase 1059 Plan 03:** BasemapSublayerEditorScene restored with 5 sections (STROKE/CASING/ZOOM/OPACITY/RESET). Test 14 inverted from REMOVE-pin to PRESENT-assert. updateSublayerOverride helper in MapBuilderPage uses setBasemapConfig functional updater for atomic sublayer_overrides patch. 9 English i18n keys added. MapSublayerOverride imported directly from api.ts (Plan 02 already landed it).
 - **Phase 1059 Plan 04:** 12 new vitest tests (5 ViewerMap.basemap-config + 7 sublayer-overrides.round-trip). All 4 ROADMAP ACs evidenced. de/es/fr i18n parity — 9 new basemapSublayer.* keys in each locale. i18n gate 2/2. No production code changes. Phase 1059 COMPLETE — ready for Phase 1060 close gate.
+- **Phase 1061 Plan 03:** SEC-S05 fix applied at API router boundary — check_dataset_access_or_anonymous return value reused as user_roles (no redundant get_user_roles call). Defense-in-depth caller contract documented at _load_self_record_and_embedding. SEC-FU: narrow embedding read to visibility-filtered query (Phase 1063 candidate).
 
 ## Operator Next Steps
 
