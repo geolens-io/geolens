@@ -138,7 +138,10 @@ async def list_maps(
     # Build search/visibility filters (applied to both count and data queries)
     def _apply_extra_filters(stmt: Select) -> Select:
         if search:
-            pattern = f"%{search}%"
+            # SEC-FU-07 (sec-audit-20260519.md): escape LIKE-special chars (%, _) before
+            # composing the ILIKE pattern. Same escape pattern as service_public.py:407-409.
+            escaped = search.replace("%", r"\%").replace("_", r"\_")
+            pattern = f"%{escaped}%"
             stmt = stmt.where(
                 or_(
                     Map.name.ilike(pattern),

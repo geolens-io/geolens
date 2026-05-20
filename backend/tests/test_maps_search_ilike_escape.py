@@ -5,8 +5,8 @@ f"%{search}%" without escaping the user-supplied string first. A search of
 "%" matches all rows because the pattern becomes "%%", which Postgres treats
 as "match any string". Similarly, "_" matches any single character.
 
-Fix: escape search with .replace("%", r"\%").replace("_", r"\_") before
-composing the ILIKE pattern — same pattern already used in service_public.py:407-409.
+Fix: escape '%' and '_' using str.replace before composing the ILIKE pattern.
+Same pattern as service_public.py:407-409.
 
 Tests use API layer (GET /maps/?search=...) to verify behavior end-to-end.
 All test maps use unique names with a uuid prefix to isolate from other tests.
@@ -84,8 +84,8 @@ class TestSecFu07IlikeEscape:
         Pre-fix behavior: pattern becomes '%%' which Postgres treats as
         'match anything', returning every row.
 
-        Post-fix behavior: pattern becomes '%\\%%' which only matches rows
-        containing a literal '%' character.
+        Post-fix behavior: pattern becomes the 4-char sequence percent+backslash+percent+percent
+        which only matches rows containing a literal '%' character.
         """
         uid = _uid()
         percent_name = f"100pct_{uid}_Coverage%"  # has literal %
@@ -116,8 +116,7 @@ class TestSecFu07IlikeEscape:
     ):
         """search='_' must NOT match all rows as a single-char wildcard.
 
-        Post-fix: pattern becomes '%\\_%' which only matches rows containing
-        a literal '_' character.
+        Post-fix: the escaped pattern only matches rows containing a literal '_' character.
         """
         uid = _uid()
         under_name = f"row_under_score_{uid}"  # has multiple "_"
