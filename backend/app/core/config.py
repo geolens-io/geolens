@@ -12,13 +12,15 @@ def reveal(secret: SecretStr | None) -> str | None:
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
-# Phase 268 H-19: known-public demo / example credentials. Any deployment
-# running with one of these JWT secrets is forging-trivial — the values are
-# committed to the public repository in `.env.demo` / `.env.example`.
-# The validator refuses to start unless GEOLENS_DEMO_MODE=true is set,
-# which is only honored under the docker-compose.demo.yml overlay.
+# Phase 268 H-19 / Phase 1061 SEC-S06: known-public demo credentials committed
+# in the old .env.demo. Any deployment using these literal strings is
+# trivially exploitable — the values are world-known via the public repo.
+# Phase 1061 extends the validator to refuse ALL THREE literals unconditionally
+# (i.e., even when GEOLENS_DEMO_MODE=true) so operators must run
+# scripts/init-demo-env.sh to generate per-deploy random values first.
 DEMO_JWT_SECRET = "demo-only-do-not-use-in-production-change-me"
 DEMO_ADMIN_PASSWORD = "demodemo"
+DEMO_POSTGRES_PASSWORD = "geolens-demo-2026"  # Phase 1061 SEC-S06
 
 # Phase 268 H-28: known-public example values that the JWT length validator
 # would otherwise accept. Any of these strings on a real deployment lets an
@@ -203,40 +205,55 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_demo_credentials_guard(self) -> "Settings":
-        """Phase 268 H-19: refuse to start with .env.demo defaults unless
-        GEOLENS_DEMO_MODE=true is explicitly set.
+        """Refuse to boot with known-public .env.demo template values.
 
-        The .env.demo file is committed to the public repository for the
-        public-demo deployment. Its credentials (JWT_SECRET_KEY, admin
-        password) are known-public — any non-demo deployment using them is
-        forging-trivial. This validator refuses to boot in that case unless
-        the deployment opts in via GEOLENS_DEMO_MODE=true (only set under
-        docker-compose.demo.yml).
+        Phase 268 H-19 (original): refused boot with .env.demo defaults
+        UNLESS GEOLENS_DEMO_MODE=true was explicitly set.
+
+        Phase 1061 SEC-S06 (extended): refuses boot with the LITERAL
+        committed .env.demo values REGARDLESS of GEOLENS_DEMO_MODE. The
+        audit's headline scenario is an operator deploying
+        docker-compose.demo.yml verbatim to a public-internet host with
+        GEOLENS_DEMO_MODE=true — that previously succeeded, leaking
+        known-public JWT / admin / postgres credentials (committed in
+        .env.demo, world-readable from the repo). Now the operator must
+        first run scripts/init-demo-env.sh to generate per-deploy random
+        values; the literal committed strings are always refused.
+
+        Note: GEOLENS_DEMO_MODE=true still relaxes other policies (e.g.,
+        admin auto-seeding, reset interval) — this validator only blocks
+        the specific known-public literal strings.
         """
-        if self.geolens_demo_mode:
-            # Demo mode explicitly opt-in — credentials are known to be
-            # public-demo defaults, no enforcement needed.
-            return self
-
         jwt_value = self.jwt_secret_key.get_secret_value()
         admin_value = self.geolens_admin_password.get_secret_value()
+        pg_value = self.postgres_password.get_secret_value()
+
+        hint = (
+            " Run `scripts/init-demo-env.sh` to generate per-deploy random "
+            "credentials, or set the value manually with `openssl rand -hex 32`."
+        )
 
         if jwt_value == DEMO_JWT_SECRET:
             raise ValueError(
-                "JWT_SECRET_KEY is set to the public .env.demo demo value, but "
-                "GEOLENS_DEMO_MODE is not enabled. This would let any attacker "
-                "who reads the public repo forge JWTs against this deployment. "
-                "Either generate a real secret with `openssl rand -hex 32` and "
-                "set JWT_SECRET_KEY accordingly, or (only for the public demo "
-                "overlay) set GEOLENS_DEMO_MODE=true."
+                "JWT_SECRET_KEY is set to the known-public .env.demo template "
+                "value. This value is committed to the public repository and "
+                "anyone with read access can forge JWTs against this deployment."
+                + hint
             )
 
         if admin_value == DEMO_ADMIN_PASSWORD:
             raise ValueError(
-                "GEOLENS_ADMIN_PASSWORD is set to the public .env.demo demo "
-                "value, but GEOLENS_DEMO_MODE is not enabled. Either change "
-                "the admin password, or (only for the public demo overlay) "
-                "set GEOLENS_DEMO_MODE=true."
+                "GEOLENS_ADMIN_PASSWORD is set to the known-public .env.demo "
+                "template value ('demodemo'). This is committed to the public "
+                "repository and anyone with read access can log in as admin."
+                + hint
+            )
+
+        if pg_value == DEMO_POSTGRES_PASSWORD:
+            raise ValueError(
+                "POSTGRES_PASSWORD is set to the known-public .env.demo template "
+                "value. This is committed to the public repository."
+                + hint
             )
 
         return self

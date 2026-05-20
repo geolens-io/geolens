@@ -319,46 +319,46 @@ class TestJwtSecretLengthValidator:
 
 
 class TestDemoCredentialsGuard:
-    """Phase 268 H-19: refuse to boot with .env.demo defaults unless
-    GEOLENS_DEMO_MODE=true is set.
+    """Phase 268 H-19 / Phase 1061 SEC-S06: refuse to boot with known-public
+    .env.demo literal values REGARDLESS of GEOLENS_DEMO_MODE.
 
-    The .env.demo file ships with known-public credentials. Any non-demo
-    deployment using them is forging-trivial. The guard refuses startup
-    unless the deployment explicitly opts in via GEOLENS_DEMO_MODE=true.
+    Phase 1061 SEC-S06 removes the GEOLENS_DEMO_MODE=true early-return so
+    that operators MUST run scripts/init-demo-env.sh to generate per-deploy
+    random credentials before starting the demo overlay. The two tests that
+    previously asserted the literal values were "accepted" in demo mode
+    (the old bypass behavior) are updated to assert they are now refused.
     """
 
     def test_demo_jwt_secret_rejected_without_demo_mode(self):
-        # Use the literal value committed to .env.demo
+        # Use the literal value committed to .env.demo.example
         with pytest.raises(Exception) as exc_info:
             _make_settings(
                 jwt_secret_key="demo-only-do-not-use-in-production-change-me"
             )
-        assert "GEOLENS_DEMO_MODE" in str(exc_info.value)
         assert "JWT_SECRET_KEY" in str(exc_info.value)
 
-    def test_demo_jwt_secret_accepted_with_demo_mode(self):
-        s = _make_settings(
-            jwt_secret_key="demo-only-do-not-use-in-production-change-me",
-            geolens_demo_mode=True,
-        )
-        assert s.geolens_demo_mode is True
-        assert (
-            s.jwt_secret_key.get_secret_value()
-            == "demo-only-do-not-use-in-production-change-me"
-        )
+    def test_demo_jwt_secret_rejected_even_in_demo_mode(self):
+        """Phase 1061 SEC-S06: demo mode no longer bypasses the guard."""
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                jwt_secret_key="demo-only-do-not-use-in-production-change-me",
+                geolens_demo_mode=True,
+            )
+        assert "JWT_SECRET_KEY" in str(exc_info.value)
 
     def test_demo_admin_password_rejected_without_demo_mode(self):
         with pytest.raises(Exception) as exc_info:
             _make_settings(geolens_admin_password="demodemo")
-        assert "GEOLENS_DEMO_MODE" in str(exc_info.value)
         assert "GEOLENS_ADMIN_PASSWORD" in str(exc_info.value)
 
-    def test_demo_admin_password_accepted_with_demo_mode(self):
-        s = _make_settings(
-            geolens_admin_password="demodemo",
-            geolens_demo_mode=True,
-        )
-        assert s.geolens_admin_password.get_secret_value() == "demodemo"
+    def test_demo_admin_password_rejected_even_in_demo_mode(self):
+        """Phase 1061 SEC-S06: 'demodemo' is refused in demo mode too."""
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                geolens_admin_password="demodemo",
+                geolens_demo_mode=True,
+            )
+        assert "GEOLENS_ADMIN_PASSWORD" in str(exc_info.value)
 
     def test_geolens_demo_mode_defaults_to_false(self):
         s = _make_settings()
