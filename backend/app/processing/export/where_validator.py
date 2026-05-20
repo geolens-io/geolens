@@ -56,7 +56,20 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
     exp.Between,
     # Structural
     exp.Paren,
+    # exp.Neg is included ONLY for negative literal values like WHERE col = -5
+    # (unary minus on a numeric literal). Binary arithmetic operators
+    # (exp.Add, exp.Sub, exp.Mul, exp.Div) are intentionally EXCLUDED.
+    # Adding them would allow expression injection into IN-list or comparison
+    # arguments (e.g. WHERE 1+1=2 UNION ...). Do NOT add exp.Add by analogy
+    # with exp.Neg — they serve different purposes.
     exp.Neg,
+    # exp.Dot (table-qualified column like table.column or schema.table.column)
+    # is intentionally EXCLUDED. Only unqualified column names are accepted;
+    # table-prefixed references are rejected at the AST level before the
+    # regex identifier check runs. This is a deliberate constraint — if
+    # table-qualified names are needed in a future version, add them here
+    # after a security review, because the identifier regex would then need
+    # to be updated to split on '.' and validate each component independently.
     exp.Where,  # the top-level WHERE node itself
 )
 
