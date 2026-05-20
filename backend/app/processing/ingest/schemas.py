@@ -481,3 +481,69 @@ class VrtMutationResponse(BaseModel):
     )
     status: str = Field(default="accepted", description="Initial job status.")
     message: str = Field(description="Human-readable acceptance message.")
+
+
+# ---------------------------------------------------------------------------
+# Fan-out schemas (GPKG-03, Phase 1058-04)
+# ---------------------------------------------------------------------------
+
+
+class FanOutLayerRequest(BaseModel):
+    """One layer to ingest as a separate dataset from a multi-layer source."""
+
+    layer_name: str = Field(
+        min_length=1,
+        max_length=500,
+        description="Name of the layer within the source file (e.g. GeoPackage layer name).",
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional human-readable title override. Defaults to '{filename}: {layer_name}'.",
+    )
+
+
+class FanOutCommitRequest(BaseModel):
+    """Request body for POST /ingest/commit-fan-out/{job_id}.
+
+    Converts one pending IngestJob (multi-layer file) into N independent
+    ingest tasks — one per requested layer. Maximum 50 layers per request.
+    """
+
+    layers: list[FanOutLayerRequest] = Field(
+        min_length=1,
+        max_length=50,
+        description="Layers to ingest as separate datasets. Maximum 50 per request.",
+    )
+
+
+class FanOutLayerResult(BaseModel):
+    """Per-layer outcome from the fan-out commit operation."""
+
+    layer_name: str = Field(description="Layer name from the request.")
+    new_job_id: uuid.UUID | None = Field(
+        default=None,
+        description="ID of the cloned IngestJob queued for this layer. Null on failure.",
+    )
+    dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description="ID of the new Dataset record created for this layer. Null on failure.",
+    )
+    status: Literal["queued", "failed"] = Field(
+        description="'queued' if the task was dispatched; 'failed' if an error occurred."
+    )
+    error: str | None = Field(
+        default=None,
+        description="User-safe error description when status='failed'. Never contains internal file paths.",
+    )
+
+
+class FanOutCommitResponse(BaseModel):
+    """Response from POST /ingest/commit-fan-out/{job_id}."""
+
+    fan_out_id: uuid.UUID = Field(
+        description="The original job_id (parent). Use for client-side correlation."
+    )
+    results: list[FanOutLayerResult] = Field(
+        description="Per-layer outcomes in the same order as the request layers."
+    )

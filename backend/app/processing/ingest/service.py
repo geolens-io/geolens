@@ -485,6 +485,143 @@ async def create_vrt_job(
     return job
 
 
+def _user_safe_error(exc: Exception) -> str:
+    """Return a user-safe error string from an exception (T-1058D-04).
+
+    Strips absolute file-system paths so internal infrastructure is not
+    leaked in FanOutLayerResult.error responses.
+
+    Patterns removed:
+      - Leading path component matching '/<word>/' prefix (Unix absolute paths)
+      - Windows-style paths C:\\...
+      - Common staging dir prefixes from settings
+    """
+    import re
+
+    msg = str(exc)
+    # Remove Unix-style absolute paths (e.g. /tmp/staging/..., /Users/...).
+    msg = re.sub(r"/(?:[^/\s]+/)+[^/\s]*", "<path>", msg)
+    # Remove Windows-style absolute paths (e.g. C:\Users\...).
+    msg = re.sub(r"[A-Za-z]:\\[^\s]+", "<path>", msg)
+    return msg
+
+
+async def create_fan_out_jobs(
+    original_job: "IngestJob",
+    layer: "Any",
+    session: AsyncSession,
+) -> "Any":
+    """Clone an IngestJob for one layer and dispatch the ingest task.
+
+    Called once per layer by the /ingest/commit-fan-out/{job_id} endpoint.
+    Creates a new IngestJob (pointing at the same file_path), sets
+    layer_name + fan_out_parent_id in its user_metadata, then defers the
+    standard ``ingest_file`` Procrastinate task.
+
+    The Dataset row is created later by the ingest task itself
+    (``_finalize_ingest`` in tasks_common.py) — NOT here — to preserve the
+    full metadata extraction pipeline (geom_4326, column metadata, quality
+    score, etc.).
+
+    IMPORTANT: Does NOT touch or remove original_job.file_path. Multiple
+    fan-out jobs share the same file on disk; file cleanup is keyed on
+    individual per-fan-out job IDs by _archive_original_file in
+    tasks_common.py (which reads job.file_path on the cloned job, not the
+    parent), so the file remains available for every sibling task.
+
+    Returns FanOutLayerResult with status='queued' on success or
+    status='failed' with a user-safe error on exception.
+
+    T-1058D-04: error messages are sanitized by _user_safe_error() to
+    prevent internal file-system paths from leaking to the client.
+    """
+    from app.processing.ingest.schemas import FanOutLayerResult
+
+    try:
+        # 1. Determine the dataset title for this layer.
+        file_base = original_job.source_filename or "dataset"
+        # Strip common extensions to get a clean basename.
+        import re as _re
+
+        file_base = _re.sub(r"\.[^.]+$", "", file_base)
+        title = layer.title if layer.title else f"{file_base}: {layer.layer_name}"
+
+        # 2. Clone the original IngestJob for this layer.
+        new_job = IngestJob(
+            file_path=original_job.file_path,
+            source_filename=original_job.source_filename,
+            status="pending",
+            created_by=original_job.created_by,
+            # Merge parent metadata with per-layer overrides.
+            user_metadata={
+                **(original_job.user_metadata or {}),
+                # Overwrite keys that are layer-specific:
+                "layer_name": layer.layer_name,
+                "title": title,
+                "fan_out_parent_id": str(original_job.id),
+                # Clear dataset_id from parent metadata — each fan-out job
+                # creates its own dataset during _finalize_ingest.
+                "dataset_id": None,
+            },
+        )
+        session.add(new_job)
+        await session.flush()  # assigns new_job.id
+
+        # 3. Defer ingest_file for the cloned job.
+        from app.processing.ingest.tasks import ingest_file
+        from app.platform.jobs.defer_guard import (
+            defer_with_orphan_guard,
+            make_ingest_job_failed_rollback,
+        )
+
+        file_path = new_job.file_path or ""
+
+        async def _defer_fan_out_layer() -> None:
+            await ingest_file.defer_async(
+                job_id=str(new_job.id),
+                file_path=file_path,
+                user_id=str(new_job.created_by or ""),
+            )
+
+        await defer_with_orphan_guard(
+            _defer_fan_out_layer,
+            rollback=make_ingest_job_failed_rollback(new_job),
+            db=session,
+        )
+
+        return FanOutLayerResult(
+            layer_name=layer.layer_name,
+            new_job_id=new_job.id,
+            dataset_id=None,  # populated by the ingest task after completion
+            status="queued",
+        )
+
+    except Exception as exc:  # broad: any clone/defer failure returns per-layer error, not a 500
+        logger = None
+        try:
+            import structlog as _structlog
+
+            logger = _structlog.get_logger(__name__)
+        except Exception:
+            pass
+        if logger:
+            logger.warning(
+                "Fan-out layer dispatch failed",
+                layer_name=layer.layer_name,
+                original_job_id=str(original_job.id),
+                error=str(exc),
+            )
+        from app.processing.ingest.schemas import FanOutLayerResult
+
+        return FanOutLayerResult(
+            layer_name=layer.layer_name,
+            new_job_id=None,
+            dataset_id=None,
+            status="failed",
+            error=_user_safe_error(exc),
+        )
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,

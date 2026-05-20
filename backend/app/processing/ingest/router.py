@@ -36,6 +36,8 @@ from app.processing.ingest.schemas import (
     CommitRequest,
     CommitResponse,
     DiscoverResponse,
+    FanOutCommitRequest,
+    FanOutCommitResponse,
     PreviewResponse,
     PresignedCompleteRequest,
     PresignedUploadRequest,
@@ -54,6 +56,7 @@ from app.processing.ingest.schemas import (
     VrtMutationResponse,
 )
 from app.processing.ingest.service import (
+    create_fan_out_jobs,
     create_ingest_job,
     discover_unregistered_tables,
     get_job_or_404,
@@ -659,6 +662,84 @@ async def commit_import(
         status="pending",
         message="Import queued",
     )
+
+
+@router.post(
+    "/commit-fan-out/{job_id}",
+    response_model=FanOutCommitResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def commit_fan_out(
+    job_id: uuid.UUID,
+    request: FanOutCommitRequest,
+    user: Identity = Depends(require_permission("upload")),
+    db: AsyncSession = Depends(get_db),
+) -> FanOutCommitResponse:
+    """Convert a single pending IngestJob into N independent per-layer ingest tasks.
+
+    For multi-layer sources (e.g. GeoPackage with 2+ layers), this endpoint
+    fans out the original upload into one Procrastinate task per requested
+    layer, each becoming a separate dataset. The original job is marked
+    'fanned_out' (a terminal state).
+
+    Required: original job must be in status='pending'. Each layer_name in
+    the request body must appear in job.user_metadata['all_layers']. Unknown
+    layer names return HTTP 422 with the list of unrecognized names.
+
+    Returns HTTP 202 with per-layer outcomes. Partial success is possible:
+    each layer result carries status='queued' or status='failed' with a
+    user-safe error message.
+
+    Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
+    """
+    from datetime import datetime, timezone
+
+    job = await get_job_or_404(db, job_id, user)
+
+    if job.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Job already processed (status='{job.status}')",
+        )
+
+    # Validate all requested layer_names appear in the job's all_layers preview.
+    all_layers: list[str] = (job.user_metadata or {}).get("all_layers", [])
+    # all_layers may be a list of dicts ({name: str, ...}) or a list of strings
+    # depending on how the preview stored them. Normalise to a set of strings.
+    if all_layers and isinstance(all_layers[0], dict):
+        known_layer_names: set[str] = {
+            lay.get("name", "") for lay in all_layers  # type: ignore[union-attr]
+        }
+    else:
+        known_layer_names = set(all_layers)  # type: ignore[arg-type]
+
+    unknown = [
+        layer.layer_name
+        for layer in request.layers
+        if layer.layer_name not in known_layer_names
+    ]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "message": "Unknown layer name(s) — not found in the uploaded file",
+                "unknown_layers": unknown,
+                "available_layers": sorted(known_layer_names),
+            },
+        )
+
+    # Dispatch one task per layer, collecting results.
+    results = []
+    for layer in request.layers:
+        result = await create_fan_out_jobs(job, layer, db)
+        results.append(result)
+
+    # Mark original job as terminal 'fanned_out'.
+    job.status = "fanned_out"
+    job.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return FanOutCommitResponse(fan_out_id=job.id, results=results)
 
 
 @router.post(
