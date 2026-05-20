@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -179,6 +180,87 @@ class BasemapReliefContrast(str, Enum):
     strong = "strong"
 
 
+# Regex for SublayerOverride color field validation.
+# Accepts exactly #RRGGBB (6 hex digits, case-insensitive).
+# Rejects raw names ("red"), short hex ("#abc"), long hex ("#1234567"),
+# and URI schemes ("javascript:", "data:") — security: T-1059A-01.
+_SUBLAYER_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+class SublayerOverride(BaseModel):
+    """Per-sublayer style override for a single basemap sublayer.
+
+    All fields are nullable — a ``None`` value means "use the basemap default".
+    Only ``#RRGGBB`` hex strings are accepted for color fields; ``None`` means
+    the basemap default color is preserved.  Numeric ranges are clamped at
+    validation time (Pydantic ``ge``/``le`` constraints).
+
+    The key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque
+    (forward-compatible with future sublayer IDs) — see CONTEXT.md D-01.
+
+    Security:
+        extra="forbid" locks the D-14 scope guardrail: unknown style axes such
+        as dash patterns, line caps, halo blur, and text-font are rejected at
+        validation time (T-1059A-03).
+    """
+
+    stroke_color: str | None = Field(
+        default=None,
+        description="Stroke color in #RRGGBB hex format, or null to use the basemap default.",
+    )
+    stroke_width: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="Stroke width in pixels (0-20), or null to use the basemap default.",
+    )
+    casing_color: str | None = Field(
+        default=None,
+        description="Casing color in #RRGGBB hex format, or null to use the basemap default.",
+    )
+    casing_width: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="Casing width in pixels (0-20), or null to use the basemap default.",
+    )
+    min_zoom: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=24.0,
+        description="Minimum zoom level at which the sublayer is visible (0-24), or null for default.",
+    )
+    max_zoom: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=24.0,
+        description="Maximum zoom level at which the sublayer is visible (0-24), or null for default.",
+    )
+    opacity: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Per-sublayer opacity (0-1), or null to use the basemap default. "
+            "Additive on top of BasemapConfig.opacity (the whole-basemap master opacity)."
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("stroke_color", "casing_color")
+    @classmethod
+    def _validate_hex_color(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not _SUBLAYER_HEX_RE.match(v):
+            raise ValueError(
+                "Color must be in #RRGGBB hex format (e.g. #ff0000). "
+                "Raw color names, short hex, and URI schemes are not accepted."
+            )
+        return v
+
+
 class BasemapConfig(BaseModel):
     label_mode: BasemapLabelMode = Field(
         default=BasemapLabelMode.full,
@@ -209,6 +291,15 @@ class BasemapConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Master basemap opacity 0.0-1.0",
+    )
+    sublayer_overrides: dict[str, SublayerOverride] | None = Field(
+        default=None,
+        description=(
+            "Per-sublayer style overrides keyed by semantic sublayer ID "
+            "(e.g. 'road', 'boundary', 'building'). Key set is opaque — "
+            "unknown future sublayer IDs are accepted without rejection. "
+            "See CONTEXT.md D-01."
+        ),
     )
 
     model_config = ConfigDict(extra="forbid")
