@@ -1,8 +1,23 @@
 # Phase 1060: Close Gate - Context
 
 **Gathered:** 2026-05-20
-**Status:** Ready for planning (constrained — Playwright MCP disconnected)
+**Amended:** 2026-05-20 — MCP restored; user decisions captured (see Amendment 2026-05-20 below)
+**Status:** Ready for planning (MCP available; full close-gate executable)
 **Mode:** Auto-generated under workflow.skip_discuss=true
+
+<amendment_2026_05_20>
+## Amendment — 2026-05-20 (autonomous --from 1060 resume)
+
+Playwright MCP server **restored** this session. The CTRL-01 live re-verify gate (acceptance criterion #3) is now executable. User confirmed decisions via AskUserQuestion:
+
+- **A-01 Tag scheme:** `v1013` (local milestone tag) + `v1.3.0` (public minor — correct semver chain after v1012 shipped as v1.2.1). The v1.4.0 reference in original CONTEXT/ROADMAP is superseded.
+- **A-02 E2E failures:** Triage + fix in-plan via live browser repro. `builder-v1-5.spec.ts:152` (6 `pt` console errors) and `builder.spec.ts:338` (duplicates) must be either real-fixed or test-pinned with rationale before tag.
+- **A-03 Dataset cleanup:** Claude executes the 3 `DELETE /api/datasets/{id}` calls against live API (admin auth) — `ec18b546…`, `54763119…`, `667a6c65…`.
+- **A-04 Tag policy:** Cut tags locally only. Do NOT push to origin. User pushes when ready.
+
+All of D-06/D-07/D-08 deferrals (from the original CONTEXT) are NOW IN SCOPE for this plan iteration. The 1060-SUMMARY.md (status: partial) will be updated to status: complete after this plan executes.
+
+</amendment_2026_05_20>
 
 <domain>
 ## Phase Boundary
