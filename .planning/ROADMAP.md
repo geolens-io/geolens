@@ -100,7 +100,7 @@
   3. User importing an OGC API Features source declaring URI-form CRS references (e.g., `http://www.opengis.net/def/crs/OGC/1.3/CRS84`) does not need to manually enter an EPSG override — repro: `demo.pygeoapi.io/master` Large Lakes import succeeds without CRS Override field interaction.
   4. User browsing the Service URL layer-select list sees vector layers (point/line/polygon) classified as VEC even when the probe response is missing `geometry_type` — repro: `ne:ne_10m_populated_places` (Natural Earth Points) labels VEC, not RAS.
 **Plans**: 3 plans
-- [ ] 1057-01-PLAN.md — WFS-04: replace -nlt PROMOTE_TO_MULTI with constraint-free geometry on service-ingest path; regression test pins argv shape
+- [x] 1057-01-PLAN.md — WFS-04: replace -nlt PROMOTE_TO_MULTI with constraint-free geometry on service-ingest path; regression test pins argv shape
 - [ ] 1057-02-PLAN.md — PROBE-05 + CLASS-07: drop ogrinfo enrichment from OGC API + WFS probe paths (≤5s target); add backend-classified `kind: vector|raster` field to LayerInfo; frontend ServiceUrlForm consumes layer.kind
 - [ ] 1057-03-PLAN.md — CRS-06: parse_crs_uri helper for 4 URI/URN forms wired into extract_srid_from_json as third fallback; frontend CRS Override input auto-hides when detectedCrs is non-null
 
@@ -153,7 +153,7 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1057. Service URL Reliability | 0/3 | Planned | - |
+| 1057. Service URL Reliability | 1/3 | In Progress|  |
 | 1058. Multi-Layer GPKG Handling | 0/? | Not started | - |
 | 1059. Basemap Sublayer Editor (Path B FIX) | 0/? | Not started | - |
 | 1060. Close Gate | 0/? | Not started | - |

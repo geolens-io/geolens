@@ -10,7 +10,7 @@ Requirements for milestone v1013. Each maps to exactly one phase in `ROADMAP.md`
 
 ### Service URL Reliability
 
-- [ ] **WFS-04** *(P0)*: User can import polygon-heavy WFS layers declaring abstract OGC geometry types (`MultiSurface`, `MultiCurve`, `CompoundSurface`) without the post-ingest bounds-clip UPDATE failing on PostGIS type mismatch. Fix candidates: (a) map abstract → concrete on column creation; (b) inspect first feature in probe to determine concrete subtype; (c) drop subtype constraint — use generic `GEOMETRY` column. Repro: `ahocevar.com/geoserver/wfs` → Countries of the World → Import.
+- [x] **WFS-04** *(P0)*: User can import polygon-heavy WFS layers declaring abstract OGC geometry types (`MultiSurface`, `MultiCurve`, `CompoundSurface`) without the post-ingest bounds-clip UPDATE failing on PostGIS type mismatch. Fix candidates: (a) map abstract → concrete on column creation; (b) inspect first feature in probe to determine concrete subtype; (c) drop subtype constraint — use generic `GEOMETRY` column. Repro: `ahocevar.com/geoserver/wfs` → Countries of the World → Import.
 - [ ] **PROBE-05** *(P1)*: User sees Service URL probe completion within ≤5s for fast services. `try_all_probes()` short-circuits on first success rather than running all probe types sequentially (currently ~63s for a 1.5s adapter on `demo.pygeoapi.io/master`). Acceptance: timed probe of OGC API endpoint completes in ≤5s end-to-end.
 - [ ] **CRS-06** *(P2)*: User can import OGC API Features sources declaring URI-form CRS references (e.g., `http://www.opengis.net/def/crs/OGC/1.3/CRS84`) without manually entering an EPSG override. URI → EPSG mapper covers at minimum: CRS84 → 4326, `http://www.opengis.net/def/crs/EPSG/0/{N}` → EPSG:N. Acceptance: `demo.pygeoapi.io/master` Large Lakes import succeeds without CRS Override field interaction.
 - [ ] **CLASS-07** *(P2)*: User sees vector layers (point/line/polygon) in the Service URL layer-select list classified as VEC even when the probe response is missing `geometry_type`. RAS classification requires an explicit raster signal. Repro: `ne:ne_10m_populated_places` (Natural Earth Points) currently labels RAS.
@@ -85,7 +85,7 @@ Populated by `gsd-roadmapper` after phase plan creation. All 10 v1013 requiremen
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WFS-04 | 1057 | Pending |
+| WFS-04 | 1057 | Complete |
 | PROBE-05 | 1057 | Pending |
 | CRS-06 | 1057 | Pending |
 | CLASS-07 | 1057 | Pending |

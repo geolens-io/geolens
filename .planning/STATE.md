@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
-status: planning
-last_updated: "2026-05-19T23:54:26.722Z"
-last_activity: 2026-05-19
+status: executing
+last_updated: "2026-05-20T00:43:06.158Z"
+last_activity: 2026-05-19 — Phase 1057 Plan 01 executed; -nlt GEOMETRY service-path fix committed
 progress:
-  total_phases: 4
+  total_phases: 9
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1057 Service URL Reliability — Context gathered, ready for `/gsd:plan-phase 1057`
-Plan: —
-Status: Discuss-phase complete (4 gray areas locked, CONTEXT.md committed)
-Last activity: 2026-05-19 — Phase 1057 CONTEXT.md written; `/gsd-autonomous` invoked to drive v1013 to close
+Phase: 1057 Service URL Reliability — Plan 01 complete
+Plan: 01 / 3 (WFS-04 P0 fix complete)
+Status: In progress — Plan 01 shipped; Plans 02 (PROBE-05 + CLASS-07) and 03 (CRS-06) pending
+Last activity: 2026-05-19 — Phase 1057 Plan 01 executed; -nlt GEOMETRY service-path fix committed
 
 ## Project Reference
 
