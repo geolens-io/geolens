@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
 status: executing
-last_updated: "2026-05-20T00:57:19.958Z"
-last_activity: 2026-05-20 — Phase 1057 Plan 02 executed; ogrinfo enrichment dropped, kind field added to probe response
+last_updated: "2026-05-20T02:10:00.000Z"
+last_activity: 2026-05-20 — Phase 1057 Plan 03 executed; URI/URN CRS parsing helper + extract_srid_from_json wire-up + frontend CRS Override auto-hide
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1057 Service URL Reliability — Plan 02 complete
-Plan: 02 / 3 (PROBE-05 + CLASS-07 paired fix complete)
-Status: In progress — Plans 01+02 shipped; Plan 03 (CRS-06) pending
-Last activity: 2026-05-20 — Phase 1057 Plan 02 executed; ogrinfo enrichment dropped, kind field added to probe response
+Phase: 1057 Service URL Reliability — Plan 03 complete (all 3 plans done)
+Plan: 03 / 3 (CRS-06 URI/URN parsing complete)
+Status: Phase 1057 complete — all 4 requirements satisfied (WFS-04, PROBE-05, CRS-06, CLASS-07)
+Last activity: 2026-05-20 — Phase 1057 Plan 03 executed; URI/URN CRS parsing helper + extract_srid_from_json wire-up + frontend CRS Override auto-hide
 
 ## Project Reference
 

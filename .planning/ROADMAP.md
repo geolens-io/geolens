@@ -82,7 +82,7 @@
 - Integer phases (1057, 1058, ...): Planned milestone work
 - Decimal phases (1058.1, ...): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1057: Service URL Reliability** — Fix WFS abstract-geometry-type commit failure (P0), short-circuit probe orchestrator on first success, parse URI-form CRS references, fall back to VEC when probe response lacks geometry_type
+- [x] **Phase 1057: Service URL Reliability** — Fix WFS abstract-geometry-type commit failure (P0), short-circuit probe orchestrator on first success, parse URI-form CRS references, fall back to VEC when probe response lacks geometry_type
 - [ ] **Phase 1058: Multi-Layer GPKG Handling** — Add layer-select step to Reupload File path mirroring Service URL flow (P0 silent-data-swap fix), surface chosen layer name + schema diff in preview, enable multi-commit / ingest-all-layers path in Bulk Review
 - [ ] **Phase 1059: Basemap Sublayer Editor (Path B FIX)** — Restore per-sublayer styling surface removed in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent); 3-5 day feature phase
 - [ ] **Phase 1060: Close Gate** — Delete 3 smoke repro datasets, run all smoke gates, live Playwright MCP re-verify of WFS-04/PROBE-05/GPKG-01/GPKG-02/BSE-01, populate CHANGELOG, tag v1013 + v1.4.0
@@ -102,7 +102,7 @@
 **Plans**: 3 plans
 - [x] 1057-01-PLAN.md — WFS-04: replace -nlt PROMOTE_TO_MULTI with constraint-free geometry on service-ingest path; regression test pins argv shape
 - [x] 1057-02-PLAN.md — PROBE-05 + CLASS-07: drop ogrinfo enrichment from OGC API + WFS probe paths (≤5s target); add backend-classified `kind: vector|raster` field to LayerInfo; frontend ServiceUrlForm consumes layer.kind
-- [ ] 1057-03-PLAN.md — CRS-06: parse_crs_uri helper for 4 URI/URN forms wired into extract_srid_from_json as third fallback; frontend CRS Override input auto-hides when detectedCrs is non-null
+- [x] 1057-03-PLAN.md — CRS-06: parse_crs_uri helper for 4 URI/URN forms wired into extract_srid_from_json as third fallback; frontend CRS Override input auto-hides when detectedCrs is non-null
 
 **Complexity**: Medium-large (4 backend surfaces: column-type mapping in `processing/ingest/`, ogrinfo enrichment drop in probe adapters, URI→EPSG parser shared utility, RAS/VEC fallback in LayerInfo schema + frontend wire-up)
 
