@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1059 Basemap Sublayer Editor (Path B FIX) — COMPLETE (4/4 plans executed)
-Plan: 04 / 4 (cross-context tests + i18n parity — COMPLETE)
-Status: Phase 1059 fully complete — 12 new tests passing; de/es/fr 9-key parity; i18n gate green; tsc clean; ready for Phase 1060 close gate
-Last activity: 2026-05-20 — Phase 1059 Plan 04 executed; 12 new vitest tests (5 ViewerMap + 7 round-trip); de/es/fr 9-key i18n parity; 1051/1051 regression tests pass; tsc clean
+Phase: 1060 Close Gate — PARTIAL CLOSE (smoke gates 5/6 green + CHANGELOG populated + 23 inline review fixes; live MCP re-verify + dataset cleanup + tag creation deferred to user)
+Plan: 1060-01 single plan covering smoke gates + CHANGELOG + deferred runbook
+Status: v1013 PARTIAL CLOSE — 3/4 source-level verifications passed (1057/1058/1059); 12 live MCP gates aggregated; 2 e2e failures (builder-v1-5.spec.ts:152, builder.spec.ts:338) need browser triage; Playwright MCP disconnected mid-session prevents Claude from completing CTRL-01 acceptance criterion 3
+Last activity: 2026-05-20 — Phase 1060 SUMMARY written; backend pytest 2713/2713, frontend vitest 2091/2091, layering 23/23, i18n 2/2, typecheck 0; CHANGELOG [Unreleased] populated; 78 commits since milestone start
 
 ## Project Reference
 
