@@ -118,26 +118,32 @@ async def test_semantic_search_rate_limit_returns_429(client: AsyncClient):
         _reset_limiter_storage()
 
 
-async def test_search_facets_rate_limit_returns_429(client: AsyncClient):
-    """GET /search/facets/?q=<unique-N> returns 429 after threshold is exceeded.
+async def test_search_facets_not_rate_limited(client: AsyncClient):
+    """GET /search/facets/ is NOT rate-limited — negative-control regression pin.
 
-    /search/facets/ shares the same _semantic_search_rate_limit callable as
-    /search/datasets/ — both use the same per-minute budget.
+    WR-02 (Phase 1062-review): the @limiter.limit(_semantic_search_rate_limit)
+    decorator was intentionally removed from /search/facets/ because the
+    endpoint performs pure SQL aggregation and never invokes the embedding
+    model. Throttling at 30/min (SEC-S11) incorrectly restricted normal SPA
+    users who refresh the search UI more than 30 times per minute.
+
+    This test verifies that even with the limiter enabled at a low threshold,
+    /search/facets/ never returns 429.
     """
-    _set_cache_limit("semantic_search_rate_limit", 5)
+    _set_cache_limit("semantic_search_rate_limit", 3)
     limiter.enabled = True
     _reset_limiter_storage()
 
     try:
         statuses = []
         for i in range(7):
-            resp = await client.get(f"/search/facets/?q=sec-facets-test-{uuid.uuid4().hex}")
+            resp = await client.get(f"/search/facets/?q=sec-facets-norlimit-{uuid.uuid4().hex}")
             statuses.append(resp.status_code)
 
         rate_limited = [s for s in statuses if s == 429]
-        assert len(rate_limited) >= 2, (
-            f"Expected >= 2 rate-limited responses with threshold=5/7 requests, "
-            f"got {len(rate_limited)}. Statuses: {statuses}"
+        assert len(rate_limited) == 0, (
+            f"/search/facets/ must not be rate-limited (WR-02 Phase 1062-review). "
+            f"Got 429 responses: {rate_limited}. All statuses: {statuses}"
         )
     finally:
         limiter.enabled = False

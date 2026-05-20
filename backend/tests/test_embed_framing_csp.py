@@ -98,19 +98,27 @@ async def _create_non_expiring_embed_token(
     allowed_origins: list[str] | None = None,
     is_active: bool = True,
 ) -> EmbedToken:
-    """Insert an EmbedToken with expires_at=NULL (non-expiring, community-edition default).
+    """Insert an EmbedToken with a far-future expires_at (community-edition long-lived token).
 
-    CR-04 regression helper: the original service_public.py query used
-    `expires_at > now()` which evaluates to NULL for rows where expires_at IS NULL,
-    silently excluding non-expiring tokens from the CSP lookup.
+    CR-04 regression helper: the original service_public.py CSP query used
+    `expires_at > now()` which is correct for non-null values, but the service
+    also adds `is_(None)` support for hypothetical NULL rows. This helper creates
+    a long-lived token (100 years) to verify the CSP query works for all active
+    tokens, including those with distant expiry dates.
+
+    Note: The EmbedToken schema has expires_at NOT NULL. The CR-04 fix added
+    IS NULL support as a defensive measure. We use a far-future date here to
+    verify the CSP lookup works end-to-end without hitting the schema constraint.
     """
     raw = secrets.token_urlsafe(32)
+    # Use a far-future expiry to represent a "non-expiring in practice" token
+    far_future = datetime.now(timezone.utc) + timedelta(days=365 * 100)
     token_obj = EmbedToken(
         map_id=map_id,
         token_hash=hashlib.sha256(raw.encode()).hexdigest(),
         token_hint=raw[:8],
         scoped_dataset_ids=[],
-        expires_at=None,  # Non-expiring
+        expires_at=far_future,
         is_active=is_active,
         created_by=created_by,
         allowed_origins=allowed_origins,
@@ -212,13 +220,14 @@ async def test_shared_map_with_non_expiring_embed_token_uses_allowed_origins(
     client: AsyncClient,
     test_db_session: AsyncSession,
 ):
-    """CR-04 regression: GET /maps/shared/{token} with a non-expiring EmbedToken
-    (expires_at IS NULL) must return allowed_origins in frame-ancestors CSP.
+    """CR-04 regression: GET /maps/shared/{token} with an active EmbedToken
+    (long-lived / far-future expires_at) must return allowed_origins in CSP.
 
-    The original query used `EmbedToken.expires_at > func.now()`. In PostgreSQL
-    NULL > now() evaluates to NULL (falsy), so non-expiring tokens were excluded
-    from the CSP lookup and the header fell back to "frame-ancestors 'self'",
-    silently breaking embed framing for community-edition tokens.
+    The original query used `EmbedToken.expires_at > func.now()` which is
+    correct for non-null expiry values. The service_public.py CSP query was
+    updated (Phase 1062 CR-04) to also include `is_(None)` support for
+    hypothetical legacy NULL rows. This test verifies that the CSP lookup
+    works end-to-end for long-lived tokens with allowed_origins set.
     """
     admin_id = await get_user_id(test_db_session, "admin")
     map_obj = await _create_public_map(test_db_session, created_by=admin_id)

@@ -771,7 +771,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     private_service_default_line_budget = 350
     private_service_line_budget_allowlist = {
         "backend/app/modules/catalog/maps/service_crud.py": 550,
-        "backend/app/modules/catalog/maps/service_public.py": 575,
+        # Phase 1062 CR-04: +13 lines from non-expiring embed-token CSP fix
+        # (or_ IS NULL predicate, _create_non_expiring_embed_token helper).
+        # Cap raised from 575 → 600 to allow ~12 lines of headroom above 588.
+        "backend/app/modules/catalog/maps/service_public.py": 600,
         "backend/app/modules/catalog/search/service_records.py": 500,
         # Phase 269 H-05: dataset-domain modules over the 350 default at audit
         # time. Caps set ~20-30 LOC above current size to allow modest growth
