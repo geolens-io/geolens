@@ -9,30 +9,45 @@ import {
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { StyleColorPicker } from '@/components/builder/StyleColorPicker';
 
-// Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip removed — dead wiring.
-// The activeDetailLevel/isCustomized/onDetailLevelChange props were always passed
-// hardcoded defaults from MapBuilderPage; no consumer ever implemented sublayer
-// detail-level style mutation. Removed rather than fix because a real consumer
-// requires a multi-day MapLibre style-mutation implementation (out of v1011 scope
-// per REQUIREMENTS.md Out-of-Scope row 1).
+// Phase 1051 Plan 11 (INV-01): DETAIL LEVEL pill strip REMAINS REMOVED.
+// Disposition unchanged per Phase 1059 CONTEXT.md D-18 — do not resurrect.
+// The activeDetailLevel/isCustomized/onDetailLevelChange props were always
+// passed hardcoded defaults from MapBuilderPage; no consumer ever implemented
+// sublayer detail-level style mutation.
 //
-// Phase 1052 Plan 01 (EMRG-FN-01): STROKE section + zoom range inputs + 5
-// stub callbacks removed. Same Phase 1038 root cause — onStrokeColorChange,
-// onStrokeWidthChange, onCasingColorChange, onCasingWidthChange, and
-// onZoomChange were all `TODO(BUILDER-SUBLAYER-PERSIST)` no-ops. Path A
-// REMOVE chosen for v1011.1 hygiene close (Path B FIX is a 3-5 day feature
-// phase per REQUIREMENTS.md Out of Scope). Live consumers preserved:
-// opacity slider (onOpacityChange → handleSublayerOpacityChange) and Reset
-// section (onResetSublayer → setSublayerState mutation).
+// Phase 1059 BSE-01 (Path B FIX): STROKE + CASING + ZOOM sections RESTORED with
+// a working persistence path through MapBasemapConfig.sublayer_overrides jsonb
+// (zero-migration backward compat). Replaces the v1011.1 EMRG-FN-01 REMOVE
+// disposition (commits 3629ec04 + 3e48d331). Backend schema: SublayerOverride
+// Pydantic model at backend/app/modules/catalog/maps/schemas.py (Plan 1059-01).
+// MapLibre style mutation: frontend/src/lib/builder/basemap-style-mutation.ts
+// applySublayerOverrides (Plan 1059-02). All 6 new callback props are optional
+// for back-compat with callers that haven't wired through yet.
 
 export interface BasemapSublayerEditorSceneProps {
   sublayerId: string;
   sublayerName: string;
+  // Existing live props (KEEP unchanged):
   opacity: number;
   onOpacityChange: (opacity: number) => void;
   onResetSublayer: () => void;
+  // Phase 1059 BSE-01 new live props — restore EMRG-FN-01-removed surface:
+  strokeColor?: string;          // hex #RRGGBB or undefined (= use default)
+  strokeWidth?: number;          // 0..20
+  casingColor?: string;
+  casingWidth?: number;          // 0..20
+  minZoom?: number;              // 0..24
+  maxZoom?: number;              // 0..24
+  onStrokeColorChange?: (color: string) => void;
+  onStrokeWidthChange?: (width: number) => void;
+  onCasingColorChange?: (color: string) => void;
+  onCasingWidthChange?: (width: number) => void;
+  onMinZoomChange?: (zoom: number) => void;
+  onMaxZoomChange?: (zoom: number) => void;
 }
 
 export interface BasemapSublayerEditorFooterProps {
@@ -45,6 +60,18 @@ export function BasemapSublayerEditorScene({
   opacity,
   onOpacityChange,
   onResetSublayer,
+  strokeColor,
+  strokeWidth,
+  casingColor,
+  casingWidth,
+  minZoom,
+  maxZoom,
+  onStrokeColorChange,
+  onStrokeWidthChange,
+  onCasingColorChange,
+  onCasingWidthChange,
+  onMinZoomChange,
+  onMaxZoomChange,
 }: BasemapSublayerEditorSceneProps) {
   const { t } = useTranslation('builder');
   const [resetOpen, setResetOpen] = useState(false);
@@ -64,7 +91,124 @@ export function BasemapSublayerEditorScene({
 
   return (
     <>
-      {/* 1. Visibility section — opacity only */}
+      {/* 1. STROKE section — Phase 1059 BSE-01 restored */}
+      <section className="border-b">
+        <div className="px-4 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+            {t('basemapSublayer.strokeLabel', { defaultValue: 'STROKE' })}
+          </p>
+          <div className="space-y-3">
+            <StyleColorPicker
+              label={t('basemapSublayer.strokeColor', { defaultValue: 'Color' })}
+              color={strokeColor ?? '#888888'}
+              onChange={(hex) => onStrokeColorChange?.(hex)}
+            />
+            <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
+              <Label className="text-xs text-muted-foreground w-20 shrink-0">
+                {t('basemapSublayer.strokeWidth', { defaultValue: 'Width' })}
+              </Label>
+              <Slider
+                aria-label={t('basemapSublayer.strokeWidthLabel', { defaultValue: 'Stroke width' })}
+                aria-valuetext={`${(strokeWidth ?? 0).toFixed(1)}px`}
+                value={[strokeWidth ?? 0]}
+                min={0}
+                max={20}
+                step={0.5}
+                onValueChange={([v]) => onStrokeWidthChange?.(v ?? 0)}
+              />
+              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
+                {(strokeWidth ?? 0).toFixed(1)}px
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. CASING section — Phase 1059 BSE-01 restored */}
+      <section className="border-b">
+        <div className="px-4 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+            {t('basemapSublayer.casingLabel', { defaultValue: 'CASING' })}
+          </p>
+          <div className="space-y-3">
+            <StyleColorPicker
+              label={t('basemapSublayer.casingColor', { defaultValue: 'Casing color' })}
+              color={casingColor ?? '#cccccc'}
+              onChange={(hex) => onCasingColorChange?.(hex)}
+            />
+            <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
+              <Label className="text-xs text-muted-foreground w-20 shrink-0">
+                {t('basemapSublayer.casingWidth', { defaultValue: 'Width' })}
+              </Label>
+              <Slider
+                aria-label={t('basemapSublayer.casingWidthLabel', { defaultValue: 'Casing width' })}
+                aria-valuetext={`${(casingWidth ?? 0).toFixed(1)}px`}
+                value={[casingWidth ?? 0]}
+                min={0}
+                max={20}
+                step={0.5}
+                onValueChange={([v]) => onCasingWidthChange?.(v ?? 0)}
+              />
+              <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
+                {(casingWidth ?? 0).toFixed(1)}px
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. ZOOM RANGE section — Phase 1059 BSE-01 restored */}
+      <section className="border-b">
+        <div className="px-4 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+            {t('basemapSublayer.zoomLabel', { defaultValue: 'ZOOM RANGE' })}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor={`${sublayerId}-minzoom`} className="text-xs text-muted-foreground">
+                {t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
+              </Label>
+              <Input
+                id={`${sublayerId}-minzoom`}
+                type="number"
+                min={0}
+                max={24}
+                step={0.5}
+                value={minZoom ?? 0}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (!Number.isFinite(v)) return;
+                  onMinZoomChange?.(Math.min(24, Math.max(0, v)));
+                }}
+                className="h-8 text-xs"
+                aria-label={t('layerEditor.visibility.minZoom', { defaultValue: 'Minimum zoom' })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`${sublayerId}-maxzoom`} className="text-xs text-muted-foreground">
+                {t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
+              </Label>
+              <Input
+                id={`${sublayerId}-maxzoom`}
+                type="number"
+                min={0}
+                max={24}
+                step={0.5}
+                value={maxZoom ?? 22}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (!Number.isFinite(v)) return;
+                  onMaxZoomChange?.(Math.min(24, Math.max(0, v)));
+                }}
+                className="h-8 text-xs"
+                aria-label={t('layerEditor.visibility.maxZoom', { defaultValue: 'Maximum zoom' })}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. Visibility section — opacity only (existing, untouched) */}
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -93,7 +237,7 @@ export function BasemapSublayerEditorScene({
         </div>
       </section>
 
-      {/* 2. Reset section — collapsed by default */}
+      {/* 5. Reset section — collapsed by default (existing, untouched) */}
       <Collapsible
         open={resetOpen}
         onOpenChange={(open) => {
