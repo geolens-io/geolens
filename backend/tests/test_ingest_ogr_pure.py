@@ -401,8 +401,11 @@ class TestExtractCommonLayerMetadata:
         target, meta = _extract_common_layer_metadata(data, "second")
         assert target["name"] == "second"
         assert meta["geometry_type"] == "Polygon"
-        # all_layers is None when a specific layer was requested
-        assert meta["all_layers"] is None
+        # Phase 1058 (GPKG-01): all_layers stays populated even when a specific
+        # layer was requested, so the fan-out endpoint (Plan 1058-04) can
+        # validate layer names without re-running ogrinfo.
+        assert meta["all_layers"] is not None
+        assert {lyr["name"] for lyr in meta["all_layers"]} == {"first", "second"}
 
     def test_multi_layer_named_layer_not_found_falls_back_to_first(self):
         data = {
