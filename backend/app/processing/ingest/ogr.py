@@ -243,8 +243,12 @@ def _extract_common_layer_metadata(
         for f in target_layer.get("fields", [])
     ]
 
+    # GPKG-01 Phase 1058: always expose all_layers when source has >1 layers,
+    # regardless of whether a specific layer_name was requested.  Callers that
+    # do not need the full list can ignore the key; callers that show layer-select
+    # UX (ReuploadDialog) need the list even after a targeted preview.
     all_layers = None
-    if len(layers) > 1 and not layer_name:
+    if len(layers) > 1:
         all_layers = [
             {
                 "name": lyr.get("name", ""),

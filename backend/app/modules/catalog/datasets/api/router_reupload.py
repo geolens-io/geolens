@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.modules.catalog.datasets.domain.schemas import (
     ReuploadCommitRequest,
     ReuploadCommitResponse,
+    ReuploadPreviewRequest,
     ReuploadPreviewResponse,
     ReuploadServicePreviewRequest,
     ReuploadResponse,
@@ -286,10 +287,20 @@ async def reupload_service_preview(
 async def reupload_preview(
     dataset_id: uuid.UUID,
     job_id: uuid.UUID,
+    # GPKG-01 Phase 1058: optional body allows callers to specify a layer_name
+    # for multi-layer files; single-layer callers may omit the body entirely.
+    request: ReuploadPreviewRequest | None = None,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadPreviewResponse:
-    """Preview the schema diff between old dataset and new upload."""
+    """Preview the schema diff between old dataset and new upload.
+
+    When the uploaded file contains multiple layers, the response includes
+    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
+    (pre-selection hint from the most-recent completed IngestJob for this
+    dataset).  Pass ``layer_name`` in the request body to target a specific
+    layer; omit it to get the default first-layer metadata.
+    """
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -326,7 +337,23 @@ async def reupload_preview(
     if file_path and not Path(file_path).exists():
         file_path = await get_catalog_port().resolve_file_path(file_path, str(job.id))
 
-    info = await get_catalog_port().run_ogrinfo_preview(file_path)
+    # GPKG-01 Phase 1058: thread layer_name from request body to ogrinfo helper
+    layer_name = request.layer_name if request else None
+
+    # Validate layer_name against the file's actual layers (T-1058A-03).
+    # We run ogrinfo without layer_name first to get the full layer list,
+    # then validate — or use the targeted call if no validation needed.
+    info = await get_catalog_port().run_ogrinfo_preview(file_path, layer_name=layer_name)
+
+    # GPKG-01 Phase 1058: validate user-supplied layer_name appears in the file.
+    all_layers = info.get("all_layers")  # None for single-layer files
+    if layer_name is not None and all_layers is not None:
+        layer_names_in_file = {lyr["name"] for lyr in all_layers}
+        if layer_name not in layer_names_in_file:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Layer '{layer_name}' not found in this file.",
+            )
 
     diff = compute_schema_diff(
         dataset.column_info or [],
@@ -335,6 +362,23 @@ async def reupload_preview(
         info["feature_count"],
     )
     schema_diff = SchemaDiff(**diff)
+
+    # GPKG-01 Phase 1058: read the most-recent completed IngestJob's source_layer
+    # to provide a pre-selection hint for the frontend layer-select UI (D-02).
+    from sqlalchemy import desc
+
+    prior_result = await db.execute(
+        select(IngestJob)
+        .where(
+            IngestJob.dataset_id == dataset_id,
+            IngestJob.status == "complete",
+            IngestJob.source_layer.isnot(None),
+        )
+        .order_by(desc(IngestJob.completed_at))
+        .limit(1)
+    )
+    prior_job = prior_result.scalar_one_or_none()
+    previous_source_layer = prior_job.source_layer if prior_job else None
 
     return ReuploadPreviewResponse(
         job_id=job.id,
@@ -346,6 +390,8 @@ async def reupload_preview(
         sample_rows=info["sample_rows"],
         layer_name=info["layer_name"],
         schema_diff=schema_diff,
+        all_layers=all_layers,
+        previous_source_layer=previous_source_layer,
     )
 
 
@@ -394,10 +440,19 @@ async def reupload_commit(
         )
 
     # Merge commit request params into user_metadata, preserving existing keys.
-    # Keep token request-only (never persisted).
+    # Keep token + layer_name request-only from user_metadata (layer_name goes
+    # into the dedicated source_layer column — see D-03 below).
     existing_meta = job.user_metadata or {}
-    existing_meta.update(request.model_dump(exclude_none=True, exclude={"token"}))
+    existing_meta.update(request.model_dump(exclude_none=True, exclude={"token", "layer_name"}))
     job.user_metadata = existing_meta
+
+    # GPKG-01 Phase 1058 (D-03): persist the user-chosen layer to the dedicated
+    # IngestJob.source_layer column so the worker reads it via job.source_layer.
+    # This is the canonical persistence path; user_metadata is not consulted by
+    # the worker for layer selection.
+    if request.layer_name is not None:
+        job.source_layer = request.layer_name  # GPKG-01 Phase 1058
+
     await db.commit()
 
     # Each defer_async path is wrapped in the shared orphan guard

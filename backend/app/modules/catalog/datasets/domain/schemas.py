@@ -461,6 +461,9 @@ class ReuploadPreviewResponse(BaseModel):
     sample_rows: list[dict[str, Any]]
     layer_name: str
     schema_diff: SchemaDiff
+    # GPKG-01 Phase 1058: multi-layer support fields
+    all_layers: list[dict[str, Any]] | None = None
+    previous_source_layer: str | None = None
 
 
 class ReuploadServicePreviewRequest(BaseModel):
@@ -473,9 +476,16 @@ class ReuploadServicePreviewRequest(BaseModel):
     object_id_field: str | None = Field(default=None, max_length=200)
 
 
+class ReuploadPreviewRequest(BaseModel):
+    # GPKG-01 Phase 1058: optional layer_name for multi-layer file sources
+    layer_name: str | None = Field(default=None, max_length=500)
+
+
 class ReuploadCommitRequest(BaseModel):
     srid_override: int | None = Field(default=None, ge=1, le=998999)
     token: str | None = Field(default=None, max_length=1000)
+    # GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
+    layer_name: str | None = Field(default=None, max_length=500)
 
 
 class ReuploadCommitResponse(BaseModel):

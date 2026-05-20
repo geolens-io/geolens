@@ -121,6 +121,9 @@ async def reupload_file(
             # these values are immutable for the duration of the task).
             source_filename = job.source_filename
             user_metadata = job.user_metadata or {}
+            # GPKG-01 Phase 1058: snapshot the user-chosen layer so ogr2ogr
+            # ingests the correct layer from multi-layer GPKG files.
+            layer_name = job.source_layer  # None for single-layer files
 
             # Drop stale staging table from any prior failed attempt before
             # closing the session — ogr2ogr needs a clean target.
@@ -136,7 +139,9 @@ async def reupload_file(
         # ----------------------------------------------------------------- #
 
         # 2. Detect CRS from new file
-        info = await run_ogrinfo(file_path)
+        # GPKG-01 Phase 1058: pass layer_name so ogrinfo targets the user-chosen
+        # layer in multi-layer GPKG files rather than defaulting to layers[0].
+        info = await run_ogrinfo(file_path, layer_name=layer_name)
         srid = info.get("srid")
         geometry_type = info.get("geometry_type")
         has_geometry = geometry_type is not None
@@ -150,6 +155,8 @@ async def reupload_file(
         )
 
         # 4. Load into staging table
+        # GPKG-01 Phase 1058: pass layer_name to ogr2ogr to ingest the correct
+        # layer from multi-layer GPKG files.
         db_conn_str = build_pg_conn_str()
         await run_ogr2ogr(
             file_path,
@@ -157,6 +164,7 @@ async def reupload_file(
             db_conn_str,
             source_srid=srid,
             geometry_type=geometry_type,
+            layer_name=layer_name,
         )
 
         # 7. Compute file hash (moved up — must be outside any session)
@@ -202,7 +210,8 @@ async def reupload_file(
 
                 preview_cols = info.get("columns") or []
                 if not preview_cols:
-                    preview_info = await run_ogrinfo_preview(file_path, sample_limit=0)
+                    # GPKG-01 Phase 1058: pass layer_name for multi-layer shapefiles (rare)
+                    preview_info = await run_ogrinfo_preview(file_path, sample_limit=0, layer_name=layer_name)
                     preview_cols = preview_info.get("columns") or []
                 dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
                 if dbf_collisions:

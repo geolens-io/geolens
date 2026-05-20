@@ -151,6 +151,8 @@ def mock_ogrinfo_preview(mock_reupload_catalog_port):
             "sample_rows": [
                 {"name": "Test", "value": 3.14, "new_col": "hello"},
             ],
+            # GPKG-01 Phase 1058: single-layer default — all_layers is None
+            "all_layers": None,
         }
         yield mock_preview
 
@@ -796,6 +798,230 @@ class TestSchemaDiffComputation:
         assert result["columns_added"] == []
         assert result["columns_removed"] == []
         assert result["type_changes"] == []
+
+
+# ---------------------------------------------------------------------------
+# GPKG-01 Phase 1058: Multi-layer support tests
+# ---------------------------------------------------------------------------
+
+
+async def _create_complete_ingest_job(
+    session,
+    *,
+    dataset_id: uuid.UUID,
+    created_by: uuid.UUID,
+    source_layer: str | None,
+) -> "IngestJob":
+    """Insert a completed IngestJob to seed previous_source_layer lookups."""
+    from datetime import datetime, timezone
+
+    job = IngestJob(
+        dataset_id=dataset_id,
+        source_filename="original.gpkg",
+        source_layer=source_layer,
+        created_by=created_by,
+        status="complete",
+        user_metadata={"reupload": True, "dataset_id": str(dataset_id)},
+    )
+    job.started_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    job.completed_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    session.add(job)
+    await session.commit()
+    return job
+
+
+class TestReuploadMultiLayer:
+    """GPKG-01 Phase 1058: multi-layer GPKG reupload tests."""
+
+    async def test_preview_returns_all_layers_for_multi_layer_source(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+    ):
+        """Preview response includes all_layers when file has >1 layers."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        # Seed a prior completed job with source_layer so previous_source_layer is populated.
+        await _create_complete_ingest_job(
+            test_db_session,
+            dataset_id=dataset.id,
+            created_by=admin_id,
+            source_layer="buildings",
+        )
+
+        # Upload using GeoJSON (valid content for content validation bypass via mock)
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "multi.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        # Override mock to return multi-layer response
+        mock_ogrinfo_preview.return_value = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "buildings",
+            "feature_count": 10,
+            "columns": [{"name": "name", "type": "String"}],
+            "sample_rows": [],
+            "all_layers": [
+                {"name": "buildings", "feature_count": 10, "field_count": 1},
+                {"name": "addresses", "feature_count": 5, "field_count": 2},
+            ],
+        }
+
+        # Preview (no body → single-layer call)
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["all_layers"] is not None
+        assert len(data["all_layers"]) == 2
+        layer_names = [lyr["name"] for lyr in data["all_layers"]]
+        assert "buildings" in layer_names
+        assert "addresses" in layer_names
+        # previous_source_layer from the seeded prior job
+        assert data["previous_source_layer"] == "buildings"
+
+    async def test_preview_honors_layer_name_in_request_body(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_ogrinfo_preview,
+    ):
+        """Preview endpoint passes layer_name from request body to run_ogrinfo_preview."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "multi.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        # Override mock to return response with all_layers so validation passes
+        mock_ogrinfo_preview.return_value = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "addresses",
+            "feature_count": 5,
+            "columns": [{"name": "street", "type": "String"}],
+            "sample_rows": [],
+            "all_layers": [
+                {"name": "buildings", "feature_count": 10, "field_count": 1},
+                {"name": "addresses", "feature_count": 5, "field_count": 2},
+            ],
+        }
+
+        # Preview WITH layer_name in request body
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            json={"layer_name": "addresses"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
+        # Assert mock was called with layer_name="addresses"
+        call_args = mock_ogrinfo_preview.call_args
+        assert call_args.kwargs.get("layer_name") == "addresses" or (
+            len(call_args.args) > 1 and call_args.args[1] == "addresses"
+        )
+
+    async def test_commit_persists_layer_name_to_source_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Commit with layer_name body field persists to IngestJob.source_layer."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        # Upload
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "multi.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        # Commit with layer_name
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/commit",
+            json={"layer_name": "addresses"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202
+
+        # Verify IngestJob.source_layer was persisted
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.id == uuid.UUID(job_id))
+        )
+        job = result.scalar_one()
+        await test_db_session.refresh(job)
+        assert job.source_layer == "addresses"
+
+    async def test_preview_previous_source_layer_is_null_when_no_prior_complete_job(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Preview response previous_source_layer is None when no prior completed job exists."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        # Fresh dataset — no prior IngestJobs
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "update.geojson",
+                    b'{"type":"FeatureCollection","features":[]}',
+                    "application/json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        job_id = resp.json()["job_id"]
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["previous_source_layer"] is None
 
 
 class TestStagingTableName:
