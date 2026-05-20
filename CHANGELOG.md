@@ -11,6 +11,103 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Ingest hardening + multi-layer GPKG + basemap sublayer styling (v1013 milestone)
+
+Phases 1057-1060 — closes 10 v1013 requirements surfacing from the v1012
+live-smoke addendum. Mixes a P0 GeoServer commit-failure fix (WFS-04),
+P1 latency win on the OGC API probe path (PROBE-05), P0 silent-data-swap
+fix on Reupload (GPKG-01), and the v1011.1-deferred Path B FIX for
+basemap sublayer styling persistence (BSE-01). Next public tag bump:
+**minor** — new affordances (Reupload layer-select, Bulk Review fan-out,
+basemap sublayer editor restoration) justify the bump even with a P0
+fix at the head of the milestone.
+
+#### Added
+
+- **GPKG-01 (P0): Reupload File path layer-select step.** When
+  reuploading a multi-layer GeoPackage, the dialog now shows a
+  `selecting-file-layer` step mirroring the Service URL flow at
+  `ReuploadDialog.tsx:581`. Default selection is the dataset's previous
+  `source_layer`; if the previously-ingested layer is absent from the
+  new file, a warning banner forces explicit user selection. Closes a
+  silent-data-swap risk where multi-layer GPKG reuploads silently
+  picked `layers[0]`.
+- **GPKG-02 (P1): Reupload preview pane parity with Service URL.**
+  Preview now surfaces `Layer: {name}` line + column-level schema diff
+  (`Columns Added` / `Columns Removed` with types) + schema-change
+  advisory banner when columns differ. Derived from existing
+  `compute_schema_diff` payload — no new backend wire field.
+- **GPKG-03 (P2): Bulk Review "Ingest all layers" fan-out.** A single
+  click on a multi-layer GPKG entry now creates N independent datasets
+  via a new `POST /ingest/commit-fan-out/{job_id}` endpoint that clones
+  the IngestJob per layer and dispatches independent Procrastinate
+  tasks. Original job marked `'fanned_out'` (terminal); partial
+  failures preserve the original job in `'pending'` state for retry.
+- **BSE-01 (Feature): Basemap sublayer styling editor restored** with
+  real persistence path. The `BasemapSublayerEditorScene` STROKE +
+  CASING + ZOOM RANGE controls (removed in v1011.1 EMRG-FN-01 Path A)
+  are back, now backed by `MapBasemapConfig.sublayer_overrides` jsonb-
+  additive field (no Alembic migration). New shared
+  `applySublayerOverrides(map, overrides)` helper applies overrides
+  across builder + viewer + shared/embed render contexts. Idle-retry
+  recovery handles MapLibre `!isStyleLoaded()` race. Backward-compat:
+  legacy saved maps without `sublayer_overrides` render with default
+  basemap styling (zero-migration).
+- **CLASS-07 (P2): Backend-classified `kind: 'vector' \| 'raster'`
+  field on probe response.** Layers without `geometry_type` now
+  default to `'vector'` unless an explicit raster signal is present
+  (STAC adapter, `coverage_format`, `bands`, or `mediaType: image/*`).
+  Frontend `ServiceUrlForm.tsx` consumes `layer.kind` directly instead
+  of re-deriving from string contents.
+- **CRS-06 (P2): URI/URN-form CRS auto-detection.** OGC API Features
+  sources declaring CRS via URI/URN are now parsed automatically:
+  `http(s)://www.opengis.net/def/crs/OGC/1.3/CRS84` → 4326,
+  `http(s)://www.opengis.net/def/crs/EPSG/0/{N}` → {N},
+  `urn:ogc:def:crs:EPSG::{N}` → {N},
+  `urn:ogc:def:crs:OGC:1.3:CRS84` → 4326. Frontend CRS Override field
+  auto-hides when probe carries non-null CRS. Unrecognized URIs fall
+  through to today's behavior (Override stays visible).
+
+#### Fixed
+
+- **WFS-04 (P0): WFS commit succeeds on abstract OGC geometry types.**
+  Polygon-heavy GeoServer WFS layers declaring `MultiSurface`,
+  `MultiCurve`, `CompoundSurface`, etc. now ingest end-to-end. Root
+  cause: `run_ogr2ogr_service` honored the WFS-declared abstract type
+  as the PostGIS column constraint via `-nlt PROMOTE_TO_MULTI`, then
+  the post-ingest `clip_to_mercator_bounds` UPDATE failed because
+  actual feature geometries are concrete (MultiPolygon, LineString).
+  Fix: drop the `-nlt` flag for the service path, yielding a generic
+  `geometry(Geometry, 4326)` column. PostGIS column-level type
+  discipline is replaced by `metadata.geometry_type` derived from
+  first-feature inspection. File-ingest path (`run_ogr2ogr`) is
+  untouched — concrete types are accurate for local files.
+- **PROBE-05 (P1): Service URL probe completes ≤5s** for fast services.
+  Root cause was misdiagnosed in the original report (claimed
+  `try_all_probes()` short-circuit issue, but the orchestrator already
+  short-circuits per-probe). Real bottleneck was per-layer `ogrinfo`
+  enrichment in `enrich_ogcapi_layers` and `enrich_wfs_layers`:
+  Semaphore(5) × 17 collections × ~3-4s per call ≈ 60s wall clock.
+  Fix: drop enrichment from the probe phase entirely; lazy-enrich
+  when the user picks a layer at preview time. ArcGIS HTTP enrichment
+  preserved (different shape, not the bottleneck).
+
+#### Notes
+
+- **Architecture hygiene swept inline.** Phase 1060 close gate caught
+  one Phase 1057 import-layering regression (moved `crs_uri.py` from
+  `app.modules.catalog.sources` to `app.core` so processing/ may
+  import it without crossing the catalog boundary), one Phase 1058
+  broad-except sites that needed rationale comments, and one Phase
+  1047-era pre-existing layering violation in `maps/router.py`
+  (re-exported `remove_layers_bulk` through the service facade). All
+  fixed inline per `feedback_review_findings_inline.md`.
+- **maps/router.py decomposition queued for v1014.** The file is now
+  1761 LOC against a 1700-line cap; close gate carve-out raises the
+  cap to 1800 with an explicit HARD ceiling — decomposition (split
+  into facade + sub-routers per Phase 226/238 pattern) is the v1014
+  follow-up.
+
 ## [1.2.1] - 2026-05-19
 
 ### New-user hardening + Reupload discoverability (v1012 milestone close)
