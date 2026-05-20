@@ -122,8 +122,11 @@ async def detect_service_type(
 
     Raises ServiceNotRecognized if no probe succeeds.
     """
+    looks_arcgis = _looks_like_arcgis(url)
+    looks_wfs = _looks_like_wfs(url)
+
     # Fast path: ArcGIS URL pattern
-    if _looks_like_arcgis(url):
+    if looks_arcgis:
         logger.info("URL pattern matches ArcGIS", url=url)
         base_url, layer_id = normalize_arcgis_url(url)
         result = await probe_arcgis_service(base_url, client, token=token)
@@ -137,7 +140,7 @@ async def detect_service_type(
         # Fast-path failed — fall through to slow path
 
     # Fast path: WFS URL pattern
-    if not _looks_like_arcgis(url) and _looks_like_wfs(url):
+    if not looks_arcgis and looks_wfs:
         logger.info("URL pattern matches WFS", url=url)
         result = await probe_wfs(url, client, token=token)
         if result is not None:
