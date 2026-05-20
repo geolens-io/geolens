@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     func,
@@ -59,6 +60,12 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
+    )
+    # SEC-S15 (Phase 1062-01): JWT revocation primitive. Bumped on logout and
+    # on password change. Any access JWT whose token_version claim is less
+    # than this value is rejected on the next authenticated request.
+    token_version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
     )
     auth_provider: Mapped[str] = mapped_column(
         String(20), server_default="local", nullable=False
