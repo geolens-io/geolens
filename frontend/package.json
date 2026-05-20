@@ -17,7 +17,8 @@
     "check:i18n:changed": "node ./scripts/check-i18n-changed-namespaces.mjs",
     "check:i18n:toast-strings": "node ./scripts/check-hardcoded-toast.mjs --strict",
     "lint:sec-s14-regression": "eslint --no-inline-config src/__tests__/sec-s14-eslint-regression.ts; test $? -ne 0",
-    "lint:sec-s14-no-false-positive": "eslint src/__tests__/sec-s14-eslint-regression.skip.ts"
+    "lint:sec-s14-no-false-positive": "eslint src/__tests__/sec-s14-eslint-regression.skip.ts",
+    "lint:sec-fu-03-regression": "eslint --no-inline-config src/__tests__/sec-fu-03-react-no-danger-regression.skip.tsx; test $? -ne 0"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -68,6 +69,7 @@
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^9.39.1",
     "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",

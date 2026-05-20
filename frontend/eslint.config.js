@@ -1,5 +1,6 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
@@ -21,7 +22,22 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    plugins: {
+      react,
+    },
+    settings: {
+      // Required by eslint-plugin-react to resolve the React version automatically.
+      // Without this, the plugin emits a "React version not specified" warning.
+      react: { version: 'detect' },
+    },
     rules: {
+      // SEC-FU-03 (sec-audit-20260519.md line 534, Phase 1063-03):
+      // ban dangerouslySetInnerHTML in React components. The popup-template surface
+      // (frontend/src/lib/popup-template.ts) already bans this pattern in a comment;
+      // this rule makes the ban machine-checkable so future regressions fail lint.
+      // Flip regression fixture from .skip.tsx to .tsx and run `npm run lint` to
+      // verify the rule fires.
+      'react/no-danger': 'error',
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/refs': 'off',
       'react-hooks/preserve-manual-memoization': 'off',
