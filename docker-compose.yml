@@ -501,11 +501,14 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      # CONF-12 (Phase 277 / L-37): VAR-default fallback so `docker compose --profile cloud-dev up`
-      # works without copying .env. The defaults match the literal `minioadmin` strings the
-      # minio-setup mc client uses (around lines 500) — keep them in sync if changed.
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      # Phase 1061 SEC-S07: fail-closed expansion. The CONF-12 var-default-minioadmin
+      # fallback leaked trivial credentials through any SSH-tunnel or port-forward
+      # on the cloud-dev profile. Require explicit env-var values now.
+      # For the demo overlay, scripts/init-demo-env.sh populates these.
+      # For plain dev, add MINIO_ROOT_USER= / MINIO_ROOT_PASSWORD= to .env
+      # (see .env.example for the documented section).
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (run scripts/init-demo-env.sh or set in .env)}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -531,9 +534,15 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    # Phase 1061 SEC-S07: source creds from env, not hardcoded literals.
+    # Use $$VAR (double-dollar) so docker-compose passes the literal $VAR to
+    # the shell inside the container, which then expands it against container env.
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\";
       mc mb --ignore-existing local/geolens;
       cat > /tmp/cors.json << 'CORSJSON'
       {
