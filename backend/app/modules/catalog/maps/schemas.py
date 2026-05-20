@@ -260,6 +260,22 @@ class SublayerOverride(BaseModel):
             )
         return v
 
+    @model_validator(mode="after")
+    def _validate_zoom_order(self) -> "SublayerOverride":
+        """WR-02: Ensure min_zoom <= max_zoom when both are specified.
+
+        MapLibre's behavior with an inverted zoom range (min > max) is undefined
+        and version-dependent; in practice the layer becomes permanently invisible
+        until the user corrects the values and resaves. Rejecting the payload at
+        validation time surfaces the error at the API boundary.
+        """
+        if self.min_zoom is not None and self.max_zoom is not None:
+            if self.min_zoom > self.max_zoom:
+                raise ValueError(
+                    f"min_zoom ({self.min_zoom}) must be <= max_zoom ({self.max_zoom})"
+                )
+        return self
+
 
 class BasemapConfig(BaseModel):
     label_mode: BasemapLabelMode = Field(

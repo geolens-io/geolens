@@ -225,3 +225,47 @@ def test_sublayer_overrides_opaque_keyset():
     )
     assert cfg.sublayer_overrides is not None
     assert cfg.sublayer_overrides["some_future_provider_specific_id"].opacity == 0.5
+
+
+# ---------------------------------------------------------------------------
+# 15. Cross-field validator: min_zoom > max_zoom is rejected (WR-02)
+# ---------------------------------------------------------------------------
+def test_sublayer_override_rejects_inverted_zoom_range():
+    """min_zoom > max_zoom must raise ValidationError (WR-02).
+
+    MapLibre's behavior with an inverted zoom range is undefined and causes
+    permanently invisible layers. The cross-field validator surfaces the error
+    at the API boundary before it can reach the map.
+    """
+    with pytest.raises(ValidationError, match="min_zoom"):
+        SublayerOverride(min_zoom=15, max_zoom=10)
+
+
+# ---------------------------------------------------------------------------
+# 16. Cross-field validator: equal min_zoom == max_zoom is accepted (WR-02)
+# ---------------------------------------------------------------------------
+def test_sublayer_override_accepts_equal_zoom_range():
+    """min_zoom == max_zoom is a valid edge case (single-zoom visibility band)."""
+    override = SublayerOverride(min_zoom=10, max_zoom=10)
+    assert override.min_zoom == 10
+    assert override.max_zoom == 10
+
+
+# ---------------------------------------------------------------------------
+# 17. Cross-field validator: partial zoom (only min_zoom set) passes (WR-02)
+# ---------------------------------------------------------------------------
+def test_sublayer_override_accepts_partial_zoom_only_min():
+    """Partial override with only min_zoom is valid (max_zoom remains None)."""
+    override = SublayerOverride(min_zoom=5)
+    assert override.min_zoom == 5
+    assert override.max_zoom is None
+
+
+# ---------------------------------------------------------------------------
+# 18. Cross-field validator: partial zoom (only max_zoom set) passes (WR-02)
+# ---------------------------------------------------------------------------
+def test_sublayer_override_accepts_partial_zoom_only_max():
+    """Partial override with only max_zoom is valid (min_zoom remains None)."""
+    override = SublayerOverride(max_zoom=18)
+    assert override.min_zoom is None
+    assert override.max_zoom == 18
