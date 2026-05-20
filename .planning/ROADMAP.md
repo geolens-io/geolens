@@ -84,7 +84,7 @@
 
 - [x] **Phase 1057: Service URL Reliability** — Fix WFS abstract-geometry-type commit failure (P0), short-circuit probe orchestrator on first success, parse URI-form CRS references, fall back to VEC when probe response lacks geometry_type
 - [ ] **Phase 1058: Multi-Layer GPKG Handling** — Add layer-select step to Reupload File path mirroring Service URL flow (P0 silent-data-swap fix), surface chosen layer name + schema diff in preview, enable multi-commit / ingest-all-layers path in Bulk Review
-- [ ] **Phase 1059: Basemap Sublayer Editor (Path B FIX)** — Restore per-sublayer styling surface removed in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent); 3-5 day feature phase
+- [x] **Phase 1059: Basemap Sublayer Editor (Path B FIX)** — Restore per-sublayer styling surface removed in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent); 3-5 day feature phase
 - [ ] **Phase 1060: Close Gate** — Delete 3 smoke repro datasets, run all smoke gates, live Playwright MCP re-verify of WFS-04/PROBE-05/GPKG-01/GPKG-02/BSE-01, populate CHANGELOG, tag v1013 + v1.4.0
 
 ## Phase Details
@@ -137,7 +137,7 @@
 - [x] 1059-01-PLAN.md — Backend persistence: Pydantic SublayerOverride model + BasemapConfig.sublayer_overrides field (jsonb-additive, zero-migration) + 14-test pytest covering validation, round-trip, legacy compat
 - [x] 1059-02-PLAN.md — Frontend MapLibre integration: applySublayerOverrides helper at frontend/src/lib/builder/basemap-style-mutation.ts with idle-retry recovery; wires into BuilderMap.tsx (2 sites) + ViewerMap.tsx (1 site, serves viewer + shared + embed routes); 19 unit tests
 - [x] 1059-03-PLAN.md — Frontend editor UI: Restore STROKE/CASING/ZOOM sections in BasemapSublayerEditorScene.tsx (5 sections D-09 order); invert Test 14 EMRG-FN-01 regression pin; wire MapBuilderPage callbacks to useMapBuilderStore.basemap_config.sublayer_overrides patches; English i18n
-- [ ] 1059-04-PLAN.md — Cross-context tests + i18n: Extend ViewerMap.basemap-config.test with 5 new applySublayerOverrides assertions + new sublayer_overrides.round-trip.test with 7 tests; de/es/fr locale parity for 9 new basemapSublayer.* keys
+- [x] 1059-04-PLAN.md — Cross-context tests + i18n: Extend ViewerMap.basemap-config.test with 5 new applySublayerOverrides assertions + new sublayer_overrides.round-trip.test with 7 tests; de/es/fr locale parity for 9 new basemapSublayer.* keys
 **Complexity**: Large (3-5 day feature phase per v1011.1 EMRG-FN-01 disposition note; spans schema additive change + backend persistence + frontend editor scene revival + cross-context render parity tests)
 **UI hint**: yes
 
@@ -164,7 +164,7 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 |-------|----------------|--------|-----------|
 | 1057. Service URL Reliability | 3/3 | Complete |  |
 | 1058. Multi-Layer GPKG Handling | 3/3 | Partial (T-1058C-03 backend gap documented) |  |
-| 1059. Basemap Sublayer Editor (Path B FIX) | 3/4 | In Progress (Plans 01+02+03 complete: backend schema + MapLibre helper + editor UI restored) | - |
+| 1059. Basemap Sublayer Editor (Path B FIX) | 4/4 | Complete (all ACs evidenced; 12 new tests; de/es/fr i18n parity) | 2026-05-20 |
 | 1060. Close Gate | 0/? | Not started | - |
 
 ## Backlog
