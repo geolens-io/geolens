@@ -7,7 +7,7 @@ import re
 from typing import TypedDict
 
 from app.core.config import settings
-from app.modules.catalog.sources.crs_uri import parse_crs_uri
+from app.core.crs_uri import parse_crs_uri
 
 
 # SEED-04 (Phase 1054): compiled once at module scope to avoid repeated re.compile().

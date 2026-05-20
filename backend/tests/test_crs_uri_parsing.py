@@ -13,7 +13,7 @@ Covers:
 
 import pytest
 
-from app.modules.catalog.sources.crs_uri import parse_crs_uri
+from app.core.crs_uri import parse_crs_uri
 from app.processing.ingest.ogr import extract_srid_from_json
 
 

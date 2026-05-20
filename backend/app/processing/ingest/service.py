@@ -602,7 +602,7 @@ async def create_fan_out_jobs(
             import structlog as _structlog
 
             logger = _structlog.get_logger(__name__)
-        except Exception:
+        except Exception:  # broad: structlog optional — defer to print if unavailable
             pass
         if logger:
             logger.warning(

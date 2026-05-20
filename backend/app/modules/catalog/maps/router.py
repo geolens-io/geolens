@@ -93,7 +93,7 @@ from app.modules.catalog.maps.service import (
     validate_public_visibility,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.service_layers import remove_layers_bulk
+from app.modules.catalog.maps.service import remove_layers_bulk
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
 logger = structlog.stdlib.get_logger(__name__)

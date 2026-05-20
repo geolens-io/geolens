@@ -38,6 +38,11 @@ BASEMAP_CONFIG_PAYLOAD = {
     "land_water_tone": "muted",
     "relief_contrast": "strong",
     "opacity": 0.55,
+    # Phase 1059 BSE-01: sublayer_overrides field added to BasemapConfig
+    # (jsonb-additive, defaults to None). Existing tests must include the
+    # field in their expected payload so equality assertions match the
+    # serialized response.
+    "sublayer_overrides": None,
 }
 
 

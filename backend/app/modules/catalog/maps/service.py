@@ -24,6 +24,7 @@ from app.modules.catalog.maps.service_layers import (
     add_layer,
     bulk_check_dataset_access,
     remove_layer,
+    remove_layers_bulk,
 )
 from app.modules.catalog.maps.service_public import (
     create_share_token,

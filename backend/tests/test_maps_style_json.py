@@ -279,7 +279,15 @@ def test_build_maplibre_style_exports_basemap_config_metadata():
 
     style = build_maplibre_style(map_obj, [_layer()])
 
-    assert style["metadata"]["geolens"]["basemap_config"] == map_obj.basemap_config
+    # The serialized output normalizes BasemapConfig through Pydantic, which
+    # adds the schema defaults: opacity=1.0 (Phase 1000) and
+    # sublayer_overrides=None (Phase 1059 BSE-01 jsonb-additive).
+    expected = {
+        **map_obj.basemap_config,
+        "opacity": 1.0,
+        "sublayer_overrides": None,
+    }
+    assert style["metadata"]["geolens"]["basemap_config"] == expected
 
 
 def test_build_maplibre_style_omits_terrain_block_when_dem_source_missing():
@@ -934,6 +942,8 @@ def test_parse_maplibre_style_import_restores_basemap_config_from_metadata():
 
     imported = parse_maplibre_style_import(style)
 
+    # The Pydantic schema fills opacity=1.0 (v1000 default) and
+    # sublayer_overrides=None (Phase 1059 BSE-01 jsonb-additive default).
     assert imported.basemap_config == {
         "label_mode": "hidden",
         "road_visibility": "subtle",
@@ -941,6 +951,8 @@ def test_parse_maplibre_style_import_restores_basemap_config_from_metadata():
         "building_visibility": True,
         "land_water_tone": "contrast",
         "relief_contrast": "soft",
+        "opacity": 1.0,
+        "sublayer_overrides": None,
     }
 
 
