@@ -386,7 +386,8 @@ describe('ImportMetadataForm', () => {
   // Dropdown population
   // ---------------------------------------------------------------------------
 
-  it('populates x/y dropdowns with numeric columns only', () => {
+  it('populates x/y dropdowns with numeric columns only', async () => {
+    const user = userEvent.setup();
     render(
       <ImportMetadataForm
         {...defaultProps}
@@ -395,9 +396,18 @@ describe('ImportMetadataForm', () => {
       />,
     );
 
-    // Switch to manual mode to see enabled dropdowns
-    // Mode is 'none' since nothing detected, so no dropdowns visible
-    // We need to switch mode to manual first
+    // Mode is 'none' because no columns were detected — switch to manual to reveal dropdowns.
+    await user.selectOptions(screen.getByLabelText('metadata.geometryMode'), 'manual');
+
+    const xSelect = screen.getByLabelText('metadata.xColumn');
+    const options = within(xSelect).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
+    // Numeric columns (Integer, Real) should be present
+    expect(options).toContain('id');
+    expect(options).toContain('Latitude');
+    expect(options).toContain('Longitude');
+    // String columns must be excluded from the numeric filter
+    expect(options).not.toContain('name');
+    expect(options).not.toContain('wkt');
   });
 
   it('populates WKT dropdown with string columns only', async () => {
