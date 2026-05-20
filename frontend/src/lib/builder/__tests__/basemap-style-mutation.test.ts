@@ -305,8 +305,9 @@ describe('applySublayerOverrides', () => {
 
     applySublayerOverrides(map as never, { road: { min_zoom: 8, max_zoom: null } });
 
-    // max_zoom is null → defaults to 24
-    expect(map.setLayerZoomRange).toHaveBeenCalledWith('road-primary', 8, 24);
+    // max_zoom is null → defaults to 22 (matches UI displayed default in BasemapSublayerEditorScene)
+    // WR-01: was 24 (MapLibre max) which would silently extend layers beyond what the UI shows.
+    expect(map.setLayerZoomRange).toHaveBeenCalledWith('road-primary', 8, 22);
   });
 
   it('getLayer_returns_falsy_prevents_mutations', () => {

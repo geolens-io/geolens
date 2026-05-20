@@ -120,10 +120,14 @@ function applyOverrideToLayer(
     safeSetPaint(map, layerId, 'line-color', override.casing_color);
   }
 
-  // ZOOM RANGE — applies to all classified layers regardless of type
+  // ZOOM RANGE — applies to all classified layers regardless of type.
+  // WR-01: only call setLayerZoomRange when at least one zoom bound is explicitly set.
+  // When only one side is set, default the other to 0 (min) or 22 (max) — matching the
+  // UI's displayed default of 22 for max_zoom (BasemapSublayerEditorScene.tsx:198).
+  // Using 24 here would silently extend layers two stops beyond what the UI shows.
   if (override.min_zoom != null || override.max_zoom != null) {
     const minZoom = override.min_zoom ?? 0;
-    const maxZoom = override.max_zoom ?? 24;
+    const maxZoom = override.max_zoom ?? 22;
     safeSetZoomRange(map, layerId, minZoom, maxZoom);
   }
 
