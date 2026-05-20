@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: executing
-last_updated: "2026-05-20T18:33:00Z"
-last_activity: "2026-05-20 — Completed 1061-04: SEC-S04 SSRF redirect-bypass remediation"
+last_updated: "2026-05-20T18:44:00Z"
+last_activity: "2026-05-20 — Completed 1061-05: SEC-S06 + SEC-S07 credential hardening"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1061-security-audit-2026-05-19-remediation
-Plan: 04 (complete)
+Plan: 05 (complete)
 Status: In Progress
-Last activity: 2026-05-20 — Completed 1061-04: SEC-S04 SSRF redirect-bypass remediation
+Last activity: 2026-05-20 — Completed 1061-05: SEC-S06 + SEC-S07 credential hardening
 
 ## Project Reference
 
@@ -108,6 +108,8 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1059 Plan 04:** 12 new vitest tests (5 ViewerMap.basemap-config + 7 sublayer-overrides.round-trip). All 4 ROADMAP ACs evidenced. de/es/fr i18n parity — 9 new basemapSublayer.* keys in each locale. i18n gate 2/2. No production code changes. Phase 1059 COMPLETE — ready for Phase 1060 close gate.
 - **Phase 1061 Plan 03:** SEC-S05 fix applied at API router boundary — check_dataset_access_or_anonymous return value reused as user_roles (no redundant get_user_roles call). Defense-in-depth caller contract documented at _load_self_record_and_embedding. SEC-FU: narrow embedding read to visibility-filtered query (Phase 1063 candidate).
 - **Phase 1061 Plan 04:** SEC-S04 _revalidate_redirect httpx event hook + make_safe_client factory; 4 raw AsyncClient(follow_redirects=True) sites refactored (3 planned + manifest_service.py Rule 2); GDAL_HTTP_FOLLOWLOCATION=NO on ogr2ogr service-ingest; 7 pytest regression tests pass. manifest_sources.py confirmed non-spawning consumer. Pre-resolve final URL before ogr2ogr deferred to SEC-FU Phase 1063.
+- [Phase ?]: Phase 1061 Plan 05: SEC-S06 validate_demo_credentials_guard early-return removed — DEMO_POSTGRES_PASSWORD added as third literal
+- [Phase ?]: Phase 1061 Plan 05: SEC-S07 MinIO :?required fail-closed expansion; minio-setup sources creds via $$VAR double-dollar not hardcoded literals
 
 ## Operator Next Steps
 
