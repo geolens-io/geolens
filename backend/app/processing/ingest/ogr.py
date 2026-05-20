@@ -632,9 +632,20 @@ async def run_ogr2ogr_service(
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
 
-    env = None
+    # Phase 1061 SEC-S04: disable libcurl redirect-following inside ogr2ogr so
+    # that a service URL pointing at a public proxy cannot 302 the GDAL HTTP
+    # driver to an internal IP (169.254.169.254 / 10.x / 127.x).
+    # validate_url_for_ssrf runs at submission time but ogr2ogr does its own
+    # HTTP; GDAL_HTTP_FOLLOWLOCATION=NO is the only way to disable
+    # redirect-following in libcurl under GDAL.
     if token and service_type in ("wfs", "ogcapi_features"):
-        env = {**os.environ, "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}"}
+        env = {
+            **os.environ,
+            "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}",
+            "GDAL_HTTP_FOLLOWLOCATION": "NO",
+        }
+    else:
+        env = {**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"}
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
