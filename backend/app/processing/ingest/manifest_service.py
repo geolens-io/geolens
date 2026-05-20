@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.identity import Identity
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
+from app.modules.catalog.sources.security import make_safe_client
 from app.platform.extensions import get_catalog_port, get_processing_port
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
@@ -92,7 +93,9 @@ async def _download_http_source(
 
     bytes_seen = 0
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
+        # Phase 1061 SEC-S04 (Rule 2): use make_safe_client so per-hop SSRF
+        # revalidation applies to manifest HTTP source downloads.
+        async with make_safe_client(timeout=60.0) as client:
             async with client.stream("GET", prepared.source_uri) as response:
                 response.raise_for_status()
                 with destination.open("wb") as file_obj:

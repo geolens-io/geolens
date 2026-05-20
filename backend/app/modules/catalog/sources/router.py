@@ -33,6 +33,7 @@ from app.modules.catalog.sources.schemas import (
 from app.modules.catalog.sources.security import (
     PROBE_TIMEOUT,
     SSRFError,
+    make_safe_client,
     validate_url_for_ssrf,
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -96,11 +97,7 @@ async def _fetch_ogcapi_collection_srid(
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        async with httpx.AsyncClient(
-            timeout=PROBE_TIMEOUT,
-            follow_redirects=True,
-            max_redirects=5,
-        ) as client:
+        async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
             response = await client.get(
                 collection_url, headers=headers, params={"f": "json"}
             )
@@ -185,11 +182,7 @@ async def probe_service_url(
     # handles auth its own way (ArcGIS via &token= query param, WFS via
     # per-request header). Sending Bearer headers to ArcGIS breaks auth.
     try:
-        async with httpx.AsyncClient(
-            timeout=PROBE_TIMEOUT,
-            follow_redirects=True,
-            max_redirects=5,
-        ) as client:
+        async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
             response = await detect_service_type(
                 request.url, client, token=request.token
             )

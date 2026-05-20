@@ -16,6 +16,8 @@ from typing import Any, TypedDict
 import httpx
 import structlog
 
+from app.modules.catalog.sources.security import make_safe_client
+
 logger = structlog.stdlib.get_logger(__name__)
 
 # Maximum items to return per search request
@@ -25,12 +27,13 @@ STAC_TIMEOUT = 30.0
 
 
 def _make_client() -> httpx.AsyncClient:
-    """Shared httpx client configuration for STAC API requests."""
-    return httpx.AsyncClient(
-        timeout=STAC_TIMEOUT,
-        follow_redirects=True,
-        max_redirects=5,
-    )
+    """Shared httpx client configuration for STAC API requests.
+
+    Phase 1061 SEC-S04: delegates to make_safe_client() so the per-hop SSRF
+    revalidation hook applies to every STAC API probe (including indirect
+    redirects from /stac/.well-known/* to internal CIDRs).
+    """
+    return make_safe_client(timeout=STAC_TIMEOUT)
 
 
 async def connect_stac_api(url: str) -> dict | None:
