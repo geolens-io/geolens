@@ -132,7 +132,19 @@ class ApiKeyListResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=256)
-    new_password: str = Field(min_length=8, max_length=256)
+    # WR-03: min_length=8 is the schema floor (allows the Pydantic validator to
+    # reject obviously short inputs before hitting the field_validator). The
+    # runtime policy enforced by validate_new_password / validate_password_from_settings
+    # is stricter: at least 12 characters and 3+ character classes (SEC-S16).
+    # The description surfaces the actual policy in the OpenAPI docs so clients
+    # do not generate passwords that pass schema validation but fail the route.
+    new_password: str = Field(
+        min_length=8,
+        max_length=256,
+        description="New password (policy: min 12 chars, 3+ character classes: "
+        "lowercase, uppercase, digits, symbols). The min_length=8 here is a "
+        "schema floor; the runtime validator enforces the full policy.",
+    )
 
     @field_validator("new_password", mode="after")
     @classmethod
