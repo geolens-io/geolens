@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: completed
-last_updated: "2026-05-20T21:30:00.000Z"
-last_activity: 2026-05-20 -- Phase 1062 Plan 04 complete (SEC-S09 sqlglot AST WHERE-clause validator)
+last_updated: "2026-05-20T21:10:00.000Z"
+last_activity: 2026-05-20 -- Phase 1062 Plan 05 complete (SEC-S08 embed-token frame-ancestors CSP)
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 12
-  completed_plans: 11
-  percent: 17
+  completed_plans: 12
+  percent: 13
 ---
 
 # State
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1062 — IN PROGRESS
-Plan: 04 (complete)
-Status: Phase 1062 Plan 04 complete — SEC-S09 (sqlglot AST-based WHERE-clause validator for dataset export)
-Last activity: 2026-05-20 -- Phase 1062 Plan 04 complete (SEC-S09 sqlglot AST WHERE-clause validator)
+Plan: 05 (complete)
+Status: Phase 1062 Plan 05 complete — SEC-S08 (dynamic frame-ancestors CSP on shared-map API response + nginx /m/* XFO override)
+Last activity: 2026-05-20 -- Phase 1062 Plan 05 complete (SEC-S08 embed-token frame-ancestors CSP)
 
 ## Project Reference
 
@@ -114,6 +114,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1062 Plan 02:** SEC-S11 per-route rate limits applied per-IP — 30/min for semantic search (/search/datasets/, /search/facets/, /datasets/{id}/related/), 120/min for basemap proxy (/settings/basemaps/). _sync_rate_limit_cache accessor pattern reused from existing login/global infrastructure. Per-token caps deferred to SEC-FU Phase 1063. SEC-S10 docstring added to get_basemaps documenting public api_key resolution model.
 - **Phase 1062 Plan 03:** SEC-S12 GIN index ix_records_simple_search_vector on simple-regconfig tsvector (migration 0020); catalog.immutable_text_array_join IMMUTABLE wrapper for array_to_string (concat_ws is STABLE, cannot appear in functional index); service_filters.py runtime expression updated from concat_ws to || operator to match index expression tree. SEC-S13 max_length=1000 on /search/facets/?q= matching peer /search/datasets/.
 - **Phase 1062 Plan 04:** SEC-S09 sqlglot AST allowlist for WHERE-clause fragment validation — wraps fragment as SELECT 1 FROM _t WHERE <input>, deny-by-default allowlist (Column/Literal/comparison/logical/In/Is/Like/Between/Paren/Neg), catches TokenError alongside ParseError; validate_where_ast() called BEFORE identifier check in validate_where_clause() (defense-in-depth); 41 pytest tests pass.
+- **Phase 1062 Plan 05:** SEC-S08 Path A + nginx tweak — get_shared_map() returns 3-tuple (map_data, layers, allowed_origins); router emits frame-ancestors CSP from EmbedToken.allowed_origins with CRLF-injection defense; SecurityHeadersMiddleware uses route_set_csp gate to skip XFO=DENY when route owns CSP; nginx /m/* location re-declares nosniff+Referrer-Policy while omitting XFO (server-scope inheritance disabled by inner add_header); 6 pytest tests pass; SEC-FU full per-token HTML CSP deferred to Phase 1063.
 
 ## Operator Next Steps
 

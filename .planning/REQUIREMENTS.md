@@ -21,7 +21,7 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 
 ### MEDIUM severity remediation (Phase 1062)
 
-- [ ] **SEC-S08** *(MEDIUM, CVSS 5.3)*: Embed token framing CSP gap closed. Fix per audit §S08. Acceptance: e2e/sec-audit.spec.ts S08 test passes (embed iframe enforces `frame-ancestors` directive matching configured allowlist).
+- [x] **SEC-S08** *(MEDIUM, CVSS 5.3)*: Embed token framing CSP gap closed. Fix per audit §S08. Acceptance: e2e/sec-audit.spec.ts S08 test passes (embed iframe enforces `frame-ancestors` directive matching configured allowlist).
 - [x] **SEC-S09** *(MEDIUM, CVSS 5.0)*: ogr2ogr `-where` clause user input validated by a sqlglot-based SQL validator before being passed to subprocess. Whitelist of safe SQL constructs (filter expressions only — no DDL, no UNION, no semicolon-terminated multi-statements). Acceptance: e2e/sec-audit.spec.ts S09 test passes (malicious `-where` payload rejected at API boundary).
 - [x] **SEC-S10** *(MEDIUM, CVSS 5.3)*: Basemap `api_key` query-param exposure documented (public-facing — not a secret; rotation guidance in admin docs) + per-route rate limit on `/basemap-proxy` to cap abuse. Acceptance: docstring + admin doc page exists; rate limit covered by e2e/sec-audit.spec.ts S10 test.
 - [x] **SEC-S11** *(MEDIUM, CVSS 5.3)*: Per-route rate limit applied to `/search/datasets/` + `/datasets/{id}/related/` to cap OpenAI embedding cost from a runaway client / bot. Default: configurable per-IP and per-token rate caps. Acceptance: e2e/sec-audit.spec.ts S11 test passes (429 returned after threshold).
@@ -78,7 +78,7 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 | SEC-S06        | HIGH     | 1061  | —        |
 | SEC-S07        | HIGH     | 1061  | —        |
 | SEC-GUARD-01   | Arch     | 1061  | —        |
-| SEC-S08        | MEDIUM   | 1062  | —        |
+| SEC-S08        | MEDIUM   | 1062  | 1062-05  |
 | SEC-S09        | MEDIUM   | 1062  | —        |
 | SEC-S10        | MEDIUM   | 1062  | —        |
 | SEC-S11        | MEDIUM   | 1062  | —        |

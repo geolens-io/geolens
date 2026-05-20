@@ -94,7 +94,7 @@
 | # | Phase | Reqs | Severity | Estimate |
 |---|-------|------|----------|----------|
 | 1061 | HIGH severity findings + AGENTS.md guardrail | 6/6 | Complete   | 2026-05-20 |
-| 1062 | MEDIUM severity findings | 4/6 | In Progress|  |
+| 1062 | MEDIUM severity findings | 5/6 | In Progress|  |
 | 1063 | LOW follow-up tickets | SEC-FU-01..FU-10 (10) | LOW | ~2-3 days |
 | 1064 | Close gate (regression suite + CHANGELOG + tag) | SEC-CTRL-01 (1) | Gate | ~0.5 day |
 
@@ -163,7 +163,7 @@ Plans: 6 plans
 - [x] 1062-02-PLAN.md — SEC-S10 + SEC-S11: per-route rate limits on /search/datasets/, /datasets/{id}/related/, /settings/basemaps/ + SEC-S10 docstring (wave 1, 4 tasks)
 - [x] 1062-03-PLAN.md — SEC-S12 + SEC-S13: simple-regconfig GIN index + /search/facets/?q max_length=1000 (wave 1, 3 tasks)
 - [x] 1062-04-PLAN.md — SEC-S09: ogr2ogr -where sqlglot AST validator (wave 1, 3 tasks)
-- [ ] 1062-05-PLAN.md — SEC-S08: per-token frame-ancestors CSP on /api/maps/shared/{token} + nginx /m/ XFO removal (wave 1, 3 tasks)
+- [x] 1062-05-PLAN.md — SEC-S08: per-token frame-ancestors CSP on /api/maps/shared/{token} + nginx /m/ XFO removal (wave 1, 3 tasks)
 - [ ] 1062-06-PLAN.md — SEC-S14: ESLint no-restricted-syntax guard + httpOnly migration plan documented (wave 1, 4 tasks)
 
 ### Phase 1063: LOW follow-up tickets
