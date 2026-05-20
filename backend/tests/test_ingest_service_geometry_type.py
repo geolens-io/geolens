@@ -213,3 +213,92 @@ class TestRunOgr2ogrServiceArgv:
         assert "-t_srs" not in argv
         assert "PROMOTE_TO_MULTI" not in argv
         assert "GEOMETRY" not in argv
+
+
+# ---------------------------------------------------------------------------
+# TestNormalizeGeometryType — Phase 1060 layer-2 fix
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeGeometryType:
+    """Regression pins for the abstract-OGC-type → concrete-subtype mapping.
+
+    Phase 1057's ``-nlt GEOMETRY`` fix relaxed the column-type constraint,
+    but PostGIS GeometryType() still returns the abstract subtype
+    (MULTISURFACE / MULTICURVE / COMPOUND…) when the WFS source stores
+    abstract GML 3 geometries (e.g. GeoServer's opengeo:countries).  Without
+    normalization the dataset.geometry_type insert fails the
+    chk_datasets_geometry_type CHECK constraint, which only allows the 7
+    concrete OGC simple-features types.
+
+    Phase 1060 close-gate fix: map abstract → closest concrete equivalent
+    before persisting Dataset.geometry_type.
+    """
+
+    def test_multisurface_normalized_to_multipolygon(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("MULTISURFACE") == "MULTIPOLYGON"
+        assert _normalize_geometry_type("MultiSurface") == "MULTIPOLYGON"
+        assert _normalize_geometry_type("multisurface") == "MULTIPOLYGON"
+
+    def test_multicurve_normalized_to_multilinestring(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("MULTICURVE") == "MULTILINESTRING"
+
+    def test_compound_types_normalized(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("COMPOUNDSURFACE") == "MULTIPOLYGON"
+        assert _normalize_geometry_type("COMPOUNDCURVE") == "MULTILINESTRING"
+
+    def test_surface_curve_normalized_to_singular_concrete(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("SURFACE") == "POLYGON"
+        assert _normalize_geometry_type("CURVE") == "LINESTRING"
+
+    def test_polyhedral_and_tin_normalized_to_multipolygon(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("POLYHEDRALSURFACE") == "MULTIPOLYGON"
+        assert _normalize_geometry_type("TIN") == "MULTIPOLYGON"
+        assert _normalize_geometry_type("TRIANGLE") == "POLYGON"
+
+    def test_concrete_types_unchanged(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        for concrete in (
+            "POINT",
+            "LINESTRING",
+            "POLYGON",
+            "MULTIPOINT",
+            "MULTILINESTRING",
+            "MULTIPOLYGON",
+            "GEOMETRYCOLLECTION",
+        ):
+            assert _normalize_geometry_type(concrete) == concrete
+
+    def test_lowercase_concrete_type_uppercased(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type("polygon") == "POLYGON"
+        assert _normalize_geometry_type("multipolygon") == "MULTIPOLYGON"
+
+    def test_none_and_empty_return_none(self) -> None:
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        assert _normalize_geometry_type(None) is None
+        assert _normalize_geometry_type("") is None
+
+    def test_unknown_type_passes_through_uppercased(self) -> None:
+        """Defensive: unknown GeometryType output is uppercased + returned as-is.
+
+        The DB check constraint will still reject it, but the user gets a
+        clearer downstream error rather than a silent rewrite to a wrong type.
+        """
+        from app.processing.ingest.metadata import _normalize_geometry_type
+
+        # Hypothetical novel type (e.g. a future PostGIS extension)
+        assert _normalize_geometry_type("custom_type") == "CUSTOM_TYPE"

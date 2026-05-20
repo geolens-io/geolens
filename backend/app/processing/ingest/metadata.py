@@ -162,16 +162,60 @@ async def get_table_srid(session: AsyncSession, table_name: str) -> int | None:
     return int(row) if row is not None else None
 
 
+# Phase 1057 WFS-04 layer-2 fix (Phase 1060 close-gate): map abstract OGC
+# GML 3 geometry types (returned by PostGIS GeometryType() when the source
+# WFS stores them, e.g. GeoServer's opengeo:countries) to concrete subtypes
+# that satisfy the chk_datasets_geometry_type CHECK constraint.
+#
+# Background: Phase 1057's ``-nlt GEOMETRY`` fix relaxed the column-type
+# constraint so ogr2ogr could load MultiSurface features without the
+# clip_to_mercator_bounds UPDATE failing. However GeometryType(geom) still
+# returns the actual stored subtype (MULTISURFACE / MULTICURVE / COMPOUND…),
+# and the downstream chk_datasets_geometry_type CHECK constraint only allows
+# the 7 concrete types (POINT, LINESTRING, POLYGON, MULTIPOINT,
+# MULTILINESTRING, MULTIPOLYGON, GEOMETRYCOLLECTION). Until the database
+# layer normalizes the stored geometries themselves, classify the dataset
+# by the closest concrete equivalent of the abstract type — this preserves
+# the user-facing semantics (a country IS a polygon collection) without
+# touching the binary geometry data.
+_ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE: dict[str, str] = {
+    "MULTISURFACE": "MULTIPOLYGON",
+    "MULTICURVE": "MULTILINESTRING",
+    "COMPOUNDCURVE": "MULTILINESTRING",
+    "COMPOUNDSURFACE": "MULTIPOLYGON",
+    "SURFACE": "POLYGON",
+    "CURVE": "LINESTRING",
+    "POLYHEDRALSURFACE": "MULTIPOLYGON",
+    "TIN": "MULTIPOLYGON",
+    "TRIANGLE": "POLYGON",
+}
+
+
+def _normalize_geometry_type(value: str | None) -> str | None:
+    """Normalize abstract OGC geometry type names to concrete subtypes.
+
+    Returns the uppercased input unchanged when it is already a concrete
+    type, ``None`` when the input is ``None`` or empty.
+    """
+    if not value:
+        return None
+    upper = value.upper()
+    return _ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE.get(upper, upper)
+
+
 async def get_geometry_type(session: AsyncSession, table_name: str) -> str | None:
     """Get the geometry type of the first feature in the table.
 
     Returns the type in uppercase for consistent casing across all sources.
+    Abstract GML 3 types (MultiSurface/MultiCurve/etc.) are normalized to the
+    closest concrete equivalent so the value satisfies
+    ``chk_datasets_geometry_type``.
     """
     result = await session.execute(
         text(f"SELECT GeometryType(geom) FROM {_qtable(table_name)} LIMIT 1")
     )
     value = result.scalar_one_or_none()
-    return value.upper() if value else None
+    return _normalize_geometry_type(value)
 
 
 async def get_feature_count(session: AsyncSession, table_name: str) -> int:
@@ -692,7 +736,8 @@ async def extract_metadata(session: AsyncSession, table_name: str) -> dict:
             ).bindparams(t=table_name)
         )
         row = result.one()
-        geometry_type = row.geometry_type.upper() if row.geometry_type else None
+        # Phase 1057 WFS-04 layer-2 fix: normalize abstract OGC GML 3 types.
+        geometry_type = _normalize_geometry_type(row.geometry_type)
         return {
             "srid": int(row.srid) if row.srid is not None else None,
             "geometry_type": geometry_type,
