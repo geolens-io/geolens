@@ -237,3 +237,39 @@ Plans:
 Plans:
 
 - [ ] TBD
+
+---
+
+### Phase 999.17: Security audit 2026-05-19 remediation (BACKLOG — P0 HIGH)
+
+**Goal:** Close 7 HIGH findings from `/sec-audit` run 2026-05-19. Merge gate currently **BLOCK**. Five of the seven cluster on the same architectural pattern — new Record-derived endpoints reaching for `require_permission()` (role-level) and skipping `check_dataset_access()` / `apply_visibility_filter()` (resource-level). One SSRF redirect-bypass widens the blast radius beyond authenticated editors. Two configuration HIGHs around demo/MinIO credentials.
+
+**Source:** `docs-internal/audits/sec-audit-20260519.md` (full 41KB report), `e2e/sec-audit.spec.ts` (18 regression tests already drafted), `docs-internal/audits/security-lessons.md` (recurring-patterns ledger + AGENTS.md rule proposals).
+**Estimated effort:** 1 week (most fixes <50 LOC each; regression tests already drafted).
+**Tier:** Community + Enterprise (no tier gating — all fixes apply to OSS).
+
+**HIGH findings to close:**
+
+| ID  | Label                | Location                                                                       | CVSS | Fix shape |
+|-----|----------------------|--------------------------------------------------------------------------------|------|-----------|
+| S01 | [AUTH-MISSING-STAC]  | `backend/app/standards/stac/router.py:54-822`                                  | 7.5  | Thread `user`/`user_roles` + `apply_visibility_filter` like OGC peer |
+| S02 | [IDOR-DATASET-META]  | `backend/app/modules/catalog/datasets/api/router.py:263-426`                   | 8.1  | Add `check_dataset_access` after `get_dataset` in 3 handlers |
+| S03 | [IDOR-COLUMN-DDL]    | `backend/app/modules/catalog/layers/router.py:94-301`                          | 8.1  | Same as S02 across 4 column-DDL handlers |
+| S04 | [SSRF-REDIRECT]      | `backend/app/modules/catalog/sources/router.py:120-124` + adapters             | 8.5  | `make_safe_client()` factory with per-hop `_revalidate_redirect` hook; `GDAL_HTTP_FOLLOWLOCATION=NO` for ogr2ogr |
+| S05 | [VEC-IDOR-RELATED]   | `backend/app/modules/catalog/datasets/api/router_data.py:56-65`                | 7.5  | Add `check_dataset_access_or_anonymous` before `get_related_datasets` |
+| S06 | [DEMO-CREDS-COMMIT]  | `.env.demo:21-27`                                                              | 7.5  | Convert to `.env.demo.example` + `scripts/init-demo-env.sh` per-deploy generator; extend `validate_demo_credentials_guard` to refuse literal committed values |
+| S07 | [MINIO-DEFAULT-CRED] | `docker-compose.yml:507-508,536`                                               | 7.0  | Drop `:-minioadmin` defaults; `${MINIO_ROOT_USER:?required}` fail-closed |
+
+**Headline pattern (worth surfacing in AGENTS.md):** visibility filter coverage is the #1 regression surface. Any new handler that fetches a `Record`/`Dataset`/`Map`/`RecordEmbedding` by ID must either call `check_dataset_access_or_anonymous` (read) or `check_dataset_access` + ownership check (write/destructive), OR apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying query. Pre-commit grep guardrail proposed in `security-lessons.md`.
+
+**MEDIUM follow-ups (9, can ship together or split):** ogr2ogr `-where` sqlglot validator (S09); embed-token framing CSP gap (S08); basemap `api_key` public-exposure docstring + rate limit (S10); per-route rate limit on `/search/datasets/` + `/datasets/{id}/related/` to cap OpenAI embed cost (S11); `simple`-regconfig GIN index for non-English text search (S12); `max_length=1000` on `/search/facets/?q=` (S13); JWT-in-localStorage ESLint guard + medium-term httpOnly migration plan (S14); JWT `jti`/`token_version` for revocation (S15); password complexity validator (S16).
+
+**LOW follow-ups (~14):** captured in §"Not blocking — follow-up tickets" of the audit report (SEC-FOLLOWUP-01..10) and inline notes from subagents A, B, C, F, I, J, K.
+
+**Clean baseline preserved (do not regress):** 0 dependency CVEs across 148 Python + npm 0/0; all ~40 raw-SQL sites bound-parameter clean; all 11 subprocess sites argv-form (no `shell=True`); OAuth/PKCE, share/embed/HMAC tile auth all clean; pgvector embedding never on any response schema; dynamic CORS rejects wildcard; container hardening best-in-class (`cap_drop: ALL`, `no-new-privileges`, `read_only`, root-then-drop entrypoints). See audit §"Clean — checked and passed" for the full inventory.
+
+**Regression tests:** `e2e/sec-audit.spec.ts` already drafted with 18 tests pinning S01–S13, env-var-gated where they need fixtures (`SEC_AUDIT_PRIVATE_RECORD_ID`, `SEC_AUDIT_PRIVATE_DATASET_ID`, `SEC_AUDIT_EDITOR_B_TOKEN`, `SEC_AUDIT_SSRF_TEST_REDIRECTOR`).
+
+Plans:
+
+- [ ] TBD (promote with /gsd-review-backlog when ready)
