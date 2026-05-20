@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: completed
-last_updated: "2026-05-20T22:15:00Z"
-last_activity: 2026-05-20 -- Phase 1063 Plan 01 complete (SEC-FU-01 + SEC-FU-08)
+last_updated: "2026-05-20T22:08:42.540Z"
+last_activity: 2026-05-20 -- Phase 1063 Plan 02 complete (SEC-FU-02 + SEC-FU-09 + SEC-FU-10)
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 16
-  completed_plans: 13
+  completed_plans: 15
   percent: 22
 ---
 
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1063 — In Progress
-Plan: 01 (complete)
-Status: Phase 1063 Plan 01 complete — SEC-FU-01 + SEC-FU-08 closed
-Last activity: 2026-05-20 -- Phase 1063 Plan 01 complete (SEC-FU-01 + SEC-FU-08)
+Plan: 02 (complete)
+Status: Phase 1063 Plan 02 complete — SEC-FU-02 + SEC-FU-09 + SEC-FU-10 closed
+Last activity: 2026-05-20 -- Phase 1063 Plan 02 complete (SEC-FU-02 + SEC-FU-09 + SEC-FU-10)
 
 ## Project Reference
 
@@ -117,6 +117,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1062 Plan 05:** SEC-S08 Path A + nginx tweak — get_shared_map() returns 3-tuple (map_data, layers, allowed_origins); router emits frame-ancestors CSP from EmbedToken.allowed_origins with CRLF-injection defense; SecurityHeadersMiddleware uses route_set_csp gate to skip XFO=DENY when route owns CSP; nginx /m/* location re-declares nosniff+Referrer-Policy while omitting XFO (server-scope inheritance disabled by inner add_header); 6 pytest tests pass; SEC-FU full per-token HTML CSP deferred to Phase 1063.
 - **Phase 1062 Plan 06:** SEC-S14 ESLint `no-restricted-syntax` rule banning `localStorage.setItem('<token|jwt|auth>', ...)` in frontend TS/TSX; per-file exemption for auth-store.test.ts; regression file (4 violations + --no-inline-config check); safe-pattern file (9 patterns proving no over-fire); httpOnly-cookie + CSRF migration plan documented in security-lessons.md with trigger conditions, effort estimate, and tradeoffs.
 - **Phase 1063 Plan 01:** SEC-FU-01 stac_visibility_force_5xx patches both authorization module AND stac.router namespace bindings; client_no_raise uses raise_app_exceptions=False. SEC-FU-08 audit_datasets_router uses /audit prefix (not /admin) so non-admin owners can reach the DDL feed; check_dataset_access raises 404 not 403 — tests accept both.
+- **Phase 1063 Plan 02:** SEC-FU-02 config.py already had DEMO_JWT_SECRET guard (Phase 1061 Plan 05); named test test_sec_fu_02_jwt_demo_literal_refused provides explicit audit-traceable regression pin. SEC-FU-09 server_tokens off placed in nginx server {} block per audit wording; suppresses version in Server: header and error pages. SEC-FU-10 documentation-only; alembic migration trade-off documented in .env.example alongside least-privilege SQL recipe for geolens_app role.
 
 ## Operator Next Steps
 
