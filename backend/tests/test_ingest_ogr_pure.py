@@ -13,6 +13,7 @@ import pytest
 from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.ogr import (
     _extract_common_layer_metadata,
+    _sanitize_authorization_token,
     _strip_ogr_driver_list,
     extract_srid_from_json,
     _parse_text_ogrinfo,
@@ -937,3 +938,53 @@ class TestStripOgrDriverList:
 
         assert hasattr(settings, "ingest_http_timeout_seconds")
         assert settings.ingest_http_timeout_seconds == 300
+
+
+class TestSecFu04SanitizeAuthorizationToken:
+    """SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03): base64url charset filter
+    for the Authorization bearer token before GDAL_HTTP_HEADERS env-var composition.
+
+    A malicious token with CR/LF or arbitrary unicode could smuggle extra HTTP headers
+    into libcurl via the env-var pipeline. JWT-shaped tokens use the base64url charset
+    (RFC 4648 §5) plus dot separators; restricting to that charset is a tight
+    defense-in-depth guard with no legitimate-traffic impact.
+    """
+
+    def test_sec_fu_04_happy_path_jwt_token_passes_through_unchanged(self):
+        """A JWT-shaped token (base64url segments + dot separators) passes through unchanged."""
+        token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_value-"
+        assert _sanitize_authorization_token(token) == token
+
+    def test_sec_fu_04_crlf_injection_raises_value_error(self):
+        """Token with CR/LF raises ValueError naming SEC-FU-04 and the offending character."""
+        token = "valid.jwt.sig\r\nX-Smuggled-Header: evil"
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token(token)
+        msg = str(exc_info.value)
+        assert "SEC-FU-04" in msg
+        # The first offending char is \r — confirm it's named in the message
+        assert repr("\r") in msg or "\\r" in msg
+
+    def test_sec_fu_04_whitespace_raises_value_error(self):
+        """Token with literal space characters raises ValueError."""
+        token = "valid jwt sig"
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token(token)
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_unicode_raises_value_error(self):
+        """Token with non-ASCII unicode characters raises ValueError."""
+        token = "valid.jwt.signaturé"  # U+00E9
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token(token)
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_empty_string_raises_value_error(self):
+        """Empty string raises ValueError (operator misconfiguration guard)."""
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token("")
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_none_returns_none(self):
+        """None passes through unchanged (the no-token path from the calling code)."""
+        assert _sanitize_authorization_token(None) is None
