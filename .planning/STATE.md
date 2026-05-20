@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: completed
-last_updated: "2026-05-20T21:11:47.772Z"
-last_activity: 2026-05-20 -- Phase 1062 Plan 06 complete (SEC-S14 ESLint localStorage token guard)
+last_updated: "2026-05-20T22:15:00Z"
+last_activity: 2026-05-20 -- Phase 1063 Plan 01 complete (SEC-FU-01 + SEC-FU-08)
 progress:
   total_phases: 9
   completed_phases: 2
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 16
+  completed_plans: 13
   percent: 22
 ---
 
@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1062 — IN PROGRESS
-Plan: 06 (complete)
-Status: Phase 1062 Plan 06 complete — SEC-S14 (ESLint no-restricted-syntax rule banning localStorage token writes + httpOnly migration plan)
-Last activity: 2026-05-20 -- Phase 1062 Plan 06 complete (SEC-S14 ESLint localStorage token guard)
+Phase: 1063 — In Progress
+Plan: 01 (complete)
+Status: Phase 1063 Plan 01 complete — SEC-FU-01 + SEC-FU-08 closed
+Last activity: 2026-05-20 -- Phase 1063 Plan 01 complete (SEC-FU-01 + SEC-FU-08)
 
 ## Project Reference
 
@@ -116,6 +116,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1062 Plan 04:** SEC-S09 sqlglot AST allowlist for WHERE-clause fragment validation — wraps fragment as SELECT 1 FROM _t WHERE <input>, deny-by-default allowlist (Column/Literal/comparison/logical/In/Is/Like/Between/Paren/Neg), catches TokenError alongside ParseError; validate_where_ast() called BEFORE identifier check in validate_where_clause() (defense-in-depth); 41 pytest tests pass.
 - **Phase 1062 Plan 05:** SEC-S08 Path A + nginx tweak — get_shared_map() returns 3-tuple (map_data, layers, allowed_origins); router emits frame-ancestors CSP from EmbedToken.allowed_origins with CRLF-injection defense; SecurityHeadersMiddleware uses route_set_csp gate to skip XFO=DENY when route owns CSP; nginx /m/* location re-declares nosniff+Referrer-Policy while omitting XFO (server-scope inheritance disabled by inner add_header); 6 pytest tests pass; SEC-FU full per-token HTML CSP deferred to Phase 1063.
 - **Phase 1062 Plan 06:** SEC-S14 ESLint `no-restricted-syntax` rule banning `localStorage.setItem('<token|jwt|auth>', ...)` in frontend TS/TSX; per-file exemption for auth-store.test.ts; regression file (4 violations + --no-inline-config check); safe-pattern file (9 patterns proving no over-fire); httpOnly-cookie + CSRF migration plan documented in security-lessons.md with trigger conditions, effort estimate, and tradeoffs.
+- **Phase 1063 Plan 01:** SEC-FU-01 stac_visibility_force_5xx patches both authorization module AND stac.router namespace bindings; client_no_raise uses raise_app_exceptions=False. SEC-FU-08 audit_datasets_router uses /audit prefix (not /admin) so non-admin owners can reach the DDL feed; check_dataset_access raises 404 not 403 — tests accept both.
 
 ## Operator Next Steps
 

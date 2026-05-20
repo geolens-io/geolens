@@ -27,20 +27,20 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 - [x] **SEC-S11** *(MEDIUM, CVSS 5.3)*: Per-route rate limit applied to `/search/datasets/` + `/datasets/{id}/related/` to cap OpenAI embedding cost from a runaway client / bot. Default: configurable per-IP and per-token rate caps. Acceptance: e2e/sec-audit.spec.ts S11 test passes (429 returned after threshold).
 - [ ] **SEC-S12** *(MEDIUM, CVSS 5.0)*: `simple`-regconfig GIN index added for non-English full-text search input that breaks the English-stem tokenization. Migration adds index; query path picks the right regconfig based on locale signal. Acceptance: French/Spanish/German FTS query against a French/Spanish/German dataset returns matches that previously returned 0.
 - [ ] **SEC-S13** *(MEDIUM, CVSS 4.3)*: `max_length=1000` added to `/search/facets/?q=` query param. Acceptance: e2e/sec-audit.spec.ts S13 test passes (1001-char payload rejected with 422).
-- [ ] **SEC-S14** *(MEDIUM, CVSS 5.4)*: ESLint guard added preventing `localStorage.setItem('*token*', ...)` patterns. Medium-term httpOnly-cookie migration plan documented in `docs-internal/audits/security-lessons.md` (or new ADR). Acceptance: ESLint rule fails on intentional regression test; migration plan documented.
+- [x] **SEC-S14** *(MEDIUM, CVSS 5.4)*: ESLint guard added preventing `localStorage.setItem('*token*', ...)` patterns. Medium-term httpOnly-cookie migration plan documented in `docs-internal/audits/security-lessons.md` (or new ADR). Acceptance: ESLint rule fails on intentional regression test; migration plan documented.
 - [x] **SEC-S15** *(MEDIUM, CVSS 4.3)*: JWT tokens include `jti` (random unique ID) + `token_version` claim. Revocation surface: bump `token_version` on the User row → all prior JWTs become invalid on next request. Acceptance: revocation flow integration test passes (token issued, version bumped, subsequent request 401s).
 - [x] **SEC-S16** *(MEDIUM, CVSS 4.3)*: Password complexity validator added at registration + change-password endpoints. Minimum: 12 chars, mix of letter classes (configurable via `.env`). Acceptance: weak password rejected with 422; configuration override tested.
 
 ### LOW follow-up tickets (Phase 1063)
 
-- [ ] **SEC-FU-01**: HTTP 5xx-mutation test fixtures added for STAC visibility regression — pinned by S01 spec. Acceptance: fixture supports paths that return 5xx from underlying query so e2e/sec-audit.spec.ts can assert no information disclosure on error.
+- [x] **SEC-FU-01**: HTTP 5xx-mutation test fixtures added for STAC visibility regression — pinned by S01 spec. Acceptance: fixture supports paths that return 5xx from underlying query so e2e/sec-audit.spec.ts can assert no information disclosure on error.
 - [ ] **SEC-FU-02**: `validate_demo_credentials_guard` extended to refuse `JWT_SECRET_KEY=demo-only-do-not-use-in-production-change-me` literal at startup (defense-in-depth on top of SEC-S06).
 - [ ] **SEC-FU-03**: ESLint rule `react/no-danger` enabled in `frontend/eslint.config.js` to lock the popup-template ban that v13.12 introduced.
 - [ ] **SEC-FU-04**: GDAL `Authorization` header pinned to base64url charset to close CRLF-smuggling defense-in-depth gap (Subagent A notes).
 - [ ] **SEC-FU-05**: `max_length` added to `intersects` query parameter on STAC search router (Subagent I M-1).
 - [ ] **SEC-FU-06**: `math.isfinite()` guard added in `parse_bbox` to reject NaN/Inf coordinates (Subagent I M-2).
 - [ ] **SEC-FU-07**: ILIKE escape `.replace("%", r"\%").replace("_", r"\_")` added in `maps/service_crud.py:140-147` and `service_collections.py:29-35` (Subagent J LOW-3, LOW-4).
-- [ ] **SEC-FU-08**: `pg_audit` or per-table change log added for column DDL so dataset owners are notified when an editor mutates their schema (post-fix complement to SEC-S03).
+- [x] **SEC-FU-08**: `pg_audit` or per-table change log added for column DDL so dataset owners are notified when an editor mutates their schema (post-fix complement to SEC-S03).
 - [ ] **SEC-FU-09**: `nginx server_tokens off;` moved into the prod server block (currently default config).
 - [ ] **SEC-FU-10**: Role-scoping recommendations documented for cloud Postgres in `.env.example` `DATABASE_URL_OVERRIDE` section (least-privilege guidance for application DB user).
 
