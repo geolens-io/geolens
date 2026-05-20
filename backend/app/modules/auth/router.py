@@ -97,7 +97,7 @@ async def login(
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
 
     service = AuthService(db)
-    token = service.create_access_token(identity, expire_minutes=expire_minutes)
+    token = await service.create_access_token(identity, expire_minutes=expire_minutes)
     refresh_token = service.create_refresh_token(user.id, expire_days=expire_days)
     await db.commit()
     return TokenResponse(
@@ -204,9 +204,15 @@ async def logout(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Revoke all refresh tokens for the current user."""
+    """Revoke all refresh tokens and bump token_version for the current user.
+
+    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    access JWT used for this logout call (and any other outstanding access JWTs)
+    are rejected on the next authenticated request — closing the
+    "logout doesn't invalidate the access JWT" gap.
+    """
     service = AuthService(db)
-    await service.revoke_all_refresh_tokens(current_user.id)
+    await service.revoke_all_tokens(current_user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -417,6 +423,13 @@ async def change_password(
         )
 
     current_user.password_hash = hash_password(body.new_password)
+
+    # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access JWTs
+    # for this user are invalidated on their next request. Password rotation
+    # should force re-auth on every other device.
+    service = AuthService(db)
+    await service.revoke_all_tokens(current_user.id)
+
     ip = get_client_ip(request)
     await audit_emit(
         db,
@@ -428,5 +441,7 @@ async def change_password(
             ip_address=ip,
         ),
     )
+    # Note: revoke_all_tokens already commits; this commit handles the
+    # password_hash mutation and the audit_emit together.
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

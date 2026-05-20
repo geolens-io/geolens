@@ -113,6 +113,13 @@ async def get_optional_user(
     if user is None or not user.is_active or user.status != "active":
         return None
 
+    # SEC-S15 (Phase 1062-01): reject stale access JWTs.
+    # A missing token_version claim (legacy / forged tokens) is treated as
+    # version 0, which is always less than the minimum stored version of 1.
+    jwt_token_version: int = payload.get("token_version", 0)
+    if jwt_token_version < user.token_version:
+        return None
+
     return user
 
 
@@ -187,6 +194,13 @@ async def get_current_user(
     user = result.scalar_one_or_none()
 
     if user is None or not user.is_active or user.status != "active":
+        raise credentials_exception
+
+    # SEC-S15 (Phase 1062-01): reject stale access JWTs.
+    # A missing token_version claim (legacy / forged tokens) is treated as
+    # version 0, which is always less than the minimum stored version of 1.
+    jwt_token_version: int = payload.get("token_version", 0)
+    if jwt_token_version < user.token_version:
         raise credentials_exception
 
     return user

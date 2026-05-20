@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
@@ -25,12 +25,19 @@ class AuthService:
     # JWT
     # ------------------------------------------------------------------
 
-    def create_access_token(
+    async def create_access_token(
         self,
         identity: AuthenticatedIdentity,
         expire_minutes: int | None = None,
     ) -> str:
         """Create a signed JWT for the given identity.
+
+        SEC-S15 (Phase 1062-01): the payload now includes:
+          - ``jti``: uuid4 hex — a unique token identifier (128 random bits).
+          - ``token_version``: current User.token_version value. Any JWT whose
+            token_version is less than the user's current column value is
+            rejected by get_current_user / get_optional_user, making logout
+            and password-change revocations take effect on the next request.
 
         Args:
             identity: The authenticated user identity.
@@ -39,9 +46,21 @@ class AuthService:
         """
         minutes = expire_minutes or settings.access_token_expire_minutes
         now = datetime.now(UTC)
+
+        # Load token_version for this user so we can embed it in the JWT.
+        # Using a column-only select avoids a redundant full-row read when the
+        # User row was already loaded by the caller (e.g. the login handler),
+        # but it is a safe extra query — correctness over micro-optimisation.
+        result = await self.db.execute(
+            select(User.token_version).where(User.id == identity.user_id)
+        )
+        token_version: int = result.scalar_one_or_none() or 1
+
         payload = {
             "sub": str(identity.user_id),
             "username": identity.username,
+            "jti": uuid.uuid4().hex,
+            "token_version": token_version,
             "exp": now + timedelta(minutes=minutes),
             "iat": now,
         }
@@ -153,7 +172,7 @@ class AuthService:
 
         # Issue new pair
         identity = AuthenticatedIdentity(user_id=user.id, username=user.username)
-        new_access = self.create_access_token(identity, expire_minutes=expire_minutes)
+        new_access = await self.create_access_token(identity, expire_minutes=expire_minutes)
         new_refresh = self.create_refresh_token(user.id, expire_days=expire_days)
 
         # Opportunistic cleanup: delete expired tokens older than 1 day
@@ -168,14 +187,18 @@ class AuthService:
         await self.db.commit()
         return new_access, new_refresh
 
-    async def revoke_all_refresh_tokens(self, user_id: uuid.UUID) -> int:
-        """Revoke all active refresh tokens for a user (logout).
+    async def revoke_all_tokens(self, user_id: uuid.UUID) -> int:
+        """Revoke all active refresh tokens AND bump User.token_version (logout).
 
-        Returns the number of tokens revoked.
+        SEC-S15 (Phase 1062-01): incrementing token_version invalidates every
+        access JWT issued before the bump on the next authenticated request.
+        Combined with refresh-token revocation this closes the
+        "logout doesn't invalidate access JWT" gap.
+
+        Returns the new token_version value.
         """
-        from sqlalchemy import update
-
-        result = await self.db.execute(
+        # 1. Revoke all active refresh tokens for the user.
+        await self.db.execute(
             update(RefreshToken)
             .where(
                 RefreshToken.user_id == user_id,
@@ -183,8 +206,33 @@ class AuthService:
             )
             .values(revoked=True)
         )
+
+        # 2. Atomically increment token_version so prior access JWTs are rejected.
+        await self.db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(token_version=User.token_version + 1)
+        )
         await self.db.commit()
-        return result.rowcount
+
+        # 3. Re-select the new version so callers can log or return it.
+        result = await self.db.execute(
+            select(User.token_version).where(User.id == user_id)
+        )
+        return result.scalar_one()
+
+    async def revoke_all_refresh_tokens(self, user_id: uuid.UUID) -> int:
+        """Backward-compatible alias for revoke_all_tokens.
+
+        Delegates to revoke_all_tokens (which also bumps token_version) so
+        any direct callers outside the auth router get the same revocation
+        semantics without a breaking API change.
+
+        Returns the new token_version value (previously returned rowcount —
+        callers that depended on the exact return value should switch to
+        revoke_all_tokens directly).
+        """
+        return await self.revoke_all_tokens(user_id)
 
     # ------------------------------------------------------------------
     # Registration

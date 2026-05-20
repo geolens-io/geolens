@@ -162,7 +162,7 @@ async def oauth_callback(
             user_id=user.id, username=user.username, email=user.email
         )
         service = AuthService(db)
-        access_token = service.create_access_token(
+        access_token = await service.create_access_token(
             identity, expire_minutes=expire_minutes
         )
         refresh_token = service.create_refresh_token(user.id, expire_days=expire_days)
