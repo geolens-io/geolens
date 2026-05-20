@@ -11,6 +11,11 @@ The existing CHECK constraint only allows:
 This migration extends it to include 'fanned_out'.
 
 Phase 1058-04: GPKG-03 fan-out endpoint.
+
+Phase 1060 close-gate note: renumbered from 0017 → 0018 to resolve a
+branching collision with 0017_map_basemap_config (both originally claimed
+revision 0017 with the same down_revision). The original 0017_map_basemap_config
+was the migration actually applied to the dev DB.
 """
 
 from typing import Union
@@ -18,8 +23,8 @@ from typing import Union
 from alembic import op
 
 
-revision: str = "0017_ingest_job_fanned_out_status"
-down_revision: Union[str, None] = "0016_drop_redundant_data_gid_indexes"
+revision: str = "0018_ingest_job_fanned_out_status"
+down_revision: Union[str, None] = "0017_map_basemap_config"
 branch_labels: Union[str, tuple[str, ...], None] = None
 depends_on: Union[str, tuple[str, ...], None] = None
 

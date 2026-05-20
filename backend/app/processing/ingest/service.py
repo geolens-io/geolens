@@ -566,6 +566,16 @@ async def create_fan_out_jobs(
         )
         session.add(new_job)
         await session.flush()  # assigns new_job.id
+        # Phase 1060 close-gate fix: COMMIT before deferring the Procrastinate
+        # task. defer_async uses a separate DB connection, so the worker can
+        # pick up the task before our session commits — when it tries to load
+        # the IngestJob row, it logs "Ingest job not found, skipping" and the
+        # job stays in 'pending' forever. Committing here makes the new_job
+        # row visible to the worker before the task is enqueued.
+        # Orphan risk on defer failure is handled by defer_with_orphan_guard
+        # below, which flips the committed row to status='failed' via the
+        # rollback closure.
+        await session.commit()
 
         # 3. Defer ingest_file for the cloned job.
         from app.processing.ingest.tasks import ingest_file

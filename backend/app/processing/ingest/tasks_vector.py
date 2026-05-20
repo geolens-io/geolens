@@ -325,9 +325,35 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # Clean up local file on success always; on failure only if it was
         # a resolve_file_path download (source of truth is S3, not the
         # local copy). Local-only uploads are kept for retry.
-        if final_status == "complete":
+        #
+        # Phase 1060 close-gate fix (GPKG-03 fan-out): multiple fan-out
+        # sibling jobs share the same staging file. When one sibling
+        # completes and unlinks the file, the next sibling fails with
+        # FileNotFoundError. Skip the local unlink when this job is part
+        # of a fan-out (identified by fan_out_parent_id in user_metadata).
+        # Orphan-file cleanup for fan-out staging files is a v1014 followup
+        # (tracked as TECH-DEBT-GPKG-03-ORPHAN-CLEANUP) — for now the
+        # staging dir retention policy handles eventual cleanup.
+        is_fan_out_child = False
+        try:
+            async with async_session() as _check_session:
+                _check_result = await _check_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_uuid)
+                )
+                _check_job = _check_result.scalar_one_or_none()
+                if _check_job is not None and (_check_job.user_metadata or {}).get(
+                    "fan_out_parent_id"
+                ):
+                    is_fan_out_child = True
+        except Exception:  # broad: cleanup decision is best-effort, never block completion on this query
+            is_fan_out_child = False
+
+        if final_status == "complete" and not is_fan_out_child:
             Path(file_path).unlink(missing_ok=True)
-        elif file_path != original_file_path:
+        elif (
+            file_path != original_file_path
+            and not is_fan_out_child
+        ):
             # Downloaded from S3 for processing -- safe to clean up
             Path(file_path).unlink(missing_ok=True)
 
