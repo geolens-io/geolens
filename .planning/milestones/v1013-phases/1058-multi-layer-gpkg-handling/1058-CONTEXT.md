@@ -1,0 +1,154 @@
+# Phase 1058: Multi-Layer GPKG Handling - Context
+
+**Gathered:** 2026-05-19
+**Status:** Ready for planning
+**Mode:** Auto-generated under workflow.skip_discuss=true; locked decisions seeded from REQUIREMENTS.md + scout pass
+
+<domain>
+## Phase Boundary
+
+Multi-layer GeoPackage (`.gpkg`) handling across the Reupload File path and the Bulk Review import flow. A user reuploading a multi-layer GPKG dataset is shown a layer-select step and a schema-diff preview that mirrors the Service URL flow; a user importing a multi-layer GPKG through Bulk Review can ingest every layer as a separate dataset in one upload session.
+
+**In scope:** Frontend `ReuploadDialog.tsx` state-machine extension (layer-select step); Reupload preview pane (layer-name line + column-level schema diff + schema-change warning); backend `router_reupload.py` `layer_name` plumbing through preview + commit; `processing/ingest/ogr.py` `run_ogrinfo_preview` already accepts `layer_name` (existing) — verify it's not falling through to `layers[0]` at line 224 once the frontend passes it; `BulkReviewList.tsx` multi-commit / "Ingest all layers" affordance.
+
+**Not in scope (deferred to other phases / out of milestone):** non-GPKG multi-layer containers (FileGDB, KML with multiple folders) — REQUIREMENTS.md Out of Scope; Service URL Reupload flow — already correct, used as design reference only; ingest-time schema migration / column-add-or-drop semantics — schema diff is informational, not transformative.
+
+</domain>
+
+<decisions>
+## Implementation Decisions
+
+### GPKG-01 — Reupload File Path Layer-Select (P0, silent-data-swap fix)
+
+- **D-01:** **Frontend `ReuploadDialog.tsx` adds a `layer-select` step on the File path** that mirrors the existing Service URL flow at `ReuploadDialog.tsx:581`. Triggered when the uploaded file's ogrinfo preview returns `>1 layers`. The chosen layer flows through preview + commit; single-layer files skip the step (no UX regression).
+- **D-02:** **Default selection = `dataset.source_layer`** (saved at original ingest, currently exposed on the dataset detail response). If `source_layer` is absent from the new file's `all_layers` list (i.e., the file no longer contains the originally-ingested layer), surface a **warning** ("Original layer 'X' not found in new file; pick a replacement") and require explicit user selection — DO NOT silently fall through to `layers[0]`.
+- **D-03:** **Backend `router_reupload.py` accepts `layer_name` in the preview + commit requests.** Wire it through to `run_ogrinfo_preview(file_path, layer_name=...)` (the helper at `backend/app/processing/ingest/ogr.py:203` already accepts `layer_name`; the issue is callers not passing it). Persist the chosen layer name to `IngestJob.user_metadata.layer_name` so the commit task uses the same selection.
+- **D-04:** **Backend response includes the full `all_layers` list** (already returned today at `ogr.py:259`, just not exposed in `ReuploadPreviewResponse`). Frontend needs this to render the layer-select step before the preview pane.
+
+### GPKG-02 — Schema-Diff Preview Pane (P1)
+
+- **D-05:** **Preview pane surfaces three new elements** (mirroring the Service URL design reference):
+  1. `Layer: {name}` line at top (always shown when source has >1 layers; can be hidden when single-layer)
+  2. Column-level diff: `Columns Added: name (type), ...` and `Columns Removed: name (type), ...` (rendered when columns differ)
+  3. Schema-change warning banner ("Schema differs from previous version: N columns added, M removed") — non-blocking, advisory
+- **D-06:** **Reuse the `compute_schema_diff` helper** at `router_reupload.py:331` — it already returns `columns_added`, `columns_removed`, `feature_count_delta`. The fix is frontend rendering of the existing payload, not new backend computation.
+- **D-07:** **No new wire field for "schema-change warning trigger" — derive in the frontend** from `schema_diff.columns_added.length > 0 || schema_diff.columns_removed.length > 0`. Keep the backend API surface minimal.
+
+### GPKG-03 — Bulk Review Multi-Layer Fan-Out (P2)
+
+- **D-08:** **"Ingest all layers" bulk path** in Bulk Review — a single button that fans out N datasets per multi-layer file. Implementation: extend `BulkReviewList.tsx:150` `onCommitSingle` callback to support a `commitAll` mode that maps over `entry.previewData.layers[]` and fires one commit per layer using `Promise.allSettled` for partial-failure resilience.
+- **D-09:** **Hold off on the "+ add another layer from this file" per-layer-button alternative** (the REQUIREMENTS.md sibling candidate). The bulk button covers the primary use case ("I want every layer ingested"); per-layer cherry-picking is a marginal-value UI affordance and can ship in a future polish if users request it. **Defer to backlog.**
+- **D-10:** **Per-commit naming convention**: when fanning out, dataset titles derived from `${file_basename}: ${layer_name}` (or `${layer_name}` alone if filename collision). Slugs auto-generated by existing `generate_table_name` collision logic at `backend/app/processing/ingest/tasks_vector.py:144` — no new code needed.
+- **D-11:** **Partial-failure semantics**: `Promise.allSettled` returns per-layer status. Display a results modal on completion: `N succeeded, M failed` with retry affordance for failed layers. No rollback of successful ingests; user can delete individually if needed.
+
+### Scope Guardrails (DO NOT widen)
+
+- **D-12:** No support for non-GPKG multi-layer containers (FileGDB `.gdb`, KML multi-folder). REQUIREMENTS.md "Out of Scope".
+- **D-13:** No schema transformation on column add/drop. Preview is informational. Backend ingest still does a fresh `-overwrite` with the new schema (existing behavior).
+- **D-14:** No changes to the Service URL Reupload flow — it's the design reference, already correct.
+
+### Anticipated Plan Split (Planner Refines)
+
+- **D-15:** Three plans expected:
+  1. **Plan 1058-A — GPKG-01 (P0):** Backend `router_reupload.py` `layer_name` plumbing + `ReuploadPreviewResponse.all_layers` field + frontend `ReuploadDialog.tsx` layer-select step + default-selection warning UX. Largest plan (state machine + API contract changes).
+  2. **Plan 1058-B — GPKG-02 (P1):** Frontend preview pane rendering — layer-name line + column-diff list + schema-change warning. Smallest plan (pure UI; backend already returns the data).
+  3. **Plan 1058-C — GPKG-03 (P2):** Frontend `BulkReviewList.tsx` "Ingest all layers" bulk path with `Promise.allSettled`. Medium plan (multi-commit orchestration UI + results modal).
+- Plans A and B both touch `ReuploadDialog.tsx`. Either run serial (A then B) or merge into a single combined plan. C is independent of A and B — it touches `BulkReviewList.tsx` only.
+
+### Claude's Discretion
+
+- Exact placement of the layer-select step in `ReuploadDialog.tsx` state machine (between `uploading` and `previewing`? a separate `selecting-layer` state?). Planner decides based on existing state-machine shape.
+- Whether to add a `data-testid` hook on the layer-select step for Playwright MCP e2e — recommended, but planner decides.
+- Schema-diff rendering style: chips vs. lists vs. tables. Mirror Service URL preview if possible (`ReuploadDialog.tsx` Service URL path already renders something similar — copy its visual treatment).
+
+</decisions>
+
+<canonical_refs>
+## Canonical References
+
+**Downstream agents MUST read these before planning or implementing.**
+
+### Source of Truth
+
+- `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md` §"New findings" Finding 1 (GPKG-01), Finding 2 (GPKG-02), Finding 3 (GPKG-03). Repro fixtures committed under `.playwright-mcp/fixtures/` per smoke session.
+- `.planning/REQUIREMENTS.md` — GPKG-01/02/03 acceptance details + Out of Scope table for non-GPKG containers.
+- `.planning/ROADMAP.md` Phase 1058 — goal, success criteria (3 items), surface map (`ReuploadDialog.tsx:581`, `router_reupload.py:329`, `ogr.py:209`, `BulkReviewList.tsx:343-358`, `onCommitSingle` at line 150).
+
+### Established Patterns
+
+- `feedback_review_findings_inline.md` — inline-fix posture; no v1013.1.
+- Phase 1057 just shipped the Service URL reliability fixes (CLASS-07 added `LayerInfo.kind` to probe response). Phase 1058 layer-select fixture data should include `kind` field if it reuses the same TypeScript type.
+
+### Backend Code (touched)
+
+- `backend/app/modules/catalog/datasets/api/router_reupload.py:181-360` — Reupload endpoints (`/preview` File + Service URL, `/commit` File + Service URL). File-path `/preview` at line 286 currently calls `run_ogrinfo_preview(file_path)` without `layer_name` — this is the GPKG-01 leak.
+- `backend/app/processing/ingest/ogr.py:203-263` — `run_ogrinfo_preview(data, layer_name)`. Helper already accepts `layer_name`; need callers to pass it through.
+- `backend/app/processing/ingest/router.py:540` — sibling `run_ogrinfo_preview(file_path, layer_name=layer_name)` for the regular upload path — this one already does it right; use as reference.
+- `backend/app/modules/catalog/datasets/api/router_reupload.py` schema definitions (or sibling `schemas.py`) — `ReuploadPreviewRequest` + `ReuploadPreviewResponse` need `layer_name` and `all_layers` field additions.
+
+### Frontend Code (touched)
+
+- `frontend/src/components/dataset/ReuploadDialog.tsx:581` (Service URL `layer-select` step — design reference for File path layer-select).
+- `frontend/src/components/dataset/ReuploadDialog.tsx:214-217` (`previewMutation.mutateAsync({datasetId, jobId})` — needs `layer_name`).
+- `frontend/src/components/import/BulkReviewList.tsx:150` (`onCommitSingle(entry.id, layerName ? { ...req, layer_name: layerName } : req)`).
+- `frontend/src/components/import/BulkReviewList.tsx:343-358` (sheet/layer selector — already exists; GPKG-03 extends to multi-commit).
+
+### Tests
+
+- `frontend/src/components/dataset/__tests__/ReuploadDialog.test.tsx` — existing tests; extend for layer-select step (state-machine transition) and schema-diff rendering.
+- Backend `backend/tests/test_reupload*.py` (if exists, otherwise create) — `layer_name` flow through preview + commit.
+
+</canonical_refs>
+
+<code_context>
+## Existing Code Insights
+
+### Reusable Assets
+
+- **`run_ogrinfo_preview` already accepts `layer_name`** (`ogr.py:203`) — no new helper needed; the work is wiring the parameter from frontend → router → helper.
+- **`compute_schema_diff`** at `router_reupload.py:331` returns `columns_added`, `columns_removed`, `feature_count_delta` — all data needed for the GPKG-02 preview rendering is already on the response payload.
+- **`generate_table_name` collision handling** at `tasks_vector.py:144` — D-10 fan-out naming inherits the existing collision logic.
+- **Service URL layer-select step** at `ReuploadDialog.tsx:581` — visual + state-machine pattern to mirror.
+
+### Established Patterns
+
+- **State-machine in `ReuploadDialog.tsx`**: a `step` discriminated union (uploading → preview → confirming → completing). Adding a `selecting-layer` step between `uploading` and `preview` mirrors the Service URL path's existing extra step.
+- **Layer fixtures (post-Phase 1057):** `LayerInfo` now has `kind: 'vector' | 'raster'` field; multi-layer fixtures in tests must include `kind: 'vector' as const`.
+- **`Promise.allSettled` for partial-failure UX** is established in the codebase (v1009's BulkActionBar delete path). Reuse the pattern for D-11.
+- **No-migration backward compat** — `Dataset.source_layer` field already exists; persistence is via existing column. Zero schema changes for the backend persistence path.
+
+### Integration Points
+
+- Frontend ReuploadDialog → backend `/preview` + `/commit` endpoints. Wire `layer_name` through both. Existing JWT auth applies (no new auth surface).
+- Frontend BulkReviewList → backend `/import/upload/commit` endpoint (existing single-commit). D-08 fans out N calls in parallel via `Promise.allSettled` — no new backend endpoint needed.
+
+### Restart vs Rebuild
+
+- Backend Python changes (router + helper wiring) → `docker compose restart api worker` is sufficient (no migration, no Python dep added).
+- Frontend changes → Vite HMR. No backend coupling for UI-only work.
+
+</code_context>
+
+<specifics>
+## Specific Ideas
+
+- **Test against the v1012 reupload sandbox dataset** (`ec18b546-d86d-4375-8e1f-8564b6a75687`, kept in catalog per CLEAN-01) — its current v3 = 49 wildfire points is single-layer GeoJSON, so it won't exercise the multi-layer path. Use a multi-layer GPKG fixture instead (or generate one inline from two GeoJSON files via `ogr2ogr -nln layer1 file1.geojson && ogr2ogr -update -nln layer2 file2.geojson`).
+- **Multi-layer GPKG fixture commit** — add `e2e/fixtures/multi-layer.gpkg` (or `.playwright-mcp/fixtures/`) with 2-3 layers of different geometry types (e.g., points + polygons). Phase 1060 live MCP re-verify will use this fixture.
+
+</specifics>
+
+<deferred>
+## Deferred Ideas
+
+- **"+ add another layer from this file" per-layer button in Bulk Review (D-09 alternative)** — marginal UX win over the bulk path; ship in v1014+ polish if requested.
+- **Schema transformation on column add/drop** — out of scope; preview is informational only.
+- **Non-GPKG multi-layer containers (FileGDB, KML w/ multiple folders)** — REQUIREMENTS.md Out of Scope; defer to v1014+.
+- **Service URL Reupload flow refinements** — already correct, no changes needed; design reference only.
+- **Per-layer e2e test in `e2e/builder-v1-5.spec.ts` style** — Phase 1060 live MCP smoke re-verify will exercise this. Defer dedicated unit tests for the state machine to the inline-fix posture (catch in code review).
+
+</deferred>
+
+---
+
+*Phase: 1058-Multi-Layer GPKG Handling*
+*Context gathered: 2026-05-19 via auto-generated CONTEXT.md (workflow.skip_discuss=true) + scout pass*
