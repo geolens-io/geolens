@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import { findBasemapById, sanitizeMaplibreStyle, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
+import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
@@ -461,6 +462,7 @@ export const BuilderMap = memo(function BuilderMap({
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
       syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position });
       applyBasemapConfigToMap(map, bc, sbl);
+      applySublayerOverrides(map, bc?.sublayer_overrides ?? null);
       reorderBasemapAboveData(map, bc?.basemap_position);
       applyTerrainConfig();
       refreshQueryLayerIds();
@@ -808,6 +810,7 @@ export const BuilderMap = memo(function BuilderMap({
     if (!map || !map.isStyleLoaded()) return;
     reorderBasemapLabels(map, showBasemapLabels);
     applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels);
+    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null);
     reorderDataLayers(map, layersRef.current.map((l) => ({ id: l.id })));
     reorderBasemapAboveData(map, basemapConfig?.basemap_position);
   }, [basemapConfig, showBasemapLabels, mapReady]);
