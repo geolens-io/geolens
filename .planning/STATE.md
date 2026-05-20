@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
 status: in_progress
-last_updated: "2026-05-20T03:30:00.000Z"
-last_activity: 2026-05-20 — Phase 1058 Plan 01 executed; GPKG-01 P0 layer-select step + previous_source_layer pre-selection + missing-layer warning
+last_updated: "2026-05-20T02:23:00.000Z"
+last_activity: 2026-05-20 — Phase 1058 Plan 03 executed; GPKG-03 P2 "Ingest all layers" fan-out button + runWithConcurrency + results modal + 9 new tests; T-1058C-03 documented
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 7
-  completed_plans: 5
-  percent: 20
+  completed_plans: 6
+  percent: 25
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1058 Multi-Layer GPKG Handling — Plan 01 complete (1 of 3 plans done)
-Plan: 01 / 3 (GPKG-01 P0 layer-select step complete)
-Status: Phase 1058 Plan 01 complete — GPKG-01 satisfied (silent-data-swap fix: backend schema + reupload endpoint + frontend selecting-file-layer step + E2E spec)
-Last activity: 2026-05-20 — Phase 1058 Plan 01 executed; GPKG-01 P0 layer-select step + previous_source_layer pre-selection + missing-layer warning
+Phase: 1058 Multi-Layer GPKG Handling — Plan 03 complete (3 of 3 plans done)
+Plan: 03 / 3 (GPKG-03 P2 "Ingest all layers" fan-out complete)
+Status: Phase 1058 Plan 03 complete — GPKG-03 satisfied (BulkReviewList "Ingest all layers" button + UploadForm fan-out handler + runWithConcurrency + results modal + i18n + 9 tests); T-1058C-03 documented (backend rejects commits 2..N for same job_id — follow-up plan needed)
+Last activity: 2026-05-20 — Phase 1058 Plan 03 executed; GPKG-03 P2 "Ingest all layers" fan-out button + runWithConcurrency + results modal + 9 new tests; T-1058C-03 documented
 
 ## Project Reference
 

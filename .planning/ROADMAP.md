@@ -118,7 +118,7 @@
 **Plans**: 3 plans
 - [x] 1058-01-PLAN.md — GPKG-01 (P0): Backend `router_reupload.py` `layer_name` plumbing through preview + commit; new `ReuploadPreviewResponse.all_layers` + `previous_source_layer` fields; new `ReuploadCommitRequest.layer_name`; frontend ReuploadDialog `selecting-file-layer` step + default-selection-from-prior-source-layer + missing-layer warning; tasks_reupload worker threads `job.source_layer` to `run_ogr2ogr` / `run_ogrinfo*`; backend + Vitest + headless e2e regression coverage. Wave 1.
 - [ ] 1058-02-PLAN.md — GPKG-02 (P1): Frontend preview-pane polish — Layer line for multi-layer files + advisory banner derived from `schema_diff.columns_added/columns_removed` counts; reuses `reupload.service.layerLabel` i18n key for file/service parity. Wave 2 (depends on 1058-01 state machine).
-- [ ] 1058-03-PLAN.md — GPKG-03 (P2): Frontend `BulkReviewList.tsx` "Ingest all layers" button + `UploadForm.tsx` `handleIngestAllLayers` fan-out handler with `runWithConcurrency` cap of 4 + Promise.allSettled aggregation + results modal. Wave 1 (independent of 1058-01/02 — touches BulkReviewList + UploadForm only).
+- [x] 1058-03-PLAN.md — GPKG-03 (P2): Frontend `BulkReviewList.tsx` "Ingest all layers" button + `UploadForm.tsx` `handleIngestAllLayers` fan-out handler with `runWithConcurrency` cap of 4 + Promise.allSettled aggregation + results modal. Wave 1 (independent of 1058-01/02 — touches BulkReviewList + UploadForm only). T-1058C-03 documented: backend rejects commits 2..N per job_id — follow-up plan needed for full multi-layer ingest.
 
 **Complexity**: Medium (frontend `ReuploadDialog.tsx` state machine + preview UI, `BulkReviewList.tsx` multi-commit affordance, backend `router_reupload.py:329` + `processing/ingest/ogr.py:209` `layer_name` plumbing)
 
@@ -158,7 +158,7 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1057. Service URL Reliability | 3/3 | Complete |  |
-| 1058. Multi-Layer GPKG Handling | 1/3 | In Progress|  |
+| 1058. Multi-Layer GPKG Handling | 3/3 | Partial (T-1058C-03 backend gap documented) |  |
 | 1059. Basemap Sublayer Editor (Path B FIX) | 0/? | Not started | - |
 | 1060. Close Gate | 0/? | Not started | - |
 
