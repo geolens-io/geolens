@@ -424,4 +424,48 @@ describe('ImportMetadataForm', () => {
     expect(optionValues).not.toContain('id');
     expect(optionValues).not.toContain('Latitude');
   });
+
+  // ---------------------------------------------------------------------------
+  // CRS Override auto-hide (Phase 1057 CRS-06 D-08)
+  // ---------------------------------------------------------------------------
+
+  describe('CRS Override field visibility (D-08)', () => {
+    it('hides the CRS input when detectedCrs is non-null', () => {
+      render(<ImportMetadataForm {...defaultProps} detectedCrs={4326} />);
+      // The editable CRS input must not be present when probe carried a CRS
+      expect(
+        screen.queryByRole('spinbutton', { name: /crs/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows CRS input when detectedCrs is null (escape hatch preserved)', () => {
+      render(<ImportMetadataForm {...defaultProps} detectedCrs={null} />);
+      // Editable input must be present for the null-CRS fallthrough case
+      expect(
+        screen.getByLabelText('metadata.crsLabel'),
+      ).toBeInTheDocument();
+    });
+
+    it('shows a non-editable confirmation when detectedCrs is non-null', () => {
+      render(<ImportMetadataForm {...defaultProps} detectedCrs={4326} />);
+      // Option B: a confirmation line conveying "Detected CRS: EPSG:4326"
+      expect(screen.getByText(/EPSG:4326/)).toBeInTheDocument();
+    });
+
+    it('srid_override is null in commit when CRS input is hidden', async () => {
+      const onCommit = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <ImportMetadataForm
+          {...defaultProps}
+          onCommit={onCommit}
+          detectedCrs={4326}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'metadata.importDataset' }));
+      expect(onCommit).toHaveBeenCalledWith(
+        expect.objectContaining({ srid_override: null }),
+      );
+    });
+  });
 });

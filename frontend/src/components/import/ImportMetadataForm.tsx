@@ -202,23 +202,37 @@ export function ImportMetadataForm({
             </select>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="import-crs">{t('metadata.crsLabel')}</Label>
-            <Input
-              id="import-crs"
-              type="number"
-              placeholder={
-                detectedCrs
-                  ? t('metadata.crsPlaceholderDetected', { crs: detectedCrs })
-                  : t('metadata.crsPlaceholderEmpty')
-              }
-              value={sridOverride}
-              onChange={(e) => setSridOverride(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t('metadata.crsHelpText')}
-            </p>
-          </div>
+          {/* CRS Override — Phase 1057 CRS-06 D-08:
+              When detectedCrs is non-null (probe resolved the CRS automatically),
+              hide the editable override input and show a read-only confirmation
+              instead.  When detectedCrs is null (unrecognised URI, true-unknown,
+              or probe-CRS-not-available), the manual input stays visible as an
+              escape hatch so the user can still supply an EPSG override. */}
+          {detectedCrs ? (
+            <div className="space-y-2">
+              <Label>{t('metadata.crsLabel')}</Label>
+              <p className="text-sm text-muted-foreground">
+                {t('metadata.crsDetected', {
+                  crs: detectedCrs,
+                  defaultValue: `Detected CRS: EPSG:${detectedCrs} (auto-detected — no override needed)`,
+                })}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="import-crs">{t('metadata.crsLabel')}</Label>
+              <Input
+                id="import-crs"
+                type="number"
+                placeholder={t('metadata.crsPlaceholderEmpty')}
+                value={sridOverride}
+                onChange={(e) => setSridOverride(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('metadata.crsHelpText')}
+              </p>
+            </div>
+          )}
 
           {showEmbeddedGeometrySection && (
             <div className="space-y-3 rounded-md border border-success/30 bg-success/5 p-3">
