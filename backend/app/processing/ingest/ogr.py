@@ -7,6 +7,7 @@ import re
 from typing import TypedDict
 
 from app.core.config import settings
+from app.modules.catalog.sources.crs_uri import parse_crs_uri
 
 
 # SEED-04 (Phase 1054): compiled once at module scope to avoid repeated re.compile().
@@ -180,6 +181,20 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
         match = re.search(r'AUTHORITY\["EPSG","(\d+)"\]', wkt)
         if match:
             return int(match.group(1))
+
+    # Phase 1057 CRS-06 (D-07): Third fallback — parse URI/URN-form CRS from the
+    # `name` field.  ogrinfo populates coordinateSystem.name with the source CRS
+    # reference (URI or URN) when projjson/WKT lack an EPSG authority.  This covers:
+    #   - OGC API Features sources declaring storageCrs as a URI/URN (e.g. pygeoapi)
+    #   - WFS 2.0 sources with DefaultCRS as a URN (e.g. urn:ogc:def:crs:EPSG::4326)
+    # Unrecognised URIs return None, preserving the null-CRS fallthrough (D-07).
+    # This block fires ONLY when projjson + WKT both returned None — authoritative
+    # EPSG declarations in those fields always win (D-07 ordering guarantee).
+    name = coord_system.get("name")
+    if name:
+        srid = parse_crs_uri(name)
+        if srid is not None:
+            return srid
 
     return None
 
