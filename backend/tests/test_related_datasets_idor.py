@@ -4,7 +4,11 @@ Verifies that anonymous and non-owner authenticated requests on a private
 dataset's /related/ endpoint return 404, preventing the cosine-similarity
 oracle on the seed's RecordEmbedding.
 
-All five tests follow the factory + auth pattern established in
+Also covers Phase 1061 WR-02: /datasets/{id}/maps/ dataset-existence oracle
+(anonymous callers should not be able to confirm a private dataset UUID exists
+by probing the maps endpoint).
+
+All tests follow the factory + auth pattern established in
 test_ogc_public_access.py.
 """
 
@@ -154,4 +158,39 @@ async def test_related_non_owner_private_returns_404(
         f"/datasets/{priv.id}/related/",
         headers=editor_b_headers,
     )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# WR-02: /datasets/{id}/maps/ — anonymous cannot enumerate private dataset
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_maps_anonymous_private_returns_404(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Anonymous GET /datasets/{private_id}/maps/ returns 404.
+
+    Phase 1061 WR-02 regression: without check_dataset_access_or_anonymous,
+    an anonymous caller could confirm a private dataset UUID exists by
+    probing /maps/ — a dataset-existence oracle analogous to SEC-S05.
+    """
+    session = test_db_session
+
+    editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+
+    private = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="WR-02 private maps probe",
+        visibility="private",
+    )
+
+    # Anonymous caller should get 404, not an empty list
+    resp = await client.get(f"/datasets/{private.id}/maps/")
     assert resp.status_code == 404

@@ -203,9 +203,19 @@ async def dataset_maps(
     """Return maps that contain this dataset, filtered by caller's RBAC visibility."""
     from app.modules.catalog.maps.service import get_maps_for_dataset
 
-    user_id = user.id if user else None
-    user_roles = await get_user_roles(db, user) if user else set()
+    # Phase 1061 WR-02: gate on dataset visibility before listing maps.
+    # Without this check, anonymous callers can probe any dataset_id UUID to
+    # confirm it exists (dataset-existence oracle analogous to SEC-S05).
+    # check_dataset_access_or_anonymous raises 404 for inaccessible datasets.
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
+    user_id = user.id if user else None
     maps, total = await get_maps_for_dataset(
         db,
         dataset_id,
