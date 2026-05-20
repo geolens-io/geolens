@@ -17,12 +17,37 @@ repos:
           via make_safe_client() from backend/app/modules/catalog/sources/security.py.
           The factory installs the per-hop _revalidate_redirect event hook.
           See AGENTS.md Security pre-commit checklist Rule 2.
-        language: pygrep
-        entry: 'httpx\.AsyncClient\([^)]*follow_redirects=True'
+          Phase 1061 CR-02: switched from pygrep (per-line) to a system bash hook
+          so multi-line AsyncClient declarations are caught.  The previous pattern
+          `httpx\.AsyncClient\([^)]*follow_redirects=True` would miss:
+              _client = httpx.AsyncClient(        # line N — no follow_redirects here
+                  follow_redirects=True,          # line N+1 — no AsyncClient( here
+              )
+          The new hook checks both patterns across the whole file, not per-line.
+        language: system
+        entry: >-
+          bash -c '
+          for f in "$@"; do
+            if grep -qE "follow_redirects\s*=\s*True" "$f"; then
+              if grep -qE "httpx\.AsyncClient" "$f" && ! grep -qE "make_safe_client|security\.py" "$f"; then
+                echo "FAIL: $f has follow_redirects=True with AsyncClient outside make_safe_client"
+                echo "  Use make_safe_client() from backend/app/modules/catalog/sources/security.py"
+                echo "  See AGENTS.md Security pre-commit checklist Rule 2."
+                exit 1
+              fi
+            fi
+          done
+          ' --
         types: [python]
-        # Allow the canonical factory home; deny everywhere else.
-        exclude: '^backend/app/modules/catalog/sources/security\.py$'
         files: '^backend/app/.*\.py$'
+        # Excluded files have legitimate follow_redirects=True usage:
+        # - security.py: the canonical factory; defines make_safe_client() itself.
+        # - tiles/router.py: fixed internal URL (http://titiler:8000) — not user-controlled,
+        #   no SSRF risk. Excluded explicitly because its multi-line AsyncClient declaration
+        #   (lines 51-54) is the exact shape the pygrep hook could not catch (Phase 1061 CR-02).
+        #   If the URL source ever changes to user-controlled, remove this exclusion and
+        #   wrap the client in make_safe_client().
+        exclude: '^backend/app/modules/catalog/sources/security\.py$|^backend/app/processing/tiles/router\.py$'
 
       - id: visibility-filter-coverage
         name: "Visibility Rule 1 — route files calling get_dataset must reference check_dataset_access or apply_visibility_filter"
