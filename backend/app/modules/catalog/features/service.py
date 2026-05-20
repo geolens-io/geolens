@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import TYPE_CHECKING
 
@@ -59,6 +60,15 @@ def parse_bbox(bbox_str: str) -> list[float]:
     if len(parts) not in (4, 6):
         raise ValueError("bbox must have 4 or 6 comma-separated values")
     values = [float(p) for p in parts]
+    # SEC-FU-06 (sec-audit-20260519.md): reject NaN/Inf coordinates. Python's float() accepts
+    # "nan", "inf", "-inf" — PostGIS handles these inconsistently and they can produce
+    # malformed geometries with downstream null-pointer or sequential-scan amplification.
+    for i, v in enumerate(values):
+        if not math.isfinite(v):
+            raise ValueError(
+                f"SEC-FU-06: bbox coordinate at index {i} is non-finite ({v!r}); "
+                "only finite floats are accepted"
+            )
     if len(values) == 6:
         # 3D bbox: extract 2D envelope (minx, miny, maxx, maxy)
         values = [values[0], values[1], values[3], values[4]]
