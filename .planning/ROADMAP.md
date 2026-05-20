@@ -115,7 +115,11 @@
   1. User reuploading a multi-layer GPKG via the File path is shown a layer-select step before preview (mirroring `ReuploadDialog.tsx:581` Service URL flow); the chosen layer is honored end-to-end through preview + commit, with `dataset.source_layer` pre-selected as default when present in the new file.
   2. User viewing the Reupload preview pane for any multi-layer file sees an explicit "Layer: {name}" line plus column-level schema diff (Columns Added / Columns Removed with types) plus a schema-change warning when columns differ — matching the Service URL preview design reference.
   3. User dragging a multi-layer GPKG into the Bulk Review flow can ingest every layer as a separate dataset in a single upload session — either via a "+ add another layer from this file" button or an "Ingest all layers" fan-out path.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 1058-01-PLAN.md — GPKG-01 (P0): Backend `router_reupload.py` `layer_name` plumbing through preview + commit; new `ReuploadPreviewResponse.all_layers` + `previous_source_layer` fields; new `ReuploadCommitRequest.layer_name`; frontend ReuploadDialog `selecting-file-layer` step + default-selection-from-prior-source-layer + missing-layer warning; tasks_reupload worker threads `job.source_layer` to `run_ogr2ogr` / `run_ogrinfo*`; backend + Vitest + headless e2e regression coverage. Wave 1.
+- [ ] 1058-02-PLAN.md — GPKG-02 (P1): Frontend preview-pane polish — Layer line for multi-layer files + advisory banner derived from `schema_diff.columns_added/columns_removed` counts; reuses `reupload.service.layerLabel` i18n key for file/service parity. Wave 2 (depends on 1058-01 state machine).
+- [ ] 1058-03-PLAN.md — GPKG-03 (P2): Frontend `BulkReviewList.tsx` "Ingest all layers" button + `UploadForm.tsx` `handleIngestAllLayers` fan-out handler with `runWithConcurrency` cap of 4 + Promise.allSettled aggregation + results modal. Wave 1 (independent of 1058-01/02 — touches BulkReviewList + UploadForm only).
+
 **Complexity**: Medium (frontend `ReuploadDialog.tsx` state machine + preview UI, `BulkReviewList.tsx` multi-commit affordance, backend `router_reupload.py:329` + `processing/ingest/ogr.py:209` `layer_name` plumbing)
 
 ### Phase 1059: Basemap Sublayer Editor (Path B FIX)
@@ -153,8 +157,8 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1057. Service URL Reliability | 2/3 | In Progress|  |
-| 1058. Multi-Layer GPKG Handling | 0/? | Not started | - |
+| 1057. Service URL Reliability | 3/3 | Complete |  |
+| 1058. Multi-Layer GPKG Handling | 0/3 | Planned | - |
 | 1059. Basemap Sublayer Editor (Path B FIX) | 0/? | Not started | - |
 | 1060. Close Gate | 0/? | Not started | - |
 
