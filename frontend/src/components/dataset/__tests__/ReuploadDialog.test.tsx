@@ -164,6 +164,9 @@ function makePreviewResponse(
       row_count_new: 42,
       row_count_delta: 2,
     },
+    // GPKG-01 Phase 1058: default single-layer — null means no layer-select step
+    all_layers: null,
+    previous_source_layer: null,
     ...overrides,
   };
 }
@@ -420,5 +423,200 @@ describe('ReuploadDialog', () => {
         'Warning: This re-upload includes schema changes that may affect existing queries.',
       ),
     ).toBeInTheDocument();
+  });
+});
+
+// GPKG-01 Phase 1058: multi-layer file path tests
+describe('ReuploadDialog file path multi-layer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dropHandler = null;
+
+    uploadMutateAsync.mockResolvedValue({ job_id: 'file-job' });
+    // Default: single-layer response (null all_layers) — existing tests unaffected
+    previewMutateAsync.mockResolvedValue(
+      makePreviewResponse({ job_id: 'file-job', all_layers: null }),
+    );
+    commitMutateAsync.mockResolvedValue({
+      job_id: 'commit-job',
+      status: 'pending',
+      message: 'queued',
+    });
+
+    mockUseReuploadDataset.mockReturnValue({
+      mutateAsync: uploadMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadDataset>);
+    mockUseReuploadPreview.mockReturnValue({
+      mutateAsync: previewMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadPreview>);
+    mockUseReuploadServicePreview.mockReturnValue({
+      mutateAsync: servicePreviewMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadServicePreview>);
+    mockUseReuploadCommit.mockReturnValue({
+      mutateAsync: commitMutateAsync,
+    } as unknown as ReturnType<typeof useReuploadCommit>);
+    mockUseUploadConfig.mockReturnValue({
+      data: {
+        presigned_uploads: false,
+        presigned_threshold_bytes: 10485760,
+        max_file_size_bytes: 524288000,
+        allowed_extensions: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls',
+      },
+    } as unknown as ReturnType<typeof useUploadConfig>);
+    mockUseJobStatus.mockReturnValue({
+      data: null,
+    } as unknown as ReturnType<typeof useJobStatus>);
+  });
+
+  it('skips selecting-file-layer step for single-layer files', async () => {
+    const user = userEvent.setup();
+    // all_layers: null → skip the layer-select step
+    previewMutateAsync.mockResolvedValue(
+      makePreviewResponse({ job_id: 'file-job', all_layers: null }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile();
+
+    // Should land directly at preview step (Confirm Re-Upload visible, no layer table)
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    expect(screen.queryByTestId('reupload-file-layer-select')).not.toBeInTheDocument();
+  });
+
+  it('shows selecting-file-layer step when all_layers has multiple entries', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'buildings', feature_count: 10, field_count: 2 },
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: null,
+      }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+
+    // Layer-select step should be visible
+    await screen.findByTestId('reupload-file-layer-select');
+    expect(screen.getByText('buildings')).toBeInTheDocument();
+    expect(screen.getByText('addresses')).toBeInTheDocument();
+  });
+
+  it('pre-selects previous_source_layer when present in all_layers', async () => {
+    const user = userEvent.setup();
+    // First preview call (initial upload) → shows layer-select
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'buildings', feature_count: 10, field_count: 2 },
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: 'buildings',
+      }),
+    );
+    // Second preview call (after clicking Preview Layer) → returns normal preview
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({ job_id: 'file-job', layer_name: 'buildings' }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+    await screen.findByTestId('reupload-file-layer-select');
+
+    // Preview button should be enabled (buildings was pre-selected)
+    const previewBtn = screen.getByRole('button', { name: 'Preview Layer' });
+    expect(previewBtn).not.toBeDisabled();
+
+    // Click Preview — triggers second previewMutateAsync call with layerName
+    await user.click(previewBtn);
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // Assert second call included layerName: 'buildings'
+    const secondCall = previewMutateAsync.mock.calls[1][0];
+    expect(secondCall.layerName).toBe('buildings');
+  });
+
+  it('warns and forces explicit selection when previous_source_layer is missing from new file', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: 'buildings',
+      }),
+    );
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({ job_id: 'file-job', layer_name: 'addresses' }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+    await screen.findByTestId('reupload-file-layer-select');
+
+    // Warning message should be visible
+    expect(screen.getByText(/buildings/)).toBeInTheDocument();
+
+    // Preview button initially disabled (no layer selected — buildings is missing)
+    const previewBtn = screen.getByRole('button', { name: 'Preview Layer' });
+    expect(previewBtn).toBeDisabled();
+
+    // Click the addresses row to select it
+    await user.click(screen.getByText('addresses'));
+
+    // Preview button should now be enabled
+    expect(previewBtn).not.toBeDisabled();
+
+    // Click Preview
+    await user.click(previewBtn);
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // Second call must include layerName: 'addresses'
+    const secondCall = previewMutateAsync.mock.calls[1][0];
+    expect(secondCall.layerName).toBe('addresses');
+  });
+
+  it('plumbs selected layer through commit', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'buildings', feature_count: 10, field_count: 2 },
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: 'buildings',
+      }),
+    );
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({ job_id: 'file-job', layer_name: 'buildings' }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+    await screen.findByTestId('reupload-file-layer-select');
+
+    // Click Preview (buildings pre-selected)
+    await user.click(screen.getByRole('button', { name: 'Preview Layer' }));
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // Click Confirm
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    const commitCall = commitMutateAsync.mock.calls[0][0];
+    expect(commitCall.layerName).toBe('buildings');
   });
 });

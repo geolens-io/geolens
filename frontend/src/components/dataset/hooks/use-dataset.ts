@@ -135,8 +135,9 @@ export function useReuploadDataset() {
 
 export function useReuploadPreview() {
   return useMutation({
-    mutationFn: ({ datasetId, jobId }: { datasetId: string; jobId: string }) =>
-      reuploadPreview(datasetId, jobId),
+    // GPKG-01 Phase 1058: optional layerName for multi-layer file sources
+    mutationFn: ({ datasetId, jobId, layerName }: { datasetId: string; jobId: string; layerName?: string }) =>
+      reuploadPreview(datasetId, jobId, layerName),
   });
 }
 
@@ -154,17 +155,20 @@ export function useReuploadServicePreview() {
 
 export function useReuploadCommit() {
   return useMutation({
+    // GPKG-01 Phase 1058: optional layerName for multi-layer GPKG files
     mutationFn: ({
       datasetId,
       jobId,
       sridOverride,
       token,
+      layerName,
     }: {
       datasetId: string;
       jobId: string;
       sridOverride?: number | null;
       token?: string;
-    }) => reuploadCommit(datasetId, jobId, sridOverride, token),
+      layerName?: string;
+    }) => reuploadCommit(datasetId, jobId, sridOverride, token, layerName),
   });
 }
 

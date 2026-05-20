@@ -684,6 +684,9 @@ export interface ReuploadPreviewResponse {
   sample_rows: Record<string, unknown>[];
   layer_name: string;
   schema_diff: SchemaDiff;
+  // GPKG-01 Phase 1058: multi-layer support fields
+  all_layers?: Array<{ name: string; feature_count: number; field_count: number }> | null;
+  previous_source_layer?: string | null;
 }
 
 export interface ReuploadCommitResponse {
@@ -695,6 +698,8 @@ export interface ReuploadCommitResponse {
 export interface ReuploadCommitRequest {
   srid_override?: number | null;
   token?: string;
+  // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
+  layer_name?: string;
 }
 
 export interface DatasetVersionResponse {

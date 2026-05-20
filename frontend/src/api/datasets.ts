@@ -181,9 +181,13 @@ export async function reuploadDataset(
 export async function reuploadPreview(
   datasetId: string,
   jobId: string,
+  // GPKG-01 Phase 1058: optional layer_name for multi-layer file sources
+  layerName?: string,
 ): Promise<ReuploadPreviewResponse> {
+  const body = layerName !== undefined ? JSON.stringify({ layer_name: layerName }) : undefined;
   return apiFetch<ReuploadPreviewResponse>(`/datasets/${datasetId}/reupload/${jobId}/preview`, {
     method: 'POST',
+    ...(body ? { body } : {}),
   });
 }
 
@@ -202,10 +206,13 @@ export async function reuploadCommit(
   jobId: string,
   sridOverride?: number | null,
   token?: string,
+  // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
+  layerName?: string,
 ): Promise<ReuploadCommitResponse> {
   const payload: ReuploadCommitRequest = {
     srid_override: sridOverride ?? null,
     ...(token ? { token } : {}),
+    ...(layerName !== undefined ? { layer_name: layerName } : {}),
   };
 
   return apiFetch<ReuploadCommitResponse>(`/datasets/${datasetId}/reupload/${jobId}/commit`, {

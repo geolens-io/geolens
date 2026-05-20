@@ -256,6 +256,7 @@
       "select": "Wählen Sie eine Datei aus, um die aktuellen Datensatzdaten zu ersetzen.",
       "serviceConnect": "Verbinden Sie sich mit einem Dienst und wählen Sie einen Layer.",
       "layerSelect": "Wählen Sie den zu prüfenden Dienst-Layer.",
+      "fileLayerSelect": "Wählen Sie den Layer aus dieser Mehrschicht-Datei.",
       "uploading": "Datei wird hochgeladen und analysiert...",
       "preview": "Überprüfen Sie die Änderungen vor der Bestätigung.",
       "committing": "Erneutes Hochladen wird übernommen...",
@@ -289,6 +290,11 @@
         "geometry": "Geometrie",
         "featureCount": "Features"
       }
+    },
+    "fileLayer": {
+      "layerStep": "Layer auswählen",
+      "missingLayerWarning": "Der ursprüngliche Layer '{{layer}}' ist in der neuen Datei nicht vorhanden. Wählen Sie einen Ersatz, um fortzufahren.",
+      "previewLayer": "Layer prüfen"
     },
     "dropzone": "Datei hierher ziehen oder klicken zum Durchsuchen",
     "uploadingMessage": "Datei wird hochgeladen und analysiert...",

@@ -256,6 +256,7 @@
       "select": "Sélectionnez un fichier pour remplacer les données actuelles du jeu de données.",
       "serviceConnect": "Connectez-vous à un service et choisissez une couche.",
       "layerSelect": "Choisissez la couche du service à prévisualiser.",
+      "fileLayerSelect": "Choisissez la couche de ce fichier multicouche.",
       "uploading": "Téléchargement et analyse du fichier...",
       "preview": "Vérifiez les modifications avant de confirmer.",
       "committing": "Validation du rechargement...",
@@ -289,6 +290,11 @@
         "geometry": "Géométrie",
         "featureCount": "Entités"
       }
+    },
+    "fileLayer": {
+      "layerStep": "Sélectionnez une couche",
+      "missingLayerWarning": "La couche d'origine '{{layer}}' n'est pas présente dans le nouveau fichier. Sélectionnez un remplacement pour continuer.",
+      "previewLayer": "Prévisualiser la couche"
     },
     "dropzone": "Glissez-déposez un fichier ici, ou cliquez pour parcourir",
     "uploadingMessage": "Téléchargement et analyse du fichier...",

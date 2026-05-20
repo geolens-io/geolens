@@ -256,6 +256,7 @@
       "select": "Seleccione un archivo para reemplazar los datos actuales del conjunto de datos.",
       "serviceConnect": "Conéctese a un servicio y elija una capa.",
       "layerSelect": "Elija la capa del servicio para la vista previa.",
+      "fileLayerSelect": "Elija la capa de este archivo de múltiples capas.",
       "uploading": "Subiendo y analizando archivo...",
       "preview": "Revise los cambios antes de confirmar.",
       "committing": "Confirmando la nueva subida...",
@@ -289,6 +290,11 @@
         "geometry": "Geometría",
         "featureCount": "Entidades"
       }
+    },
+    "fileLayer": {
+      "layerStep": "Seleccione una capa",
+      "missingLayerWarning": "La capa original '{{layer}}' no está presente en el nuevo archivo. Seleccione un reemplazo para continuar.",
+      "previewLayer": "Vista previa de la capa"
     },
     "dropzone": "Arrastre y suelte un archivo aquí, o haga clic para explorar",
     "uploadingMessage": "Subiendo y analizando archivo...",

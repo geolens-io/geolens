@@ -54,6 +54,8 @@ type ReuploadStep =
   | 'service-connect'
   | 'probing'
   | 'layer-select'
+  // GPKG-01 Phase 1058: file-path layer-select step (distinct from service 'layer-select')
+  | 'selecting-file-layer'
   | 'uploading'
   | 'previewing'
   | 'preview'
@@ -120,6 +122,10 @@ export function ReuploadDialog({
   const [serviceToken, setServiceToken] = useState('');
   const [probeResult, setProbeResult] = useState<ProbeResponse | null>(null);
   const [selectedLayer, setSelectedLayer] = useState<LayerInfo | null>(null);
+  // GPKG-01 Phase 1058: state for file-path multi-layer selection
+  const [allLayers, setAllLayers] = useState<NonNullable<ReuploadPreviewResponse['all_layers']>>([]);
+  const [previousSourceLayer, setPreviousSourceLayer] = useState<string | null>(null);
+  const [selectedFileLayer, setSelectedFileLayer] = useState<string | null>(null);
 
   const uploadMutation = useReuploadDataset();
   const previewMutation = useReuploadPreview();
@@ -149,6 +155,10 @@ export function ReuploadDialog({
     setServiceToken('');
     setProbeResult(null);
     setSelectedLayer(null);
+    // GPKG-01 Phase 1058: clear multi-layer file state
+    setAllLayers([]);
+    setPreviousSourceLayer(null);
+    setSelectedFileLayer(null);
   }, [dataset.source_url]);
 
   // Only poll when tracking
@@ -215,8 +225,29 @@ export function ReuploadDialog({
           datasetId: dataset.id,
           jobId: uploadResult.job_id,
         });
-        setPreview(previewResult);
-        setStep('preview');
+
+        // GPKG-01 Phase 1058: branch on all_layers for multi-layer file sources.
+        // Show the selecting-file-layer step when:
+        //   (a) the file has >1 layers (multi-layer GPKG), OR
+        //   (b) previous_source_layer is set but not found in the new file's layers
+        //       (even 1-layer files must surface the mismatch so users confirm — D-02).
+        // Single-layer files where the previous layer matches (or no previous layer) skip the step.
+        const layers = previewResult.all_layers ?? [];
+        const prevLayer = previewResult.previous_source_layer ?? null;
+        const prevLayerMissing = prevLayer !== null && !layers.some((l) => l.name === prevLayer);
+        const needsLayerSelect = layers.length > 1 || (layers.length >= 1 && prevLayerMissing);
+        if (needsLayerSelect) {
+          setAllLayers(layers);
+          setPreviousSourceLayer(prevLayer);
+          // Default to previous source_layer if it appears in the new file (D-02).
+          // If absent (mismatch case), set to null — user MUST explicitly select.
+          const isPresent = prevLayer !== null && layers.some((l) => l.name === prevLayer);
+          setSelectedFileLayer(isPresent ? prevLayer : null);
+          setStep('selecting-file-layer');
+        } else {
+          setPreview(previewResult);
+          setStep('preview');
+        }
       } catch (err) {
         setError(
           err instanceof Error ? err.message : t('reupload.uploadFailed'),
@@ -307,6 +338,36 @@ export function ReuploadDialog({
     [dataset.id, probeResult, servicePreviewMutation, serviceToken, t, appendRetryGuidance],
   );
 
+  // GPKG-01 Phase 1058: handler for file-path layer selection.
+  // Mirrors handleLayerPreview (service path) but operates on the file-path state machine.
+  const handleFileLayerPreview = useCallback(
+    async (layerName: string) => {
+      if (!jobId) {
+        // jobId must be set by handleUpload before this step is reachable
+        throw new Error('No job ID available for file layer preview');
+      }
+      setError(null);
+      setSelectedFileLayer(layerName);
+      setStep('previewing');
+      try {
+        const previewResult = await previewMutation.mutateAsync({
+          datasetId: dataset.id,
+          jobId,
+          layerName,
+        });
+        setPreview(previewResult);
+        setStep('preview');
+      } catch (err) {
+        const message = err instanceof Error
+          ? err.message
+          : t('reupload.uploadFailed');
+        setError(message);
+        setStep('selecting-file-layer');
+      }
+    },
+    [dataset.id, jobId, previewMutation, t],
+  );
+
   const handleConfirm = useCallback(async () => {
     if (!jobId) return;
     setStep('committing');
@@ -314,10 +375,12 @@ export function ReuploadDialog({
       const token = sourceType === 'service_url' && serviceToken.trim()
         ? serviceToken.trim()
         : undefined;
+      // GPKG-01 Phase 1058: pass selectedFileLayer so commit persists the user-chosen layer
       await commitMutation.mutateAsync({
         datasetId: dataset.id,
         jobId,
         token,
+        ...(selectedFileLayer !== null ? { layerName: selectedFileLayer } : {}),
       });
       setStep('tracking');
     } catch (err) {
@@ -329,7 +392,7 @@ export function ReuploadDialog({
       );
       setStep('error');
     }
-  }, [dataset.id, jobId, sourceType, serviceToken, commitMutation, appendRetryGuidance, t]);
+  }, [dataset.id, jobId, sourceType, serviceToken, selectedFileLayer, commitMutation, appendRetryGuidance, t]);
 
   const handleRetry = useCallback(() => {
     setError(null);
@@ -405,6 +468,10 @@ export function ReuploadDialog({
     'layer-select': t('reupload.descriptions.layerSelect', {
       defaultValue: 'Choose the service layer to preview.',
     }),
+    // GPKG-01 Phase 1058: file-path layer-select description
+    'selecting-file-layer': t('reupload.descriptions.fileLayerSelect', {
+      defaultValue: 'Choose the layer from this multi-layer file.',
+    }),
     uploading: t('reupload.descriptions.uploading'),
     previewing: t('reupload.service.previewing', {
       defaultValue: 'Preparing re-upload preview...',
@@ -422,11 +489,17 @@ export function ReuploadDialog({
 
   const previewSourceLabel = sourceType === 'service_url'
     ? t('reupload.service.layerLabel', { defaultValue: 'Layer:' })
-    : t('reupload.file');
+    // GPKG-01 Phase 1058: show 'Layer:' label when a file-layer was selected (multi-layer file)
+    : selectedFileLayer !== null
+      ? t('reupload.service.layerLabel', { defaultValue: 'Layer:' })
+      : t('reupload.file');
 
   const previewSourceValue = sourceType === 'service_url'
     ? (selectedLayer ? humanizeLayerName(selectedLayer) : (preview?.layer_name ?? t('common:unknown')))
-    : selectedFile?.name;
+    // GPKG-01 Phase 1058: show selected layer name for multi-layer files
+    : selectedFileLayer !== null
+      ? selectedFileLayer
+      : selectedFile?.name;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -645,6 +718,74 @@ export function ReuploadDialog({
                 disabled={selectedLayer === null}
               >
                 {t('reupload.service.previewLayer', { defaultValue: 'Preview Layer' })}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {/* GPKG-01 Phase 1058: file-path layer-select step for multi-layer GPKG files */}
+        {step === 'selecting-file-layer' && (
+          <div className="space-y-4" data-testid="reupload-file-layer-select">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">
+                {t('reupload.fileLayer.layerStep', { defaultValue: 'Select a layer' })}
+              </p>
+            </div>
+            {/* D-02: warn when previous source_layer is not in the new file's layers */}
+            {previousSourceLayer && !allLayers.find((l) => l.name === previousSourceLayer) && (
+              <p className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
+                {t('reupload.fileLayer.missingLayerWarning', {
+                  layer: previousSourceLayer,
+                  defaultValue: `Original layer '{{layer}}' is not present in the new file. Pick a replacement to continue.`,
+                })}
+              </p>
+            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="max-h-64 overflow-y-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('reupload.service.columns.name', { defaultValue: 'Name' })}</TableHead>
+                    <TableHead>{t('reupload.service.columns.geometry', { defaultValue: 'Geometry' })}</TableHead>
+                    <TableHead>{t('reupload.service.columns.featureCount', { defaultValue: 'Features' })}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {allLayers.map((layer) => (
+                    <TableRow
+                      key={layer.name}
+                      className={cn(
+                        'cursor-pointer',
+                        selectedFileLayer === layer.name && 'bg-accent',
+                      )}
+                      onClick={() => setSelectedFileLayer(layer.name)}
+                    >
+                      <TableCell className="max-w-[300px] truncate">{layer.name}</TableCell>
+                      <TableCell>-</TableCell>
+                      <TableCell>{formatNumber(layer.feature_count)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setSelectedFileLayer(null);
+                  setAllLayers([]);
+                  setPreviousSourceLayer(null);
+                  setStep('file-select');
+                }}
+              >
+                {t('common:back')}
+              </Button>
+              <Button
+                onClick={() => selectedFileLayer && void handleFileLayerPreview(selectedFileLayer)}
+                disabled={selectedFileLayer === null}
+              >
+                {t('reupload.fileLayer.previewLayer', { defaultValue: 'Preview Layer' })}
               </Button>
             </DialogFooter>
           </div>

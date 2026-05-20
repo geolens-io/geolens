@@ -218,6 +218,7 @@
       "select": "Select a file to replace the current dataset data.",
       "serviceConnect": "Connect to a service and choose a layer.",
       "layerSelect": "Choose the service layer to preview.",
+      "fileLayerSelect": "Choose the layer from this multi-layer file.",
       "uploading": "Uploading and analyzing file...",
       "preview": "Review the changes before confirming.",
       "committing": "Committing re-upload...",
@@ -251,6 +252,11 @@
         "geometry": "Geometry",
         "featureCount": "Features"
       }
+    },
+    "fileLayer": {
+      "layerStep": "Select a layer",
+      "missingLayerWarning": "Original layer '{{layer}}' is not present in the new file. Pick a replacement to continue.",
+      "previewLayer": "Preview Layer"
     },
     "dropzone": "Drag and drop a file here, or click to browse",
     "uploadingMessage": "Uploading and analyzing file...",
