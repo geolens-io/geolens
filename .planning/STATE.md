@@ -3,31 +3,31 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: completed
-last_updated: "2026-05-20T22:26:02Z"
-last_activity: 2026-05-20 -- Phase 1063 Plan 04 complete (SEC-FU-05 + SEC-FU-06 + SEC-FU-07)
+last_updated: "2026-05-20T23:09:00.000Z"
+last_activity: 2026-05-20 -- Phase 1064 Plan 01 complete (smoke gates PASS, CHANGELOG [1.4.0] promoted)
 progress:
   total_phases: 9
-  completed_phases: 3
-  total_plans: 16
-  completed_plans: 16
-  percent: 33
+  completed_phases: 4
+  total_plans: 17
+  completed_plans: 18
+  percent: 44
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1063 — In Progress
-Plan: 04 (complete)
-Status: Phase 1063 Plan 04 complete — SEC-FU-05 + SEC-FU-06 + SEC-FU-07 closed
-Last activity: 2026-05-20 -- Phase 1063 Plan 04 complete (SEC-FU-05 + SEC-FU-06 + SEC-FU-07)
+Phase: 1064 — IN PROGRESS
+Plan: 01 (complete) — smoke gates + CHANGELOG
+Status: Awaiting orchestrator Playwright MCP smoke (Plan 02) before tag cut
+Last activity: 2026-05-20 -- Phase 1064 Plan 01 complete (smoke gates PASS, CHANGELOG [1.4.0] promoted)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1013 Ingest Hardening — SHIPPED 2026-05-20 (local tag `v1013` + public tag `v1.3.0`; CHANGELOG [1.3.0]); awaiting milestone archive.
+**Current focus:** v1014 Security Audit Remediation — close gate (Phase 1064) in progress. CHANGELOG [1.4.0] promoted. Awaiting Playwright MCP smoke before tag cut.
 
 ## Last Shipped Milestone
 
@@ -120,10 +120,10 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1063 Plan 02:** SEC-FU-02 config.py already had DEMO_JWT_SECRET guard (Phase 1061 Plan 05); named test test_sec_fu_02_jwt_demo_literal_refused provides explicit audit-traceable regression pin. SEC-FU-09 server_tokens off placed in nginx server {} block per audit wording; suppresses version in Server: header and error pages. SEC-FU-10 documentation-only; alembic migration trade-off documented in .env.example alongside least-privilege SQL recipe for geolens_app role.
 - **Phase 1063 Plan 03:** SEC-FU-03 eslint-plugin-react@7.37.5 installed; react/no-danger:error wired in eslint.config.js with plugins/settings(react.version:detect)/inline comment; regression fixture uses inline eslint-disable + --no-inline-config pattern (plan's .skip.tsx glob exclusion claim incorrect — glob matches .skip.tsx). SEC-FU-04 _BASE64URL_CHARSET frozenset + _sanitize_authorization_token helper added to ogr.py; called before GDAL_HTTP_HEADERS env composition; CRLF/unicode/whitespace raise ValueError with SEC-FU-04 prefix; 6 pytest tests pass (86/86 total).
 - **Phase 1063 Plan 04:** SEC-FU-05 max_length=10000 on STAC GET /search intersects Query param only; POST body bounded by uvicorn 1MB. SEC-FU-06 math.isfinite() loop after float() conversion in parse_bbox, before 6-to-4 envelope reduction; catches Z-axis NaN. SEC-FU-07 escape '%' and '_' in service_crud.py list_maps() via str.replace before ILIKE pattern composition — matches service_public.py:407-409; service_collections.py confirmed absent. 15 new pytest tests across 3 files (4+6+5); 36/36 regression tests pass.
+- **Phase 1064 Plan 01:** 3 test mismatches found and auto-fixed (Rule 1): test_search_facets_rate_limit renamed to test_search_facets_not_rate_limited (WR-02 removed the decorator); CR-04 embed token helper fixed (NOT NULL constraint); service_public.py line-count cap 575→600 (Phase 1062 CR-04 +13 lines). Backend 288/288 PASS. Vitest 2092/2092 PASS. i18n 2/2 PASS. TS/ESLint pre-existing errors in test files (out of scope). CHANGELOG [1.4.0] promoted.
 
 ## Operator Next Steps
 
-- Run `/gsd:plan-phase 1057` to break Service URL Reliability into plans.
-- Phase 1057, 1058, 1059 can theoretically be planned in any order (no inter-phase code dependencies); recommend P0-led order (1057 → 1058 → 1059) for sequential solo-dev execution.
-- Phase 1060 (Close Gate) must wait for 1057 + 1058 + 1059 completion.
-- Phase 1059 complete. Phase 1060 (Close Gate) can proceed after Phases 1057 + 1058 also complete.
+- Run Playwright MCP smoke (orchestrator-driven) on localhost:8080 targeting v1014 surfaces (STAC visibility, SSRF, embed CSP, rate limits) — Phase 1064 Plan 02.
+- After MCP smoke PASS: cut local tags `v1014` + `v1.4.0` and push with `git push origin v1014 v1.4.0`.
+- Run `/gsd:milestone-complete v1014` to archive milestone.
