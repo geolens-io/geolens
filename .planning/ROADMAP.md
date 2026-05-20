@@ -71,8 +71,8 @@
 - ✅ **v1010.2 Builder Smoke Carryover** — Phase 1050 (shipped 2026-05-17) — see [archive](milestones/v1010.2-ROADMAP.md)
 - ✅ **v1011 Map Builder Polish & Bug Sweep** — Phase 1051 (shipped 2026-05-18) — see [archive](milestones/v1011-ROADMAP.md)
 - ✅ **v1011.1 Builder Hygiene Carryover** — Phase 1052 (shipped 2026-05-18) — see [archive](milestones/v1011.1-ROADMAP.md)
-- ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, public tag `v1.3.0`) — see [archive](milestones/v1012-ROADMAP.md)
-- 🔄 **v1013 Ingest Hardening** — Phases 1057-1060 (in progress) — public tag: v1.4.0
+- ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, public tag `v1.2.1`) <!-- 1060/A-01: prior ROADMAP entry claimed v1.3.0 but actual CHANGELOG + git tag is v1.2.1 -->
+- ✅ **v1013 Ingest Hardening** — Phases 1057-1060 (shipped 2026-05-20, local tag `v1013`, public tag `v1.3.0`) <!-- 1060/A-01: v1.4.0→v1.3.0 because v1012 shipped as v1.2.1, not v1.3.0 -->
 
 ## Phases
 
@@ -83,9 +83,9 @@
 - Decimal phases (1058.1, ...): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1057: Service URL Reliability** — Fix WFS abstract-geometry-type commit failure (P0), short-circuit probe orchestrator on first success, parse URI-form CRS references, fall back to VEC when probe response lacks geometry_type
-- [ ] **Phase 1058: Multi-Layer GPKG Handling** — Add layer-select step to Reupload File path mirroring Service URL flow (P0 silent-data-swap fix), surface chosen layer name + schema diff in preview, enable multi-commit / ingest-all-layers path in Bulk Review
+- [x] **Phase 1058: Multi-Layer GPKG Handling** — Add layer-select step to Reupload File path mirroring Service URL flow (P0 silent-data-swap fix), surface chosen layer name + schema diff in preview, enable multi-commit / ingest-all-layers path in Bulk Review
 - [x] **Phase 1059: Basemap Sublayer Editor (Path B FIX)** — Restore per-sublayer styling surface removed in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent); 3-5 day feature phase
-- [ ] **Phase 1060: Close Gate** — Delete 3 smoke repro datasets, run all smoke gates, live Playwright MCP re-verify of WFS-04/PROBE-05/GPKG-01/GPKG-02/BSE-01, populate CHANGELOG, tag v1013 + v1.4.0
+- [x] **Phase 1060: Close Gate** (shipped 2026-05-20) — Deleted 3 smoke repro datasets + 4 gate-created datasets, ran all smoke gates, live Playwright MCP re-verify of 12 gates (5 ROADMAP-named + 7 BSE-01 sub-gates), populated CHANGELOG, tagged v1013 + v1.3.0 (per A-01, NOT v1.4.0) <!-- 1060/A-01: actual public tag is v1.3.0 -->
 
 ## Phase Details
 
@@ -143,7 +143,7 @@
 
 ### Phase 1060: Close Gate
 
-**Goal**: All 10 v1013 requirements are verified through smoke gates and live Playwright MCP re-verify against `localhost:8080`; 3 fixture datasets used as smoke repros are deleted from the catalog; CHANGELOG is populated; local v1013 tag and public v1.4.0 tag are created.
+**Goal**: All 10 v1013 requirements are verified through smoke gates and live Playwright MCP re-verify against `localhost:8080`; 3 fixture datasets used as smoke repros are deleted from the catalog; CHANGELOG is populated; local v1013 tag and public v1.3.0 tag are created. <!-- 1060/A-01: v1.4.0→v1.3.0 because v1012 shipped as v1.2.1, not v1.3.0 -->
 **Depends on**: Phase 1057, Phase 1058, Phase 1059
 **Requirements**: CLEAN-01, CTRL-01
 **Success Criteria** (what must be TRUE):
@@ -151,12 +151,12 @@
   2. All smoke gates pass: `typecheck` reports 0 errors; `vitest` is green; `e2e:smoke:builder` is green; i18n parity passes for all 4 locales (en/de/es/fr).
   3. Live Playwright MCP re-verify confirms WFS-04 (GeoServer Countries-of-the-World commits cleanly), PROBE-05 (pygeoapi probe ≤5s), GPKG-01 (Reupload File path shows layer-select), GPKG-02 (preview pane surfaces layer name + schema diff), and BSE-01 (basemap sublayer overrides round-trip through builder + viewer).
   4. Code-review pass complete with any secondary findings fixed inline per `feedback_review_findings_inline.md`; zero deferrals to a v1013.1 hygiene milestone.
-  5. CHANGELOG `[Unreleased]` block is promoted to `[1.4.0]` and populated with all v1013 changes; local `v1013` tag is created; public `v1.4.0` tag is created (minor bump justified by GPKG-01/GPKG-03 new affordances + BSE-01 styling persistence).
+  5. CHANGELOG `[Unreleased]` block is promoted to `[1.3.0]` <!-- 1060/A-01 --> and populated with all v1013 changes; local `v1013` tag is created; public `v1.3.0` tag is created (minor bump justified by GPKG-01/GPKG-03 new affordances + BSE-01 styling persistence).
 **Plans:** 4 plans
-- [ ] 1060-01-PLAN.md — E2E smoke triage + fix (builder-v1-5.spec.ts:152, builder.spec.ts:338)
-- [ ] 1060-02-PLAN.md — Live Playwright MCP re-verify (12 gates: WFS-04/PROBE-05/CRS-06/CLASS-07/GPKG-01/GPKG-02/GPKG-03/BSE-01 ×5 sub-gates)
-- [ ] 1060-03-PLAN.md — Dataset cleanup (3 DELETEs + GET-404 verification per CLEAN-01)
-- [ ] 1060-04-PLAN.md — CHANGELOG promote + smoke re-gate + local tags v1013 + v1.3.0 (per A-01, NOT v1.4.0) + finalize tracker
+- [x] 1060-01-PLAN.md — E2E smoke triage + fix (builder-v1-5.spec.ts:152, builder.spec.ts:338)
+- [x] 1060-02-PLAN.md — Live Playwright MCP re-verify (12 gates: WFS-04/PROBE-05/CRS-06/CLASS-07/GPKG-01/GPKG-02/GPKG-03/BSE-01 ×5 sub-gates)
+- [x] 1060-03-PLAN.md — Dataset cleanup (3 DELETEs + GET-404 verification per CLEAN-01)
+- [x] 1060-04-PLAN.md — CHANGELOG promote + smoke re-gate + local tags v1013 + v1.3.0 (per A-01, NOT v1.4.0) + finalize tracker
 **Complexity**: Small-medium (1-2 plan slots reserved for inline review fixes per established pattern from v1010.2 / v1011 / v1011.1)
 
 ## Progress
@@ -167,9 +167,9 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1057. Service URL Reliability | 3/3 | Complete |  |
-| 1058. Multi-Layer GPKG Handling | 3/3 | Partial (T-1058C-03 backend gap documented) |  |
+| 1058. Multi-Layer GPKG Handling | 3/3 | Complete (T-1058C-03 closed inline at 1060-G-07 — see CHANGELOG) | 2026-05-20 |
 | 1059. Basemap Sublayer Editor (Path B FIX) | 4/4 | Complete (all ACs evidenced; 12 new tests; de/es/fr i18n parity) | 2026-05-20 |
-| 1060. Close Gate | 0/4 | Not started | - |
+| 1060. Close Gate | 4/4 | Complete (12/12 MCP gates PASS; 5 inline fixes; tags v1013 + v1.3.0 cut locally) | 2026-05-20 |
 
 ## Backlog
 

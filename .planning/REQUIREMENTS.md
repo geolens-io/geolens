@@ -6,13 +6,14 @@
 
 ## v1013 Requirements
 
-Requirements for milestone v1013. Each maps to exactly one phase in `ROADMAP.md`. Public tag: **v1.4.0** (minor — Findings 1+3 add new affordances; BSE-01 is feature work).
+<!-- 1060/A-01: v1.4.0→v1.3.0 because v1012 shipped as v1.2.1, not v1.3.0 -->
+Requirements for milestone v1013. Each maps to exactly one phase in `ROADMAP.md`. Public tag: **v1.3.0** (minor — Findings 1+3 add new affordances; BSE-01 is feature work).
 
 ### Service URL Reliability
 
 - [x] **WFS-04** *(P0)*: User can import polygon-heavy WFS layers declaring abstract OGC geometry types (`MultiSurface`, `MultiCurve`, `CompoundSurface`) without the post-ingest bounds-clip UPDATE failing on PostGIS type mismatch. Fix candidates: (a) map abstract → concrete on column creation; (b) inspect first feature in probe to determine concrete subtype; (c) drop subtype constraint — use generic `GEOMETRY` column. Repro: `ahocevar.com/geoserver/wfs` → Countries of the World → Import.
 - [x] **PROBE-05** *(P1)*: User sees Service URL probe completion within ≤5s for fast services. `try_all_probes()` short-circuits on first success rather than running all probe types sequentially (currently ~63s for a 1.5s adapter on `demo.pygeoapi.io/master`). Acceptance: timed probe of OGC API endpoint completes in ≤5s end-to-end.
-- [ ] **CRS-06** *(P2)*: User can import OGC API Features sources declaring URI-form CRS references (e.g., `http://www.opengis.net/def/crs/OGC/1.3/CRS84`) without manually entering an EPSG override. URI → EPSG mapper covers at minimum: CRS84 → 4326, `http://www.opengis.net/def/crs/EPSG/0/{N}` → EPSG:N. Acceptance: `demo.pygeoapi.io/master` Large Lakes import succeeds without CRS Override field interaction.
+- [x] **CRS-06** *(P2)*: User can import OGC API Features sources declaring URI-form CRS references (e.g., `http://www.opengis.net/def/crs/OGC/1.3/CRS84`) without manually entering an EPSG override. URI → EPSG mapper covers at minimum: CRS84 → 4326, `http://www.opengis.net/def/crs/EPSG/0/{N}` → EPSG:N. Acceptance: `demo.pygeoapi.io/master` Large Lakes import succeeds without CRS Override field interaction.
 - [x] **CLASS-07** *(P2)*: User sees vector layers (point/line/polygon) in the Service URL layer-select list classified as VEC even when the probe response is missing `geometry_type`. RAS classification requires an explicit raster signal. Repro: `ne:ne_10m_populated_places` (Natural Earth Points) currently labels RAS.
 
 ### Multi-Layer GPKG Handling
@@ -27,20 +28,20 @@ Requirements for milestone v1013. Each maps to exactly one phase in `ROADMAP.md`
 
 ### Hygiene
 
-- [ ] **CLEAN-01**: The 3 v1012 smoke repro datasets deleted from the `localhost:8080` catalog at the CTRL-01 close gate:
+- [x] **CLEAN-01**: The 3 v1012 smoke repro datasets deleted from the `localhost:8080` catalog at the CTRL-01 close gate:
   - `ec18b546-d86d-4375-8e1f-8564b6a75687` (reupload sandbox; v3 = 49 wildfire points)
   - `54763119-0cf4-448e-a950-81551d090267` (AGO Wildfire Response Points; 49 features)
   - `667a6c65-cdbc-4158-87f2-21a7e791ba7c` (OGC API Large Lakes; 25 features)
 
 ### Close Gate
 
-- [ ] **CTRL-01**: Milestone close requires:
+- [x] **CTRL-01**: Milestone close requires: <!-- 1060/A-01: actual public tag is v1.3.0 -->
   - All smoke gates green: typecheck 0, vitest passing, e2e:smoke:builder green, i18n parity 2/2
   - Live Playwright MCP re-verify of WFS-04, PROBE-05, GPKG-01, GPKG-02, BSE-01 against `localhost:8080`
   - Code-review pass with any inline fixes applied per `feedback_review_findings_inline.md`
-  - CHANGELOG `[Unreleased]` → `[1.4.0]` block populated
+  - CHANGELOG `[Unreleased]` → `[1.3.0]` block populated
   - Local tag `v1013` created
-  - Public tag `v1.4.0` created (minor bump from v1.3.0)
+  - Public tag `v1.3.0` created (minor bump from v1.2.1)
 
 ## v2 Requirements (deferred — not in v1013 scope)
 

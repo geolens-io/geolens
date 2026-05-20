@@ -3,41 +3,39 @@ gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
 status: completed
-last_updated: "2026-05-20T04:10:17Z"
-last_activity: 2026-05-20 — Phase 1059 Plan 04 executed; 12 new tests; de/es/fr i18n parity; Phase 1059 complete
+last_updated: "2026-05-20T14:50:00Z"
+last_activity: 2026-05-20 — Phase 1060 SHIPPED; v1013 tagged locally as v1013 + v1.3.0 (per A-01, NOT v1.4.0); CHANGELOG promoted; 4 plans / 12 MCP gates / 5 inline fixes closed
 progress:
   total_phases: 9
-  completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
-  percent: 44
+  completed_phases: 9
+  total_plans: 15
+  completed_plans: 15
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1060 Close Gate — PARTIAL CLOSE (smoke gates 5/6 green + CHANGELOG populated + 23 inline review fixes; live MCP re-verify + dataset cleanup + tag creation deferred to user)
-Plan: 1060-01 single plan covering smoke gates + CHANGELOG + deferred runbook
-Status: v1013 PARTIAL CLOSE — 3/4 source-level verifications passed (1057/1058/1059); 12 live MCP gates aggregated; 2 e2e failures (builder-v1-5.spec.ts:152, builder.spec.ts:338) need browser triage; Playwright MCP disconnected mid-session prevents Claude from completing CTRL-01 acceptance criterion 3
-Last activity: 2026-05-20 — Phase 1060 SUMMARY written; backend pytest 2713/2713, frontend vitest 2091/2091, layering 23/23, i18n 2/2, typecheck 0; CHANGELOG [Unreleased] populated; 78 commits since milestone start
+v1013 COMPLETE — milestone shipped. Run `/gsd:milestone-complete` to archive ROADMAP, or `/gsd:plan-milestone` for the next milestone.
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1013 Ingest Hardening (Service URL reliability + multi-layer GPKG + Basemap Sublayer Path B FIX, public tag v1.4.0)
+**Current focus:** v1013 Ingest Hardening — SHIPPED 2026-05-20 (local tag `v1013` + public tag `v1.3.0`; CHANGELOG [1.3.0]); awaiting milestone archive.
 
 ## Last Shipped Milestone
 
-**Version:** v1012 New-User Hardening + Reupload
-**Shipped:** 2026-05-19
-**Phases:** 1053-1056 (4 phases, 18 plans, 23 tasks, 23/23 reqs)
-**Tag:** v1012 (local, archived at commit `7262bdea`); public `v1.3.0`
-**Archive:** `.planning/milestones/v1012-ROADMAP.md`
+**Version:** v1013 Ingest Hardening
+**Shipped:** 2026-05-20
+**Phases:** 1057-1060 (4 phases, 15 plans, 10/10 reqs)
+**Tag:** `v1013` (local) + `v1.3.0` (public, local-only per A-04 — push with `git push origin v1013 v1.3.0`)
+**Archive:** TBD — run `/gsd:milestone-complete v1013` to create `.planning/milestones/v1013-ROADMAP.md`
+**Inline fixes (close-gate):** 5 fixes from live MCP re-verify — WFS-04 layer 2 (`5b965cfd`), GPKG-03 3-bug close (`831b691f`), BSE-01 load-time apply (`d24371ed`), e2e contract drift + duplicate camelCase (`a400eb89`), close-gate hygiene + CONTEXT amendment (earlier).
 
-**Previous:** v1011.1 Builder Hygiene Carryover (shipped 2026-05-18, tag `v1011.1` local, archive `.planning/milestones/v1011.1-ROADMAP.md`)
+**Previous:** v1012 New-User Hardening + Reupload (shipped 2026-05-19, public tag `v1.2.1`, archive `.planning/milestones/v1012-ROADMAP.md`)
 
 ## v1013 Phase Map
 
