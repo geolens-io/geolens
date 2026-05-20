@@ -23,7 +23,7 @@ Requirements for milestone v1013. Each maps to exactly one phase in `ROADMAP.md`
 
 ### Basemap Sublayer Editor (Path B FIX)
 
-- [ ] **BSE-01** *(Feature)*: User can edit and persist per-sublayer styling overrides for any basemap sublayer. Surfaces include stroke color, stroke width, casing color, casing width, zoom range, opacity. Overrides round-trip through save/reload and apply correctly on map render across builder + viewer + shared/embed contexts. Replaces the dead-wired surface removed in v1011.1 EMRG-FN-01 (commits `3629ec04` + `3e48d331`) with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent). Estimated: 3-5 day feature phase per v1011.1 disposition note.
+- [x] **BSE-01** *(Feature)*: User can edit and persist per-sublayer styling overrides for any basemap sublayer. Surfaces include stroke color, stroke width, casing color, casing width, zoom range, opacity. Overrides round-trip through save/reload and apply correctly on map render across builder + viewer + shared/embed contexts. Replaces the dead-wired surface removed in v1011.1 EMRG-FN-01 (commits `3629ec04` + `3e48d331`) with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent). Estimated: 3-5 day feature phase per v1011.1 disposition note.
 
 ### Hygiene
 
@@ -92,7 +92,7 @@ Populated by `gsd-roadmapper` after phase plan creation. All 10 v1013 requiremen
 | GPKG-01 | 1058 | Complete |
 | GPKG-02 | 1058 | Complete |
 | GPKG-03 | 1058 | Complete (Plan 04 backend fan-out closes T-1058C-03) |
-| BSE-01 | 1059 | Pending |
+| BSE-01 | 1059 | Complete |
 | CLEAN-01 | 1060 | Pending |
 | CTRL-01 | 1060 | Pending |
 

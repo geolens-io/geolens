@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
-status: completed
-last_updated: "2026-05-20T03:44:05.250Z"
-last_activity: 2026-05-20 — Phase 1059 Plan 01 executed; SublayerOverride Pydantic model + BasemapConfig.sublayer_overrides field; 22/22 backend tests pass; zero-migration jsonb-additive
+status: in_progress
+last_updated: "2026-05-20T03:53:05.356Z"
+last_activity: 2026-05-20 — Phase 1059 Plan 02 executed; applySublayerOverrides helper + 4-context wire-up; 19/19 unit tests pass; 820/820 total targeted tests pass; tsc clean
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
-  percent: 25
+  completed_plans: 10
+  percent: 27
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1059 Basemap Sublayer Editor (Path B FIX) — Plan 01 complete (backend Pydantic SublayerOverride + persistence)
-Plan: 01 / 4 (backend schema: SublayerOverride model + BasemapConfig.sublayer_overrides field + 22 backend tests)
-Status: Phase 1059 Plan 01 complete — SublayerOverride Pydantic model with 7 nullable fields, hex validator, numeric clamps, extra=forbid; BasemapConfig.sublayer_overrides dict field; zero Alembic migration; 22 tests pass
-Last activity: 2026-05-20 — Phase 1059 Plan 01 executed; SublayerOverride Pydantic model + BasemapConfig.sublayer_overrides field; 22/22 backend tests pass; zero-migration jsonb-additive
+Phase: 1059 Basemap Sublayer Editor (Path B FIX) — Plan 02 complete (applySublayerOverrides helper + BuilderMap + ViewerMap wire-up)
+Plan: 02 / 4 (frontend MapLibre integration: helper + 2 wire-up sites covering 4 render contexts)
+Status: Phase 1059 Plan 02 complete — applySublayerOverrides with idle-retry; 19 unit tests; BuilderMap.tsx (2 sites) + ViewerMap.tsx (1 site = viewer/shared/embed); tsc clean
+Last activity: 2026-05-20 — Phase 1059 Plan 02 executed; applySublayerOverrides helper + 4-context wire-up; 19/19 unit tests pass; 820/820 total targeted tests pass; tsc clean
 
 ## Project Reference
 
@@ -100,8 +100,13 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 | 6 | OGC API CRS detection | P2 | URI-form CRS (`http://www.opengis.net/def/crs/OGC/1.3/CRS84`) not parsed to EPSG; user sees "CRS: Unknown" + must enter override. | CRS-06 | 1057 |
 | 7 | Service URL layer-select classification | P2 | Layers without `geometry_type` in probe response default to RAS; should fall back to VEC. | CLASS-07 | 1057 |
 
+## Decisions
+
+- **Phase 1059 Plan 02:** Exported StyleLayer, isRoadLayer, isBoundaryLayer, isBuildingLayer, isTextLabelLayer, SUBLAYER_CLASSIFIERS from basemap-utils.ts. applySublayerOverrides uses idle-retry recovery (map.once('idle', retry)). casing_color applied via line-color on layers with 'casing' in id (openfreemap-positron heuristic). ViewerMap.tsx serves viewer/shared/embed — 2 wire-up sites covers all 4 render contexts.
+
 ## Operator Next Steps
 
 - Run `/gsd:plan-phase 1057` to break Service URL Reliability into plans.
 - Phase 1057, 1058, 1059 can theoretically be planned in any order (no inter-phase code dependencies); recommend P0-led order (1057 → 1058 → 1059) for sequential solo-dev execution.
 - Phase 1060 (Close Gate) must wait for 1057 + 1058 + 1059 completion.
+- Phase 1059 Plan 03 (editor UI — BasemapSublayerEditorScene restoration) is next.
