@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
-status: in_progress
-last_updated: "2026-05-20T20:44:08.000Z"
-last_activity: 2026-05-20 -- Phase 1062 Plan 03 complete (SEC-S12 simple-regconfig GIN index + SEC-S13 /search/facets/ max_length)
+status: completed
+last_updated: "2026-05-20T21:30:00.000Z"
+last_activity: 2026-05-20 -- Phase 1062 Plan 04 complete (SEC-S09 sqlglot AST WHERE-clause validator)
 progress:
   total_phases: 9
   completed_phases: 1
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 17
 ---
 
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1062 — IN PROGRESS
-Plan: 03 (complete)
-Status: Phase 1062 Plan 03 complete — SEC-S12 (simple-regconfig GIN index on records) + SEC-S13 (/search/facets/ max_length=1000)
-Last activity: 2026-05-20 -- Phase 1062 Plan 03 complete (SEC-S12 simple-regconfig GIN index + SEC-S13 /search/facets/ max_length)
+Plan: 04 (complete)
+Status: Phase 1062 Plan 04 complete — SEC-S09 (sqlglot AST-based WHERE-clause validator for dataset export)
+Last activity: 2026-05-20 -- Phase 1062 Plan 04 complete (SEC-S09 sqlglot AST WHERE-clause validator)
 
 ## Project Reference
 
@@ -113,6 +113,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1062 Plan 01:** SEC-S15 JWT revocation — create_access_token made async to embed token_version+jti; revoke_all_tokens atomically bumps token_version; get_current_user/get_optional_user reject stale JWTs; logout+change-password call revoke_all_tokens. SEC-S16 password complexity — password_policy.py with configurable 12-char + 3-of-4 class diversity wired to all 4 entry points; PASSWORD_MIN_LENGTH/PASSWORD_REQUIRE_CLASSES env-configurable; Field(min_length=8) fast-fail floor kept per plan note.
 - **Phase 1062 Plan 02:** SEC-S11 per-route rate limits applied per-IP — 30/min for semantic search (/search/datasets/, /search/facets/, /datasets/{id}/related/), 120/min for basemap proxy (/settings/basemaps/). _sync_rate_limit_cache accessor pattern reused from existing login/global infrastructure. Per-token caps deferred to SEC-FU Phase 1063. SEC-S10 docstring added to get_basemaps documenting public api_key resolution model.
 - **Phase 1062 Plan 03:** SEC-S12 GIN index ix_records_simple_search_vector on simple-regconfig tsvector (migration 0020); catalog.immutable_text_array_join IMMUTABLE wrapper for array_to_string (concat_ws is STABLE, cannot appear in functional index); service_filters.py runtime expression updated from concat_ws to || operator to match index expression tree. SEC-S13 max_length=1000 on /search/facets/?q= matching peer /search/datasets/.
+- **Phase 1062 Plan 04:** SEC-S09 sqlglot AST allowlist for WHERE-clause fragment validation — wraps fragment as SELECT 1 FROM _t WHERE <input>, deny-by-default allowlist (Column/Literal/comparison/logical/In/Is/Like/Between/Paren/Neg), catches TokenError alongside ParseError; validate_where_ast() called BEFORE identifier check in validate_where_clause() (defense-in-depth); 41 pytest tests pass.
 
 ## Operator Next Steps
 
