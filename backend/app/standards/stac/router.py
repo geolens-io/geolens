@@ -1099,7 +1099,13 @@ async def search_get(
     collections: str | None = Query(None, description="Comma-separated collection IDs"),
     ids: str | None = Query(None, description="Comma-separated item IDs"),
     intersects: str | None = Query(
-        None, description="GeoJSON geometry for spatial intersection"
+        None,
+        max_length=10000,
+        description=(
+            "GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): "
+            "max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier — fits ~150-vertex "
+            "polygons at 2-decimal-place lat/lon coordinates."
+        ),
     ),
     limit: int = Query(10, ge=1, le=200),
     offset: int = Query(
