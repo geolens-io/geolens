@@ -11,6 +11,10 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+_(No unreleased changes since v1.3.0.)_
+
+## [1.3.0] - 2026-05-20
+
 ### Ingest hardening + multi-layer GPKG + basemap sublayer styling (v1013 milestone)
 
 Phases 1057-1060 — closes 10 v1013 requirements surfacing from the v1012
@@ -72,16 +76,28 @@ fix at the head of the milestone.
 
 - **WFS-04 (P0): WFS commit succeeds on abstract OGC geometry types.**
   Polygon-heavy GeoServer WFS layers declaring `MultiSurface`,
-  `MultiCurve`, `CompoundSurface`, etc. now ingest end-to-end. Root
-  cause: `run_ogr2ogr_service` honored the WFS-declared abstract type
-  as the PostGIS column constraint via `-nlt PROMOTE_TO_MULTI`, then
-  the post-ingest `clip_to_mercator_bounds` UPDATE failed because
-  actual feature geometries are concrete (MultiPolygon, LineString).
-  Fix: drop the `-nlt` flag for the service path, yielding a generic
-  `geometry(Geometry, 4326)` column. PostGIS column-level type
-  discipline is replaced by `metadata.geometry_type` derived from
-  first-feature inspection. File-ingest path (`run_ogr2ogr`) is
-  untouched — concrete types are accurate for local files.
+  `MultiCurve`, `CompoundSurface`, etc. now ingest end-to-end. The fix
+  has TWO layers — both shipped in this milestone, second one caught by
+  the live MCP re-verify gate G-01 at close-gate time:
+  - **Layer 1 (Phase 1057):** Root cause was `run_ogr2ogr_service`
+    honoring the WFS-declared abstract type as the PostGIS column
+    constraint via `-nlt PROMOTE_TO_MULTI`, then the post-ingest
+    `clip_to_mercator_bounds` UPDATE failed because actual feature
+    geometries are concrete (MultiPolygon, LineString). Fixed by
+    replacing the `-nlt` flag with `-nlt GEOMETRY` for the service
+    path, yielding a constraint-free `geometry(Geometry, 4326)` column.
+    File-ingest path (`run_ogr2ogr`) is untouched.
+  - **Layer 2 (Phase 1060 close-gate):** With the column constraint
+    relaxed, ingest proceeded further but `extract_metadata()` still
+    returned the raw `GeometryType(geom)` (e.g. `MULTISURFACE`) which
+    failed the `chk_datasets_geometry_type` CHECK constraint (only 7
+    concrete OGC simple-features types allowed). New
+    `_normalize_geometry_type()` helper in `metadata.py` maps abstract
+    GML 3 types → closest concrete equivalent (`MULTISURFACE` →
+    `MULTIPOLYGON`, `MULTICURVE` → `MULTILINESTRING`, etc.). 9 new
+    regression tests pin the mapping. Verified live against
+    `ahocevar.com/geoserver/wfs` Countries of the World — 241 features,
+    `geometry_type=MULTIPOLYGON`, `srid=4326`.
 - **PROBE-05 (P1): Service URL probe completes ≤5s** for fast services.
   Root cause was misdiagnosed in the original report (claimed
   `try_all_probes()` short-circuit issue, but the orchestrator already
@@ -91,6 +107,62 @@ fix at the head of the milestone.
   Fix: drop enrichment from the probe phase entirely; lazy-enrich
   when the user picks a layer at preview time. ArcGIS HTTP enrichment
   preserved (different shape, not the bottleneck).
+- **GPKG-03 fan-out 3-bug close (close-gate):** the
+  `POST /ingest/commit-fan-out/` endpoint had three latent issues
+  surfaced by live MCP re-verify gate G-07:
+  - **Migration branching collision:** `0017_ingest_job_fanned_out_status`
+    collided with `0017_map_basemap_config` (both claimed revision
+    `0017_*` with the same `down_revision`). Applied migration was
+    `0017_map_basemap_config`; the fan-out status migration never ran
+    so `'fanned_out'` was rejected by the `chk_ingest_jobs_status`
+    CHECK constraint. Renumbered to `0018_ingest_job_fanned_out_status`
+    chained off `0017_map_basemap_config`.
+  - **Defer-before-commit race:** `service.create_fan_out_jobs()`
+    called `session.flush()` then `defer_async()` while the actual
+    `session.commit()` was deferred to the end of the fan-out loop in
+    `router.commit_fan_out`. Procrastinate uses a separate DB connection
+    so the worker would pick up the task before our session committed,
+    log "Ingest job not found, skipping", and the job stayed `pending`
+    forever. Now commits per-layer inside `create_fan_out_jobs` (orphan
+    risk on defer failure still handled by `defer_with_orphan_guard`).
+  - **File-cleanup race:** `ingest_file` task unlinked the staging file
+    in its `finally` block on `final_status == "complete"`. Multiple
+    fan-out siblings share one staging file, so the second sibling
+    failed with FileNotFoundError when the first one cleaned up. Now
+    checks `fan_out_parent_id` in `user_metadata` and skips unlink for
+    fan-out children. Orphan-file cleanup is a v1014 followup
+    (`TECH-DEBT-GPKG-03-ORPHAN-CLEANUP`); staging dir retention policy
+    handles eventual cleanup.
+- **BSE-01 sublayer overrides apply on initial load (close-gate fix
+  for G-09/G-10).** The `applySublayerOverrides` helper had an
+  idle-retry recovery for the fresh-mount race, but the BuilderMap +
+  ViewerMap callers wrapped the call inside an `if (!isStyleLoaded())
+  return` gate. When saved `basemap_config` arrived from the API
+  before the basemap style finished loading, the call was dropped —
+  and because `basemapConfig` didn't change reference on subsequent
+  re-renders, the effect never re-fired to retry. Saved overrides
+  stayed invisible until the user manually re-picked a swatch. Fix:
+  call `applySublayerOverrides` BEFORE the `isStyleLoaded()` guard;
+  the helper's internal idle-retry handles the race. Verified live
+  across builder, shared, and embed contexts.
+- **Layer duplicate now persists snake_case style_config builder
+  keys (close-gate fix for e2e regression).** The frontend's
+  `normalize-style-config.ts` rewrites storage-canonical snake_case
+  keys (e.g. `outline_color`) to camelCase (e.g. `outlineColor`) on
+  layer load — the React-state contract. When a layer was duplicated,
+  React state passed camelCase back through the POST body and the new
+  layer was persisted with camelCase while the original kept
+  snake_case. New backend helper `canonicalize_builder_style_config()`
+  in `schemas.py` rewrites incoming camelCase builder keys to
+  snake_case in both `MapLayerInput` and `MapLayerPatch` validators
+  before storage. Idempotent: snake_case input passes through
+  unchanged. Restores byte-equal style_config across duplicates.
+- **E2E test contract drift (close-gate fix).** Phase 1052 dropped
+  `role="listbox"`/`role="option"` from `StackRow` due to
+  nested-interactive a11y issues but the e2e tests kept asserting
+  `aria-selected="true"`. Updated `e2e/builder-v1-5.spec.ts` Test 3 +
+  Test 4 (6 assertions) to use `data-selected="true"` (the post-Phase
+  1052 contract). Headless smoke now 25/0/1.
 
 #### Notes
 
