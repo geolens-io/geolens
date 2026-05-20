@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
 status: completed
-last_updated: "2026-05-20T02:43:00.000Z"
-last_activity: 2026-05-20 — Phase 1058 Plan 02 executed; GPKG-02 P1 preview pane parity — Layer: line + schema-change advisory banner; 19/19 vitest + i18n parity green
+last_updated: "2026-05-20T02:49:00.000Z"
+last_activity: "2026-05-20 — Phase 1058 Plan 04 executed; GPKG-03 backend fan-out endpoint; 53/53 backend + 31/31 frontend tests pass; T-1058C-03 closed"
 progress:
   total_phases: 9
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 25
+  total_plans: 11
+  completed_plans: 11
+  percent: 22
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1058 Multi-Layer GPKG Handling — Plan 02 complete (all 3 plans done: 01 GPKG-01, 02 GPKG-02, 03 GPKG-03)
-Plan: 02 / 3 (GPKG-02 P1 preview pane parity — Layer: line + schema-change advisory banner)
-Status: Phase 1058 all plans complete — GPKG-01 (layer-select state machine + backend), GPKG-02 (preview pane parity), GPKG-03 (ingest-all-layers fan-out); T-1058C-03 documented (backend rejects commits 2..N for same job_id — follow-up plan needed)
-Last activity: 2026-05-20 — Phase 1058 Plan 02 executed; GPKG-02 P1 preview pane parity — Layer: line + schema-change advisory banner; 19/19 vitest + i18n parity green
+Phase: 1058 Multi-Layer GPKG Handling — Plan 04 complete (all 4 plans done: 01 GPKG-01, 02 GPKG-02, 03 GPKG-03-UI, 04 GPKG-03-backend-fanout)
+Plan: 04 / 4 (GPKG-03 backend fan-out endpoint — POST /ingest/commit-fan-out/{job_id})
+Status: Phase 1058 all 4 plans complete — GPKG-01 (layer-select state machine + backend), GPKG-02 (preview pane parity), GPKG-03 UI (ingest-all-layers fan-out + results modal), GPKG-03 backend (fan-out endpoint closes T-1058C-03)
+Last activity: 2026-05-20 — Phase 1058 Plan 04 executed; GPKG-03 backend fan-out endpoint; migration 0017; 53/53 backend + 31/31 frontend tests pass
 
 ## Project Reference
 
