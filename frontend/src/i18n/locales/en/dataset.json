@@ -261,6 +261,7 @@
     "dropzone": "Drag and drop a file here, or click to browse",
     "uploadingMessage": "Uploading and analyzing file...",
     "file": "File:",
+    "schemaChangeAdvisory": "Schema differs from previous version: {{added}} columns added, {{removed}} removed.",
     "warningSchemaChanges": "Warning: This re-upload includes schema changes that may affect existing queries.",
     "confirmReupload": "Confirm Re-Upload",
     "committingMessage": "Committing re-upload...",

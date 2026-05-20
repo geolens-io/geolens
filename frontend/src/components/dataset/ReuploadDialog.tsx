@@ -454,6 +454,12 @@ export function ReuploadDialog({
     (preview.schema_diff.columns_removed.length > 0 ||
       preview.schema_diff.type_changes.length > 0);
 
+  // GPKG-02 Phase 1058: advisory banner — derived client-side per D-07, distinct from hasWarning (D-05/D-07)
+  const schemaChangeCount =
+    (preview?.schema_diff.columns_added.length ?? 0) +
+    (preview?.schema_diff.columns_removed.length ?? 0);
+  const hasSchemaChange = schemaChangeCount > 0;
+
   const descriptions: Record<ReuploadStep, string> = {
     'source-select': t('reupload.descriptions.sourceSelect', {
       defaultValue: 'Choose a source for this re-upload.',
@@ -806,10 +812,36 @@ export function ReuploadDialog({
 
         {step === 'preview' && preview && (
           <div className="space-y-4">
-            <p className="text-sm">
-              {previewSourceLabel}{' '}
-              <span className="font-medium">{previewSourceValue}</span>
-            </p>
+            {/* GPKG-02 Phase 1058: file-path multi-layer shows File + Layer lines; single-layer or service shows one line */}
+            {sourceType === 'file' && selectedFileLayer !== null ? (
+              <>
+                <p className="text-sm">
+                  {t('reupload.file')}{' '}
+                  <span className="font-medium">{selectedFile?.name}</span>
+                </p>
+                <p className="text-sm">
+                  {t('reupload.service.layerLabel', { defaultValue: 'Layer:' })}{' '}
+                  <span className="font-medium">{selectedFileLayer}</span>
+                </p>
+              </>
+            ) : (
+              <p className="text-sm">
+                {previewSourceLabel}{' '}
+                <span className="font-medium">{previewSourceValue}</span>
+              </p>
+            )}
+            {/* GPKG-02 Phase 1058: schema-change advisory banner (informational, distinct from hasWarning) */}
+            {hasSchemaChange && (
+              <div
+                className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm"
+                data-testid="schema-change-advisory"
+              >
+                {t('reupload.schemaChangeAdvisory', {
+                  added: preview.schema_diff.columns_added.length,
+                  removed: preview.schema_diff.columns_removed.length,
+                })}
+              </div>
+            )}
             <SchemaDiffView schemaDiff={preview.schema_diff} />
             {hasWarning && (
               <p className="text-sm text-warning">

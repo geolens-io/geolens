@@ -424,6 +424,28 @@ describe('ReuploadDialog', () => {
       ),
     ).toBeInTheDocument();
   });
+
+  // GPKG-02 Phase 1058: guard — service URL preview still uses service layer name, not file-path layer
+  it('service URL preview Layer: line uses service layer name (not file-path layer)', async () => {
+    const user = userEvent.setup();
+    servicePreviewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'service-job',
+        layer_name: 'parcels',
+        source_filename: 'Parcels',
+      }),
+    );
+    renderDialog();
+
+    await openServicePreview(user);
+
+    // The preview pane should show "Layer:" followed by the service layer name ('Parcels')
+    expect(screen.getByText(/Layer:/)).toBeInTheDocument();
+    // The service layer humanized name "Parcels" (from probeResult layer title) should be visible
+    expect(screen.getByText('Parcels')).toBeInTheDocument();
+    // There should be NO "File:" header line in service-URL preview
+    expect(screen.queryByText(/^File:/)).not.toBeInTheDocument();
+  });
 });
 
 // GPKG-01 Phase 1058: multi-layer file path tests
@@ -618,5 +640,142 @@ describe('ReuploadDialog file path multi-layer', () => {
     });
     const commitCall = commitMutateAsync.mock.calls[0][0];
     expect(commitCall.layerName).toBe('buildings');
+  });
+
+  // GPKG-02 Phase 1058: preview pane parity tests
+  it('renders Layer line in preview when selectedFileLayer is set', async () => {
+    const user = userEvent.setup();
+    // First preview: multi-layer, triggers selecting-file-layer step
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'buildings', feature_count: 10, field_count: 2 },
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: 'buildings',
+      }),
+    );
+    // Second preview: after layer selection
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({ job_id: 'file-job', layer_name: 'buildings' }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+    await screen.findByTestId('reupload-file-layer-select');
+
+    // Click Preview (buildings pre-selected)
+    await user.click(screen.getByRole('button', { name: 'Preview Layer' }));
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // Both File: and Layer: lines should be visible, Layer: showing 'buildings'
+    expect(screen.getByText(/File:/)).toBeInTheDocument();
+    const layerElements = screen.getAllByText(/Layer:/);
+    expect(layerElements.length).toBeGreaterThan(0);
+    expect(screen.getByText('buildings')).toBeInTheDocument();
+  });
+
+  it('does NOT render Layer line for single-layer file', async () => {
+    const user = userEvent.setup();
+    // Single-layer: all_layers: null — skips selecting-file-layer step, selectedFileLayer stays null
+    previewMutateAsync.mockResolvedValue(
+      makePreviewResponse({ job_id: 'file-job', all_layers: null, layer_name: 'parcels' }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('single.geojson');
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // File: line should exist; no standalone Layer: prefix in the preview header
+    expect(screen.getByText(/File:/)).toBeInTheDocument();
+    // The preview header should NOT show a Layer: line — only one <p> with File:
+    // queryByText with regex that matches only the label "Layer:" (not inside layer table header)
+    // Service layer table is not rendered here so this checks preview header only
+    const layerLabels = screen.queryAllByText('Layer:');
+    expect(layerLabels).toHaveLength(0);
+  });
+
+  it('renders schema-change advisory banner when columns_added or columns_removed is non-empty', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'buildings', feature_count: 10, field_count: 2 },
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: 'buildings',
+      }),
+    );
+    // Second preview: schema diff has adds and removes
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        layer_name: 'buildings',
+        schema_diff: {
+          columns_added: [{ name: 'foo', type: 'text' }],
+          columns_removed: [{ name: 'bar', type: 'integer' }],
+          type_changes: [],
+          row_count_old: 40,
+          row_count_new: 42,
+          row_count_delta: 2,
+        },
+      }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+    await screen.findByTestId('reupload-file-layer-select');
+
+    await user.click(screen.getByRole('button', { name: 'Preview Layer' }));
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // Advisory banner should be visible with the column counts
+    expect(screen.getByTestId('schema-change-advisory')).toBeInTheDocument();
+    expect(screen.getByText(/1 columns added, 1 removed/)).toBeInTheDocument();
+  });
+
+  it('does NOT render schema-change advisory when columns are identical', async () => {
+    const user = userEvent.setup();
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        all_layers: [
+          { name: 'buildings', feature_count: 10, field_count: 2 },
+          { name: 'addresses', feature_count: 5, field_count: 3 },
+        ],
+        previous_source_layer: 'buildings',
+      }),
+    );
+    // Second preview: no column changes
+    previewMutateAsync.mockResolvedValueOnce(
+      makePreviewResponse({
+        job_id: 'file-job',
+        layer_name: 'buildings',
+        schema_diff: {
+          columns_added: [],
+          columns_removed: [],
+          type_changes: [],
+          row_count_old: 40,
+          row_count_new: 42,
+          row_count_delta: 2,
+        },
+      }),
+    );
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'File' }));
+    await dropFile('multi.gpkg');
+    await screen.findByTestId('reupload-file-layer-select');
+
+    await user.click(screen.getByRole('button', { name: 'Preview Layer' }));
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    // Advisory banner should NOT be rendered
+    expect(screen.queryByTestId('schema-change-advisory')).not.toBeInTheDocument();
   });
 });

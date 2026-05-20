@@ -299,6 +299,7 @@
     "dropzone": "Datei hierher ziehen oder klicken zum Durchsuchen",
     "uploadingMessage": "Datei wird hochgeladen und analysiert...",
     "file": "Datei:",
+    "schemaChangeAdvisory": "Schema weicht von der vorherigen Version ab: {{added}} Spalten hinzugefügt, {{removed}} entfernt.",
     "warningSchemaChanges": "Warnung: Dieses erneute Hochladen enthält Schemaänderungen, die bestehende Abfragen beeinträchtigen können.",
     "confirmReupload": "Erneutes Hochladen bestätigen",
     "committingMessage": "Erneutes Hochladen wird übernommen...",

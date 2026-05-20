@@ -299,6 +299,7 @@
     "dropzone": "Arrastre y suelte un archivo aquí, o haga clic para explorar",
     "uploadingMessage": "Subiendo y analizando archivo...",
     "file": "Archivo:",
+    "schemaChangeAdvisory": "El esquema difiere de la versión anterior: {{added}} columnas añadidas, {{removed}} eliminadas.",
     "warningSchemaChanges": "Advertencia: Esta nueva subida incluye cambios de esquema que pueden afectar consultas existentes.",
     "confirmReupload": "Confirmar nueva subida",
     "committingMessage": "Confirmando nueva subida...",

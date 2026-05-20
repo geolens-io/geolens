@@ -299,6 +299,7 @@
     "dropzone": "Glissez-déposez un fichier ici, ou cliquez pour parcourir",
     "uploadingMessage": "Téléchargement et analyse du fichier...",
     "file": "Fichier :",
+    "schemaChangeAdvisory": "Le schéma diffère de la version précédente : {{added}} colonnes ajoutées, {{removed}} supprimées.",
     "warningSchemaChanges": "Attention : ce rechargement inclut des modifications de schéma qui peuvent affecter les requêtes existantes.",
     "confirmReupload": "Confirmer le rechargement",
     "committingMessage": "Validation du rechargement...",
