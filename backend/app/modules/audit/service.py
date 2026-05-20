@@ -17,6 +17,7 @@ __all__ = [
     "audit_emit",
     "log_action",
     "query_audit_logs",
+    "query_column_ddl_history",
     "stream_audit_logs",
 ]
 
@@ -146,6 +147,77 @@ async def query_audit_logs(
             date_to=date_to,
             search=search,
         )
+        count_result = await session.execute(count_query)
+        return [], int(count_result.scalar_one())
+
+    logs = [row[0] for row in rows]
+    total = int(rows[0][1])
+    return logs, total
+
+
+# SEC-FU-08: Column DDL action strings emitted by the column-DDL endpoints
+# (backend/app/modules/catalog/layers/router.py). These 4 values are the canonical
+# set; do NOT add new strings here without also updating the router audit_emit calls.
+_COLUMN_DDL_ACTIONS = (
+    "layer.add_column",
+    "layer.rename_column",
+    "layer.alter_column_type",
+    "layer.drop_column",
+)
+
+
+async def query_column_ddl_history(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[AuditLog], int]:
+    """Return column-DDL audit history for a single dataset.
+
+    SEC-FU-08: Filters audit_logs to the 4 column-DDL action strings emitted
+    by the column-DDL endpoints in Phase 1061 SEC-S03, ordered by created_at
+    DESC. Returns a ``(rows, total_count)`` tuple matching the existing
+    ``query_audit_logs`` shape for consistent pagination at the router layer.
+
+    Eager-loads AuditLog.user (already ``lazy="joined"`` in the model) so
+    the response can include the actor username without an N+1.
+
+    No schema migration required — uses the existing audit_logs table.
+
+    Args:
+        session: Async SQLAlchemy session.
+        dataset_id: The dataset whose column-DDL history to fetch.
+        limit: Maximum rows to return (default 50).
+        offset: Row offset for pagination (default 0).
+
+    Returns:
+        Tuple of (list[AuditLog], total_count).
+    """
+    where_clauses = [
+        AuditLog.resource_type == "dataset",
+        AuditLog.resource_id == dataset_id,
+        AuditLog.action.in_(_COLUMN_DDL_ACTIONS),
+    ]
+
+    # Use window COUNT() to get total in the same round-trip as the row fetch
+    # (mirrors the query_audit_logs pattern).
+    total_col = func.count().over().label("total_count")
+    query = (
+        select(AuditLog, total_col)
+        .options(joinedload(AuditLog.user))
+        .where(*where_clauses)
+        .order_by(AuditLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    result = await session.execute(query)
+    rows = result.unique().all()
+
+    if not rows:
+        # Empty slice — fall back to a count-only query (mirrors query_audit_logs).
+        count_query = select(func.count()).select_from(AuditLog).where(*where_clauses)
         count_result = await session.execute(count_query)
         return [], int(count_result.scalar_one())
 
