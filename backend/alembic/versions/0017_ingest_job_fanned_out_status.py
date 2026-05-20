@@ -41,9 +41,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Revert to original constraint. Any rows with status='fanned_out'
-    # must be manually updated before downgrade or they will violate the
-    # constraint.
+    # WR-03 fix: reset any 'fanned_out' rows to 'complete' before recreating
+    # the old constraint. Without this UPDATE, Postgres will fail the
+    # ADD CONSTRAINT check on existing fanned_out rows and the downgrade will
+    # abort with a confusing constraint-violation error in production.
+    op.execute(
+        "UPDATE catalog.ingest_jobs SET status = 'complete' WHERE status = 'fanned_out'"
+    )
     op.execute(
         "ALTER TABLE catalog.ingest_jobs "
         "DROP CONSTRAINT IF EXISTS chk_ingest_jobs_status"
