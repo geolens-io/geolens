@@ -565,7 +565,32 @@ async def run_ogr2ogr_service(
     ]
 
     if not is_non_spatial:
-        # Spatial layers: promote to multi-geometry and reproject to WGS84.
+        # Spatial layers: reproject to WGS84 and emit a constraint-free
+        # geometry column.
+        #
+        # D-01 / Phase 1057 — WHY -nlt GEOMETRY (not PROMOTE_TO_MULTI):
+        # Some OGC/WFS services (e.g. GeoServer) declare abstract geometry
+        # types in their schema (MultiSurface, MultiCurve, CompoundSurface).
+        # ogr2ogr honours that declaration and creates the PostGIS column with
+        # the same abstract subtype.  When the actual features arrive as
+        # concrete geometries (MultiPolygon), the post-ingest bounds-clip
+        # UPDATE in clip_to_mercator_bounds (metadata.py) fails with:
+        #   asyncpg.exceptions.InvalidParameterValueError:
+        #     Geometry type (MultiPolygon) does not match column type (MultiSurface)
+        #
+        # -nlt GEOMETRY instructs ogr2ogr to emit a generic `geometry(Geometry,
+        # 4326)` column with no subtype constraint, so any concrete subtype
+        # stored by the service's features is accepted by PostGIS transparently.
+        #
+        # The concrete subtype for Dataset.geometry_type is derived post-ingest
+        # via get_geometry_type() (metadata.py:165) which inspects the first
+        # feature with `SELECT GeometryType(geom) … LIMIT 1`.  This keeps the
+        # downstream record_type classification, icons, and UX unchanged.
+        #
+        # The file-ingest sibling run_ogr2ogr() continues to use
+        # PROMOTE_TO_MULTI because local files always report concrete types;
+        # the abstract-type problem only arises on the service-ingest path.
+        #
         # GEOMETRY_NAME=_geolens_geom avoids a CREATE TABLE collision when the
         # remote service publishes an attribute named `geom`/`geometry`. The
         # post-ingest `ensure_geom_column` step renames the placeholder to
@@ -573,7 +598,7 @@ async def run_ogr2ogr_service(
         # attribute to `src_<name>`.
         cmd += [
             "-nlt",
-            "PROMOTE_TO_MULTI",
+            "GEOMETRY",
             "-lco",
             "GEOMETRY_NAME=_geolens_geom",
             "-lco",
