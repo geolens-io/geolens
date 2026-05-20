@@ -11,6 +11,7 @@ from app.platform.audit import (
     audit_emit,
 )  # re-exported for ergonomic single-import
 from app.modules.audit.models import AuditLog
+from app.modules.catalog._ilike import escape_ilike
 
 __all__ = [
     "AuditEvent",
@@ -66,8 +67,12 @@ def _apply_filters(
         # resource_type stays ILIKE -- it is a fixed enum-like string column with
         # low cardinality and no trigram index; the optimizer handles it with the
         # existing composite index on (resource_type) when present.
+        # WR-02: escape %, _, and \\ so admin searches for literal special chars
+        # return the correct rows rather than acting as wildcards.
         search_filter = (
-            action_match | AuditLog.resource_type.ilike(f"%{search}%") | username_match
+            action_match
+            | AuditLog.resource_type.ilike(f"%{escape_ilike(search)}%", escape="\\")
+            | username_match
         )
         query = query.where(search_filter)
     return query
