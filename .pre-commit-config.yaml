@@ -1,0 +1,54 @@
+# Pre-commit hooks for GeoLens security guardrails.
+# Phase 1061 SEC-GUARD-01: pins audit-derived patterns so regressions trip CI.
+# See AGENTS.md "Security pre-commit checklist" and
+# docs-internal/audits/security-lessons.md for the underlying rationale.
+#
+# Run locally:
+#   pip install pre-commit && pre-commit install
+#   pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      - id: ssrf-safe-client
+        name: "SSRF Rule 2 — httpx.AsyncClient(follow_redirects=True) outside sources/security.py"
+        description: >
+          Any httpx.AsyncClient with follow_redirects=True must be constructed
+          via make_safe_client() from backend/app/modules/catalog/sources/security.py.
+          The factory installs the per-hop _revalidate_redirect event hook.
+          See AGENTS.md Security pre-commit checklist Rule 2.
+        language: pygrep
+        entry: 'httpx\.AsyncClient\([^)]*follow_redirects=True'
+        types: [python]
+        # Allow the canonical factory home; deny everywhere else.
+        exclude: '^backend/app/modules/catalog/sources/security\.py$'
+        files: '^backend/app/.*\.py$'
+
+      - id: visibility-filter-coverage
+        name: "Visibility Rule 1 — route files calling get_dataset must reference check_dataset_access or apply_visibility_filter"
+        description: >
+          Any route handler that fetches a Record/Dataset/Map by ID must call
+          check_dataset_access_or_anonymous (read) or check_dataset_access (write)
+          or apply_visibility_filter. See AGENTS.md Security pre-commit checklist Rule 1.
+          Evaluation: Phase 1061 Plan 06 found 1 flagged file (router_reupload.py) with
+          FP count = 0 legitimate exemptions. The file has a tracked IDOR gap (deferred
+          to Phase 1063 as SEC-FU) and is excluded until that phase ships the fix.
+        language: system
+        entry: >-
+          bash -c '
+          for f in "$@"; do
+            if grep -qE "^@(stac_|ogc_|layers_|router)\.(get|post|patch|delete|put)" "$f" \
+              && grep -qE "get_dataset\(" "$f" \
+              && ! grep -qE "check_dataset_access|apply_visibility_filter" "$f"; then
+              echo "FAIL: $f has route handlers calling get_dataset without check_dataset_access or apply_visibility_filter"
+              exit 1
+            fi
+          done
+          ' --
+        types: [python]
+        files: '^backend/app/(modules/catalog|standards)/.*\.py$'
+        # Tracked pre-existing gaps excluded until fixed in referenced phase:
+        # - router_reupload.py: IDOR gap — all reupload handlers use require_permission("edit_metadata")
+        #   (role-level) but not check_dataset_access (resource-level). Tracked as Phase 1061 SEC-FU,
+        #   deferred to Phase 1063. See docs-internal/audits/security-lessons.md.
+        exclude: '^backend/app/modules/catalog/datasets/api/router_reupload\.py$'
