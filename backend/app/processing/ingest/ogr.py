@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import string
 from typing import TypedDict
 
 from app.core.config import settings
@@ -15,6 +16,44 @@ from app.core.crs_uri import parse_crs_uri
 # The trailing mode group (...) is optional — some GDAL builds emit bare driver names
 # without a mode suffix, so the regex accepts " -> 'NAME'" with optional "(...)" after.
 _OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
+
+# SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03):
+# Allowed characters for an Authorization bearer token passed to GDAL_HTTP_HEADERS.
+# JWT-shaped tokens use the base64url charset (RFC 4648 §5) plus dot separators
+# (RFC 7519 — header.payload.signature segments). Restricting to this set prevents
+# a token containing CR/LF from smuggling extra HTTP headers into libcurl via the
+# GDAL_HTTP_HEADERS environment variable.
+_BASE64URL_CHARSET = frozenset(string.ascii_letters + string.digits + "._-=")
+
+
+def _sanitize_authorization_token(token: "str | None") -> "str | None":
+    """SEC-FU-04: pin Authorization bearer token to base64url charset before GDAL env composition.
+
+    A token containing CR/LF or arbitrary unicode could let an attacker inject additional
+    HTTP headers via the GDAL_HTTP_HEADERS env-var → libcurl pipeline. JWT-shaped tokens
+    use the base64url charset plus dot separators (RFC 4648 §5 + RFC 7519); legitimate
+    tokens never include CR/LF/whitespace/unicode.
+
+    Returns the token unchanged if every character is in _BASE64URL_CHARSET.
+    Raises ValueError with a SEC-FU-04-prefixed message otherwise.
+    None passes through (caller's no-token path).
+    """
+    if token is None:
+        return None
+    if not token or len(token) < 8:
+        raise ValueError(
+            "SEC-FU-04: Authorization token is empty or implausibly short "
+            "(minimum 8 characters required to prevent single-char attack payloads)."
+        )
+    bad = [c for c in token if c not in _BASE64URL_CHARSET]
+    if bad:
+        sample = bad[0]
+        raise ValueError(
+            f"SEC-FU-04: Authorization token contains non-base64url character "
+            f"(first offender: {sample!r}); only [A-Za-z0-9._\\-=] are permitted "
+            "to prevent CRLF header smuggling via GDAL_HTTP_HEADERS env var."
+        )
+    return token
 
 
 def _strip_ogr_driver_list(stderr_text: str) -> str:
@@ -639,9 +678,10 @@ async def run_ogr2ogr_service(
     # HTTP; GDAL_HTTP_FOLLOWLOCATION=NO is the only way to disable
     # redirect-following in libcurl under GDAL.
     if token and service_type in ("wfs", "ogcapi_features"):
+        safe_token = _sanitize_authorization_token(token)  # SEC-FU-04: raises ValueError before subprocess
         env = {
             **os.environ,
-            "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}",
+            "GDAL_HTTP_HEADERS": f"Authorization: Bearer {safe_token}",
             "GDAL_HTTP_FOLLOWLOCATION": "NO",
         }
     else:
