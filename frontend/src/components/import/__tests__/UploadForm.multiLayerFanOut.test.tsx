@@ -1,17 +1,15 @@
 /**
- * GPKG-03 Phase 1058 — UploadForm multi-layer fan-out handler tests.
+ * GPKG-03 Phase 1058-04 — UploadForm multi-layer fan-out (single commitFanOut call).
  *
  * Tests:
- * (a) does nothing for single-layer entries
- * (b) fires N commitImport calls for a multi-layer entry
- * (c) respects concurrency cap of 4 — never more than 4 in flight at once
- * (d) aggregates Promise.allSettled results into the fanOutResults state (results modal)
- * (e) updates entry.status to commit-failed when any layer fails; 'tracking' only on all-success
+ * (a) single-layer entry: commitFanOut NOT called
+ * (b) multi-layer entry: commitFanOut called ONCE with all layers in payload
+ * (c) results modal renders per-layer success/failure from FanOutCommitResponse
+ * (d) entry transitions to 'tracking' on full success; commit-failed on any failure
+ * (e) network-level failure (commitFanOut throws) → all layers shown as failed
  *
- * T-1058C-03 note: in production, the backend /import/upload/commit endpoint rejects
- * commits after the first (job transitions from "pending" → "queued" after first commit).
- * These tests verify the client-side fan-out shape; backend constraint is documented
- * in the plan SUMMARY.
+ * T-1058C-03 resolved: commitImport is NOT called at all — single commitFanOut
+ * replaces the N-commit loop that the backend rejected after job_id #1.
  */
 import { render, screen, act, waitFor } from '@/test/test-utils';
 import { UploadForm } from '../UploadForm';
@@ -36,6 +34,7 @@ vi.mock('react-i18next', () => ({
         return `${opts.succeeded} layers imported, ${opts.failed} failed.`;
       }
       if (key === 'upload.multiLayerRetryClose') return 'Close (retry by re-clicking Ingest all layers)';
+      if (key === 'upload.commitFailed') return 'Commit failed.';
       if (typeof opts?.defaultValue === 'string') return opts.defaultValue;
       return key;
     },
@@ -51,11 +50,16 @@ vi.mock('@/api/ingest', () => ({
   commitImport: vi.fn(),
 }));
 
+// Mock commitFanOut from datasets.ts (Phase 1058-04 single-call fan-out)
+vi.mock('@/api/datasets', () => ({
+  commitFanOut: vi.fn(),
+}));
+
 vi.mock('@/components/import/hooks/use-ingest', () => ({
   useUploadConfig: () => ({ data: null }),
 }));
 
-// Stub heavy child components — we expose the onIngestAllLayers trigger
+// Stub heavy child components
 vi.mock('../FileDropzone', () => ({
   FileDropzone: ({ onFilesAccepted }: { onFilesAccepted: (files: File[]) => void }) => (
     <div data-testid="file-dropzone">
@@ -123,14 +127,16 @@ vi.mock('sonner', () => ({
 // ---------------------------------------------------------------------------
 
 import { commitImport, previewFile, uploadFile } from '@/api/ingest';
+import { commitFanOut } from '@/api/datasets';
 import { toast } from 'sonner';
 
 const mockUploadFile = vi.mocked(uploadFile);
 const mockPreviewFile = vi.mocked(previewFile);
 const mockCommitImport = vi.mocked(commitImport);
+const mockCommitFanOut = vi.mocked(commitFanOut);
 const mockToast = vi.mocked(toast.success);
 
-/** Multi-layer file preview fixture (2 layers). */
+/** Multi-layer file preview fixture (layerCount layers). */
 function makeMultiLayerPreview(layerCount: number = 2) {
   return {
     job_id: 'job-1',
@@ -170,11 +176,26 @@ function makeSingleLayerPreview() {
   };
 }
 
+/** Build a FanOutCommitResponse fixture from a list of layer outcomes. */
+function makeFanOutResponse(
+  layerResults: Array<{ layer_name: string; status: 'queued' | 'failed'; error?: string }>,
+) {
+  return {
+    fan_out_id: 'job-1',
+    results: layerResults.map((r) => ({
+      layer_name: r.layer_name,
+      new_job_id: r.status === 'queued' ? `new-${r.layer_name}` : null,
+      dataset_id: null,
+      status: r.status,
+      error: r.error ?? null,
+    })),
+  };
+}
+
 /** Drive UploadForm to the reviewing phase with the given preview. */
 async function driveToReview(preview: ReturnType<typeof makeMultiLayerPreview>) {
   mockUploadFile.mockResolvedValue({ job_id: 'job-1' } as never);
   mockPreviewFile.mockResolvedValue(preview as never);
-  mockCommitImport.mockResolvedValue({ job_id: 'job-1', status: 'pending', message: 'ok' } as never);
 
   render(<UploadForm />);
 
@@ -189,16 +210,14 @@ async function driveToReview(preview: ReturnType<typeof makeMultiLayerPreview>) 
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('UploadForm — multi-layer fan-out (GPKG-03 Phase 1058)', () => {
+describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 1058-04)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('(a) does nothing for single-layer entries — commitImport NOT called via ingest-all', async () => {
+  it('(a) does nothing for single-layer entries — commitFanOut NOT called', async () => {
     await driveToReview(makeSingleLayerPreview());
 
-    // The BulkReviewList stub always renders an "Ingest all" button, but the
-    // handler in UploadForm must guard against single-layer entries.
     const entries = screen.getAllByTestId(/^entry-/);
     const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
 
@@ -206,170 +225,128 @@ describe('UploadForm — multi-layer fan-out (GPKG-03 Phase 1058)', () => {
       screen.getByTestId(`ingest-all-${entryId}`).click();
     });
 
-    // commitImport should NOT have been called by handleIngestAllLayers
-    // (it may have been called during setup via mockCommitImport but not for fan-out)
-    // Reset counts and trigger again to verify isolation:
-    mockCommitImport.mockClear();
-
-    await act(async () => {
-      screen.getByTestId(`ingest-all-${entryId}`).click();
-    });
-
+    expect(mockCommitFanOut).not.toHaveBeenCalled();
     expect(mockCommitImport).not.toHaveBeenCalled();
   });
 
-  it('(b) fires N commitImport calls for a multi-layer entry — one per layer with layer_name', async () => {
-    mockCommitImport.mockResolvedValue({ job_id: 'job-1', status: 'pending', message: 'ok' } as never);
+  it('(b) commitFanOut called ONCE with all layers — NOT N separate commitImport calls', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'queued' },
+        { layer_name: 'layer_c', status: 'queued' },
+      ]) as never,
+    );
+
     await driveToReview(makeMultiLayerPreview(3));
 
     const entries = screen.getAllByTestId(/^entry-/);
     const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
 
-    mockCommitImport.mockClear(); // clear calls from driveToReview setup
-
     await act(async () => {
       screen.getByTestId(`ingest-all-${entryId}`).click();
     });
 
     await waitFor(() => {
-      expect(mockCommitImport).toHaveBeenCalledTimes(3);
+      expect(mockCommitFanOut).toHaveBeenCalledTimes(1);
     });
 
-    // Each call must include a layer_name matching a layer in the preview fixture
-    const layerNames = mockCommitImport.mock.calls.map((call) => (call[1] as Record<string, unknown>).layer_name);
+    // commitImport must NOT be called (T-1058C-03 fix)
+    expect(mockCommitImport).not.toHaveBeenCalled();
+
+    // Verify payload: jobId + all 3 layers
+    const [jobId, layersArg] = mockCommitFanOut.mock.calls[0];
+    expect(jobId).toBe('job-1');
+    expect(layersArg).toHaveLength(3);
+
+    const layerNames = layersArg.map((l: { layer_name: string }) => l.layer_name);
     expect(layerNames).toContain('layer_a');
     expect(layerNames).toContain('layer_b');
     expect(layerNames).toContain('layer_c');
 
-    // Title must be derived from filename + layer name
-    const titles = mockCommitImport.mock.calls.map((call) => (call[1] as Record<string, unknown>).title);
+    // Each layer should have a derived title
+    const titles = layersArg.map((l: { title?: string }) => l.title);
     expect(titles[0]).toMatch(/^test: layer_/);
   });
 
-  it('(c) respects concurrency cap of 4 — never more than 4 in flight at once', async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
-
-    // Each call waits until released
-    const releaseSignals: Array<() => void> = [];
-    mockCommitImport.mockImplementation(async () => {
-      inFlight++;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise<void>((resolve) => {
-        releaseSignals.push(resolve);
-      });
-      inFlight--;
-      return { job_id: 'job-1', status: 'pending', message: 'ok' };
-    });
-
-    await driveToReview(makeMultiLayerPreview(6));
-
-    const entries = screen.getAllByTestId(/^entry-/);
-    const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
-    mockCommitImport.mockClear();
-    // Re-apply the counting mock
-    inFlight = 0;
-    maxInFlight = 0;
-    mockCommitImport.mockImplementation(async () => {
-      inFlight++;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise<void>((resolve) => {
-        releaseSignals.push(resolve);
-      });
-      inFlight--;
-      return { job_id: 'job-1', status: 'pending', message: 'ok' };
-    });
-
-    // Kick off the fan-out (don't await — we want to inspect mid-flight)
-    act(() => {
-      screen.getByTestId(`ingest-all-${entryId}`).click();
-    });
-
-    // Wait until at least 4 calls are in flight
-    await waitFor(() => {
-      expect(inFlight).toBeGreaterThanOrEqual(Math.min(4, 6));
-    }, { timeout: 3000 });
-
-    // Release all pending promises
-    await act(async () => {
-      releaseSignals.forEach((resolve) => resolve());
-      // Allow remaining promises to settle
-      await Promise.resolve();
-    });
-
-    // Concurrency was capped at 4
-    expect(maxInFlight).toBeLessThanOrEqual(4);
-  });
-
-  it('(d) aggregates Promise.allSettled results — results modal shows succeeded + failed', async () => {
-    let callCount = 0;
-    mockCommitImport.mockImplementation(async (_jobId, req) => {
-      callCount++;
-      if ((req as Record<string, unknown>).layer_name === 'layer_b') {
-        throw new Error('Simulated commit failure for layer_b');
-      }
-      return { job_id: 'job-1', status: 'pending', message: 'ok' };
-    });
+  it('(c) results modal renders per-layer success/failure from FanOutCommitResponse', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'failed', error: 'Dispatch failed' },
+      ]) as never,
+    );
 
     await driveToReview(makeMultiLayerPreview(2));
 
     const entries = screen.getAllByTestId(/^entry-/);
     const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
-    mockCommitImport.mockClear();
-    callCount = 0;
-    mockCommitImport.mockImplementation(async (_jobId, req) => {
-      callCount++;
-      if ((req as Record<string, unknown>).layer_name === 'layer_b') {
-        throw new Error('Simulated commit failure for layer_b');
-      }
-      return { job_id: 'job-1', status: 'pending', message: 'ok' };
-    });
 
     await act(async () => {
       screen.getByTestId(`ingest-all-${entryId}`).click();
     });
 
-    // Results modal should appear after fan-out
     await waitFor(() => {
       expect(screen.getByText('Multi-layer ingest results')).toBeInTheDocument();
     });
 
-    // Summary line must reflect 1 succeeded + 1 failed
+    // Summary shows 1 succeeded + 1 failed
     expect(screen.getByText('1 succeeded, 1 failed.')).toBeInTheDocument();
 
-    // Layer names must appear in the modal
+    // Both layer names appear in the modal
     expect(screen.getByText('layer_a')).toBeInTheDocument();
     expect(screen.getByText('layer_b')).toBeInTheDocument();
+
+    // Error message for the failed layer
+    expect(screen.getByText('Dispatch failed')).toBeInTheDocument();
   });
 
-  it('(e) entry.status → toast success on full success; results modal shows commit-failed state on partial failure', async () => {
-    // Full success: all N layers committed successfully → toast fires
-    mockCommitImport.mockResolvedValue({ job_id: 'job-1', status: 'pending', message: 'ok' } as never);
+  it('(d) entry transitions to tracking on full success; toast fires', async () => {
+    mockCommitFanOut.mockResolvedValue(
+      makeFanOutResponse([
+        { layer_name: 'layer_a', status: 'queued' },
+        { layer_name: 'layer_b', status: 'queued' },
+      ]) as never,
+    );
+
     await driveToReview(makeMultiLayerPreview(2));
 
     const entries = screen.getAllByTestId(/^entry-/);
     const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
-    mockCommitImport.mockClear();
-    mockCommitImport.mockResolvedValue({ job_id: 'job-1', status: 'pending', message: 'ok' } as never);
 
     await act(async () => {
       screen.getByTestId(`ingest-all-${entryId}`).click();
     });
 
-    // On full success, toast.success fires with the count message
+    // On full success, toast fires and entry moves to 'tracking'
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith(expect.stringContaining('Imported'));
     });
 
-    // Phase transitions to tracking (all entries are 'tracking' — success case)
+    // Phase transitions to tracking (all entries tracking → tracking phase)
     await waitFor(() => {
       expect(screen.getByTestId('bulk-tracking-list')).toBeInTheDocument();
     });
+  });
 
-    // Partial failure: check error message in results modal
-    // Re-setup with a fresh render in a scenario where one layer fails (using test (d) pattern)
-    // The (d) test already covers modal content; this test confirms the toast behavior for success path.
-    // Both branches are verified: (d) = partial fail modal, (e) = full success toast.
-    expect(mockToast).toHaveBeenCalledTimes(1);
+  it('(e) network failure in commitFanOut → all layers shown as failed in modal', async () => {
+    mockCommitFanOut.mockRejectedValue(new Error('Network error'));
+
+    await driveToReview(makeMultiLayerPreview(2));
+
+    const entries = screen.getAllByTestId(/^entry-/);
+    const entryId = entries[0].getAttribute('data-testid')!.replace('entry-', '');
+
+    await act(async () => {
+      screen.getByTestId(`ingest-all-${entryId}`).click();
+    });
+
+    // Modal opens showing all failed
+    await waitFor(() => {
+      expect(screen.getByText('Multi-layer ingest results')).toBeInTheDocument();
+    });
+
+    // 0 succeeded, 2 failed
+    expect(screen.getByText('0 succeeded, 2 failed.')).toBeInTheDocument();
   });
 });

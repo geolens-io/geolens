@@ -402,3 +402,40 @@ export async function getRelatedRecords(
     `/datasets/${datasetId}/features/${featureGid}/related/${relationshipId}/${qs ? `?${qs}` : ''}`,
   );
 }
+
+// ---------------------------------------------------------------------------
+// GPKG-03 Fan-out (Phase 1058-04)
+// ---------------------------------------------------------------------------
+
+/** Per-layer outcome from POST /ingest/commit-fan-out/{job_id}. */
+export interface FanOutLayerResult {
+  layer_name: string;
+  new_job_id: string | null;
+  dataset_id: string | null;
+  status: 'queued' | 'failed';
+  error: string | null;
+}
+
+/** Response from POST /ingest/commit-fan-out/{job_id}. */
+export interface FanOutCommitResponse {
+  fan_out_id: string;
+  results: FanOutLayerResult[];
+}
+
+/**
+ * Fan out a single uploaded file into N independent ingest tasks — one per
+ * requested layer. Replaces the N-separate-commit approach that the backend
+ * rejects (T-1058C-03).
+ *
+ * @param jobId   The original pending IngestJob ID (returned by upload)
+ * @param layers  Array of {layer_name, title?} objects to ingest
+ */
+export async function commitFanOut(
+  jobId: string,
+  layers: { layer_name: string; title?: string }[],
+): Promise<FanOutCommitResponse> {
+  return apiFetch<FanOutCommitResponse>(`/ingest/commit-fan-out/${jobId}`, {
+    method: 'POST',
+    body: JSON.stringify({ layers }),
+  });
+}

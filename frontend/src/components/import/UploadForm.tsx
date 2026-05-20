@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/ingest';
+import { commitFanOut } from '@/api/datasets';
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -291,13 +292,10 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     }
   };
 
-  // GPKG-03 Phase 1058: fan-out handler — commits all layers of a multi-layer entry.
-  // Uses runWithConcurrency(4) per CONTEXT D-15 threat-model concurrency cap.
-  // T-1058C-03 note: the backend /import/upload/commit endpoint checks job.status == "pending"
-  // before allowing a commit; after the first commit, the job transitions to "queued" and
-  // subsequent commits for the same job_id receive a 400 "Job already processed" error.
-  // This means only the first layer in the fan-out will succeed with the current backend.
-  // Future improvement: backend support for per-layer commits against a single upload job.
+  // GPKG-03 Phase 1058-04: fan-out handler — single commitFanOut call replaces
+  // the N-separate-commit loop. Backend POST /ingest/commit-fan-out/{job_id}
+  // dispatches one Procrastinate task per layer from a single uploaded file,
+  // closing T-1058C-03 (backend previously rejected commits 2..N with 400).
   const handleIngestAllLayers = async (entryId: string) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry?.jobId || !entry.previewData) return;
@@ -308,26 +306,31 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     updateEntry(entryId, { status: 'committing' });
 
     const fileBase = stripExtension(entry.previewData.source_filename ?? entry.fileName) || 'Untitled';
-    const settled = await runWithConcurrency(
-      layers,
-      async (layer) => {
-        const title = `${fileBase}: ${layer.name}`;
-        await commitImport(entry.jobId!, { title, layer_name: layer.name });
-        return layer.name;
-      },
-      4, // CONTEXT D-15 threat-model concurrency cap
-    );
 
-    const results: FanOutResult[] = settled.map((r, i) => ({
-      layerName: layers[i].name,
-      status: r.status,
-      error:
-        r.status === 'rejected'
-          ? r.reason instanceof ApiError
-            ? r.reason.message
-            : t('upload.commitFailed')
-          : undefined,
-    }));
+    let results: FanOutResult[];
+    try {
+      // Single HTTP call — backend fans out N tasks from this one request.
+      const response = await commitFanOut(
+        entry.jobId,
+        layers.map((layer) => ({
+          layer_name: layer.name,
+          title: `${fileBase}: ${layer.name}`,
+        })),
+      );
+
+      results = response.results.map((r) => ({
+        layerName: r.layer_name,
+        status: r.status === 'queued' ? ('fulfilled' as const) : ('rejected' as const),
+        error: r.error ?? undefined,
+      }));
+    } catch (err) {
+      // Network-level failure — all layers failed.
+      results = layers.map((layer) => ({
+        layerName: layer.name,
+        status: 'rejected' as const,
+        error: err instanceof ApiError ? err.message : t('upload.commitFailed'),
+      }));
+    }
 
     const succeededCount = results.filter((r) => r.status === 'fulfilled').length;
     const failedCount = results.length - succeededCount;
