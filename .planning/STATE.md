@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
-status: Defining requirements
-last_updated: "2026-05-20T18:13:40.872Z"
-last_activity: 2026-05-20 — Milestone v1014 started
+status: executing
+last_updated: "2026-05-20T18:21:35.655Z"
+last_activity: "2026-05-20 — Completed 1061-02: SEC-S02 + SEC-S03 IDOR fix (dataset metadata + column DDL)"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -18,9 +18,9 @@ progress:
 ## Current Position
 
 Phase: 1061-security-audit-2026-05-19-remediation
-Plan: 01 (complete)
+Plan: 02 (complete)
 Status: In Progress
-Last activity: 2026-05-20 — Completed 1061-01: STAC visibility filter (SEC-S01)
+Last activity: 2026-05-20 — Completed 1061-02: SEC-S02 + SEC-S03 IDOR fix (dataset metadata + column DDL)
 
 ## Project Reference
 
