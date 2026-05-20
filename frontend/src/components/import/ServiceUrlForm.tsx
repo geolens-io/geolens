@@ -194,7 +194,9 @@ export function ServiceUrlForm() {
               </p>
             )}
             {probeResult.layers.map((layer) => {
-              const isVector = layer.geometry_type && !layer.geometry_type.toLowerCase().includes('raster');
+              // D-10 (Phase 1057 CLASS-07): consume backend-classified layer.kind directly.
+              // Previously re-derived from geometry_type string contents, which failed
+              // when geometry_type is null (the post-D-05 default for OGC API / WFS layers).
               return (
                 <button
                   key={layer.name}
@@ -204,7 +206,7 @@ export function ServiceUrlForm() {
                     'hover:bg-surface-2',
                   )}
                 >
-                  <TypeTag kind={isVector ? 'vector' : 'raster'} size="sm" />
+                  <TypeTag kind={layer.kind} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-[12.5px] font-medium tracking-tight">
                       {layer.title || layer.name}

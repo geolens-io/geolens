@@ -1212,6 +1212,15 @@ export interface LayerInfo {
   layer_type: string;
   layer_id: number | string | null;
   object_id_field: string | null;
+  /**
+   * Backend-classified layer kind. Phase 1057 CLASS-07 D-09 / D-10.
+   * Backend (schemas.py LayerInfo) always emits this field with default 'vector'.
+   * Classification rule: 'raster' if adapter=STAC, geometry_type contains 'raster',
+   * or collection has coverage_format/bands/image/* mediaType. Everything else
+   * (including geometry_type=null after D-05 ogrinfo drop) → 'vector'.
+   * Consume this field directly instead of re-deriving from geometry_type string.
+   */
+  kind: 'vector' | 'raster';
 }
 
 export interface ProbeResponse {
