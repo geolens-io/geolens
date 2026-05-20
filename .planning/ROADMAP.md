@@ -76,100 +76,13 @@
 
 ## Phases
 
-### v1013 Ingest Hardening (Active)
+### v1013 Ingest Hardening (Shipped 2026-05-20)
 
-**Phase Numbering:**
-- Integer phases (1057, 1058, ...): Planned milestone work
-- Decimal phases (1058.1, ...): Urgent insertions (marked with INSERTED)
+✅ Complete — see [archive](milestones/v1013-ROADMAP.md). All 4 phases (1057-1060) and 10 requirements satisfied. Local tag `v1013` + public tag `v1.3.0`.
 
-- [x] **Phase 1057: Service URL Reliability** — Fix WFS abstract-geometry-type commit failure (P0), short-circuit probe orchestrator on first success, parse URI-form CRS references, fall back to VEC when probe response lacks geometry_type
-- [x] **Phase 1058: Multi-Layer GPKG Handling** — Add layer-select step to Reupload File path mirroring Service URL flow (P0 silent-data-swap fix), surface chosen layer name + schema diff in preview, enable multi-commit / ingest-all-layers path in Bulk Review
-- [x] **Phase 1059: Basemap Sublayer Editor (Path B FIX)** — Restore per-sublayer styling surface removed in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or equivalent); 3-5 day feature phase
-- [x] **Phase 1060: Close Gate** (shipped 2026-05-20) — Deleted 3 smoke repro datasets + 4 gate-created datasets, ran all smoke gates, live Playwright MCP re-verify of 12 gates (5 ROADMAP-named + 7 BSE-01 sub-gates), populated CHANGELOG, tagged v1013 + v1.3.0 (per A-01, NOT v1.4.0) <!-- 1060/A-01: actual public tag is v1.3.0 -->
+**No active milestone.** Run `/gsd:new-milestone` to start the next one.
 
-## Phase Details
-
-### Phase 1057: Service URL Reliability
-
-**Goal**: A user importing data from a Service URL (WFS, ArcGIS, OGC API Features) sees fast probe completion, accurate geometry-type classification, automatic CRS detection for URI-form references, and successful commit for polygon-heavy WFS sources declaring abstract OGC geometry types.
-**Depends on**: Nothing (first phase of v1013)
-**Requirements**: WFS-04, PROBE-05, CRS-06, CLASS-07
-**Success Criteria** (what must be TRUE):
-  1. User can import a polygon-heavy WFS layer declaring abstract OGC geometry types (`MultiSurface`, `MultiCurve`, `CompoundSurface`) end-to-end without a post-ingest bounds-clip UPDATE failure — repro: `ahocevar.com/geoserver/wfs` → Countries of the World → Import succeeds.
-  2. User sees the Service URL probe complete in ≤5s for fast services where any adapter succeeds quickly — repro: `demo.pygeoapi.io/master` returns 17 collections within 5s end-to-end (previously ~63s).
-  3. User importing an OGC API Features source declaring URI-form CRS references (e.g., `http://www.opengis.net/def/crs/OGC/1.3/CRS84`) does not need to manually enter an EPSG override — repro: `demo.pygeoapi.io/master` Large Lakes import succeeds without CRS Override field interaction.
-  4. User browsing the Service URL layer-select list sees vector layers (point/line/polygon) classified as VEC even when the probe response is missing `geometry_type` — repro: `ne:ne_10m_populated_places` (Natural Earth Points) labels VEC, not RAS.
-**Plans**: 3 plans
-- [x] 1057-01-PLAN.md — WFS-04: replace -nlt PROMOTE_TO_MULTI with constraint-free geometry on service-ingest path; regression test pins argv shape
-- [x] 1057-02-PLAN.md — PROBE-05 + CLASS-07: drop ogrinfo enrichment from OGC API + WFS probe paths (≤5s target); add backend-classified `kind: vector|raster` field to LayerInfo; frontend ServiceUrlForm consumes layer.kind
-- [x] 1057-03-PLAN.md — CRS-06: parse_crs_uri helper for 4 URI/URN forms wired into extract_srid_from_json as third fallback; frontend CRS Override input auto-hides when detectedCrs is non-null
-
-**Complexity**: Medium-large (4 backend surfaces: column-type mapping in `processing/ingest/`, ogrinfo enrichment drop in probe adapters, URI→EPSG parser shared utility, RAS/VEC fallback in LayerInfo schema + frontend wire-up)
-
-### Phase 1058: Multi-Layer GPKG Handling
-
-**Goal**: A user reuploading a multi-layer GPKG dataset is shown a layer-select step and a schema-diff preview that mirrors the Service URL flow; a user importing a multi-layer GPKG through Bulk Review can choose to ingest all layers as separate datasets.
-**Depends on**: Nothing (parallel with Phase 1057)
-**Requirements**: GPKG-01, GPKG-02, GPKG-03
-**Success Criteria** (what must be TRUE):
-  1. User reuploading a multi-layer GPKG via the File path is shown a layer-select step before preview (mirroring `ReuploadDialog.tsx:581` Service URL flow); the chosen layer is honored end-to-end through preview + commit, with `dataset.source_layer` pre-selected as default when present in the new file.
-  2. User viewing the Reupload preview pane for any multi-layer file sees an explicit "Layer: {name}" line plus column-level schema diff (Columns Added / Columns Removed with types) plus a schema-change warning when columns differ — matching the Service URL preview design reference.
-  3. User dragging a multi-layer GPKG into the Bulk Review flow can ingest every layer as a separate dataset in a single upload session — either via a "+ add another layer from this file" button or an "Ingest all layers" fan-out path.
-**Plans**: 4 plans
-- [x] 1058-01-PLAN.md — GPKG-01 (P0): Backend `router_reupload.py` `layer_name` plumbing through preview + commit; new `ReuploadPreviewResponse.all_layers` + `previous_source_layer` fields; new `ReuploadCommitRequest.layer_name`; frontend ReuploadDialog `selecting-file-layer` step + default-selection-from-prior-source-layer + missing-layer warning; tasks_reupload worker threads `job.source_layer` to `run_ogr2ogr` / `run_ogrinfo*`; backend + Vitest + headless e2e regression coverage. Wave 1.
-- [x] 1058-02-PLAN.md — GPKG-02 (P1): Frontend preview-pane polish — Layer line for multi-layer files + advisory banner derived from `schema_diff.columns_added/columns_removed` counts; reuses `reupload.service.layerLabel` i18n key for file/service parity. Wave 2 (depends on 1058-01 state machine).
-- [x] 1058-03-PLAN.md — GPKG-03 (P2) UI: Frontend `BulkReviewList.tsx` "Ingest all layers" button + `UploadForm.tsx` `handleIngestAllLayers` fan-out handler with `runWithConcurrency` cap of 4 + Promise.allSettled aggregation + results modal. Wave 1 (independent of 1058-01/02). T-1058C-03 documented: backend rejects commits 2..N per job_id.
-- [x] 1058-04-PLAN.md — GPKG-03 (P2) Backend: `POST /ingest/commit-fan-out/{job_id}` endpoint dispatches N independent `ingest_file` tasks from one upload; closes T-1058C-03; migration 0017 extends IngestJob CHECK constraint to include `'fanned_out'` status; frontend `handleIngestAllLayers` rewired to single `commitFanOut()` call. Wave 3.
-
-**Complexity**: Medium (frontend `ReuploadDialog.tsx` state machine + preview UI, `BulkReviewList.tsx` multi-commit affordance, backend `router_reupload.py:329` + `processing/ingest/ogr.py:209` `layer_name` plumbing)
-
-### Phase 1059: Basemap Sublayer Editor (Path B FIX)
-
-**Goal**: A user editing any basemap sublayer in the Map Builder can adjust stroke color, stroke width, casing color, casing width, zoom range, and opacity; the overrides persist through save/reload and render correctly across builder, viewer, and shared/embed contexts.
-**Depends on**: Nothing (independent surface — does not share code with Phases 1057/1058)
-**Requirements**: BSE-01
-**Success Criteria** (what must be TRUE):
-  1. User opening a basemap sublayer in the Map Builder sees an editor surface with stroke color, stroke width, casing color, casing width, zoom range (min/max), and opacity controls — replacing the dead-wired surface removed in v1011.1 commits `3629ec04` + `3e48d331`.
-  2. User adjusting any per-sublayer override sees the change applied to the map render immediately (live preview), and the saved override survives reload of the builder page.
-  3. User opening a saved map with sublayer overrides in the viewer (`/m/{id}`), shared link (`/m/{token}`), or embed (`/embed/{token}`) sees the same sublayer styling rendered — round-trip parity across all 4 render contexts.
-  4. Overrides persist additively through `MapBasemapConfig.sublayer_overrides` jsonb (or equivalent additive path); legacy saved maps without overrides continue to render with default basemap styling (zero-migration backward compat).
-**Plans**: 4 plans
-- [x] 1059-01-PLAN.md — Backend persistence: Pydantic SublayerOverride model + BasemapConfig.sublayer_overrides field (jsonb-additive, zero-migration) + 14-test pytest covering validation, round-trip, legacy compat
-- [x] 1059-02-PLAN.md — Frontend MapLibre integration: applySublayerOverrides helper at frontend/src/lib/builder/basemap-style-mutation.ts with idle-retry recovery; wires into BuilderMap.tsx (2 sites) + ViewerMap.tsx (1 site, serves viewer + shared + embed routes); 19 unit tests
-- [x] 1059-03-PLAN.md — Frontend editor UI: Restore STROKE/CASING/ZOOM sections in BasemapSublayerEditorScene.tsx (5 sections D-09 order); invert Test 14 EMRG-FN-01 regression pin; wire MapBuilderPage callbacks to useMapBuilderStore.basemap_config.sublayer_overrides patches; English i18n
-- [x] 1059-04-PLAN.md — Cross-context tests + i18n: Extend ViewerMap.basemap-config.test with 5 new applySublayerOverrides assertions + new sublayer_overrides.round-trip.test with 7 tests; de/es/fr locale parity for 9 new basemapSublayer.* keys
-**Complexity**: Large (3-5 day feature phase per v1011.1 EMRG-FN-01 disposition note; spans schema additive change + backend persistence + frontend editor scene revival + cross-context render parity tests)
-**UI hint**: yes
-
-### Phase 1060: Close Gate
-
-**Goal**: All 10 v1013 requirements are verified through smoke gates and live Playwright MCP re-verify against `localhost:8080`; 3 fixture datasets used as smoke repros are deleted from the catalog; CHANGELOG is populated; local v1013 tag and public v1.3.0 tag are created. <!-- 1060/A-01: v1.4.0→v1.3.0 because v1012 shipped as v1.2.1, not v1.3.0 -->
-**Depends on**: Phase 1057, Phase 1058, Phase 1059
-**Requirements**: CLEAN-01, CTRL-01
-**Success Criteria** (what must be TRUE):
-  1. The 3 v1012 smoke repro datasets are deleted from the `localhost:8080` catalog: `ec18b546-d86d-4375-8e1f-8564b6a75687` (reupload sandbox), `54763119-0cf4-448e-a950-81551d090267` (AGO Wildfire), `667a6c65-cdbc-4158-87f2-21a7e791ba7c` (OGC API Large Lakes).
-  2. All smoke gates pass: `typecheck` reports 0 errors; `vitest` is green; `e2e:smoke:builder` is green; i18n parity passes for all 4 locales (en/de/es/fr).
-  3. Live Playwright MCP re-verify confirms WFS-04 (GeoServer Countries-of-the-World commits cleanly), PROBE-05 (pygeoapi probe ≤5s), GPKG-01 (Reupload File path shows layer-select), GPKG-02 (preview pane surfaces layer name + schema diff), and BSE-01 (basemap sublayer overrides round-trip through builder + viewer).
-  4. Code-review pass complete with any secondary findings fixed inline per `feedback_review_findings_inline.md`; zero deferrals to a v1013.1 hygiene milestone.
-  5. CHANGELOG `[Unreleased]` block is promoted to `[1.3.0]` <!-- 1060/A-01 --> and populated with all v1013 changes; local `v1013` tag is created; public `v1.3.0` tag is created (minor bump justified by GPKG-01/GPKG-03 new affordances + BSE-01 styling persistence).
-**Plans:** 4 plans
-- [x] 1060-01-PLAN.md — E2E smoke triage + fix (builder-v1-5.spec.ts:152, builder.spec.ts:338)
-- [x] 1060-02-PLAN.md — Live Playwright MCP re-verify (12 gates: WFS-04/PROBE-05/CRS-06/CLASS-07/GPKG-01/GPKG-02/GPKG-03/BSE-01 ×5 sub-gates)
-- [x] 1060-03-PLAN.md — Dataset cleanup (3 DELETEs + GET-404 verification per CLEAN-01)
-- [x] 1060-04-PLAN.md — CHANGELOG promote + smoke re-gate + local tags v1013 + v1.3.0 (per A-01, NOT v1.4.0) + finalize tracker
-**Complexity**: Small-medium (1-2 plan slots reserved for inline review fixes per established pattern from v1010.2 / v1011 / v1011.1)
-
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1057. Service URL Reliability | 3/3 | Complete |  |
-| 1058. Multi-Layer GPKG Handling | 3/3 | Complete (T-1058C-03 closed inline at 1060-G-07 — see CHANGELOG) | 2026-05-20 |
-| 1059. Basemap Sublayer Editor (Path B FIX) | 4/4 | Complete (all ACs evidenced; 12 new tests; de/es/fr i18n parity) | 2026-05-20 |
-| 1060. Close Gate | 4/4 | Complete (12/12 MCP gates PASS; 5 inline fixes; tags v1013 + v1.3.0 cut locally) | 2026-05-20 |
+## Phase Details (Archived — see milestones/v1013-ROADMAP.md)
 
 ## Backlog
 

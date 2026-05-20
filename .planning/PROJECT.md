@@ -370,6 +370,7 @@ The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo
 - **17-audit sweep dispatched and consolidated** — 193 findings (2C / 37H / 83M / 71L) classified across security, infra, API, docs, perf, code, i18n, OSS dimensions; all sourced under `.planning/audits/v13.12/`.
 - **All 39 Critical+High findings remediated inline** — 2 Critical (README seed-natural-earth bug; tile SQL no per-tile LIMIT) + 37 High closed across 4 parallel remediation agents in Phases 268-269. 5 new Alembic revisions (`0008..0012`). Boundary integrity remained A+/A+/A/A throughout.
 - **154 Medium+Low findings deferred to backlog** — `.planning/backlog/v13.12-medium-findings.md` (83 M) and `.planning/backlog/v13.12-low-findings.md` (71 L) with rationale + target follow-up.
+- **12 ingest/export/VRT lifecycle findings deferred to backlog (2026-05-19)** — `.planning/backlog/ingest-audit-20260519-findings.md` (4 P0, 8 P1, 10 P2 from `/ingest-audit`); full report at `docs-internal/audits/ingest-audit-20260519.md`. Proposed framing: **v1014 Ingest/Export Security & Lifecycle Hardening** (4 phases). Does not overlap with in-flight v1013 scope.
 - **PUBLIC-READINESS.md committed at repo root** (commit `39fcb22b`) — composite grade **A−**, recommendation **CONDITIONAL-GO** with 3 deployment-scope conditions: (1) operators regenerate `JWT_SECRET_KEY` (H-28); (2) public repo recreation per `2026-05-05-recreate-public-repo-before-launch.md` todo; (3) CHANGELOG `[Unreleased]` populated and tagged v1.1.0 (H-02 PUT thumbnail body change).
 - **Hybrid-shape milestone validated** — 4 audit-dispatch phases (263-266) with 17 parallel investigation agents → 1 triage phase → 2 remediation phases with 6 parallel fix agents → 1 verification phase. Total agents-orchestrated: ~24. Pattern reusable for future audit-driven hardening milestones.
 - **Race-condition notes** — 3 commit-message orphan attributions in Phase 269 (H-04, SDK regen, H-16); functional state at HEAD is correct.
@@ -1138,4 +1139,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 — started milestone v1013 Ingest Hardening (Service URL reliability + multi-layer GPKG + Basemap Sublayer Path B FIX, v1012 smoke carryforward)*
+*Last updated: 2026-05-20 — shipped milestone v1013 Ingest Hardening (10/10 requirements, 4 phases, local tag `v1013` + public tag `v1.3.0`, 5 inline close-gate fixes, audit PASSED). No active milestone — run `/gsd:new-milestone` to start the next one.*
