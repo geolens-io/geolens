@@ -537,7 +537,7 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
 @limiter.limit(_semantic_search_rate_limit)
 async def search_facets_endpoint(
     request: Request,
-    q: str | None = Query(None, description="Full-text search query"),
+    q: str | None = Query(None, max_length=1000, description="Full-text search query"),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),
     keywords: list[str] | None = Query(None, description="Filter by keywords"),
     geometry_type: str | None = Query(None, description="Filter by geometry type"),
