@@ -807,10 +807,18 @@ export const BuilderMap = memo(function BuilderMap({
   // when the user drags basemap to top, that ordering must be reversed.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
+    // Phase 1060 close-gate G-09 fix: applySublayerOverrides has its own
+    // idle-retry recovery (see basemap-style-mutation.ts:61) — call it even
+    // when the style isn't loaded yet so the override sticks once the style
+    // finishes loading. Previously the early-return on !isStyleLoaded() would
+    // drop the apply, and because basemapConfig didn't change reference on
+    // subsequent re-renders the effect never fired again to retry — leaving
+    // saved sublayer overrides invisible after a reload.
+    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null);
+    if (!map.isStyleLoaded()) return;
     reorderBasemapLabels(map, showBasemapLabels);
     applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels);
-    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null);
     reorderDataLayers(map, layersRef.current.map((l) => ({ id: l.id })));
     reorderBasemapAboveData(map, basemapConfig?.basemap_position);
   }, [basemapConfig, showBasemapLabels, mapReady]);

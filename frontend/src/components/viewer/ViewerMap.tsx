@@ -563,9 +563,13 @@ export const ViewerMap = memo(function ViewerMap({
   syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
 
   const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
+    // Phase 1060 close-gate G-09/G-10 fix: applySublayerOverrides has its
+    // own idle-retry recovery (see basemap-style-mutation.ts:61) — call it
+    // unconditionally so saved overrides apply even when the style isn't
+    // loaded yet on initial paint of viewer/shared/embed contexts.
+    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, VIEWER_SOURCE_PREFIX);
     if (!map.isStyleLoaded()) return;
     applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, VIEWER_SOURCE_PREFIX);
-    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, VIEWER_SOURCE_PREFIX);
   }, [basemapConfig, showBasemapLabels]);
 
   /** Wrapper: convert viewer state to normalized inputs and call unified syncLayersToMap */
