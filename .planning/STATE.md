@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
-status: in_progress
-last_updated: "2026-05-20T02:23:00.000Z"
-last_activity: 2026-05-20 — Phase 1058 Plan 03 executed; GPKG-03 P2 "Ingest all layers" fan-out button + runWithConcurrency + results modal + 9 new tests; T-1058C-03 documented
+status: completed
+last_updated: "2026-05-20T02:43:00.000Z"
+last_activity: 2026-05-20 — Phase 1058 Plan 02 executed; GPKG-02 P1 preview pane parity — Layer: line + schema-change advisory banner; 19/19 vitest + i18n parity green
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1058 Multi-Layer GPKG Handling — Plan 03 complete (3 of 3 plans done)
-Plan: 03 / 3 (GPKG-03 P2 "Ingest all layers" fan-out complete)
-Status: Phase 1058 Plan 03 complete — GPKG-03 satisfied (BulkReviewList "Ingest all layers" button + UploadForm fan-out handler + runWithConcurrency + results modal + i18n + 9 tests); T-1058C-03 documented (backend rejects commits 2..N for same job_id — follow-up plan needed)
-Last activity: 2026-05-20 — Phase 1058 Plan 03 executed; GPKG-03 P2 "Ingest all layers" fan-out button + runWithConcurrency + results modal + 9 new tests; T-1058C-03 documented
+Phase: 1058 Multi-Layer GPKG Handling — Plan 02 complete (all 3 plans done: 01 GPKG-01, 02 GPKG-02, 03 GPKG-03)
+Plan: 02 / 3 (GPKG-02 P1 preview pane parity — Layer: line + schema-change advisory banner)
+Status: Phase 1058 all plans complete — GPKG-01 (layer-select state machine + backend), GPKG-02 (preview pane parity), GPKG-03 (ingest-all-layers fan-out); T-1058C-03 documented (backend rejects commits 2..N for same job_id — follow-up plan needed)
+Last activity: 2026-05-20 — Phase 1058 Plan 02 executed; GPKG-02 P1 preview pane parity — Layer: line + schema-change advisory banner; 19/19 vitest + i18n parity green
 
 ## Project Reference
 
