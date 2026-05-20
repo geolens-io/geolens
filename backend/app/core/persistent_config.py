@@ -276,7 +276,16 @@ class PersistentConfig(Generic[T]):
 
     def _update_sync_cache(self, value: Any) -> None:
         """Update sync cache for rate-limit accessor if applicable."""
-        if self.key in ("login_rate_limit", "global_rate_limit"):
+        if self.key in (
+            "login_rate_limit",
+            "global_rate_limit",
+            # CR-03 (Phase 1062 review): also warm the cache for the two new
+            # rate-limit knobs so DB-overridden values are picked up by slowapi
+            # at request time. Without these entries, get_cached_*_rate_limit()
+            # always fell through to _DEFAULT_* and ignored admin-set values.
+            "semantic_search_rate_limit",
+            "basemap_proxy_rate_limit",
+        ):
             _sync_rate_limit_cache[self.key] = (value, time.monotonic())
 
 

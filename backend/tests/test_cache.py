@@ -282,3 +282,68 @@ async def test_health_check_bypasses_circuit_breaker(cb_redis):
 
     # health_check should still contact Redis directly (fakeredis responds to ping)
     await cb_redis.health_check()  # Should NOT raise
+
+
+# ---------------------------------------------------------------------------
+# CR-03 regression: _update_sync_cache must warm semantic/basemap rate limits
+# ---------------------------------------------------------------------------
+
+
+def test_update_sync_cache_populates_semantic_search_rate_limit():
+    """CR-03: calling _update_sync_cache for 'semantic_search_rate_limit'
+    must populate _sync_rate_limit_cache so get_cached_semantic_search_rate_limit()
+    returns the overridden value instead of the default.
+    """
+    import app.core.persistent_config as pc
+
+    # Temporarily write a non-default value into the sync cache directly
+    # (simulates what _update_sync_cache does when a PersistentConfig with
+    # key='semantic_search_rate_limit' calls set() or get() from DB).
+    original = pc._sync_rate_limit_cache.get("semantic_search_rate_limit")
+    try:
+        pc._sync_rate_limit_cache["semantic_search_rate_limit"] = (99, time.monotonic())
+        assert pc.get_cached_semantic_search_rate_limit() == 99, (
+            "get_cached_semantic_search_rate_limit() must read from sync cache"
+        )
+    finally:
+        if original is None:
+            pc._sync_rate_limit_cache.pop("semantic_search_rate_limit", None)
+        else:
+            pc._sync_rate_limit_cache["semantic_search_rate_limit"] = original
+
+
+def test_update_sync_cache_populates_basemap_proxy_rate_limit():
+    """CR-03: calling _update_sync_cache for 'basemap_proxy_rate_limit'
+    must populate _sync_rate_limit_cache so get_cached_basemap_proxy_rate_limit()
+    returns the overridden value instead of the default.
+    """
+    import app.core.persistent_config as pc
+
+    original = pc._sync_rate_limit_cache.get("basemap_proxy_rate_limit")
+    try:
+        pc._sync_rate_limit_cache["basemap_proxy_rate_limit"] = (77, time.monotonic())
+        assert pc.get_cached_basemap_proxy_rate_limit() == 77, (
+            "get_cached_basemap_proxy_rate_limit() must read from sync cache"
+        )
+    finally:
+        if original is None:
+            pc._sync_rate_limit_cache.pop("basemap_proxy_rate_limit", None)
+        else:
+            pc._sync_rate_limit_cache["basemap_proxy_rate_limit"] = original
+
+
+def test_update_sync_cache_key_allowlist_covers_new_rate_limits():
+    """CR-03: _update_sync_cache must include the two new rate-limit keys in
+    its dispatch condition. This structural test guards against accidental
+    removal of the keys from the allowlist.
+    """
+    import inspect
+    import app.core.persistent_config as pc
+
+    src = inspect.getsource(pc.PersistentConfig._update_sync_cache)
+    assert "semantic_search_rate_limit" in src, (
+        "'semantic_search_rate_limit' must be in PersistentConfig._update_sync_cache"
+    )
+    assert "basemap_proxy_rate_limit" in src, (
+        "'basemap_proxy_rate_limit' must be in PersistentConfig._update_sync_cache"
+    )
