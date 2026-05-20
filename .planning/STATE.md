@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
 status: executing
-last_updated: "2026-05-20T00:43:06.158Z"
-last_activity: 2026-05-19 — Phase 1057 Plan 01 executed; -nlt GEOMETRY service-path fix committed
+last_updated: "2026-05-20T00:57:19.958Z"
+last_activity: 2026-05-20 — Phase 1057 Plan 02 executed; ogrinfo enrichment dropped, kind field added to probe response
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: 1057 Service URL Reliability — Plan 01 complete
-Plan: 01 / 3 (WFS-04 P0 fix complete)
-Status: In progress — Plan 01 shipped; Plans 02 (PROBE-05 + CLASS-07) and 03 (CRS-06) pending
-Last activity: 2026-05-19 — Phase 1057 Plan 01 executed; -nlt GEOMETRY service-path fix committed
+Phase: 1057 Service URL Reliability — Plan 02 complete
+Plan: 02 / 3 (PROBE-05 + CLASS-07 paired fix complete)
+Status: In progress — Plans 01+02 shipped; Plan 03 (CRS-06) pending
+Last activity: 2026-05-20 — Phase 1057 Plan 02 executed; ogrinfo enrichment dropped, kind field added to probe response
 
 ## Project Reference
 
