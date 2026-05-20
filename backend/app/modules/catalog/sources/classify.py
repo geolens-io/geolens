@@ -64,7 +64,7 @@ def classify_layer_kind(
     if layer.get("bands"):
         return "raster"
 
-    # Rule 5: Any link with a mediaType starting with 'image/'.
+    # Rule 5: Any link with a 'type' field starting with 'image/' (OGC API link media type).
     links = layer.get("links")
     if isinstance(links, list):
         for link in links:
