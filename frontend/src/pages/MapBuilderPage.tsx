@@ -43,7 +43,8 @@ const BasemapSublayerEditorFooter = lazy(() =>
   import('@/components/builder/BasemapSublayerEditorScene').then((m) => ({ default: m.BasemapSublayerEditorFooter }))
 );
 import { useBasemaps } from '@/hooks/use-settings';
-import { basemapThumbnail, normalizeBasemapConfig } from '@/lib/basemap-utils';
+import { basemapThumbnail, normalizeBasemapConfig, DEFAULT_BASEMAP_CONFIG } from '@/lib/basemap-utils';
+import type { MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
@@ -477,6 +478,33 @@ export function MapBuilderPage() {
     // TODO(BUILDER-SUBLAYER-PERSIST): call markDirty() once sublayerState is persisted.
   }, []);
 
+  // Phase 1059 BSE-01: helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
+  // Trims the entry if every field becomes null/undefined (no-op state).
+  // Uses setBasemapConfig which auto-marks dirty (WR-02 fix in use-builder-layers.ts).
+  const updateSublayerOverride = useCallback(
+    (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
+      layers.setBasemapConfig((prev) => {
+        const currentBc = prev ?? DEFAULT_BASEMAP_CONFIG;
+        const currentOverrides = currentBc.sublayer_overrides ?? {};
+        const currentOverride: MapSublayerOverride = currentOverrides[sublayerId] ?? {};
+        const nextOverride: MapSublayerOverride = { ...currentOverride, [field]: value };
+        // Trim entry if every field is null/undefined (back to default — keep dict clean)
+        const allNull = Object.values(nextOverride).every((v) => v == null);
+        const nextOverrides = { ...currentOverrides };
+        if (allNull) {
+          delete nextOverrides[sublayerId];
+        } else {
+          nextOverrides[sublayerId] = nextOverride;
+        }
+        return {
+          ...currentBc,
+          sublayer_overrides: Object.keys(nextOverrides).length > 0 ? nextOverrides : null,
+        };
+      });
+    },
+    [layers],
+  );
+
   const handleResetBasemapAppearance = useCallback(() => {
     // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
     layers.setBasemapConfig(null);
@@ -835,12 +863,38 @@ export function MapBuilderPage() {
               sublayerId={sublayer.id}
               sublayerName={sublayer.name}
               opacity={sublayer.opacity}
+              strokeColor={layers.basemapConfig?.sublayer_overrides?.[sublayer.id]?.stroke_color ?? '#888888'}
+              strokeWidth={layers.basemapConfig?.sublayer_overrides?.[sublayer.id]?.stroke_width ?? 1}
+              casingColor={layers.basemapConfig?.sublayer_overrides?.[sublayer.id]?.casing_color ?? '#cccccc'}
+              casingWidth={layers.basemapConfig?.sublayer_overrides?.[sublayer.id]?.casing_width ?? 0.5}
+              minZoom={layers.basemapConfig?.sublayer_overrides?.[sublayer.id]?.min_zoom ?? 0}
+              maxZoom={layers.basemapConfig?.sublayer_overrides?.[sublayer.id]?.max_zoom ?? 22}
               onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
+              onStrokeColorChange={(hex) => updateSublayerOverride(sublayer.id, 'stroke_color', hex)}
+              onStrokeWidthChange={(w) => updateSublayerOverride(sublayer.id, 'stroke_width', w)}
+              onCasingColorChange={(hex) => updateSublayerOverride(sublayer.id, 'casing_color', hex)}
+              onCasingWidthChange={(w) => updateSublayerOverride(sublayer.id, 'casing_width', w)}
+              onMinZoomChange={(z) => updateSublayerOverride(sublayer.id, 'min_zoom', z)}
+              onMaxZoomChange={(z) => updateSublayerOverride(sublayer.id, 'max_zoom', z)}
               onResetSublayer={() => {
+                // Clear in-memory sublayer visibility/opacity state
                 setSublayerState((prev) => {
                   const next = { ...prev };
                   delete next[sublayer.id];
                   return next;
+                });
+                // Phase 1059 BSE-01 (D-11): also clear sublayer_overrides[sublayer.id]
+                // from basemap_config — does not affect other sublayers or top-level settings.
+                layers.setBasemapConfig((prev) => {
+                  if (!prev?.sublayer_overrides || !(sublayer.id in prev.sublayer_overrides)) {
+                    return prev;
+                  }
+                  const nextOverrides = { ...prev.sublayer_overrides };
+                  delete nextOverrides[sublayer.id];
+                  return {
+                    ...prev,
+                    sublayer_overrides: Object.keys(nextOverrides).length > 0 ? nextOverrides : null,
+                  };
                 });
               }}
             />
