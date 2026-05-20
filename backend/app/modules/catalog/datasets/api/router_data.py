@@ -60,7 +60,18 @@ async def list_related_datasets(
     db: AsyncSession = Depends(get_db),
 ) -> RelatedDatasetsResponse:
     """Return top-5 datasets similar to this one by embedding cosine similarity."""
-    user_roles = await get_user_roles(db, user) if user is not None else set()
+    # Phase 1061 SEC-S05: visibility-gate the SEED before reading its embedding.
+    # Before this fix, anonymous attackers could probe any UUID — neighbor-similarity
+    # scores leaked content about the private seed via cosine-distance oracle.
+    # The neighbor query (inside get_related_datasets) already applies
+    # apply_visibility_filter, so neighbors stay correctly gated.
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+    user_roles = await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
     items = await get_related_datasets(db, dataset_id, user, user_roles)
     return RelatedDatasetsResponse(items=items, total=len(items))
 
