@@ -31,6 +31,7 @@ import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
+import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
 import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
@@ -564,6 +565,7 @@ export const ViewerMap = memo(function ViewerMap({
   const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
     if (!map.isStyleLoaded()) return;
     applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, VIEWER_SOURCE_PREFIX);
+    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, VIEWER_SOURCE_PREFIX);
   }, [basemapConfig, showBasemapLabels]);
 
   /** Wrapper: convert viewer state to normalized inputs and call unified syncLayersToMap */
