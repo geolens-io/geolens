@@ -12,27 +12,49 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1013 Ingest Hardening
+## Current Milestone: v1014 Security Audit Remediation
 
-**Goal:** Close all 7 candidate findings from the 2026-05-19 v1012 post-ship smoke (Service URL ingest reliability + multi-layer GPKG handling), ship the deferred Basemap Sublayer Path B FIX (full per-sublayer styling persistence), and clean up the fixture datasets used as smoke repros.
+**Goal:** Close all findings from `/sec-audit` 2026-05-19 — 7 HIGH (currently merge gate **BLOCK**), 9 MEDIUM, 10 LOW follow-ups. Restore green merge gate, lock the visibility-filter coverage pattern into AGENTS.md, and pin regressions via the already-drafted `e2e/sec-audit.spec.ts` (18 tests).
 
-**Public tag:** v1.4.0 (minor bump — Findings 1 + 3 add new layer-select / multi-commit affordances; BSE-01 adds per-sublayer styling persistence. Mirrors v1012's v1.3.0 precedent of "minor when features ship").
+**Public tag:** v1.4.0 (minor bump — substantial security hardening, new SSRF safeguards, AGENTS.md/SECURITY.md guardrails).
 
 **Target features (4 buckets):**
 
-- **Service URL Reliability** — WFS-04, PROBE-05, CRS-06, CLASS-07. Map abstract OGC geometry types (`MultiSurface` → `MultiPolygon`, `MultiCurve` → `MultiLineString`, `CompoundSurface` → `MultiPolygon`, etc.) on column creation OR drop subtype constraint OR detect concrete subtype during probe; short-circuit `try_all_probes()` on first success (currently 63s when adapter succeeded in 1.5s); parse URI-form CRS references (`http://www.opengis.net/def/crs/OGC/1.3/CRS84` → EPSG:4326) for OGC API Features; fall back to VEC when probe response is missing `geometry_type` (currently defaults to RAS).
-- **Multi-Layer GPKG Handling** — GPKG-01, GPKG-02, GPKG-03. Add layer-select step to Reupload File path mirroring the Service URL flow (currently silently picks `layers[0]`, ignoring `dataset.source_layer`); surface chosen layer name + column-level schema diff + schema-change warning in Reupload preview pane (Service URL preview is the design reference); allow multi-commit / "ingest all layers as separate datasets" path in Bulk Review for multi-layer GPKG.
-- **Basemap Sublayer Editor (Path B FIX)** — BSE-01. Full per-sublayer styling persistence (3-5 day feature phase). Restores the styling surface left as REMOVE in v1011.1 EMRG-FN-01 with a real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (or similar).
-- **Hygiene** — CLEAN-01. Delete the 3 smoke repro datasets from the catalog after milestone close: `ec18b546-d86d-4375-8e1f-8564b6a75687` (reupload sandbox), `54763119-0cf4-448e-a950-81551d090267` (AGO Wildfire), `667a6c65-cdbc-4158-87f2-21a7e791ba7c` (OGC API Large Lakes).
+- **HIGH severity remediation** — SEC-S01..S07 + SEC-GUARD-01. Visibility-filter coverage on Record-derived endpoints (STAC router, dataset metadata mutation, column DDL, related datasets); SSRF redirect-bypass with per-hop revalidation + `GDAL_HTTP_FOLLOWLOCATION=NO`; demo credentials → `.env.demo.example` + per-deploy generator; MinIO defaults → fail-closed compose; AGENTS.md headline-pattern rule for visibility-filter coverage.
+- **MEDIUM severity remediation** — SEC-S08..S16. Embed-token framing CSP gap; ogr2ogr `-where` sqlglot validator; basemap api_key public-exposure docstring + rate limit; per-route rate limits on `/search/datasets/` + `/datasets/{id}/related/` to cap OpenAI embed cost; `simple`-regconfig GIN index for non-English text search; `max_length=1000` on `/search/facets/?q=`; JWT-in-localStorage ESLint guard + httpOnly migration plan; JWT `jti`/`token_version` for revocation; password complexity validator.
+- **LOW follow-up tickets** — SEC-FU-01..FU-10. STAC visibility regression test fixtures; `validate_demo_credentials_guard` literal-default refusal; `react/no-danger` ESLint rule; GDAL Authorization base64url charset pin; STAC `intersects` `max_length`; `parse_bbox` NaN/Inf `math.isfinite()` guard; ILIKE escape in maps service modules; pg_audit / per-table change log for column DDL; nginx `server_tokens off` in prod block; role-scoping recommendations in `.env.example`.
+- **Close gate** — SEC-CTRL-01. Run `e2e/sec-audit.spec.ts` full suite (18 tests pinning S01–S13); CHANGELOG `[1.4.0]` entry; tag `v1014` + `v1.4.0`.
 
-**Source of truth for findings:** `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`. Each REQ-ID maps to a Finding (1-7) in that report.
+**Source of truth for findings:** `docs-internal/audits/sec-audit-20260519.md` (561 lines, 41KB). Each REQ-ID maps to a Finding in §"Finding details" / §"Medium severity" / §"Not blocking — follow-up tickets".
 
-**Deferred candidates (still open, not in v1013 scope):**
+**Regression tests (already drafted):** `e2e/sec-audit.spec.ts` (18 tests, env-var-gated where they need fixtures: `SEC_AUDIT_PRIVATE_RECORD_ID`, `SEC_AUDIT_PRIVATE_DATASET_ID`, `SEC_AUDIT_EDITOR_B_TOKEN`, `SEC_AUDIT_SSRF_TEST_REDIRECTOR`).
+
+**Headline pattern (worth surfacing in AGENTS.md):** visibility filter coverage is the #1 regression surface. Any new handler that fetches a `Record`/`Dataset`/`Map`/`RecordEmbedding` by ID must either call `check_dataset_access_or_anonymous` (read) or `check_dataset_access` + ownership check (write/destructive), OR apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying query.
+
+**Clean baseline preserved (do not regress):** 0 dependency CVEs across 148 Python + npm; all ~40 raw-SQL sites bound-parameter clean; all 11 subprocess sites argv-form (no `shell=True`); OAuth/PKCE, share/embed/HMAC tile auth all clean; pgvector embedding never on any response schema; dynamic CORS rejects wildcard; container hardening best-in-class.
+
+**Deferred candidates (still open, not in v1014 scope):**
 
 - **v1.7 Marketplace & Distribution unpause** — phases 36-42 paused at Phase 40 (AWS AMI Build).
 - **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping.
 - **Enterprise feature backlog** — Phase 999.13 connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas extraction.
 - **Recreate public repo before launch** — pending todo from 2026-05-05.
+
+## Recent Shipped Milestone: v1013 Ingest Hardening
+
+**Shipped:** 2026-05-20
+
+**Goal delivered:** Closed all 7 candidate findings from the 2026-05-19 v1012 post-ship smoke (Service URL ingest reliability + multi-layer GPKG handling), shipped the deferred Basemap Sublayer Path B FIX (full per-sublayer styling persistence), and cleaned up the fixture datasets used as smoke repros. Public tag `v1.3.0` (per Phase 1060 A-01 disposition — v1012 shipped as v1.2.1, so this milestone gets v1.3.0 not v1.4.0).
+
+**Delivered (10/10 reqs, 4 phases 1057-1060, 15 plans, live MCP re-verify):**
+
+- **Service URL Reliability (Phase 1057)** — WFS abstract-geometry mapping (`MultiSurface` → `MultiPolygon`, etc.); `try_all_probes()` first-success short-circuit (63s → 1.5s); URI-form CRS parser; VEC fallback when probe missing `geometry_type`.
+- **Multi-Layer GPKG Handling (Phase 1058)** — Reupload File path layer-select step with schema diff; chosen-layer-name surfaced; multi-commit "ingest all layers" path in Bulk Review.
+- **Basemap Sublayer Editor (Phase 1059)** — Restored per-sublayer styling persistence (3-5 day feature phase) via `MapBasemapConfig.sublayer_overrides` jsonb-additive; idle-retry recovery; round-trip across builder/viewer/shared/embed.
+- **Close Gate (Phase 1060)** — Deleted 3 smoke repro datasets; all smoke gates green; CHANGELOG `[1.3.0]`; tag `v1013` + `v1.3.0` (local).
+- **Inline close-gate fixes (5):** WFS-04 layer 2 (`5b965cfd`), GPKG-03 3-bug close (`831b691f`), BSE-01 load-time apply (`d24371ed`), e2e contract drift + duplicate camelCase (`a400eb89`), close-gate hygiene + CONTEXT amendment.
+
+**Milestone close:** 10/10 reqs satisfied; tag `v1013` + `v1.3.0` at commit `470a5723` (CHANGELOG entry). Post-smoke inline fixes for 3 findings landed same-session (F1-F3 commits `54d1a8a3` / `9ad6eeb4` / `38ef49b2`) without a v1013.1 tag.
 
 ## Recent Shipped Milestone: v1012 New-User Hardening + Reupload
 
@@ -1139,4 +1161,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-20 — shipped milestone v1013 Ingest Hardening (10/10 requirements, 4 phases, local tag `v1013` + public tag `v1.3.0`, 5 inline close-gate fixes, audit PASSED). No active milestone — run `/gsd:new-milestone` to start the next one.*
+*Last updated: 2026-05-20 — started milestone v1014 Security Audit Remediation (28 requirements, 4 phases 1061-1064, public tag v1.4.0). Phase 1061 promoted from backlog 999.17 — 7 HIGH findings + AGENTS.md guardrail. Source: docs-internal/audits/sec-audit-20260519.md.*

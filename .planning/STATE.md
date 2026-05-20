@@ -1,23 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1013
-milestone_name: Ingest Hardening
-status: completed
-last_updated: "2026-05-20T14:50:00Z"
-last_activity: 2026-05-20 — Phase 1060 SHIPPED; v1013 tagged locally as v1013 + v1.3.0 (per A-01, NOT v1.4.0); CHANGELOG promoted; 4 plans / 12 MCP gates / 5 inline fixes closed
+milestone: v1014
+milestone_name: Security Audit Remediation
+status: planning
+last_updated: "2026-05-20T17:22:26.125Z"
+last_activity: 2026-05-20
 progress:
-  total_phases: 9
-  completed_phases: 9
-  total_plans: 15
-  completed_plans: 15
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-v1013 COMPLETE — milestone shipped. Run `/gsd:milestone-complete` to archive ROADMAP, or `/gsd:plan-milestone` for the next milestone.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-20 — Milestone v1014 started
 
 ## Project Reference
 

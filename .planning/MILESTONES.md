@@ -1,5 +1,35 @@
 # Milestones
 
+## v1013 Ingest Hardening (Shipped: 2026-05-20)
+
+**Phases completed:** 4 phases (1057-1060), 15 plans, 10/10 requirements
+
+**Local tag:** `v1013` (commit `470a5723`)
+**Public tag:** `v1.3.0` (per Phase 1060 A-01 disposition — v1012 shipped as v1.2.1, so this gets v1.3.0 not v1.4.0; not pushed per A-04 user decision)
+
+**Key accomplishments:**
+
+1. **Service URL Reliability (Phase 1057)** — WFS abstract-geometry-type mapping (`MultiSurface` → `MultiPolygon`, `MultiCurve` → `MultiLineString`, `CompoundSurface` → `MultiPolygon`) closes P0 commit failure 100% reproducible against `ahocevar.com/geoserver/wfs`; `try_all_probes()` first-success short-circuit (63s → 1.5s for `demo.pygeoapi.io/master`); URI-form CRS parser (`http://www.opengis.net/def/crs/OGC/1.3/CRS84` → EPSG:4326); VEC fallback classification when probe response is missing `geometry_type`.
+2. **Multi-Layer GPKG Handling (Phase 1058)** — Reupload File path layer-select step with `source_layer` pre-selection (closes P0 silent-data-swap risk); `data-testid="schema-change-advisory"` banner + column-level schema diff in Reupload preview; `POST /ingest/commit-fan-out/{job_id}` multi-commit endpoint for "ingest all layers" path in Bulk Review.
+3. **Basemap Sublayer Editor — Path B FIX (Phase 1059)** — Restored per-sublayer styling surface (STROKE/CASING/ZOOM RANGE/OPACITY/RESET) removed in v1011.1 EMRG-FN-01, with real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive (zero Alembic migration); `applySublayerOverrides()` shared helper with `map.once('idle', retry)` recovery; round-trip parity across builder/viewer/shared/embed; 12 new vitest tests + de/es/fr i18n parity (9 new keys per locale).
+4. **Close Gate (Phase 1060)** — Deleted 3 v1012 smoke repro datasets at CLEAN-01; live Playwright MCP re-verify 12/12 PASS across builder + shared + embed; CHANGELOG `[1.3.0]` populated; tags cut locally.
+5. **5 inline close-gate fixes (no v1013.1 deferrals)** — `5b965cfd` WFS-04 layer 2, `831b691f` GPKG-03 fan-out 3-bug close (migration renumber + defer race + file-cleanup race), `d24371ed` BSE-01 load-time apply path, `a400eb89` E2E fix + duplicate camelCase, `ec5c2ce5` Plan QA revisions.
+6. **3 post-smoke F1-F3 inline fixes (no v1013.1 tag)** — `54d1a8a3` accept `fanned_out` status in `JobStatusResponse` Literal + terminal-UX banner, `9ad6eeb4` URI-form CRS resolver in OGC API preview pane, `38ef49b2` `useDeleteMap` drops per-map React Query cache (commits 2026-05-20 same-session post-archive).
+
+**Smoke gate:** typecheck 0 / vitest 2091/2091 / e2e:smoke:builder 25/0/1 (was 10/2/13 pre-fix) / i18n parity 2/2.
+**Live Playwright MCP re-verify:** 12/12 PASS (5 ROADMAP-named + 7 BSE-01 sub-gates).
+**Inline code-review:** all close-gate findings fixed inline; zero v1013.1 deferrals.
+
+**Tech-debt followups (queued for v1014 or beyond):**
+
+- TECH-DEBT-GPKG-03-ORPHAN-CLEANUP — fan-out staging file sweep.
+- TECH-DEBT-BSE-01-LIVE-RESET-REVERT — pre-override paint memoization.
+- TECH-DEBT-VITE-STALE-CACHE — `/smoke-check` served-vs-source verification.
+
+See `.planning/milestones/v1013-ROADMAP.md` for full details.
+
+---
+
 ## v1012 New-User Hardening + Reupload (Shipped: 2026-05-19)
 
 **Phases completed:** 9 phases, 18 plans, 23 tasks
