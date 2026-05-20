@@ -17,7 +17,7 @@ Requirements for milestone v1013. Each maps to exactly one phase in `ROADMAP.md`
 
 ### Multi-Layer GPKG Handling
 
-- [ ] **GPKG-01** *(P0)*: User selecting Reupload File path with a multi-layer GPKG sees a layer-select step (mirroring Service URL flow at `ReuploadDialog.tsx:581`). The chosen layer is honored end-to-end through preview + commit; `dataset.source_layer` is the default selection when present in the new file. Fix surfaces: `ReuploadDialog.tsx` state machine + `previewMutation.mutateAsync({ datasetId, jobId, layer_name })` + `router_reupload.py:329` + `backend/app/processing/ingest/ogr.py:209` (no longer fall through to `layers[0]`).
+- [x] **GPKG-01** *(P0)*: User selecting Reupload File path with a multi-layer GPKG sees a layer-select step (mirroring Service URL flow at `ReuploadDialog.tsx:581`). The chosen layer is honored end-to-end through preview + commit; `dataset.source_layer` is the default selection when present in the new file. Fix surfaces: `ReuploadDialog.tsx` state machine + `previewMutation.mutateAsync({ datasetId, jobId, layer_name })` + `router_reupload.py:329` + `backend/app/processing/ingest/ogr.py:209` (no longer fall through to `layers[0]`).
 - [ ] **GPKG-02** *(P1)*: User sees the chosen layer name + column-level schema diff (Columns Added / Columns Removed with types) + schema-change warning in the Reupload preview pane. Service URL preview is the design reference. Acceptance: preview pane displays "Layer: {name}" line + schema diff rows when columns differ.
 - [ ] **GPKG-03** *(P2)*: User can ingest all layers of a multi-layer GPKG as separate datasets via the Bulk Review flow — single upload, N datasets created. Mitigation candidates: (a) accept multi-commit per file in Bulk Review with "+ add another layer from this file" button; (b) add an "Ingest all layers" path that fans out to N datasets per file. Surface: `BulkReviewList.tsx:343-358`, `onCommitSingle` at line 150.
 
@@ -89,7 +89,7 @@ Populated by `gsd-roadmapper` after phase plan creation. All 10 v1013 requiremen
 | PROBE-05 | 1057 | Complete |
 | CRS-06 | 1057 | Pending |
 | CLASS-07 | 1057 | Complete |
-| GPKG-01 | 1058 | Pending |
+| GPKG-01 | 1058 | Complete |
 | GPKG-02 | 1058 | Pending |
 | GPKG-03 | 1058 | Pending |
 | BSE-01 | 1059 | Pending |

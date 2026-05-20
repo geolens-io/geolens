@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
-status: executing
-last_updated: "2026-05-20T02:10:00.000Z"
-last_activity: 2026-05-20 — Phase 1057 Plan 03 executed; URI/URN CRS parsing helper + extract_srid_from_json wire-up + frontend CRS Override auto-hide
+status: in_progress
+last_updated: "2026-05-20T03:30:00.000Z"
+last_activity: 2026-05-20 — Phase 1058 Plan 01 executed; GPKG-01 P0 layer-select step + previous_source_layer pre-selection + missing-layer warning
 progress:
   total_phases: 9
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 3
-  percent: 0
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 5
+  percent: 20
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1057 Service URL Reliability — Plan 03 complete (all 3 plans done)
-Plan: 03 / 3 (CRS-06 URI/URN parsing complete)
-Status: Phase 1057 complete — all 4 requirements satisfied (WFS-04, PROBE-05, CRS-06, CLASS-07)
-Last activity: 2026-05-20 — Phase 1057 Plan 03 executed; URI/URN CRS parsing helper + extract_srid_from_json wire-up + frontend CRS Override auto-hide
+Phase: 1058 Multi-Layer GPKG Handling — Plan 01 complete (1 of 3 plans done)
+Plan: 01 / 3 (GPKG-01 P0 layer-select step complete)
+Status: Phase 1058 Plan 01 complete — GPKG-01 satisfied (silent-data-swap fix: backend schema + reupload endpoint + frontend selecting-file-layer step + E2E spec)
+Last activity: 2026-05-20 — Phase 1058 Plan 01 executed; GPKG-01 P0 layer-select step + previous_source_layer pre-selection + missing-layer warning
 
 ## Project Reference
 
