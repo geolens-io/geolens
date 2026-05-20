@@ -133,9 +133,14 @@
 
 **Regression tests:** `e2e/sec-audit.spec.ts` already drafted with 18 tests pinning S01–S13, env-var-gated where they need fixtures (`SEC_AUDIT_PRIVATE_RECORD_ID`, `SEC_AUDIT_PRIVATE_DATASET_ID`, `SEC_AUDIT_EDITOR_B_TOKEN`, `SEC_AUDIT_SSRF_TEST_REDIRECTOR`).
 
-Plans:
+Plans: 6 plans
 
-- [ ] TBD (run `/gsd:plan-phase 1061`)
+- [ ] 1061-01-PLAN.md — SEC-S01: STAC router visibility filter (wave 1, 4 tasks)
+- [ ] 1061-02-PLAN.md — SEC-S02 + SEC-S03: dataset metadata + column DDL IDOR (wave 1, 3 tasks)
+- [ ] 1061-03-PLAN.md — SEC-S05: related-datasets visibility gate on seed (wave 1, 3 tasks)
+- [ ] 1061-04-PLAN.md — SEC-S04: SSRF redirect-revalidation + GDAL_HTTP_FOLLOWLOCATION=NO (wave 1, 4 tasks)
+- [ ] 1061-05-PLAN.md — SEC-S06 + SEC-S07: demo creds + MinIO fail-closed defaults (wave 1, 4 tasks)
+- [ ] 1061-06-PLAN.md — SEC-GUARD-01: AGENTS.md visibility-filter + SSRF guardrails + pre-commit grep (wave 2, 4 tasks)
 
 ### Phase 1062: MEDIUM severity remediation
 

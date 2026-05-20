@@ -1,7 +1,8 @@
 """STAC API router: landing page, conformance, collections, items, search.
 
-All endpoints are public (no auth required) -- STAC is for machine
-consumption of published data only.
+Visibility is enforced on all item-returning endpoints (Phase 1061 SEC-S01).
+Anonymous users see only public+published raster records; authenticated users
+see public + their owned private + any restricted records granted to their roles.
 """
 
 from __future__ import annotations
@@ -22,8 +23,11 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
+from app.core.identity import Identity
 import app.core.db as _db_module
-from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.modules.auth.dependencies import get_optional_user
+from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record, RecordKeyword
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url
 from app.processing.raster.models import DatasetAsset, RasterAsset
@@ -52,7 +56,8 @@ _STAC_RECORD_TYPES = ("raster_dataset", "vrt_dataset")
 
 
 def _published_raster_filters():
-    """Return WHERE clauses for published raster/VRT records."""
+    # Phase 1061 SEC-S01: aggregate queries scoped by CollectionDataset; item
+    # bodies remain visibility-gated below via _base_published_raster_query.
     return (
         Record.record_type.in_(_STAC_RECORD_TYPES),
         Record.record_status == "published",
@@ -214,9 +219,17 @@ async def _dataset_to_stac_item(
     )
 
 
-def _base_published_raster_query():
-    """Base select for published raster/VRT datasets with eager-loaded record."""
-    return (
+def _base_published_raster_query(
+    user: Identity | None,
+    user_roles: set[str],
+):
+    """Base select for published raster/VRT datasets with visibility enforced.
+
+    Phase 1061 SEC-S01: matches the OGC Features peer router. Anonymous users
+    see only public+published records; authenticated users see public + their
+    owned private + any restricted records granted to their roles.
+    """
+    stmt = (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(
@@ -229,6 +242,14 @@ def _base_published_raster_query():
             Record.record_status == "published",
         )
     )
+    return apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+
+
+async def _resolve_roles(db: AsyncSession, user: Identity | None) -> set[str]:
+    """Resolve user_roles, returning an empty set for anonymous callers."""
+    if user is None:
+        return set()
+    return await get_user_roles(db, user)
 
 
 # ---------------------------------------------------------------------------
