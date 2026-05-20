@@ -346,13 +346,26 @@ async def reupload_preview(
     info = await get_catalog_port().run_ogrinfo_preview(file_path, layer_name=layer_name)
 
     # GPKG-01 Phase 1058: validate user-supplied layer_name appears in the file.
+    # WR-02 fix: also check against info["layer_name"] for single-layer files where
+    # all_layers is None (ogr.py only sets all_layers when len(layers) > 1).
+    # Without this branch a mistyped layer_name on a single-layer file silently
+    # falls through and returns data for the wrong layer.
     all_layers = info.get("all_layers")  # None for single-layer files
-    if layer_name is not None and all_layers is not None:
-        layer_names_in_file = {lyr["name"] for lyr in all_layers}
-        if layer_name not in layer_names_in_file:
+    if layer_name is not None:
+        if all_layers is not None:
+            layer_names_in_file = {lyr["name"] for lyr in all_layers}
+            if layer_name not in layer_names_in_file:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Layer '{layer_name}' not found in this file.",
+                )
+        elif info.get("layer_name") and layer_name != info["layer_name"]:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Layer '{layer_name}' not found in this file.",
+                detail=(
+                    f"Layer '{layer_name}' not found in this file "
+                    f"(single-layer file contains '{info['layer_name']}')."
+                ),
             )
 
     diff = compute_schema_diff(
