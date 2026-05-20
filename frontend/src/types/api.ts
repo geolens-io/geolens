@@ -24,6 +24,25 @@ export type MapBasemapReliefContrast = 'soft' | 'standard' | 'strong';
  *  required — legacy maps load with `undefined` and default to 'bottom'. */
 export type MapBasemapPosition = 'top' | 'bottom';
 
+/** Phase 1059 BSE-01: per-sublayer style override stored in MapBasemapConfig.sublayer_overrides.
+ *  All fields nullable — null means "use basemap default". Mirrors backend SublayerOverride
+ *  Pydantic model at backend/app/modules/catalog/maps/schemas.py.
+ *  Color fields MUST be #RRGGBB hex when non-null (validated server-side via regex). */
+export interface MapSublayerOverride {
+  stroke_color?: string | null;
+  stroke_width?: number | null;
+  casing_color?: string | null;
+  casing_width?: number | null;
+  min_zoom?: number | null;
+  max_zoom?: number | null;
+  opacity?: number | null;
+}
+
+/** Known sublayer IDs the editor exposes. Key set is OPEN (D-01 forward-compat) —
+ *  consumers should not exhaustively switch on this union; new IDs may appear from
+ *  future basemap providers. */
+export type KnownSublayerId = 'road' | 'boundary' | 'building' | 'label';
+
 export interface MapBasemapConfig {
   label_mode: MapBasemapVisibilityMode;
   road_visibility: MapBasemapVisibilityMode;
@@ -35,6 +54,10 @@ export interface MapBasemapConfig {
   /** Phase 1051 UX-03: 'top' renders basemap above data; 'bottom' (default)
    *  renders below. See `MapBasemapPosition` above. */
   basemap_position?: MapBasemapPosition;
+  /** Phase 1059 BSE-01: per-sublayer overrides keyed by semantic sublayer ID.
+   *  Opaque key set — see KnownSublayerId for documented IDs. Backed by
+   *  MapBasemapConfig.sublayer_overrides jsonb (zero-migration backward compat). */
+  sublayer_overrides?: Record<string, MapSublayerOverride> | null;
 }
 
 export interface TokenResponse {

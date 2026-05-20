@@ -30,7 +30,7 @@ const VISIBILITY_MODES = new Set<MapBasemapVisibilityMode>(['full', 'subtle', 'h
 const LAND_WATER_TONES = new Set<MapBasemapLandWaterTone>(['default', 'muted', 'contrast', 'monochrome']);
 const RELIEF_CONTRASTS = new Set<MapBasemapReliefContrast>(['soft', 'standard', 'strong']);
 
-type StyleLayer = StyleSpecification['layers'][number] & {
+export type StyleLayer = StyleSpecification['layers'][number] & {
   id: string;
   type?: string;
   source?: unknown;
@@ -227,23 +227,34 @@ function matchesAny(layer: StyleLayer, patterns: string[]) {
   return patterns.some((pattern) => tokens.includes(pattern));
 }
 
-function isTextLabelLayer(layer: StyleLayer) {
+export function isTextLabelLayer(layer: StyleLayer) {
   if (layer.type !== 'symbol') return false;
   const layout = layer.layout ?? {};
   return layout['text-field'] != null || layerTokens(layer).includes('label');
 }
 
-function isRoadLayer(layer: StyleLayer) {
+export function isRoadLayer(layer: StyleLayer) {
   return (layer.type === 'line' || layer.type === 'symbol') && matchesAny(layer, ROAD_PATTERNS);
 }
 
-function isBoundaryLayer(layer: StyleLayer) {
+export function isBoundaryLayer(layer: StyleLayer) {
   return (layer.type === 'line' || layer.type === 'symbol') && matchesAny(layer, BOUNDARY_PATTERNS);
 }
 
-function isBuildingLayer(layer: StyleLayer) {
+export function isBuildingLayer(layer: StyleLayer) {
   return layer.type === 'fill-extrusion' || matchesAny(layer, BUILDING_PATTERNS);
 }
+
+/** Phase 1059 BSE-01: semantic sublayer ID → MapLibre style-layer predicate map.
+ *  Used by `applySublayerOverrides` (frontend/src/lib/builder/basemap-style-mutation.ts)
+ *  to resolve a sublayer override key ('road') to the set of actual style layers
+ *  it applies to. Open key set — new sublayer IDs are added here. */
+export const SUBLAYER_CLASSIFIERS: Record<string, (layer: StyleLayer) => boolean> = {
+  road: isRoadLayer,
+  boundary: isBoundaryLayer,
+  building: isBuildingLayer,
+  label: isTextLabelLayer,
+};
 
 function isWaterLayer(layer: StyleLayer) {
   return matchesAny(layer, WATER_PATTERNS);
