@@ -3,7 +3,7 @@
 import uuid
 
 import structlog
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin.schemas import (
@@ -11,7 +11,7 @@ from app.modules.admin.schemas import (
     EmbeddingStatsResponse,
     UserUpdate,
 )
-from app.modules.auth.models import ApiKey, Role, User, UserRole
+from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -248,6 +248,29 @@ class AdminService:
         #    AND this user's non-SAML linkages (multi-IdP edge case) are preserved.
         await self.db.execute(
             delete(OAuthAccount).where(OAuthAccount.id == saml_account.id)
+        )
+
+        # 7. SEC-S15 (CR-02, Phase 1062 review): bump token_version so any
+        #    outstanding SAML access JWT is rejected on the next authenticated
+        #    request. The SAML JWT remains cryptographically valid until its
+        #    natural expiry otherwise, which violates the SEC-S15 requirement
+        #    that auth-provider conversion forces re-authentication.
+        await self.db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(token_version=User.token_version + 1)
+        )
+
+        # 8. Belt-and-suspenders: also revoke any active refresh tokens so the
+        #    converted user cannot exchange a SAML-era refresh token for a new
+        #    access JWT after conversion.
+        await self.db.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked == False,  # noqa: E712
+            )
+            .values(revoked=True)
         )
 
         await self.db.flush()

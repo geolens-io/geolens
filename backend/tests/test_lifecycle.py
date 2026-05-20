@@ -599,6 +599,108 @@ async def test_convert_saml_user_to_local_preserves_user_data(
 
 
 @pytest.mark.lifecycle
+async def test_convert_saml_user_invalidates_prior_jwt(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    saml_overlay_registered,
+    _cleanup_lifecycle_rows,
+):
+    """CR-02 regression: SAML-to-local conversion bumps token_version so any
+    outstanding SAML access JWT is rejected on the next request.
+
+    SEC-S15 requires that auth-provider conversion forces re-authentication.
+    Before the fix, convert_saml_user_to_local never touched token_version, so
+    a SAML access JWT issued before conversion remained valid until natural
+    expiry (up to 15 minutes).
+    """
+    from app.modules.auth.providers import AuthenticatedIdentity
+    from app.modules.auth.service import AuthService
+
+    saved_info = edition_mod._info
+    edition_mod.init_edition(["enterprise"])
+
+    try:
+        # Seed SAML provider + user + account (mirrors LIFECYCLE-06 pattern).
+        provider = OAuthProvider(
+            slug=LIFECYCLE_SLUG,
+            display_name="CR-02 Test IdP",
+            provider_type="saml",
+            client_id="unused",
+            client_secret_encrypted=encrypt_secret("unused"),
+            idp_entity_id=LIFECYCLE_IDP_ENTITY_ID,
+            idp_sso_url=LIFECYCLE_IDP_SSO_URL,
+            idp_certificate=encrypt_secret(LIFECYCLE_CERT_PEM),
+            sp_entity_id=LIFECYCLE_SP_ENTITY_ID,
+            enabled=True,
+        )
+        test_db_session.add(provider)
+        await test_db_session.commit()
+        await test_db_session.refresh(provider)
+
+        user = User(
+            username=LIFECYCLE_USERNAME,
+            email=LIFECYCLE_USER_EMAIL,
+            password_hash=None,
+            is_active=True,
+            auth_provider="oauth",
+        )
+        test_db_session.add(user)
+        await test_db_session.commit()
+        await test_db_session.refresh(user)
+        seeded_user_id = user.id
+
+        account = OAuthAccount(
+            user_id=seeded_user_id,
+            provider_id=provider.id,
+            subject=LIFECYCLE_USER_SUBJECT,
+        )
+        test_db_session.add(account)
+        await test_db_session.commit()
+
+        # Mint a SAML-era access JWT directly via the service (SAML users have
+        # no password so normal login is unavailable).
+        auth_svc = AuthService(test_db_session)
+        pre_conversion_token = await auth_svc.create_access_token(
+            AuthenticatedIdentity(user_id=seeded_user_id, username=LIFECYCLE_USERNAME)
+        )
+        await test_db_session.commit()
+
+        # Verify the pre-conversion JWT works (sanity check).
+        resp_before = await client.get(
+            "/auth/me/",
+            headers={"Authorization": f"Bearer {pre_conversion_token}"},
+        )
+        assert resp_before.status_code == 200, (
+            f"Pre-conversion JWT should be valid, got {resp_before.status_code}"
+        )
+
+        # Invoke the SAML-to-local conversion endpoint.
+        new_password = "SAMLConvert5678#"
+        resp_conv = await client.post(
+            f"/admin/users/{seeded_user_id}/convert-saml-to-local/",
+            json={"password": new_password},
+            headers=admin_auth_header,
+        )
+        assert resp_conv.status_code == 200, (
+            f"Conversion failed: {resp_conv.text}"
+        )
+
+        # The pre-conversion JWT must now be rejected (token_version bumped).
+        resp_after = await client.get(
+            "/auth/me/",
+            headers={"Authorization": f"Bearer {pre_conversion_token}"},
+        )
+        assert resp_after.status_code == 401, (
+            "Pre-conversion SAML JWT must be invalidated after SAML-to-local "
+            f"conversion (CR-02), got {resp_after.status_code}"
+        )
+
+    finally:
+        edition_mod._info = saved_info
+
+
+@pytest.mark.lifecycle
 async def test_deactivate_reactivate_roundtrip_preserves_saml_data(
     test_db_session: AsyncSession,
     saml_overlay_registered,
