@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1013
 milestone_name: Ingest Hardening
-status: in_progress
-last_updated: "2026-05-20T03:53:05.356Z"
-last_activity: 2026-05-20 — Phase 1059 Plan 02 executed; applySublayerOverrides helper + 4-context wire-up; 19/19 unit tests pass; 820/820 total targeted tests pass; tsc clean
+status: completed
+last_updated: "2026-05-20T04:10:00.000Z"
+last_activity: 2026-05-20 — Phase 1059 Plan 03 executed; BasemapSublayerEditorScene STROKE/CASING/ZOOM restored; Test 14 inverted; MapBuilderPage wired; 14/14 tests pass; tsc clean
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 11
-  completed_plans: 10
-  percent: 27
+  completed_plans: 11
+  percent: 25
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1059 Basemap Sublayer Editor (Path B FIX) — Plan 02 complete (applySublayerOverrides helper + BuilderMap + ViewerMap wire-up)
-Plan: 02 / 4 (frontend MapLibre integration: helper + 2 wire-up sites covering 4 render contexts)
-Status: Phase 1059 Plan 02 complete — applySublayerOverrides with idle-retry; 19 unit tests; BuilderMap.tsx (2 sites) + ViewerMap.tsx (1 site = viewer/shared/embed); tsc clean
-Last activity: 2026-05-20 — Phase 1059 Plan 02 executed; applySublayerOverrides helper + 4-context wire-up; 19/19 unit tests pass; 820/820 total targeted tests pass; tsc clean
+Phase: 1059 Basemap Sublayer Editor (Path B FIX) — Plan 03 complete (editor UI restored; MapBuilderPage wired)
+Plan: 03 / 4 (frontend editor UI: STROKE/CASING/ZOOM sections + 6 callbacks + updateSublayerOverride helper)
+Status: Phase 1059 Plan 03 complete — 5-section editor restored; Test 14 inverted; 14/14 tests pass; tsc clean
+Last activity: 2026-05-20 — Phase 1059 Plan 03 executed; BasemapSublayerEditorScene STROKE/CASING/ZOOM restored; Test 14 inverted; MapBuilderPage wired; 14/14 tests pass; tsc clean
 
 ## Project Reference
 
@@ -103,10 +103,11 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 ## Decisions
 
 - **Phase 1059 Plan 02:** Exported StyleLayer, isRoadLayer, isBoundaryLayer, isBuildingLayer, isTextLabelLayer, SUBLAYER_CLASSIFIERS from basemap-utils.ts. applySublayerOverrides uses idle-retry recovery (map.once('idle', retry)). casing_color applied via line-color on layers with 'casing' in id (openfreemap-positron heuristic). ViewerMap.tsx serves viewer/shared/embed — 2 wire-up sites covers all 4 render contexts.
+- **Phase 1059 Plan 03:** BasemapSublayerEditorScene restored with 5 sections (STROKE/CASING/ZOOM/OPACITY/RESET). Test 14 inverted from REMOVE-pin to PRESENT-assert. updateSublayerOverride helper in MapBuilderPage uses setBasemapConfig functional updater for atomic sublayer_overrides patch. 9 English i18n keys added. MapSublayerOverride imported directly from api.ts (Plan 02 already landed it).
 
 ## Operator Next Steps
 
 - Run `/gsd:plan-phase 1057` to break Service URL Reliability into plans.
 - Phase 1057, 1058, 1059 can theoretically be planned in any order (no inter-phase code dependencies); recommend P0-led order (1057 → 1058 → 1059) for sequential solo-dev execution.
 - Phase 1060 (Close Gate) must wait for 1057 + 1058 + 1059 completion.
-- Phase 1059 Plan 03 (editor UI — BasemapSublayerEditorScene restoration) is next.
+- Phase 1059 Plan 04 (cross-context tests + i18n de/es/fr parity) is next.
