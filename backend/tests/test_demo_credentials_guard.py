@@ -70,6 +70,38 @@ def test_guard_refuses_demo_jwt_in_non_demo_mode():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SEC-FU-02 audit regression pin — explicit named test for traceability
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("demo_mode", [True, False])
+def test_sec_fu_02_jwt_demo_literal_refused(demo_mode: bool):
+    """SEC-FU-02 (sec-audit-20260519.md) regression pin: the literal string
+    "demo-only-do-not-use-in-production-change-me" MUST be refused by
+    validate_demo_credentials_guard regardless of GEOLENS_DEMO_MODE.
+
+    This named test exists for audit traceability — if a future refactor
+    accidentally removes or shortcuts the `if jwt_value == DEMO_JWT_SECRET`
+    branch in config.py, this test fires with "SEC-FU-02" in the failure
+    trace. It is intentionally redundant with the broader SEC-S06 tests above
+    so that the specific audit finding has a dedicated reproduction key.
+
+    Failure of this test indicates a regression in the literal-refusal contract
+    and must be treated as a BLOCKER before any deployment.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _build(
+            jwt_secret_key="demo-only-do-not-use-in-production-change-me",
+            geolens_demo_mode=demo_mode,
+        )
+    error_text = str(exc_info.value)
+    assert "known-public" in error_text, (
+        f"SEC-FU-02: ValidationError message must contain 'known-public' to identify "
+        f"the specific refusal reason. Got: {error_text!r}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GEOLENS_ADMIN_PASSWORD literal — refused in demo mode (was previously allowed)
 # ─────────────────────────────────────────────────────────────────────────────
 
