@@ -385,13 +385,18 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
 
     const cmdKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 
-    // Cmd-click first overlay row to enter multi-select mode
+    // Cmd-click first overlay row to enter multi-select mode.
+    // Phase 1052 dropped role="listbox"/"option" from stack rows (nested-interactive
+    // a11y issue — rows contain focusable controls). With those roles gone,
+    // aria-selected is meaningless; selection is signalled by data-selected="true"
+    // (renders the primary-tint background per StackRow.tsx:188). Phase 1060 close
+    // gate test-contract update.
     await overlayRows.nth(0).click({ modifiers: [cmdKey] });
-    await expect(overlayRows.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(overlayRows.nth(0)).toHaveAttribute('data-selected', 'true');
 
     // Cmd-click second overlay row to get 2 selected (toolbar requires >= 2)
     await overlayRows.nth(1).click({ modifiers: [cmdKey] });
-    await expect(overlayRows.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(overlayRows.nth(1)).toHaveAttribute('data-selected', 'true');
 
     // Verify bulk action toolbar is visible with 2 selected
     const toolbar = page.getByRole('toolbar', { name: /bulk actions for 2 selected layers/i });
@@ -415,8 +420,8 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
     await expect(toolbar).toBeVisible({ timeout: 3_000 });
 
     // Original overlay multi-select state must still be intact
-    await expect(overlayRows.nth(0)).toHaveAttribute('aria-selected', 'true');
-    await expect(overlayRows.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(overlayRows.nth(0)).toHaveAttribute('data-selected', 'true');
+    await expect(overlayRows.nth(1)).toHaveAttribute('data-selected', 'true');
 
     // Visual a11y cue: basemap row shows cursor-not-allowed when overlay selected
     // (Phase 1041-01 defense-in-depth visual signal)
@@ -431,7 +436,7 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
 
     // Clear selection with Escape
     await page.keyboard.press('Escape');
-    await expect(overlayRows.nth(0)).not.toHaveAttribute('aria-selected', 'true');
+    await expect(overlayRows.nth(0)).not.toHaveAttribute('data-selected', 'true');
     await expect(toolbar).not.toBeVisible({ timeout: 5_000 });
 
     assertConsoleClean(gate);
@@ -467,12 +472,13 @@ test.describe.serial('Builder v1.5 (drag-from-catalog + multi-select)', () => {
 
     const cmdKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 
-    // Select 2 rows via Cmd-click
+    // Select 2 rows via Cmd-click.
+    // Phase 1060: use data-selected (post-1052 contract — see Test 3 comment).
     await rows.nth(0).click({ modifiers: [cmdKey] });
-    await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(rows.nth(0)).toHaveAttribute('data-selected', 'true');
 
     await rows.nth(1).click({ modifiers: [cmdKey] });
-    await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(rows.nth(1)).toHaveAttribute('data-selected', 'true');
 
     // Bulk action toolbar should appear (2 selected)
     const toolbar = page.getByRole('toolbar', { name: /bulk actions for 2 selected layers/i });

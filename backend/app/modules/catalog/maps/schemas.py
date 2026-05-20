@@ -35,6 +35,70 @@ LEGACY_BUILDER_PAINT_KEYS = {
 }
 _STYLE_CONFIG_BUILDER_KEY = "builder"
 
+# Phase 1060 close-gate (G-x e2e fix): the frontend normalizes builder keys
+# from snake_case (storage canonical) to camelCase on layer load via
+# `frontend/src/lib/normalize-style-config.ts:normalizeBuilderStyleConfig`.
+# When a layer is duplicated, the React state's camelCase keys are POSTed
+# back, and without server-side normalization the new layer would persist
+# camelCase while the original (created via default style) stays snake_case.
+# This map inverts `style_json._BUILDER_KEY_ALIASES` so the validator can
+# canonicalize incoming style_config.builder keys to snake_case before
+# storage — keeping the DB schema consistent regardless of which client
+# wrote the row.
+_BUILDER_CAMEL_TO_SNAKE_KEYS = {
+    "fillDisabled": "fill_disabled",
+    "strokeDisabled": "stroke_disabled",
+    "fillOpacitySaved": "fill_opacity_saved",
+    "outlineWidthSaved": "outline_width_saved",
+    "outlineColor": "outline_color",
+    "outlineWidth": "outline_width",
+    "heatmapRamp": "heatmap_ramp",
+    "heatmapWeightColumn": "heatmap_weight_column",
+    "heightColumn": "height_column",
+    "heightScale": "height_scale",
+    "extrusionMinZoom": "extrusion_min_zoom",
+    "extrusionOpacity": "extrusion_opacity",
+    "arrowColor": "arrow_color",
+    "arrowSize": "arrow_size",
+    "arrowSpacing": "arrow_spacing",
+    "clusterRadius": "cluster_radius",
+    "clusterMaxZoom": "cluster_max_zoom",
+    "clusterColor": "cluster_color",
+    "clusterTextColor": "cluster_text_color",
+    "clusterTextSize": "cluster_text_size",
+}
+
+
+def canonicalize_builder_style_config(
+    style_config: dict | None,
+) -> dict | None:
+    """Normalize style_config.builder keys to snake_case for storage.
+
+    Idempotent: snake_case keys pass through unchanged; camelCase keys
+    are rewritten to their snake_case equivalent. If both forms appear
+    on the same record (unlikely but possible during the rollout),
+    snake_case wins (last-write order in the dict).
+    """
+    if not isinstance(style_config, dict):
+        return style_config
+    builder = style_config.get(_STYLE_CONFIG_BUILDER_KEY)
+    if not isinstance(builder, dict):
+        return style_config
+    converted: dict = {}
+    for key, value in builder.items():
+        canonical = _BUILDER_CAMEL_TO_SNAKE_KEYS.get(key, key)
+        # If both camelCase and snake_case appear, snake_case wins by
+        # virtue of being written last (callers typically pass snake_case
+        # as the default style; camelCase only shows up on duplicates).
+        if canonical in converted and canonical != key:
+            continue
+        converted[canonical] = value
+    if converted != builder:
+        new_config = dict(style_config)
+        new_config[_STYLE_CONFIG_BUILDER_KEY] = converted
+        return new_config
+    return style_config
+
 # MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
 # because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
 # size to prevent a single PUT from storing a megabytes-sized JSONB blob per layer.
@@ -384,6 +448,10 @@ class MapLayerInput(BaseModel):
             self.paint,
             self.style_config,
         )
+        # Phase 1060: canonicalize builder keys to snake_case (storage shape)
+        # so frontend-normalized camelCase keys don't persist as a separate
+        # schema after layer duplication. See canonicalize_builder_style_config.
+        self.style_config = canonicalize_builder_style_config(self.style_config)
         _validate_style_dict(self.paint)
         _validate_style_dict(self.style_config)
         return self
@@ -424,6 +492,10 @@ class MapLayerPatch(BaseModel):
             self.paint,
             self.style_config,
         )
+        # Phase 1060: canonicalize builder keys to snake_case (storage shape)
+        # so frontend-normalized camelCase keys don't persist as a separate
+        # schema after layer duplication. See canonicalize_builder_style_config.
+        self.style_config = canonicalize_builder_style_config(self.style_config)
         _validate_style_dict(self.paint)
         _validate_style_dict(self.style_config)
         return self
