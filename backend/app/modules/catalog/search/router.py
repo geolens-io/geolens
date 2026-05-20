@@ -534,7 +534,10 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
 
 
 @search_router.get("/facets/", response_model=FacetCountResponse)
-@limiter.limit(_semantic_search_rate_limit)
+# WR-02: no semantic-search rate limit on /facets/ — this endpoint does pure
+# SQL aggregation and never calls the embedding model. Applying the 30/min
+# embedding cost-cap (SEC-S11) here would silently throttle SPA users who
+# refresh the search UI more than 30 times per minute.
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, max_length=1000, description="Full-text search query"),
