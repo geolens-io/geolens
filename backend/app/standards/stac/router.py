@@ -536,6 +536,7 @@ async def get_collection_items(
     collection_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
     bbox: str | None = Query(None, description="Bounding box: west,south,east,north"),
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
@@ -553,6 +554,7 @@ async def get_collection_items(
 ) -> JSONResponse:
     """List STAC Items within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    user_roles = await _resolve_roles(db, user)
 
     # Verify collection exists
     coll_result = await db.execute(
@@ -564,7 +566,7 @@ async def get_collection_items(
         )
 
     # Base query filtered to this collection
-    stmt = _base_published_raster_query().where(
+    stmt = _base_published_raster_query(user, user_roles).where(
         Dataset.id.in_(
             select(CollectionDataset.dataset_id).where(
                 CollectionDataset.collection_id == collection_id
@@ -736,9 +738,11 @@ async def get_collection_item(
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> JSONResponse:
     """Get a single STAC Item within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    user_roles = await _resolve_roles(db, user)
 
     # Verify collection exists
     coll_result = await db.execute(
@@ -750,7 +754,7 @@ async def get_collection_item(
         )
 
     # Fetch published raster/VRT dataset within this collection
-    stmt = _base_published_raster_query().where(
+    stmt = _base_published_raster_query(user, user_roles).where(
         Dataset.id == item_id,
         Dataset.id.in_(
             select(CollectionDataset.dataset_id).where(
@@ -775,11 +779,13 @@ async def get_item(
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    user_roles = await _resolve_roles(db, user)
 
-    stmt = _base_published_raster_query().where(Dataset.id == item_id)
+    stmt = _base_published_raster_query(user, user_roles).where(Dataset.id == item_id)
     result = await db.execute(stmt)
     dataset = result.unique().scalar_one_or_none()
     if dataset is None:
@@ -948,6 +954,8 @@ async def _execute_search(
     db: AsyncSession,
     stac_api_url: str,
     public_api_url: str,
+    user: Identity | None,
+    user_roles: set[str],
     *,
     bbox: str | list[float] | None = None,
     datetime_str: str | None = None,
@@ -988,7 +996,7 @@ async def _execute_search(
             context={"limit": limit, "returned": 0, "matched": 0},
         )
 
-    stmt = _base_published_raster_query()
+    stmt = _base_published_raster_query(user, user_roles)
     for f in filters:
         stmt = stmt.where(f)
 
@@ -1083,6 +1091,7 @@ async def _execute_search(
 async def search_get(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
     bbox: str | None = Query(None, description="Bounding box: west,south,east,north"),
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
@@ -1104,10 +1113,13 @@ async def search_get(
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    user_roles = await _resolve_roles(db, user)
     return await _execute_search(
         db,
         stac_api_url,
         public_api_url,
+        user,
+        user_roles,
         bbox=bbox,
         datetime_str=datetime_param,
         collections=collections,
@@ -1142,14 +1154,18 @@ async def search_post(
     body: StacSearchBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user),
 ) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
+    user_roles = await _resolve_roles(db, user)
 
     return await _execute_search(
         db,
         stac_api_url,
         public_api_url,
+        user,
+        user_roles,
         bbox=body.bbox,
         datetime_str=body.datetime,
         collections=body.collections,
