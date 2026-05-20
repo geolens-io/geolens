@@ -164,12 +164,15 @@ describe('applySublayerOverrides', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('road-primary', 'line-opacity', 0.5);
   });
 
-  it('applies_opacity_multiplicatively_over_layer_type_symbol', () => {
+  it('applies_per_sublayer_opacity_to_symbol_layer_text_and_icon', () => {
+    // IN-01: renamed from 'applies_opacity_multiplicatively_over_layer_type_symbol'.
+    // The implementation assigns opacity absolutely (not multiplicatively) —
+    // map.setPaintProperty(layerId, 'text-opacity', 0.5) is a direct assignment.
+    // Symbol layers get both text-opacity and icon-opacity set simultaneously.
     map.getStyle.mockReturnValue({ layers: [makeRoadSymbolLayer('road-label')] });
 
     applySublayerOverrides(map as never, { road: { opacity: 0.5 } });
 
-    // Symbol layers get both text-opacity and icon-opacity
     expect(map.setPaintProperty).toHaveBeenCalledWith('road-label', 'text-opacity', 0.5);
     expect(map.setPaintProperty).toHaveBeenCalledWith('road-label', 'icon-opacity', 0.5);
   });
