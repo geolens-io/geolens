@@ -93,7 +93,7 @@
 
 | # | Phase | Reqs | Severity | Estimate |
 |---|-------|------|----------|----------|
-| 1061 | HIGH severity findings + AGENTS.md guardrail | 3/6 | In Progress|  |
+| 1061 | HIGH severity findings + AGENTS.md guardrail | 4/6 | In Progress|  |
 | 1062 | MEDIUM severity findings | SEC-S08..S16 (9) | MEDIUM | ~3-5 days |
 | 1063 | LOW follow-up tickets | SEC-FU-01..FU-10 (10) | LOW | ~2-3 days |
 | 1064 | Close gate (regression suite + CHANGELOG + tag) | SEC-CTRL-01 (1) | Gate | ~0.5 day |
@@ -138,7 +138,7 @@ Plans: 6 plans
 - [x] 1061-01-PLAN.md — SEC-S01: STAC router visibility filter (wave 1, 4 tasks)
 - [x] 1061-02-PLAN.md — SEC-S02 + SEC-S03: dataset metadata + column DDL IDOR (wave 1, 3 tasks)
 - [x] 1061-03-PLAN.md — SEC-S05: related-datasets visibility gate on seed (wave 1, 3 tasks)
-- [ ] 1061-04-PLAN.md — SEC-S04: SSRF redirect-revalidation + GDAL_HTTP_FOLLOWLOCATION=NO (wave 1, 4 tasks)
+- [x] 1061-04-PLAN.md — SEC-S04: SSRF redirect-revalidation + GDAL_HTTP_FOLLOWLOCATION=NO (wave 1, 4 tasks)
 - [ ] 1061-05-PLAN.md — SEC-S06 + SEC-S07: demo creds + MinIO fail-closed defaults (wave 1, 4 tasks)
 - [ ] 1061-06-PLAN.md — SEC-GUARD-01: AGENTS.md visibility-filter + SSRF guardrails + pre-commit grep (wave 2, 4 tasks)
 
