@@ -20,6 +20,7 @@ from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
 )
+from app.modules.embed_tokens.models import EmbedToken
 from app.platform.extensions import get_catalog_port
 
 
@@ -224,11 +225,16 @@ async def get_shared_map(
     token: str,
     user: Identity | None = None,
     user_roles: set[str] | None = None,
-) -> tuple[dict, list[dict]] | str | None:
+) -> tuple[dict, list[dict], list[str] | None] | str | None:
     """Fetch a shared map by token.
 
     Returns:
-        tuple: (map_dict, layers) on success
+        tuple: (map_dict, layers, allowed_origins) on success.
+            ``allowed_origins`` is the active EmbedToken.allowed_origins for the
+            map (``None`` when no active EmbedToken exists; ``[]`` when the
+            token exists but no origins are configured). Callers use this to
+            emit a ``Content-Security-Policy: frame-ancestors`` header on the
+            API response (SEC-S08 / Phase 1062-05).
         "expired": token found but expired or revoked
         None: token not found
 
@@ -249,6 +255,24 @@ async def get_shared_map(
         return None
     if isinstance(token_obj, str):
         return token_obj  # "expired"
+
+    # SEC-S08 (Phase 1062-05): query the active EmbedToken for this map to
+    # surface allowed_origins. The router uses this to emit a per-token
+    # frame-ancestors CSP header. ShareToken and EmbedToken are distinct
+    # primitives — a map may have one without the other.
+    embed_stmt = (
+        select(EmbedToken.allowed_origins)
+        .where(
+            EmbedToken.map_id == token_obj.map_id,
+            EmbedToken.is_active == True,  # noqa: E712
+            EmbedToken.expires_at > func.now(),
+        )
+        .order_by(EmbedToken.created_at.desc())
+        .limit(1)
+    )
+    allowed_origins: list[str] | None = (
+        await session.execute(embed_stmt)
+    ).scalar_one_or_none()
 
     RasterAsset = get_catalog_port().raster_asset_orm_class()
 
@@ -299,7 +323,7 @@ async def get_shared_map(
             "terrain_config": map_obj.terrain_config,
             "has_non_public_layers": False,
         }
-        return map_data, []
+        return map_data, [], allowed_origins
 
     has_non_public = False
     layers = []
@@ -350,7 +374,7 @@ async def get_shared_map(
         "has_non_public_layers": has_non_public,
     }
 
-    return map_data, layers
+    return map_data, layers, allowed_origins
 
 
 async def list_share_tokens(

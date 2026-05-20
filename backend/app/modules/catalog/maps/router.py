@@ -106,6 +106,31 @@ router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRIT
 # ---------------------------------------------------------------------------
 
 
+def _build_frame_ancestors(origins: list[str] | None) -> str:
+    """Build a CSP frame-ancestors directive value from an allowed_origins list.
+
+    SEC-S08 (Phase 1062-05): the shared-map endpoint emits a per-token
+    Content-Security-Policy header derived from EmbedToken.allowed_origins.
+
+    - None/empty → ``frame-ancestors 'self'`` (restrictive default).
+    - Non-empty  → ``frame-ancestors 'self' <origin1> <origin2> ...``
+      Origins are validated for CRLF to prevent header injection before
+      being joined with spaces (per CSP syntax).
+    """
+    if not origins:
+        return "frame-ancestors 'self'"
+    safe: list[str] = []
+    for o in origins:
+        if "\r" in o or "\n" in o or not o.strip():
+            # Silently drop malformed entries — defense-in-depth on top of the
+            # admin-side EmbedToken validation that already runs at create/update.
+            continue
+        safe.append(o.strip())
+    if not safe:
+        return "frame-ancestors 'self'"
+    return f"frame-ancestors 'self' {' '.join(safe)}"
+
+
 def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
     """Map a DatasetMeta tuple (or None) to the kwargs _build_layer_response expects.
 
@@ -426,10 +451,18 @@ async def list_maps_endpoint(
 @router.get("/shared/{token}", response_model=SharedMapResponse)
 async def get_shared_map_endpoint(
     token: str,
+    response: Response,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> SharedMapResponse:
-    """Get a shared map by token. Optionally authenticated for non-public layers."""
+    """Get a shared map by token. Optionally authenticated for non-public layers.
+
+    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    'self' [<allowed_origins>...]`` on the response, derived from the active
+    EmbedToken for this map. When no EmbedToken exists or allowed_origins is
+    empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
+    respects this route-level CSP and skips emitting X-Frame-Options: DENY.
+    """
     user_roles: set[str] = set()
     if user is not None:
         user_roles = await get_user_roles(db, user)
@@ -444,7 +477,8 @@ async def get_shared_map_endpoint(
             status_code=status.HTTP_410_GONE,
             detail="This shared map link has expired or been revoked",
         )
-    map_data, layers = result
+    map_data, layers, allowed_origins = result
+    response.headers["Content-Security-Policy"] = _build_frame_ancestors(allowed_origins)
     return SharedMapResponse(**map_data, layers=layers)
 
 
