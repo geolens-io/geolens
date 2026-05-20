@@ -6,7 +6,9 @@ parse + ST_GeomFromGeoJSON evaluation before any DB index could short-circuit.
 
 Fix: Query(None, max_length=10000, ...) on the intersects parameter in the
 GET handler. The POST handler is NOT affected — StacSearchBody.intersects:
-dict is bounded by uvicorn's 1MB request-body size limit.
+dict is bounded by the application-wide RequestBodyLimitMiddleware
+(default 500 MB) and the nginx proxy (client_max_body_size 500m), NOT by
+a 1MB uvicorn limit (uvicorn has no built-in body size cap).
 """
 
 import json
@@ -106,8 +108,10 @@ class TestSecFu05StacIntersectsMaxLength:
         """POST /stac/search body.intersects dict is NOT capped by max_length.
 
         The POST handler accepts StacSearchBody.intersects: dict — bounded by
-        uvicorn's 1MB request-body limit, not by the Query max_length that
-        applies only to GET query-string parameters.
+        the application-wide RequestBodyLimitMiddleware (default 500 MB) and
+        the nginx proxy (client_max_body_size 500m), NOT by a 1MB uvicorn limit
+        (uvicorn has no built-in body size cap). The Query max_length constraint
+        applies only to GET query-string parameters, not to POST body fields.
         """
         # Build a large polygon dict whose JSON representation exceeds 10000 chars
         coords = [[i * 0.01, j * 0.01] for i in range(50) for j in range(50)]
