@@ -11,7 +11,47 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-_(No unreleased changes since v1.3.0.)_
+### Post-v1013 smoke fixes (2026-05-20)
+
+Three findings from the post-archive live MCP smoke (`.planning/quick/260520-smoke-v1013/SMOKE-v1013-REPORT.md`) — all fixed inline, no v1013.1 release tag needed.
+
+#### Fixed
+
+- **SMOKE-v1013-F1 (P0): GPKG-03 fan-out parent-job polling no longer 500s.**
+  `JobStatusResponse.status` Pydantic Literal was missing `'fanned_out'`, the
+  terminal status set on the parent IngestJob after `POST /ingest/commit-fan-out`
+  dispatches N child tasks. Every `GET /api/jobs/{parent_id}` poll raised
+  `ValidationError` → HTTP 500, leaving the UI stuck on
+  "Loading job status..." indefinitely (children completed correctly in
+  background). Fix extends the Literal to include `'fanned_out'` at
+  `backend/app/platform/jobs/schemas.py:62`. Frontend (`use-ingest.ts` /
+  `BulkTrackingList.tsx` / `status-colors.ts`) now treats `fanned_out` as
+  terminal — refetchInterval stops, the parent moves out of the active-jobs
+  list, and the badge renders in the success palette. Closes the
+  user-perceived "Loading..." loop visible on `Ingest all N layers` flows.
+  Regression pinned by
+  `tests/test_jobs_router.py::test_get_job_status_fanned_out_returns_200`.
+- **SMOKE-v1013-F2 (P2): OGC API preview now resolves URI-form CRS to EPSG.**
+  Phase 1057 wired `parse_crs_uri` into commit-time SRID extraction but the
+  preview path still returned `crs: null` for OGC API collections (ogrinfo
+  on a GeoJSON feature response carries no coordinateSystem; CRS84 is
+  assumed). The collection metadata DOES expose URI-form CRS via
+  `crs: ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]`. Preview now
+  falls back to fetching `/collections/{layer_name}?f=json` and parsing
+  `storageCrs` then `crs[0]` through `parse_crs_uri` when ogrinfo returns
+  no srid AND `service_type == "OGC API Features"`. User-facing impact:
+  the preview pane now displays "EPSG:4326" instead of "CRS: Unknown +
+  CRS Override field". Regression pinned by
+  `tests/test_services_endpoints.py::test_preview_ogcapi_uri_form_crs_fallback`.
+- **SMOKE-v1013-F3 (P2): Map delete clears per-map React Query cache.**
+  `useDeleteMap` previously only invalidated `queryKeys.maps.all`, leaving
+  stale `maps.detail(id)`, `maps.shareToken(id)`, `maps.embedTokens(id)`,
+  and `map-history` entries. Any subsequent re-mount of those queries
+  (recent-maps strip, a pinned tab to the deleted map, admin panel) would
+  refetch from deleted-map endpoints — yielding `404` noise and the
+  `/api/maps/shared/{deleted_id}` errors observed in the smoke run.
+  `removeQueries` now drops those caches entirely on delete. Regression
+  pinned by `frontend/src/hooks/__tests__/use-maps.test.tsx`.
 
 ## [1.3.0] - 2026-05-20
 
