@@ -2,6 +2,7 @@
 
 import uuid
 from typing import NoReturn
+from urllib.parse import urljoin
 
 import httpx
 import structlog
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.crs_uri import parse_crs_uri
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -64,6 +66,72 @@ async def _probe_audit_fail(
     )
     await db.commit()
     raise HTTPException(status_code=status_code, detail=detail)
+
+
+async def _fetch_ogcapi_collection_srid(
+    base_url: str, layer_name: str, token: str | None
+) -> int | None:
+    """Fetch OGC API collection metadata and parse URI-form CRS to EPSG.
+
+    SMOKE-v1013-F2: ogrinfo on an OGC API collection often returns no
+    coordinateSystem because GeoJSON feature responses don't carry a CRS
+    (assumed CRS84). The collection metadata DOES expose URI-form CRS via
+    its ``crs`` array (e.g. ``http://www.opengis.net/def/crs/OGC/1.3/CRS84``).
+    Parse the first entry through ``parse_crs_uri`` so preview displays
+    ``EPSG:4326`` rather than ``Unknown``.
+
+    Returns None on any failure — the preview will fall back to the user
+    seeing the CRS Override field (existing UX).
+
+    SSRF: base_url has already been validated upstream as the probe URL.
+    The collection URL is constructed by appending ``/collections/{name}``
+    (no user-controlled path components other than layer_name from the
+    probe's known_layer_names allowlist).
+    """
+    collection_url = urljoin(
+        base_url if base_url.endswith("/") else base_url + "/",
+        f"collections/{layer_name}",
+    )
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(
+            timeout=PROBE_TIMEOUT,
+            follow_redirects=True,
+            max_redirects=5,
+        ) as client:
+            response = await client.get(
+                collection_url, headers=headers, params={"f": "json"}
+            )
+            response.raise_for_status()
+            data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.debug(
+            "OGC API collection CRS fallback fetch failed",
+            url=collection_url,
+            error=str(exc),
+        )
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    # Try ``storageCrs`` (recommended) then ``crs`` array (advertised CRS list).
+    storage_crs = data.get("storageCrs")
+    if isinstance(storage_crs, str):
+        srid = parse_crs_uri(storage_crs)
+        if srid is not None:
+            return srid
+
+    crs_list = data.get("crs")
+    if isinstance(crs_list, list):
+        for entry in crs_list:
+            if isinstance(entry, str):
+                srid = parse_crs_uri(entry)
+                if srid is not None:
+                    return srid
+    return None
 
 
 async def _fail_preview(
@@ -408,6 +476,27 @@ async def preview_service_layer(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while previewing the layer.",
         )
+
+    # SMOKE-v1013-F2: OGC API URI-form CRS fallback. ogrinfo against an
+    # OGC API collection often returns no coordinateSystem (GeoJSON features
+    # don't carry CRS; CRS84 assumed). The COLLECTION METADATA does expose
+    # the URI-form CRS — fetch and parse it so preview displays the right
+    # EPSG code instead of "Unknown + required override".
+    if (
+        preview_data.get("srid") is None
+        and request.service_type == "OGC API Features"
+    ):
+        fallback_srid = await _fetch_ogcapi_collection_srid(
+            request.url, request.layer_name, request.token
+        )
+        if fallback_srid is not None:
+            preview_data["srid"] = fallback_srid
+            logger.info(
+                "OGC API preview CRS resolved via collection metadata",
+                url=request.url,
+                layer=request.layer_name,
+                srid=fallback_srid,
+            )
 
     # Step 5: Create IngestJob
     # Store source_columns and geometry_type from preview so that ingest_service

@@ -533,6 +533,75 @@ class TestPreviewEndpoint:
             assert resp.status_code == 400
             assert "layer ID" in resp.json()["detail"]
 
+    async def test_preview_ogcapi_uri_form_crs_fallback(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """OGC API preview with no srid falls back to collection-metadata URI-form CRS.
+
+        Regression for SMOKE-v1013-F2: ogrinfo on an OGC API collection often
+        returns no coordinateSystem (GeoJSON features assume CRS84), but the
+        collection metadata exposes ``crs: ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"]``.
+        Preview should parse that URI to EPSG:4326 rather than returning
+        ``crs: null`` (which forces user to enter a manual CRS Override).
+        """
+
+        async def preview_returns_no_srid(*args, **kwargs):
+            return {
+                "srid": None,  # ogrinfo could not detect CRS
+                "geometry_type": "Polygon",
+                "layer_name": "lakes",
+                "feature_count": 25,
+                "columns": [{"name": "name", "type": "String"}],
+                "sample_rows": [{"name": "Lake Baikal"}],
+            }
+
+        # Mock the OGC API collection metadata response with URI-form CRS84.
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = MagicMock(
+            return_value={
+                "id": "lakes",
+                "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
+            }
+        )
+        mock_client = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(
+                "app.modules.catalog.sources.router.run_service_preview",
+                new_callable=AsyncMock,
+                side_effect=preview_returns_no_srid,
+            ),
+            patch(
+                "app.modules.catalog.sources.router.httpx.AsyncClient",
+                return_value=mock_client,
+            ),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://demo.pygeoapi.io/master/",
+                    "service_type": "OGC API Features",
+                    "layer_name": "lakes",
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # Without the fallback this would be None; with the fix it's 4326.
+        assert data["crs"] == 4326, (
+            "OGC API preview should resolve URI-form CRS84 to EPSG:4326 via "
+            "collection metadata when ogrinfo returns no coordinateSystem"
+        )
+
     async def test_preview_wfs_namespace_retry(
         self,
         client: AsyncClient,
