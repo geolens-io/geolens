@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@/test/test-utils';
 import { ViewerMap } from '../ViewerMap';
 import { applyBasemapConfigToMap, syncLayersToMap } from '@/components/builder/map-sync';
+import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
 import { fetchBoundedGeoJson } from '@/api/geojson-z';
 import type { MapBasemapConfig, SharedLayerResponse } from '@/types/api';
 
@@ -140,6 +141,10 @@ vi.mock('@/components/builder/map-sync', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/builder/basemap-style-mutation', () => ({
+  applySublayerOverrides: vi.fn(),
+}));
+
 vi.mock('@/api/geojson-z', () => ({
   fetchBoundedGeoJson: vi.fn(async () => ({
     type: 'FeatureCollection',
@@ -160,6 +165,7 @@ vi.mock('@/api/geojson-z', () => ({
 }));
 
 const applyBasemapConfigToMapMock = vi.mocked(applyBasemapConfigToMap);
+const applySublayerOverridesMock = vi.mocked(applySublayerOverrides);
 const syncLayersToMapMock = vi.mocked(syncLayersToMap);
 const fetchBoundedGeoJsonMock = vi.mocked(fetchBoundedGeoJson);
 
@@ -170,6 +176,25 @@ const BASEMAP_CONFIG: MapBasemapConfig = {
   building_visibility: false,
   land_water_tone: 'monochrome',
   relief_contrast: 'strong',
+};
+
+const BASEMAP_CONFIG_WITH_OVERRIDES: MapBasemapConfig = {
+  ...BASEMAP_CONFIG,
+  sublayer_overrides: {
+    road: {
+      stroke_color: '#ff0000',
+      stroke_width: 2,
+      min_zoom: 5,
+      max_zoom: 18,
+    },
+    boundary: {
+      casing_color: '#000000',
+      casing_width: 1,
+    },
+    building: {
+      opacity: 0.5,
+    },
+  },
 };
 
 function renderViewer(config: MapBasemapConfig | null = BASEMAP_CONFIG, showBasemapLabels = true) {
@@ -196,6 +221,7 @@ describe('ViewerMap basemap config runtime', () => {
   beforeEach(() => {
     mapState.reset();
     applyBasemapConfigToMapMock.mockClear();
+    applySublayerOverridesMock.mockClear();
     syncLayersToMapMock.mockClear();
     fetchBoundedGeoJsonMock.mockClear();
   });
@@ -255,6 +281,90 @@ describe('ViewerMap basemap config runtime', () => {
         'viewer-source-',
       );
     });
+  });
+
+  it('applies sublayer_overrides after initial style load (Phase 1059 BSE-01)', async () => {
+    renderViewer(BASEMAP_CONFIG_WITH_OVERRIDES);
+    await waitFor(() => {
+      expect(applySublayerOverridesMock).toHaveBeenCalledWith(
+        mapState.fakeMap,
+        BASEMAP_CONFIG_WITH_OVERRIDES.sublayer_overrides,
+        'viewer-source-',
+      );
+    });
+  });
+
+  it('reapplies sublayer_overrides on style.load reload', async () => {
+    renderViewer(BASEMAP_CONFIG_WITH_OVERRIDES);
+    await waitFor(() => {
+      expect(applySublayerOverridesMock).toHaveBeenCalled();
+    });
+    applySublayerOverridesMock.mockClear();
+    mapState.fakeMap.emit('style.load');
+    expect(applySublayerOverridesMock).toHaveBeenCalledWith(
+      mapState.fakeMap,
+      BASEMAP_CONFIG_WITH_OVERRIDES.sublayer_overrides,
+      'viewer-source-',
+    );
+  });
+
+  it('passes updated overrides on runtime basemapConfig change', async () => {
+    const { rerender } = renderViewer(BASEMAP_CONFIG_WITH_OVERRIDES);
+    await waitFor(() => {
+      expect(applySublayerOverridesMock).toHaveBeenCalled();
+    });
+    applySublayerOverridesMock.mockClear();
+    const changedConfig: MapBasemapConfig = {
+      ...BASEMAP_CONFIG_WITH_OVERRIDES,
+      sublayer_overrides: {
+        road: { stroke_color: '#00ff00', stroke_width: 5 },
+      },
+    };
+    rerender(
+      <ViewerMap
+        layers={[]}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={changedConfig}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={new Set()}
+      />,
+    );
+    await waitFor(() => {
+      expect(applySublayerOverridesMock).toHaveBeenCalledWith(
+        mapState.fakeMap,
+        changedConfig.sublayer_overrides,
+        'viewer-source-',
+      );
+    });
+  });
+
+  it('legacy basemap_config without sublayer_overrides passes null (zero-migration backward compat)', async () => {
+    // ROADMAP.md Phase 1059 Acceptance Criterion 4: legacy saved maps without
+    // sublayer_overrides continue to render with default basemap styling.
+    renderViewer(BASEMAP_CONFIG); // no sublayer_overrides field
+    await waitFor(() => {
+      expect(applySublayerOverridesMock).toHaveBeenCalled();
+    });
+    const lastCall = applySublayerOverridesMock.mock.calls.at(-1);
+    expect(lastCall?.[0]).toBe(mapState.fakeMap);
+    // Plan B wire-up: `basemapConfig?.sublayer_overrides ?? null` — legacy configs
+    // without the field produce null here.
+    expect(lastCall?.[1]).toBeNull();
+    expect(lastCall?.[2]).toBe('viewer-source-');
+  });
+
+  it('null basemapConfig still calls helper with null overrides (graceful no-op)', async () => {
+    renderViewer(null);
+    await waitFor(() => {
+      // Helper invoked even with null basemapConfig because the call site is
+      // unconditional after applyBasemapConfigToMap. Helper itself short-circuits
+      // on null/undefined overrides per Plan B Task 2.
+      expect(applySublayerOverridesMock).toHaveBeenCalled();
+    });
+    const lastCall = applySublayerOverridesMock.mock.calls.at(-1);
+    expect(lastCall?.[1]).toBeNull();
   });
 
   it('syncs duplicate sort-order layers with stable viewer layer IDs', async () => {
