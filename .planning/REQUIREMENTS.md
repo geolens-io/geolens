@@ -35,8 +35,8 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 
 - [x] **SEC-FU-01**: HTTP 5xx-mutation test fixtures added for STAC visibility regression — pinned by S01 spec. Acceptance: fixture supports paths that return 5xx from underlying query so e2e/sec-audit.spec.ts can assert no information disclosure on error.
 - [x] **SEC-FU-02**: `validate_demo_credentials_guard` extended to refuse `JWT_SECRET_KEY=demo-only-do-not-use-in-production-change-me` literal at startup (defense-in-depth on top of SEC-S06).
-- [ ] **SEC-FU-03**: ESLint rule `react/no-danger` enabled in `frontend/eslint.config.js` to lock the popup-template ban that v13.12 introduced.
-- [ ] **SEC-FU-04**: GDAL `Authorization` header pinned to base64url charset to close CRLF-smuggling defense-in-depth gap (Subagent A notes).
+- [x] **SEC-FU-03**: ESLint rule `react/no-danger` enabled in `frontend/eslint.config.js` to lock the popup-template ban that v13.12 introduced.
+- [x] **SEC-FU-04**: GDAL `Authorization` header pinned to base64url charset to close CRLF-smuggling defense-in-depth gap (Subagent A notes).
 - [ ] **SEC-FU-05**: `max_length` added to `intersects` query parameter on STAC search router (Subagent I M-1).
 - [ ] **SEC-FU-06**: `math.isfinite()` guard added in `parse_bbox` to reject NaN/Inf coordinates (Subagent I M-2).
 - [ ] **SEC-FU-07**: ILIKE escape `.replace("%", r"\%").replace("_", r"\_")` added in `maps/service_crud.py:140-147` and `service_collections.py:29-35` (Subagent J LOW-3, LOW-4).

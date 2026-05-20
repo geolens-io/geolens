@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: completed
-last_updated: "2026-05-20T22:08:42.540Z"
-last_activity: 2026-05-20 -- Phase 1063 Plan 02 complete (SEC-FU-02 + SEC-FU-09 + SEC-FU-10)
+last_updated: "2026-05-20T22:28:00.000Z"
+last_activity: 2026-05-20 -- Phase 1063 Plan 03 complete (SEC-FU-03 + SEC-FU-04)
 progress:
   total_phases: 9
   completed_phases: 2
@@ -118,6 +118,7 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 - **Phase 1062 Plan 06:** SEC-S14 ESLint `no-restricted-syntax` rule banning `localStorage.setItem('<token|jwt|auth>', ...)` in frontend TS/TSX; per-file exemption for auth-store.test.ts; regression file (4 violations + --no-inline-config check); safe-pattern file (9 patterns proving no over-fire); httpOnly-cookie + CSRF migration plan documented in security-lessons.md with trigger conditions, effort estimate, and tradeoffs.
 - **Phase 1063 Plan 01:** SEC-FU-01 stac_visibility_force_5xx patches both authorization module AND stac.router namespace bindings; client_no_raise uses raise_app_exceptions=False. SEC-FU-08 audit_datasets_router uses /audit prefix (not /admin) so non-admin owners can reach the DDL feed; check_dataset_access raises 404 not 403 — tests accept both.
 - **Phase 1063 Plan 02:** SEC-FU-02 config.py already had DEMO_JWT_SECRET guard (Phase 1061 Plan 05); named test test_sec_fu_02_jwt_demo_literal_refused provides explicit audit-traceable regression pin. SEC-FU-09 server_tokens off placed in nginx server {} block per audit wording; suppresses version in Server: header and error pages. SEC-FU-10 documentation-only; alembic migration trade-off documented in .env.example alongside least-privilege SQL recipe for geolens_app role.
+- **Phase 1063 Plan 03:** SEC-FU-03 eslint-plugin-react@7.37.5 installed; react/no-danger:error wired in eslint.config.js with plugins/settings(react.version:detect)/inline comment; regression fixture uses inline eslint-disable + --no-inline-config pattern (plan's .skip.tsx glob exclusion claim incorrect — glob matches .skip.tsx). SEC-FU-04 _BASE64URL_CHARSET frozenset + _sanitize_authorization_token helper added to ogr.py; called before GDAL_HTTP_HEADERS env composition; CRLF/unicode/whitespace raise ValueError with SEC-FU-04 prefix; 6 pytest tests pass (86/86 total).
 
 ## Operator Next Steps
 
