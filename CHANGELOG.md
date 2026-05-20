@@ -11,11 +11,142 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-### Post-v1013 smoke fixes (2026-05-20)
+## [1.4.0] - 2026-05-20
 
-Three findings from the post-archive live MCP smoke (`.planning/quick/260520-smoke-v1013/SMOKE-v1013-REPORT.md`) — all fixed inline, no v1013.1 release tag needed.
+### Security audit remediation (v1014 milestone)
 
-#### Fixed
+Phases 1061-1063 — 17 security requirements across HIGH / MEDIUM / LOW
+severity tiers, surfaced by the internal 2026-05-19 security audit.
+Closes SEC-S01..S16, SEC-FU-01..10, and SEC-GUARD-01.
+
+### Security — HIGH (Phase 1061)
+
+- **SEC-S01:** STAC catalog visibility filter — anonymous users no longer
+  retrieve private raster records via `/api/stac/*` endpoints. The
+  `apply_visibility_filter` predicate now gates the STAC item, search,
+  and asset routes so unauthenticated callers see only public records.
+- **SEC-S02:** Dataset metadata mutation IDOR closed — 3 handlers
+  (`PUT /datasets/{id}/metadata/`, `PUT /datasets/{id}/record/`,
+  `PATCH /datasets/{id}/`) are now gated by `check_dataset_access`,
+  preventing owners of other datasets from mutating records they do not own.
+- **SEC-S03:** Column DDL IDOR closed — 4 handlers (add / rename / retype /
+  drop column) now call `check_dataset_access` before any DDL, closing the
+  path where an authenticated user could alter another owner's table schema.
+- **SEC-S04:** SSRF redirect-bypass closed — `make_safe_client()` factory
+  wraps every outbound HTTP call in a per-hop revalidation hook; private IP
+  ranges are blocked at each redirect step, not just the initial host.
+  `GDAL_HTTP_FOLLOWLOCATION=NO` applied to all ogr2ogr service-ingest calls.
+- **SEC-S05:** pgvector related-datasets IDOR closed — `GET /datasets/{id}/related/`
+  now checks dataset visibility before returning embedding-similarity neighbours,
+  preventing leakage of private dataset identities through vector proximity.
+- **SEC-S06:** Demo deployment cannot start with committed credentials —
+  `.env.demo` renamed to `.env.demo.example` (removed from repository);
+  `scripts/init-demo-env.sh` generates a fresh secret file on first run,
+  blocking `docker compose up` from starting when the example file is used
+  verbatim. `validate_demo_credentials_guard` extended with a third literal.
+- **SEC-S07:** MinIO fail-closed defaults — `docker-compose.yml` now uses
+  `${VAR:?required}` bash-style expansion for MinIO credentials so compose
+  fails fast instead of silently booting with empty passwords.
+- **SEC-GUARD-01:** `AGENTS.md` updated with a visibility-filter coverage
+  rule documenting the contract for future endpoint contributors; pre-commit
+  grep hooks added to catch missing `apply_visibility_filter` calls on new
+  STAC / catalog routes before they land in main.
+
+### Security — MEDIUM (Phase 1062)
+
+- **SEC-S08:** Dynamic `frame-ancestors` CSP on embed iframes — the shared-map
+  endpoint now emits `Content-Security-Policy: frame-ancestors 'self' <origins>`
+  derived from the active `EmbedToken.allowed_origins`. `SecurityHeadersMiddleware`
+  skips `X-Frame-Options: DENY` when the route already sets a CSP with
+  `frame-ancestors`; nginx `/m/*` location inherits the header without
+  duplicating the global `X-Frame-Options`.
+- **SEC-S09:** `ogr2ogr -where` clause uses sqlglot AST allowlist validator —
+  `validate_where_ast()` wraps the fragment as `SELECT 1 FROM _t WHERE <input>`
+  and applies a deny-by-default node allowlist (Column / Literal / comparisons /
+  logical / IN / IS / LIKE / BETWEEN / Paren / Neg). Called before the
+  identifier check in `validate_where_clause()` for defense-in-depth. 41
+  pytest tests cover valid fragments, injections, and edge cases.
+- **SEC-S10:** Basemap `api_key` public-exposure — `get_basemaps` docstring
+  documents the public API-key resolution model so callers understand that
+  keys embedded in basemap tile URLs are intentionally public-facing CDN keys.
+  Rate limit added to `/settings/basemaps/` (120 req/min per IP, configurable).
+- **SEC-S11:** Per-route rate limits on `/search/datasets/` and
+  `/datasets/{id}/related/` — 30 req/min per IP (configurable via
+  `SEMANTIC_SEARCH_RATE_LIMIT` PersistentConfig key) caps OpenAI embedding
+  cost from anonymous amplification. `/search/facets/` is NOT rate-limited
+  (pure SQL aggregation, no embedding call — per WR-02 review fix).
+- **SEC-S12:** `simple-regconfig` GIN index for non-English FTS — migration
+  `0020_records_simple_search_vector_idx` adds
+  `ix_records_simple_search_vector` on a `simple` tsvector so catalog
+  searches against non-English content use the index instead of a seqscan.
+  The expression uses an IMMUTABLE `catalog.immutable_text_array_join` wrapper
+  around `array_to_string` (required for functional index creation).
+- **SEC-S13:** `max_length=1000` on `/search/facets/?q=` — matches the peer
+  `/search/datasets/?q=` cap, preventing oversized embedding payloads on the
+  facets path.
+- **SEC-S14:** ESLint `no-restricted-syntax` rule banning
+  `localStorage.setItem('*token*|*jwt*|*auth*', ...)` in frontend TS/TSX
+  source. Per-file exemption applied to `auth-store.test.ts`. httpOnly-cookie
+  migration ADR documented in `security-lessons.md` with trigger conditions,
+  effort estimate, and tradeoffs.
+- **SEC-S15:** JWT `jti` + `token_version` revocation primitives —
+  `create_access_token` now embeds `jti` (UUID) and `token_version` (from the
+  user row). `get_current_user` / `get_optional_user` reject JWTs whose
+  `token_version` is stale; `revoke_all_tokens` atomically bumps
+  `token_version` on logout and password change, invalidating all outstanding
+  access tokens for that user.
+- **SEC-S16:** Password complexity validator — `password_policy.py` enforces a
+  minimum of 12 characters + 3-of-4 class diversity (uppercase, lowercase,
+  digit, special). Wired to all 4 entry points (register, change-password,
+  admin create-user, admin reset-password). Configurable via
+  `PASSWORD_MIN_LENGTH` and `PASSWORD_REQUIRE_CLASSES` env vars.
+
+### Security — LOW (Phase 1063)
+
+- **SEC-FU-01:** STAC 5xx-mutation pytest fixture — `stac_visibility_force_5xx`
+  patches both the authorization module AND the STAC router namespace bindings,
+  ensuring the 500-response test fires on the correct code path and cannot be
+  silently bypassed by import aliasing.
+- **SEC-FU-02:** `validate_demo_credentials_guard` literal refusal — explicit
+  pytest regression pin (`test_sec_fu_02_jwt_demo_literal_refused`) confirms
+  the guard refuses the literal `"demo-jwt-secret-32chars-padding!!"` JWT
+  secret value regardless of deployment context.
+- **SEC-FU-03:** `react/no-danger` ESLint rule enabled at `error` level in
+  `eslint.config.js`, preventing `dangerouslySetInnerHTML` in TSX. Regression
+  fixture confirms the rule fires; `--no-inline-config` lock prevents bypass
+  via inline comments.
+- **SEC-FU-04:** GDAL Authorization header pinned to base64url charset —
+  `_sanitize_authorization_token` helper in `ogr.py` validates the token
+  against a `_BASE64URL_CHARSET` frozenset before composing
+  `GDAL_HTTP_HEADERS`. CRLF characters, Unicode, and whitespace raise
+  `ValueError` with `SEC-FU-04` prefix; 6 pytest tests cover valid and
+  invalid inputs.
+- **SEC-FU-05:** STAC `intersects` `max_length=10000` — GeoJSON geometry query
+  param on `GET /stac/search` is now bounded; POST body is bounded by the
+  existing 500 MB `RequestBodyLimitMiddleware`.
+- **SEC-FU-06:** `parse_bbox` `isfinite` NaN/Inf guard — `math.isfinite()`
+  loop applied after `float()` conversion in `parse_bbox` before the 6-to-4
+  envelope reduction; catches Z-axis NaN from malformed coordinate strings.
+- **SEC-FU-07:** ILIKE wildcard escape across maps/audit service modules —
+  `%` and `_` characters in free-text search inputs are now escaped via
+  `str.replace` before ILIKE pattern composition in `service_crud.py`
+  `list_maps()` and audit service query helpers, preventing wildcard injection.
+- **SEC-FU-08:** Owner-facing column-DDL audit feed endpoint —
+  `GET /audit/datasets/{id}/column-ddl/` returns the DDL audit log for a
+  dataset gated by `check_dataset_access`, enabling dataset owners to review
+  schema-change history without admin privileges.
+- **SEC-FU-09:** `nginx.conf` `server_tokens off` — suppresses the nginx
+  version string from the `Server:` response header and error pages.
+- **SEC-FU-10:** `.env.example` `DATABASE_URL_OVERRIDE` documents the
+  least-privilege role pattern — inline SQL recipe for creating a
+  `geolens_app` Postgres role restricted to the `geolens` database with
+  `NOLOGIN`-by-default pattern documented alongside the override variable.
+
+### Fixed (post-v1013 smoke, 2026-05-20)
+
+Three findings from the post-archive live MCP smoke
+(`.planning/quick/260520-smoke-v1013/SMOKE-v1013-REPORT.md`) — all fixed
+inline, no v1013.1 release tag needed.
 
 - **SMOKE-v1013-F1 (P0): GPKG-03 fan-out parent-job polling no longer 500s.**
   `JobStatusResponse.status` Pydantic Literal was missing `'fanned_out'`, the
@@ -52,6 +183,15 @@ Three findings from the post-archive live MCP smoke (`.planning/quick/260520-smo
   `/api/maps/shared/{deleted_id}` errors observed in the smoke run.
   `removeQueries` now drops those caches entirely on delete. Regression
   pinned by `frontend/src/hooks/__tests__/use-maps.test.tsx`.
+
+### Internal
+
+- 60+ commits across Phases 1061-1063
+- 200+ new pytest cases pinning the security regression surfaces
+- `e2e/sec-audit.spec.ts` — 18-test Playwright regression suite (env-var-gated)
+  covering S01/S04/S05/S08/S09/S11/S12/S13 at the HTTP layer
+- 21 review fixes applied inline (6 BLOCKER + 13 WARNING + 2 INFO) across the
+  3 implementation phases
 
 ## [1.3.0] - 2026-05-20
 
