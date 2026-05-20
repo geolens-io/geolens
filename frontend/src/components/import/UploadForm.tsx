@@ -46,30 +46,6 @@ function buildErrorDisplay(err: unknown, fallbackKey: string, t: (key: string) =
   return hint ? `${msg}\n${hint}` : msg;
 }
 
-// GPKG-03 Phase 1058: concurrency-capped async pool for multi-layer fan-out.
-// Runs at most `concurrency` workers in parallel; preserves result order.
-async function runWithConcurrency<T, R>(
-  items: T[],
-  worker: (item: T) => Promise<R>,
-  concurrency: number,
-): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length);
-  let nextIndex = 0;
-  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (true) {
-      const i = nextIndex++;
-      if (i >= items.length) return;
-      try {
-        results[i] = { status: 'fulfilled', value: await worker(items[i]) };
-      } catch (err) {
-        results[i] = { status: 'rejected', reason: err };
-      }
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 // GPKG-03 Phase 1058: per-layer result shape for the fan-out results modal.
 type FanOutResult = {
   layerName: string;
