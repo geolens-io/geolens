@@ -1,6 +1,7 @@
 """Pydantic request/response models for service probing endpoints."""
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
@@ -53,6 +54,16 @@ class LayerInfo(BaseModel):
     object_id_field: str | None = Field(
         default=None,
         description="ArcGIS object ID field name, used for stable pagination.",
+    )
+    kind: Literal["vector", "raster"] = Field(
+        default="vector",
+        description=(
+            "Backend-classified layer kind. 'vector' = point/line/polygon feature data. "
+            "'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. "
+            "Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, "
+            "or layer has coverage_format/bands/mediaType:image/*. Everything else (including "
+            "geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'."
+        ),
     )
 
 
