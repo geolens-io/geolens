@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-19T23:54:26.722Z"
 last_activity: 2026-05-19
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,10 +17,10 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap committed, ready for `/gsd:plan-phase 1057`)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-19 — Milestone v1013 started
+Status: Roadmap committed
+Last activity: 2026-05-19 — Milestone v1013 roadmap created (4 phases, 10/10 reqs mapped)
 
 ## Project Reference
 
@@ -41,7 +41,14 @@ See: .planning/PROJECT.md
 
 ## v1013 Phase Map
 
-Phases will be populated by `gsd-roadmapper` after REQUIREMENTS.md is committed. Starting phase number: **1057** (continues from v1012's last phase 1056).
+| Phase | Name | Goal | Requirements | Complexity | Depends on |
+|-------|------|------|--------------|------------|------------|
+| 1057 | Service URL Reliability | Fast probe completion, accurate VEC/RAS classification, automatic URI-form CRS detection, successful commit for abstract OGC geometry-type WFS sources | WFS-04 (P0), PROBE-05 (P1), CRS-06 (P2), CLASS-07 (P2) | Medium-large | Nothing (first phase) |
+| 1058 | Multi-Layer GPKG Handling | Reupload File path layer-select step + preview schema diff (P0 silent-data-swap fix); Bulk Review multi-commit / ingest-all-layers path | GPKG-01 (P0), GPKG-02 (P1), GPKG-03 (P2) | Medium | Nothing (parallel with 1057) |
+| 1059 | Basemap Sublayer Editor (Path B FIX) | Restore per-sublayer styling surface (stroke / casing / zoom / opacity) with real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive; round-trip parity across builder/viewer/shared/embed | BSE-01 (Feature) | Large (3-5 day phase) | Nothing (independent surface) |
+| 1060 | Close Gate | Delete 3 smoke repro datasets; all smoke gates green; live MCP re-verify of WFS-04/PROBE-05/GPKG-01/GPKG-02/BSE-01; CHANGELOG `[1.4.0]`; tag v1013 + v1.4.0 | CLEAN-01, CTRL-01 | Small-medium (1-2 inline-fix plan slots reserved) | Phases 1057 + 1058 + 1059 |
+
+**Coverage:** 10 v1013 requirements mapped to 4 phases, 0 unmapped, 0 duplicates.
 
 ## Accumulated Context
 
@@ -49,7 +56,7 @@ Phases will be populated by `gsd-roadmapper` after REQUIREMENTS.md is committed.
 
 - **Source of truth for all findings:** `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`. Each REQ-ID maps to a Finding (1-7) in that report. Executor agents should reference it during plan-phase.
 - **Lead item (P0):** Finding 4 — WFS abstract-geometry-type commit failure (`MultiSurface vs MultiPolygon`). 100% reproducible against `ahocevar.com/geoserver/wfs`; likely affects most GeoServer polygon-heavy users.
-- **Basemap Sublayer Path B FIX (BSE-01):** 3-5 day feature phase. Restores the styling surface left as REMOVE in v1011.1 EMRG-FN-01 with a real persistence path. Likely the largest single phase in this milestone.
+- **Basemap Sublayer Path B FIX (BSE-01):** 3-5 day feature phase (Phase 1059). Restores the styling surface left as REMOVE in v1011.1 EMRG-FN-01 with a real persistence path. Likely the largest single phase in this milestone.
 - **Multi-Layer GPKG:** Finding 1 (File path silent layer-pickup) is P0 silent-data-swap risk. Service URL preview (Finding 2 sibling) is the design reference — column-level schema diff + schema-change warning + chosen-layer-name surfaced.
 - **Service URL probe latency (Finding 5):** Easy win — short-circuit `try_all_probes()` on first success. Current 63s probe completes in ~1.5s after the fix.
 - **v1.4.0 public tag** created at CTRL-01 close. Minor bump justified by Findings 1 + 3 multi-layer GPKG affordances + BSE-01 styling persistence.
@@ -75,7 +82,7 @@ Phases will be populated by `gsd-roadmapper` after REQUIREMENTS.md is committed.
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 
-(No deferred items at milestone start. v1011.1's deferred BasemapSublayerEditorScene Path B FIX is now in scope as BSE-01.)
+(No deferred items at milestone start. v1011.1's deferred BasemapSublayerEditorScene Path B FIX is now in scope as BSE-01 in Phase 1059.)
 
 ## v1013 Source: Post-v1012 Live Smoke (2026-05-19)
 
@@ -83,16 +90,18 @@ Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v10
 
 **Report:** `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`
 
-| # | Surface | Sev | Summary | v1013 REQ-ID (proposed) |
-|---|---|---|---|---|
-| 1 | Reupload (File path) | P0 | Multi-layer GPKG silently picks `layers[0]`; `dataset.source_layer` not consulted. Silent-data-swap risk. | GPKG-01 |
-| 2 | Reupload (File path) preview | P1 | No layer-name surfaced when source file has >1 layer (Service URL preview does this correctly). | GPKG-02 |
-| 3 | Import Bulk Review (GPKG) | P2 | Only one layer per multi-layer GPKG commits; no "ingest all layers" batch path. | GPKG-03 |
-| 4 | WFS commit | **P0** | `MultiSurface vs MultiPolygon` PostGIS type mismatch fails UPDATE during bounds-clip. 100% reproducible against GeoServer polygon layers. | WFS-04 |
-| 5 | Service URL probe orchestrator | P1 | No short-circuit on first success — pygeoapi probe took 63s total (adapter succeeded in 1.5s). | PROBE-05 |
-| 6 | OGC API CRS detection | P2 | URI-form CRS (`http://www.opengis.net/def/crs/OGC/1.3/CRS84`) not parsed to EPSG; user sees "CRS: Unknown" + must enter override. | CRS-06 |
-| 7 | Service URL layer-select classification | P2 | Layers without `geometry_type` in probe response default to RAS; should fall back to VEC. | CLASS-07 |
+| # | Surface | Sev | Summary | v1013 REQ-ID | Phase |
+|---|---|---|---|---|---|
+| 1 | Reupload (File path) | P0 | Multi-layer GPKG silently picks `layers[0]`; `dataset.source_layer` not consulted. Silent-data-swap risk. | GPKG-01 | 1058 |
+| 2 | Reupload (File path) preview | P1 | No layer-name surfaced when source file has >1 layer (Service URL preview does this correctly). | GPKG-02 | 1058 |
+| 3 | Import Bulk Review (GPKG) | P2 | Only one layer per multi-layer GPKG commits; no "ingest all layers" batch path. | GPKG-03 | 1058 |
+| 4 | WFS commit | **P0** | `MultiSurface vs MultiPolygon` PostGIS type mismatch fails UPDATE during bounds-clip. 100% reproducible against GeoServer polygon layers. | WFS-04 | 1057 |
+| 5 | Service URL probe orchestrator | P1 | No short-circuit on first success — pygeoapi probe took 63s total (adapter succeeded in 1.5s). | PROBE-05 | 1057 |
+| 6 | OGC API CRS detection | P2 | URI-form CRS (`http://www.opengis.net/def/crs/OGC/1.3/CRS84`) not parsed to EPSG; user sees "CRS: Unknown" + must enter override. | CRS-06 | 1057 |
+| 7 | Service URL layer-select classification | P2 | Layers without `geometry_type` in probe response default to RAS; should fall back to VEC. | CLASS-07 | 1057 |
 
 ## Operator Next Steps
 
-- Run `/gsd:plan-phase 1057` (or first roadmap phase number) once REQUIREMENTS.md + ROADMAP.md are committed.
+- Run `/gsd:plan-phase 1057` to break Service URL Reliability into plans.
+- Phase 1057, 1058, 1059 can theoretically be planned in any order (no inter-phase code dependencies); recommend P0-led order (1057 → 1058 → 1059) for sequential solo-dev execution.
+- Phase 1060 (Close Gate) must wait for 1057 + 1058 + 1059 completion.

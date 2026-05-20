@@ -81,26 +81,26 @@ Explicitly excluded for v1013. Documented to prevent scope creep.
 
 ## Traceability
 
-Empty initially. Populated by `gsd-roadmapper` after phase plan is created.
+Populated by `gsd-roadmapper` after phase plan creation. All 10 v1013 requirements mapped to exactly one phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WFS-04 | TBD | Pending |
-| PROBE-05 | TBD | Pending |
-| CRS-06 | TBD | Pending |
-| CLASS-07 | TBD | Pending |
-| GPKG-01 | TBD | Pending |
-| GPKG-02 | TBD | Pending |
-| GPKG-03 | TBD | Pending |
-| BSE-01 | TBD | Pending |
-| CLEAN-01 | TBD | Pending |
-| CTRL-01 | TBD | Pending |
+| WFS-04 | 1057 | Pending |
+| PROBE-05 | 1057 | Pending |
+| CRS-06 | 1057 | Pending |
+| CLASS-07 | 1057 | Pending |
+| GPKG-01 | 1058 | Pending |
+| GPKG-02 | 1058 | Pending |
+| GPKG-03 | 1058 | Pending |
+| BSE-01 | 1059 | Pending |
+| CLEAN-01 | 1060 | Pending |
+| CTRL-01 | 1060 | Pending |
 
 **Coverage:**
 - v1013 requirements: 10 total
-- Mapped to phases: 0 (pre-roadmap)
-- Unmapped: 10 ⚠️ (will resolve after roadmap creation)
+- Mapped to phases: 10 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-19*
-*Last updated: 2026-05-19 — initial v1013 definition*
+*Last updated: 2026-05-19 — roadmap committed (4 phases 1057-1060, 10/10 reqs mapped)*
