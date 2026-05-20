@@ -859,12 +859,21 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Zurück zur Basiskarten-Gruppe",
+    "casingColor": "Umrandungsfarbe",
+    "casingLabel": "UMRANDUNG",
+    "casingWidth": "Breite",
+    "casingWidthLabel": "Umrandungsbreite",
     "footerBack": "Zurück zur Basiskarte",
     "resetConfirmAction": "Zurücksetzen",
     "resetConfirmCancel": "Anpassung behalten",
     "resetConfirmMessage": "Alle benutzerdefinierten Darstellungen für {{sublayer}} werden entfernt.",
     "resetHint": "Auf Vorgabe zurücksetzen",
-    "resetLabel": "ZURÜCKSETZEN"
+    "resetLabel": "ZURÜCKSETZEN",
+    "strokeColor": "Farbe",
+    "strokeLabel": "STRICH",
+    "strokeWidth": "Breite",
+    "strokeWidthLabel": "Strichbreite",
+    "zoomLabel": "ZOOMBEREICH"
   },
   "demEditor": {
     "renderAsLabel": "DARSTELLUNG",

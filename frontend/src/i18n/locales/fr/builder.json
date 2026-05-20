@@ -859,12 +859,21 @@
   },
   "basemapSublayer": {
     "breadcrumbLabel": "Retour au groupe de fond de carte",
+    "casingColor": "Couleur du contour",
+    "casingLabel": "CONTOUR",
+    "casingWidth": "Largeur",
+    "casingWidthLabel": "Largeur du contour",
     "footerBack": "Retour au fond de carte",
     "resetConfirmAction": "Réinitialiser",
     "resetConfirmCancel": "Conserver la personnalisation",
     "resetConfirmMessage": "Cela supprimera toute apparence personnalisée pour {{sublayer}}.",
     "resetHint": "Réinitialiser au préréglage par défaut",
-    "resetLabel": "RÉINITIALISER"
+    "resetLabel": "RÉINITIALISER",
+    "strokeColor": "Couleur",
+    "strokeLabel": "TRAIT",
+    "strokeWidth": "Largeur",
+    "strokeWidthLabel": "Largeur du trait",
+    "zoomLabel": "PLAGE DE ZOOM"
   },
   "demEditor": {
     "renderAsLabel": "AFFICHER COMME",
