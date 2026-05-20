@@ -44,7 +44,15 @@ __all__ = [
 async def _load_self_record_and_embedding(
     db: AsyncSession, dataset_id: uuid.UUID
 ) -> tuple[uuid.UUID, list[float]] | None:
-    """Return (record_id, embedding) for the dataset, or None if either is absent."""
+    """Return (record_id, embedding) for the dataset, or None if either is absent.
+
+    Phase 1061 SEC-S05: callers MUST gate visibility on the seed dataset BEFORE
+    invoking this function. The embedding read has no permission filter and
+    would otherwise act as a cosine-similarity oracle on private record content.
+    The API router (datasets/api/router_data.py:list_related_datasets) calls
+    check_dataset_access_or_anonymous on the seed before this function runs.
+    If you add a new caller, replicate that gate at the call site.
+    """
     record_id_row = (
         await db.execute(select(Dataset.record_id).where(Dataset.id == dataset_id))
     ).first()
