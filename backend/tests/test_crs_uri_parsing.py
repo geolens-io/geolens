@@ -113,9 +113,7 @@ class TestParseCrsUri:
         unknown SRIDs at Find_SRID / ST_Transform time (T-1057C-04 accept).
         """
         result = parse_crs_uri("http://www.opengis.net/def/crs/EPSG/0/99999999999999999999")
-        # Any non-negative int is acceptable; None is also acceptable if executor chose a cap
-        # (see helper docstring). This assertion is intentionally lenient.
-        assert result is None or isinstance(result, int)
+        assert result == 99999999999999999999
 
 
 # ---------------------------------------------------------------------------
