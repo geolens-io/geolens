@@ -266,3 +266,41 @@ class TestChangePasswordRevocation:
         assert resp_after.status_code == 401, (
             "old access JWT must be invalidated after password change"
         )
+
+    async def test_change_password_new_password_usable_after_change(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """After password change the user can log in with the new password.
+
+        Regression for CR-01: if the password hash and token revocation were
+        committed in separate transactions a crash between them could leave the
+        user with all tokens revoked but the old password still stored, locking
+        them out. This test asserts the new password is always persisted when
+        change-password returns 204.
+        """
+        unique = uuid.uuid4().hex[:8]
+        username = f"chpw_atomic_{unique}"
+        old_password = STRONG_PASSWORD
+        new_password = "AtomicChange5678#"
+
+        await _create_local_user(client, admin_auth_header, username, old_password)
+        tokens = await _login(client, username, old_password)
+        access = tokens["access_token"]
+
+        resp_chpw = await client.post(
+            "/auth/change-password/",
+            json={"current_password": old_password, "new_password": new_password},
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        assert resp_chpw.status_code == 204, f"Change password failed: {resp_chpw.text}"
+
+        # New password must work for fresh login (proves hash was committed).
+        new_tokens = await _login(client, username, new_password)
+        assert "access_token" in new_tokens, "Login with new password must succeed"
+
+        # Old password must be rejected.
+        resp_old = await client.post(
+            "/auth/login",
+            data={"username": username, "password": old_password},
+        )
+        assert resp_old.status_code == 401, "Old password must be rejected after change"

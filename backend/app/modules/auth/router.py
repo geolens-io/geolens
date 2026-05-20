@@ -427,8 +427,13 @@ async def change_password(
     # SEC-S15 (Phase 1062-01): bump token_version so all outstanding access JWTs
     # for this user are invalidated on their next request. Password rotation
     # should force re-auth on every other device.
+    #
+    # commit=False: fold the token revocation into the same transaction as the
+    # password hash mutation and audit row so all three land atomically. A crash
+    # between commits would otherwise leave the user with bumped token_version
+    # (all tokens rejected) but the new password not recorded, locking them out.
     service = AuthService(db)
-    await service.revoke_all_tokens(current_user.id)
+    await service.revoke_all_tokens(current_user.id, commit=False)
 
     ip = get_client_ip(request)
     await audit_emit(
@@ -441,7 +446,7 @@ async def change_password(
             ip_address=ip,
         ),
     )
-    # Note: revoke_all_tokens already commits; this commit handles the
-    # password_hash mutation and the audit_emit together.
+    # Single commit: password_hash mutation + token revocation + audit row are
+    # all in the same transaction. Either all succeed or none do.
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

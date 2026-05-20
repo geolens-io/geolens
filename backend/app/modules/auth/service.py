@@ -187,13 +187,22 @@ class AuthService:
         await self.db.commit()
         return new_access, new_refresh
 
-    async def revoke_all_tokens(self, user_id: uuid.UUID) -> int:
+    async def revoke_all_tokens(
+        self, user_id: uuid.UUID, *, commit: bool = True
+    ) -> int:
         """Revoke all active refresh tokens AND bump User.token_version (logout).
 
         SEC-S15 (Phase 1062-01): incrementing token_version invalidates every
         access JWT issued before the bump on the next authenticated request.
         Combined with refresh-token revocation this closes the
         "logout doesn't invalidate access JWT" gap.
+
+        Args:
+            user_id: The user whose tokens should be revoked.
+            commit: If True (default), commit the transaction immediately so the
+                revocation is durable. Pass commit=False when the caller wants to
+                fold revocation into a larger transaction (e.g. change_password,
+                where the password hash and audit row must land in the same commit).
 
         Returns the new token_version value.
         """
@@ -213,7 +222,9 @@ class AuthService:
             .where(User.id == user_id)
             .values(token_version=User.token_version + 1)
         )
-        await self.db.commit()
+
+        if commit:
+            await self.db.commit()
 
         # 3. Re-select the new version so callers can log or return it.
         result = await self.db.execute(
