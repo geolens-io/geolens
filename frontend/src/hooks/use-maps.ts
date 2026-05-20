@@ -125,7 +125,22 @@ export function useDeleteMap() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteMap(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      // SMOKE-v1013-F3: previously only ``maps.all`` was invalidated, leaving
+      // stale ``maps.detail(id)``, ``maps.shareToken(id)``, ``maps.history*``,
+      // and ``maps.embedTokens(id)`` entries in the React Query cache. Any
+      // subsequent component that re-mounted those queries (recent-maps lists,
+      // a tab pinned to the deleted map's builder, an admin panel) would
+      // refetch from the deleted map's endpoints — yielding 404 noise and the
+      // ``/api/maps/shared/{deleted_id}`` errors seen in v1013 smoke.
+      //
+      // ``removeQueries`` drops the data entirely; ``invalidateQueries`` on
+      // ``maps.all`` keeps the list fresh for navigation. Strip the per-map
+      // queries that no longer make sense after delete.
+      qc.removeQueries({ queryKey: queryKeys.maps.detail(id) });
+      qc.removeQueries({ queryKey: queryKeys.maps.shareToken(id) });
+      qc.removeQueries({ queryKey: queryKeys.maps.embedTokens(id) });
+      qc.removeQueries({ queryKey: queryKeys.maps.historyPrefix(id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
     },
     onError: () => { toast.error(i18n.t('common:maps.deleteFailed')); },
