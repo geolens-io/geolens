@@ -260,12 +260,22 @@ async def get_shared_map(
     # surface allowed_origins. The router uses this to emit a per-token
     # frame-ancestors CSP header. ShareToken and EmbedToken are distinct
     # primitives — a map may have one without the other.
+    #
+    # CR-04 (Phase 1062 review): include non-expiring tokens (expires_at IS NULL)
+    # in the query. In PostgreSQL, NULL > now() evaluates to NULL (falsy), so
+    # the original `expires_at > func.now()` predicate silently excluded
+    # non-expiring EmbedTokens, causing the CSP header to fall back to
+    # "frame-ancestors 'self'" and breaking embed framing for community-edition
+    # tokens (which default to no expiry).
     embed_stmt = (
         select(EmbedToken.allowed_origins)
         .where(
             EmbedToken.map_id == token_obj.map_id,
             EmbedToken.is_active == True,  # noqa: E712
-            EmbedToken.expires_at > func.now(),
+            or_(
+                EmbedToken.expires_at.is_(None),
+                EmbedToken.expires_at > func.now(),
+            ),
         )
         .order_by(EmbedToken.created_at.desc())
         .limit(1)

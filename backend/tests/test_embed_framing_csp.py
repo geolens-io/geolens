@@ -90,6 +90,36 @@ async def _create_embed_token(
     return token_obj
 
 
+async def _create_non_expiring_embed_token(
+    session: AsyncSession,
+    *,
+    map_id: uuid.UUID,
+    created_by: uuid.UUID,
+    allowed_origins: list[str] | None = None,
+    is_active: bool = True,
+) -> EmbedToken:
+    """Insert an EmbedToken with expires_at=NULL (non-expiring, community-edition default).
+
+    CR-04 regression helper: the original service_public.py query used
+    `expires_at > now()` which evaluates to NULL for rows where expires_at IS NULL,
+    silently excluding non-expiring tokens from the CSP lookup.
+    """
+    raw = secrets.token_urlsafe(32)
+    token_obj = EmbedToken(
+        map_id=map_id,
+        token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+        token_hint=raw[:8],
+        scoped_dataset_ids=[],
+        expires_at=None,  # Non-expiring
+        is_active=is_active,
+        created_by=created_by,
+        allowed_origins=allowed_origins,
+    )
+    session.add(token_obj)
+    await session.flush()
+    return token_obj
+
+
 # ---------------------------------------------------------------------------
 # Task 1 — API response CSP header
 # ---------------------------------------------------------------------------
@@ -171,6 +201,46 @@ async def test_shared_map_with_embed_token_empty_origins_returns_frame_ancestors
     assert "http" not in csp.replace("'self'", ""), (
         f"Unexpected origins in CSP for empty allowed_origins, got: {csp!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-04 regression — non-expiring embed tokens must contribute allowed_origins
+# ---------------------------------------------------------------------------
+
+
+async def test_shared_map_with_non_expiring_embed_token_uses_allowed_origins(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+):
+    """CR-04 regression: GET /maps/shared/{token} with a non-expiring EmbedToken
+    (expires_at IS NULL) must return allowed_origins in frame-ancestors CSP.
+
+    The original query used `EmbedToken.expires_at > func.now()`. In PostgreSQL
+    NULL > now() evaluates to NULL (falsy), so non-expiring tokens were excluded
+    from the CSP lookup and the header fell back to "frame-ancestors 'self'",
+    silently breaking embed framing for community-edition tokens.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_public_map(test_db_session, created_by=admin_id)
+    raw_token = await _create_share_token(
+        test_db_session, map_id=map_obj.id, created_by=admin_id
+    )
+    await _create_non_expiring_embed_token(
+        test_db_session,
+        map_id=map_obj.id,
+        created_by=admin_id,
+        allowed_origins=["https://embed.example.com"],
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(f"/maps/shared/{raw_token}")
+    assert resp.status_code == 200
+    csp = resp.headers.get("content-security-policy", "")
+    assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
+    assert "https://embed.example.com" in csp, (
+        f"Non-expiring EmbedToken allowed_origins must appear in CSP (CR-04), got: {csp!r}"
+    )
+    assert "'self'" in csp, f"Expected 'self' always included, got: {csp!r}"
 
 
 # ---------------------------------------------------------------------------
