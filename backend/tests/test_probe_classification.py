@@ -314,8 +314,7 @@ class TestProbeOrchestratorNoEnrichment:
             assert layer.feature_count is None, f"Expected feature_count=None for {layer.name}"
             assert layer.kind == "vector", f"Expected kind='vector' for {layer.name}"
 
-    @pytest.mark.anyio
-    async def test_enrich_ogcapi_layers_not_called(self):
+    def test_enrich_ogcapi_layers_not_called(self):
         """PROBE-05 D-05: detect_service_type must NOT call enrich_ogcapi_layers.
 
         Verifies by structural assertion: enrich_ogcapi_layers is not importable
