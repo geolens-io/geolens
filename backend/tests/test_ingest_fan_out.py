@@ -387,12 +387,25 @@ class TestCR01PreviewStampsAllLayers:
             ],
         }
 
-        with patch(
-            "app.processing.ingest.router.run_ogrinfo_preview",
-            new_callable=AsyncMock,
-            return_value=fake_preview_result,
+        with (
+            patch(
+                "app.processing.ingest.router.run_ogrinfo_preview",
+                new_callable=AsyncMock,
+                return_value=fake_preview_result,
+            ),
+            # The file doesn't exist on disk, so we also mock resolve_file_path
+            # to avoid S3/local-copy logic. We only care about the stamping behavior.
+            patch(
+                "app.processing.ingest.router.resolve_file_path",
+                new_callable=AsyncMock,
+                return_value="/tmp/fake-multi.gpkg",
+            ),
+            patch(
+                "pathlib.Path.exists",
+                return_value=True,
+            ),
         ):
-            preview_resp = await client.get(
+            preview_resp = await client.post(
                 f"/ingest/preview/{job.id}",
                 headers=admin_auth_header,
             )
@@ -462,12 +475,23 @@ class TestCR01PreviewStampsAllLayers:
             ],
         }
 
-        with patch(
-            "app.processing.ingest.router.run_ogrinfo_preview",
-            new_callable=AsyncMock,
-            return_value=fake_preview_result,
+        with (
+            patch(
+                "app.processing.ingest.router.run_ogrinfo_preview",
+                new_callable=AsyncMock,
+                return_value=fake_preview_result,
+            ),
+            patch(
+                "app.processing.ingest.router.resolve_file_path",
+                new_callable=AsyncMock,
+                return_value="/tmp/fake-two.gpkg",
+            ),
+            patch(
+                "pathlib.Path.exists",
+                return_value=True,
+            ),
         ):
-            await client.get(
+            await client.post(
                 f"/ingest/preview/{job.id}",
                 headers=admin_auth_header,
             )
