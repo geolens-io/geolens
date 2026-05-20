@@ -363,6 +363,7 @@
     "uploadMore": "Subir m\u00e1s",
     "rasterDatasetsReady": "{{count}} conjuntos de datos r\u00e1ster listos",
     "createVrtMosaic": "Crear mosaico VRT",
-    "importAsVrt": "Importar como mosaico VRT"
+    "importAsVrt": "Importar como mosaico VRT",
+    "ingestAllLayers": "Ingerir las {{count}} capas como conjuntos de datos separados"
   }
 }

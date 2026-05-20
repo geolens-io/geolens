@@ -363,6 +363,7 @@
     "uploadMore": "Télécharger plus",
     "rasterDatasetsReady": "{{count}} jeux de données raster prêts",
     "createVrtMosaic": "Créer un mosaïque VRT",
-    "importAsVrt": "Importer en mosaïque VRT"
+    "importAsVrt": "Importer en mosaïque VRT",
+    "ingestAllLayers": "Ingérer les {{count}} couches comme jeux de données séparés"
   }
 }

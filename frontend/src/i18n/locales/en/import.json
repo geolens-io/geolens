@@ -363,6 +363,7 @@
     "uploadMore": "Upload More",
     "rasterDatasetsReady": "{{count}} raster datasets ready",
     "createVrtMosaic": "Create VRT Mosaic",
-    "importAsVrt": "Import as VRT Mosaic"
+    "importAsVrt": "Import as VRT Mosaic",
+    "ingestAllLayers": "Ingest all {{count}} layers as separate datasets"
   }
 }

@@ -169,6 +169,8 @@ interface BulkReviewListProps {
   onCommitAllAsVrt?: () => void;
   onRemove: (entryId: string) => void;
   onSheetChange?: (entryId: string, layerName: string) => void;
+  // GPKG-03 Phase 1058: optional fan-out prop — single-layer-only consumers can omit
+  onIngestAllLayers?: (entryId: string) => void;
   isCommitting: boolean;
 }
 
@@ -179,6 +181,7 @@ export function BulkReviewList({
   onCommitAllAsVrt,
   onRemove,
   onSheetChange,
+  onIngestAllLayers,
   isCommitting,
 }: BulkReviewListProps) {
   const { t } = useTranslation('import');
@@ -358,6 +361,26 @@ export function BulkReviewList({
                             </option>
                           ))}
                         </select>
+                      </div>
+                    )}
+
+                  {/* GPKG-03 Phase 1058: "Ingest all layers" button for multi-layer files */}
+                  {isFilePreview(entry.previewData) &&
+                    entry.previewData.layers &&
+                    entry.previewData.layers.length > 1 &&
+                    onIngestAllLayers && (
+                      <div className="mb-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onIngestAllLayers(entry.id)}
+                          disabled={isCommitting || entry.status !== 'preview'}
+                          data-testid={`ingest-all-layers-${entry.id}`}
+                        >
+                          <Layers className="me-1 size-3" />
+                          {t('bulk.ingestAllLayers', { count: entry.previewData.layers.length })}
+                        </Button>
                       </div>
                     )}
 
