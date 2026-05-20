@@ -746,9 +746,16 @@ async def commit_fan_out(
         result = await create_fan_out_jobs(job, layer, db)
         results.append(result)
 
-    # Mark original job as terminal 'fanned_out'.
-    job.status = "fanned_out"
-    job.completed_at = datetime.now(timezone.utc)
+    # CR-02 fix: only mark 'fanned_out' (terminal) when at least one layer was
+    # successfully dispatched. If every layer failed (e.g. Procrastinate outage),
+    # keep the job 'pending' so the user can retry without re-uploading the file.
+    queued_count = sum(1 for r in results if r.status == "queued")
+    if queued_count > 0:
+        job.status = "fanned_out"
+        job.completed_at = datetime.now(timezone.utc)
+    else:
+        # All dispatches failed — leave job 'pending' for retry.
+        job.status = "pending"
     await db.commit()
 
     return FanOutCommitResponse(fan_out_id=job.id, results=results)
