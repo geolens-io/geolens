@@ -157,9 +157,14 @@ Plans: 6 plans
 4. JWT model supports revocation via `jti` + `token_version` claims.
 5. Password complexity validator enforced at registration + change-password.
 
-Plans:
+Plans: 6 plans
 
-- [ ] TBD (run `/gsd:plan-phase 1062`)
+- [ ] 1062-01-PLAN.md — SEC-S15 + SEC-S16: JWT revocation (jti + token_version) + password complexity (wave 1, 5 tasks)
+- [ ] 1062-02-PLAN.md — SEC-S10 + SEC-S11: per-route rate limits on /search/datasets/, /datasets/{id}/related/, /settings/basemaps/ + SEC-S10 docstring (wave 1, 4 tasks)
+- [ ] 1062-03-PLAN.md — SEC-S12 + SEC-S13: simple-regconfig GIN index + /search/facets/?q max_length=1000 (wave 1, 3 tasks)
+- [ ] 1062-04-PLAN.md — SEC-S09: ogr2ogr -where sqlglot AST validator (wave 1, 3 tasks)
+- [ ] 1062-05-PLAN.md — SEC-S08: per-token frame-ancestors CSP on /api/maps/shared/{token} + nginx /m/ XFO removal (wave 1, 3 tasks)
+- [ ] 1062-06-PLAN.md — SEC-S14: ESLint no-restricted-syntax guard + httpOnly migration plan documented (wave 1, 4 tasks)
 
 ### Phase 1063: LOW follow-up tickets
 
