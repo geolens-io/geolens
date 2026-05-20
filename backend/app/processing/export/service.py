@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from app.core.config import settings
 from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
+from app.processing.export.where_validator import validate_where_ast
 from app.core.runtime.staging import ensure_staging_ready
 
 
@@ -62,6 +63,12 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
+    # Phase 1062 SEC-S09: AST gate FIRST — rejects UNION / subqueries / DDL /
+    # function calls that the identifier-only regex below cannot detect.
+    validate_where_ast(where)
+
+    # Existing identifier check (defense-in-depth): rejects column names that
+    # aren't in this dataset's column_info, even if they parse cleanly.
     valid_names = {col["name"].lower() for col in column_info}
 
     identifiers = _IDENTIFIER_RE.findall(where)
