@@ -152,7 +152,11 @@
   3. Live Playwright MCP re-verify confirms WFS-04 (GeoServer Countries-of-the-World commits cleanly), PROBE-05 (pygeoapi probe ≤5s), GPKG-01 (Reupload File path shows layer-select), GPKG-02 (preview pane surfaces layer name + schema diff), and BSE-01 (basemap sublayer overrides round-trip through builder + viewer).
   4. Code-review pass complete with any secondary findings fixed inline per `feedback_review_findings_inline.md`; zero deferrals to a v1013.1 hygiene milestone.
   5. CHANGELOG `[Unreleased]` block is promoted to `[1.4.0]` and populated with all v1013 changes; local `v1013` tag is created; public `v1.4.0` tag is created (minor bump justified by GPKG-01/GPKG-03 new affordances + BSE-01 styling persistence).
-**Plans**: TBD
+**Plans:** 4 plans
+- [ ] 1060-01-PLAN.md — E2E smoke triage + fix (builder-v1-5.spec.ts:152, builder.spec.ts:338)
+- [ ] 1060-02-PLAN.md — Live Playwright MCP re-verify (12 gates: WFS-04/PROBE-05/CRS-06/CLASS-07/GPKG-01/GPKG-02/GPKG-03/BSE-01 ×5 sub-gates)
+- [ ] 1060-03-PLAN.md — Dataset cleanup (3 DELETEs + GET-404 verification per CLEAN-01)
+- [ ] 1060-04-PLAN.md — CHANGELOG promote + smoke re-gate + local tags v1013 + v1.3.0 (per A-01, NOT v1.4.0) + finalize tracker
 **Complexity**: Small-medium (1-2 plan slots reserved for inline review fixes per established pattern from v1010.2 / v1011 / v1011.1)
 
 ## Progress
@@ -165,7 +169,7 @@ Phases execute in numeric order: 1057 → 1058 → 1059 → 1060
 | 1057. Service URL Reliability | 3/3 | Complete |  |
 | 1058. Multi-Layer GPKG Handling | 3/3 | Partial (T-1058C-03 backend gap documented) |  |
 | 1059. Basemap Sublayer Editor (Path B FIX) | 4/4 | Complete (all ACs evidenced; 12 new tests; de/es/fr i18n parity) | 2026-05-20 |
-| 1060. Close Gate | 0/? | Not started | - |
+| 1060. Close Gate | 0/4 | Not started | - |
 
 ## Backlog
 
