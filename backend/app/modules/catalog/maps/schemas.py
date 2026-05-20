@@ -242,7 +242,13 @@ class SublayerOverride(BaseModel):
         le=1.0,
         description=(
             "Per-sublayer opacity (0-1), or null to use the basemap default. "
-            "Additive on top of BasemapConfig.opacity (the whole-basemap master opacity)."
+            "Additive on top of BasemapConfig.opacity (the whole-basemap master opacity). "
+            "IN-02 (Phase 1059 code review): this field is populated via API or a future "
+            "Phase milestone. The current UI opacity slider in BasemapSublayerEditorScene "
+            "routes through the legacy sublayerState path (MapBuilderPage.tsx "
+            "handleSublayerOpacityChange) per D-09 ('OPACITY — existing slider untouched') "
+            "and does not call updateSublayerOverride. See TODO(BUILDER-SUBLAYER-PERSIST) "
+            "comment at MapBuilderPage.tsx for the deferral rationale."
         ),
     )
 
