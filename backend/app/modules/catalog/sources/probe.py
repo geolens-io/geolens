@@ -1,14 +1,29 @@
 """Service type detection orchestration logic.
 
-Coordinates WFS and ArcGIS probing to detect what kind of service a URL
-points to and return a unified layer list.
+Coordinates WFS, OGC API Features, and ArcGIS probing to detect what kind of
+service a URL points to and return a unified layer list.
+
+# Phase 1057 PROBE-05 + D-04 + D-05
+# -----------------------------------
+# D-04 (anti-misdiagnosis): The per-probe short-circuit (each 'if result is not
+#   None: return' below) was ALREADY correct before this fix. The real latency
+#   bottleneck was enrich_ogcapi_layers and enrich_wfs_layers: per-layer ogrinfo
+#   subprocesses gated by Semaphore(5) × N collections × ~3-4s each (~60s for
+#   17 pygeoapi collections). The orchestrator structure is preserved unchanged.
+#
+# D-05 (fix): enrich_ogcapi_layers and enrich_wfs_layers are REMOVED. OGC API
+#   and WFS probe results now carry geometry_type=None, feature_count=None, and
+#   a backend-classified kind='vector'|'raster' (D-09 / CLASS-07). The preview
+#   path at preview.py runs ogrinfo lazily for the single layer the user selects.
+#
+# ArcGIS enrichment (enrich_arcgis_feature_counts) is NOT dropped — it uses fast
+# HTTP returnCountOnly queries, not ogrinfo, so it is not the latency bottleneck.
 """
 
 from urllib.parse import urlparse
 
-import structlog
-
 import httpx
+import structlog
 
 from app.modules.catalog.sources.adapters.arcgis import (
     _looks_like_arcgis,
@@ -16,11 +31,8 @@ from app.modules.catalog.sources.adapters.arcgis import (
     normalize_arcgis_url,
     probe_arcgis_service,
 )
-from app.modules.catalog.sources.adapters.ogcapi import (
-    enrich_ogcapi_layers,
-    probe_ogcapi,
-)
-from app.modules.catalog.sources.adapters.wfs import enrich_wfs_layers, probe_wfs
+from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+from app.modules.catalog.sources.adapters.wfs import probe_wfs
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -45,23 +57,28 @@ class ServiceNotRecognized(Exception):
 
 
 def _build_probe_response(
-    result: dict, enriched_layers: list[dict], url: str
+    result: dict, layers: list[dict], url: str
 ) -> ProbeResponse:
-    """Build a ProbeResponse from WFS or OGC API Features detection results."""
-    layers = [
+    """Build a ProbeResponse from WFS or OGC API Features detection results.
+
+    After Phase 1057 D-05: layers arrive with geometry_type=None, feature_count=None,
+    and a pre-classified kind field (set by the adapter at probe_ogcapi / probe_wfs).
+    """
+    layer_infos = [
         LayerInfo(
             name=layer["name"],
             title=layer.get("title"),
             geometry_type=layer.get("geometry_type"),
             feature_count=layer.get("feature_count"),
             layer_id=layer["name"],
+            kind=layer.get("kind", "vector"),
         )
-        for layer in enriched_layers
+        for layer in layers
     ]
     return ProbeResponse(
         service_type=result["service_type"],
         url=url,
-        layers=layers,
+        layers=layer_infos,
     )
 
 
@@ -122,10 +139,9 @@ async def detect_service_type(
         logger.info("URL pattern matches WFS", url=url)
         result = await probe_wfs(url, client, token=token)
         if result is not None:
-            enriched = await enrich_wfs_layers(
-                url, result["layers"], client, token=token
-            )
-            return _build_probe_response(result, enriched, url)
+            # D-05: no enrichment — layers already have geometry_type=None,
+            # feature_count=None, kind='vector' from probe_wfs.
+            return _build_probe_response(result, result["layers"], url)
         # Fast-path failed — fall through to slow path
 
     # Slow path: OGC API probe first, then WFS, then ArcGIS
@@ -134,18 +150,15 @@ async def detect_service_type(
     # Try OGC API Features landing page probe
     ogcapi_result = await probe_ogcapi(url, client, token=token)
     if ogcapi_result is not None:
-        enriched = await enrich_ogcapi_layers(
-            url, ogcapi_result["layers"], client, token=token
-        )
-        return _build_probe_response(ogcapi_result, enriched, url)
+        # D-05: no enrichment — layers already have geometry_type=None,
+        # feature_count=None, kind classified by classify_layer_kind from probe_ogcapi.
+        return _build_probe_response(ogcapi_result, ogcapi_result["layers"], url)
 
     # Try WFS
     wfs_result = await probe_wfs(url, client, token=token)
     if wfs_result is not None:
-        enriched = await enrich_wfs_layers(
-            url, wfs_result["layers"], client, token=token
-        )
-        return _build_probe_response(wfs_result, enriched, url)
+        # D-05: no enrichment — same as fast-path WFS branch above.
+        return _build_probe_response(wfs_result, wfs_result["layers"], url)
 
     # Try ArcGIS
     base_url, layer_id = normalize_arcgis_url(url)

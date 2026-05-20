@@ -7,15 +7,24 @@
 # expansion, decompression bombs). Never replace this import — the WFS service
 # probe accepts user-supplied URLs, so the response is always untrusted.
 #
-# # Namespace handling
+# Namespace handling
+# ------------------
 # WFS 1.0, 1.1, and 2.0 each use slightly different XML namespaces and element
 # names for FeatureType discovery. The parser walks the tree namespace-agnostic
 # (matching by local-name) so the same code path supports all three versions.
+#
+# Phase 1057 PROBE-05 + D-05 (ogrinfo enrichment dropped from probe phase)
+# -------------------------------------------------------------------------
+# enrich_wfs_layers() was removed in Phase 1057. The per-layer ogrinfo
+# subprocess (Semaphore(5) x N layers x ~3-4s each) was the latency
+# bottleneck. Dropping it makes the ≤5s probe target trivially achievable.
+#
+# geometry_type and feature_count now return None at probe time. When the user
+# selects a specific layer, the preview path at preview.py runs ogrinfo for
+# that single layer. WFS layers always have kind='vector' (WFS is a vector
+# feature service by OGC spec — raster sources use STAC instead).
 """
 
-import asyncio
-import json
-import os
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import defusedxml.ElementTree as ET
@@ -65,6 +74,12 @@ def parse_wfs_capabilities(xml_text: str) -> tuple[str, list[dict]]:
                         "name": name,
                         "title": title or name,
                         "crs": crs,
+                        # D-09: WFS is a vector feature service by OGC spec.
+                        # geometry_type and feature_count are None at probe time
+                        # (D-05: ogrinfo enrichment dropped from probe phase).
+                        "geometry_type": None,
+                        "feature_count": None,
+                        "kind": "vector",
                     }
                 )
 
@@ -125,94 +140,3 @@ async def probe_wfs(
         "service_type": f"WFS {version}",
         "layers": layers,
     }
-
-
-async def enrich_wfs_layers(
-    url: str,
-    layers: list[dict],
-    client: httpx.AsyncClient,
-    token: str | None = None,
-) -> list[dict]:
-    """Enrich WFS layers with geometry type and feature count via ogrinfo.
-
-    Uses asyncio.Semaphore(5) to limit concurrency. On failure for a
-    given layer, keeps the layer with geometry_type=None, feature_count=None.
-    """
-    semaphore = asyncio.Semaphore(5)
-
-    async def _enrich_one(layer: dict) -> dict:
-        async with semaphore:
-            layer_name = layer["name"]
-            try:
-                env = None
-                if token:
-                    env = {
-                        **os.environ,
-                        "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}",
-                    }
-                proc = await asyncio.create_subprocess_exec(
-                    "ogrinfo",
-                    "-json",
-                    "-so",
-                    f"WFS:{url}",
-                    layer_name,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=30.0
-                    )
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    raise
-
-                if proc.returncode != 0:
-                    logger.debug(
-                        "ogrinfo failed for WFS layer %s: %s",
-                        layer_name,
-                        stderr.decode(errors="replace"),
-                    )
-                    return {**layer, "geometry_type": None, "feature_count": None}
-
-                data = json.loads(stdout.decode())
-                ogr_layers = data.get("layers", [])
-                if not ogr_layers:
-                    return {**layer, "geometry_type": None, "feature_count": None}
-
-                ogr_layer = ogr_layers[0]
-                geometry_type = None
-                geom_fields = ogr_layer.get("geometryFields", [])
-                if geom_fields:
-                    geometry_type = geom_fields[0].get("type")
-
-                feature_count = ogr_layer.get("featureCount")
-
-                return {
-                    **layer,
-                    "geometry_type": geometry_type,
-                    "feature_count": feature_count,
-                }
-            except (asyncio.TimeoutError, OSError, json.JSONDecodeError) as exc:
-                logger.debug(
-                    "ogrinfo enrichment failed for WFS layer %s: %s",
-                    layer_name,
-                    exc,
-                )
-                return {**layer, "geometry_type": None, "feature_count": None}
-
-    try:
-        enriched = await asyncio.wait_for(
-            asyncio.gather(*[_enrich_one(layer) for layer in layers]),
-            timeout=60,
-        )
-        return list(enriched)
-    except asyncio.TimeoutError:
-        logger.warning(
-            "WFS layer enrichment timed out after 60s, returning layers without counts"
-        )
-        return [
-            {**layer, "geometry_type": None, "feature_count": None} for layer in layers
-        ]

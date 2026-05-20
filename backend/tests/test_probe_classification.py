@@ -164,6 +164,27 @@ class TestProbeOrchestratorNoEnrichment:
     and D-05 (drop enrichment from probe phase; lazy-enrich at preview time).
     """
 
+    def _make_response(self, data: dict, url: str = "http://fake.example.com") -> "httpx.Response":
+        """Build an httpx.Response with a request attached (required for raise_for_status)."""
+        import httpx as _httpx
+
+        request = _httpx.Request("GET", url)
+        response = _httpx.Response(200, json=data, request=request)
+        return response
+
+    def _make_xml_response(self, xml_text: str, url: str = "http://fake.example.com") -> "httpx.Response":
+        """Build an httpx.Response with XML content and a request attached."""
+        import httpx as _httpx
+
+        request = _httpx.Request("GET", url)
+        response = _httpx.Response(
+            200,
+            text=xml_text,
+            headers={"content-type": "text/xml"},
+            request=request,
+        )
+        return response
+
     @pytest.mark.anyio
     async def test_ogcapi_probe_completes_fast_without_subprocess(self):
         """PROBE-05: 17-collection OGC API probe completes in <100ms with no subprocess.
@@ -186,16 +207,11 @@ class TestProbeOrchestratorNoEnrichment:
             ]
         }
 
-        def make_response(data: dict) -> httpx.Response:
-            import json as _json
-
-            return httpx.Response(200, json=data)
-
         # Patch httpx AsyncClient.get to return our stubs
         async def mock_get(url: str, **kwargs):
             if "collections" in url:
-                return make_response(collections_data)
-            return make_response(landing_page)
+                return self._make_response(collections_data, url)
+            return self._make_response(landing_page, url)
 
         with patch(
             "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
@@ -237,8 +253,8 @@ class TestProbeOrchestratorNoEnrichment:
 
         async def mock_get(url: str, **kwargs):
             if "collections" in url:
-                return httpx.Response(200, json=collections_data)
-            return httpx.Response(200, json=landing_page)
+                return self._make_response(collections_data, url)
+            return self._make_response(landing_page, url)
 
         with patch(
             "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
@@ -260,7 +276,7 @@ class TestProbeOrchestratorNoEnrichment:
     async def test_wfs_probe_layers_have_null_geometry_and_count_with_vector_kind(self):
         """PROBE-05 + CLASS-07: WFS probe layers have geometry_type=None, feature_count=None, kind='vector'."""
         import httpx
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock
 
         capabilities_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <WFS_Capabilities version="2.0.0" xmlns="http://www.opengis.net/wfs/2.0">
@@ -278,10 +294,12 @@ class TestProbeOrchestratorNoEnrichment:
   </FeatureTypeList>
 </WFS_Capabilities>"""
 
-        response = httpx.Response(200, text=capabilities_xml, headers={"content-type": "text/xml"})
-
         async with httpx.AsyncClient() as client:
-            client.get = AsyncMock(return_value=response)
+            client.get = AsyncMock(
+                return_value=self._make_xml_response(
+                    capabilities_xml, "http://fake-wfs.example.com/wfs"
+                )
+            )
 
             from app.modules.catalog.sources.probe import detect_service_type
 
@@ -298,44 +316,18 @@ class TestProbeOrchestratorNoEnrichment:
 
     @pytest.mark.anyio
     async def test_enrich_ogcapi_layers_not_called(self):
-        """PROBE-05 D-05: detect_service_type must NOT call enrich_ogcapi_layers."""
-        import httpx
-        from unittest.mock import AsyncMock, MagicMock, patch
+        """PROBE-05 D-05: detect_service_type must NOT call enrich_ogcapi_layers.
 
-        landing_page = {
-            "conformsTo": [
-                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
-            ],
-        }
-        collections_data = {
-            "collections": [{"id": "test_layer", "title": "Test Layer"}]
-        }
+        Verifies by structural assertion: enrich_ogcapi_layers is not importable
+        from probe.py (it was deleted). If the function exists in the probe module
+        namespace it would be patchable; its absence confirms D-05 compliance.
+        """
+        import app.modules.catalog.sources.probe as probe_module
 
-        async def mock_get(url: str, **kwargs):
-            if "collections" in url:
-                return httpx.Response(200, json=collections_data)
-            return httpx.Response(200, json=landing_page)
-
-        with patch(
-            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
-            new_callable=AsyncMock,
-        ):
-            # Try to patch enrich_ogcapi_layers — if it doesn't exist in the namespace
-            # (because it was deleted), this test also passes (ImportError becomes skip).
-            try:
-                with patch(
-                    "app.modules.catalog.sources.probe.enrich_ogcapi_layers",
-                    new_callable=AsyncMock,
-                ) as mock_enrich:
-                    async with httpx.AsyncClient() as client:
-                        client.get = AsyncMock(side_effect=mock_get)
-                        from app.modules.catalog.sources.probe import detect_service_type
-                        await detect_service_type("http://fake-ogcapi.example.com", client)
-
-                    mock_enrich.assert_not_called()
-            except AttributeError:
-                # enrich_ogcapi_layers was removed from probe.py — test passes by absence
-                pass
+        assert not hasattr(probe_module, "enrich_ogcapi_layers"), (
+            "enrich_ogcapi_layers should not exist in probe.py namespace "
+            "(Phase 1057 D-05: deleted from probe phase)"
+        )
 
     @pytest.mark.anyio
     async def test_enrich_arcgis_feature_counts_still_called(self):
@@ -352,7 +344,7 @@ class TestProbeOrchestratorNoEnrichment:
         }
 
         async def mock_get(url: str, **kwargs):
-            return httpx.Response(200, json=arcgis_service_json)
+            return self._make_response(arcgis_service_json, url)
 
         async with httpx.AsyncClient() as client:
             client.get = AsyncMock(side_effect=mock_get)

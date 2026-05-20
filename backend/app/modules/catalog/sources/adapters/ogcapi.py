@@ -1,31 +1,39 @@
-"""OGC API -- Features landing page probe and collection enrichment.
+"""OGC API -- Features landing page probe.
 
-Implements the same adapter contract as wfs.py and arcgis.py:
+Implements the probe adapter contract shared with wfs.py and arcgis.py:
 - probe_ogcapi(): fetch landing page, detect conformance, list collections
-- enrich_ogcapi_layers(): run ogrinfo per collection to get geometry_type/feature_count
 
+# Phase 1057 PROBE-05 + D-05 (ogrinfo enrichment dropped from probe phase)
+# -------------------------------------------------------------------------
+# enrich_ogcapi_layers() was removed in Phase 1057. The per-layer ogrinfo
+# subprocess (Semaphore(5) x N collections x ~3-4s) was the real latency
+# bottleneck — not the probe orchestrator logic. Dropping it makes the ≤5s
+# probe target trivially achievable.
+#
+# geometry_type and feature_count now return None for all OGC API layers at
+# probe time. When the user selects a specific layer, the preview path at
+# backend/app/modules/catalog/sources/preview.py already runs ogrinfo for
+# that single layer, supplying concrete geometry type at interaction time.
+#
+# D-09 kind classification is performed inline at layer-dict construction
+# (see classify_layer_kind in classify.py). OGC API Features collections
+# default to 'vector' unless explicit raster signals (coverage_format/
+# bands/image/* mediaType) are present in the collection JSON.
+#
 # Safety notes
 # ------------
 # The user-supplied base URL is SSRF-validated upstream by the probe router.
 # Secondary URLs extracted from the JSON response (e.g. /conformance href) are
 # re-validated via validate_url_for_ssrf() before fetching to prevent a
 # malicious landing page from redirecting to internal addresses.
-#
-# Bearer tokens are passed only via subprocess env (GDAL_HTTP_HEADERS), never
-# logged, matching the WFS auth pattern (T-d1g-03).
-#
-# Concurrency is limited to Semaphore(5) + 30s per-layer timeout to guard
-# against slow OGC API endpoints causing runaway enrichment (T-d1g-04).
 """
 
-import asyncio
-import json
-import os
 from urllib.parse import urljoin
 
 import httpx
 import structlog
 
+from app.modules.catalog.sources.classify import classify_layer_kind
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -141,11 +149,18 @@ async def probe_ogcapi(
     if not isinstance(collections, list):
         return None
 
+    # D-09: classify each collection dict at build time. geometry_type is None
+    # (D-05: ogrinfo enrichment dropped from probe phase). Raster signals such
+    # as coverage_format/bands/image/* mediaType are detected from the raw
+    # collection JSON c — most OGC API Features collections will be 'vector'.
     layers = [
         {
             "name": c["id"],
             "title": c.get("title", c["id"]),
             "crs": None,
+            "geometry_type": None,
+            "feature_count": None,
+            "kind": classify_layer_kind(c, adapter_type="ogcapi"),
         }
         for c in collections
         if isinstance(c, dict) and c.get("id")
@@ -157,83 +172,3 @@ async def probe_ogcapi(
         collection_count=len(layers),
     )
     return {"service_type": "OGC API Features", "layers": layers}
-
-
-async def enrich_ogcapi_layers(
-    url: str,
-    layers: list[dict],
-    client: httpx.AsyncClient,
-    token: str | None = None,
-) -> list[dict]:
-    """Enrich OGC API collection layers with geometry type and feature count via ogrinfo.
-
-    Uses asyncio.Semaphore(5) to limit concurrency. On failure for a
-    given layer, keeps the layer with geometry_type=None, feature_count=None.
-    """
-    semaphore = asyncio.Semaphore(5)
-
-    async def _enrich_one(layer: dict) -> dict:
-        async with semaphore:
-            layer_name = layer["name"]
-            try:
-                env = None
-                if token:
-                    env = {
-                        **os.environ,
-                        "GDAL_HTTP_HEADERS": f"Authorization: Bearer {token}",
-                    }
-                proc = await asyncio.create_subprocess_exec(
-                    "ogrinfo",
-                    "-json",
-                    "-so",
-                    f"OAPIF:{url}",
-                    layer_name,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        proc.communicate(), timeout=30.0
-                    )
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-                    raise
-
-                if proc.returncode != 0:
-                    logger.debug(
-                        "ogrinfo failed for OGC API layer %s: %s",
-                        layer_name,
-                        stderr.decode(errors="replace"),
-                    )
-                    return {**layer, "geometry_type": None, "feature_count": None}
-
-                data = json.loads(stdout.decode())
-                ogr_layers = data.get("layers", [])
-                if not ogr_layers:
-                    return {**layer, "geometry_type": None, "feature_count": None}
-
-                ogr_layer = ogr_layers[0]
-                geometry_type = None
-                geom_fields = ogr_layer.get("geometryFields", [])
-                if geom_fields:
-                    geometry_type = geom_fields[0].get("type")
-
-                feature_count = ogr_layer.get("featureCount")
-
-                return {
-                    **layer,
-                    "geometry_type": geometry_type,
-                    "feature_count": feature_count,
-                }
-            except (asyncio.TimeoutError, OSError, json.JSONDecodeError) as exc:
-                logger.debug(
-                    "ogrinfo enrichment failed for OGC API layer %s: %s",
-                    layer_name,
-                    exc,
-                )
-                return {**layer, "geometry_type": None, "feature_count": None}
-
-    enriched = await asyncio.gather(*[_enrich_one(layer) for layer in layers])
-    return list(enriched)

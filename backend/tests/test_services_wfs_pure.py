@@ -38,10 +38,15 @@ class TestParseWfsCapabilities:
         version, layers = parse_wfs_capabilities(xml)
         assert version == "1.1.0"
         assert len(layers) == 2
+        # Phase 1057 D-05 / D-09: probe_wfs now includes geometry_type=None,
+        # feature_count=None, and kind='vector' in each layer dict.
         assert layers[0] == {
             "name": "ns:roads",
             "title": "Roads",
             "crs": "EPSG:4326",
+            "geometry_type": None,
+            "feature_count": None,
+            "kind": "vector",
         }
         assert layers[1]["name"] == "ns:parcels"
         assert layers[1]["crs"] == "EPSG:3857"
