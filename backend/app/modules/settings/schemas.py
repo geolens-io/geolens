@@ -270,6 +270,20 @@ def validate_global_rate_limit(v: Any) -> int:
     return v
 
 
+def validate_semantic_search_rate_limit(v: Any) -> int:
+    v = int(v)
+    if v < 1 or v > 1000:
+        raise ValueError("semantic_search_rate_limit must be between 1 and 1000")
+    return v
+
+
+def validate_basemap_proxy_rate_limit(v: Any) -> int:
+    v = int(v)
+    if v < 1 or v > 1000:
+        raise ValueError("basemap_proxy_rate_limit must be between 1 and 1000")
+    return v
+
+
 def validate_upload_max_size(v: Any) -> int:
     v = int(v)
     if v < 1 or v > 10000:
@@ -384,6 +398,8 @@ def validate_tile_cache_ttl(v: Any) -> int:
 SETTING_VALIDATORS: dict[str, Any] = {
     "login_rate_limit": validate_login_rate_limit,
     "global_rate_limit": validate_global_rate_limit,
+    "semantic_search_rate_limit": validate_semantic_search_rate_limit,
+    "basemap_proxy_rate_limit": validate_basemap_proxy_rate_limit,
     "upload_max_size_mb": validate_upload_max_size,
     "upload_allowed_extensions": validate_upload_extensions,
     "basemaps": validate_basemaps,
