@@ -544,6 +544,44 @@ def _point_ogr2ogr_at_test_db(request, monkeypatch):
 
 
 @pytest.fixture
+def stac_visibility_force_5xx(monkeypatch):
+    """SEC-FU-01: Force apply_visibility_filter to raise RuntimeError on every call.
+
+    Monkeypatches ``app.modules.catalog.authorization.apply_visibility_filter``
+    so that STAC item-read and search endpoints exercise the 5xx error path
+    without requiring the database to fail.  Yields a ``SimpleNamespace(active=True)``
+    handle so tests can assert the patch is in effect.
+
+    Scoped to function level (default); ``monkeypatch`` auto-unwinds at teardown,
+    so no production code path is affected outside the requesting test.
+
+    Usage::
+
+        def test_no_leak(client, stac_visibility_force_5xx):
+            assert stac_visibility_force_5xx.active
+            resp = client.get("/stac/items/...")
+            assert resp.status_code >= 500
+
+    Pattern mirrors ``monkeypatch.setattr(_ogr, "build_pg_conn_str", ...)`` above.
+    """
+    import types as _types
+    import app.modules.catalog.authorization as _authorization
+    import app.standards.stac.router as _stac_router
+
+    def _force_raise(stmt, user, user_roles, record_cls, grant_cls=None):
+        raise RuntimeError("forced 5xx for SEC-FU-01 regression test")
+
+    # Patch the canonical module so direct imports from authorization also see the stub.
+    monkeypatch.setattr(_authorization, "apply_visibility_filter", _force_raise)
+    # Also patch the name already bound in the STAC router module's namespace,
+    # because ``from app.modules.catalog.authorization import apply_visibility_filter``
+    # creates a separate binding that a pure module-level patch would not reach.
+    monkeypatch.setattr(_stac_router, "apply_visibility_filter", _force_raise)
+
+    yield _types.SimpleNamespace(active=True)
+
+
+@pytest.fixture
 def saml_overlay_registered():
     """Programmatically register EnterpriseSamlExtension into the live extension
     registry for the duration of a single test. Restores prior state on

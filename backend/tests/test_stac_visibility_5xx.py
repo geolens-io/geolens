@@ -11,12 +11,38 @@ import types
 import uuid
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
 from tests.factories import get_user_id
+
+
+# ---------------------------------------------------------------------------
+# 5xx-safe client fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def client_no_raise(client: AsyncClient):
+    """Wrap the standard ``client`` fixture with raise_app_exceptions=False.
+
+    The standard ``client`` fixture's ASGITransport re-raises unhandled server
+    exceptions into the test process.  For 5xx regression tests we need the
+    transport to return the HTTP 500 response as a normal response object.
+
+    This fixture replaces the underlying transport on the already-configured
+    client so it shares the same test DB and session factory, keeping dataset
+    setup (via ``test_db_session``) consistent.
+    """
+    from app.api.main import app as _app
+
+    # Swap the transport to suppress server-exception re-raise
+    client._transport = ASGITransport(app=_app, raise_app_exceptions=False)
+    yield client
+    # Restore default (client teardown handles engine/session cleanup)
+    client._transport = ASGITransport(app=_app)
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +90,7 @@ async def _create_raster_dataset_5xx(
 
 @pytest.mark.anyio
 async def test_stac_item_5xx_does_not_leak_private_context(
-    client: AsyncClient,
+    client_no_raise: AsyncClient,
     test_db_session: AsyncSession,
     stac_visibility_force_5xx: types.SimpleNamespace,
 ):
@@ -86,7 +112,7 @@ async def test_stac_item_5xx_does_not_leak_private_context(
 
     assert stac_visibility_force_5xx.active, "Fixture should be active"
 
-    resp = await client.get(f"/stac/items/{dataset.id}")
+    resp = await client_no_raise.get(f"/stac/items/{dataset.id}")
 
     # Must be a server-side error (5xx), not success
     assert resp.status_code >= 500, (
@@ -114,7 +140,7 @@ async def test_stac_item_5xx_does_not_leak_private_context(
 
 @pytest.mark.anyio
 async def test_stac_search_5xx_does_not_leak_private_context(
-    client: AsyncClient,
+    client_no_raise: AsyncClient,
     test_db_session: AsyncSession,
     stac_visibility_force_5xx: types.SimpleNamespace,
 ):
@@ -134,7 +160,7 @@ async def test_stac_search_5xx_does_not_leak_private_context(
 
     assert stac_visibility_force_5xx.active, "Fixture should be active"
 
-    resp = await client.get(f"/stac/search?ids={dataset.id}&limit=10")
+    resp = await client_no_raise.get(f"/stac/search?ids={dataset.id}&limit=10")
 
     # Must be a server-side error (5xx)
     assert resp.status_code >= 500, (
