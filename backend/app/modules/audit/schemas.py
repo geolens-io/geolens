@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -29,3 +30,33 @@ class AuditLogResponse(BaseModel):
 class AuditLogListResponse(BaseModel):
     logs: list[AuditLogResponse]
     total: int
+
+
+# ---------------------------------------------------------------------------
+# SEC-FU-08: Column DDL feed response models
+# ---------------------------------------------------------------------------
+
+
+class ColumnDdlEntry(BaseModel):
+    """A single column-DDL audit event for the owner-facing feed endpoint.
+
+    Omits PII beyond the actor's username (no email or sensitive details).
+    Mirrors AuditLogResponse shape, scoped to column-DDL events only.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    action: str
+    created_at: datetime
+    details: dict[str, Any] | None
+    user_id: uuid.UUID | None
+    username: str | None = None
+
+
+class ColumnDdlFeedResponse(BaseModel):
+    """Paginated response for GET /api/audit/datasets/{dataset_id}/column-ddl."""
+
+    items: list[ColumnDdlEntry]
+    total: int
+    limit: int
+    offset: int

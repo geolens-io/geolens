@@ -27,10 +27,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
-from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
-from app.modules.audit.service import query_audit_logs, stream_audit_logs
+from app.modules.audit.schemas import (
+    AuditLogListResponse,
+    AuditLogResponse,
+    ColumnDdlEntry,
+    ColumnDdlFeedResponse,
+)
+from app.modules.audit.service import (
+    query_audit_logs,
+    query_column_ddl_history,
+    stream_audit_logs,
+)
 from app.core.identity import Identity
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import get_current_active_user, require_permission
 from app.core.dependencies import get_db
 from app.platform.extensions import get_audit_extension
 from app.platform.extensions.guards import require_enterprise
@@ -39,6 +48,12 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
 
 # Shares /admin prefix with admin/router.py — kept separate for module organization.
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
+
+# SEC-FU-08: Owner-facing column-DDL feed at /audit/* (separate prefix so it
+# is accessible to non-admin dataset owners, not just superusers).
+audit_datasets_router = APIRouter(
+    prefix="/audit", tags=["Audit"], responses=ERROR_RESPONSES_AUTH
+)
 
 
 # Phase 279 ADMIN-04 (M-04): Unified format dispatch. The set of advertised
@@ -236,4 +251,70 @@ async def export_audit_logs(
         json_generator(),
         media_type="application/json",
         headers={"Content-Disposition": safe_content_disposition(filename)},
+    )
+
+
+# ---------------------------------------------------------------------------
+# SEC-FU-08: Owner-facing column-DDL feed
+# ---------------------------------------------------------------------------
+
+
+@audit_datasets_router.get(
+    "/datasets/{dataset_id}/column-ddl",
+    response_model=ColumnDdlFeedResponse,
+)
+async def get_column_ddl_feed(
+    dataset_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: Identity = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> ColumnDdlFeedResponse:
+    """Return the column-DDL audit history for a dataset.
+
+    SEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)
+    to dataset owners so they can detect editor-initiated schema changes.
+
+    Access control (AGENTS.md Pre-Commit Checklist Rule 1):
+    - Owner + granted roles: 200 with their own dataset's DDL history
+    - Non-owner editor (no grant): 404 (check_dataset_access raises 404 for
+      private datasets)
+    - Admin: 200 (admin access is always allowed)
+    - Anonymous: 401 (get_current_active_user dependency)
+
+    The dataset 404-before-auth-query ordering ensures non-existent datasets
+    return 404 without leaking audit log details.
+    """
+    from app.modules.catalog.authorization import check_dataset_access
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    # Step 1: load dataset (404 if not found)
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
+    # Step 2: enforce visibility / ownership gate
+    # check_dataset_access raises HTTPException(404) for non-owners of private datasets,
+    # consistent with the column-DDL write endpoints from Phase 1061 Plan 02.
+    await check_dataset_access(db, dataset, dataset_id, user)
+
+    # Step 3: fetch DDL history
+    rows, total = await query_column_ddl_history(db, dataset_id, limit=limit, offset=offset)
+
+    return ColumnDdlFeedResponse(
+        items=[
+            ColumnDdlEntry(
+                action=row.action,
+                created_at=row.created_at,
+                details=row.details,
+                user_id=row.user_id,
+                username=row.user.username if row.user else None,
+            )
+            for row in rows
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
     )

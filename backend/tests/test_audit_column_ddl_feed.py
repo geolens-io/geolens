@@ -39,7 +39,12 @@ async def _seed_ddl_event(
     user_id: uuid.UUID | None = None,
     details: dict | None = None,
 ) -> None:
-    """Seed a single column-DDL audit event directly."""
+    """Seed a single column-DDL audit event directly and commit.
+
+    Falls back to the seeded admin user when no user_id is supplied, satisfying
+    the audit_logs.user_id FK constraint.
+    """
+    effective_user_id = user_id or (await get_user_id(session, "admin"))
     await audit_emit(
         session,
         AuditEvent(
@@ -47,9 +52,10 @@ async def _seed_ddl_event(
             resource_type="dataset",
             resource_id=dataset_id,
             details=details or {"column_name": f"col_{uuid.uuid4().hex[:6]}"},
-            user_id=user_id,
+            user_id=effective_user_id,
         ),
     )
+    await session.commit()
 
 
 async def _create_dataset_direct(

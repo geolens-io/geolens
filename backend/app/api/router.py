@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.modules.admin.router import router as admin_router
 from app.processing.ai.router import router as ai_router
-from app.modules.audit.router import router as audit_router
+from app.modules.audit.router import audit_datasets_router, router as audit_router
 from app.modules.auth.oauth.router import router as oauth_router
 from app.modules.auth.router import router as auth_router
 from app.modules.catalog.collections.router import router as collections_crud_router
@@ -47,6 +47,7 @@ api_router.include_router(ogc_router)
 api_router.include_router(auth_router)
 api_router.include_router(admin_router)
 api_router.include_router(audit_router)
+api_router.include_router(audit_datasets_router)
 api_router.include_router(ingest_router)
 api_router.include_router(manifest_router)
 
