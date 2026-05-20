@@ -33,6 +33,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
 )
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.modules.catalog.sources.adapters.wfs import probe_wfs
+from app.modules.catalog.sources.classify import classify_layer_kind
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -98,6 +99,7 @@ def _build_arcgis_response(
             layer_type=layer.get("type", "layer"),
             layer_id=layer.get("id"),
             object_id_field=layer.get("object_id_field"),
+            kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers
     ]
