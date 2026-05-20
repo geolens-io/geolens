@@ -3,127 +3,45 @@ gsd_state_version: 1.0
 milestone: v1014
 milestone_name: Security Audit Remediation
 status: completed
-last_updated: "2026-05-20T23:09:00.000Z"
-last_activity: 2026-05-20 -- Phase 1064 Plan 01 complete (smoke gates PASS, CHANGELOG [1.4.0] promoted)
+last_updated: "2026-05-20T23:50:00.000Z"
+last_activity: 2026-05-20 -- v1014 archived (28/28 reqs, tags v1014 + v1.4.0 at 8c7b20e1)
 progress:
-  total_phases: 9
+  total_phases: 4
   completed_phases: 4
   total_plans: 17
-  completed_plans: 18
-  percent: 44
+  completed_plans: 17
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1064 — IN PROGRESS
-Plan: 01 (complete) — smoke gates + CHANGELOG
-Status: Awaiting orchestrator Playwright MCP smoke (Plan 02) before tag cut
-Last activity: 2026-05-20 -- Phase 1064 Plan 01 complete (smoke gates PASS, CHANGELOG [1.4.0] promoted)
+Phase: (none — milestone archived)
+Plan: (none)
+Status: v1014 milestone archived; next milestone not yet started
+Last activity: 2026-05-20 -- v1014 archived (28/28 reqs, local tag v1014 + public tag v1.4.0 at 8c7b20e1; archive at .planning/milestones/v1014-ROADMAP.md)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1014 Security Audit Remediation — close gate (Phase 1064) in progress. CHANGELOG [1.4.0] promoted. Awaiting Playwright MCP smoke before tag cut.
+**Current focus:** None — v1014 Security Audit Remediation shipped. Use `/gsd-new-milestone` to start the next cycle.
 
 ## Last Shipped Milestone
 
-**Version:** v1013 Ingest Hardening
+**Version:** v1014 Security Audit Remediation
 **Shipped:** 2026-05-20
-**Phases:** 1057-1060 (4 phases, 15 plans, 10/10 reqs)
-**Tag:** `v1013` (local) + `v1.3.0` (public, local-only per A-04 — push with `git push origin v1013 v1.3.0`)
-**Archive:** TBD — run `/gsd:milestone-complete v1013` to create `.planning/milestones/v1013-ROADMAP.md`
-**Inline fixes (close-gate):** 5 fixes from live MCP re-verify — WFS-04 layer 2 (`5b965cfd`), GPKG-03 3-bug close (`831b691f`), BSE-01 load-time apply (`d24371ed`), e2e contract drift + duplicate camelCase (`a400eb89`), close-gate hygiene + CONTEXT amendment (earlier).
+**Phases:** 1061-1064 (4 phases, 17 plans, 28/28 reqs)
+**Tag:** `v1014` (local) + `v1.4.0` (public, local-only per A-04 — push with `git push origin v1014 v1.4.0`)
+**Archive:** `.planning/milestones/v1014-ROADMAP.md`
+**Inline review fixes:** 21 (6 BLOCKER + 13 WARNING + 2 INFO) across Phases 1061-1063; 1 VERIFICATION-found BLOCKER (Phase 1061 layering invariant) closed inline by commit `5f8a6b86`.
 
-**Previous:** v1012 New-User Hardening + Reupload (shipped 2026-05-19, public tag `v1.2.1`, archive `.planning/milestones/v1012-ROADMAP.md`)
-
-## v1013 Phase Map
-
-| Phase | Name | Goal | Requirements | Complexity | Depends on |
-|-------|------|------|--------------|------------|------------|
-| 1057 | Service URL Reliability | Fast probe completion, accurate VEC/RAS classification, automatic URI-form CRS detection, successful commit for abstract OGC geometry-type WFS sources | WFS-04 (P0), PROBE-05 (P1), CRS-06 (P2), CLASS-07 (P2) | Medium-large | Nothing (first phase) |
-| 1058 | Multi-Layer GPKG Handling | Reupload File path layer-select step + preview schema diff (P0 silent-data-swap fix); Bulk Review multi-commit / ingest-all-layers path | GPKG-01 (P0), GPKG-02 (P1), GPKG-03 (P2) | Medium | Nothing (parallel with 1057) |
-| 1059 | Basemap Sublayer Editor (Path B FIX) | Restore per-sublayer styling surface (stroke / casing / zoom / opacity) with real persistence path through `MapBasemapConfig.sublayer_overrides` jsonb-additive; round-trip parity across builder/viewer/shared/embed | BSE-01 (Feature) | Large (3-5 day phase) | Nothing (independent surface) |
-| 1060 | Close Gate | Delete 3 smoke repro datasets; all smoke gates green; live MCP re-verify of WFS-04/PROBE-05/GPKG-01/GPKG-02/BSE-01; CHANGELOG `[1.4.0]`; tag v1013 + v1.4.0 | CLEAN-01, CTRL-01 | Small-medium (1-2 inline-fix plan slots reserved) | Phases 1057 + 1058 + 1059 |
-
-**Coverage:** 10 v1013 requirements mapped to 4 phases, 0 unmapped, 0 duplicates.
-
-## Accumulated Context
-
-### Active Milestone Notes
-
-- **Source of truth for all findings:** `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`. Each REQ-ID maps to a Finding (1-7) in that report. Executor agents should reference it during plan-phase.
-- **Lead item (P0):** Finding 4 — WFS abstract-geometry-type commit failure (`MultiSurface vs MultiPolygon`). 100% reproducible against `ahocevar.com/geoserver/wfs`; likely affects most GeoServer polygon-heavy users.
-- **Basemap Sublayer Path B FIX (BSE-01):** 3-5 day feature phase (Phase 1059). Restores the styling surface left as REMOVE in v1011.1 EMRG-FN-01 with a real persistence path. Likely the largest single phase in this milestone.
-- **Multi-Layer GPKG:** Finding 1 (File path silent layer-pickup) is P0 silent-data-swap risk. Service URL preview (Finding 2 sibling) is the design reference — column-level schema diff + schema-change warning + chosen-layer-name surfaced.
-- **Service URL probe latency (Finding 5):** Easy win — short-circuit `try_all_probes()` on first success. Current 63s probe completes in ~1.5s after the fix.
-- **v1.4.0 public tag** created at CTRL-01 close. Minor bump justified by Findings 1 + 3 multi-layer GPKG affordances + BSE-01 styling persistence.
-
-### Repro Fixtures (kept in catalog for v1013 work, cleaned up at CLEAN-01)
-
-- `ec18b546-d86d-4375-8e1f-8564b6a75687` — file→file→Service-URL reupload sandbox (now v3, 49 wildfire points)
-- `54763119-0cf4-448e-a950-81551d090267` — fresh AGO import (49 features, MultiPoint, EPSG:4326)
-- `667a6c65-cdbc-4158-87f2-21a7e791ba7c` — fresh OGC API import (25 features, Polygon, CRS override 4326 applied)
-
-### Pending Todos
-
-- **Recreate public repo before launch** (2026-05-05) — `.planning/todos/pending/2026-05-05-recreate-public-repo-before-launch.md`. Outside v1013 scope.
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Status | Directory |
-|---|-------------|------|--------|--------|-----------|
-| 260518-qz1 | Tile cols= opt-in follow-ups (F1 heatmap live, F2 backend integration tests, F3 viewer end-to-end) | 2026-05-18 | 414c7ff7 | Verified | [260518-qz1-tile-cols-opt-in-followups-f1-f2-f3](./quick/260518-qz1-tile-cols-opt-in-followups-f1-f2-f3/) |
-
-## Deferred Items
-
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-
-(No deferred items at milestone start. v1011.1's deferred BasemapSublayerEditorScene Path B FIX is now in scope as BSE-01 in Phase 1059.)
-
-## v1013 Source: Post-v1012 Live Smoke (2026-05-19)
-
-Orchestrator-driven Playwright MCP sweep against live `localhost:8080` after v1012 archive. **23/23 v1012 reqs verified PASS** + Service URL addendum covering AGO / GeoServer WFS / OGC API / Reupload-via-URL paths. The 7 findings below are the v1013 requirements seed.
-
-**Report:** `.planning/quick/260519-smoke-v1012/SMOKE-v1012-REPORT.md`
-
-| # | Surface | Sev | Summary | v1013 REQ-ID | Phase |
-|---|---|---|---|---|---|
-| 1 | Reupload (File path) | P0 | Multi-layer GPKG silently picks `layers[0]`; `dataset.source_layer` not consulted. Silent-data-swap risk. | GPKG-01 | 1058 |
-| 2 | Reupload (File path) preview | P1 | No layer-name surfaced when source file has >1 layer (Service URL preview does this correctly). | GPKG-02 | 1058 |
-| 3 | Import Bulk Review (GPKG) | P2 | Only one layer per multi-layer GPKG commits; no "ingest all layers" batch path. | GPKG-03 | 1058 |
-| 4 | WFS commit | **P0** | `MultiSurface vs MultiPolygon` PostGIS type mismatch fails UPDATE during bounds-clip. 100% reproducible against GeoServer polygon layers. | WFS-04 | 1057 |
-| 5 | Service URL probe orchestrator | P1 | No short-circuit on first success — pygeoapi probe took 63s total (adapter succeeded in 1.5s). | PROBE-05 | 1057 |
-| 6 | OGC API CRS detection | P2 | URI-form CRS (`http://www.opengis.net/def/crs/OGC/1.3/CRS84`) not parsed to EPSG; user sees "CRS: Unknown" + must enter override. | CRS-06 | 1057 |
-| 7 | Service URL layer-select classification | P2 | Layers without `geometry_type` in probe response default to RAS; should fall back to VEC. | CLASS-07 | 1057 |
-
-## Decisions
-
-- **Phase 1059 Plan 02:** Exported StyleLayer, isRoadLayer, isBoundaryLayer, isBuildingLayer, isTextLabelLayer, SUBLAYER_CLASSIFIERS from basemap-utils.ts. applySublayerOverrides uses idle-retry recovery (map.once('idle', retry)). casing_color applied via line-color on layers with 'casing' in id (openfreemap-positron heuristic). ViewerMap.tsx serves viewer/shared/embed — 2 wire-up sites covers all 4 render contexts.
-- **Phase 1059 Plan 03:** BasemapSublayerEditorScene restored with 5 sections (STROKE/CASING/ZOOM/OPACITY/RESET). Test 14 inverted from REMOVE-pin to PRESENT-assert. updateSublayerOverride helper in MapBuilderPage uses setBasemapConfig functional updater for atomic sublayer_overrides patch. 9 English i18n keys added. MapSublayerOverride imported directly from api.ts (Plan 02 already landed it).
-- **Phase 1059 Plan 04:** 12 new vitest tests (5 ViewerMap.basemap-config + 7 sublayer-overrides.round-trip). All 4 ROADMAP ACs evidenced. de/es/fr i18n parity — 9 new basemapSublayer.* keys in each locale. i18n gate 2/2. No production code changes. Phase 1059 COMPLETE — ready for Phase 1060 close gate.
-- **Phase 1061 Plan 03:** SEC-S05 fix applied at API router boundary — check_dataset_access_or_anonymous return value reused as user_roles (no redundant get_user_roles call). Defense-in-depth caller contract documented at _load_self_record_and_embedding. SEC-FU: narrow embedding read to visibility-filtered query (Phase 1063 candidate).
-- **Phase 1061 Plan 04:** SEC-S04 _revalidate_redirect httpx event hook + make_safe_client factory; 4 raw AsyncClient(follow_redirects=True) sites refactored (3 planned + manifest_service.py Rule 2); GDAL_HTTP_FOLLOWLOCATION=NO on ogr2ogr service-ingest; 7 pytest regression tests pass. manifest_sources.py confirmed non-spawning consumer. Pre-resolve final URL before ogr2ogr deferred to SEC-FU Phase 1063.
-- [Phase ?]: Phase 1061 Plan 05: SEC-S06 validate_demo_credentials_guard early-return removed — DEMO_POSTGRES_PASSWORD added as third literal
-- [Phase ?]: Phase 1061 Plan 05: SEC-S07 MinIO :?required fail-closed expansion; minio-setup sources creds via $$VAR double-dollar not hardcoded literals
-- **Phase 1062 Plan 01:** SEC-S15 JWT revocation — create_access_token made async to embed token_version+jti; revoke_all_tokens atomically bumps token_version; get_current_user/get_optional_user reject stale JWTs; logout+change-password call revoke_all_tokens. SEC-S16 password complexity — password_policy.py with configurable 12-char + 3-of-4 class diversity wired to all 4 entry points; PASSWORD_MIN_LENGTH/PASSWORD_REQUIRE_CLASSES env-configurable; Field(min_length=8) fast-fail floor kept per plan note.
-- **Phase 1062 Plan 02:** SEC-S11 per-route rate limits applied per-IP — 30/min for semantic search (/search/datasets/, /search/facets/, /datasets/{id}/related/), 120/min for basemap proxy (/settings/basemaps/). _sync_rate_limit_cache accessor pattern reused from existing login/global infrastructure. Per-token caps deferred to SEC-FU Phase 1063. SEC-S10 docstring added to get_basemaps documenting public api_key resolution model.
-- **Phase 1062 Plan 03:** SEC-S12 GIN index ix_records_simple_search_vector on simple-regconfig tsvector (migration 0020); catalog.immutable_text_array_join IMMUTABLE wrapper for array_to_string (concat_ws is STABLE, cannot appear in functional index); service_filters.py runtime expression updated from concat_ws to || operator to match index expression tree. SEC-S13 max_length=1000 on /search/facets/?q= matching peer /search/datasets/.
-- **Phase 1062 Plan 04:** SEC-S09 sqlglot AST allowlist for WHERE-clause fragment validation — wraps fragment as SELECT 1 FROM _t WHERE <input>, deny-by-default allowlist (Column/Literal/comparison/logical/In/Is/Like/Between/Paren/Neg), catches TokenError alongside ParseError; validate_where_ast() called BEFORE identifier check in validate_where_clause() (defense-in-depth); 41 pytest tests pass.
-- **Phase 1062 Plan 05:** SEC-S08 Path A + nginx tweak — get_shared_map() returns 3-tuple (map_data, layers, allowed_origins); router emits frame-ancestors CSP from EmbedToken.allowed_origins with CRLF-injection defense; SecurityHeadersMiddleware uses route_set_csp gate to skip XFO=DENY when route owns CSP; nginx /m/* location re-declares nosniff+Referrer-Policy while omitting XFO (server-scope inheritance disabled by inner add_header); 6 pytest tests pass; SEC-FU full per-token HTML CSP deferred to Phase 1063.
-- **Phase 1062 Plan 06:** SEC-S14 ESLint `no-restricted-syntax` rule banning `localStorage.setItem('<token|jwt|auth>', ...)` in frontend TS/TSX; per-file exemption for auth-store.test.ts; regression file (4 violations + --no-inline-config check); safe-pattern file (9 patterns proving no over-fire); httpOnly-cookie + CSRF migration plan documented in security-lessons.md with trigger conditions, effort estimate, and tradeoffs.
-- **Phase 1063 Plan 01:** SEC-FU-01 stac_visibility_force_5xx patches both authorization module AND stac.router namespace bindings; client_no_raise uses raise_app_exceptions=False. SEC-FU-08 audit_datasets_router uses /audit prefix (not /admin) so non-admin owners can reach the DDL feed; check_dataset_access raises 404 not 403 — tests accept both.
-- **Phase 1063 Plan 02:** SEC-FU-02 config.py already had DEMO_JWT_SECRET guard (Phase 1061 Plan 05); named test test_sec_fu_02_jwt_demo_literal_refused provides explicit audit-traceable regression pin. SEC-FU-09 server_tokens off placed in nginx server {} block per audit wording; suppresses version in Server: header and error pages. SEC-FU-10 documentation-only; alembic migration trade-off documented in .env.example alongside least-privilege SQL recipe for geolens_app role.
-- **Phase 1063 Plan 03:** SEC-FU-03 eslint-plugin-react@7.37.5 installed; react/no-danger:error wired in eslint.config.js with plugins/settings(react.version:detect)/inline comment; regression fixture uses inline eslint-disable + --no-inline-config pattern (plan's .skip.tsx glob exclusion claim incorrect — glob matches .skip.tsx). SEC-FU-04 _BASE64URL_CHARSET frozenset + _sanitize_authorization_token helper added to ogr.py; called before GDAL_HTTP_HEADERS env composition; CRLF/unicode/whitespace raise ValueError with SEC-FU-04 prefix; 6 pytest tests pass (86/86 total).
-- **Phase 1063 Plan 04:** SEC-FU-05 max_length=10000 on STAC GET /search intersects Query param only; POST body bounded by uvicorn 1MB. SEC-FU-06 math.isfinite() loop after float() conversion in parse_bbox, before 6-to-4 envelope reduction; catches Z-axis NaN. SEC-FU-07 escape '%' and '_' in service_crud.py list_maps() via str.replace before ILIKE pattern composition — matches service_public.py:407-409; service_collections.py confirmed absent. 15 new pytest tests across 3 files (4+6+5); 36/36 regression tests pass.
-- **Phase 1064 Plan 01:** 3 test mismatches found and auto-fixed (Rule 1): test_search_facets_rate_limit renamed to test_search_facets_not_rate_limited (WR-02 removed the decorator); CR-04 embed token helper fixed (NOT NULL constraint); service_public.py line-count cap 575→600 (Phase 1062 CR-04 +13 lines). Backend 288/288 PASS. Vitest 2092/2092 PASS. i18n 2/2 PASS. TS/ESLint pre-existing errors in test files (out of scope). CHANGELOG [1.4.0] promoted.
+**Previous:** v1013 Ingest Hardening (shipped 2026-05-20, public tag `v1.3.0`, archive `.planning/milestones/v1013-ROADMAP.md`)
 
 ## Operator Next Steps
 
-- Run Playwright MCP smoke (orchestrator-driven) on localhost:8080 targeting v1014 surfaces (STAC visibility, SSRF, embed CSP, rate limits) — Phase 1064 Plan 02.
-- After MCP smoke PASS: cut local tags `v1014` + `v1.4.0` and push with `git push origin v1014 v1.4.0`.
-- Run `/gsd:milestone-complete v1014` to archive milestone.
+- Push tags: `git push origin v1014 v1.4.0`
+- Run `/gsd-new-milestone` to start the next cycle (or `/gsd-review-backlog` to promote backlog items).
+- 5 INFO findings + 6 REQUIREMENTS.md doc-gaps + router_reupload.py IDOR remediation flagged in `.planning/milestones/v1014-MILESTONE-AUDIT.md` for next housekeeping pass.

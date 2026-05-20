@@ -72,144 +72,20 @@
 - ✅ **v1011 Map Builder Polish & Bug Sweep** — Phase 1051 (shipped 2026-05-18) — see [archive](milestones/v1011-ROADMAP.md)
 - ✅ **v1011.1 Builder Hygiene Carryover** — Phase 1052 (shipped 2026-05-18) — see [archive](milestones/v1011.1-ROADMAP.md)
 - ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, public tag `v1.2.1`) <!-- 1060/A-01: prior ROADMAP entry claimed v1.3.0 but actual CHANGELOG + git tag is v1.2.1 -->
-- ✅ **v1013 Ingest Hardening** — Phases 1057-1060 (shipped 2026-05-20, local tag `v1013`, public tag `v1.3.0`) <!-- 1060/A-01: v1.4.0→v1.3.0 because v1012 shipped as v1.2.1, not v1.3.0 -->
-- 🚧 **v1014 Security Audit Remediation** — Phases 1061-1064 (in progress, started 2026-05-20, target local tag `v1014` + public tag `v1.4.0`)
+- ✅ **v1013 Ingest Hardening** — Phases 1057-1060 (shipped 2026-05-20, local tag `v1013`, public tag `v1.3.0`) — see [archive](milestones/v1013-ROADMAP.md)
+- ✅ **v1014 Security Audit Remediation** — Phases 1061-1064 (shipped 2026-05-20, local tag `v1014`, public tag `v1.4.0`) — see [archive](milestones/v1014-ROADMAP.md)
 
 ## Phases
+
+### v1014 Security Audit Remediation (Shipped 2026-05-20)
+
+✅ Complete — see [archive](milestones/v1014-ROADMAP.md). All 4 phases (1061-1064) and 28 requirements satisfied. Local tag `v1014` + public tag `v1.4.0`. Merge gate flipped from BLOCK → PASS; all 7 HIGH + 9 MEDIUM + 10 LOW findings from `/sec-audit` 2026-05-19 closed.
 
 ### v1013 Ingest Hardening (Shipped 2026-05-20)
 
 ✅ Complete — see [archive](milestones/v1013-ROADMAP.md). All 4 phases (1057-1060) and 10 requirements satisfied. Local tag `v1013` + public tag `v1.3.0`.
 
-### v1014 Security Audit Remediation (In Progress — Started 2026-05-20)
-
-**Goal:** Close all findings from `/sec-audit` 2026-05-19 — 7 HIGH (currently merge gate **BLOCK**), 9 MEDIUM, 10 LOW follow-ups. Restore green merge gate, lock the visibility-filter coverage pattern into AGENTS.md, and pin regressions via the already-drafted `e2e/sec-audit.spec.ts` (18 tests).
-
-**Source of truth:** `docs-internal/audits/sec-audit-20260519.md` (561 lines, 41KB). Each REQ-ID maps to a Finding ID (S01–S16) or follow-up (SEC-FOLLOWUP-01..10) in that report.
-
-**Public tag:** v1.4.0 (minor bump — substantial security hardening + new SSRF safeguards + AGENTS.md/SECURITY.md guardrails).
-
-**Phases overview:**
-
-| # | Phase | Reqs | Severity | Estimate |
-|---|-------|------|----------|----------|
-| 1061 | HIGH severity findings + AGENTS.md guardrail | 6/6 | Complete   | 2026-05-20 |
-| 1062 | MEDIUM severity findings | 6/6 | Complete   | 2026-05-20 |
-| 1063 | LOW follow-up tickets | 3/4 | In Progress|  |
-| 1064 | Close gate (regression suite + CHANGELOG + tag) | SEC-CTRL-01 (1) | Gate | ~0.5 day |
-
-**Coverage:** 28 v1014 requirements mapped across 4 phases, 0 unmapped, 0 duplicates.
-
-**Headline architectural pattern (worth pinning in AGENTS.md):** Visibility-filter coverage is the #1 regression surface. Any new handler that fetches a `Record`/`Dataset`/`Map`/`RecordEmbedding` by ID must either call `check_dataset_access_or_anonymous` (read) or `check_dataset_access` + ownership check (write/destructive), OR apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying query. Pre-commit grep guardrail proposed in `docs-internal/audits/security-lessons.md`.
-
-**Clean baseline preserved (do not regress):** 0 dependency CVEs across 148 Python + npm 0/0; all ~40 raw-SQL sites bound-parameter clean; all 11 subprocess sites argv-form (no `shell=True`); OAuth/PKCE, share/embed/HMAC tile auth all clean; pgvector embedding never on any response schema; dynamic CORS rejects wildcard; container hardening best-in-class (`cap_drop: ALL`, `no-new-privileges`, `read_only`, root-then-drop entrypoints). See audit §"Clean — checked and passed" for the full inventory.
-
-### Phase 1061: HIGH severity remediation + AGENTS.md guardrail
-
-**Goal:** Close 7 HIGH findings from `/sec-audit` 2026-05-19 (merge gate currently **BLOCK**) and pin the visibility-filter coverage pattern in AGENTS.md to prevent regression. Five of the seven HIGHs cluster on the same architectural pattern — new Record-derived endpoints reaching for `require_permission()` (role-level) and skipping `check_dataset_access()` / `apply_visibility_filter()` (resource-level). One SSRF redirect-bypass widens the blast radius beyond authenticated editors. Two configuration HIGHs around demo/MinIO credentials.
-
-**Requirements:** SEC-S01, SEC-S02, SEC-S03, SEC-S04, SEC-S05, SEC-S06, SEC-S07, SEC-GUARD-01
-**Estimated effort:** ~1 week (most fixes <50 LOC each; regression tests already drafted)
-**Depends on:** Nothing (first phase)
-
-**Success criteria:**
-1. STAC router (`backend/app/standards/stac/router.py:54-822`) applies the same visibility filter as the OGC API peer router.
-2. Dataset metadata mutation handlers (`router.py:263-426`) and column DDL handlers (`layers/router.py:94-301`) call `check_dataset_access` after `get_dataset`.
-3. SSRF redirect-bypass closed via `make_safe_client()` factory + `GDAL_HTTP_FOLLOWLOCATION=NO`.
-4. Demo / MinIO credentials cannot start the stack with committed defaults.
-5. AGENTS.md updated with visibility-filter coverage rule; optional pre-commit grep guardrail evaluated.
-
-**HIGH findings to close:**
-
-| ID  | Label                | Location                                                                       | CVSS | Fix shape |
-|-----|----------------------|--------------------------------------------------------------------------------|------|-----------|
-| S01 | [AUTH-MISSING-STAC]  | `backend/app/standards/stac/router.py:54-822`                                  | 7.5  | Thread `user`/`user_roles` + `apply_visibility_filter` like OGC peer |
-| S02 | [IDOR-DATASET-META]  | `backend/app/modules/catalog/datasets/api/router.py:263-426`                   | 8.1  | Add `check_dataset_access` after `get_dataset` in 3 handlers |
-| S03 | [IDOR-COLUMN-DDL]    | `backend/app/modules/catalog/layers/router.py:94-301`                          | 8.1  | Same as S02 across 4 column-DDL handlers |
-| S04 | [SSRF-REDIRECT]      | `backend/app/modules/catalog/sources/router.py:120-124` + adapters             | 8.5  | `make_safe_client()` factory with per-hop `_revalidate_redirect` hook; `GDAL_HTTP_FOLLOWLOCATION=NO` for ogr2ogr |
-| S05 | [VEC-IDOR-RELATED]   | `backend/app/modules/catalog/datasets/api/router_data.py:56-65`                | 7.5  | Add `check_dataset_access_or_anonymous` before `get_related_datasets` |
-| S06 | [DEMO-CREDS-COMMIT]  | `.env.demo:21-27`                                                              | 7.5  | Convert to `.env.demo.example` + `scripts/init-demo-env.sh` per-deploy generator; extend `validate_demo_credentials_guard` to refuse literal committed values |
-| S07 | [MINIO-DEFAULT-CRED] | `docker-compose.yml:507-508,536`                                               | 7.0  | Drop `:-minioadmin` defaults; `${MINIO_ROOT_USER:?required}` fail-closed |
-
-**Regression tests:** `e2e/sec-audit.spec.ts` already drafted with 18 tests pinning S01–S13, env-var-gated where they need fixtures (`SEC_AUDIT_PRIVATE_RECORD_ID`, `SEC_AUDIT_PRIVATE_DATASET_ID`, `SEC_AUDIT_EDITOR_B_TOKEN`, `SEC_AUDIT_SSRF_TEST_REDIRECTOR`).
-
-Plans: 6 plans
-
-- [x] 1061-01-PLAN.md — SEC-S01: STAC router visibility filter (wave 1, 4 tasks)
-- [x] 1061-02-PLAN.md — SEC-S02 + SEC-S03: dataset metadata + column DDL IDOR (wave 1, 3 tasks)
-- [x] 1061-03-PLAN.md — SEC-S05: related-datasets visibility gate on seed (wave 1, 3 tasks)
-- [x] 1061-04-PLAN.md — SEC-S04: SSRF redirect-revalidation + GDAL_HTTP_FOLLOWLOCATION=NO (wave 1, 4 tasks)
-- [x] 1061-05-PLAN.md — SEC-S06 + SEC-S07: demo creds + MinIO fail-closed defaults (wave 1, 4 tasks)
-- [x] 1061-06-PLAN.md — SEC-GUARD-01: AGENTS.md visibility-filter + SSRF guardrails + pre-commit grep (wave 2, 4 tasks)
-
-### Phase 1062: MEDIUM severity remediation
-
-**Goal:** Close 9 MEDIUM findings from `/sec-audit` 2026-05-19 — embed-token framing CSP gap, ogr2ogr `-where` sqlglot validator, basemap api_key public-exposure documentation + rate limit, per-route rate limits to cap OpenAI embed cost, non-English FTS regconfig, input-length caps on search facets, JWT-in-localStorage ESLint guard + httpOnly migration plan, JWT revocation primitives (jti / token_version), password complexity validator.
-
-**Requirements:** SEC-S08, SEC-S09, SEC-S10, SEC-S11, SEC-S12, SEC-S13, SEC-S14, SEC-S15, SEC-S16
-**Estimated effort:** ~3-5 days (most fixes are framework wiring or config; SEC-S15 JWT revocation primitives touch the auth model)
-**Depends on:** Nothing (parallel with 1061 — but typically run after 1061 since SEC-CTRL-01 close gate depends on both)
-
-**Success criteria:**
-1. Embed iframe enforces `frame-ancestors` directive matching configured allowlist.
-2. ogr2ogr `-where` clauses validated by sqlglot whitelist before subprocess dispatch.
-3. Per-route rate limit applied to `/search/datasets/` + `/datasets/{id}/related/` + basemap proxy.
-4. JWT model supports revocation via `jti` + `token_version` claims.
-5. Password complexity validator enforced at registration + change-password.
-
-Plans: 6 plans
-
-- [x] 1062-01-PLAN.md — SEC-S15 + SEC-S16: JWT revocation (jti + token_version) + password complexity (wave 1, 5 tasks)
-- [x] 1062-02-PLAN.md — SEC-S10 + SEC-S11: per-route rate limits on /search/datasets/, /datasets/{id}/related/, /settings/basemaps/ + SEC-S10 docstring (wave 1, 4 tasks)
-- [x] 1062-03-PLAN.md — SEC-S12 + SEC-S13: simple-regconfig GIN index + /search/facets/?q max_length=1000 (wave 1, 3 tasks)
-- [x] 1062-04-PLAN.md — SEC-S09: ogr2ogr -where sqlglot AST validator (wave 1, 3 tasks)
-- [x] 1062-05-PLAN.md — SEC-S08: per-token frame-ancestors CSP on /api/maps/shared/{token} + nginx /m/ XFO removal (wave 1, 3 tasks)
-- [x] 1062-06-PLAN.md — SEC-S14: ESLint no-restricted-syntax guard + httpOnly migration plan documented (wave 1, 4 tasks)
-
-### Phase 1063: LOW follow-up tickets
-
-**Goal:** Close the 10 follow-up tickets surfaced as non-blocking in the audit's §"Not blocking — follow-up tickets" — defense-in-depth additions, ESLint rules, validation hardening, observability primitives, nginx config hygiene, and operator-facing role-scoping documentation.
-
-**Requirements:** SEC-FU-01, SEC-FU-02, SEC-FU-03, SEC-FU-04, SEC-FU-05, SEC-FU-06, SEC-FU-07, SEC-FU-08, SEC-FU-09, SEC-FU-10
-**Estimated effort:** ~2-3 days
-**Depends on:** Nothing (parallel with 1061 / 1062 in principle; sequenced after for simplicity)
-
-**Success criteria:**
-1. STAC visibility regression test fixtures support 5xx-mutation paths.
-2. ESLint `react/no-danger` rule locks the popup-template ban.
-3. PostGIS / pg_trgm / FTS input validation hardened (bbox NaN/Inf, ILIKE escaping, intersects max_length).
-4. Column DDL change observability added (pg_audit or per-table change log).
-5. nginx + `.env.example` operator-facing hardening documented.
-
-**Plans:** 3/4 plans executed
-
-Plans:
-
-- [x] 1063-01-PLAN.md — SEC-FU-01 + SEC-FU-08: STAC 5xx-mutation pytest fixture + audit_logs column-DDL feed endpoint (wave 1, 3 tasks)
-- [x] 1063-02-PLAN.md — SEC-FU-02 + SEC-FU-09 + SEC-FU-10: DEMO_JWT_SECRET literal pin + nginx server_tokens off + .env.example Postgres least-privilege docs (wave 1, 3 tasks)
-- [x] 1063-03-PLAN.md — SEC-FU-03 + SEC-FU-04: eslint-plugin-react react/no-danger + GDAL Authorization base64url charset sanitizer (wave 1, 2 tasks)
-- [ ] 1063-04-PLAN.md — SEC-FU-05 + SEC-FU-06 + SEC-FU-07: STAC intersects max_length=10000 + parse_bbox isfinite + service_crud.py ILIKE %/_ escape (wave 1, 3 tasks)
-
-### Phase 1064: Close gate
-
-**Goal:** Verify all 27 v1014 remediation requirements are satisfied through `e2e/sec-audit.spec.ts` + smoke gates + re-running `/sec-audit` to confirm merge gate flips from BLOCK → PASS. Populate CHANGELOG `[1.4.0]` block. Cut local tag `v1014` + public tag `v1.4.0`.
-
-**Requirements:** SEC-CTRL-01
-**Estimated effort:** ~0.5 day (sequential close work — no implementation, only verification)
-**Depends on:** Phases 1061 + 1062 + 1063
-
-**Success criteria:**
-1. `e2e/sec-audit.spec.ts` full suite passes (18 tests) with all env-var fixtures provisioned.
-2. Standard smoke gates green: backend pytest, frontend typecheck + vitest, e2e:smoke, i18n parity.
-3. `/sec-audit` re-run against `localhost:8080` returns merge gate **PASS**.
-4. CHANGELOG `[Unreleased]` → `[1.4.0]` block populated with security-headline framing.
-5. Local tag `v1014` + public tag `v1.4.0` cut (push deferred per A-04 convention).
-
-Plans:
-
-- [ ] TBD (run `/gsd:plan-phase 1064` once 1061-1063 are verified)
-
-## Phase Details (Archived — see milestones/v1013-ROADMAP.md)
+## Phase Details (Archived — see milestones/v1014-ROADMAP.md)
 
 ## Backlog
 

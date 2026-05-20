@@ -12,33 +12,33 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1014 Security Audit Remediation
+## Recent Shipped Milestone: v1014 Security Audit Remediation
 
-**Goal:** Close all findings from `/sec-audit` 2026-05-19 — 7 HIGH (currently merge gate **BLOCK**), 9 MEDIUM, 10 LOW follow-ups. Restore green merge gate, lock the visibility-filter coverage pattern into AGENTS.md, and pin regressions via the already-drafted `e2e/sec-audit.spec.ts` (18 tests).
+**Shipped:** 2026-05-20
 
-**Public tag:** v1.4.0 (minor bump — substantial security hardening, new SSRF safeguards, AGENTS.md/SECURITY.md guardrails).
+**Goal delivered:** Closed all 27 findings from `/sec-audit` 2026-05-19 (7 HIGH + 9 MEDIUM + 10 LOW + 1 architectural guardrail), restoring the merge gate from BLOCK → PASS and pinning the visibility-filter coverage pattern into AGENTS.md + pre-commit hooks. Public tag `v1.4.0`.
 
-**Target features (4 buckets):**
+**Delivered (28/28 reqs, 4 phases 1061-1064, 17 plans, live MCP re-verify):**
 
-- **HIGH severity remediation** — SEC-S01..S07 + SEC-GUARD-01. Visibility-filter coverage on Record-derived endpoints (STAC router, dataset metadata mutation, column DDL, related datasets); SSRF redirect-bypass with per-hop revalidation + `GDAL_HTTP_FOLLOWLOCATION=NO`; demo credentials → `.env.demo.example` + per-deploy generator; MinIO defaults → fail-closed compose; AGENTS.md headline-pattern rule for visibility-filter coverage.
-- **MEDIUM severity remediation** — SEC-S08..S16. Embed-token framing CSP gap; ogr2ogr `-where` sqlglot validator; basemap api_key public-exposure docstring + rate limit; per-route rate limits on `/search/datasets/` + `/datasets/{id}/related/` to cap OpenAI embed cost; `simple`-regconfig GIN index for non-English text search; `max_length=1000` on `/search/facets/?q=`; JWT-in-localStorage ESLint guard + httpOnly migration plan; JWT `jti`/`token_version` for revocation; password complexity validator.
-- **LOW follow-up tickets** — SEC-FU-01..FU-10. STAC visibility regression test fixtures; `validate_demo_credentials_guard` literal-default refusal; `react/no-danger` ESLint rule; GDAL Authorization base64url charset pin; STAC `intersects` `max_length`; `parse_bbox` NaN/Inf `math.isfinite()` guard; ILIKE escape in maps service modules; pg_audit / per-table change log for column DDL; nginx `server_tokens off` in prod block; role-scoping recommendations in `.env.example`.
-- **Close gate** — SEC-CTRL-01. Run `e2e/sec-audit.spec.ts` full suite (18 tests pinning S01–S13); CHANGELOG `[1.4.0]` entry; tag `v1014` + `v1.4.0`.
+- **HIGH severity remediation (Phase 1061)** — STAC catalog visibility filter (SEC-S01); dataset metadata mutation IDOR closed across 3 + 2 CR-01 handlers (SEC-S02); column DDL IDOR closed across 4 handlers (SEC-S03); SSRF redirect-bypass closed via `make_safe_client()` factory with per-hop `_revalidate_redirect` hook + `GDAL_HTTP_FOLLOWLOCATION=NO` (SEC-S04); pgvector related-datasets IDOR closed (SEC-S05); `.env.demo` → `.env.demo.example` + `scripts/init-demo-env.sh` per-deploy generator + 3-literal unconditional `validate_demo_credentials_guard` (SEC-S06); MinIO `:?required` fail-closed defaults (SEC-S07); AGENTS.md 3-rule Security checklist + 2 pre-commit hooks (SEC-GUARD-01).
+- **MEDIUM severity remediation (Phase 1062)** — Dynamic `frame-ancestors` CSP on embed iframes from `EmbedToken.allowed_origins` (SEC-S08); sqlglot AST allowlist for ogr2ogr `-where` (SEC-S09); basemap api_key public-key docstring + rate limit (SEC-S10); per-route rate limits on `/search/datasets/` + `/datasets/{id}/related/` (SEC-S11); `simple`-regconfig GIN index for non-English FTS (SEC-S12); `max_length=1000` on `/search/facets/?q=` (SEC-S13); ESLint `no-restricted-syntax` ban on `localStorage.setItem('*token*', ...)` + httpOnly migration ADR (SEC-S14); JWT `jti` + `token_version` revocation primitives (SEC-S15); password complexity validator (12-char + 3-of-4 class diversity, configurable via `PASSWORD_MIN_LENGTH`/`PASSWORD_REQUIRE_CLASSES`) (SEC-S16).
+- **LOW follow-up tickets (Phase 1063)** — STAC 5xx fixture (SEC-FU-01); DEMO_JWT_SECRET literal regression pin (SEC-FU-02); `react/no-danger` ESLint rule (SEC-FU-03); GDAL Authorization base64url charset sanitizer (SEC-FU-04); STAC `intersects` `max_length=10000` (SEC-FU-05); `math.isfinite()` guard in `parse_bbox` (SEC-FU-06); ILIKE escape via shared `escape_ilike` helper across 4 sites (SEC-FU-07); column-DDL audit feed endpoint gated by `check_dataset_access` (SEC-FU-08); nginx `server_tokens off` (SEC-FU-09); `.env.example` `DATABASE_URL_OVERRIDE` least-privilege role guidance + GRANT SQL recipe (SEC-FU-10).
+- **Close Gate (Phase 1064)** — Backend pytest 288/0; vitest 2092/2092; i18n 2/2; CHANGELOG `[1.4.0]`; live MCP smoke 6/6 surfaces PASS; tags `v1014` + `v1.4.0` cut at `8c7b20e1`.
 
-**Source of truth for findings:** `docs-internal/audits/sec-audit-20260519.md` (561 lines, 41KB). Each REQ-ID maps to a Finding in §"Finding details" / §"Medium severity" / §"Not blocking — follow-up tickets".
+**Merge-gate transition:** Audit 2026-05-19 → **BLOCK** (7 HIGH); after v1014 → **PASS**. 21 inline review fixes applied across the milestone (6 BLOCKER + 13 WARNING + 2 INFO). 1 VERIFICATION-found BLOCKER (layering invariant on `manifest_service.py` module-level import) closed inline by commit `5f8a6b86` via function-scope lazy import. Zero v1014.1 deferrals.
 
-**Regression tests (already drafted):** `e2e/sec-audit.spec.ts` (18 tests, env-var-gated where they need fixtures: `SEC_AUDIT_PRIVATE_RECORD_ID`, `SEC_AUDIT_PRIVATE_DATASET_ID`, `SEC_AUDIT_EDITOR_B_TOKEN`, `SEC_AUDIT_SSRF_TEST_REDIRECTOR`).
+**Headline architectural pattern pinned (SEC-GUARD-01):** Visibility-filter coverage is the #1 regression surface. Any new handler that fetches a `Record`/`Dataset`/`Map`/`RecordEmbedding` by ID must either call `check_dataset_access_or_anonymous` (read) or `check_dataset_access` + ownership check (write/destructive), OR apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying query. Pre-commit `visibility-filter-coverage` + `ssrf-safe-client` hooks scan route decorators on commit.
 
-**Headline pattern (worth surfacing in AGENTS.md):** visibility filter coverage is the #1 regression surface. Any new handler that fetches a `Record`/`Dataset`/`Map`/`RecordEmbedding` by ID must either call `check_dataset_access_or_anonymous` (read) or `check_dataset_access` + ownership check (write/destructive), OR apply `apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)` to the underlying query.
+**Tech-debt followups (5 INFO deferred without pending todo files):**
 
-**Clean baseline preserved (do not regress):** 0 dependency CVEs across 148 Python + npm; all ~40 raw-SQL sites bound-parameter clean; all 11 subprocess sites argv-form (no `shell=True`); OAuth/PKCE, share/embed/HMAC tile auth all clean; pgvector embedding never on any response schema; dynamic CORS rejects wildcard; container hardening best-in-class.
+- Phase 1062 IN-01: `.env.example` missing `PASSWORD_MIN_LENGTH`/`PASSWORD_REQUIRE_CLASSES` documentation
+- Phase 1062 IN-02: `validate_password_complexity` whitespace treated as a symbol class
+- Phase 1062 IN-03: `where_validator.py` no test for `exp.Dot` AST bypass path
+- Phase 1063 IN-01: `_sanitize_authorization_token` 8-char minimum undocumented
+- Phase 1063 IN-02: `StacSearchBody.limit`/`offset` no Pydantic `ge`/`le` constraints
+- `router_reupload.py` resource-level IDOR gap (tracked in `.pre-commit-config.yaml:76-79`; candidate for next security hardening phase)
 
-**Deferred candidates (still open, not in v1014 scope):**
-
-- **v1.7 Marketplace & Distribution unpause** — phases 36-42 paused at Phase 40 (AWS AMI Build).
-- **Multi-tenant Cloud prerequisites** — Phase 999.6 tenant scoping.
-- **Enterprise feature backlog** — Phase 999.13 connector registry, Phase 999.14 Helm/AMI pipeline, Phase 999.15 SBOM + signed images, Phase 999.16 geolens-schemas extraction.
-- **Recreate public repo before launch** — pending todo from 2026-05-05.
+**Milestone close:** 28/28 reqs satisfied; tag `v1014` + `v1.4.0` at commit `8c7b20e1`. See `.planning/milestones/v1014-ROADMAP.md` for full archive.
 
 ## Recent Shipped Milestone: v1013 Ingest Hardening
 
@@ -1161,4 +1161,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-20 — started milestone v1014 Security Audit Remediation (28 requirements, 4 phases 1061-1064, public tag v1.4.0). Phase 1061 promoted from backlog 999.17 — 7 HIGH findings + AGENTS.md guardrail. Source: docs-internal/audits/sec-audit-20260519.md.*
+*Last updated: 2026-05-20 — shipped milestone v1014 Security Audit Remediation (28 requirements, 4 phases 1061-1064, local tag v1014, public tag v1.4.0, 103 commits 470a5723..7348c03a). Merge gate flipped from BLOCK → PASS; all 7 HIGH + 9 MEDIUM + 10 LOW findings from /sec-audit 2026-05-19 closed; AGENTS.md visibility-filter coverage rule + pre-commit hooks pinned. Archive: .planning/milestones/v1014-ROADMAP.md.*

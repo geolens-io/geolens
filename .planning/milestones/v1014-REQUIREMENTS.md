@@ -1,6 +1,7 @@
 # Requirements: GeoLens — v1014 Security Audit Remediation
 
 **Defined:** 2026-05-20
+**Shipped:** 2026-05-20
 **Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 **Source of truth:** `docs-internal/audits/sec-audit-20260519.md` (561 lines, 41KB). Each REQ-ID maps to a Finding ID (S01–S16) in §"Finding details" / §"Medium severity" or to a follow-up (SEC-FOLLOWUP-01..10) in §"Not blocking — follow-up tickets". Regression tests pre-drafted in `e2e/sec-audit.spec.ts` (18 tests pinning S01–S13).
 
@@ -25,8 +26,8 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 - [x] **SEC-S09** *(MEDIUM, CVSS 5.0)*: ogr2ogr `-where` clause user input validated by a sqlglot-based SQL validator before being passed to subprocess. Whitelist of safe SQL constructs (filter expressions only — no DDL, no UNION, no semicolon-terminated multi-statements). Acceptance: e2e/sec-audit.spec.ts S09 test passes (malicious `-where` payload rejected at API boundary).
 - [x] **SEC-S10** *(MEDIUM, CVSS 5.3)*: Basemap `api_key` query-param exposure documented (public-facing — not a secret; rotation guidance in admin docs) + per-route rate limit on `/basemap-proxy` to cap abuse. Acceptance: docstring + admin doc page exists; rate limit covered by e2e/sec-audit.spec.ts S10 test.
 - [x] **SEC-S11** *(MEDIUM, CVSS 5.3)*: Per-route rate limit applied to `/search/datasets/` + `/datasets/{id}/related/` to cap OpenAI embedding cost from a runaway client / bot. Default: configurable per-IP and per-token rate caps. Acceptance: e2e/sec-audit.spec.ts S11 test passes (429 returned after threshold).
-- [ ] **SEC-S12** *(MEDIUM, CVSS 5.0)*: `simple`-regconfig GIN index added for non-English full-text search input that breaks the English-stem tokenization. Migration adds index; query path picks the right regconfig based on locale signal. Acceptance: French/Spanish/German FTS query against a French/Spanish/German dataset returns matches that previously returned 0.
-- [ ] **SEC-S13** *(MEDIUM, CVSS 4.3)*: `max_length=1000` added to `/search/facets/?q=` query param. Acceptance: e2e/sec-audit.spec.ts S13 test passes (1001-char payload rejected with 422).
+- [x] **SEC-S12** *(MEDIUM, CVSS 5.0)*: `simple`-regconfig GIN index added for non-English full-text search input that breaks the English-stem tokenization. Migration adds index; query path picks the right regconfig based on locale signal. Acceptance: French/Spanish/German FTS query against a French/Spanish/German dataset returns matches that previously returned 0.
+- [x] **SEC-S13** *(MEDIUM, CVSS 4.3)*: `max_length=1000` added to `/search/facets/?q=` query param. Acceptance: e2e/sec-audit.spec.ts S13 test passes (1001-char payload rejected with 422).
 - [x] **SEC-S14** *(MEDIUM, CVSS 5.4)*: ESLint guard added preventing `localStorage.setItem('*token*', ...)` patterns. Medium-term httpOnly-cookie migration plan documented in `docs-internal/audits/security-lessons.md` (or new ADR). Acceptance: ESLint rule fails on intentional regression test; migration plan documented.
 - [x] **SEC-S15** *(MEDIUM, CVSS 4.3)*: JWT tokens include `jti` (random unique ID) + `token_version` claim. Revocation surface: bump `token_version` on the User row → all prior JWTs become invalid on next request. Acceptance: revocation flow integration test passes (token issued, version bumped, subsequent request 401s).
 - [x] **SEC-S16** *(MEDIUM, CVSS 4.3)*: Password complexity validator added at registration + change-password endpoints. Minimum: 12 chars, mix of letter classes (configurable via `.env`). Acceptance: weak password rejected with 422; configuration override tested.
@@ -37,16 +38,16 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 - [x] **SEC-FU-02**: `validate_demo_credentials_guard` extended to refuse `JWT_SECRET_KEY=demo-only-do-not-use-in-production-change-me` literal at startup (defense-in-depth on top of SEC-S06).
 - [x] **SEC-FU-03**: ESLint rule `react/no-danger` enabled in `frontend/eslint.config.js` to lock the popup-template ban that v13.12 introduced.
 - [x] **SEC-FU-04**: GDAL `Authorization` header pinned to base64url charset to close CRLF-smuggling defense-in-depth gap (Subagent A notes).
-- [ ] **SEC-FU-05**: `max_length` added to `intersects` query parameter on STAC search router (Subagent I M-1).
-- [ ] **SEC-FU-06**: `math.isfinite()` guard added in `parse_bbox` to reject NaN/Inf coordinates (Subagent I M-2).
-- [ ] **SEC-FU-07**: ILIKE escape `.replace("%", r"\%").replace("_", r"\_")` added in `maps/service_crud.py:140-147` and `service_collections.py:29-35` (Subagent J LOW-3, LOW-4).
+- [x] **SEC-FU-05**: `max_length` added to `intersects` query parameter on STAC search router (Subagent I M-1).
+- [x] **SEC-FU-06**: `math.isfinite()` guard added in `parse_bbox` to reject NaN/Inf coordinates (Subagent I M-2).
+- [x] **SEC-FU-07**: ILIKE escape `.replace("%", r"\%").replace("_", r"\_")` added in `maps/service_crud.py:140-147` and `service_collections.py:29-35` (Subagent J LOW-3, LOW-4).
 - [x] **SEC-FU-08**: `pg_audit` or per-table change log added for column DDL so dataset owners are notified when an editor mutates their schema (post-fix complement to SEC-S03).
 - [x] **SEC-FU-09**: `nginx server_tokens off;` moved into the prod server block (currently default config).
 - [x] **SEC-FU-10**: Role-scoping recommendations documented for cloud Postgres in `.env.example` `DATABASE_URL_OVERRIDE` section (least-privilege guidance for application DB user).
 
 ### Close gate (Phase 1064)
 
-- [ ] **SEC-CTRL-01**: Milestone close requires:
+- [x] **SEC-CTRL-01**: Milestone close requires:
   - `e2e/sec-audit.spec.ts` full suite runs green (18 tests pinning S01–S13) — env-var fixtures provisioned (`SEC_AUDIT_PRIVATE_RECORD_ID`, `SEC_AUDIT_PRIVATE_DATASET_ID`, `SEC_AUDIT_EDITOR_B_TOKEN`, `SEC_AUDIT_SSRF_TEST_REDIRECTOR`)
   - All standard smoke gates green: backend pytest, frontend typecheck + vitest, e2e:smoke, i18n parity
   - Code-review pass with inline fixes applied per `feedback_review_findings_inline.md`
@@ -70,34 +71,34 @@ Requirements for milestone v1014. Each maps to exactly one phase in `ROADMAP.md`
 
 | REQ-ID         | Severity | Phase | Verified |
 |----------------|----------|-------|----------|
-| SEC-S01        | HIGH     | 1061  | —        |
-| SEC-S02        | HIGH     | 1061  | —        |
-| SEC-S03        | HIGH     | 1061  | —        |
-| SEC-S04        | HIGH     | 1061  | —        |
-| SEC-S05        | HIGH     | 1061  | —        |
-| SEC-S06        | HIGH     | 1061  | —        |
-| SEC-S07        | HIGH     | 1061  | —        |
-| SEC-GUARD-01   | Arch     | 1061  | —        |
-| SEC-S08        | MEDIUM   | 1062  | 1062-05  |
-| SEC-S09        | MEDIUM   | 1062  | —        |
-| SEC-S10        | MEDIUM   | 1062  | —        |
-| SEC-S11        | MEDIUM   | 1062  | —        |
-| SEC-S12        | MEDIUM   | 1062  | —        |
-| SEC-S13        | MEDIUM   | 1062  | —        |
-| SEC-S14        | MEDIUM   | 1062  | —        |
-| SEC-S15        | MEDIUM   | 1062  | —        |
-| SEC-S16        | MEDIUM   | 1062  | —        |
-| SEC-FU-01      | LOW      | 1063  | —        |
-| SEC-FU-02      | LOW      | 1063  | —        |
-| SEC-FU-03      | LOW      | 1063  | —        |
-| SEC-FU-04      | LOW      | 1063  | —        |
-| SEC-FU-05      | LOW      | 1063  | —        |
-| SEC-FU-06      | LOW      | 1063  | —        |
-| SEC-FU-07      | LOW      | 1063  | —        |
-| SEC-FU-08      | LOW      | 1063  | —        |
-| SEC-FU-09      | LOW      | 1063  | —        |
-| SEC-FU-10      | LOW      | 1063  | —        |
-| SEC-CTRL-01    | Gate     | 1064  | —        |
+| SEC-S01        | HIGH     | 1061  | Complete |
+| SEC-S02        | HIGH     | 1061  | Complete |
+| SEC-S03        | HIGH     | 1061  | Complete |
+| SEC-S04        | HIGH     | 1061  | Complete |
+| SEC-S05        | HIGH     | 1061  | Complete |
+| SEC-S06        | HIGH     | 1061  | Complete |
+| SEC-S07        | HIGH     | 1061  | Complete |
+| SEC-GUARD-01   | Arch     | 1061  | Complete |
+| SEC-S08        | MEDIUM   | 1062  | Complete |
+| SEC-S09        | MEDIUM   | 1062  | Complete |
+| SEC-S10        | MEDIUM   | 1062  | Complete |
+| SEC-S11        | MEDIUM   | 1062  | Complete |
+| SEC-S12        | MEDIUM   | 1062  | Complete |
+| SEC-S13        | MEDIUM   | 1062  | Complete |
+| SEC-S14        | MEDIUM   | 1062  | Complete |
+| SEC-S15        | MEDIUM   | 1062  | Complete |
+| SEC-S16        | MEDIUM   | 1062  | Complete |
+| SEC-FU-01      | LOW      | 1063  | Complete |
+| SEC-FU-02      | LOW      | 1063  | Complete |
+| SEC-FU-03      | LOW      | 1063  | Complete |
+| SEC-FU-04      | LOW      | 1063  | Complete |
+| SEC-FU-05      | LOW      | 1063  | Complete |
+| SEC-FU-06      | LOW      | 1063  | Complete |
+| SEC-FU-07      | LOW      | 1063  | Complete |
+| SEC-FU-08      | LOW      | 1063  | Complete |
+| SEC-FU-09      | LOW      | 1063  | Complete |
+| SEC-FU-10      | LOW      | 1063  | Complete |
+| SEC-CTRL-01    | Gate     | 1064  | Complete |
 
 ## Future Requirements (deferred — not in v1014 scope)
 
@@ -128,3 +129,22 @@ Items the audit explicitly notes as out of scope for this remediation pass:
 - **IaC (Terraform/Pulumi)** — repo contains Helm chart only; full IaC not in tree.
 - **Frontend bundle CVE scan post-build** — `npm audit` covers source deps; bundle-level CVE scanning deferred.
 - **Compliance frameworks** — SOC2/HIPAA/GDPR are not in scope per `/sec-audit` command spec.
+
+---
+
+## Audit Doc-Gap (retroactively closed at archive time)
+
+The live `.planning/REQUIREMENTS.md` at v1014 close-gate time had **6 unchecked boxes** for requirements that were in fact implemented, verified, and tested. These have been retroactively marked `[x]` in this archive to reflect ship-time reality:
+
+- **SEC-S12** — GIN index live (migration `0020_records_simple_search_vector_idx`), `service_filters.py` query path uses index; verified in Phase 1062 VERIFICATION
+- **SEC-S13** — `max_length=1000` on `/search/facets/?q=` confirmed at `search/router.py:222,543`
+- **SEC-FU-05** — `max_length=10000` on STAC `intersects` confirmed at `stac/router.py:1103`
+- **SEC-FU-06** — `math.isfinite()` guard confirmed at `features/service.py:67`
+- **SEC-FU-07** — `escape_ilike` shared helper used across 4 sites (`service_crud.py`, `service_public.py`, `embed_tokens/service.py`, `audit/service.py`)
+- **SEC-CTRL-01** — Phase 1064 VERIFICATION.md status PASS; tags `v1014` + `v1.4.0` cut at `8c7b20e1`
+
+Root cause: requirements file was authored at milestone start with placeholder checkboxes; later phases marked some but not all when shipping. Flagged in `v1014-MILESTONE-AUDIT.md` as tech_debt hygiene gap.
+
+---
+*Requirements defined: 2026-05-20*
+*Requirements satisfied: 2026-05-20 — milestone shipped, all 28 requirements verified*
