@@ -548,6 +548,18 @@ async def preview_file(
             detail="Unable to preview file. The file may be malformed or unsupported.",
         )
 
+    # CR-01 fix: persist all_layers into job.user_metadata so the fan-out
+    # endpoint's layer-name validation has a non-empty set to check against.
+    # Without this, known_layer_names is always empty and the 422 guard is a no-op
+    # for real uploads (test helper _make_pending_job bypassed the bug by injecting
+    # all_layers directly).
+    if info.get("all_layers"):
+        job.user_metadata = {
+            **(job.user_metadata or {}),
+            "all_layers": info["all_layers"],
+        }
+        await db.commit()
+
     # Auto-detect geometry columns for non-spatial files (CSV/XLSX with lat/lng or WKT)
     detected_geom_cols = None
     if info["geometry_type"] is None and info.get("columns"):
