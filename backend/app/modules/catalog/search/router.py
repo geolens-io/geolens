@@ -66,7 +66,11 @@ from app.modules.catalog.search.service import (
     search_collections,
     search_datasets,
 )
-from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
+from app.core.persistent_config import (
+    SEMANTIC_SEARCH_ENABLED,
+    get_cached_semantic_search_rate_limit,
+)
+from app.modules.auth.router import limiter
 from pydantic import BaseModel as _BaseModel
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -524,7 +528,13 @@ async def _handle_search(
 search_router = APIRouter(prefix="/search", tags=["Search"])
 
 
+def _semantic_search_rate_limit(_request: Request | None = None) -> str:
+    """SEC-S11: per-IP rate limit for semantic search endpoints (caps OpenAI embedding cost)."""
+    return f"{get_cached_semantic_search_rate_limit()}/minute"
+
+
 @search_router.get("/facets/", response_model=FacetCountResponse)
+@limiter.limit(_semantic_search_rate_limit)
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, description="Full-text search query"),
@@ -601,6 +611,7 @@ async def search_facets_endpoint(
 
 
 @search_router.get("/datasets/", response_model=OGCFeatureCollectionResponse)
+@limiter.limit(_semantic_search_rate_limit)
 async def search_datasets_endpoint(
     request: Request,
     params: SearchQueryParams = Depends(),
