@@ -4,7 +4,10 @@ Tests are grouped into:
   - test_allowlist_*  : expressions that MUST pass validate_where_ast()
   - test_blocklist_*  : expressions that MUST raise ValueError
   - test_wrapper_*    : integration tests for validate_where_clause (service layer)
-  - test_endpoint_*   : HTTP-level tests against the export endpoint
+  - test_endpoint_*   : HTTP-level tests against the export endpoint (require DB + live fixture)
+
+Endpoint tests require a running DB and use the httpx AsyncClient from conftest.
+They are skipped automatically when SEC_AUDIT_PUBLIC_DATASET_ID is not set.
 """
 
 from __future__ import annotations
@@ -213,3 +216,75 @@ class TestWrapper:
         """Empty list is falsy — treated the same as None."""
         with pytest.raises(ValueError, match="Cannot filter"):
             validate_where_clause("pop > 1000", column_info=[])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Endpoint-level HTTP tests (require running DB + SEC_AUDIT_PUBLIC_DATASET_ID)
+#
+# Fixture-provisioning recipe:
+#   1. Start the stack: docker compose up -d db api worker
+#   2. In the UI (or via API), create/import a small public dataset with a
+#      numeric column (e.g. "gid") and note the public_id UUID.
+#   3. Export SEC_AUDIT_PUBLIC_DATASET_ID=<uuid> in your shell.
+#   4. Re-run: cd backend && pytest tests/test_export_where_validator.py -k "endpoint"
+#
+# These tests are skipped automatically when the env var is not set so the
+# full test suite remains runnable in CI without fixtures.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+import os
+import urllib.parse
+
+
+class TestEndpoint:
+    """HTTP-level regression tests for the export -where gate (SEC-S09).
+
+    Requires a live API (httpx AsyncClient from conftest) + a real public dataset.
+    Skipped when SEC_AUDIT_PUBLIC_DATASET_ID is not set.
+    """
+
+    @pytest.fixture(autouse=True)
+    def require_dataset_id(self):
+        dataset_id = os.environ.get("SEC_AUDIT_PUBLIC_DATASET_ID")
+        if not dataset_id:
+            pytest.skip("Set SEC_AUDIT_PUBLIC_DATASET_ID to a public exportable dataset")
+        self.dataset_id = dataset_id
+
+    @pytest.mark.anyio
+    async def test_endpoint_rejects_union_attack(self, client, admin_auth_header):
+        """GET /datasets/{id}/export?where=<UNION> must return 400."""
+        payload = "gid > 0 UNION SELECT 1, 2, 3"
+        encoded = urllib.parse.quote_plus(payload)
+        resp = await client.get(
+            f"/datasets/{self.dataset_id}/export",
+            params={"format": "csv", "where": payload},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code in (400, 422), (
+            f"Expected 400/422 for UNION attack, got {resp.status_code}: {resp.text}"
+        )
+
+    @pytest.mark.anyio
+    async def test_endpoint_rejects_subquery(self, client, admin_auth_header):
+        """GET /datasets/{id}/export?where=<subquery> must return 400."""
+        resp = await client.get(
+            f"/datasets/{self.dataset_id}/export",
+            params={"format": "csv", "where": "gid IN (SELECT 1 FROM users)"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code in (400, 422), (
+            f"Expected 400/422 for subquery, got {resp.status_code}: {resp.text}"
+        )
+
+    @pytest.mark.anyio
+    async def test_endpoint_rejects_function_call(self, client, admin_auth_header):
+        """GET /datasets/{id}/export?where=pg_sleep(10) must return 400."""
+        resp = await client.get(
+            f"/datasets/{self.dataset_id}/export",
+            params={"format": "csv", "where": "pg_sleep(10)"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code in (400, 422), (
+            f"Expected 400/422 for function call, got {resp.status_code}: {resp.text}"
+        )
