@@ -21,6 +21,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
+    check_dataset_access,
     check_dataset_access_or_anonymous,
     get_user_roles,
 )
@@ -251,6 +252,10 @@ async def update_publication_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
+    # Phase 1061 CR-01: resource-level access check (SEC-S02 pattern).
+    # require_permission("edit_metadata") is role-level only; any editor
+    # could otherwise promote another user's private dataset to published.
+    await check_dataset_access(db, dataset, dataset_id, user)
 
     current = dataset.record.record_status
     target = body.status
@@ -302,6 +307,11 @@ async def set_target_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
+    # Phase 1061 CR-01: resource-level access check (SEC-S02 pattern).
+    # require_permission("edit_metadata") is role-level only; any editor
+    # could otherwise walk another user's private dataset through the full
+    # draft→ready→internal→published chain without ownership check.
+    await check_dataset_access(db, dataset, dataset_id, user)
 
     current = dataset.record.record_status
     target = body.status

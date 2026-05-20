@@ -251,3 +251,79 @@ async def test_bulk_delete_skips_unauthorized_items(
     body = resp.json()
     assert body["deleted"] == 0
     assert body["errors"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# SEC-S02 / CR-01: PATCH /datasets/{id}/status/ and /{id}/target-status/ IDOR
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_update_publication_status_other_user_private_returns_404(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Editor B cannot promote editor A's private dataset via /status/ endpoint.
+
+    Phase 1061 CR-01 regression: require_permission("edit_metadata") is
+    role-level only.  Without check_dataset_access any editor could publish
+    another user's private dataset.
+    """
+    session = test_db_session
+
+    editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+    editor_b_headers, _ = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+
+    private = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="A private status dataset",
+        visibility="private",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{private.id}/status/",
+        json={"status": "ready"},
+        headers=editor_b_headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_set_target_status_other_user_private_returns_404(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Editor B cannot walk editor A's private dataset to published via /target-status/.
+
+    Phase 1061 CR-01 regression: without check_dataset_access the full
+    draft→published chain would execute without ownership verification.
+    """
+    session = test_db_session
+
+    editor_a_headers, editor_a_id_str = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+    editor_b_headers, _ = await _create_test_user(
+        client, admin_auth_header, "editor"
+    )
+
+    private = await create_dataset(
+        session,
+        created_by=uuid.UUID(editor_a_id_str),
+        name="A private target-status dataset",
+        visibility="private",
+    )
+
+    resp = await client.patch(
+        f"/datasets/{private.id}/target-status/",
+        json={"status": "published"},
+        headers=editor_b_headers,
+    )
+    assert resp.status_code == 404
