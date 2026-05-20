@@ -23,7 +23,13 @@ class AdminUserCreate(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
-        description="Initial password (minimum 8 characters). The user can change this after first login.",
+        # min_length=8 is a fast-fail floor; the canonical policy
+        # (PASSWORD_MIN_LENGTH / PASSWORD_REQUIRE_CLASSES) is enforced by
+        # validate_password below. See UserCreate docstring in auth/schemas.py.
+        description=(
+            "Initial password (policy: min 12 chars, 3+ character classes). "
+            "The user can change this after first login."
+        ),
     )
     email: EmailStr | None = Field(
         default=None,
@@ -34,6 +40,15 @@ class AdminUserCreate(BaseModel):
         default="viewer",
         description="User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'.",
     )
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
+        from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
+
+        validate_password_from_settings(v)
+        return v
 
     @field_validator("role")
     @classmethod
@@ -93,11 +108,23 @@ class SamlToLocalConversion(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
+        # min_length=8 is a fast-fail floor; the canonical policy is enforced
+        # by validate_password below (SEC-S16, Phase 1062-01).
         description=(
-            "Local-password for the converted account (minimum 8 characters). "
+            "Local-password for the converted account "
+            "(policy: min 12 chars, 3+ character classes). "
             "The user can change this after first login."
         ),
     )
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
+        from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
+
+        validate_password_from_settings(v)
+        return v
 
 
 class UserNameItem(BaseModel):

@@ -1091,7 +1091,7 @@ class TestAdminEmbedTokenList:
             "/admin/users/",
             json={
                 "username": f"viewer_{uuid.uuid4().hex[:6]}",
-                "password": "testpass123",
+                "password": "TestPass1234!",
                 "role": "viewer",
             },
             headers=admin_auth_header,
@@ -1102,7 +1102,7 @@ class TestAdminEmbedTokenList:
         # Login as viewer
         login_resp = await client.post(
             "/auth/login",
-            data={"username": viewer_username, "password": "testpass123"},
+            data={"username": viewer_username, "password": "TestPass1234!"},
         )
         assert login_resp.status_code == 200
         viewer_token = login_resp.json()["access_token"]
@@ -1352,7 +1352,7 @@ class TestUpdateEmbedToken:
             "/admin/users/",
             json={
                 "username": f"viewer_patch_{uuid.uuid4().hex[:6]}",
-                "password": "testpass123",
+                "password": "TestPass1234!",
                 "role": "viewer",
             },
             headers=admin_auth_header,
@@ -1363,7 +1363,7 @@ class TestUpdateEmbedToken:
         # Login as viewer
         login_resp = await client.post(
             "/auth/login",
-            data={"username": viewer_username, "password": "testpass123"},
+            data={"username": viewer_username, "password": "TestPass1234!"},
         )
         assert login_resp.status_code == 200
         viewer_token = login_resp.json()["access_token"]

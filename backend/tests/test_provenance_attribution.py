@@ -24,7 +24,7 @@ async def _create_role_user(
     role: str,
 ) -> tuple[dict[str, str], uuid.UUID]:
     username = f"prov_{role}_{uuid.uuid4().hex[:8]}"
-    password = "testpass123"
+    password = "TestPass1234!"
 
     create_resp = await client.post(
         "/admin/users/",

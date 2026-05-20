@@ -327,12 +327,12 @@ class TestJobStatus:
         username = f"editor_jobtest_{unique}"
         resp = await client.post(
             "/admin/users/",
-            json={"username": username, "password": "testpass123", "role": "editor"},
+            json={"username": username, "password": "TestPass1234!", "role": "editor"},
             headers=admin_auth_header,
         )
         assert resp.status_code == 201
 
-        editor_headers = await get_auth_header(client, username, "testpass123")
+        editor_headers = await get_auth_header(client, username, "TestPass1234!")
         resp = await client.get(f"/jobs/{job.id}", headers=editor_headers)
         assert resp.status_code == 403
 

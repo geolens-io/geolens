@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 # User account status enum mirrors the CHECK constraint on User.status.
 UserStatus = Literal["active", "pending", "suspended", "deactivated"]
@@ -27,8 +27,15 @@ class UserCreate(BaseModel):
     password: str = Field(
         min_length=8,
         max_length=256,
-        description="Plaintext password (min 8 chars)",
-        json_schema_extra={"example": "securePass123"},
+        # Note on the min_length=8 floor: Pydantic evaluates Field constraints
+        # (BEFORE) @field_validator(mode="after"). Keeping min_length=8 here
+        # provides a fast-fail floor that avoids the database round-trip for
+        # trivially short passwords. The canonical policy (default: 12 chars
+        # + 3-of-4 class diversity) is enforced by validate_password below.
+        # Both errors are 422; the field-level message fires first when the
+        # password is < 8 chars.
+        description="Plaintext password (policy: min 12 chars, 3+ character classes)",
+        json_schema_extra={"example": "securePass123!"},
     )
     email: EmailStr | None = Field(
         default=None,
@@ -36,6 +43,15 @@ class UserCreate(BaseModel):
         description="Optional email address",
         json_schema_extra={"example": "jdoe@example.com"},
     )
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
+        from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
+
+        validate_password_from_settings(v)
+        return v
 
 
 class RegisterResponse(BaseModel):
@@ -117,3 +133,12 @@ class ApiKeyListResponse(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=256)
     new_password: str = Field(min_length=8, max_length=256)
+
+    @field_validator("new_password", mode="after")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Enforce the application password policy on the new password (SEC-S16)."""
+        from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
+
+        validate_password_from_settings(v)
+        return v

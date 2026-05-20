@@ -429,7 +429,7 @@ async def _create_test_user(
     """Create a test user with the given role and return (auth_header, user_id)."""
     unique = uuid.uuid4().hex[:8]
     username = f"{role}_{unique}"
-    password = "testpass123"
+    password = "TestPass1234!"  # SEC-S16: meets 12-char + 3-class policy
     resp = await client.post(
         "/admin/users/",
         json={"username": username, "password": password, "role": role},

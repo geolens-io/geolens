@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from pydantic import SecretStr, ValidationError, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+
+    # SEC-S16 (Phase 1062-01): password complexity policy.
+    # PASSWORD_MIN_LENGTH controls the minimum character count (default 12).
+    # PASSWORD_REQUIRE_CLASSES controls how many of the four character classes
+    # (lowercase, uppercase, digit, symbol) must be present (default 3).
+    # Operators can relax both in dev/test via environment variables.
+    password_min_length: int = 12
+    password_require_classes: int = Field(default=3, ge=1, le=4)
     geolens_admin_username: str
     geolens_admin_password: SecretStr
     registration_enabled: bool = False

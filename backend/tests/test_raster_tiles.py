@@ -265,7 +265,7 @@ class TestRasterAuthCheck:
         # Create a non-owner user
         unique = uuid.uuid4().hex[:8]
         username = f"viewer_{unique}"
-        password = "testpass123"
+        password = "TestPass1234!"
         resp = await client.post(
             "/admin/users/",
             json={"username": username, "password": password, "role": "viewer"},
@@ -306,7 +306,7 @@ class TestRasterAuthRbacParity:
             settings.geolens_admin_password.get_secret_value(),
         )
         username = f"rbac_parity_{uuid.uuid4().hex[:6]}"
-        password = "testpass123"
+        password = "TestPass1234!"
         resp = await client.post(
             "/admin/users/",
             json={"username": username, "password": password, "role": "viewer"},

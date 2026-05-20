@@ -33,7 +33,7 @@ async def _create_user_via_admin(
     client: AsyncClient,
     admin_headers: dict,
     username: str,
-    password: str = "testpass123",
+    password: str = "TestPass1234!",
     role: str = "viewer",
     email: str | None = None,
 ) -> dict:
@@ -63,7 +63,7 @@ class TestRegistration:
         unique = uuid.uuid4().hex[:8]
         resp = await client.post(
             "/auth/register/",
-            json={"username": f"reguser_{unique}", "password": "securepass123"},
+            json={"username": f"reguser_{unique}", "password": "SecurePass123!"},
         )
         assert resp.status_code == 201
         data = resp.json()
@@ -74,7 +74,7 @@ class TestRegistration:
         """Registration is blocked when registration is disabled (default)."""
         resp = await client.post(
             "/auth/register/",
-            json={"username": "shouldfail", "password": "securepass123"},
+            json={"username": "shouldfail", "password": "SecurePass123!"},
         )
         assert resp.status_code == 403
 
@@ -91,14 +91,14 @@ class TestRegistration:
         # First registration
         resp1 = await client.post(
             "/auth/register/",
-            json={"username": username, "password": "securepass123"},
+            json={"username": username, "password": "SecurePass123!"},
         )
         assert resp1.status_code == 201
 
         # Second registration with same username
         resp2 = await client.post(
             "/auth/register/",
-            json={"username": username, "password": "securepass123"},
+            json={"username": username, "password": "SecurePass123!"},
         )
         assert resp2.status_code == 409
 
@@ -160,7 +160,7 @@ class TestLogin:
         unique = uuid.uuid4().hex[:8]
         username = f"deactuser_{unique}"
         user_data = await _create_user_via_admin(
-            client, admin_headers, username=username, password="testpass123"
+            client, admin_headers, username=username, password="TestPass1234!"
         )
         user_id = user_data["id"]
 
@@ -173,7 +173,7 @@ class TestLogin:
         # Try to log in -- deactivated users get 403
         resp = await client.post(
             "/auth/login",
-            data={"username": username, "password": "testpass123"},
+            data={"username": username, "password": "TestPass1234!"},
         )
         assert resp.status_code == 403
         assert resp.json()["detail"] == "Account not active"
@@ -246,11 +246,11 @@ class TestRBAC:
             client,
             admin_headers,
             username=username,
-            password="testpass123",
+            password="TestPass1234!",
             role="viewer",
         )
 
-        viewer_headers = await get_auth_header(client, username, "testpass123")
+        viewer_headers = await get_auth_header(client, username, "TestPass1234!")
         resp = await client.get("/admin/users/", headers=viewer_headers)
         assert resp.status_code == 403
 
@@ -264,11 +264,11 @@ class TestRBAC:
             client,
             admin_headers,
             username=username,
-            password="testpass123",
+            password="TestPass1234!",
             role="editor",
         )
 
-        editor_headers = await get_auth_header(client, username, "testpass123")
+        editor_headers = await get_auth_header(client, username, "TestPass1234!")
         resp = await client.get("/admin/users/", headers=editor_headers)
         assert resp.status_code == 403
 
@@ -304,7 +304,7 @@ class TestAdminUserNames:
             client, admin_headers, username=f"viewer_{unique}", role="viewer"
         )
         viewer_headers = await get_auth_header(
-            client, f"viewer_{unique}", "testpass123"
+            client, f"viewer_{unique}", "TestPass1234!"
         )
         resp = await client.get("/admin/users/names/", headers=viewer_headers)
         assert resp.status_code == 403
@@ -331,7 +331,7 @@ class TestAdminUserManagement:
             "/admin/users/",
             json={
                 "username": username,
-                "password": "testpass123",
+                "password": "TestPass1234!",
                 "role": "editor",
                 "email": f"{username}@test.com",
             },
@@ -440,7 +440,7 @@ class TestAdminApproveReject:
         username = f"pendapprove_{unique}"
         reg_resp = await client.post(
             "/auth/register/",
-            json={"username": username, "password": "securepass123"},
+            json={"username": username, "password": "SecurePass123!"},
         )
         assert reg_resp.status_code == 201
 
@@ -484,7 +484,7 @@ class TestAdminApproveReject:
         username = f"pendreject_{unique}"
         reg_resp = await client.post(
             "/auth/register/",
-            json={"username": username, "password": "securepass123"},
+            json={"username": username, "password": "SecurePass123!"},
         )
         assert reg_resp.status_code == 201
 
@@ -522,7 +522,7 @@ class TestAdminApproveReject:
         await _create_user_via_admin(
             client, admin_headers, username=viewer_username, role="viewer"
         )
-        viewer_headers = await get_auth_header(client, viewer_username, "testpass123")
+        viewer_headers = await get_auth_header(client, viewer_username, "TestPass1234!")
 
         # Viewer tries to approve a user (use a fake ID — auth check happens first)
         fake_id = str(uuid.uuid4())
@@ -543,7 +543,7 @@ class TestAdminApproveReject:
         await _create_user_via_admin(
             client, admin_headers, username=editor_username, role="editor"
         )
-        editor_headers = await get_auth_header(client, editor_username, "testpass123")
+        editor_headers = await get_auth_header(client, editor_username, "TestPass1234!")
 
         fake_id = str(uuid.uuid4())
         resp = await client.post(

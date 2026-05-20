@@ -189,7 +189,7 @@ async def test_create_user_duplicate_username_returns_409(
     username = f"dup_{uuid.uuid4().hex[:8]}"
     resp = await client.post(
         "/admin/users/",
-        json={"username": username, "password": "testpass123", "role": "viewer"},
+        json={"username": username, "password": "TestPass1234!", "role": "viewer"},
         headers=admin_auth_header,
     )
     assert resp.status_code == 201
@@ -197,7 +197,7 @@ async def test_create_user_duplicate_username_returns_409(
     # Duplicate should return 409
     resp = await client.post(
         "/admin/users/",
-        json={"username": username, "password": "otherpass456", "role": "viewer"},
+        json={"username": username, "password": "OtherPass456!", "role": "viewer"},
         headers=admin_auth_header,
     )
     assert resp.status_code == 409
