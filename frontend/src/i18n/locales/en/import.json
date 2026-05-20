@@ -60,7 +60,13 @@
     "hintCrs": "Ensure the file has a valid coordinate reference system (CRS/SRID)",
     "hintEncoding": "Try saving the file with UTF-8 encoding",
     "hintGeometry": "Check that the file contains valid geometry data",
-    "hintEmpty": "The file appears to be empty or contains no geographic features"
+    "hintEmpty": "The file appears to be empty or contains no geographic features",
+    "multiLayerSuccess": "Imported {{count}} layers as separate datasets.",
+    "multiLayerAllFailed": "All layers failed to import.",
+    "multiLayerPartialFailed": "{{succeeded}} layers imported, {{failed}} failed.",
+    "multiLayerResultsTitle": "Multi-layer ingest results",
+    "multiLayerResultsSummary": "{{succeeded}} succeeded, {{failed}} failed.",
+    "multiLayerRetryClose": "Close (retry by re-clicking Ingest all layers)"
   },
   "warnings": {
     "bannerTitle": "Import completed with warnings",

@@ -60,7 +60,13 @@
     "hintCrs": "Aseg\u00farese de que el archivo tenga un sistema de referencia de coordenadas (CRS/SRID) v\u00e1lido",
     "hintEncoding": "Intente guardar el archivo con codificaci\u00f3n UTF-8",
     "hintGeometry": "Verifique que el archivo contenga datos de geometr\u00eda v\u00e1lidos",
-    "hintEmpty": "El archivo parece estar vac\u00edo o no contiene entidades geogr\u00e1ficas"
+    "hintEmpty": "El archivo parece estar vac\u00edo o no contiene entidades geogr\u00e1ficas",
+    "multiLayerSuccess": "Se importaron {{count}} capas como conjuntos de datos separados.",
+    "multiLayerAllFailed": "Todas las capas fallaron al importar.",
+    "multiLayerPartialFailed": "{{succeeded}} capas importadas, {{failed}} fallidas.",
+    "multiLayerResultsTitle": "Resultados de ingesta multicapa",
+    "multiLayerResultsSummary": "{{succeeded}} correctas, {{failed}} fallidas.",
+    "multiLayerRetryClose": "Cerrar (volver a hacer clic en 'Ingerir todas las capas')"
   },
   "warnings": {
     "bannerTitle": "Importaci\u00f3n completada con advertencias",

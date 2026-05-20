@@ -60,7 +60,13 @@
     "hintCrs": "Stellen Sie sicher, dass die Datei ein gültiges Koordinatenreferenzsystem (CRS/SRID) enthält",
     "hintEncoding": "Versuchen Sie, die Datei mit UTF-8-Kodierung zu speichern",
     "hintGeometry": "Prüfen Sie, ob die Datei gültige Geometriedaten enthält",
-    "hintEmpty": "Die Datei scheint leer zu sein oder enthält keine geographischen Features"
+    "hintEmpty": "Die Datei scheint leer zu sein oder enthält keine geographischen Features",
+    "multiLayerSuccess": "{{count}} Ebenen als separate Datensätze importiert.",
+    "multiLayerAllFailed": "Alle Ebenen konnten nicht importiert werden.",
+    "multiLayerPartialFailed": "{{succeeded}} Ebenen importiert, {{failed}} fehlgeschlagen.",
+    "multiLayerResultsTitle": "Mehrebenige Import-Ergebnisse",
+    "multiLayerResultsSummary": "{{succeeded}} erfolgreich, {{failed}} fehlgeschlagen.",
+    "multiLayerRetryClose": "Schließen (erneut auf 'Alle Ebenen importieren' klicken)"
   },
   "warnings": {
     "bannerTitle": "Import mit Warnungen abgeschlossen",

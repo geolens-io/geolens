@@ -60,7 +60,13 @@
     "hintCrs": "Vérifiez que le fichier possède un système de référence de coordonnées (CRS/SRID) valide",
     "hintEncoding": "Essayez de sauvegarder le fichier avec l'encodage UTF-8",
     "hintGeometry": "Vérifiez que le fichier contient des données géométriques valides",
-    "hintEmpty": "Le fichier semble être vide ou ne contient aucune entité géographique"
+    "hintEmpty": "Le fichier semble être vide ou ne contient aucune entité géographique",
+    "multiLayerSuccess": "{{count}} couches importées comme jeux de données séparés.",
+    "multiLayerAllFailed": "Toutes les couches ont échoué à l'importation.",
+    "multiLayerPartialFailed": "{{succeeded}} couches importées, {{failed}} échouées.",
+    "multiLayerResultsTitle": "Résultats d'ingestion multicouche",
+    "multiLayerResultsSummary": "{{succeeded}} réussies, {{failed}} échouées.",
+    "multiLayerRetryClose": "Fermer (recliquer sur 'Ingérer toutes les couches')"
   },
   "warnings": {
     "bannerTitle": "Importation terminée avec des avertissements",

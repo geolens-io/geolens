@@ -4,9 +4,18 @@ import { uploadFile, previewFile, commitImport, uploadPresigned } from '@/api/in
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { FileDropzone } from './FileDropzone';
 import { BulkUploadProgress } from './BulkUploadProgress';
-import { inferImportedKind, stripExtension } from './utils';
+import { inferImportedKind, isFilePreview, stripExtension } from './utils';
 import { BulkReviewList } from './BulkReviewList';
 import { BulkTrackingList } from './BulkTrackingList';
 import type { FileEntry, BatchPhase, CommitImportRequest } from '@/types/api';
@@ -36,6 +45,37 @@ function buildErrorDisplay(err: unknown, fallbackKey: string, t: (key: string) =
   return hint ? `${msg}\n${hint}` : msg;
 }
 
+// GPKG-03 Phase 1058: concurrency-capped async pool for multi-layer fan-out.
+// Runs at most `concurrency` workers in parallel; preserves result order.
+async function runWithConcurrency<T, R>(
+  items: T[],
+  worker: (item: T) => Promise<R>,
+  concurrency: number,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= items.length) return;
+      try {
+        results[i] = { status: 'fulfilled', value: await worker(items[i]) };
+      } catch (err) {
+        results[i] = { status: 'rejected', reason: err };
+      }
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+// GPKG-03 Phase 1058: per-layer result shape for the fan-out results modal.
+type FanOutResult = {
+  layerName: string;
+  status: 'fulfilled' | 'rejected';
+  error?: string;
+};
+
 interface UploadFormProps {
   onPhaseChange?: (phase: BatchPhase) => void;
 }
@@ -51,6 +91,11 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   }, []);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [autoOpenVrt, setAutoOpenVrt] = useState(false);
+  // GPKG-03 Phase 1058: results modal state for the multi-layer fan-out
+  const [fanOutResults, setFanOutResults] = useState<{
+    entryId: string;
+    results: FanOutResult[];
+  } | null>(null);
   const { data: uploadConfig } = useUploadConfig();
 
   const allowedExtensions = useMemo(
@@ -246,6 +291,66 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     }
   };
 
+  // GPKG-03 Phase 1058: fan-out handler — commits all layers of a multi-layer entry.
+  // Uses runWithConcurrency(4) per CONTEXT D-15 threat-model concurrency cap.
+  // T-1058C-03 note: the backend /import/upload/commit endpoint checks job.status == "pending"
+  // before allowing a commit; after the first commit, the job transitions to "queued" and
+  // subsequent commits for the same job_id receive a 400 "Job already processed" error.
+  // This means only the first layer in the fan-out will succeed with the current backend.
+  // Future improvement: backend support for per-layer commits against a single upload job.
+  const handleIngestAllLayers = async (entryId: string) => {
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry?.jobId || !entry.previewData) return;
+    if (!isFilePreview(entry.previewData)) return;
+    const layers = entry.previewData.layers ?? [];
+    if (layers.length <= 1) return;
+
+    updateEntry(entryId, { status: 'committing' });
+
+    const fileBase = stripExtension(entry.previewData.source_filename ?? entry.fileName) || 'Untitled';
+    const settled = await runWithConcurrency(
+      layers,
+      async (layer) => {
+        const title = `${fileBase}: ${layer.name}`;
+        await commitImport(entry.jobId!, { title, layer_name: layer.name });
+        return layer.name;
+      },
+      4, // CONTEXT D-15 threat-model concurrency cap
+    );
+
+    const results: FanOutResult[] = settled.map((r, i) => ({
+      layerName: layers[i].name,
+      status: r.status,
+      error:
+        r.status === 'rejected'
+          ? r.reason instanceof ApiError
+            ? r.reason.message
+            : t('upload.commitFailed')
+          : undefined,
+    }));
+
+    const succeededCount = results.filter((r) => r.status === 'fulfilled').length;
+    const failedCount = results.length - succeededCount;
+
+    // Update entry status based on outcome.
+    if (failedCount === 0) {
+      updateEntry(entryId, { status: 'tracking' });
+      toast.success(t('upload.multiLayerSuccess', { count: succeededCount }));
+    } else if (succeededCount === 0) {
+      updateEntry(entryId, {
+        status: 'commit-failed',
+        error: t('upload.multiLayerAllFailed'),
+      });
+    } else {
+      updateEntry(entryId, {
+        status: 'commit-failed',
+        error: t('upload.multiLayerPartialFailed', { succeeded: succeededCount, failed: failedCount }),
+      });
+    }
+
+    setFanOutResults({ entryId, results });
+  };
+
   const removeEntry = (entryId: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
     // Phase transition (reviewing → idle when empty) is handled by the
@@ -266,11 +371,59 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
           onCommitAllAsVrt={handleCommitAllAsVrt}
           onRemove={removeEntry}
           onSheetChange={handleSheetChange}
+          // GPKG-03 Phase 1058: wire fan-out handler
+          onIngestAllLayers={handleIngestAllLayers}
           isCommitting={entries.some((e) => e.status === 'committing')}
         />
         <Button variant="outline" onClick={reset}>
           {t('upload.startOver')}
         </Button>
+
+        {/* GPKG-03 Phase 1058: results modal shown after fan-out settles */}
+        {fanOutResults && (
+          <Dialog
+            open
+            onOpenChange={(open) => {
+              if (!open) setFanOutResults(null);
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t('upload.multiLayerResultsTitle')}</DialogTitle>
+                <DialogDescription>
+                  {t('upload.multiLayerResultsSummary', {
+                    succeeded: fanOutResults.results.filter((r) => r.status === 'fulfilled').length,
+                    failed: fanOutResults.results.filter((r) => r.status === 'rejected').length,
+                  })}
+                </DialogDescription>
+              </DialogHeader>
+              <ul className="space-y-1 text-sm">
+                {fanOutResults.results.map((r) => (
+                  <li key={r.layerName} className="flex items-center gap-2">
+                    {r.status === 'fulfilled' ? (
+                      <CheckCircle2 className="size-4 text-success shrink-0" />
+                    ) : (
+                      <AlertCircle className="size-4 text-destructive shrink-0" />
+                    )}
+                    <span className="font-mono text-xs">{r.layerName}</span>
+                    {r.error && <span className="text-xs text-destructive">{r.error}</span>}
+                  </li>
+                ))}
+              </ul>
+              <DialogFooter>
+                {fanOutResults.results.some((r) => r.status === 'rejected') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setFanOutResults(null)}
+                  >
+                    {t('upload.multiLayerRetryClose')}
+                  </Button>
+                )}
+                <Button onClick={() => setFanOutResults(null)}>{t('common:close')}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     );
   }
