@@ -1,25 +1,62 @@
-"""SEC-FU-07: service_crud.py list_maps ILIKE search must escape %/_ wildcards.
+"""SEC-FU-07 / WR-01: service_crud.py list_maps ILIKE search must escape %, _, and \\.
 
 The list_maps() function in service_crud.py composes an ILIKE pattern as
 f"%{search}%" without escaping the user-supplied string first. A search of
 "%" matches all rows because the pattern becomes "%%", which Postgres treats
 as "match any string". Similarly, "_" matches any single character.
 
-Fix: escape '%' and '_' using str.replace before composing the ILIKE pattern.
-Same pattern as service_public.py:407-409.
+WR-01 (review-1063): the initial fix also missed escaping the backslash
+character itself. A search for ``foo\\`` produced the pattern ``%foo\\%``.
+PostgreSQL treats ``\\%`` as "escaped percent = literal %", so ``foo\\``
+would match maps named ``foo%`` — the wrong rows.
 
-Tests use API layer (GET /maps/?search=...) to verify behavior end-to-end.
+Fix: escape_ilike() in catalog/_ilike.py escapes \\ FIRST, then % and _.
+The SQLAlchemy ilike(... , escape="\\\\") call emits ESCAPE '\\\\' in SQL,
+making the escape character explicit.
+
+Tests use API layer (GET /maps/?search=...) to verify behaviour end-to-end.
 All test maps use unique names with a uuid prefix to isolate from other tests.
-
-Note: service_collections.py (referenced in CONTEXT.md) does not exist in the
-current tree. Only service_crud.py:140-147 needs the escape fix;
-service_public.py:407-409 already has it from prior phases.
+The module-level TestEscapeIlikeUnit class tests the helper function directly
+without requiring a running database.
 """
 
 import uuid
 
 import pytest
 from httpx import AsyncClient
+
+from app.modules.catalog._ilike import escape_ilike
+
+
+# ---------------------------------------------------------------------------
+# Pure unit tests — no database required
+# ---------------------------------------------------------------------------
+
+
+class TestEscapeIlikeUnit:
+    """Unit tests for escape_ilike() covering all three special characters."""
+
+    def test_backslash_is_doubled(self):
+        assert escape_ilike("\\") == "\\\\"
+
+    def test_percent_is_escaped(self):
+        assert escape_ilike("%") == r"\%"
+
+    def test_underscore_is_escaped(self):
+        assert escape_ilike("_") == r"\_"
+
+    def test_backslash_before_percent_no_double_escape(self):
+        # Input: \%  (backslash followed by percent)
+        # Expected: \\\\  then \%  → \\\\\\%  (each char individually escaped)
+        result = escape_ilike("\\%")
+        assert result == "\\\\\\%"
+
+    def test_plain_text_unchanged(self):
+        assert escape_ilike("hello world") == "hello world"
+
+    def test_mixed_specials(self):
+        result = escape_ilike("a%b_c\\d")
+        assert result == r"a\%b\_c\\d"
 
 
 def _uid() -> str:
@@ -163,3 +200,36 @@ class TestSecFu07IlikeEscape:
         results = await _search_maps(client, admin_auth_header, f"NormalSearch_{uid}")
         names = [r["name"] for r in results]
         assert target in names, f"Expected '{target}' in {names}"
+
+    async def test_sec_fu_07_backslash_literal_not_wildcard(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """search='\\\\' (literal backslash) must NOT match maps containing '%' via escape confusion.
+
+        WR-01 regression: without escaping '\\\\' first, the pattern becomes
+        ``%\\\\%``. PostgreSQL interprets ``\\\\%`` as "escape char then literal %",
+        i.e. ``\\\\`` is treated as the ESCAPE prefix for ``%``, so the pattern
+        matches rows containing a literal '%' — the wrong rows.
+
+        Post-fix: escape_ilike escapes '\\\\' → '\\\\\\\\', producing pattern
+        ``%\\\\\\\\%`` which PostgreSQL interprets as two literal backslashes.
+        A map named with only a '%' must NOT appear in backslash search results.
+        """
+        uid = _uid()
+        backslash_name = f"path\\to\\{uid}"   # contains literal backslashes
+        percent_name = f"100pct_{uid}%Done"    # contains literal %
+
+        await _create_map(client, admin_auth_header, backslash_name)
+        await _create_map(client, admin_auth_header, percent_name)
+
+        # Search for the backslash-containing fragment; the percent map must NOT appear
+        results = await _search_maps(client, admin_auth_header, f"path\\to\\{uid}")
+        names = [r["name"] for r in results]
+
+        assert backslash_name in names, (
+            f"Expected backslash map '{backslash_name}' in results {names}"
+        )
+        assert percent_name not in names, (
+            f"'{percent_name}' should not match a backslash search — "
+            f"backslash is being misinterpreted as ESCAPE prefix for '%' (WR-01 regression)"
+        )

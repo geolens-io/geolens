@@ -15,6 +15,7 @@ from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service_diff import _replace_layers
 from app.modules.catalog.maps.service_layers import bulk_check_dataset_access
+from app.modules.catalog._ilike import escape_ilike
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
     _apply_map_visibility_filter,
@@ -138,14 +139,16 @@ async def list_maps(
     # Build search/visibility filters (applied to both count and data queries)
     def _apply_extra_filters(stmt: Select) -> Select:
         if search:
-            # SEC-FU-07 (sec-audit-20260519.md): escape LIKE-special chars (%, _) before
-            # composing the ILIKE pattern. Same escape pattern as service_public.py:407-409.
-            escaped = search.replace("%", r"\%").replace("_", r"\_")
-            pattern = f"%{escaped}%"
+            # SEC-FU-07 (sec-audit-20260519.md + WR-01): escape \, %, and _ before
+            # composing the ILIKE pattern. Backslash must be escaped FIRST so later
+            # replacements do not double-escape already-escaped sequences.
+            # escape_ilike() centralises the logic; escape="\\" makes the ESCAPE
+            # character explicit in the emitted SQL.
+            pattern = f"%{escape_ilike(search)}%"
             stmt = stmt.where(
                 or_(
-                    Map.name.ilike(pattern),
-                    Map.description.ilike(pattern),
+                    Map.name.ilike(pattern, escape="\\"),
+                    Map.description.ilike(pattern, escape="\\"),
                 )
             )
         if visibility:

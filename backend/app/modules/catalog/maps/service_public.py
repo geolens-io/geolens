@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.edition import is_enterprise
 from app.core.identity import Identity
 from app.modules.auth.models import User
+from app.modules.catalog._ilike import escape_ilike
 from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
@@ -405,8 +406,7 @@ async def list_share_tokens(
 
     conditions: list[ColumnElement[bool]] = []
     if search:
-        escaped = search.replace("%", r"\%").replace("_", r"\_")
-        conditions.append(Map.name.ilike(f"%{escaped}%"))
+        conditions.append(Map.name.ilike(f"%{escape_ilike(search)}%", escape="\\"))
     if status_filter == "active":
         conditions.append(MapShareToken.is_active.is_(True))
         conditions.append(

@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 from app.core.edition import is_enterprise
 from app.platform.cache.provider import get_cache
+from app.modules.catalog._ilike import escape_ilike
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.catalog.maps.models import MapLayer
@@ -364,8 +365,7 @@ async def list_admin_embed_tokens(
         base = base.where(EmbedToken.map_id == map_id)
 
     if map_search:
-        escaped = map_search.replace("%", "\\%").replace("_", "\\_")
-        base = base.where(Map.name.ilike(f"%{escaped}%"))
+        base = base.where(Map.name.ilike(f"%{escape_ilike(map_search)}%", escape="\\"))
 
     if creator:
         base = base.where(User.username == creator)
