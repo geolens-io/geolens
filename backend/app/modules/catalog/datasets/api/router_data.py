@@ -39,6 +39,8 @@ from app.modules.catalog.datasets.domain.service import (
     get_related_datasets,
 )
 from app.core.dependencies import get_db
+from app.core.persistent_config import get_cached_semantic_search_rate_limit
+from app.modules.auth.router import limiter
 from app.platform.extensions import get_catalog_port, get_workflow_extension
 from app.platform.extensions.defaults import DefaultWorkflowExtension
 from app.platform.extensions.protocols import WorkflowTransitionContext
@@ -54,8 +56,15 @@ router = APIRouter(
 )
 
 
+def _semantic_search_rate_limit(_request: Request | None = None) -> str:
+    """SEC-S11: per-IP rate limit for embedding-cost endpoints."""
+    return f"{get_cached_semantic_search_rate_limit()}/minute"
+
+
 @router.get("/{dataset_id}/related/", response_model=RelatedDatasetsResponse)
+@limiter.limit(_semantic_search_rate_limit)
 async def list_related_datasets(
+    request: Request,
     dataset_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
