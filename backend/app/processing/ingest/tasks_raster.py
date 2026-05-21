@@ -188,9 +188,16 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 )
                 return
 
-            # 1. Mark running
+            # 1. Mark running.
+            # REMED-02 / ingest-audit P2-07: stamp current_step + progress so
+            # the polling UI sees a fresh "validating" signal on the first
+            # poll after pickup. Raster ingests are the prime motivator —
+            # 10-min COG conversion + quicklook generation otherwise looks
+            # like a dead spinner.
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
+            job.current_step = "validating"
+            job.progress = 0.0
             await session.commit()
 
             # 2. Resolve file path
@@ -248,6 +255,22 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 )
             raise ValueError("Missing CRS: raster has no coordinate reference system.")
 
+        # REMED-02 / ingest-audit P2-07: stamp current_step="cog_convert"
+        # before the branch so both paths exit with the same progress
+        # checkpoint. Manifest-VRT skips the actual COG work but the UI
+        # signal must still advance — keeps the step name consistent.
+        # Brief-session pattern mirrors phase-2 re-load (no session held
+        # open across the asyncio.to_thread CPU work below).
+        async with async_session() as _progress_session:
+            _progress_result = await _progress_session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            _progress_job = _progress_result.scalar_one_or_none()
+            if _progress_job is not None:
+                _progress_job.current_step = "cog_convert"
+                _progress_job.progress = 0.2
+                await _progress_session.commit()
+
         if is_manifest_vrt:
             local_cog_path = file_path
             cog_status = "verified"
@@ -281,6 +304,19 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
 
+        # REMED-02 / ingest-audit P2-07: quicklook generation is the other
+        # multi-second hotspot. Brief-session write before the two
+        # generate_quicklook calls so the UI advances.
+        async with async_session() as _progress_session:
+            _progress_result = await _progress_session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            _progress_job = _progress_result.scalar_one_or_none()
+            if _progress_job is not None:
+                _progress_job.current_step = "quicklook"
+                _progress_job.progress = 0.6
+                await _progress_session.commit()
+
         # 8. Generate quicklooks
         ql256 = await asyncio.to_thread(generate_quicklook, local_cog_path, 256)
         ql512 = await asyncio.to_thread(generate_quicklook, local_cog_path, 512)
@@ -303,6 +339,14 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 return
 
             try:
+                # REMED-02 / ingest-audit P2-07: phase-2 progress signal.
+                # Uncommitted — participates in the existing rollback shape
+                # so a phase-2 failure cleans up the progress write too.
+                # The brief-session "quicklook" write above is the durable
+                # mid-flight checkpoint.
+                job.current_step = "finalize"
+                job.progress = 0.8
+
                 # 9. Create DB records
                 title = um.get("title") or source_filename or "raster_dataset"
                 if is_manifest_vrt:
@@ -392,10 +436,17 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                 )
                 session.add(distribution)
 
-                # 12. Finalize job
+                # 12. Finalize job.
+                # REMED-02 / ingest-audit P2-07: stamp terminal progress
+                # alongside status. ``rows_processed`` stays NULL — raster
+                # ingests have no rows (the COG and quicklooks ARE the
+                # asset). Vector ingests set rows_processed in
+                # tasks_common._finalize_ingest from metadata["feature_count"].
                 job.status = "complete"
                 job.dataset_id = dataset.id
                 job.completed_at = datetime.now(timezone.utc)
+                job.current_step = "complete"
+                job.progress = 1.0
                 await session.commit()
                 final_status = "complete"
 
