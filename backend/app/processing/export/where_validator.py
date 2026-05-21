@@ -64,12 +64,16 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
     # with exp.Neg — they serve different purposes.
     exp.Neg,
     # exp.Dot (table-qualified column like table.column or schema.table.column)
-    # is intentionally EXCLUDED. Only unqualified column names are accepted;
-    # table-prefixed references are rejected at the AST level before the
-    # regex identifier check runs. This is a deliberate constraint — if
-    # table-qualified names are needed in a future version, add them here
-    # after a security review, because the identifier regex would then need
-    # to be updated to split on '.' and validate each component independently.
+    # is intentionally EXCLUDED from the allowlist. NOTE: sqlglot's postgres
+    # dialect parses `tbl.col` into an exp.Column node with .table / .db /
+    # .catalog args populated (not a separate exp.Dot node), so the rejection
+    # is enforced inside validate_where_ast by inspecting Column.table /
+    # Column.db / Column.catalog after the allowlist check (see KNOWN-10
+    # comment block below). Only unqualified column names are accepted; if
+    # table-qualified names are needed in a future version, remove the
+    # Column.table check after a security review, because the downstream
+    # identifier regex would then need to be updated to split on '.' and
+    # validate each component independently.
     exp.Where,  # the top-level WHERE node itself
 )
 
@@ -118,4 +122,21 @@ def validate_where_ast(where: str) -> None:
         if not isinstance(node, ALLOWED_EXPRESSIONS):
             raise ValueError(
                 f"Disallowed expression in WHERE clause: {type(node).__name__}"
+            )
+        # Table-qualified column references (e.g. `tbl.col` or `cat.tbl.col`)
+        # are rejected even though `exp.Column` is in the allowlist. sqlglot
+        # folds the table/db/catalog parts into the Column node's args
+        # rather than emitting a separate exp.Dot, so the docstring's stated
+        # "exp.Dot rejected at AST level" only takes effect if we inspect
+        # Column.table / Column.db here. Closing this gap defends against a
+        # future refactor of the downstream identifier regex (Phase 1071
+        # KNOWN-10).
+        if isinstance(node, exp.Column) and (
+            node.args.get("table") is not None
+            or node.args.get("db") is not None
+            or node.args.get("catalog") is not None
+        ):
+            raise ValueError(
+                "Disallowed expression in WHERE clause: table-qualified "
+                "column reference (only unqualified column names are accepted)"
             )

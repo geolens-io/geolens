@@ -163,6 +163,25 @@ class TestBlocklist:
         with pytest.raises(ValueError):
             validate_where_ast("COALESCE(col, 0) > 1")
 
+    def test_table_qualified_reference_rejected(self):
+        """Pins the deliberate exclusion of exp.Dot from ALLOWED_EXPRESSIONS
+        (where_validator.py:66-72 inline comment). Adding exp.Dot to the
+        allowlist would let table-prefixed column references pass the AST
+        check while the downstream identifier regex still operates on
+        unqualified names — re-opening the injection surface SEC-S09
+        closed in Phase 1062. KNOWN-10 (v1062 IN-03)."""
+        # Postgres parses `catalog.records.title = 'x'` as a Dot expression
+        # (schema.table.column). The validator must reject before SQL
+        # composition.
+        with pytest.raises(ValueError) as exc:
+            validate_where_ast("catalog.records.title = 'x'")
+        # Error message names exp.Dot or 'Disallowed expression'.
+        assert "Dot" in str(exc.value) or "Disallowed" in str(exc.value)
+
+        # Two-segment table.column form (the more common attack shape).
+        with pytest.raises(ValueError):
+            validate_where_ast("records.title = 'x'")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Wrapper integration — validate_where_clause (service.py)
