@@ -5,6 +5,7 @@ area: testing
 phase: 1062
 severity: info
 source: 1062-REVIEW.md
+resolves_phase: 1071
 files:
   - backend/app/processing/export/where_validator.py
   - backend/tests/test_where_validator.py

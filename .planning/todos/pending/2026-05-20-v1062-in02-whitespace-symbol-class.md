@@ -5,6 +5,7 @@ area: security
 phase: 1062
 severity: info
 source: 1062-REVIEW.md
+resolves_phase: 1071
 files:
   - backend/app/modules/auth/password.py
 ---

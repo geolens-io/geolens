@@ -5,6 +5,7 @@ area: documentation
 phase: 1063
 severity: info
 source: 1063-REVIEW.md
+resolves_phase: 1071
 files:
   - backend/app/processing/ingest/ogr.py
 ---

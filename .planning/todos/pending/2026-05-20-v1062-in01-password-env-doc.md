@@ -5,6 +5,7 @@ area: documentation
 phase: 1062
 severity: info
 source: 1062-REVIEW.md
+resolves_phase: 1071
 files:
   - .env.example
 ---

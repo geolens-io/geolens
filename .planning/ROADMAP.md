@@ -75,6 +75,7 @@
 - ✅ **v1013 Ingest Hardening** — Phases 1057-1060 (shipped 2026-05-20, local tag `v1013`, public tag `v1.3.0`) — see [archive](milestones/v1013-ROADMAP.md)
 - ✅ **v1014 Security Audit Remediation** — Phases 1061-1064 (shipped 2026-05-20, local tag `v1014`, public tag `v1.4.0`) — see [archive](milestones/v1014-ROADMAP.md)
 - ✅ **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (shipped 2026-05-20, local tag `v1015`, public tag `v1.5.0`) — see [archive](milestones/v1015-ROADMAP.md)
+- 🚧 **v1016 Hardening Sweep** — Phases 1071-1074 (in progress)
 
 ## Phases
 
@@ -90,9 +91,76 @@
 
 ✅ Complete — see [archive](milestones/v1015-ROADMAP.md). All 6 phases (1065-1070) and 13 requirements satisfied. Local tag `v1015` + public tag `v1.5.0`. Closes 4 P0 + 5 P1 from `/ingest-audit` 2026-05-19 + `router_reupload.py` IDOR + v1014 hygiene tail. Live Playwright MCP smoke 5/5 surfaces green against rebuilt containers.
 
+---
+
+### 🚧 v1016 Hardening Sweep (In Progress)
+
+**Milestone Goal:** Close v1015 tech-debt tail + v1014 INFO pending todos + Dependabot #40 (idna ≥ 3.15), run fresh `/sec-audit` + `/ingest-audit`, and remediate any newly surfaced findings. Audit-first sequencing precedent from v1014. Tag local `v1016` + public `v1.5.1` (patch — backward-compatible hygiene/hardening only).
+
+- [ ] **Phase 1071: Known Items Closure** - Close 13 KNOWN reqs: 5 v1014 INFO doc/test closures (password env docs, whitespace symbol class, where_validator dot AST, sanitize_authorization_token doc, stac_search_body pagination bounds), 5 v1015 tech-debt code items (download-token JWT consumption, CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp expansion, VRT VSI allow-list consolidation, alembic clean-DB upgrade exercise, export 403 parity), and Dependabot #40 idna bump
+- [ ] **Phase 1072: Re-audit & Triage** - Re-run `/sec-audit` + `/ingest-audit` against v1015 ship state; capture audit reports at `.planning/audits/`; classify each finding HIGH/MEDIUM/LOW/INFO and assign to Phase 1073 or 1074; expand REMED-01..02 into concrete REMED-XX IDs
+- [ ] **Phase 1073: Audit Remediation** - Close all HIGH/MEDIUM/LOW/INFO findings from Phase 1072 triage; mid-milestone `/gsd-phase` insertion (Phase 1073.5) if finding volume warrants sub-phase split by severity tier
+- [ ] **Phase 1074: Close Gate** - Enforce close-gate process items (full backend pytest + `e2e:smoke:builder` + typecheck); CHANGELOG `[1.5.1]` entry; live Playwright MCP smoke 5/5 surfaces on `localhost:8080`; cut + push `v1016` (local) + `v1.5.1` (public) tags
+
+## Phase Details
+
+### Phase 1071: Known Items Closure
+**Goal**: All v1015 tech-debt items, v1014 INFO pending todos, and the Dependabot #40 idna bump are closed in code, tests, and docs before fresh audits run
+**Depends on**: Nothing (first phase of v1016)
+**Requirements**: KNOWN-01, KNOWN-02, KNOWN-03, KNOWN-04, KNOWN-05, KNOWN-08, KNOWN-09, KNOWN-10, KNOWN-11, KNOWN-12, KNOWN-13 (11 reqs)
+**Success Criteria** (what must be TRUE):
+  1. `_resolve_download_user` consumes the JWT `sub` claim correctly for anonymous download tokens — the COG download path that mints a token also consumes it correctly end-to-end without falling through to the pre-existing no-sub gap
+  2. Alembic clean-DB upgrade is exercised in the v1016 close gate (Phase 1074) rather than verified by `down_revision` linkage alone — the close-gate runbook calls `alembic upgrade head` against a freshly-initialized DB
+  3. `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` clamp is applied to every GDAL subprocess that fetches remote sources (raster ingest, COG conversion, VRT build) — no GDAL subprocess inherits an unclamped env
+  4. VRT VSI allow-list is consolidated to a single source of truth — adding a new VSI scheme no longer requires a dual-edit between the validator and the env overlay
+  5. `/api/datasets/{id}/export/` returns 403 (not 401) for an authenticated viewer whose `export` permission has been revoked by an admin — full v1014 SEC-S04 parity
+  6. `.env.example` documents `PASSWORD_MIN_LENGTH` and `PASSWORD_REQUIRE_CLASSES` near the existing auth settings (v1062 IN-01 pending todo closed + moved to `resolved/`)
+  7. `validate_password_complexity` has a documented stance on whether whitespace counts toward the symbol class — either treats whitespace as a symbol with docstring rationale, or excludes it with docstring rationale (v1062 IN-02 pending todo closed + moved to `resolved/`)
+  8. `where_validator.py` carries a regression test for the `exp.Dot` AST bypass-path (v1062 IN-03 pending todo closed + moved to `resolved/`)
+  9. `_sanitize_authorization_token` 8-character minimum is documented inline at the function (v1063 IN-01 pending todo closed + moved to `resolved/`)
+  10. `StacSearchBody.limit` and `StacSearchBody.offset` carry Pydantic `ge`/`le` constraints (v1063 IN-02 pending todo closed + moved to `resolved/`)
+  11. `idna` is bumped to ≥ 3.15 in `backend/uv.lock`, Dependabot alert #40 (CVE-2026-45409 / GHSA-65pc-fj4g-8rjx) is closed, and the bump survives a pytest run
+**Plans**: TBD
+
+### Phase 1072: Re-audit & Triage
+**Goal**: Fresh `/sec-audit` and `/ingest-audit` runs against the v1015 ship state produce captured audit reports and a triage doc that maps every new finding to a severity tier and assigns it to Phase 1073 or 1074
+**Depends on**: Phase 1071 (audits run AFTER known items close so the audit baseline reflects v1015 + KNOWN-01..13 fixes)
+**Requirements**: AUDIT-01, AUDIT-02, AUDIT-03
+**Success Criteria** (what must be TRUE):
+  1. `.planning/audits/SECURITY-AUDIT-2026-05-21.md` exists and is the verbatim output of `/sec-audit` against HEAD after Phase 1071 lands
+  2. `.planning/audits/INGEST-AUDIT-2026-05-21.md` exists and is the verbatim output of `/ingest-audit` against HEAD after Phase 1071 lands
+  3. A triage classification doc exists that assigns each finding from both audits to one severity tier (HIGH/MEDIUM/LOW/INFO) and to either Phase 1073 (code fix) or Phase 1074 (close-gate process change)
+  4. REMED-01 and REMED-02 are expanded in REQUIREMENTS.md into concrete `REMED-XX` IDs (one per finding) — or, if both audits return zero findings, REMED-01..02 are explicitly closed as no-ops with a triage-doc note
+**Plans**: TBD
+
+### Phase 1073: Audit Remediation
+**Goal**: Every HIGH/MEDIUM/LOW/INFO finding surfaced by Phase 1072 triage is closed in code + tests + docs, or explicitly deferred via a pending-todo file with rationale
+**Depends on**: Phase 1072 (cannot close findings until they are classified and ID'd)
+**Requirements**: REMED-01, REMED-02 (expanding mid-milestone into concrete REMED-XX IDs per Phase 1072 triage; `/gsd-autonomous` may insert Phase 1073.5 to split by severity tier if finding count warrants)
+**Success Criteria** (what must be TRUE):
+  1. Every HIGH-severity finding from Phase 1072 is closed by a code change + test that pins the fix
+  2. Every MEDIUM-severity finding from Phase 1072 is closed by a code change + test that pins the fix
+  3. Every LOW-severity finding from Phase 1072 is closed by a code change + test, or moved to a pending-todo file with rationale and a Phase 1074 acknowledgment line
+  4. Every INFO-severity finding from Phase 1072 is closed inline (docstring/comment/.env.example/.md doc) or moved to a pending-todo file with rationale
+  5. The merge gate remains PASS (matching post-v1014 state) after Phase 1073 lands — no new HIGH/MEDIUM findings introduced by the remediation work itself
+**Plans**: TBD
+
+### Phase 1074: Close Gate
+**Goal**: All v1016 close-gate criteria pass — including the two v1015 close-gate process items (full backend pytest + `e2e:smoke:builder`+typecheck) and live Playwright MCP smoke — and `v1016` + `v1.5.1` tags are cut + pushed
+**Depends on**: Phase 1073
+**Requirements**: KNOWN-06, KNOWN-07, GATE-01, GATE-02, GATE-03, GATE-04, GATE-05, GATE-06 (8 reqs)
+**Success Criteria** (what must be TRUE):
+  1. `CHANGELOG.md` carries a `[1.5.1] - 2026-05-2X` entry that lists all KNOWN-01..13 closures + every REMED-XX from Phase 1073
+  2. `e2e:smoke:builder` and `npm run typecheck` are run as part of the close gate (KNOWN-06 close-gate process change) and both pass green
+  3. Full backend pytest (`uv run pytest` in `backend/`) is run as part of the close gate (KNOWN-07 close-gate process change), not touched-area scoped, and passes green
+  4. Frontend vitest passes (`npm run test` in `frontend/`)
+  5. Live Playwright MCP smoke on rebuilt `localhost:8080` containers — 5/5 surfaces PASS (catalog, dataset detail, builder, viewer, AI/embed status)
+  6. Local `v1016` tag and public `v1.5.1` tag are cut at the close-gate commit and pushed to `origin`
+**Plans**: TBD
+
 ## Progress
 
-(No active phases — start next milestone with `/gsd-new-milestone`)
+Phase 1071: Known Items Closure (Pending)
 
 ## Backlog
 
