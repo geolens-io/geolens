@@ -1,26 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1014
-milestone_name: Security Audit Remediation
-status: completed
-last_updated: "2026-05-20T23:50:00.000Z"
-last_activity: 2026-05-20 -- v1014 archived (28/28 reqs, tags v1014 + v1.4.0 at 8c7b20e1)
+milestone: v1015
+milestone_name: Ingest/Export Lifecycle Hardening
+status: planning
+last_updated: "2026-05-21T00:00:09.328Z"
+last_activity: 2026-05-21
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: (none — milestone archived)
-Plan: (none)
-Status: v1014 milestone archived; next milestone not yet started
-Last activity: 2026-05-20 -- v1014 archived (28/28 reqs, local tag v1014 + public tag v1.4.0 at 8c7b20e1; archive at .planning/milestones/v1014-ROADMAP.md)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-21 — Milestone v1015 started
 
 ## Project Reference
 

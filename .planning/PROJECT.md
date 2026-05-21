@@ -12,6 +12,20 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1015 Ingest/Export Lifecycle Hardening
+
+**Goal:** Make every ingest, reupload, and export path correct, atomic, and secure by default. Close the 4 P0 + 5 P1 findings from `/ingest-audit` 2026-05-19, remediate the `router_reupload.py` resource-level IDOR that v1014 acknowledged but deferred, and fold in v1014's hygiene tail — flipping the v1014 milestone audit verdict from "tech_debt + WARNING" to clean.
+
+**Target features:**
+
+- **Tier A (ship-blocking P0):** wire `downloadCog()` to the existing `create_download_token` helper via a new `POST /auth/download-token/{dataset_id}` endpoint (download is broken in prod today); add `check_dataset_access` to all 6 `router_reupload.py` handlers + drop the pre-commit `visibility-filter-coverage` exclusion; enforce `max_file_size_bytes` at `/ingest/upload` HTTP entry (presigned path already symmetric); re-validate `source_url` SSRF in `commit_import` + service-URL worker tasks (close DNS-rebinding TOCTOU between preview and commit); decide the `IngestJob.last_heartbeat_at` story (writer OR drop column + rely on `JOB_TIMEOUT_SECONDS`).
+- **Tier B (P1 follow-ups):** call `_assert_compatible_record_type` at the top of `reupload_service_preview`; replace ogr2ogr subprocess `Authorization` env var with `GDAL_HTTP_HEADER_FILE` (close `/proc/<pid>/environ` leak); add `<VRTDataset>` magic-byte sniff + worker env clamps for `.vrt` SSRF/path-traversal defense-in-depth; reject `;`, `--`, `/* */`, unbalanced single-quotes in `validate_where_clause`; swap `export_dataset_endpoint` from `get_current_active_user` to `Depends(require_permission("export"))`.
+- **Tier C (hygiene close-gate):** add 5 missing pending todo files for v1014 deferred INFO findings (Phase 1062 IN-01/02/03 + Phase 1063 IN-01/02); tick 6 stale REQUIREMENTS.md checkboxes for already-implemented v1014 requirements; close 2 existing v1014 INFO todos if cheap (`_revalidate_redirect` HTTP 305 vs 302, ogr2ogr `GDAL_HTTP_FOLLOWLOCATION` comment).
+
+**Tag plan:** local `v1015` + public `v1.5.0` (per v1014 precedent — public tags align with public release cadence, not milestone counter). Pre-tag gates: typecheck 0 / vitest passing / e2e:smoke:builder pass / i18n parity / backend pytest passing / live Playwright MCP smoke on `localhost:8080` driven by orchestrator (IA-P0-01 download end-to-end + REUPLOAD-IDOR closure + heartbeat under simulated rolling deploy).
+
+**Explicit exclusions:** v13.12 LOW (71 findings) + MEDIUM (83 findings) polish/scalability sweep; ingest-audit P1-05 (VRT orphan-guard rollback test) + P1-07 (dataset job status cache invalidation); ingest-audit P2 (10 findings); `recreate-public-repo-before-launch` (belongs in `~/Code/getgeolens.com/.planning/`); 999.6 tenant scoping (Cloud SaaS prereq); 999.13/14/15/16 (deployment/distribution P2).
+
 ## Recent Shipped Milestone: v1014 Security Audit Remediation
 
 **Shipped:** 2026-05-20
@@ -1161,4 +1175,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-20 — shipped milestone v1014 Security Audit Remediation (28 requirements, 4 phases 1061-1064, local tag v1014, public tag v1.4.0, 103 commits 470a5723..7348c03a). Merge gate flipped from BLOCK → PASS; all 7 HIGH + 9 MEDIUM + 10 LOW findings from /sec-audit 2026-05-19 closed; AGENTS.md visibility-filter coverage rule + pre-commit hooks pinned. Archive: .planning/milestones/v1014-ROADMAP.md.*
+*Last updated: 2026-05-20 — started milestone v1015 Ingest/Export Lifecycle Hardening; closes 4 P0 + 5 P1 from /ingest-audit 2026-05-19 + REUPLOAD-IDOR (v1014 acknowledged-but-deferred) + v1014 hygiene tail; ~13-14 requirements across ~5-6 phases starting at phase 1065; tag plan v1015 + v1.5.0. Previously shipped: v1014 Security Audit Remediation (28 requirements, 4 phases 1061-1064, local tag v1014, public tag v1.4.0, 103 commits 470a5723..7348c03a). Archive: .planning/milestones/v1014-ROADMAP.md.*
