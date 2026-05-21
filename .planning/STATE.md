@@ -3,33 +3,33 @@ gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
-stopped_at: Phase 1076 complete (6/6 plans); ING-02..07 closed; ready for Phase 1077/1078 (parallel-eligible) and Phase 1079 (gated on all three)
-last_updated: "2026-05-21T21:30:00.000Z"
-last_activity: 2026-05-21
+stopped_at: Phase 1077 complete (2/2 plans); ING-01 + ING-05 closed; ready for Phase 1078 (independent) and Phase 1079 (gated on 1078)
+last_updated: "2026-05-21T20:30:00.000Z"
+last_activity: 2026-05-21 -- Phase 1077 complete; frontend ingest P2 closed (ING-01, ING-05)
 progress:
-  total_phases: 10
-  completed_phases: 2
-  total_plans: 11
-  completed_plans: 16
-  percent: 20
+  total_phases: 5
+  completed_phases: 3
+  total_plans: 13
+  completed_plans: 13
+  percent: 60
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1076 (backend-ingest-p2-closure) — COMPLETE
-Plan: 6 of 6 (all done)
-Status: Complete 2026-05-21
-Last activity: 2026-05-21
-Next phase: 1077 / 1078 (parallel-eligible; 1079 gated on all three)
+Phase: 1077 (frontend-ingest-p2-closure) — COMPLETE
+Plan: 2 of 2 — Close-gate landed
+Status: Phase 1077 complete; ready for Phase 1078
+Last activity: 2026-05-21 -- Phase 1077 complete; frontend ingest P2 closed (ING-01, ING-05)
+Next phase: 1078 (CI Alembic Workflow — independent); 1079 (close gate, gated on 1078)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1077 / 1078 (parallel-eligible after Phase 1076 closure)
+**Current focus:** Phase 1078 — ci-alembic-clean-db-upgrade-workflow (next eligible)
 
 ## Last Shipped Milestone
 
@@ -57,6 +57,7 @@ See: .planning/PROJECT.md
 
 ### Decisions
 
+- **2026-05-21 (v1017 Phase 1077):** Both ING-01 + ING-05 closed; frontend ingest P2 tail fully resolved. Cumulative impact: 1 new `getCogDownloadUrl(id)` helper centralizing the COG download path-construction (single edit site for future route changes), 1 new `uploadChunks(urls, file, partSize)` helper centralizing the chunked-PUT loop (single edit site for future retry / abort / backoff), and 1 new `_presignedUpload.test.ts` (5 pinned behaviors). Full frontend regression gate green: `npx tsc -b` exits 0 with zero errors in any of Plan 01's 5 touched/created files; `npx vitest run` reports 213/213 test files and 2105/2105 tests passing. Zero observable UI behavior change. See `.planning/phases/1077-frontend-ingest-p2-closure/1077-VERIFICATION.md` for the full test evidence trail and `.planning/phases/1077-frontend-ingest-p2-closure/1077-SUMMARY.md` for the closure summary.
 - **2026-05-21 (v1017 Phase 1076):** All 5 ING requirements (ING-02, ING-03, ING-04, ING-06, ING-07) closed; backend ingest P2 tail fully resolved. Cumulative impact: 4 internal commits dropped from `metadata.py` phase-2 helpers, 1 new `StorageProvider.get_stream()` async-generator method, 1 mtime-guarded worker exports sweep, 1 single-retry on `lock_timeout` in `_apply_reupload_swap`, 1 opt-in `strict_cog` flag on `RasterCommitRequest`. 256/256 targeted regression tests pass; zero cross-plan interference; zero anomalies. See `.planning/phases/1076-backend-ingest-p2-closure/1076-VERIFICATION.md` for the full test evidence trail and `.planning/phases/1076-backend-ingest-p2-closure/1076-SUMMARY.md` for the closure summary.
 - **2026-05-21 (v1017):** Test infrastructure MUST run first (Phase 1075) so every downstream phase gets clean pytest signal — TI-01 conftest refactor is a precondition for accurate test results on ING-02 regression test + close-gate.
 - **2026-05-21 (v1017):** TI-03 pytest baseline doc is the LAST phase work (Phase 1079) — it captures the post-fix steady state after all 4 prior phases land.
@@ -88,16 +89,15 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T21:30:00.000Z
-Stopped at: Phase 1076 complete (6/6 plans); ING-02..07 closed; ready for Phase 1077/1078 (parallel-eligible) and Phase 1079 (gated on all three)
+Last session: 2026-05-21T22:00:00.000Z
+Stopped at: Phase 1077 complete (2/2 plans); ING-01 + ING-05 closed; ready for Phase 1078 (independent) and Phase 1079 (gated on 1078)
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 1076 is closed. Two downstream phases are now unblocked and parallel-eligible:
-  - Invoke `/gsd:plan-phase 1077` (Frontend Ingest P2 Closure — depends on 1075)
+- Phase 1077 is closed. Phase 1078 is the only remaining predecessor for Phase 1079.
   - Invoke `/gsd:plan-phase 1078` (CI Alembic Workflow — independent of 1075/1076/1077)
-- Phase 1079 (Close Gate + Hygiene) is gated on all prior phases; Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures). Phase 1076 also surfaced 3 pre-existing environmental issues (ENV-01..03) that overlap with the verification-gap set — see `1076-VERIFICATION.md` Pre-Existing Environmental Issues section.
+- Phase 1079 (Close Gate + Hygiene) is gated on all prior phases; with 1075, 1076, 1077 complete, only 1078 remains. Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures). Phase 1076 also surfaced 3 pre-existing environmental issues (ENV-01..03) that overlap with the verification-gap set — see `1076-VERIFICATION.md` Pre-Existing Environmental Issues section. Phase 1077 surfaced 36 pre-existing TypeScript diagnostic errors in 14 untouched frontend test files — see `1077-VERIFICATION.md` Typecheck section for the full inventory; candidate for v1018 hygiene or Phase 1079 HYG-01 triage.
 
 ## Deferred Items
 

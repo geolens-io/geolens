@@ -106,7 +106,7 @@
 
 - [x] **Phase 1075: Conftest Test-DB Lifecycle Refactor + Baseline Fixes** - Eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` conftest errors and fix the 11 v1015-carryover baseline pytest failures so pytest signal is trustworthy on all downstream phases (Complete 2026-05-21 within named scope; 7 verification-gap findings + parallel-mode environmental cap documented for Phase 1079)
 - [x] **Phase 1076: Backend Ingest P2 Closure** - Close 5 backend P2 findings: metadata.py internal commit subversion (P2-02), local-storage COG streaming (P2-03), worker exports temp-dir age guard (P2-04), reupload swap autovacuum retry (P2-08), strict_cog raster commit flag (P2-09) (Complete 2026-05-21; 256/256 targeted regression tests passing)
-- [ ] **Phase 1077: Frontend Ingest P2 Closure** - Extract `getCogDownloadUrl()` helper (P2-01) and shared `uploadChunks()` presigned-upload helper (P2-05) so future retry/abort/backoff lands in one place
+- [x] **Phase 1077: Frontend Ingest P2 Closure** - Extract `getCogDownloadUrl()` helper (P2-01) and shared `uploadChunks()` presigned-upload helper (P2-05) so future retry/abort/backoff lands in one place (Complete 2026-05-21; 2105/2105 vitest tests passing across 213 files; `tsc -b` exit 0 with zero errors in touched files)
 - [ ] **Phase 1078: CI Alembic Clean-DB Upgrade Workflow** - Wire `test_alembic_upgrade_clean_db.sh` into a GitHub Actions workflow that spins up a clean Postgres + PostGIS, runs `alembic upgrade head`, and fails the build on migration regressions (closes SEC-OBSV-03 from Phase 1072 triage)
 - [ ] **Phase 1079: Close Gate + Hygiene** - Capture post-v1017 pytest baseline doc (TI-03), docker-smoke re-verify deferred Phase 1071 KNOWN-02 (VG-01), triage 174 quick_tasks to <50 active (HYG-01), full close-gate protocol (pytest + typecheck + e2e:smoke + live MCP), CHANGELOG `[1.5.2] - 2026-05-21`, tag `v1017` + `v1.5.2`
 
@@ -186,7 +186,7 @@
 |-------|----------------|--------|-----------|
 | 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 5/5 | Complete | 2026-05-21 |
 | 1076. Backend Ingest P2 Closure | 6/6 | Complete | 2026-05-21 |
-| 1077. Frontend Ingest P2 Closure | 0/0 | Not started | - |
+| 1077. Frontend Ingest P2 Closure | 2/2 | Complete | 2026-05-21 |
 | 1078. CI Alembic Clean-DB Upgrade Workflow | 0/0 | Not started | - |
 | 1079. Close Gate + Hygiene | 0/0 | Not started | - |
 
