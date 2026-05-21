@@ -1,5 +1,34 @@
 # Milestones
 
+## v1016 Hardening Sweep (Shipped: 2026-05-21)
+
+**Phases completed:** 4 phases (1071-1074), 12 plans, 26/26 requirements
+
+**Local tag:** `v1016` (commit `70241f96`)
+**Public tag:** `v1.5.1` (at `70241f96`)
+**Audit verdict:** passed — 26/26 reqs · 4/4 phases · 3/3 integration checks · 5/5 live smoke surfaces
+
+**Key accomplishments:**
+
+1. **Known-items closure (Phase 1071)** — 11 KNOWN reqs closed: Dependabot #40 idna ≥ 3.15 (CVE-2026-45409); `_resolve_download_user` JWT sub claim consumption (KNOWN-01); `gdal_safe_env` helper applied to all 4 GDAL CLI subprocesses — gdaladdo, gdalwarp, gdal_translate, gdalbuildvrt (KNOWN-03); `VRT_VSI_ALLOWED_PREFIXES` single source of truth in `vrt.py` (KNOWN-04); export 403 for revoked-export-on-viewer (KNOWN-05); `test_alembic_upgrade_clean_db.sh` script (KNOWN-02); 5 v1014 INFO closures (PASSWORD env docs, whitespace symbol class, `exp.Dot` AST test, `_sanitize_authorization_token` 8-char doc, `StacSearchBody` Pydantic bounds — KNOWN-08..12). KNOWN-06/07 (close-gate process enforcement) remapped to Phase 1074 as GATE reqs.
+2. **Fresh audit sweep (Phase 1072)** — `/sec-audit` PASS (0 findings, 3 SEC-OBSV defense-in-depth observations); `/ingest-audit` PASS (0 P0/P1, 9 P2). Triage doc classifies 12 findings: 4 → Phase 1073, 8 → v1017. REQUIREMENTS.md expanded from 24 → 26 reqs. First clean double-pass for this codebase.
+3. **Audit remediation (Phase 1073)** — 4 P2 findings closed: TanStack `jobStatusByDataset` invalidation wired into all re-upload/VRT mutations (REMED-01); `JobStatusResponse` extended with `progress`/`current_step`/`rows_processed` + Alembic migration 0022 + 8+5 worker step-write sites (REMED-02); `_job_phase_session` async context manager replacing 14+ session-bracket boilerplate sites in `tasks_vector.py`/`tasks_raster.py` (REMED-03); `build_titiler_cog_url` helper + SEC-OBSV-01/02 docstrings (REMED-04).
+4. **Close gate (Phase 1074)** — Full close-gate protocol: full backend pytest 1636/1647 PASS (11 failures are v1015 carryover, not regressions); frontend vitest exit 0; `e2e:smoke:builder` 25/1; `npm run typecheck` exit 0; live Playwright MCP smoke 5/5 PASS (including REMED-02 live `JobStatusResponse` contract verification and KNOWN-02 live alembic clean-DB smoke); `CHANGELOG.md` `[1.5.1] - 2026-05-21`; tags `v1016` + `v1.5.1` cut + pushed. Migration 0022 verified live.
+
+**Smoke gate:** Backend pytest 1636/1647 PASS (11 v1015-carryover failures; 1363 test-DB-lifecycle conftest errors are pre-existing infra issue). Frontend vitest exit 0. `e2e:smoke:builder` 25 PASS / 1 skipped. `npm run typecheck` exit 0. Live Playwright MCP smoke 5/5 PASS on rebuilt containers.
+
+**Migrations:** `0022_ingest_jobs_progress_columns` (reversible — adds `progress`, `current_step`, `rows_processed` nullable columns to `ingest_jobs`).
+
+**Merge-gate transition:** PASS maintained from v1014. Both fresh audits returned 0 HIGH/MEDIUM findings. The full suite of 16 S01-S16 security findings from v1014 audit confirmed closed; 9 v1015 ingest findings confirmed closed.
+
+**Deferred items at close:** 8 v1015-carried P2 findings (TD-DEFER-01..08) → v1017. 11 v1015 baseline pytest failures + 1363 test-DB-lifecycle conftest errors → v1017 investigation. SEC-OBSV-03 CI wiring for `test_alembic_upgrade_clean_db.sh` → v1017.
+
+**Patterns established (7):** Brief-session progress write; `build_titiler_cog_url` helper contract; SEC-OBSV docstring contract; audit-first sequencing (KNOWN before AUDIT before REMED); TanStack jobStatusByDataset invalidation as onSuccess contract; `_job_phase_session` as testable session-bracket surface; milestone KNOWN→AUDIT→REMED→GATE four-phase sequencing.
+
+See `.planning/milestones/v1016-ROADMAP.md` for full archive.
+
+---
+
 ## v1015 Ingest/Export Lifecycle Hardening (Shipped: 2026-05-20)
 
 **Phases completed:** 6 phases (1065-1070), 13 plans, 13/13 requirements

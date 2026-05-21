@@ -12,18 +12,29 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1016 Hardening Sweep
+## Recent Shipped Milestone: v1016 Hardening Sweep
 
-**Goal:** Close the v1015 tech-debt tail + v1014 INFO pending todos + Dependabot #40 (idna ≥ 3.15), then run fresh `/sec-audit` + `/ingest-audit` and remediate any newly surfaced findings. Tag local `v1016` + public `v1.5.1` (patch).
+**Shipped:** 2026-05-21
+**Tag:** `v1016` (local) + `v1.5.1` (public) at commit `70241f96`
 
-**Target features:**
+**Goal delivered:** Closed the v1015 tech-debt tail (7 KNOWN items) + 5 v1014 INFO pending todos + Dependabot #40 (idna ≥ 3.15), ran fresh `/sec-audit` + `/ingest-audit` (both returned PASS at all HIGH/MEDIUM tiers — first clean double-pass), and remediated 4 P2 ingest/frontend audit findings. Full close-gate protocol enforced in Phase 1074 (full backend pytest + `e2e:smoke:builder` + `npm run typecheck` + live Playwright MCP smoke).
 
-- **Known-items closure (13 items)** — Dependabot #40 idna bump (CVE-2026-45409) + 5 v1014 INFO doc/test closures (password env docs, whitespace symbol class, where_validator dot AST test, sanitize_authorization_token 8-char doc, stac_search_body pagination bounds) + 7 v1015 tech-debt items (`_resolve_download_user` JWT consumption gap, alembic clean-DB upgrade exercise, `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` clamp expansion across GDAL subprocesses, VRT VSI allow-list consolidation, export 403 parity for revoked-export-on-viewer, e2e:smoke:builder + typecheck enforced in close-gate, full backend pytest enforced in close-gate).
-- **Fresh audit sweep** — Re-run `/sec-audit` + `/ingest-audit` to catch anything new since 2026-05-19 baseline; capture reports + triage classification at `.planning/audits/`.
-- **Audit remediation** — Tier-ordered closure of HIGH/MEDIUM/LOW/INFO findings surfaced by the re-audit. Sub-phase split via mid-milestone `/gsd-phase` if finding count warrants it.
-- **Close gate** — CHANGELOG `[1.5.1]` entry; full backend pytest + frontend vitest + `e2e:smoke:builder` + `npm run typecheck` green; live Playwright MCP smoke on `localhost:8080` against rebuilt containers; tags `v1016` + `v1.5.1` cut.
+**Delivered (26/26 reqs, 4 phases 1071-1074, 12 plans):**
 
-**Key context:** Audit-first sequencing precedent from v1014 (which ran `/sec-audit` outside the milestone, then closed findings in tiered phases). v1016 internalizes the audit run as Phase 1072 because audits are due fresh; tradeoff is a possible roadmap-amendment step after 1072 lands (acceptable — `/gsd-autonomous` handles this via mid-milestone `/gsd-phase`). Stale 2026-05-05 `recreate-public-repo-before-launch` todo moved to `resolved/` (1.0.0 already shipped publicly; framing is moot). Public version is patch `v1.5.1` (hygiene/hardening only — backward-compatible).
+- **Known-items closure (Phase 1071)** — Dependabot #40 idna ≥ 3.15 bump (CVE-2026-45409); 5 v1014 INFO doc/test closures (PASSWORD env docs, whitespace symbol class, `exp.Dot` AST test, `_sanitize_authorization_token` 8-char doc, `StacSearchBody` Pydantic bounds); `_resolve_download_user` JWT sub claim consumption; `gdal_safe_env` helper applied to all 4 GDAL CLI subprocesses; `VRT_VSI_ALLOWED_PREFIXES` single source of truth; export 403 for revoked-export-on-viewer; `test_alembic_upgrade_clean_db.sh` script.
+- **Fresh audit sweep (Phase 1072)** — `SECURITY-AUDIT-2026-05-21.md` (PASS, 0 findings); `INGEST-AUDIT-2026-05-21.md` (PASS, 0 P0/P1, 9 P2); `TRIAGE-2026-05-21.md` maps 12 findings: 4 → Phase 1073, 8 → v1017. REQUIREMENTS.md expanded from 24 → 26 reqs.
+- **Audit remediation (Phase 1073)** — TanStack `jobStatusByDataset` invalidation wired into all re-upload/VRT mutations (REMED-01); `JobStatusResponse` extended with `progress`/`current_step`/`rows_processed` + Alembic migration 0022 + worker step-write sites (REMED-02); `_job_phase_session` async context manager replacing 14+ session-bracket boilerplate sites (REMED-03); `build_titiler_cog_url` helper + SEC-OBSV-01/02 docstrings (REMED-04).
+- **Close gate (Phase 1074)** — CHANGELOG `[1.5.1] - 2026-05-21`; full backend pytest 1636/1647 PASS (11 failures are v1015 carryover, not regressions); vitest exit 0; e2e:smoke:builder 25/1; typecheck exit 0; live Playwright MCP smoke 5/5 PASS including REMED-02 live `JobStatusResponse` contract verification; tags cut + pushed.
+
+**Key wins:**
+- Security merge gate: **PASS** (0 HIGH / 0 MEDIUM / 0 LOW — all 36 v1014/v1015 prior findings confirmed closed + 11 KNOWN closures verified)
+- Ingest lifecycle: 4 P2 findings closed; `_job_phase_session` eliminates 14+ copy-pasted boilerplate sites
+- `gdal_safe_env`: every GDAL subprocess shares one env-overlay helper — no subprocess inherits an unclamped env
+- `JobStatusResponse` progress fields: 10-min raster ingests now show live step-transition progress in UI
+- `build_titiler_cog_url`: 3 inlined `http://titiler:8000` f-strings consolidated; SEC-OBSV docstring contracts pinned
+
+**Migrations:** `0022_ingest_jobs_progress_columns` (reversible).
+**Milestone close:** 26/26 reqs; tag `v1016` + `v1.5.1` at commit `70241f96`. See `.planning/milestones/v1016-ROADMAP.md` for full archive.
 
 ## Recent Shipped Milestone: v1015 Ingest/Export Lifecycle Hardening
 
