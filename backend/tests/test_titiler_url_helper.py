@@ -70,3 +70,59 @@ def test_build_titiler_cog_url_handles_tiles_path():
     """Endpoint with nested slashes (Titiler tiles route) is preserved verbatim."""
     result = build_titiler_cog_url("tiles/WebMercatorQuad/5/10/15.png")
     assert result == "http://titiler:8000/cog/tiles/WebMercatorQuad/5/10/15.png"
+
+
+# ---------------------------------------------------------------------------
+# Structural regression pins (Task 4 / REMED-04)
+#
+# These tests fail if a future hand silently re-inlines `http://titiler:8000`
+# into either caller file or drops the helper import. The combination of
+# "import exists" + "no literal in non-comment lines" guards against both
+# import-but-also-inline and inline-without-import shapes.
+# ---------------------------------------------------------------------------
+
+
+def test_tiles_router_uses_helper():
+    """Pin: backend/app/processing/tiles/router.py imports + uses build_titiler_cog_url."""
+    from pathlib import Path
+
+    source = Path(__file__).parent.parent / "app" / "processing" / "tiles" / "router.py"
+    text = source.read_text()
+    # Strip comments before checking for literal Titiler hosts. SEC-OBSV-01
+    # docstring/comment references "Titiler" in prose but never the literal
+    # "http://titiler:8000" host string -- verified by static read.
+    non_comment_lines = [
+        line for line in text.splitlines() if not line.strip().startswith("#")
+    ]
+    non_comment_text = "\n".join(non_comment_lines)
+    assert (
+        "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
+    )
+    assert "http://titiler:8000" not in non_comment_text, (
+        "tiles/router.py must NOT inline http://titiler:8000 -- use build_titiler_cog_url"
+    )
+
+
+def test_stac_router_uses_helper():
+    """Pin: backend/app/modules/catalog/sources/stac_router.py imports + uses build_titiler_cog_url."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).parent.parent
+        / "app"
+        / "modules"
+        / "catalog"
+        / "sources"
+        / "stac_router.py"
+    )
+    text = source.read_text()
+    non_comment_lines = [
+        line for line in text.splitlines() if not line.strip().startswith("#")
+    ]
+    non_comment_text = "\n".join(non_comment_lines)
+    assert (
+        "from app.platform.storage.titiler_url import build_titiler_cog_url" in text
+    )
+    assert "http://titiler:8000" not in non_comment_text, (
+        "stac_router.py must NOT inline http://titiler:8000 -- use build_titiler_cog_url"
+    )
