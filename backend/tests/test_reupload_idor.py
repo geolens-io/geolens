@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.api import router_reupload
 from app.platform.jobs.models import IngestJob
+from app.processing.ingest.ogr import IngestionError
 
 
 # ---------------------------------------------------------------------------
@@ -403,7 +404,31 @@ class TestReuploadIDOROwnerAllowed:
         """Owner editor calling service/preview gets 400/502 (mock URL), NOT 404.
 
         This confirms check_dataset_access does not block the owner.
-        The URL is not a real service so we expect 400 (SSRF or invalid).
+
+        TD-04 disposition (mock-out, not skip-with-rationale): the
+        reupload_service_preview handler at router_reupload.py:263 calls
+        run_service_preview, which spawns an `ogrinfo` subprocess. On
+        macOS dev hosts without `gdal-bin` on PATH, the subprocess raises
+        FileNotFoundError (NOT IngestionError), bypassing the handler's
+        `except IngestionError → 502` branch and surfacing as 500 — which
+        would fail this test's `status_code in (400, 502)` assertion. We
+        mock run_service_preview at the CALLER module path
+        (`app.modules.catalog.datasets.api.router_reupload.run_service_preview`)
+        because router_reupload.py:44 uses a module-top `from ... import`
+        binding — unlike Plan 1081-02's lazy-import case (function-body
+        import in tasks_reupload.py), the symbol is bound in the caller's
+        namespace at module load time, so the caller-namespace target is
+        required for the patch to intercept the call. We raise
+        IngestionError to deterministically drive the production 502 path
+        — the same 502 the test would get on a host with gdal-bin when
+        the WFS request fails downstream. The IDOR/auth invariant
+        (`check_dataset_access` does not block the owner → non-404) stays
+        end-to-end exercised; only the incidental ogrinfo plumbing is
+        mocked. Skip-with-rationale was rejected because gdal-bin IS
+        installed in the Dockerfile (lines 22-26, 70-74), so a
+        `shutil.which("ogrinfo")` skip would silently skip on macOS dev
+        but never on CI — exactly the false-green pattern the v1017
+        milestone audit named as the TD-04 problem.
         """
         owner_headers, owner_id = await _create_test_user_with_role(
             client, admin_auth_header, "editor"
@@ -412,15 +437,30 @@ class TestReuploadIDOROwnerAllowed:
             test_db_session, created_by=owner_id
         )
 
-        resp = await client.post(
-            f"/datasets/{dataset.id}/reupload/service/preview",
-            json={
-                "url": "https://example.com/wfs",
-                "service_type": "WFS 2.0.0",
-                "layer_name": "roads",
-            },
-            headers=owner_headers,
-        )
+        # TD-04: mock run_service_preview so the test does not depend on
+        # `ogrinfo` being on the host PATH. Patch the CALLER module
+        # (router_reupload) because the import at router_reupload.py:44
+        # is module-top (`from ... import run_service_preview`), binding
+        # the symbol in the caller's namespace at load time. Raising
+        # IngestionError drives the handler's
+        # `except IngestionError → HTTPException(502)` branch at
+        # router_reupload.py:268-272 — the same response shape the test
+        # would get on a host with gdal-bin when the WFS service request
+        # fails. Keeps the IDOR/auth invariant (owner is non-404) fully
+        # exercised; only the incidental ogrinfo subprocess is mocked.
+        with patch(
+            "app.modules.catalog.datasets.api.router_reupload.run_service_preview",
+            new=AsyncMock(side_effect=IngestionError("ogrinfo failed: mocked for TD-04")),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "roads",
+                },
+                headers=owner_headers,
+            )
         # Owner is allowed — should not get 404. May get 400 (bad URL) or 502 (network).
         assert resp.status_code != 404, (
             f"Owner should not get 404 from service/preview, "
