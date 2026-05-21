@@ -305,9 +305,11 @@ class Settings(BaseSettings):
     @property
     def database_connect_args(self) -> dict:
         connect_args: dict = {}
-        if self.database_ssl_mode == "prefer":
+        if self.database_ssl_mode == "disable":
+            connect_args["ssl"] = False
+        elif self.database_ssl_mode == "prefer":
             connect_args["ssl"] = "prefer"
-        elif self.database_ssl_mode != "disable":
+        else:
             import ssl
 
             ssl_ctx = ssl.create_default_context(cafile=self.database_ssl_ca_cert)
