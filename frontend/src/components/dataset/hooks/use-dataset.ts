@@ -154,8 +154,9 @@ export function useReuploadServicePreview() {
 }
 
 export function useReuploadCommit() {
+  const qc = useQueryClient();
   return useMutation({
-    // GPKG-01 Phase 1058: optional layerName for multi-layer GPKG files
+    // GPKG-01 Phase 1058: optional layerName for multi-layer file sources
     mutationFn: ({
       datasetId,
       jobId,
@@ -169,6 +170,13 @@ export function useReuploadCommit() {
       token?: string;
       layerName?: string;
     }) => reuploadCommit(datasetId, jobId, sridOverride, token, layerName),
+    // REMED-01 (ingest-audit P2-06): invalidate the dataset-detail warnings
+    // banner cache so it refetches the new ingest job's warnings. The
+    // useDatasetJobStatus query uses `staleTime: Infinity` and would
+    // otherwise hold the prior job's value until a hard refresh.
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatusByDataset(variables.datasetId) });
+    },
   });
 }
 
