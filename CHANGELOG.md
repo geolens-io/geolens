@@ -11,6 +11,74 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-05-21
+
+### Test infrastructure (v1017 milestone — Phase 1075)
+
+- Refactored `backend/tests/conftest.py` to use per-worker test-DB isolation
+  via `PYTEST_XDIST_WORKER`. Eliminates the 1363
+  `asyncpg.exceptions.InvalidCatalogNameError` errors observed in v1016
+  Phase 1074 full-suite runs. Adds 6 regression tests pinning the lifecycle
+  invariants. Adds `pytest-xdist>=3.6.0` to dev dependencies.
+- Fixed 11 v1015 baseline pytest failures across `test_defer_orphan_guard.py`
+  (3 — mock-fixture drift from Phase 1065-02 IDOR closure), `test_ingest.py`
+  (3 — mock signature drift + SSRF re-validation from Phase 1066 IA-P0-02/03),
+  and `test_maps_style_json.py` (5 — snake_case canonicalization from
+  Phase 1060 `a400eb89`).
+- Captured post-v1017 pytest baseline at
+  `.planning/audits/PYTEST-BASELINE-2026-05-21.md`. Future regressions are
+  now spotted by diff.
+
+### Backend ingest P2 closure (Phase 1076)
+
+- **ING-02:** Removed 4 internal `await session.commit()` from `metadata.py`
+  phase-2 helpers (`ensure_geom_column`, `clip_to_mercator_bounds`,
+  `add_4326_column`, `grant_reader_access`). `_finalize_ingest` is now the
+  single phase-2 commit point. Added regression test asserting rollback
+  undoes column-add.
+- **ING-03:** New `StorageProvider.get_stream()` Protocol method +
+  local-storage 1 MiB chunked impl. Local-storage COG export now streams
+  instead of buffering — 5 GB COG no longer pins 5 GB resident memory.
+  S3 redirect path untouched.
+- **ING-04:** Worker exports temp-dir sweep at `worker.py` now gates on
+  `stat.st_mtime > 1 hour`; in-flight large exports survive worker restarts.
+  New helper `_sweep_orphaned_exports`.
+- **ING-06:** `_apply_reupload_swap` now retries once on
+  `LockNotAvailableError` with `SET LOCAL lock_timeout = '15s'` + 200ms
+  sleep. Logs contention event for autovacuum correlation.
+- **ING-07:** New optional `RasterCommitRequest.strict_cog: bool = False`
+  field. When `True`, raster commit rejects non-COG TIFFs at the
+  magic-byte rule. Backward-compatible default.
+
+### Frontend ingest P2 closure (Phase 1077)
+
+- **ING-01:** New `getCogDownloadUrl(id)` helper in
+  `frontend/src/api/datasets.ts`. `JobProgress.tsx` no longer string-concats
+  the URL.
+- **ING-05:** Extracted `uploadChunks(urls, file, partSize)` into new
+  `frontend/src/api/_presignedUpload.ts`. Both `ingest.ts` and `datasets.ts`
+  chunked-PUT loops now share the canonical helper.
+
+### CI hardening (Phase 1078)
+
+- **CI-01:** Wired `backend/scripts/test_alembic_upgrade_clean_db.sh` into
+  GitHub Actions as the `alembic-clean-db` job. Migration regressions
+  against a fresh DB now fail the build immediately, not at production
+  rollout. Closes SEC-OBSV-03 from v1016 Phase 1072 triage.
+
+### Verification (Phase 1079)
+
+- **TI-03:** Pytest baseline captured.
+- **VG-01:** Re-verified Phase 1071 KNOWN-02 (alembic clean-DB script)
+  against live `docker compose up -d --build` stack.
+- **HYG-01:** Trimmed accumulated `.planning/quick/` tail from 196 → <50
+  active items.
+
+### Internal
+
+- 5 phases (1075-1079), 13 requirements, all closed.
+- Tag: `v1017` (local) + `v1.5.2` (public).
+
 ## [1.5.1] - 2026-05-21
 
 ### Hardening sweep (v1016 milestone)
