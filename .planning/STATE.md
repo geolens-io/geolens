@@ -4,8 +4,8 @@ milestone: v1015
 milestone_name: Ingest/Export Lifecycle Hardening
 status: Awaiting next milestone
 stopped_at: Roadmap created — ready to plan Phase 1065
-last_updated: "2026-05-21T01:13:10.051Z"
-last_activity: 2026-05-21 — Milestone v1015 completed and archived
+last_updated: "2026-05-21T02:30:00.000Z"
+last_activity: 2026-05-21 — Session resumed, awaiting next milestone start
 progress:
   total_phases: 11
   completed_phases: 1
@@ -59,9 +59,10 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-Last session: 2026-05-21T00:30:12.564Z
-Stopped at: Roadmap created — ready to plan Phase 1065
+Last session: 2026-05-21T02:30:00.000Z
+Stopped at: Session resumed after v1015 archive; awaiting `/gsd-new-milestone`
 Resume file: None
+Pending hygiene: 19 unstaged deletions (v1015 phase artifacts copied to milestone archive; safe to commit), 34 unpushed commits, 2 unpushed tags (`v1015`, `v1.5.0`)
 
 ## Operator Next Steps
 
