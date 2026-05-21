@@ -1356,15 +1356,29 @@ class TestCommitImportDispatch:
         await test_db_session.commit()
         await test_db_session.refresh(job)
 
-        resp = await client.post(
-            f"/ingest/commit/{job.id}",
-            json={
-                "title": "Federal Grants",
-                "summary": "Opportunities",
-                "token": "bearer-abc",
-            },
-            headers=admin_auth_header,
-        )
+        # Phase 1066 feat IA-P0-03 (commit f8c91297) added a commit-time
+        # SSRF re-validation of ``job.source_url`` in ``commit_import``
+        # (router.py:640-652) via a LAZY import:
+        #     from app.modules.catalog.sources.security import validate_url_for_ssrf
+        # The lazy from-import re-binds the symbol on every call, so the
+        # patch target MUST be the function's defining module (NOT the
+        # router's namespace). The test URL ``example.arcgis.com`` fails
+        # DNS resolution in the test sandbox, which is unrelated to this
+        # test's contract (job-discriminator + token-kwarg dispatch), so
+        # we no-op the gate via AsyncMock.
+        with patch(
+            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            new=AsyncMock(),
+        ):
+            resp = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={
+                    "title": "Federal Grants",
+                    "summary": "Opportunities",
+                    "token": "bearer-abc",
+                },
+                headers=admin_auth_header,
+            )
         assert resp.status_code == 202, resp.text
         assert mock_ingest_task.await_count == 1
         # Token must be forwarded via kwarg, not persisted to metadata
