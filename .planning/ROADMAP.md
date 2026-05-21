@@ -110,7 +110,11 @@
   2. An editor without dataset access cannot reupload data into another user's dataset via any of the 6 `router_reupload.py` handlers — each returns 403
   3. A vector-to-raster reupload service preview surfaces a useful 4xx error before any pipeline execution, instead of a deep-pipeline 500
   4. The pre-commit `visibility-filter-coverage` hook exclusion for `router_reupload.py` is deleted and the hook passes on the current codebase
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 1065-01-PLAN.md — Backend download-token endpoint + frontend mint flow + Playwright regression
+- [ ] 1065-02-PLAN.md — Close 6 reupload IDOR handlers + delete pre-commit exclusion
+- [ ] 1065-03-PLAN.md — Add _assert_compatible_record_type to reupload_service_preview
 
 ### Phase 1066: Ingest Entry-Point Hardening
 **Goal**: Ingest upload and commit paths enforce size limits and URL safety at the HTTP boundary before any disk write or pipeline work
