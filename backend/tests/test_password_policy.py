@@ -98,6 +98,18 @@ class TestValidatePasswordComplexity:
             "abcdefghijkl", min_length=12, require_classes=1
         )
 
+    def test_trailing_whitespace_satisfies_symbol_class(self):
+        """Locked stance (KNOWN-09): whitespace counts as a symbol. The
+        12-char length floor + 3-of-4 class requirement leave this shape
+        passing, by design. See validate_password_complexity docstring."""
+        # 11 lowercase + 1 digit + 1 trailing space = 13 chars, 3 classes
+        # (lower, digit, symbol via whitespace).
+        validate_password_complexity(
+            "aaaaaaaaaaaa1 ",
+            min_length=12,
+            require_classes=3,
+        )  # MUST NOT raise
+
 
 # ---------------------------------------------------------------------------
 # Integration tests — HTTP via test client

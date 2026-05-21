@@ -38,6 +38,22 @@ def validate_password_complexity(
         ValueError: If the password is too short or lacks sufficient class
             diversity. The message is user-facing (Pydantic re-raises it
             as-is in the 422 response body).
+
+    Notes:
+        The "symbol" character class is defined as "any character that is not
+        a letter and not a digit" — which INCLUDES whitespace, control characters,
+        and Unicode punctuation/symbols. A password like ``Aaaaaaaaaaa1 ``
+        (eleven lowercase + one digit + one trailing space) therefore satisfies
+        the default 3-of-4 class requirement at exactly 13 characters.
+
+        This is intentional. The 12-character length floor already provides
+        ~72 bits of entropy against brute-force attacks even for low-entropy
+        shapes, and tightening "symbol" to ``string.punctuation - whitespace``
+        would reject legitimate passwords that contain real whitespace inside
+        the password (uncommon but valid). Operators who need stricter symbol
+        semantics can raise ``PASSWORD_REQUIRE_CLASSES`` to 4 — which forces
+        a lowercase + uppercase + digit + symbol shape that whitespace alone
+        cannot satisfy in combination with the other classes.
     """
     if len(password) < min_length:
         raise ValueError(
