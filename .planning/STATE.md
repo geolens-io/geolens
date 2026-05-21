@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
-stopped_at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope
-last_updated: "2026-05-21T22:00:00.000Z"
+stopped_at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
+last_updated: "2026-05-21T19:29:49.794Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 10
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 20
+  total_plans: 11
+  completed_plans: 6
+  percent: 10
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1075 (conftest-test-db-lifecycle-refactor-baseline-fixes) — COMPLETE
-Plan: 5 of 5 (all done)
-Status: Phase 1075 ships within named scope (TI-01 + TI-02 closed); 7-failure verification gap + parallel-mode environmental cap documented for Phase 1079 hand-off
+Phase: 1076 (backend-ingest-p2-closure) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
 Last activity: 2026-05-21
 Next phase: 1076 / 1077 / 1078 (parallel-eligible per ROADMAP dependencies)
 
@@ -29,7 +29,7 @@ Next phase: 1076 / 1077 / 1078 (parallel-eligible per ROADMAP dependencies)
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1075 — conftest-test-db-lifecycle-refactor-baseline-fixes
+**Current focus:** Phase 1076 — backend-ingest-p2-closure
 
 ## Last Shipped Milestone
 
@@ -70,6 +70,7 @@ See: .planning/PROJECT.md
 - 2026-05-21 (v1017 Phase 1075-05): TI-02 closure verified within named scope — all 11 v1015 baseline failures in the 3 named files (test_defer_orphan_guard.py x3, test_ingest.py x3, test_maps_style_json.py x5) are now PASSED. Zero `pytest.mark.skip` decorators were exercised across Plans 02/03/04.
 - 2026-05-21 (v1017 Phase 1075-05): VERIFICATION GAP — full-suite run uncovered 7 unexpected failures in OTHER test files (test_layering, test_phase_279_user_lifecycle x2, test_reupload_idor, test_reupload_service x2, test_tasks_common_phase_brackets) outside TI-02's named scope. These are pre-existing drift surfaces (2 production-code drift, 2 test-fixture drift, 2 environmental/GDAL, 1 async lifecycle drift) that per-file Plans 02/03/04 could not surface. Recommended follow-up: Plan 1075-06 OR v1018 hygiene task to disposition via the Plan 02/03/04 protocol. Critical advisory to Phase 1079 TI-03 planner: do NOT mark the post-v1017 pytest baseline doc as "captured" without first dispositioning these 7.
 - 2026-05-21 (v1017 Phase 1075-05): PARALLEL-MODE ENVIRONMENTAL CAP — `pytest -n auto` (16 xdist workers on this host) triggered a Postgres backend crash and postmaster recovery mode, producing 1363 `asyncpg.exceptions.CannotConnectNowError`. This is a DIFFERENT exception class and root cause from TI-01's surface (host PG load capacity vs test-DB lifecycle race). Recommended follow-up: tune to `-n 4` or `-n 8` for host runs, increase PG max_connections, or add per-worker pool sizing to conftest. NOT a TI-01 regression.
+- [Phase ?]: ING-02 / P2-02 closed: phase-2 metadata helpers no longer commit internally; _finalize_ingest at tasks_common.py:821 owns the phase-2 commit boundary. Regression test test_phase_2_commit_boundary.py (204 lines, 3 tests) pins the rollback invariant.
 
 ### Pending Todos
 
@@ -81,7 +82,7 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T22:00:00.000Z
+Last session: 2026-05-21T19:29:45.717Z
 Stopped at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
 Resume file: None
 

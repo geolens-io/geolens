@@ -24,7 +24,7 @@ Each maps to exactly one phase.
 Drawn from `.planning/audits/INGEST-AUDIT-2026-05-21.md`. P2-06 + P2-07 were closed in v1016 Phase 1073 (REMED-01, REMED-02). v1017 closes the remaining 7 documented P2 findings.
 
 - [ ] **ING-01**: P2-01 — Add `getCogDownloadUrl(id)` helper in `frontend/src/api/datasets.ts` alongside `getExportUrl()`. Replace string concat at `frontend/src/components/import/JobProgress.tsx:42`. Drift risk mitigation.
-- [ ] **ING-02**: P2-02 — Drop internal `await session.commit()` from `metadata.py` helpers (`ensure_geom_column`, `clip_to_mercator_bounds`, `add_4326_column`, `grant_reader_access`). Let `_finalize_ingest` commit once. Add a regression test that exercises a phase-2 failure scenario.
+- [x] **ING-02**: P2-02 — Drop internal `await session.commit()` from `metadata.py` helpers (`ensure_geom_column`, `clip_to_mercator_bounds`, `add_4326_column`, `grant_reader_access`). Let `_finalize_ingest` commit once. Add a regression test that exercises a phase-2 failure scenario.
 - [ ] **ING-03**: P2-03 — Switch local-storage COG export from `await storage.get(asset_uri)` (full buffer) to a streaming `get_stream(asset_uri)` provider method. Eliminates 5 GB resident memory pre-stream on self-hosters.
 - [ ] **ING-04**: P2-04 — Restrict worker exports temp-dir sweep at `backend/app/platform/jobs/worker.py:174-185` to entries older than 1 hour via `stat.st_mtime`; log skipped items. Avoids truncating in-flight large exports on worker restart.
 - [ ] **ING-05**: P2-05 — Extract `uploadChunks(urls, file, partSize)` helper in a new `frontend/src/api/_presignedUpload.ts`; rewire `ingest.ts:147-159` + `datasets.ts:370-383` through it. Single point for future retry/abort/backoff.
@@ -69,7 +69,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | TI-03 | Phase 1079 | Pending |
 | CI-01 | Phase 1078 | Pending |
 | ING-01 | Phase 1077 | Pending |
-| ING-02 | Phase 1076 | Pending |
+| ING-02 | Phase 1076 | Complete |
 | ING-03 | Phase 1076 | Pending |
 | ING-04 | Phase 1076 | Pending |
 | ING-05 | Phase 1077 | Pending |
