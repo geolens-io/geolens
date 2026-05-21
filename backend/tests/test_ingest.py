@@ -48,7 +48,12 @@ def mock_file_save(tmp_path: Path):
         "app.processing.ingest.router.save_upload_file", new_callable=AsyncMock
     ) as mock_save:
 
-        async def _save_to_temp(file, job_id: str) -> Path:
+        # NOTE: `**_` absorbs production kwargs the mock doesn't model
+        # (e.g. ``max_size_bytes`` added by Phase 1066 feat IA-P0-02 in
+        # commit e11924c3). The tests using this fixture do not exercise
+        # the size-enforcement path, so silently ignoring the kwarg is
+        # the smallest-diff way to keep the mock signature future-proof.
+        async def _save_to_temp(file, job_id: str, **_) -> Path:
             dest = tmp_path / f"{job_id}_{file.filename}"
             dest.write_bytes(await file.read())
             await file.seek(0)
