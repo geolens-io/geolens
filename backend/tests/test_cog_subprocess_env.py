@@ -240,15 +240,15 @@ class TestGdalSafeEnvHelper:
         assert env.get("GDAL_CACHEMAX") == "200"
 
     def test_extras_override_vrt_safe_env_if_collision(self):
-        """If a caller passes a clamp key in extras, extras win.
+        """CR-01 (Phase 1071 review): passing a security clamp key in extras raises ValueError.
 
-        This is intentional — it lets callers opt out in tightly-scoped
-        contexts. Today no caller does this, but the precedence is
-        documented in the helper's docstring.
+        The old contract was "extras win" (clobber silently allowed), which is
+        the wrong contract for a security-clamping helper. The new contract is
+        that extras MUST NOT collide with _VRT_SAFE_ENV keys; a ValueError is
+        raised on collision so no caller can accidentally disable the clamps.
         """
+        import pytest
         from app.processing.raster.vrt import gdal_safe_env
 
-        env = gdal_safe_env(extras={"GDAL_HTTP_FOLLOWLOCATION": "YES"})
-        assert env.get("GDAL_HTTP_FOLLOWLOCATION") == "YES"
-        # Other clamps still in place
-        assert env.get("CPL_VSIL_CURL_ALLOWED_EXTENSIONS") == "tif,tiff,vrt"
+        with pytest.raises(ValueError, match="security clamps"):
+            gdal_safe_env(extras={"GDAL_HTTP_FOLLOWLOCATION": "YES"})

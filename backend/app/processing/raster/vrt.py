@@ -45,12 +45,24 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
 
     Args:
         extras: Optional per-call additions (e.g. ``{"GDAL_CACHEMAX": "200"}``).
-            Extras win over both ``os.environ`` and ``_VRT_SAFE_ENV`` for
-            keys they define. Pass ``None`` (the default) for the base clamp.
+            extras MUST NOT collide with security clamp keys in ``_VRT_SAFE_ENV``
+            (``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``, ``VRT_VIRTUAL_OVERVIEWS``,
+            ``GDAL_HTTP_FOLLOWLOCATION``). A ``ValueError`` is raised on collision
+            so callers cannot silently disable the security clamps.
+            Pass ``None`` (the default) for the base clamp only.
 
     Returns:
         A new dict suitable for ``subprocess.run(..., env=...)``.
+
+    Raises:
+        ValueError: If any key in ``extras`` collides with a security clamp key.
     """
+    if extras:
+        overlap = set(extras) & set(_VRT_SAFE_ENV)
+        if overlap:
+            raise ValueError(
+                f"gdal_safe_env: extras may not override security clamps: {overlap}"
+            )
     env = {**os.environ, **_VRT_SAFE_ENV}
     if extras:
         env.update(extras)
