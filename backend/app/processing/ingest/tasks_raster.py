@@ -9,6 +9,7 @@ import structlog
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.processing.raster.cog import (
     check_and_prepare_cog,
+    check_cog_compliance,
     extract_raster_metadata,
     sha256_file,
 )
@@ -30,6 +31,42 @@ def _is_manifest_vrt_job(job: Any) -> bool:
     return metadata.get("manifest_source_type") == "vrt" or source_filename.endswith(
         ".vrt"
     )
+
+
+async def _enforce_strict_cog(
+    file_path: str,
+    *,
+    expected_compression: str | None,
+    is_manifest_vrt: bool,
+    strict_cog: bool,
+) -> None:
+    """Strict-mode COG gate for ING-07 / P2-09.
+
+    When the user opted in via ``RasterCommitRequest.strict_cog=True``,
+    reject non-COG TIFFs here instead of silently routing through
+    ``check_and_prepare_cog`` conversion.
+
+    Manifest-VRT jobs are excluded (VRTs are XML, not TIFFs — the COG
+    compliance check would fail for unrelated reasons).
+
+    On non-compliance, raises ``ValueError`` whose message contains the
+    compliance reason. The existing ``ingest_raster`` outer
+    ``except Exception`` handler writes the failure to the job via
+    ``_job_phase_session("error_write")``.
+    """
+    import asyncio
+
+    if not strict_cog or is_manifest_vrt:
+        return
+
+    compliant, reason = await asyncio.to_thread(
+        check_cog_compliance, file_path, expected_compression=expected_compression
+    )
+    if not compliant:
+        raise ValueError(
+            f"Strict-COG mode rejected upload: {reason}. "
+            "Disable strict_cog or upload a COG-compliant TIFF."
+        )
 
 
 async def create_raster_dataset(
@@ -246,6 +283,18 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
                     "Provide a CRS override (EPSG code) at import time."
                 )
             raise ValueError("Missing CRS: raster has no coordinate reference system.")
+
+        # ING-07 / P2-09: strict-mode COG gating. When the user opted in via
+        # RasterCommitRequest.strict_cog=True, reject non-COG TIFFs here
+        # instead of silently routing through check_and_prepare_cog
+        # conversion. Manifest-VRT jobs are excluded (VRTs are XML, not
+        # TIFFs — the COG compliance check would fail for unrelated reasons).
+        await _enforce_strict_cog(
+            file_path,
+            expected_compression=user_compression,
+            is_manifest_vrt=is_manifest_vrt,
+            strict_cog=bool(um.get("strict_cog")),
+        )
 
         # REMED-02 / ingest-audit P2-07: stamp current_step="cog_convert"
         # before the branch so both paths exit with the same progress
