@@ -610,7 +610,7 @@
             "title": "Email"
           },
           "password": {
-            "description": "Initial password (minimum 8 characters). The user can change this after first login.",
+            "description": "Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -1251,6 +1251,21 @@
             "$ref": "#/components/schemas/BasemapSublayerVisibility",
             "default": "full",
             "description": "Road and transit sublayer visibility where supported."
+          },
+          "sublayer_overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/SublayerOverride"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-sublayer style overrides keyed by semantic sublayer ID (e.g. 'road', 'boundary', 'building'). Key set is opaque \u2014 unknown future sublayer IDs are accepted without rejection. See CONTEXT.md D-01.",
+            "title": "Sublayer Overrides"
           }
         },
         "title": "BasemapConfig",
@@ -1865,6 +1880,7 @@
             "type": "string"
           },
           "new_password": {
+            "description": "New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.",
             "maxLength": 256,
             "minLength": 8,
             "title": "New Password",
@@ -2532,6 +2548,95 @@
           "type"
         ],
         "title": "ColumnChange",
+        "type": "object"
+      },
+      "ColumnDdlEntry": {
+        "description": "A single column-DDL audit event for the owner-facing feed endpoint.\n\nOmits PII beyond the actor's username (no email or sensitive details).\nMirrors AuditLogResponse shape, scoped to column-DDL events only.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "action",
+          "created_at",
+          "details",
+          "user_id"
+        ],
+        "title": "ColumnDdlEntry",
+        "type": "object"
+      },
+      "ColumnDdlFeedResponse": {
+        "description": "Paginated response for GET /api/audit/datasets/{dataset_id}/column-ddl.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnDdlEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ColumnDdlFeedResponse",
         "type": "object"
       },
       "ColumnDef": {
@@ -5074,6 +5179,26 @@
         "title": "DistributionUpdate",
         "type": "object"
       },
+      "DownloadTokenResponse": {
+        "properties": {
+          "expires_in": {
+            "default": 120,
+            "description": "Seconds until the download token expires",
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "token": {
+            "description": "Short-lived download-scoped JWT (typ='download', TTL \u2264 120s)",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "DownloadTokenResponse",
+        "type": "object"
+      },
       "DryRunResponse": {
         "description": "Result of a dry-run import showing what would change.",
         "properties": {
@@ -5761,6 +5886,144 @@
         "title": "FacetValueCount",
         "type": "object"
       },
+      "FanOutCommitRequest": {
+        "description": "Request body for POST /ingest/commit-fan-out/{job_id}.\n\nConverts one pending IngestJob (multi-layer file) into N independent\ningest tasks \u2014 one per requested layer. Maximum 50 layers per request.",
+        "properties": {
+          "layers": {
+            "description": "Layers to ingest as separate datasets. Maximum 50 per request.",
+            "items": {
+              "$ref": "#/components/schemas/FanOutLayerRequest"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Layers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "layers"
+        ],
+        "title": "FanOutCommitRequest",
+        "type": "object"
+      },
+      "FanOutCommitResponse": {
+        "description": "Response from POST /ingest/commit-fan-out/{job_id}.",
+        "properties": {
+          "fan_out_id": {
+            "description": "The original job_id (parent). Use for client-side correlation.",
+            "format": "uuid",
+            "title": "Fan Out Id",
+            "type": "string"
+          },
+          "results": {
+            "description": "Per-layer outcomes in the same order as the request layers.",
+            "items": {
+              "$ref": "#/components/schemas/FanOutLayerResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fan_out_id",
+          "results"
+        ],
+        "title": "FanOutCommitResponse",
+        "type": "object"
+      },
+      "FanOutLayerRequest": {
+        "description": "One layer to ingest as a separate dataset from a multi-layer source.",
+        "properties": {
+          "layer_name": {
+            "description": "Name of the layer within the source file (e.g. GeoPackage layer name).",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Layer Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional human-readable title override. Defaults to '{filename}: {layer_name}'.",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "layer_name"
+        ],
+        "title": "FanOutLayerRequest",
+        "type": "object"
+      },
+      "FanOutLayerResult": {
+        "description": "Per-layer outcome from the fan-out commit operation.",
+        "properties": {
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the new Dataset record created for this layer. Null on failure.",
+            "title": "Dataset Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User-safe error description when status='failed'. Never contains internal file paths.",
+            "title": "Error"
+          },
+          "layer_name": {
+            "description": "Layer name from the request.",
+            "title": "Layer Name",
+            "type": "string"
+          },
+          "new_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the cloned IngestJob queued for this layer. Null on failure.",
+            "title": "New Job Id"
+          },
+          "status": {
+            "description": "'queued' if the task was dispatched; 'failed' if an error occurred.",
+            "enum": [
+              "queued",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_name",
+          "status"
+        ],
+        "title": "FanOutLayerResult",
+        "type": "object"
+      },
       "FeatureCreate": {
         "description": "GeoJSON-style feature for insertion.",
         "properties": {
@@ -6164,7 +6427,8 @@
               "running",
               "complete",
               "failed",
-              "cancelled"
+              "cancelled",
+              "fanned_out"
             ],
             "title": "Status",
             "type": "string"
@@ -6418,6 +6682,16 @@
             ],
             "description": "Detected geometry type for the layer.",
             "title": "Geometry Type"
+          },
+          "kind": {
+            "default": "vector",
+            "description": "Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.",
+            "enum": [
+              "vector",
+              "raster"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "layer_id": {
             "anyOf": [
@@ -11431,6 +11705,18 @@
       },
       "ReuploadCommitRequest": {
         "properties": {
+          "layer_name": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Name"
+          },
           "srid_override": {
             "anyOf": [
               {
@@ -11484,8 +11770,41 @@
         "title": "ReuploadCommitResponse",
         "type": "object"
       },
+      "ReuploadPreviewRequest": {
+        "properties": {
+          "layer_name": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Name"
+          }
+        },
+        "title": "ReuploadPreviewRequest",
+        "type": "object"
+      },
       "ReuploadPreviewResponse": {
         "properties": {
+          "all_layers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Layers"
+          },
           "columns": {
             "items": {
               "$ref": "#/components/schemas/ColumnChange"
@@ -11534,6 +11853,17 @@
           "layer_name": {
             "title": "Layer Name",
             "type": "string"
+          },
+          "previous_source_layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Source Layer"
           },
           "sample_rows": {
             "items": {
@@ -11676,7 +12006,7 @@
         "description": "Request body for POST /admin/users/{user_id}/convert-saml-to-local/.\n\nPer Phase 221 D-01: a dedicated, single-purpose schema kept narrow on\npurpose -- password is intentionally NOT on the generic UserUpdate schema\n(which has no password field) so this conversion produces a single,\naudit-distinct action ('user.convert_saml_to_local') instead of being\nfolded into 'user.update'.",
         "properties": {
           "password": {
-            "description": "Local-password for the converted account (minimum 8 characters). The user can change this after first login.",
+            "description": "Local-password for the converted account (policy: min 12 chars, 3+ character classes). The user can change this after first login.",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -13658,6 +13988,108 @@
         "title": "StatusUpdateResponse",
         "type": "object"
       },
+      "SublayerOverride": {
+        "additionalProperties": false,
+        "description": "Per-sublayer style override for a single basemap sublayer.\n\nAll fields are nullable \u2014 a ``None`` value means \"use the basemap default\".\nOnly ``#RRGGBB`` hex strings are accepted for color fields; ``None`` means\nthe basemap default color is preserved.  Numeric ranges are clamped at\nvalidation time (Pydantic ``ge``/``le`` constraints).\n\nThe key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque\n(forward-compatible with future sublayer IDs) \u2014 see CONTEXT.md D-01.\n\nSecurity:\n    extra=\"forbid\" locks the D-14 scope guardrail: unknown style axes such\n    as dash patterns, line caps, halo blur, and text-font are rejected at\n    validation time (T-1059A-03).",
+        "properties": {
+          "casing_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Casing color in #RRGGBB hex format, or null to use the basemap default.",
+            "title": "Casing Color"
+          },
+          "casing_width": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Casing width in pixels (0-20), or null to use the basemap default.",
+            "title": "Casing Width"
+          },
+          "max_zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Maximum zoom level at which the sublayer is visible (0-24), or null for default.",
+            "title": "Max Zoom"
+          },
+          "min_zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Minimum zoom level at which the sublayer is visible (0-24), or null for default.",
+            "title": "Min Zoom"
+          },
+          "opacity": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-sublayer opacity (0-1), or null to use the basemap default. Additive on top of BasemapConfig.opacity (the whole-basemap master opacity). IN-02 (Phase 1059 code review): this field is populated via API or a future Phase milestone. The current UI opacity slider in BasemapSublayerEditorScene routes through the legacy sublayerState path (MapBuilderPage.tsx handleSublayerOpacityChange) per D-09 ('OPACITY \u2014 existing slider untouched') and does not call updateSublayerOverride. See TODO(BUILDER-SUBLAYER-PERSIST) comment at MapBuilderPage.tsx for the deferral rationale.",
+            "title": "Opacity"
+          },
+          "stroke_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stroke color in #RRGGBB hex format, or null to use the basemap default.",
+            "title": "Stroke Color"
+          },
+          "stroke_width": {
+            "anyOf": [
+              {
+                "maximum": 20.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stroke width in pixels (0-20), or null to use the basemap default.",
+            "title": "Stroke Width"
+          }
+        },
+        "title": "SublayerOverride",
+        "type": "object"
+      },
       "SummaryDraftResponse": {
         "description": "AI-generated summary draft for a dataset.",
         "properties": {
@@ -13981,8 +14413,8 @@
             "title": "Email"
           },
           "password": {
-            "description": "Plaintext password (min 8 chars)",
-            "example": "securePass123",
+            "description": "Plaintext password (policy: min 12 chars, 3+ character classes)",
+            "example": "securePass123!",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -18874,6 +19306,134 @@
         ]
       }
     },
+    "/audit/datasets/{dataset_id}/column-ddl": {
+      "get": {
+        "description": "Return the column-DDL audit history for a dataset.\n\nSEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)\nto dataset owners so they can detect editor-initiated schema changes.\n\nAccess control (AGENTS.md Pre-Commit Checklist Rule 1):\n- Owner + granted roles: 200 with their own dataset's DDL history\n- Non-owner editor (no grant): 404 (check_dataset_access raises 404 for\n  private datasets)\n- Admin: 200 (admin access is always allowed)\n- Anonymous: 401 (get_current_active_user dependency)\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
+        "operationId": "get_column_ddl_feed_audit_datasets__dataset_id__column_ddl_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColumnDdlFeedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Column Ddl Feed",
+        "tags": [
+          "Audit"
+        ]
+      }
+    },
     "/auth/api-keys/": {
       "get": {
         "description": "List the current user's API keys.",
@@ -19375,6 +19935,111 @@
         ]
       }
     },
+    "/auth/download-token/{dataset_id}": {
+      "post": {
+        "description": "Mint a short-lived download-scoped JWT for a single dataset.\n\nIA-P0-01 / SEC-04: the existing COG download URL path requires a\n``typ='download'`` JWT on the ``?token=`` query parameter \u2014 session JWTs\nare rejected. This endpoint issues that token after verifying the caller\nhas read access to the dataset.\n\nAnonymous callers are allowed for public datasets. The returned token has\n``typ='download'``, ``scope='dataset:{dataset_id}'``, and a TTL of 120s.",
+        "operationId": "create_download_token_endpoint_auth_download_token__dataset_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Create Download Token Endpoint",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/login": {
       "post": {
         "description": "Authenticate with username and password, receive a JWT token.",
@@ -19475,7 +20140,7 @@
     },
     "/auth/logout/": {
       "post": {
-        "description": "Revoke all refresh tokens for the current user.",
+        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.",
         "operationId": "logout_auth_logout__post",
         "responses": {
           "204": {
@@ -23463,7 +24128,7 @@
     },
     "/datasets/{dataset_id}": {
       "delete": {
-        "description": "Delete a dataset with cascade cleanup. Admin only, requires confirm_title.",
+        "description": "Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.",
         "operationId": "delete_dataset_endpoint_datasets__dataset_id__delete",
         "parameters": [
           {
@@ -27689,7 +28354,7 @@
     },
     "/datasets/{dataset_id}/reupload/{job_id}/preview": {
       "post": {
-        "description": "Preview the schema diff between old dataset and new upload.",
+        "description": "Preview the schema diff between old dataset and new upload.\n\nWhen the uploaded file contains multiple layers, the response includes\n``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``\n(pre-selection hint from the most-recent completed IngestJob for this\ndataset).  Pass ``layer_name`` in the request body to target a specific\nlayer; omit it to get the default first-layer metadata.",
         "operationId": "reupload_preview_datasets__dataset_id__reupload__job_id__preview_post",
         "parameters": [
           {
@@ -27713,6 +28378,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReuploadPreviewRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {
@@ -28977,6 +29659,132 @@
         "summary": "Health",
         "tags": [
           "Health"
+        ]
+      }
+    },
+    "/ingest/commit-fan-out/{job_id}": {
+      "post": {
+        "description": "Convert a single pending IngestJob into N independent per-layer ingest tasks.\n\nFor multi-layer sources (e.g. GeoPackage with 2+ layers), this endpoint\nfans out the original upload into one Procrastinate task per requested\nlayer, each becoming a separate dataset. The original job is marked\n'fanned_out' (a terminal state).\n\nRequired: original job must be in status='pending'. Each layer_name in\nthe request body must appear in job.user_metadata['all_layers']. Unknown\nlayer names return HTTP 422 with the list of unrecognized names.\n\nReturns HTTP 202 with per-layer outcomes. Partial success is possible:\neach layer result carries status='queued' or status='failed' with a\nuser-safe error message.\n\nPermission: same as POST /ingest/commit/{job_id} \u2014 'upload' capability.",
+        "operationId": "commit_fan_out_ingest_commit_fan_out__job_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FanOutCommitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FanOutCommitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Commit Fan Out",
+        "tags": [
+          "Datasets"
         ]
       }
     },
@@ -31984,7 +32792,7 @@
     },
     "/maps/shared/{token}": {
       "get": {
-        "description": "Get a shared map by token. Optionally authenticated for non-public layers.",
+        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nSEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.",
         "operationId": "get_shared_map_endpoint_maps_shared__token__get",
         "parameters": [
           {
@@ -36647,6 +37455,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 1000,
                   "type": "string"
                 },
                 {
@@ -38038,7 +38847,7 @@
     },
     "/settings/basemaps/": {
       "get": {
-        "description": "Return the configured basemap list (public, no auth required).\n\nBasemaps with ``{api_key}`` in the URL are filtered out when no key is\nconfigured.  When a key IS set the placeholder is resolved server-side.\nThe response uses ``BasemapPublicResponse`` which excludes ``api_key``.",
+        "description": "Return the configured basemap list (public, no auth required).\n\nBasemaps with ``{api_key}`` in the URL are filtered out when no key is\nconfigured.  When a key IS set the placeholder is resolved server-side.\nThe response uses ``BasemapPublicResponse`` which excludes ``api_key``.\n\nSEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally\nincludes the substituted ``api_key`` value when configured. Client-side\ntile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser\nexposure and the frontend MUST receive them to load tiles. Do NOT put a\nbackend-only commercial-tier key in this field \u2014 rotate the key in the\nprovider dashboard if it is misused. Rate-limited via\n``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.",
         "operationId": "get_basemaps_settings_basemaps__get",
         "responses": {
           "200": {
@@ -39673,6 +40482,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Get Collection Items",
         "tags": [
           "STAC"
@@ -39725,6 +40539,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Get Collection Item",
         "tags": [
           "STAC"
@@ -39789,6 +40608,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Get Item",
         "tags": [
           "STAC"
@@ -39873,20 +40697,21 @@
             }
           },
           {
-            "description": "GeoJSON geometry for spatial intersection",
+            "description": "GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier \u2014 fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.",
             "in": "query",
             "name": "intersects",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 10000,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "GeoJSON geometry for spatial intersection",
+              "description": "GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier \u2014 fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.",
               "title": "Intersects"
             }
           },
@@ -39971,6 +40796,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Search Get",
         "tags": [
           "STAC"
@@ -40044,6 +40874,11 @@
             "description": "Internal server error"
           }
         },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
         "summary": "Search Post",
         "tags": [
           "STAC"
