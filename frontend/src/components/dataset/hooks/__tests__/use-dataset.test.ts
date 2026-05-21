@@ -1,16 +1,25 @@
 import { renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
+import { useRef } from 'react';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 vi.mock('@/api/datasets', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/datasets')>();
-  return { ...actual, getDataset: vi.fn(), getDatasetRows: vi.fn() };
+  return {
+    ...actual,
+    getDataset: vi.fn(),
+    getDatasetRows: vi.fn(),
+    reuploadCommit: vi.fn(),
+  };
 });
 
-import { getDataset, getDatasetRows } from '@/api/datasets';
-import { useDataset, useDatasetRows } from '@/components/dataset/hooks/use-dataset';
+import { getDataset, getDatasetRows, reuploadCommit } from '@/api/datasets';
+import { useDataset, useDatasetRows, useReuploadCommit } from '@/components/dataset/hooks/use-dataset';
+import { queryKeys } from '@/lib/query-keys';
 
 const mockGetDataset = vi.mocked(getDataset);
 const mockGetDatasetRows = vi.mocked(getDatasetRows);
+const mockReuploadCommit = vi.mocked(reuploadCommit);
 
 describe('useDataset', () => {
   beforeEach(() => {
@@ -81,5 +90,75 @@ describe('useDatasetRows', () => {
     renderHook(() => useDatasetRows('', 10, 0));
 
     expect(mockGetDatasetRows).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * REMED-01 (ingest-audit P2-06): useReuploadCommit must invalidate
+ * jobStatusByDataset on success so the dataset-detail warnings banner
+ * refetches the new job's warnings instead of holding the prior job's
+ * cached value (staleTime: Infinity on useDatasetJobStatus).
+ */
+describe('useReuploadCommit', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /**
+   * Capture the QueryClient from inside the renderHook wrapper so we can
+   * spy on invalidateQueries. We co-render useReuploadCommit and a sibling
+   * useQueryClient() call to expose the same client the mutation uses.
+   */
+  function renderWithClient() {
+    let captured: QueryClient | null = null;
+    const { result } = renderHook(() => {
+      const qc = useQueryClient();
+      // Capture once on first render — keep a stable reference for assertions.
+      const ref = useRef<QueryClient | null>(null);
+      if (ref.current === null) ref.current = qc;
+      captured = ref.current;
+      return useReuploadCommit();
+    });
+    if (!captured) throw new Error('QueryClient capture failed');
+    return { result, qc: captured as QueryClient };
+  }
+
+  it('invalidates jobStatusByDataset(datasetId) on success', async () => {
+    mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', jobId: 'j1' });
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.ingest.jobStatusByDataset('ds-1'),
+    });
+  });
+
+  it('passes datasetId, jobId, sridOverride, token, layerName through to reuploadCommit', async () => {
+    mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result } = renderWithClient();
+
+    await result.current.mutateAsync({
+      datasetId: 'ds-1',
+      jobId: 'j1',
+      sridOverride: 4326,
+      token: 'tok',
+      layerName: 'layer-a',
+    });
+
+    expect(mockReuploadCommit).toHaveBeenCalledWith('ds-1', 'j1', 4326, 'tok', 'layer-a');
+  });
+
+  it('does NOT invalidate jobStatusByDataset when reuploadCommit rejects', async () => {
+    mockReuploadCommit.mockRejectedValueOnce(new Error('boom'));
+    const { result, qc } = renderWithClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await expect(
+      result.current.mutateAsync({ datasetId: 'ds-1', jobId: 'j1' }),
+    ).rejects.toThrow('boom');
+
+    expect(spy).not.toHaveBeenCalledWith({
+      queryKey: queryKeys.ingest.jobStatusByDataset('ds-1'),
+    });
   });
 });
