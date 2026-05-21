@@ -229,13 +229,13 @@ async def _job_phase_session(
             )
             try:
                 yield session, None
-            except Exception:
+            except Exception:  # broad: caller-yielded block may raise any exception; we must rollback the session before re-raising to avoid pool leak
                 await session.rollback()
                 raise
             return
         try:
             yield session, job
-        except Exception:
+        except Exception:  # broad: caller-yielded block may raise any exception; we must rollback the session before re-raising to avoid pool leak
             await session.rollback()
             raise
 
