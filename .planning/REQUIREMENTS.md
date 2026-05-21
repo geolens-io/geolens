@@ -29,7 +29,7 @@ These failures are pre-existing — the production code has moved (v1014 SEC-S16
 
 ### Test Environmental
 
-- [ ] **TD-04**: Resolve `backend/tests/test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` — environmental dependency on the `ogrinfo` CLI being on host PATH. Either: (a) gate the test on `which ogrinfo` via `pytest.importorskip` / `pytest.skip(reason=...)` with an explicit env-doc link, OR (b) replace the live `ogrinfo` call with a mock so the test does not depend on host tooling. Decision must be documented in the test docstring.
+- [x] **TD-04**: Resolve `backend/tests/test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` — environmental dependency on the `ogrinfo` CLI being on host PATH. Either: (a) gate the test on `which ogrinfo` via `pytest.importorskip` / `pytest.skip(reason=...)` with an explicit env-doc link, OR (b) replace the live `ogrinfo` call with a mock so the test does not depend on host tooling. Decision must be documented in the test docstring.
 
 ### Backend Config Hygiene
 
@@ -71,7 +71,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | TD-03 | Phase 1081 | Complete |
 | TD-05 | Phase 1081 | Pending |
 | TD-06 | Phase 1081 | Complete |
-| TD-04 | Phase 1082 | Pending |
+| TD-04 | Phase 1082 | Complete |
 | TD-08 | Phase 1083 | Pending |
 
 **Coverage:**

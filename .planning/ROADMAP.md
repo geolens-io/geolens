@@ -91,7 +91,7 @@
 
 - [x] **Phase 1080: Production-Code Drift + Config Hygiene** - Resolve the broad-except layering test failure (TD-01) and the database_connect_args SSL disable branch (TD-07); both are 1-2 line production-code changes with pinned regression tests (completed 2026-05-21)
 - [ ] **Phase 1081: Test Fixture & Assertion Drift** - Fix the four test-drift failures sharing pre-existing root causes: SEC-S16 password policy drift (TD-02, TD-03), SSRF gate drift in reupload_service (TD-05), and async loop contamination (TD-06)
-- [ ] **Phase 1082: Test Environmental** - Disposition the ogrinfo CLI environmental dependency in test_reupload_idor (TD-04) via skip-with-rationale or mock-out; decision documented in test docstring
+- [x] **Phase 1082: Test Environmental** - Disposition the ogrinfo CLI environmental dependency in test_reupload_idor (TD-04) via skip-with-rationale or mock-out; decision documented in test docstring (completed 2026-05-21)
 - [ ] **Phase 1083: Close Gate** - Capture PYTEST-BASELINE-v1018.md, run full close-gate (sequential pytest + e2e:smoke:builder + live Playwright MCP smoke), write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
 
 ## Phase Details
@@ -131,8 +131,8 @@
   1. `pytest backend/tests/test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` has a documented disposition: either (a) guarded with `pytest.skip(reason="ogrinfo not on PATH — see <env-doc link>")` via `pytest.importorskip` / `which ogrinfo` probe, OR (b) the live `ogrinfo` call is replaced with a mock so the test does not depend on host tooling
   2. The chosen approach is documented in the test's docstring (at minimum: one sentence explaining the dependency and the resolution)
   3. The test never silently passes on a host lacking `ogrinfo` (no false green) and never fails with an unguided `FileNotFoundError` or `subprocess.CalledProcessError` on a stock CI image
-**Plans:** 1 plan
-- [ ] 1082-01-PLAN.md — TD-04: mock `run_service_preview` at the defining-module path (shape b mock-out) so the test does not depend on `gdal-bin` / `ogrinfo` on host PATH; docstring extended with disposition rationale
+**Plans:** 1/1 plans complete
+- [x] 1082-01-PLAN.md — TD-04: mock `run_service_preview` at the defining-module path (shape b mock-out) so the test does not depend on `gdal-bin` / `ogrinfo` on host PATH; docstring extended with disposition rationale
 
 ### Phase 1083: Close Gate
 **Goal:** v1018 ships with a captured pytest baseline showing 0 TD-01..07 failures, full close-gate green, CHANGELOG written, and both tags cut
@@ -152,7 +152,7 @@
 |-------|----------------|--------|-----------|
 | 1080. Production-Code Drift + Config Hygiene | 2/2 | Complete   | 2026-05-21 |
 | 1081. Test Fixture & Assertion Drift | 0/3 | Plans created | - |
-| 1082. Test Environmental | 0/1 | Plans created | - |
+| 1082. Test Environmental | 1/1 | Complete   | 2026-05-21 |
 | 1083. Close Gate | 0/? | Not started | - |
 
 ## Backlog
