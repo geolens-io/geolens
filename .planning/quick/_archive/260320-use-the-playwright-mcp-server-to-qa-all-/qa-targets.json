@@ -1,0 +1,29 @@
+{
+  "baseUrl": "http://localhost:8080",
+  "targets": {
+    "vector_dataset": {
+      "id": "c4085719-be96-4544-96b4-2cbc3baecaf3",
+      "path": "/datasets/c4085719-be96-4544-96b4-2cbc3baecaf3",
+      "title": "Admin 0 Countries Deu - Variant 27",
+      "notes": "Selected from the Search UI via the Vector filter."
+    },
+    "raster_dataset": {
+      "id": "f15ae3e9-006e-449d-8920-ee55f206a3dc",
+      "path": "/datasets/f15ae3e9-006e-449d-8920-ee55f206a3dc",
+      "title": "H1C6",
+      "notes": "Selected from the Search UI via the Raster filter."
+    },
+    "vrt_dataset": {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "path": "/datasets/11111111-2222-3333-4444-555555555555",
+      "title": "Test VRT",
+      "notes": "Selected from the Search UI via the Virtual Raster filter."
+    },
+    "collection": {
+      "id": "da93abc1-920d-4de8-8f44-c3880c7b8f2e",
+      "path": "/collections/da93abc1-920d-4de8-8f44-c3880c7b8f2e",
+      "title": "Natural Earth Cultural (10m)",
+      "notes": "Selected from the Search UI via the Collections filter."
+    }
+  }
+}

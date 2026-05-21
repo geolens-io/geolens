@@ -1,0 +1,2 @@
+[color-contrast] Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds (serious)
+  - <span data-slot="badge" data-variant="outline" class="inline-flex items-ce...">

@@ -1,0 +1,24 @@
+# vector_dataset desktop
+[13ms] [DEBUG] [vite] connecting...
+[20ms] [DEBUG] [vite] connected.
+[56ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[72ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+[523ms] [ERROR] Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Google Inc. (Google), GL_RENDERER = ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver-5.0.0), GL_VERSION = 5.0.0, Sandboxed = no, Optimus = no, AMD switchable = no, Reset notification strategy = 0x8252, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+    at e.Map._setupPainter (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:23166:44)
+    at new e.Map (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:22653:1418)
+    at _Maplibre._initialize (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:370:17)
+    at new _Maplibre (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:293:10)
+    at http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:681:20
+
+# vector_dataset mobile
+[21ms] [DEBUG] [vite] connecting...
+[46ms] [DEBUG] [vite] connected.
+[80ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[96ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+[550ms] [ERROR] Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Google Inc. (Google), GL_RENDERER = ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver-5.0.0), GL_VERSION = 5.0.0, Sandboxed = no, Optimus = no, AMD switchable = no, Reset notification strategy = 0x8252, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+    at e.Map._setupPainter (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:23166:44)
+    at new e.Map (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:22653:1418)
+    at _Maplibre._initialize (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:370:17)
+    at new _Maplibre (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:293:10)
+    at http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:681:20
+

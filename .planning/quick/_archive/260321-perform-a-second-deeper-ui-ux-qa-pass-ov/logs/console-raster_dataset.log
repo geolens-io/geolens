@@ -1,0 +1,68 @@
+# raster_dataset desktop
+[14ms] [DEBUG] [vite] connecting...
+[23ms] [DEBUG] [vite] connected.
+[54ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[70ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+[527ms] [ERROR] Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Google Inc. (Google), GL_RENDERER = ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver-5.0.0), GL_VERSION = 5.0.0, Sandboxed = no, Optimus = no, AMD switchable = no, Reset notification strategy = 0x8252, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+    at e.Map._setupPainter (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:23166:44)
+    at new e.Map (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:22653:1418)
+    at _Maplibre._initialize (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:370:17)
+    at new _Maplibre (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:293:10)
+    at http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:681:20
+
+# raster_dataset mobile
+[13ms] [DEBUG] [vite] connecting...
+[20ms] [DEBUG] [vite] connected.
+[54ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[71ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+[519ms] [ERROR] Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Google Inc. (Google), GL_RENDERER = ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver-5.0.0), GL_VERSION = 5.0.0, Sandboxed = no, Optimus = no, AMD switchable = no, Reset notification strategy = 0x8252, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+    at e.Map._setupPainter (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:23166:44)
+    at new e.Map (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:22653:1418)
+    at _Maplibre._initialize (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:370:17)
+    at new _Maplibre (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:293:10)
+    at http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:681:20
+
+# raster_dataset desktop
+[30ms] [DEBUG] [vite] connecting...
+[45ms] [DEBUG] [vite] connected.
+[76ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[91ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+[572ms] [ERROR] Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Google Inc. (Google), GL_RENDERER = ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver-5.0.0), GL_VERSION = 5.0.0, Sandboxed = no, Optimus = no, AMD switchable = no, Reset notification strategy = 0x8252, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+    at e.Map._setupPainter (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:23166:44)
+    at new e.Map (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:22653:1418)
+    at _Maplibre._initialize (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:370:17)
+    at new _Maplibre (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:293:10)
+    at http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:681:20
+
+# raster_dataset mobile
+[16ms] [DEBUG] [vite] connecting...
+[23ms] [DEBUG] [vite] connected.
+[55ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[70ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+[563ms] [ERROR] Error: {"requestedAttributes":{"antialias":false,"preserveDrawingBuffer":false,"powerPreference":"high-performance","failIfMajorPerformanceCaveat":false,"desynchronized":false,"alpha":true,"depth":true,"stencil":true,"premultipliedAlpha":true},"statusMessage":"Could not create a WebGL context, VENDOR = 0xffff, DEVICE = 0xffff, GL_VENDOR = Google Inc. (Google), GL_RENDERER = ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver-5.0.0), GL_VERSION = 5.0.0, Sandboxed = no, Optimus = no, AMD switchable = no, Reset notification strategy = 0x8252, ErrorMessage = BindToCurrentSequence failed: .","type":"webglcontextcreationerror","message":"Failed to initialize WebGL"}
+    at e.Map._setupPainter (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:23166:44)
+    at new e.Map (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:22653:1418)
+    at _Maplibre._initialize (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:370:17)
+    at new _Maplibre (http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:293:10)
+    at http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:681:20
+
+# raster_dataset desktop
+[19ms] [DEBUG] [vite] connecting...
+[26ms] [DEBUG] [vite] connected.
+[65ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[465ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[466ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[479ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[1480ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[1480ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+
+# raster_dataset mobile
+[15ms] [DEBUG] [vite] connecting...
+[19ms] [DEBUG] [vite] connected.
+[58ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[425ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[425ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[443ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[1434ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[1436ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+

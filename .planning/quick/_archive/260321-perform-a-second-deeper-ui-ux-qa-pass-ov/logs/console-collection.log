@@ -1,0 +1,38 @@
+# collection desktop
+[15ms] [DEBUG] [vite] connecting...
+[21ms] [DEBUG] [vite] connected.
+[56ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[72ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+
+# collection mobile
+[14ms] [DEBUG] [vite] connecting...
+[22ms] [DEBUG] [vite] connected.
+[54ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[71ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+
+# collection desktop
+[32ms] [DEBUG] [vite] connecting...
+[47ms] [DEBUG] [vite] connected.
+[77ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[92ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+
+# collection mobile
+[33ms] [DEBUG] [vite] connecting...
+[48ms] [DEBUG] [vite] connected.
+[78ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[93ms] [INFO] 🌐 i18next is maintained with support from Locize — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com 💙
+
+# collection desktop
+[19ms] [DEBUG] [vite] connecting...
+[25ms] [DEBUG] [vite] connected.
+[61ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[459ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[1513ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+
+# collection mobile
+[21ms] [DEBUG] [vite] connecting...
+[25ms] [DEBUG] [vite] connected.
+[61ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[437ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+[1465ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found)
+

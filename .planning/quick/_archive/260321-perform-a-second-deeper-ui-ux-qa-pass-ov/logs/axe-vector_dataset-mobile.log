@@ -1,0 +1,3 @@
+[color-contrast] Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds (serious)
+  - <p class="text-sm text-destructive">Dataset not found</p>
+  - <a class="text-sm text-primary hover:underline inline-flex items-center gap-1 transition-colors duration-150" href="/" data-discover="true">

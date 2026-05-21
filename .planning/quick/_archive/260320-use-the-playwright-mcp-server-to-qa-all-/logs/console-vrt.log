@@ -1,0 +1,133 @@
+[     863ms] [WARNING] Max vertices per segment is 65535: bucket requested 120840. Consider using the `fillLargeMeshArrays` function if you require meshes with more than 65535 vertices. @ blob:http://localhost:8080/7f8bd626-c0b7-4366-8dad-84b4dcbcec40:284
+[     959ms] [WARNING] Max vertices per segment is 65535: bucket requested 86220. Consider using the `fillLargeMeshArrays` function if you require meshes with more than 65535 vertices. @ blob:http://localhost:8080/7f8bd626-c0b7-4366-8dad-84b4dcbcec40:284
+[     961ms] [WARNING] Max vertices per segment is 65535: bucket requested 80370. Consider using the `fillLargeMeshArrays` function if you require meshes with more than 65535 vertices. @ blob:http://localhost:8080/7f8bd626-c0b7-4366-8dad-84b4dcbcec40:284
+[   28147ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4799/6125.png:0
+[   28148ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4797/6124.png:0
+[   28148ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4799/6124.png:0
+[   28149ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4797/6125.png:0
+[   28149ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4798/6124.png:0
+[   28150ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4798/6125.png:0
+[   28151ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4799/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28151ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4797/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28151ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4799/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28152ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4797/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28152ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4798/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28152ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4798/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28191ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6124.png:0
+[   28192ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28192ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6125.png:0
+[   28195ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28205ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6125.png:0
+[   28207ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28207ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6124.png:0
+[   28208ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6124.png:0
+[   28208ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6125.png:0
+[   28208ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28208ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28208ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28209ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6124.png:0
+[   28209ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   28210ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6125.png:0
+[   28211ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34510ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/13/2399/3062.png:0
+[   34511ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/13/2398/3062.png:0
+[   34511ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/13/2399/3062.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34511ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/13/2398/3062.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34572ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6124.png:0
+[   34572ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34582ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6124.png:0
+[   34583ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34583ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6125.png:0
+[   34583ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6124.png:0
+[   34583ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6125.png:0
+[   34584ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4796/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34584ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34585ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6125.png:0
+[   34585ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4801/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34585ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4800/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34588ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6124.png:0
+[   34597ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6124.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34602ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6125.png:0
+[   34602ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/12/1199/1531.png:0
+[   34603ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/14/4795/6125.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   34603ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/12/1199/1531.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
+[   38323ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/11/599/765.png:0
+[   38323ms] [ERROR] ct: AJAXError: Internal Server Error (500): http://localhost:8080/raster-tiles/11111111-2222-3333-4444-555555555555/tiles/11/599/765.png
+    at http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:398:25
+    at Generator.next (<anonymous>)
+    at a2 (http://localhost:8080/node_modules/.vite/deps/maplibre-gl-4V5I6IMU.js?v=d0a9fb41:35:23) @ http://localhost:8080/node_modules/.vite/deps/@vis__gl_react-maplibre.js?v=d0a9fb41:257
