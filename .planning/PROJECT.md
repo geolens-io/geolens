@@ -12,6 +12,16 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1018 Hygiene — v1017 Tech-Debt Tail
+
+**Goal:** Close the 8 tech-debt items deferred from v1017 audit. Restore full-suite pytest signal (no skips, no environmental noise), close one minor production-code defect (`backend/app/core/config.py` SSL handling), and cap the v1017 hygiene tail.
+
+**Target items:**
+- 7 Phase 1075 NEW-DISCOVERY pytest failures in files outside the named TI-02 scope — production-code drift (broad-except), v1014 SEC-S16 password policy drift (×2), environmental ogrinfo gap, SSRF gate drift (×2), async loop contamination
+- 1 Phase 1079-03 fix-discovery: `database_connect_args` should set `connect_args["ssl"]=False` when `database_ssl_mode=='disable'` (low priority — production never sets `disable`)
+
+**Key context:** All 8 are pre-existing — found, not regressions. Per Phase 1075-05 protocol: each failure must be dispositioned with explicit root-cause + fix-shape, no skip-marks. Public tag target `v1.5.3` (patch — hygiene only, no user-facing features, no migrations).
+
 ## Recent Shipped Milestone: v1017 Test Infra & Audit Tail
 
 **Shipped:** 2026-05-21
@@ -970,7 +980,13 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-(None — v1011.1 shipped 2026-05-18. Run `/gsd-new-milestone` to scope the next milestone.)
+v1018 Hygiene — v1017 Tech-Debt Tail (8 items):
+- TD-1: `test_layering.py::test_no_unjustified_broad_except_sites` — production-code drift in `tasks_common.py:231,237`
+- TD-2/TD-3: `test_phase_279_user_lifecycle.py` — `test_register_password_too_short` + `test_register_password_diversity` (v1014 SEC-S16 password policy drift)
+- TD-4: `test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` — environmental (`ogrinfo` CLI missing on host PATH)
+- TD-5/TD-6: `test_reupload_service.py` — `test_reupload_service_preserves_identity_and_increments_version` + `test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` (SSRF gate drift)
+- TD-7: `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` — async loop contamination, full-suite-only
+- TD-8: `backend/app/core/config.py:database_connect_args` should set `connect_args["ssl"]=False` when `database_ssl_mode=='disable'` (low priority; production never sets `disable`)
 
 ### Out of Scope
 
@@ -1242,4 +1258,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-21 — shipped milestone v1017 Test Infra & Audit Tail (13 requirements across 5 phases 1075-1079, local tag v1017, public tag v1.5.2 at c968392b). TI-01 conftest refactor eliminated 1363 InvalidCatalogNameError; TI-02 fixed all 11 v1015 baseline failures at root cause; ING-01..07 closed 7 backend/frontend ingest P2 findings; CI-01 wired alembic clean-DB script into GitHub Actions (SEC-OBSV-03 closed); VG-01 docker-smoke verified (with 3 latent script bugs fixed inline); TI-03 pytest baseline captured; HYG-01 archived 196 quick_tasks. Audit PASSED; close-gate green (pytest 3018/0 InvalidCatalogNameError, e2e:smoke:builder 25/26, live MCP 5/5). 8 tech-debt items for v1018. Archive: .planning/milestones/v1017-ROADMAP.md. Previously shipped: v1016 Hardening Sweep (26 reqs, archive: .planning/milestones/v1016-ROADMAP.md).*
+*Last updated: 2026-05-21 — opened milestone v1018 Hygiene — v1017 Tech-Debt Tail. Scope: 8 deferred items (7 Phase 1075 NEW-DISCOVERY pytest failures + 1 Phase 1079-03 fix-discovery `database_connect_args` SSL handling). Target public tag `v1.5.3` (patch; hygiene only, no migrations, no user-facing features). Previous: v1017 Test Infra & Audit Tail (13 reqs across phases 1075-1079, tag v1017 + v1.5.2 at c968392b). Archive: .planning/milestones/v1017-ROADMAP.md.*

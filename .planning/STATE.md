@@ -1,28 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1017
-milestone_name: Test Infra & Audit Tail
-status: complete
-stopped_at: v1017 close-gate complete; all 5 phases (1075-1079) and 13/13 requirements satisfied; tags v1017 + v1.5.2 cut
-last_updated: "2026-05-21T21:05:00.000Z"
-last_activity: 2026-05-21 -- v1017 close-gate complete
+milestone: v1018
+milestone_name: Hygiene — v1017 Tech-Debt Tail
+status: planning
+last_updated: "2026-05-21T21:20:27.604Z"
+last_activity: 2026-05-21
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1079 (close-gate-hygiene) — COMPLETE
-Plan: 5 of 5
-Status: v1017 milestone close-gate complete; ready for /gsd-audit-milestone → /gsd-complete-milestone v1017 → /gsd-cleanup
-Last activity: 2026-05-21 -- Phase 1079 closed; 13/13 reqs satisfied
-Next phase: Milestone lifecycle (audit → complete → cleanup)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-21 — Milestone v1018 started
 
 ## Project Reference
 
