@@ -1,5 +1,7 @@
 import { renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
+import { useRef } from 'react';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 vi.mock('@/api/vrt', () => ({
   listVrtSources: vi.fn(),
@@ -10,13 +12,44 @@ vi.mock('@/api/vrt', () => ({
   regenerateVrt: vi.fn(),
 }));
 
-import { listVrtSources, addVrtSource, getVrtStatus, regenerateVrt } from '@/api/vrt';
-import { useVrtSources, useAddVrtSource, useVrtStatus, useRegenerateVrt } from '@/components/import/hooks/use-vrt';
+import {
+  listVrtSources,
+  addVrtSource,
+  removeVrtSource,
+  getVrtStatus,
+  regenerateVrt,
+} from '@/api/vrt';
+import {
+  useVrtSources,
+  useAddVrtSource,
+  useRemoveVrtSource,
+  useVrtStatus,
+  useRegenerateVrt,
+} from '@/components/import/hooks/use-vrt';
+import { queryKeys } from '@/lib/query-keys';
 
 const mockListVrtSources = vi.mocked(listVrtSources);
 const mockAddVrtSource = vi.mocked(addVrtSource);
+const mockRemoveVrtSource = vi.mocked(removeVrtSource);
 const mockGetVrtStatus = vi.mocked(getVrtStatus);
 const mockRegenerateVrt = vi.mocked(regenerateVrt);
+
+/**
+ * Render a hook factory with access to the wrapper's QueryClient so we can
+ * spy on invalidateQueries. Mirrors the helper in use-dataset.test.ts.
+ */
+function renderWithClient<T>(factory: () => T): { result: { current: T }; qc: QueryClient } {
+  let captured: QueryClient | null = null;
+  const { result } = renderHook(() => {
+    const qc = useQueryClient();
+    const ref = useRef<QueryClient | null>(null);
+    if (ref.current === null) ref.current = qc;
+    captured = ref.current;
+    return factory();
+  });
+  if (!captured) throw new Error('QueryClient capture failed');
+  return { result, qc: captured as QueryClient };
+}
 
 describe('useVrtSources', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -61,6 +94,43 @@ describe('useAddVrtSource', () => {
 
     expect(mockAddVrtSource).toHaveBeenCalledWith('ds-1', 'ds-2');
   });
+
+  // REMED-01 (ingest-audit P2-06)
+  it('invalidates jobStatusByDataset(datasetId) AND existing keys on success', async () => {
+    mockAddVrtSource.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient(() => useAddVrtSource('ds-1'));
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync('ds-2');
+
+    // New invalidation (this plan)
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.ingest.jobStatusByDataset('ds-1'),
+    });
+    // Existing invalidations preserved
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.vrt.sources('ds-1') });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('ds-1') });
+  });
+});
+
+describe('useRemoveVrtSource', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // REMED-01 (ingest-audit P2-06)
+  it('invalidates jobStatusByDataset(datasetId) AND existing keys on success', async () => {
+    mockRemoveVrtSource.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient(() => useRemoveVrtSource('ds-1'));
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync('ds-2');
+
+    expect(mockRemoveVrtSource).toHaveBeenCalledWith('ds-1', 'ds-2');
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.ingest.jobStatusByDataset('ds-1'),
+    });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.vrt.sources('ds-1') });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('ds-1') });
+  });
 });
 
 describe('useVrtStatus', () => {
@@ -97,5 +167,23 @@ describe('useRegenerateVrt', () => {
     await result.current.mutateAsync();
 
     expect(mockRegenerateVrt).toHaveBeenCalledWith('ds-1');
+  });
+
+  // REMED-01 (ingest-audit P2-06)
+  it('invalidates jobStatusByDataset(datasetId) AND existing keys on success', async () => {
+    mockRegenerateVrt.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result, qc } = renderWithClient(() => useRegenerateVrt('ds-1'));
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+
+    await result.current.mutateAsync();
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: queryKeys.ingest.jobStatusByDataset('ds-1'),
+    });
+    // Existing invalidations preserved
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.datasets.detail('ds-1') });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.vrt.sources('ds-1') });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.vrt.status('ds-1') });
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.vrt.generations('ds-1') });
   });
 });
