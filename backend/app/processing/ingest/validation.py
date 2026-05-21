@@ -14,6 +14,8 @@ from pathlib import Path
 import puremagic
 import structlog
 
+from app.processing.raster.vrt import VRT_VSI_ALLOWED_PREFIXES
+
 logger = structlog.get_logger()
 
 # --- Constants ---
@@ -81,8 +83,9 @@ def validate_vrt_body(file_path: str) -> None:
     - VRTs whose XML body doesn't start with `<VRTDataset`
     - `<SourceFilename>` containing any `..` segment
     - `<SourceFilename>` resolving to an absolute path (`/etc/x` etc.)
-      EXCEPT recognized GDAL VSI prefixes (/vsis3/, /vsicurl/, /vsizip/)
-      which the COG ingest path legitimately uses for managed-storage VRTs.
+      EXCEPT recognized GDAL VSI prefixes listed in
+      ``VRT_VSI_ALLOWED_PREFIXES`` (raster/vrt.py) which the COG ingest
+      path legitimately uses for managed-storage VRTs.
 
     Raises ValueError with user-friendly message on any violation.
     """
@@ -110,15 +113,8 @@ def validate_vrt_body(file_path: str) -> None:
         )
 
     # Scan every <SourceFilename> for path-traversal markers.
-    vsi_prefixes = (
-        "/vsis3/",
-        "/vsicurl/",
-        "/vsizip/",
-        "/vsigs/",
-        "/vsiaz/",
-        "/vsitar/",
-        "/vsimem/",
-    )
+    # VSI prefix allow-list lives in raster/vrt.py as the single source
+    # of truth — KNOWN-04 (Phase 1071).
     for match in _VRT_SOURCEFILENAME_RE.finditer(body):
         raw_path = match.group(1).decode("utf-8", errors="replace").strip()
         # Reject `..` segments anywhere in the path
@@ -134,7 +130,9 @@ def validate_vrt_body(file_path: str) -> None:
                 "Use relative paths without '..' segments or VSI URIs."
             )
         # Reject absolute paths unless they're GDAL VSI prefixes
-        if raw_path.startswith("/") and not raw_path.startswith(vsi_prefixes):
+        if raw_path.startswith("/") and not raw_path.startswith(
+            VRT_VSI_ALLOWED_PREFIXES
+        ):
             logger.warning(
                 "VRT body contains absolute filesystem path",
                 event_type="security",
