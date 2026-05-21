@@ -811,7 +811,9 @@ async def ensure_geom_column(session: AsyncSession, table_name: str) -> bool:
             f"RENAME COLUMN {_sql_quote_ident(geom_col)} TO geom"
         )
     )
-    await session.commit()
+    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
+    # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
+    # boundary so a downstream failure rolls back this rename atomically.
     return True
 
 
@@ -1026,7 +1028,9 @@ async def clip_to_mercator_bounds(session: AsyncSession, table_name: str) -> Non
             f"WHERE NOT ST_CoveredBy(geom, {envelope})"
         )
     )
-    await session.commit()
+    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
+    # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
+    # boundary so a downstream failure rolls back this clip atomically.
 
 
 async def add_4326_column(
@@ -1073,7 +1077,10 @@ async def add_4326_column(
     # so new ingests no longer ship the duplicate. Migration 0016 drops
     # the leftovers from existing tables.
 
-    await session.commit()
+    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
+    # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
+    # boundary so a downstream failure rolls back the ALTER + UPDATE +
+    # CREATE INDEX above atomically.
 
 
 async def grant_reader_access(session: AsyncSession, table_name: str) -> None:
@@ -1088,7 +1095,9 @@ async def grant_reader_access(session: AsyncSession, table_name: str) -> None:
     await session.execute(
         text(f"GRANT SELECT ON {_qtable(table_name)} TO geolens_reader")
     )
-    await session.commit()
+    # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
+    # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
+    # boundary so a downstream failure rolls back this GRANT atomically.
 
 
 # ---------------------------------------------------------------------------
