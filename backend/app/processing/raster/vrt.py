@@ -21,9 +21,40 @@ _VRT_SAFE_ENV: dict[str, str] = {
 }
 
 
-def _gdal_safe_env() -> dict[str, str]:
-    """Return os.environ overlaid with VRT/GDAL safety clamps."""
-    return {**os.environ, **_VRT_SAFE_ENV}
+def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
+    """Return os.environ overlaid with the raster-pipeline GDAL safety clamps.
+
+    Shared by every GDAL CLI subprocess the raster pipeline spawns
+    (gdaladdo, gdalwarp, gdal_translate, gdalbuildvrt). Applies:
+
+    - CPL_VSIL_CURL_ALLOWED_EXTENSIONS="tif,tiff,vrt" — gates which
+      URL-fetched extensions GDAL will open (defense against the
+      classic /vsicurl/ side-channel that can fetch arbitrary remote
+      content when an attacker plants a SourceFilename with an
+      unexpected extension).
+    - VRT_VIRTUAL_OVERVIEWS="NO" — blocks the implicit overview-pyramid
+      expansion that could pull additional remote sources during a
+      build.
+    - GDAL_HTTP_FOLLOWLOCATION="NO" — pinned with the SEC-S04 SSRF
+      redirect-bypass defense; libcurl will not follow 3xx hops out
+      of the explicitly-validated source URL.
+
+    Phase 1071 KNOWN-03 (v1015 Phase 1068 tech-debt followup): the
+    clamps were originally scoped to _build_vrt only; they now apply
+    uniformly across the raster subprocess surface.
+
+    Args:
+        extras: Optional per-call additions (e.g. ``{"GDAL_CACHEMAX": "200"}``).
+            Extras win over both ``os.environ`` and ``_VRT_SAFE_ENV`` for
+            keys they define. Pass ``None`` (the default) for the base clamp.
+
+    Returns:
+        A new dict suitable for ``subprocess.run(..., env=...)``.
+    """
+    env = {**os.environ, **_VRT_SAFE_ENV}
+    if extras:
+        env.update(extras)
+    return env
 
 # Maps VrtCreateRequest resolution_strategy values to gdalbuildvrt -resolution values.
 _RES_MAP: dict[str, str] = {
@@ -219,7 +250,7 @@ def _build_vrt(
             cmd,
             capture_output=True,
             text=True,
-            env=_gdal_safe_env(),
+            env=gdal_safe_env(),
         )
     except FileNotFoundError:
         return _write_python_vrt(
