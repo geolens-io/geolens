@@ -215,15 +215,19 @@ async def _resolve_download_user(
         user_id = payload.get("sub")
         if user_id:
             # Sub-bearing authenticated download token: look up the user.
+            # CR-02 (Phase 1071 review): narrow the except to only guard the
+            # uuid.UUID() conversion, not the db.execute() call. A ValueError
+            # from SQLAlchemy (ORM-contract violation) should bubble up rather
+            # than being silently swallowed by a broad except ValueError: pass.
             try:
-                result = await db.execute(
-                    select(User).where(User.id == uuid.UUID(user_id))
-                )
+                user_uuid = uuid.UUID(user_id)
+            except ValueError:
+                pass  # malformed sub claim — fall through to 401
+            else:
+                result = await db.execute(select(User).where(User.id == user_uuid))
                 found = result.scalar_one_or_none()
                 if found and found.is_active and found.status == "active":
                     return found
-            except ValueError:
-                pass
             # Sub-bearing token whose user disappeared or is inactive — 401
             # (fall through to the unconditional 401 below).
         else:
