@@ -11,6 +11,121 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-20
+
+### Ingest/Export lifecycle hardening (v1015 milestone)
+
+Phases 1065-1070 — 13 requirements closing the 4 P0 + 5 P1 findings from
+the 2026-05-19 `/ingest-audit`, the `router_reupload.py` IDOR that v1014
+acknowledged but deferred, and v1014 hygiene tail.
+
+### Security — Tier A ship-blocking (Phases 1065-1067)
+
+- **IA-P0-01 (Phase 1065):** Wire the download-token mint flow. The
+  `downloadCog()` frontend helper now mints a short-lived `typ='download'`
+  JWT via `POST /api/auth/download-token/{dataset_id}` and opens the
+  download URL with the minted token, instead of putting the session
+  JWT in a URL query parameter (which 401'd against the strict
+  `_resolve_download_user` check shipped in v1014 SEC-S04). Closes the
+  in-production COG download failure. Playwright spec pins the
+  two-request order; OpenAPI snapshot regenerated.
+- **REUPLOAD-IDOR-01 (Phase 1065):** All 6 handlers in
+  `router_reupload.py` now enforce `check_dataset_access` (write-mode +
+  ownership) in addition to the existing `require_permission(
+  "edit_metadata")` role gate. Non-owner editors get HTTP 404 from each
+  handler. The pre-commit `visibility-filter-coverage` exclusion that
+  shielded the file is deleted; future regressions fail at commit.
+- **IA-P1-02 (Phase 1065):** `reupload_service_preview` now calls
+  `_assert_compatible_record_type` at function entry — surfacing
+  vector→raster or any→VRT swaps as HTTP 400 before pipeline execution.
+  The helper gained a keyword-only `service_type` parameter to cover
+  service-URL paths (which carry no filename).
+- **IA-P0-02 (Phase 1066):** `/ingest/upload` now enforces
+  `max_file_size_bytes` at the HTTP entry via a chunked size check in
+  `save_upload_file`. Local-mode rejects with HTTP 413 (Content Too
+  Large) once cumulative bytes exceed the cap, before the partial file
+  is left on disk; S3-mode rejects before `storage.put`. Symmetric with
+  the presigned path's request-time 422 check.
+- **IA-P0-03 (Phase 1066):** `commit_import` re-runs
+  `validate_url_for_ssrf` on `job.source_url` for service commits before
+  `queue_ingest_job`, closing the preview→commit DNS-rebinding TOCTOU on
+  the FIRST hop (default 60s job TTL window). `ingest_service` and
+  `reupload_service` worker tasks also re-validate before fetch —
+  defense-in-depth for the manifest path that bypasses `commit_import`.
+- **IA-P0-04 (Phase 1067):** Resolved the
+  `IngestJob.last_heartbeat_at` inconsistency by dropping the column
+  (Alembic 0021) and switching `recover_stale_jobs` to use
+  `started_at < now - JOB_TIMEOUT_SECONDS` (1 hour), matching the
+  steady-state `fail_stale_jobs` sweep that already runs every 5
+  minutes. The previous heartbeat-based logic was broken-by-design:
+  the column was declared and queried but never written, so every
+  running job looked heartbeat-less + 5-min-old after a deploy and got
+  force-killed. **Result:** a 6-minute ingest now survives a rolling
+  worker restart. Long-running ingests (>1h) still get force-failed by
+  both startup recovery and the periodic sweeper.
+
+### Security — Tier B follow-ups (Phases 1068-1069)
+
+- **IA-P1-06 (Phase 1068):** `run_ogr2ogr_service` no longer passes the
+  Authorization header via `GDAL_HTTP_HEADERS` env var (visible via
+  `/proc/<pid>/environ` for the subprocess lifetime). Switched to
+  `GDAL_HTTP_HEADER_FILE` pointing at a 0600 tempfile that holds the
+  `Authorization: Bearer <token>` line. The env var is the file path,
+  not the token; the file is unlinked in `finally` even on subprocess
+  failure.
+- **IA-P1-03 (Phase 1068):** Three-layer VRT hardening: (1)
+  `validate_vrt_body` checks for `<VRTDataset` root + scans every
+  `<SourceFilename>` for `..` segments and rejects absolute paths
+  outside the GDAL VSI allowlist (7 prefixes); (2) `validate_file_content`
+  routes `.vrt` through the body validator; (3) `gdalbuildvrt` subprocess
+  inherits a safe env overlay (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS=tif,
+  tiff,vrt`, `VRT_VIRTUAL_OVERVIEWS=NO`, `GDAL_HTTP_FOLLOWLOCATION=NO`).
+  Admin-only blast-radius today; defense-in-depth.
+- **IA-P1-04 (Phase 1069):** `validate_where_clause` rejects statement
+  terminators (`;`), comments (`--`, `/*`, `*/`), and unbalanced
+  single-quotes via fast-path string-level checks, before the v1014
+  SEC-S09 AST allowlist runs.
+- **IA-P1-01 (Phase 1069):** `export_dataset_endpoint` gates on
+  `require_permission("export")` instead of `get_current_active_user`,
+  closing the asymmetry with `download_cog` (v1014 SEC-S04 capability
+  matrix). An admin revoking the `export` capability from `viewer` now
+  produces HTTP 403 from vector export, matching COG download semantics.
+
+### Hygiene (Phase 1070)
+
+- **HYG-01:** Created 5 pending-todo files for v1014 deferred INFO
+  findings (Phase 1062 IN-01/02/03, Phase 1063 IN-01/02).
+- **HYG-02:** Verified — all 6 v1014 REQUIREMENTS.md boxes
+  (SEC-S12/S13/FU-05/FU-06/FU-07/CTRL-01) were already ticked at v1014
+  archive time. No retroactive edit needed.
+- **HYG-03:** Closed 2 cheap v1014 INFO todos inline:
+  `_revalidate_redirect` now handles HTTP 305 (RFC 7231 Use Proxy);
+  `run_ogr2ogr` docstring documents why `GDAL_HTTP_FOLLOWLOCATION` is
+  intentionally absent (local-file path; service-URL sibling sets it).
+  Both todo files moved from `pending/` to `resolved/`.
+
+### Testing
+
+- 59 new unit tests across 7 files: download token (5), reupload IDOR
+  (7), record-type guard (11), upload size limit (5), commit-time SSRF
+  revalidation (4), worker heartbeat decision incl. rolling-deploy
+  regression (12), subprocess env Authorization (4), VRT body validation
+  + subprocess env (14), where-clause injection rejection + export
+  capability gate (9). 134/134 pure-unit tests pass in the modified
+  areas (no regressions).
+- 1 Playwright spec (`e2e/download-cog-token.spec.ts`) pins the COG
+  download mint→open two-request order.
+
+### Migrations
+
+- `0021_drop_ingest_job_last_heartbeat_at` (reversible).
+
+### Compatibility
+
+No breaking changes. `save_upload_file` gains an optional `max_size_bytes`
+keyword-only parameter; legacy callers continue to work without size
+enforcement when None is passed.
+
 ## [1.4.0] - 2026-05-20
 
 ### Security audit remediation (v1014 milestone)
