@@ -23,6 +23,7 @@ from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
 from app.platform.extensions import get_processing_port
+from app.platform.storage.titiler_url import build_titiler_cog_url
 from app.processing.tiles.pool import get_tile_pool
 from app.processing.tiles.service import get_cluster_tile, get_tile
 from app.modules.auth.router import limiter
@@ -46,8 +47,20 @@ router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PU
 _TABLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
 # ---------------------------------------------------------------------------
-# Module-level HTTP client for Titiler proxy (reused across requests)
+# Module-level HTTP client for Titiler proxy (reused across requests).
 # ---------------------------------------------------------------------------
+# SEC-OBSV-01 (sec-audit 2026-05-21): this AsyncClient uses
+# follow_redirects=True. That is safe TODAY because:
+#   1. Titiler is internal-only -- no `ports:` block in docker-compose.yml
+#      exposes it externally.
+#   2. The only URLs this client receives are server-derived raster URIs
+#      already constrained by build_titiler_cog_url() at the call site.
+#
+# If a future change EXPOSES Titiler externally, OR routes user-controlled
+# URLs through this client without prior validate_url_for_ssrf(), this
+# construction MUST move to app.modules.catalog.sources.security.make_safe_client
+# -- which adds per-hop redirect SSRF revalidation. Grep this comment when
+# auditing future Titiler-exposure changes.
 _titiler_client = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=10.0),
     follow_redirects=True,
@@ -340,11 +353,11 @@ async def raster_tile_proxy(
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
 
-    titiler_url = f"http://titiler:8000/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}"
-    if render_params:
-        titiler_url = f"{titiler_url}?url={open_path}&{render_params}"
-    else:
-        titiler_url = f"{titiler_url}?url={open_path}"
+    titiler_url = build_titiler_cog_url(
+        f"tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}",
+        query={"url": open_path},
+        raw_query_suffix=render_params or None,
+    )
 
     # Retry with exponential backoff for transient failures. httpx.TimeoutException
     # is a subclass of TransportError, but we catch it explicitly to make the
