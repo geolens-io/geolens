@@ -23,7 +23,7 @@ These failures are pre-existing — the production code has moved (v1014 SEC-S16
 
 - [x] **TD-03**: Fix `backend/tests/test_phase_279_user_lifecycle.py::test_register_password_diversity` — same SEC-S16 policy drift as TD-02 (companion test). Update test to use a password that fails diversity check under the 3-of-4 class rule with the configured `PASSWORD_REQUIRE_CLASSES` default.
 
-- [ ] **TD-05**: Fix `backend/tests/test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version` AND `…::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` — SSRF gate drift. Same root cause Plan 1075-03 closed in `test_ingest.py`: v1016 IA-P0-03 added `validate_url_for_ssrf` re-validation inside the reupload_service worker. Update mocks/fixtures to satisfy the new validation surface. Both companion tests share one root cause → one commit.
+- [x] **TD-05**: Fix `backend/tests/test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version` AND `…::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` — SSRF gate drift. Same root cause Plan 1075-03 closed in `test_ingest.py`: v1016 IA-P0-03 added `validate_url_for_ssrf` re-validation inside the reupload_service worker. Update mocks/fixtures to satisfy the new validation surface. Both companion tests share one root cause → one commit.
 
 - [x] **TD-06**: Fix `backend/tests/test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` — async loop contamination, full-suite-only failure. Test passes in isolation but fails when other tests have already exhausted/dirtied the async loop. Fix by either: (a) isolating the loop fixture, (b) tightening the session-bracket teardown, or (c) refactoring the test to avoid relying on cross-test loop state.
 
@@ -69,7 +69,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | TD-07 | Phase 1080 | Complete |
 | TD-02 | Phase 1081 | Complete |
 | TD-03 | Phase 1081 | Complete |
-| TD-05 | Phase 1081 | Pending |
+| TD-05 | Phase 1081 | Complete |
 | TD-06 | Phase 1081 | Complete |
 | TD-04 | Phase 1082 | Complete |
 | TD-08 | Phase 1083 | Complete |
