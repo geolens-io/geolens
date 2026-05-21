@@ -1,4 +1,12 @@
 ---
+resolved: 2026-05-21
+resolved_in_phase: 1071
+resolved_by_plan: 1071-03
+resolution: "StacSearchBody.limit now carries ge=1, le=1000; StacSearchBody.offset carries ge=0; four schema-rejection tests added."
+commit: 965f056b256a2109dc72c3d8e249589a37ee235a
+---
+
+---
 created: 2026-05-20T00:00:00Z
 title: "v1063 IN-02: StacSearchBody.limit/offset have no Pydantic ge/le constraints"
 area: api

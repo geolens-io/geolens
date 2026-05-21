@@ -1,4 +1,12 @@
 ---
+resolved: 2026-05-21
+resolved_in_phase: 1071
+resolved_by_plan: 1071-03
+resolution: "Documented whitespace-as-symbol stance in validate_password_complexity (decision: keep behavior, document caveat per CONTEXT.md 'Specific Ideas'); pinned with trailing-whitespace test."
+commit: 9399c0be8ee9bac5d2121d02e461e4c448654881
+---
+
+---
 created: 2026-05-20T00:00:00Z
 title: "v1062 IN-02: validate_password_complexity treats whitespace as a symbol class"
 area: security
