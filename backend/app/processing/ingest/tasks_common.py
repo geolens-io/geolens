@@ -6,6 +6,7 @@ validation, and the finalize pipeline used across vector, raster, VRT,
 and reupload workflows.
 """
 
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -852,6 +853,38 @@ def resolve_service_type(raw: str) -> tuple[str, str]:
     )
 
 
+def _is_lock_timeout_error(exc: BaseException) -> bool:
+    """Detect PostgreSQL lock_timeout (SQLSTATE 55P03) across asyncpg + SQLAlchemy wrapping.
+
+    asyncpg raises ``asyncpg.exceptions.LockNotAvailableError``; SQLAlchemy
+    wraps it in ``DBAPIError`` with ``.orig`` pointing at the original
+    asyncpg exception. Check both shapes so behavior is identical
+    regardless of where the exception bubbles up from.
+
+    ING-06 / P2-08: used by ``_apply_reupload_swap`` to gate its single
+    retry. Returns False for any other exception class or SQLSTATE so
+    real errors (e.g., 23505 unique violation) still propagate
+    immediately.
+    """
+    # Direct asyncpg exception
+    try:
+        from asyncpg.exceptions import LockNotAvailableError
+
+        if isinstance(exc, LockNotAvailableError):
+            return True
+    except ImportError:
+        pass
+
+    # SQLAlchemy-wrapped: check the underlying .orig for SQLSTATE 55P03
+    orig = getattr(exc, "orig", None)
+    if orig is not None:
+        sqlstate = getattr(orig, "sqlstate", None)
+        if sqlstate == "55P03":
+            return True
+
+    return False
+
+
 def _looks_like_auth_error(error_message: str) -> bool:
     """Best-effort detection for remote auth failures from GDAL stderr."""
     lowered = error_message.lower()
@@ -948,9 +981,10 @@ async def _apply_reupload_swap(
     new_version = dataset.current_version + 1
     table_name = dataset.table_name
 
-    await session.execute(text("SET LOCAL lock_timeout = '5s'"))
+    from app.processing.ingest.metadata import _qtable
 
-    # Check if live table exists (handle edge case where it was dropped)
+    # Resolve live_exists once — independent of lock contention; this
+    # SELECT does not need the AccessExclusiveLock we're about to acquire.
     live_exists_result = await session.execute(
         text(
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
@@ -960,18 +994,69 @@ async def _apply_reupload_swap(
     )
     live_exists = live_exists_result.scalar()
 
-    from app.processing.ingest.metadata import _qtable
+    # ING-06 (P2-08): wrap the swap DDL in SAVEPOINTs + single retry on
+    # lock_timeout. Autovacuum can hold AccessExclusiveLock long enough to
+    # collide with the 5s default; bumping to 15s on retry plus a 200ms
+    # sleep gives the autovacuum a chance to clear without surfacing the
+    # failure to the user. Beyond this single retry we surface the error
+    # so ops can investigate. See:
+    #   .planning/audits/INGEST-AUDIT-2026-05-21.md (P2-08)
+    #   .planning/phases/1076-backend-ingest-p2-closure/1076-04-PLAN.md
 
-    if live_exists:
+    async def _swap_with_timeout(timeout_str: str) -> None:
+        """Run SET LOCAL lock_timeout + the 3 ALTER TABLE swap statements."""
+        await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
+        if live_exists:
+            await session.execute(
+                text(
+                    f'ALTER TABLE {_qtable(table_name)} RENAME TO "{table_name}_old"'
+                )
+            )
         await session.execute(
-            text(f'ALTER TABLE {_qtable(table_name)} RENAME TO "{table_name}_old"')
+            text(f'ALTER TABLE {_qtable(staging_table)} RENAME TO "{table_name}"')
         )
-    await session.execute(
-        text(f'ALTER TABLE {_qtable(staging_table)} RENAME TO "{table_name}"')
-    )
-    if live_exists:
-        await session.execute(
-            text(f"DROP TABLE IF EXISTS {_qtable(table_name + '_old')}")
+        if live_exists:
+            await session.execute(
+                text(f"DROP TABLE IF EXISTS {_qtable(table_name + '_old')}")
+            )
+
+    _FIRST_TIMEOUT = "5s"
+    _RETRY_TIMEOUT = "15s"
+    _RETRY_SLEEP_MS = 200
+
+    try:
+        async with session.begin_nested():
+            await _swap_with_timeout(_FIRST_TIMEOUT)
+    except Exception as first_exc:
+        if not _is_lock_timeout_error(first_exc):
+            raise
+
+        structlog.get_logger().warning(
+            "reupload_swap_lock_contention",
+            dataset_id=str(dataset.id),
+            table_name=table_name,
+            attempt=1,
+            first_timeout_seconds=5,
+            retry_timeout_seconds=15,
+            sleep_ms=_RETRY_SLEEP_MS,
+            hint=(
+                "AccessExclusiveLock contention on first swap attempt — "
+                "likely autovacuum collision; retrying once with longer "
+                "timeout. Correlate with pg_stat_activity / pg_stat_user_tables."
+            ),
+        )
+        await asyncio.sleep(_RETRY_SLEEP_MS / 1000.0)
+
+        # Retry inside its own SAVEPOINT so a second failure surfaces cleanly.
+        async with session.begin_nested():
+            await _swap_with_timeout(_RETRY_TIMEOUT)
+
+        structlog.get_logger().info(
+            "reupload_swap_retry_succeeded",
+            dataset_id=str(dataset.id),
+            table_name=table_name,
+            attempt=2,
+            retry_timeout_seconds=15,
         )
 
     # Update dataset metadata in the same transaction as swap

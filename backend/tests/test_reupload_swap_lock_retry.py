@@ -282,11 +282,13 @@ class TestApplyReuploadSwapRetry:
 
         async def _flaky_execute(stmt, *args, **kwargs):
             # Only intercept the live-table rename on the first pass.
+            # ``_qtable`` produces ``"data"."{name}"`` so we look for the
+            # full RENAME-to-_old shape rather than just the table name
+            # (which would also match the SELECT EXISTS pre-check).
             sql = str(getattr(stmt, "text", stmt))
             if (
                 not raised["once"]
-                and f'ALTER TABLE data."{self.live}" RENAME TO "{self.live}_old"'
-                in sql
+                and f'RENAME TO "{self.live}_old"' in sql
             ):
                 raised["once"] = True
                 raise LockNotAvailableError("simulated autovacuum contention")
