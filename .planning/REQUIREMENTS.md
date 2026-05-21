@@ -11,7 +11,7 @@ Each maps to exactly one phase.
 
 ### Test Infrastructure
 
-- [ ] **TI-01**: Conftest test-DB lifecycle refactor — eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` errors observed in v1016 Phase 1074 full-suite run. Per-test database creation/teardown must succeed reliably across the entire `backend/tests/` tree under `pytest -x` and `pytest -n auto`.
+- [x] **TI-01**: Conftest test-DB lifecycle refactor — eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` errors observed in v1016 Phase 1074 full-suite run. Per-test database creation/teardown must succeed reliably across the entire `backend/tests/` tree under `pytest -x` and `pytest -n auto`.
 - [ ] **TI-02**: Fix 11 v1015 baseline pytest failures — `test_defer_orphan_guard.py` ×3, `test_ingest.py` ×3, `test_maps_style_json.py` ×5. Failures must be either fixed at root cause (production code or test logic) or skipped with a documented rationale in a `pytest.mark.skip(reason=...)` decorator linked to an issue.
 - [ ] **TI-03**: Establish post-v1017 pytest baseline — full `backend/tests/` suite passes (or has documented skips only); zero `InvalidCatalogNameError` errors. Captured in a baseline doc at `.planning/audits/PYTEST-BASELINE-2026-05-21.md` so future regressions are spotted immediately.
 
@@ -64,7 +64,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TI-01 | Phase 1075 | Pending |
+| TI-01 | Phase 1075 | Complete |
 | TI-02 | Phase 1075 | Pending |
 | TI-03 | Phase 1079 | Pending |
 | CI-01 | Phase 1078 | Pending |

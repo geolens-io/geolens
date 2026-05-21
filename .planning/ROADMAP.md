@@ -121,7 +121,12 @@
   2. Per-test database creation/teardown works reliably under both `pytest -x` (sequential) and `pytest -n auto` (parallel) — no test contaminates another
   3. Each of the 11 v1015 baseline failures (`test_defer_orphan_guard.py` ×3, `test_ingest.py` ×3, `test_maps_style_json.py` ×5) is either fixed at root cause (production code or test logic) or skipped with `pytest.mark.skip(reason=...)` linked to a tracked GitHub issue
   4. Full backend pytest run reports the same green/red signal a developer sees locally — no infrastructure noise hiding logic regressions
-**Plans:** TBD
+**Plans:** 1/5 plans executed
+- [x] 1075-01-PLAN.md — Conftest test-DB lifecycle refactor (TI-01: pytest-xdist worker isolation, ordered teardown, regression test)
+- [ ] 1075-02-PLAN.md — Fix `test_defer_orphan_guard.py` 3 failures (TI-02 partial)
+- [ ] 1075-03-PLAN.md — Fix `test_ingest.py` 3 named failures (TI-02 partial: test_upload_success, test_csv_upload_success, test_service_job_commits_with_service_body)
+- [ ] 1075-04-PLAN.md — Fix `test_maps_style_json.py` 5 failures (TI-02 partial — shared root-cause analysis)
+- [ ] 1075-05-PLAN.md — Full-suite verification + commit (closes TI-01 + TI-02)
 
 ### Phase 1076: Backend Ingest P2 Closure
 **Goal:** Close the backend ingest P2 lifecycle hardening tail — remove all forward-only commit hazards, memory pressure spikes, and rare-but-real swap failures
@@ -173,7 +178,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 0/0 | Not started | - |
+| 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 1/5 | In Progress|  |
 | 1076. Backend Ingest P2 Closure | 0/0 | Not started | - |
 | 1077. Frontend Ingest P2 Closure | 0/0 | Not started | - |
 | 1078. CI Alembic Clean-DB Upgrade Workflow | 0/0 | Not started | - |

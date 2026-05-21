@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
-status: planning
-last_updated: "2026-05-21T17:31:25.504Z"
+status: executing
+stopped_at: v1017 roadmap created; STATE.md updated
+last_updated: "2026-05-21T18:09:50.467Z"
 last_activity: 2026-05-21
 progress:
-  total_phases: 5
+  total_phases: 10
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -17,17 +18,17 @@ progress:
 
 ## Current Position
 
-Phase: 1075 (next — not started)
-Plan: —
-Status: Roadmap complete; awaiting `/gsd:plan-phase 1075`
-Last activity: 2026-05-21 — Milestone v1017 roadmap created (5 phases: 1075-1079, 13/13 reqs mapped)
+Phase: 1075 (conftest-test-db-lifecycle-refactor-baseline-fixes) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-05-21
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1017 Test Infra & Audit Tail — restore pytest signal accuracy (TI-01/TI-02 conftest refactor + 11 baseline failures), close 7 deferred P2 ingest findings (ING-01..07), wire `test_alembic_upgrade_clean_db.sh` into CI (CI-01), re-verify Phase 1071 KNOWN-02 docker smoke (VG-01), trim 174-item quick_tasks tail (HYG-01). Public tag target: `v1.5.2` (patch).
+**Current focus:** Phase 1075 — conftest-test-db-lifecycle-refactor-baseline-fixes
 
 ## Last Shipped Milestone
 
@@ -61,6 +62,7 @@ See: .planning/PROJECT.md
 - **2026-05-21 (v1017):** Ingest P2 split by surface — backend (Phase 1076: ING-02/03/04/06/07) needs new regression test for P2-02 commit boundary; frontend (Phase 1077: ING-01/05) is mostly helper extraction. Splitting allows the backend phase to gate on the new regression test independently.
 - **2026-05-21 (v1017):** Re-audit NOT scheduled at the front — v1016 audits passed clean 1 day prior (2026-05-21). Audits run at close-gate as verification only, not gating.
 - **2026-05-21 (v1017):** Public tag target `v1.5.2` (patch) — hygiene/hardening only, no user-facing features, no migrations beyond what's needed for ING-02 regression test fixtures.
+- [Phase ?]: 2026-05-21 (1075-01): worker_id default is 'master' (not empty/blank) for the test-DB naming layout — prevents collisions between sequential pytest and parallel xdist runs against the same Postgres server. 50ms grace window between pg_terminate_backend and DROP DATABASE eliminates the libpq-async-shutdown race that surfaced as 1363 InvalidCatalogNameError errors in v1016 Phase 1074.
 
 ### Pending Todos
 
@@ -72,7 +74,7 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21
+Last session: 2026-05-21T18:09:39.194Z
 Stopped at: v1017 roadmap created; STATE.md updated
 Resume file: None
 
