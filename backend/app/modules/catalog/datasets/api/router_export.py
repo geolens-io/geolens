@@ -1,6 +1,5 @@
 """Dataset export endpoints: DCAT JSON-LD catalog and COG download."""
 
-import io
 import uuid
 
 import jwt
@@ -378,21 +377,32 @@ async def download_cog(
         )
         return RedirectResponse(url=url, status_code=302)
 
-    # Local storage: stream bytes
+    # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
+    # The full file is NOT buffered into memory — a 5 GB COG no longer pins
+    # 5 GB of resident memory before the first byte streams.
+    #
+    # Probe existence upfront so FileNotFoundError surfaces as 404 BEFORE the
+    # async iterator is handed to StreamingResponse. Starlette consumes the
+    # iterator after returning the response, so a deferred raise inside the
+    # generator would produce a 500 (or a broken Transfer-Encoding chunk)
+    # rather than a clean 404.
     try:
-        data = await storage.get(raster_asset.asset_uri)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="COG file not found"
-        )
+        if not await storage.exists(raster_asset.asset_uri):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="COG file not found",
+            )
+    except HTTPException:
+        raise
     except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
         logger.exception("cog_storage_error", dataset_id=str(dataset_id))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="COG download temporarily unavailable",
         )
+
     return StreamingResponse(
-        io.BytesIO(data),
+        storage.get_stream(raster_asset.asset_uri),
         media_type="image/tiff",
         headers={
             "Content-Disposition": get_catalog_port().safe_content_disposition(filename)
