@@ -7,6 +7,8 @@ and reupload workflows.
 """
 
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -174,6 +176,63 @@ def _parse_temporal_fields(
             errors["temporal_end"] = str(temporal_end)[:100]
 
     return parsed_start, parsed_end, errors
+
+
+@asynccontextmanager
+async def _job_phase_session(
+    job_uuid: uuid.UUID, *, phase: str
+) -> "AsyncGenerator[tuple[AsyncSession, IngestJob | None], None]":
+    """Two-phase session bracket for ingest workers (REMED-03 / P2-05).
+
+    Yields ``(session, job)`` where ``job`` is ``None`` if the IngestJob row
+    vanished between phases — the caller is expected to early-return; the
+    helper does NOT raise on missing rows because the existing pattern logs
+    a warning and continues.
+
+    Wraps the four pieces of boilerplate that previously appeared at every
+    session-bracket call site in ``tasks_vector`` / ``tasks_raster``:
+
+    - ``async_session()`` lifecycle (open/close).
+    - ``SELECT IngestJob WHERE id = job_uuid``.
+    - "vanished between phases" warning log + yield ``None`` on missing job.
+    - rollback-on-exception (re-raises so the outer error handler still runs).
+
+    The caller owns commits — multiple commits per phase block are normal
+    ("load → mark running → commit → continue mutating → commit again" is
+    the shape ``ingest_file`` actually uses).
+
+    **Enforces the #100 greenlet rule** by keeping the SQLAlchemy session
+    lifetime scoped to the ``async with`` block. Long-running CPU /
+    asyncio subprocess work MUST happen OUTSIDE this block, never inside
+    — see ``.planning/debug/worker-missing-greenlet-100.md`` and the
+    docstrings on ``ingest_file`` / ``ingest_raster``.
+
+    The ``phase`` keyword (``"phase1"``, ``"phase2"``, ``"progress_write"``,
+    etc.) is included in the missing-row warning so operators can tell
+    which bracket lost the row.
+    """
+    from app.core.db import async_session
+    from app.platform.jobs.models import IngestJob
+    from sqlalchemy import select
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(IngestJob).where(IngestJob.id == job_uuid)
+        )
+        job = result.scalar_one_or_none()
+        if job is None:
+            structlog.get_logger().warning(
+                "Ingest job not found in phase, skipping",
+                job_id=str(job_uuid),
+                phase=phase,
+            )
+            yield session, None
+            return
+        try:
+            yield session, job
+        except Exception:
+            await session.rollback()
+            raise
 
 
 def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> None:
