@@ -4,13 +4,13 @@ milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
 stopped_at: v1017 roadmap created; STATE.md updated
-last_updated: "2026-05-21T18:19:30.194Z"
+last_updated: "2026-05-21T18:37:42.148Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 4
   percent: 0
 ---
 
@@ -19,7 +19,7 @@ progress:
 ## Current Position
 
 Phase: 1075 (conftest-test-db-lifecycle-refactor-baseline-fixes) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-05-21
 
@@ -63,6 +63,8 @@ See: .planning/PROJECT.md
 - **2026-05-21 (v1017):** Re-audit NOT scheduled at the front — v1016 audits passed clean 1 day prior (2026-05-21). Audits run at close-gate as verification only, not gating.
 - **2026-05-21 (v1017):** Public tag target `v1.5.2` (patch) — hygiene/hardening only, no user-facing features, no migrations beyond what's needed for ING-02 regression test fixtures.
 - [Phase ?]: 2026-05-21 (1075-01): worker_id default is 'master' (not empty/blank) for the test-DB naming layout — prevents collisions between sequential pytest and parallel xdist runs against the same Postgres server. 50ms grace window between pg_terminate_backend and DROP DATABASE eliminates the libpq-async-shutdown race that surfaced as 1363 InvalidCatalogNameError errors in v1016 Phase 1074.
+- [Phase ?]: 1075-04: Single atomic commit for all 5 test_maps_style_json.py failures because they share one root cause (Phase 1060 commit a400eb89 builder canonicalization), mirroring Plan 02's shared-cause precedent
+- [Phase ?]: 1075-04: MapLibre style-JSON wire-vs-storage casing asymmetry is intentional contract. Build (export) emits camelCase for frontend; parse (import) → MapLayerInput → DB uses snake_case for persistence parity. Tests must choose casing per the boundary they pin
 
 ### Pending Todos
 
@@ -74,7 +76,7 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T18:19:30.191Z
+Last session: 2026-05-21T18:37:21.442Z
 Stopped at: v1017 roadmap created; STATE.md updated
 Resume file: None
 
