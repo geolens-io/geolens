@@ -37,7 +37,7 @@ These failures are pre-existing — the production code has moved (v1014 SEC-S16
 
 ### Close Gate
 
-- [ ] **TD-08**: Capture post-v1018 pytest baseline at `.planning/audits/PYTEST-BASELINE-v1018.md`. Full close-gate: backend pytest sequential (must show 0 failures attributable to TD-01..07), `e2e:smoke:builder`, live Playwright MCP smoke. Cut local tag `v1018` + public tag `v1.5.3`. Write `CHANGELOG.md [1.5.3] - 2026-05-21` entry. Honest disposition of any residual failures discovered during close-gate (deferred to v1019 with rationale).
+- [x] **TD-08**: Capture post-v1018 pytest baseline at `.planning/audits/PYTEST-BASELINE-v1018.md`. Full close-gate: backend pytest sequential (must show 0 failures attributable to TD-01..07), `e2e:smoke:builder`, live Playwright MCP smoke. Cut local tag `v1018` + public tag `v1.5.3`. Write `CHANGELOG.md [1.5.3] - 2026-05-21` entry. Honest disposition of any residual failures discovered during close-gate (deferred to v1019 with rationale).
 
 ## Future Requirements
 
@@ -72,7 +72,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | TD-05 | Phase 1081 | Pending |
 | TD-06 | Phase 1081 | Complete |
 | TD-04 | Phase 1082 | Complete |
-| TD-08 | Phase 1083 | Pending |
+| TD-08 | Phase 1083 | Complete |
 
 **Coverage:**
 - v1018 requirements: 8 total

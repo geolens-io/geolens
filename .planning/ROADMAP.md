@@ -144,8 +144,8 @@
   3. `npm run e2e:smoke:builder` exits green (no new failures beyond pre-existing documented skips)
   4. Live Playwright MCP smoke covers 5 surfaces on `localhost:8080` and all pass
   5. `CHANGELOG.md` carries a `[1.5.3] - 2026-05-21` entry covering TD-01..TD-08; local tag `v1018` and public tag `v1.5.3` are cut at the post-baseline commit
-**Plans:** 2 plans
-- [ ] 1083-01-PLAN.md — Capture PYTEST-BASELINE-v1018.md, run frontend close-gate gates, write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
+**Plans:** 1/2 plans executed
+- [x] 1083-01-PLAN.md — Capture PYTEST-BASELINE-v1018.md, run frontend close-gate gates, write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
 - [ ] 1083-02-PLAN.md — Live Playwright MCP smoke on 5 surfaces (orchestrator-scoped; autonomous: false)
 
 ## Progress
@@ -155,7 +155,7 @@
 | 1080. Production-Code Drift + Config Hygiene | 2/2 | Complete   | 2026-05-21 |
 | 1081. Test Fixture & Assertion Drift | 0/3 | Plans created | - |
 | 1082. Test Environmental | 1/1 | Complete   | 2026-05-21 |
-| 1083. Close Gate | 0/2 | Plans created | - |
+| 1083. Close Gate | 1/2 | In Progress|  |
 
 ## Backlog
 
