@@ -77,38 +77,77 @@
 - ✅ **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (shipped 2026-05-20, local tag `v1015`, public tag `v1.5.0`) — see [archive](milestones/v1015-ROADMAP.md)
 - ✅ **v1016 Hardening Sweep** — Phases 1071-1074 (shipped 2026-05-21, local tag v1016, public tag v1.5.1) — see [archive](milestones/v1016-ROADMAP.md)
 - ✅ **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (shipped 2026-05-21, local tag `v1017`, public tag `v1.5.2`)
+- **v1018 Hygiene — v1017 Tech-Debt Tail** — Phases 1080-1083 (in progress)
 
 ## Phases
 
-### v1016 Hardening Sweep (Shipped 2026-05-21)
+### v1017 Test Infra & Audit Tail (Shipped 2026-05-21)
 
-✅ Complete — see [archive](milestones/v1016-ROADMAP.md). All 4 phases (1071-1074) and 26 requirements satisfied. Local tag `v1016` + public tag `v1.5.1`. Both fresh audits PASS (0 HIGH/MEDIUM); all 13 KNOWN items + 4 P2 REMED findings closed. Full close-gate protocol enforced.
-
-### v1015 Ingest/Export Lifecycle Hardening (Shipped 2026-05-20)
-
-✅ Complete — see [archive](milestones/v1015-ROADMAP.md). All 6 phases (1065-1070) and 13 requirements satisfied. Local tag `v1015` + public tag `v1.5.0`. Closes 4 P0 + 5 P1 from `/ingest-audit` 2026-05-19 + `router_reupload.py` IDOR + v1014 hygiene tail. Live Playwright MCP smoke 5/5 surfaces green against rebuilt containers.
-
-### v1014 Security Audit Remediation (Shipped 2026-05-20)
-
-✅ Complete — see [archive](milestones/v1014-ROADMAP.md). All 4 phases (1061-1064) and 28 requirements satisfied. Local tag `v1014` + public tag `v1.4.0`. Merge gate flipped from BLOCK → PASS; all 7 HIGH + 9 MEDIUM + 10 LOW findings from `/sec-audit` 2026-05-19 closed.
-
-### v1013 Ingest Hardening (Shipped 2026-05-20)
-
-✅ Complete — see [archive](milestones/v1013-ROADMAP.md). All 4 phases (1057-1060) and 10 requirements satisfied. Local tag `v1013` + public tag `v1.3.0`.
+✅ Complete — see [archive](milestones/v1017-ROADMAP.md). All 5 phases (1075-1079) and 13 requirements satisfied. Local tag `v1017` + public tag `v1.5.2`. Restored test signal (TI-01 conftest refactor + TI-02 11 baseline failures fixed), closed 7 backend/frontend ingest P2 findings (ING-01..07), wired alembic clean-DB script into CI (CI-01), re-verified Phase 1071 KNOWN-02 docker-smoke (VG-01 — 3 latent script bugs fixed inline), captured post-fix pytest baseline (TI-03), archived 196-item quick_tasks tail (HYG-01). Live MCP smoke 5/5 surfaces green at close-gate. See [archive](milestones/v1017-ROADMAP.md).
 
 ---
 
-### ✅ v1017 Test Infra & Audit Tail (Shipped 2026-05-21)
+### v1018 Hygiene — v1017 Tech-Debt Tail (Active)
 
-Shipped 2026-05-21 — 5 phases (1075-1079), 13/13 requirements, local tag `v1017`, public tag `v1.5.2`. Restored test signal (TI-01 conftest refactor + TI-02 11 baseline failures fixed), closed 7 backend/frontend ingest P2 findings (ING-01..07), wired alembic clean-DB script into CI (CI-01), re-verified Phase 1071 KNOWN-02 docker-smoke (VG-01 — 3 latent script bugs fixed inline), captured post-fix pytest baseline (TI-03), archived 196-item quick_tasks tail (HYG-01). Live MCP smoke 5/5 surfaces green at close-gate. See [archive](milestones/v1017-ROADMAP.md).
+- [ ] **Phase 1080: Production-Code Drift + Config Hygiene** - Resolve the broad-except layering test failure (TD-01) and the database_connect_args SSL disable branch (TD-07); both are 1-2 line production-code changes with pinned regression tests
+- [ ] **Phase 1081: Test Fixture & Assertion Drift** - Fix the four test-drift failures sharing pre-existing root causes: SEC-S16 password policy drift (TD-02, TD-03), SSRF gate drift in reupload_service (TD-05), and async loop contamination (TD-06)
+- [ ] **Phase 1082: Test Environmental** - Disposition the ogrinfo CLI environmental dependency in test_reupload_idor (TD-04) via skip-with-rationale or mock-out; decision documented in test docstring
+- [ ] **Phase 1083: Close Gate** - Capture PYTEST-BASELINE-v1018.md, run full close-gate (sequential pytest + e2e:smoke:builder + live Playwright MCP smoke), write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
 
 ## Phase Details
 
-(No active phases — v1017 phase details archived to `milestones/v1017-ROADMAP.md`.)
+### Phase 1080: Production-Code Drift + Config Hygiene
+**Goal:** Production code has no unjustified broad-except clauses and the database_connect_args disable branch honours the configured ssl_mode
+**Depends on:** Nothing (first phase; both changes are independent production-code touch points)
+**Requirements:** TD-01, TD-07
+**Success Criteria** (what must be TRUE):
+  1. `pytest backend/tests/test_layering.py::test_no_unjustified_broad_except_sites` passes on a clean tree — either the two broad `except:` clauses at `tasks_common.py:231,237` are narrowed to specific exception classes, or each carries an in-line justification comment that the layering rule recognises
+  2. A unit test pinning the `database_connect_args` shape across the three ssl-mode branches (`disable`, `require`, default) passes; when `database_ssl_mode == 'disable'`, `connect_args["ssl"]` is `False`, not a TLS context object or absent
+  3. Both fixes land with no `pytest.mark.skip` decorators on either named test; running the two named invocations together on a clean `backend/` tree exits green
+**Plans:** TBD
+
+### Phase 1081: Test Fixture & Assertion Drift
+**Goal:** All four pre-existing test-drift failures are fixed at root cause; pytest signal for the named test files is clean without any skip decorators
+**Depends on:** Phase 1080 (clean production-code baseline before applying fixture and assertion patches)
+**Requirements:** TD-02, TD-03, TD-05, TD-06
+**Success Criteria** (what must be TRUE):
+  1. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_password_too_short` passes — test asserts the post-SEC-S16 (v1014, 12-char minimum) failure mode, not the pre-policy one
+  2. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_password_diversity` passes — test uses a password that fails the 3-of-4 class diversity rule under the `PASSWORD_REQUIRE_CLASSES` default
+  3. Both `pytest backend/tests/test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version` and `…::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` pass in one commit — mocks/fixtures satisfy the v1016 IA-P0-03 `validate_url_for_ssrf` re-validation surface
+  4. `pytest backend/tests/test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` passes in full-suite sequential mode (not just isolation) — the async loop contamination is resolved at the fixture or teardown level, not papered over with a skip
+  5. All four target tests pass together in a single sequential `pytest` invocation covering all four named test files, with zero `pytest.mark.skip` decorators added
+**Plans:** TBD
+
+### Phase 1082: Test Environmental
+**Goal:** The ogrinfo CLI environmental dependency in test_reupload_idor is resolved with an explicit, documented decision — no silent environmental failures in CI
+**Depends on:** Phase 1081 (test-drift fixes land first so this phase starts from a known-clean baseline)
+**Requirements:** TD-04
+**Success Criteria** (what must be TRUE):
+  1. `pytest backend/tests/test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` has a documented disposition: either (a) guarded with `pytest.skip(reason="ogrinfo not on PATH — see <env-doc link>")` via `pytest.importorskip` / `which ogrinfo` probe, OR (b) the live `ogrinfo` call is replaced with a mock so the test does not depend on host tooling
+  2. The chosen approach is documented in the test's docstring (at minimum: one sentence explaining the dependency and the resolution)
+  3. The test never silently passes on a host lacking `ogrinfo` (no false green) and never fails with an unguided `FileNotFoundError` or `subprocess.CalledProcessError` on a stock CI image
+**Plans:** TBD
+
+### Phase 1083: Close Gate
+**Goal:** v1018 ships with a captured pytest baseline showing 0 TD-01..07 failures, full close-gate green, CHANGELOG written, and both tags cut
+**Depends on:** Phase 1080, 1081, 1082 (all fixes must land before baseline is captured)
+**Requirements:** TD-08
+**Success Criteria** (what must be TRUE):
+  1. `.planning/audits/PYTEST-BASELINE-v1018.md` exists and documents: total tests, total passes, failures attributable to TD-01..07 (must be 0), any residual unexpected failures with honest disposition (deferred to v1019 with rationale)
+  2. Full sequential `uv run pytest backend/` passes the following named invocations with no skip-mark additions: `test_layering.py::test_no_unjustified_broad_except_sites`, `test_phase_279_user_lifecycle.py::test_register_password_too_short`, `test_phase_279_user_lifecycle.py::test_register_password_diversity`, both `test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_*` targets, `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception`, and the TD-07 `database_connect_args` unit test
+  3. `npm run e2e:smoke:builder` exits green (no new failures beyond pre-existing documented skips)
+  4. Live Playwright MCP smoke covers 5 surfaces on `localhost:8080` and all pass
+  5. `CHANGELOG.md` carries a `[1.5.3] - 2026-05-21` entry covering TD-01..TD-08; local tag `v1018` and public tag `v1.5.3` are cut at the post-baseline commit
+**Plans:** TBD
 
 ## Progress
 
-(No active phases — start next milestone with /gsd-new-milestone)
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1080. Production-Code Drift + Config Hygiene | 0/? | Not started | - |
+| 1081. Test Fixture & Assertion Drift | 0/? | Not started | - |
+| 1082. Test Environmental | 0/? | Not started | - |
+| 1083. Close Gate | 0/? | Not started | - |
 
 ## Backlog
 

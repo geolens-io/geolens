@@ -65,21 +65,21 @@ Populated by `gsd-roadmapper` 2026-05-21.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TD-01 | TBD | Pending |
-| TD-02 | TBD | Pending |
-| TD-03 | TBD | Pending |
-| TD-04 | TBD | Pending |
-| TD-05 | TBD | Pending |
-| TD-06 | TBD | Pending |
-| TD-07 | TBD | Pending |
-| TD-08 | TBD | Pending |
+| TD-01 | Phase 1080 | Pending |
+| TD-07 | Phase 1080 | Pending |
+| TD-02 | Phase 1081 | Pending |
+| TD-03 | Phase 1081 | Pending |
+| TD-05 | Phase 1081 | Pending |
+| TD-06 | Phase 1081 | Pending |
+| TD-04 | Phase 1082 | Pending |
+| TD-08 | Phase 1083 | Pending |
 
 **Coverage:**
 - v1018 requirements: 8 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 8 ⚠ (resolved by `gsd-roadmapper` in Step 10)
+- Mapped to phases: 8 (100%)
+- Unmapped: 0
 
 ---
 
 *Requirements defined: 2026-05-21*
-*Last updated: 2026-05-21 — initial v1018 scope written from v1017 audit deferred_to_v1018 list*
+*Last updated: 2026-05-21 — traceability filled by gsd-roadmapper*
