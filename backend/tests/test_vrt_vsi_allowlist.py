@@ -39,42 +39,30 @@ class TestVrtVsiAllowedPrefixes:
 
         assert isinstance(VRT_VSI_ALLOWED_PREFIXES, tuple)
 
-    def test_validate_vrt_body_consumes_shared_constant(self, tmp_path, monkeypatch):
-        """Monkey-patch the constant and confirm validate_vrt_body picks it up
-        — proves the validator does not carry a private copy."""
-        from app.processing.ingest import validation as validation_module
-        from app.processing.raster import vrt as vrt_module
+    def test_validate_vrt_body_consumes_shared_constant(self):
+        """validate_vrt_body uses VRT_VSI_ALLOWED_PREFIXES from raster/vrt.py
+        — not a private copy. Proves this via object identity.
 
-        # Add a test-only fake prefix and confirm validate_vrt_body
-        # accepts a SourceFilename using it. If validate_vrt_body has a
-        # private copy of the prefix list, the monkey-patch won't affect it
-        # and the assertion below fails.
-        test_prefix = "/vsifake_phase1071/"
-        patched = vrt_module.VRT_VSI_ALLOWED_PREFIXES + (test_prefix,)
+        WR-05 (Phase 1071 review): the previous test monkey-patched both
+        vrt_module and validation_module, but the vrt_module patch was inert
+        because `from app.processing.raster.vrt import VRT_VSI_ALLOWED_PREFIXES`
+        binds the name in validation's namespace at import time (value copy,
+        not live reference). The inert patch created a false impression that the
+        test proved read-through from vrt.py's namespace at call time.
 
-        monkeypatch.setattr(vrt_module, "VRT_VSI_ALLOWED_PREFIXES", patched)
-        monkeypatch.setattr(
-            validation_module, "VRT_VSI_ALLOWED_PREFIXES", patched
+        This assertion is the correct structural proof: if validation.py ever
+        re-inlines the constant (a private copy), the two objects will no
+        longer be identical and this test fails.
+        """
+        from app.processing.ingest.validation import (
+            VRT_VSI_ALLOWED_PREFIXES as v_const,
         )
+        from app.processing.raster.vrt import VRT_VSI_ALLOWED_PREFIXES as vrt_const
 
-        # Write a minimal VRT with a SourceFilename using the fake prefix
-        vrt_file = tmp_path / "fake.vrt"
-        vrt_file.write_bytes(
-            b'<?xml version="1.0"?>\n'
-            b'<VRTDataset rasterXSize="1" rasterYSize="1">\n'
-            b"  <SRS>EPSG:4326</SRS>\n"
-            b'  <VRTRasterBand dataType="Byte" band="1">\n'
-            b'    <SimpleSource>\n'
-            b'      <SourceFilename relativeToVRT="0">' + test_prefix.encode() + b'fake.tif</SourceFilename>\n'
-            b'      <SourceBand>1</SourceBand>\n'
-            b'    </SimpleSource>\n'
-            b'  </VRTRasterBand>\n'
-            b"</VRTDataset>\n"
+        assert v_const is vrt_const, (
+            "validation.py has re-inlined VRT_VSI_ALLOWED_PREFIXES (private copy detected). "
+            "It must import the constant from app.processing.raster.vrt."
         )
-
-        # If validate_vrt_body consumes the shared constant, this passes.
-        # If it has a private copy, ValueError fires (absolute path rejected).
-        validation_module.validate_vrt_body(str(vrt_file))  # MUST NOT raise
 
     def test_validate_vrt_body_rejects_unknown_vsi_scheme(self, tmp_path):
         """Sanity check: an unknown VSI scheme is rejected when NOT in
