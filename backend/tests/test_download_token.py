@@ -314,6 +314,16 @@ class TestDownloadTokenConsumption:
         )
 
         # Audit assertion: anonymous download row was emitted with user_id=NULL.
+        #
+        # WR-03 (Phase 1071 review): session-visibility rationale.
+        # test_db_session is created from the same async_session factory that
+        # the test app client patches into the app (conftest.py:481). The route
+        # handler calls await db.commit() before returning, which flushes the
+        # audit row to the shared test database. Because test_db_session shares
+        # the same engine (not the same connection/transaction), the committed
+        # row is immediately visible to a subsequent query here — no expire_all()
+        # or session refresh is needed. The assertion is stable as long as both
+        # sessions reach the same physical Postgres instance.
         audit_rows = (
             await test_db_session.execute(
                 select(AuditLog).where(
