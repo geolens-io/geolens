@@ -60,30 +60,37 @@ Items deferred from v1017 to future milestones:
 
 ## Traceability
 
-Empty initially. Populated by `gsd-roadmapper` during ROADMAP.md creation.
+Populated by `gsd-roadmapper` 2026-05-21.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TI-01 | TBD | Pending |
-| TI-02 | TBD | Pending |
-| TI-03 | TBD | Pending |
-| CI-01 | TBD | Pending |
-| ING-01 | TBD | Pending |
-| ING-02 | TBD | Pending |
-| ING-03 | TBD | Pending |
-| ING-04 | TBD | Pending |
-| ING-05 | TBD | Pending |
-| ING-06 | TBD | Pending |
-| ING-07 | TBD | Pending |
-| VG-01 | TBD | Pending |
-| HYG-01 | TBD | Pending |
+| TI-01 | Phase 1075 | Pending |
+| TI-02 | Phase 1075 | Pending |
+| TI-03 | Phase 1079 | Pending |
+| CI-01 | Phase 1078 | Pending |
+| ING-01 | Phase 1077 | Pending |
+| ING-02 | Phase 1076 | Pending |
+| ING-03 | Phase 1076 | Pending |
+| ING-04 | Phase 1076 | Pending |
+| ING-05 | Phase 1077 | Pending |
+| ING-06 | Phase 1076 | Pending |
+| ING-07 | Phase 1076 | Pending |
+| VG-01 | Phase 1079 | Pending |
+| HYG-01 | Phase 1079 | Pending |
 
 **Coverage:**
 - v1017 requirements: 13 total
-- Mapped to phases: 0 (pre-roadmap)
-- Unmapped: 13 ⚠️ (populated by roadmapper)
+- Mapped to phases: 13 (100%) ✓
+- Unmapped: 0
+
+**Phase distribution:**
+- Phase 1075 (Conftest + Baseline Fixes): 2 reqs (TI-01, TI-02)
+- Phase 1076 (Backend Ingest P2): 5 reqs (ING-02, ING-03, ING-04, ING-06, ING-07)
+- Phase 1077 (Frontend Ingest P2): 2 reqs (ING-01, ING-05)
+- Phase 1078 (CI Alembic Workflow): 1 req (CI-01)
+- Phase 1079 (Close Gate + Hygiene): 3 reqs (TI-03, VG-01, HYG-01)
 
 ---
 
 *Requirements defined: 2026-05-21*
-*Last updated: 2026-05-21 — initial scoping after `/gsd-new-milestone v1017`*
+*Last updated: 2026-05-21 — traceability populated by `gsd-roadmapper` after roadmap creation*
