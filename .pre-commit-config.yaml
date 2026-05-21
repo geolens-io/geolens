@@ -72,8 +72,3 @@ repos:
           ' --
         types: [python]
         files: '^backend/app/(modules/catalog|standards)/.*\.py$'
-        # Tracked pre-existing gaps excluded until fixed in referenced phase:
-        # - router_reupload.py: IDOR gap — all reupload handlers use require_permission("edit_metadata")
-        #   (role-level) but not check_dataset_access (resource-level). Tracked as Phase 1061 SEC-FU,
-        #   deferred to Phase 1063. See docs-internal/audits/security-lessons.md.
-        exclude: '^backend/app/modules/catalog/datasets/api/router_reupload\.py$'
