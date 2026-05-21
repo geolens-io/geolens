@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { uploadChunks } from './_presignedUpload';
 import type {
   UploadResponse,
   JobStatusResponse,
@@ -144,18 +145,8 @@ export async function uploadPresigned(file: File): Promise<UploadResponse> {
   }
 
   // Multipart upload
-  const chunkSize = part_size!;
-  const completedParts: { etag: string; part_number: number }[] = [];
-
-  for (let i = 0; i < urls.length; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, file.size);
-    const chunk = file.slice(start, end);
-    const resp = await fetch(urls[i], { method: 'PUT', body: chunk });
-    if (!resp.ok) throw new Error(`S3 part ${i + 1} upload failed: ${resp.status}`);
-    const etag = resp.headers.get('ETag') ?? '';
-    completedParts.push({ etag, part_number: i + 1 });
-  }
+  const etags = await uploadChunks(urls, file, part_size!);
+  const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
 
   return completePresignedUpload(job_id, completedParts);
 }

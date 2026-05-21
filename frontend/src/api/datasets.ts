@@ -1,5 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { apiFetch } from './client';
+import { uploadChunks } from './_presignedUpload';
 import { useAuthStore } from '@/stores/auth-store';
 import type {
   CreateDatasetRequest,
@@ -372,18 +373,8 @@ export async function reuploadPresigned(
     return completePresignedReupload(datasetId, job_id);
   }
 
-  const chunkSize = part_size!;
-  const completedParts: { etag: string; part_number: number }[] = [];
-
-  for (let i = 0; i < urls.length; i++) {
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, file.size);
-    const chunk = file.slice(start, end);
-    const resp = await fetch(urls[i], { method: 'PUT', body: chunk });
-    if (!resp.ok) throw new Error(`S3 part ${i + 1} upload failed: ${resp.status}`);
-    const etag = resp.headers.get('ETag') ?? '';
-    completedParts.push({ etag, part_number: i + 1 });
-  }
+  const etags = await uploadChunks(urls, file, part_size!);
+  const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
 
   return completePresignedReupload(datasetId, job_id, completedParts);
 }
