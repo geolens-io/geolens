@@ -171,16 +171,17 @@ class TestDatabaseConnectArgs:
     def test_verify_full_returns_ssl_context_with_verify(self):
         import ssl
 
-        # verify-full with /dev/null won't load a valid CA, just tests the code path
-        _make_settings(
+        import certifi
+
+        s = _make_settings(
             database_ssl_mode="verify-full",
-            database_ssl_ca_cert="/dev/null",
+            database_ssl_ca_cert=certifi.where(),
         )
-        # verify-full with invalid cert path will raise on connect_args access
-        # Just verify that require mode produces a valid SSLContext
-        s2 = _make_settings(database_ssl_mode="require")
-        args = s2.database_connect_args
+        args = s.database_connect_args
         assert isinstance(args["ssl"], ssl.SSLContext)
+        # verify-full does NOT override check_hostname or verify_mode — defaults apply
+        assert args["ssl"].check_hostname is True
+        assert args["ssl"].verify_mode == ssl.CERT_REQUIRED
 
 
 class TestConditionalValidation:
