@@ -6,10 +6,7 @@ from typing import Any
 
 import structlog
 
-from sqlalchemy import select
-
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.core.db import async_session
 from app.processing.raster.cog import (
     check_and_prepare_cog,
     extract_raster_metadata,
@@ -19,6 +16,7 @@ from app.processing.raster.quicklook import generate_quicklook
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    _job_phase_session,
     _parse_temporal_fields,
     _validate_upload_file_safety,
     task_app,
@@ -172,20 +170,14 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session): load job, mark running, validate.
-        # Snapshot the values needed for CPU work into local variables so
-        # phase 2 can re-load the job in a fresh session without depending
-        # on attached ORM state surviving the asyncio.to_thread calls.
+        # Phase 1 (short-lived session via _job_phase_session — REMED-03 /
+        # P2-05): load job, mark running, validate. Snapshot the values
+        # needed for CPU work into local variables so phase 2 can re-load
+        # the job in a fresh session without depending on attached ORM
+        # state surviving the asyncio.to_thread calls.
         # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            job = result.scalar_one_or_none()
+        async with _job_phase_session(job_uuid, phase="phase1") as (session, job):
             if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job not found, skipping", job_id=job_id
-                )
                 return
 
             # 1. Mark running.
@@ -259,13 +251,11 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         # before the branch so both paths exit with the same progress
         # checkpoint. Manifest-VRT skips the actual COG work but the UI
         # signal must still advance — keeps the step name consistent.
-        # Brief-session pattern mirrors phase-2 re-load (no session held
-        # open across the asyncio.to_thread CPU work below).
-        async with async_session() as _progress_session:
-            _progress_result = await _progress_session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            _progress_job = _progress_result.scalar_one_or_none()
+        # Brief-session pattern via _job_phase_session (REMED-03) — no
+        # session held open across the asyncio.to_thread CPU work below.
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_cog_convert"
+        ) as (_progress_session, _progress_job):
             if _progress_job is not None:
                 _progress_job.current_step = "cog_convert"
                 _progress_job.progress = 0.2
@@ -306,12 +296,11 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
 
         # REMED-02 / ingest-audit P2-07: quicklook generation is the other
         # multi-second hotspot. Brief-session write before the two
-        # generate_quicklook calls so the UI advances.
-        async with async_session() as _progress_session:
-            _progress_result = await _progress_session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            _progress_job = _progress_result.scalar_one_or_none()
+        # generate_quicklook calls so the UI advances. Routed through
+        # _job_phase_session per REMED-03.
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_quicklook"
+        ) as (_progress_session, _progress_job):
             if _progress_job is not None:
                 _progress_job.current_step = "quicklook"
                 _progress_job.progress = 0.6
@@ -322,146 +311,135 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         ql512 = await asyncio.to_thread(generate_quicklook, local_cog_path, 512)
 
         # ----------------------------------------------------------------- #
-        # Phase 2 (short-lived session): create DB records, store assets,
-        # commit job. Re-load the job in a fresh session — its attributes
-        # were already snapshotted into ``um``/``source_filename`` above.
+        # Phase 2 (short-lived session via _job_phase_session — REMED-03 /
+        # P2-05): create DB records, store assets, commit job. Re-load the
+        # job in a fresh session — its attributes were already snapshotted
+        # into ``um`` / ``source_filename`` above.
         # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            job = result.scalar_one_or_none()
+        async with _job_phase_session(job_uuid, phase="phase2") as (session, job):
             if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job vanished between phases, skipping",
-                    job_id=job_id,
-                )
                 return
 
-            try:
-                # REMED-02 / ingest-audit P2-07: phase-2 progress signal.
-                # Uncommitted — participates in the existing rollback shape
-                # so a phase-2 failure cleans up the progress write too.
-                # The brief-session "quicklook" write above is the durable
-                # mid-flight checkpoint.
-                job.current_step = "finalize"
-                job.progress = 0.8
+            # REMED-02 / ingest-audit P2-07: phase-2 progress signal.
+            # Uncommitted — participates in the existing rollback shape
+            # so a phase-2 failure cleans up the progress write too.
+            # The brief-session "quicklook" write above is the durable
+            # mid-flight checkpoint.
+            # REMED-03 / P2-05: _job_phase_session owns the rollback-on-
+            # exception shape that used to live as a manual try/except.
+            job.current_step = "finalize"
+            job.progress = 0.8
 
-                # 9. Create DB records
-                title = um.get("title") or source_filename or "raster_dataset"
-                if is_manifest_vrt:
-                    from app.processing.ingest.tasks_vrt import create_vrt_dataset
+            # 9. Create DB records
+            title = um.get("title") or source_filename or "raster_dataset"
+            if is_manifest_vrt:
+                from app.processing.ingest.tasks_vrt import create_vrt_dataset
 
-                    record, dataset, raster_asset = await create_vrt_dataset(
-                        session,
-                        meta=meta,
-                        asset_sha256=asset_sha256,
-                        vrt_size=cog_size,
-                        source_filename=source_filename,
-                        created_by=uuid.UUID(user_id),
-                        title=title,
-                        summary=um.get("summary"),
-                        visibility=um.get("visibility", "private"),
-                        record_status=um.get("record_status", "published"),
-                        vrt_type=um.get("vrt_type", "mosaic"),
-                        resolution_strategy=um.get("resolution_strategy", "finest"),
-                        source_dataset_ids=[],
-                    )
-                else:
-                    record, dataset, raster_asset = await create_raster_dataset(
-                        session,
-                        meta=meta,
-                        source_sha256=source_sha256,
-                        asset_sha256=asset_sha256,
-                        cog_status=cog_status,
-                        cog_size=cog_size,
-                        source_filename=source_filename,
-                        created_by=uuid.UUID(user_id),
-                        title=title,
-                        summary=um.get("summary"),
-                        visibility=um.get("visibility", "private"),
-                        record_status=um.get("record_status", "published"),
-                    )
-
-                # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
-                parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
-                    temporal_start=um.get("temporal_start")
-                    or meta.get("temporal_start"),
-                    temporal_end=um.get("temporal_end"),
+                record, dataset, raster_asset = await create_vrt_dataset(
+                    session,
+                    meta=meta,
+                    asset_sha256=asset_sha256,
+                    vrt_size=cog_size,
+                    source_filename=source_filename,
+                    created_by=uuid.UUID(user_id),
+                    title=title,
+                    summary=um.get("summary"),
+                    visibility=um.get("visibility", "private"),
+                    record_status=um.get("record_status", "published"),
+                    vrt_type=um.get("vrt_type", "mosaic"),
+                    resolution_strategy=um.get("resolution_strategy", "finest"),
+                    source_dataset_ids=[],
                 )
-                if parsed_start is not None:
-                    record.temporal_start = parsed_start
-                if parsed_end is not None:
-                    record.temporal_end = parsed_end
-                if temporal_errors:
-                    job.user_metadata = {
-                        **(job.user_metadata or {}),
-                        "temporal_parse_errors": temporal_errors,
-                    }
-                await session.flush()
-
-                # 10. Store COG and quicklooks to managed storage
-                from app.platform.storage import get_storage
-
-                storage = get_storage()
-                base_key = f"rasters/{dataset.id}/{asset_sha256}"
-                cog_key = (
-                    f"{base_key}/source.vrt"
-                    if is_manifest_vrt
-                    else f"{base_key}/source.cog.tif"
+            else:
+                record, dataset, raster_asset = await create_raster_dataset(
+                    session,
+                    meta=meta,
+                    source_sha256=source_sha256,
+                    asset_sha256=asset_sha256,
+                    cog_status=cog_status,
+                    cog_size=cog_size,
+                    source_filename=source_filename,
+                    created_by=uuid.UUID(user_id),
+                    title=title,
+                    summary=um.get("summary"),
+                    visibility=um.get("visibility", "private"),
+                    record_status=um.get("record_status", "published"),
                 )
-                ql256_key = f"{base_key}/quicklook_256.png"
-                ql512_key = f"{base_key}/quicklook_512.png"
 
-                with open(local_cog_path, "rb") as fobj:
-                    await storage.put(cog_key, fobj)
-                await storage.put(ql256_key, io.BytesIO(ql256))
-                await storage.put(ql512_key, io.BytesIO(ql512))
+            # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
+            parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
+                temporal_start=um.get("temporal_start")
+                or meta.get("temporal_start"),
+                temporal_end=um.get("temporal_end"),
+            )
+            if parsed_start is not None:
+                record.temporal_start = parsed_start
+            if parsed_end is not None:
+                record.temporal_end = parsed_end
+            if temporal_errors:
+                job.user_metadata = {
+                    **(job.user_metadata or {}),
+                    "temporal_parse_errors": temporal_errors,
+                }
+            await session.flush()
 
-                # 11. Update asset URIs and create distribution
-                raster_asset.asset_uri = cog_key
-                raster_asset.quicklook_256_uri = ql256_key
-                raster_asset.quicklook_512_uri = ql512_key
-                await session.flush()
+            # 10. Store COG and quicklooks to managed storage
+            from app.platform.storage import get_storage
 
-                from app.platform.extensions import get_processing_port as _get_port
+            storage = get_storage()
+            base_key = f"rasters/{dataset.id}/{asset_sha256}"
+            cog_key = (
+                f"{base_key}/source.vrt"
+                if is_manifest_vrt
+                else f"{base_key}/source.cog.tif"
+            )
+            ql256_key = f"{base_key}/quicklook_256.png"
+            ql512_key = f"{base_key}/quicklook_512.png"
 
-                RecordDistribution = _get_port().get_record_distribution_orm_class()
+            with open(local_cog_path, "rb") as fobj:
+                await storage.put(cog_key, fobj)
+            await storage.put(ql256_key, io.BytesIO(ql256))
+            await storage.put(ql512_key, io.BytesIO(ql512))
 
-                distribution = RecordDistribution(
-                    record_id=record.id,
-                    distribution_type="download",
-                    format="vrt" if is_manifest_vrt else "geotiff",
-                    url=cog_key,
-                )
-                session.add(distribution)
+            # 11. Update asset URIs and create distribution
+            raster_asset.asset_uri = cog_key
+            raster_asset.quicklook_256_uri = ql256_key
+            raster_asset.quicklook_512_uri = ql512_key
+            await session.flush()
 
-                # 12. Finalize job.
-                # REMED-02 / ingest-audit P2-07: stamp terminal progress
-                # alongside status. ``rows_processed`` stays NULL — raster
-                # ingests have no rows (the COG and quicklooks ARE the
-                # asset). Vector ingests set rows_processed in
-                # tasks_common._finalize_ingest from metadata["feature_count"].
-                job.status = "complete"
-                job.dataset_id = dataset.id
-                job.completed_at = datetime.now(timezone.utc)
-                job.current_step = "complete"
-                job.progress = 1.0
-                await session.commit()
-                final_status = "complete"
+            from app.platform.extensions import get_processing_port as _get_port
 
-                # Invalidate cache
-                await invalidate_catalog_cache()
+            RecordDistribution = _get_port().get_record_distribution_orm_class()
 
-                # 13. Generate embedding (non-fatal)
-                from app.processing.embeddings.helpers import defer_embedding
+            distribution = RecordDistribution(
+                record_id=record.id,
+                distribution_type="download",
+                format="vrt" if is_manifest_vrt else "geotiff",
+                url=cog_key,
+            )
+            session.add(distribution)
 
-                await defer_embedding(dataset)
+            # 12. Finalize job.
+            # REMED-02 / ingest-audit P2-07: stamp terminal progress
+            # alongside status. ``rows_processed`` stays NULL — raster
+            # ingests have no rows (the COG and quicklooks ARE the
+            # asset). Vector ingests set rows_processed in
+            # tasks_common._finalize_ingest from metadata["feature_count"].
+            job.status = "complete"
+            job.dataset_id = dataset.id
+            job.completed_at = datetime.now(timezone.utc)
+            job.current_step = "complete"
+            job.progress = 1.0
+            await session.commit()
+            final_status = "complete"
 
-            except Exception:  # broad: re-raised below; rollback first so the
-                # outer handler can write a clean failure record via a fresh session.
-                await session.rollback()
-                raise
+            # Invalidate cache
+            await invalidate_catalog_cache()
+
+            # 13. Generate embedding (non-fatal)
+            from app.processing.embeddings.helpers import defer_embedding
+
+            await defer_embedding(dataset)
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
         structlog.get_logger().exception(
@@ -471,7 +449,11 @@ async def ingest_raster(job_id: str, file_path: str, user_id: str, **kwargs) -> 
         )
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
-        async with async_session() as err_session:
+        # REMED-03 / P2-05: route through _job_phase_session.
+        async with _job_phase_session(job_uuid, phase="error_write") as (
+            err_session,
+            _err_job,
+        ):
             from sqlalchemy import update as sa_update
 
             await err_session.execute(
