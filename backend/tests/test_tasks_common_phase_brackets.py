@@ -118,7 +118,7 @@ async def test_phase_session_yields_none_when_job_missing():
 
 
 @pytest.mark.anyio
-async def test_job_phase_session_none_branch_rolls_back_on_exception():
+async def test_job_phase_session_none_branch_rolls_back_on_exception(client):
     """WR-02: an exception raised inside the ``async with`` block when job is
     None triggers ``session.rollback()`` before re-raising.
 
@@ -126,6 +126,23 @@ async def test_job_phase_session_none_branch_rolls_back_on_exception():
     any exception from a caller using the bare session would propagate without
     an explicit rollback. This pins the corrected behaviour: the helper wraps
     the None-job yield in the same try/except as the found-job branch.
+
+    Full-suite event-loop binding fix (Plan 1081-03 / TD-06):
+    The helper resolves ``app.core.db.async_session`` via a lazy from-import
+    inside its function body (tasks_common.py:215). In isolation, that
+    factory is the production singleton — fresh connection bound to the
+    current per-function anyio loop, all good. In full-suite mode, a prior
+    test has already exercised the production factory under a DIFFERENT
+    event loop, leaving the engine's pool / asyncpg connections bound to
+    a now-defunct loop. When the helper's ``session.rollback()`` fires
+    inside the broad-except at line 232 (justified by Plan 1080-01), asyncpg
+    raises ``RuntimeError: Task got Future attached to a different loop``.
+    Requesting the ``client`` fixture pulls the conftest monkey-patch at
+    conftest.py:368-369 (``db_module.async_session = test_session_factory``)
+    which rebinds the factory to a fresh per-function engine for the
+    duration of THIS test, so the helper's session is loop-clean. The
+    fixture body is unused in this test (no HTTP requests); we only need
+    its side effect.
     """
     missing_id = _uuid.uuid4()
 
