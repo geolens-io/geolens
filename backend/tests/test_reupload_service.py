@@ -209,6 +209,23 @@ class TestServiceReuploadWorker:
         }
 
         with (
+            # Phase 1066 IA-P0-03 (commit f8c91297) added a defense-in-depth
+            # SSRF re-validation of ``source_url`` at the top of the
+            # ``reupload_service`` worker body (tasks_reupload.py:373-378)
+            # via a LAZY from-import inside the function body:
+            #     from app.modules.catalog.sources.security import validate_url_for_ssrf
+            # The lazy import re-binds the symbol on every call, so the
+            # patch target MUST be the function's defining module (NOT
+            # the worker's namespace). The fixture URL
+            # ``services.example.com`` fails DNS resolution in the test
+            # sandbox, which is unrelated to this test's contract
+            # (identity preservation + version increment), so we no-op
+            # the gate via AsyncMock. Same fix shape as Plan 1075-03
+            # closed in test_ingest.py:1369-1372.
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(),
+            ),
             patch(
                 "app.modules.catalog.sources.preview.build_gdal_source",
                 return_value=("WFS:https://services.example.com/wfs", "roads"),
@@ -337,6 +354,15 @@ class TestServiceReuploadWorker:
         )
 
         with (
+            # Phase 1066 IA-P0-03: same SSRF defense-in-depth as the first
+            # worker test. Fixture URL ``protected.example.com`` fails DNS
+            # in the sandbox; mock the gate so the test exercises its actual
+            # contract (401-retry guidance message from IngestionError).
+            # Plan 1075-03 / test_ingest.py:1369 is the canonical pattern.
+            patch(
+                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                new=AsyncMock(),
+            ),
             patch(
                 "app.modules.catalog.sources.preview.build_gdal_source",
                 return_value=("WFS:https://protected.example.com/wfs", "roads"),
