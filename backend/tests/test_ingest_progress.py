@@ -18,6 +18,7 @@ Pins the contract that the polling UI depends on:
 """
 
 import uuid as _uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select, text
@@ -137,7 +138,9 @@ async def test_vector_worker_writes_ogr2ogr_step_before_subprocess(
     # writes the brief-session progress entry before calling run_ogr2ogr, so
     # we monkeypatch run_ogr2ogr to raise — leaving the row in
     # current_step="ogr2ogr" if the brief-session pattern is honored.
-    fixture = "/Users/ishiland/Code/geolens/backend/tests/fixtures/ingest/basic_attrs.geojson"
+    fixture = str(
+        Path(__file__).parent / "fixtures" / "ingest" / "basic_attrs.geojson"
+    )
 
     job = IngestJob(
         source_filename="basic_attrs.geojson",
