@@ -111,3 +111,13 @@ and pass forward as-is:
 - `.planning/phases/1083-close-gate/1083-CONTEXT.md` — phase scope and decisions
 - `.planning/phases/1083-close-gate/1083-02-PLAN.md` — orchestrator-scoped live
   MCP smoke (Plan 02, not in executor scope)
+
+## Self-Check: PASSED
+
+- [x] `.planning/audits/PYTEST-BASELINE-v1018.md` exists with `milestone: v1018`, `InvalidCatalogNameError` documented, 12 TD-0[1-7] references
+- [x] `CHANGELOG.md` has `[1.5.3]` entry, `[1.5.2]` still present (not clobbered), 13 TD-0[1-8] references, WR-01 and WR-02
+- [x] `v1018` tag exists — `git tag --list 'v1018'` returns `v1018`
+- [x] `v1.5.3` tag exists — `git tag --list 'v1.5.3'` returns `v1.5.3`
+- [x] Both tags at same commit SHA `d1b76061b5aa03299da87cab9da552e8f9e9754c`
+- [x] `1083-01-SUMMARY.md` exists with 113 lines (>= 30), TD-08 present
+- [x] Commits `d1b76061` (CHANGELOG+baseline) and `be6263a9` (SUMMARY) exist in git log
