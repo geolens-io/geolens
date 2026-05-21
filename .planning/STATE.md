@@ -3,33 +3,33 @@ gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
-stopped_at: Phase 1077 complete (2/2 plans); ING-01 + ING-05 closed; ready for Phase 1078 (independent) and Phase 1079 (gated on 1078)
-last_updated: "2026-05-21T20:30:00.000Z"
-last_activity: 2026-05-21 -- Phase 1077 complete; frontend ingest P2 closed (ING-01, ING-05)
+stopped_at: Phase 1078 complete (2/2 plans); CI-01 + SEC-OBSV-03 closed; ready for Phase 1079 (close gate + hygiene)
+last_updated: "2026-05-21T20:45:00.000Z"
+last_activity: 2026-05-21 -- Phase 1078 complete; CI alembic clean-DB workflow wired (CI-01)
 progress:
   total_phases: 5
-  completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
-  percent: 60
+  completed_phases: 4
+  total_plans: 15
+  completed_plans: 15
+  percent: 80
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1077 (frontend-ingest-p2-closure) — COMPLETE
+Phase: 1078 (ci-alembic-clean-db-upgrade-workflow) — COMPLETE
 Plan: 2 of 2 — Close-gate landed
-Status: Phase 1077 complete; ready for Phase 1078
-Last activity: 2026-05-21 -- Phase 1077 complete; frontend ingest P2 closed (ING-01, ING-05)
-Next phase: 1078 (CI Alembic Workflow — independent); 1079 (close gate, gated on 1078)
+Status: Phase 1078 complete; ready for Phase 1079
+Last activity: 2026-05-21 -- Phase 1078 complete; CI alembic clean-DB workflow wired (CI-01)
+Next phase: 1079 (Close Gate + Hygiene — gated on 1075/1076/1077/1078, all now closed)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1078 — ci-alembic-clean-db-upgrade-workflow (next eligible)
+**Current focus:** Phase 1079 — close gate + hygiene (next eligible)
 
 ## Last Shipped Milestone
 
@@ -57,6 +57,7 @@ See: .planning/PROJECT.md
 
 ### Decisions
 
+- **2026-05-21 (v1017 Phase 1078):** CI-01 closed — `backend/scripts/test_alembic_upgrade_clean_db.sh` (built in v1016 Phase 1071) now wired into `.github/workflows/ci.yml` as a new `alembic-clean-db` job between `backend-test` and the frontend section. Uses the same `actions/checkout@v6` + `astral-sh/setup-uv@v8.1.0` (v0.10.2) + `actions/setup-python@v6` (3.13) shape as the other backend gates; triggers on path-filter match (backend/alembic/**, backend/scripts/test_alembic_upgrade_clean_db.sh, backend/app/models/**, db/**) OR push to main. SEC-OBSV-03 (v1016 Phase 1072 observational finding) is structurally closed; end-to-end live CI run deferred to Phase 1079 VG-01 (docker-smoke re-verify). YAML lint passes (`python3 -c "import yaml; yaml.safe_load(...)"` exits 0); all 4 acceptance greps green. Zero existing CI job modified; purely additive. See `.planning/phases/1078-ci-alembic-clean-db-upgrade-workflow/1078-VERIFICATION.md` for the evidence trail and `.planning/phases/1078-ci-alembic-clean-db-upgrade-workflow/1078-SUMMARY.md` for the closure summary.
 - **2026-05-21 (v1017 Phase 1077):** Both ING-01 + ING-05 closed; frontend ingest P2 tail fully resolved. Cumulative impact: 1 new `getCogDownloadUrl(id)` helper centralizing the COG download path-construction (single edit site for future route changes), 1 new `uploadChunks(urls, file, partSize)` helper centralizing the chunked-PUT loop (single edit site for future retry / abort / backoff), and 1 new `_presignedUpload.test.ts` (5 pinned behaviors). Full frontend regression gate green: `npx tsc -b` exits 0 with zero errors in any of Plan 01's 5 touched/created files; `npx vitest run` reports 213/213 test files and 2105/2105 tests passing. Zero observable UI behavior change. See `.planning/phases/1077-frontend-ingest-p2-closure/1077-VERIFICATION.md` for the full test evidence trail and `.planning/phases/1077-frontend-ingest-p2-closure/1077-SUMMARY.md` for the closure summary.
 - **2026-05-21 (v1017 Phase 1076):** All 5 ING requirements (ING-02, ING-03, ING-04, ING-06, ING-07) closed; backend ingest P2 tail fully resolved. Cumulative impact: 4 internal commits dropped from `metadata.py` phase-2 helpers, 1 new `StorageProvider.get_stream()` async-generator method, 1 mtime-guarded worker exports sweep, 1 single-retry on `lock_timeout` in `_apply_reupload_swap`, 1 opt-in `strict_cog` flag on `RasterCommitRequest`. 256/256 targeted regression tests pass; zero cross-plan interference; zero anomalies. See `.planning/phases/1076-backend-ingest-p2-closure/1076-VERIFICATION.md` for the full test evidence trail and `.planning/phases/1076-backend-ingest-p2-closure/1076-SUMMARY.md` for the closure summary.
 - **2026-05-21 (v1017):** Test infrastructure MUST run first (Phase 1075) so every downstream phase gets clean pytest signal — TI-01 conftest refactor is a precondition for accurate test results on ING-02 regression test + close-gate.
@@ -89,15 +90,16 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T22:00:00.000Z
-Stopped at: Phase 1077 complete (2/2 plans); ING-01 + ING-05 closed; ready for Phase 1078 (independent) and Phase 1079 (gated on 1078)
+Last session: 2026-05-21T22:45:00.000Z
+Stopped at: Phase 1078 complete (2/2 plans); CI-01 + SEC-OBSV-03 closed; all v1017 phase predecessors for Phase 1079 are now closed
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 1077 is closed. Phase 1078 is the only remaining predecessor for Phase 1079.
-  - Invoke `/gsd:plan-phase 1078` (CI Alembic Workflow — independent of 1075/1076/1077)
-- Phase 1079 (Close Gate + Hygiene) is gated on all prior phases; with 1075, 1076, 1077 complete, only 1078 remains. Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures). Phase 1076 also surfaced 3 pre-existing environmental issues (ENV-01..03) that overlap with the verification-gap set — see `1076-VERIFICATION.md` Pre-Existing Environmental Issues section. Phase 1077 surfaced 36 pre-existing TypeScript diagnostic errors in 14 untouched frontend test files — see `1077-VERIFICATION.md` Typecheck section for the full inventory; candidate for v1018 hygiene or Phase 1079 HYG-01 triage.
+- Phase 1078 is closed. All four predecessors for Phase 1079 are now satisfied (1075, 1076, 1077, 1078).
+  - Invoke `/gsd:plan-phase 1079` (Close Gate + Hygiene — TI-03, VG-01, HYG-01)
+- Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures). Phase 1076 also surfaced 3 pre-existing environmental issues (ENV-01..03) that overlap with the verification-gap set — see `1076-VERIFICATION.md` Pre-Existing Environmental Issues section. Phase 1077 surfaced 36 pre-existing TypeScript diagnostic errors in 14 untouched frontend test files — see `1077-VERIFICATION.md` Typecheck section for the full inventory; candidate for HYG-01 triage in Phase 1079.
+- Phase 1079's VG-01 task exercises the same `test_alembic_upgrade_clean_db.sh` script against a live `docker compose up -d --build` stack, which doubles as the e2e closure of SEC-OBSV-03 (Phase 1078 closed it structurally; Phase 1079 closes it end-to-end).
 
 ## Deferred Items
 
@@ -107,7 +109,7 @@ Carried into v1017 from v1016 close (2026-05-21):
 - **1 verification_gap** — Phase 1071 KNOWN-02 docker smoke (deferred from Phase 1074 close-gate); re-verified live in Phase 1079 VG-01
 - **8 v1015-carried P2** — TD-DEFER-01..08; 7 closed in v1017 ING-01..07 (1 was closed in v1016 Phase 1073 REMED-01/02)
 - **11 v1015 baseline pytest failures + 1363 test-DB-lifecycle conftest infra errors** — Phase 1075 TI-01 (conftest) + TI-02 (11 failures) → CLOSED 2026-05-21 within named scope
-- **SEC-OBSV-03 alembic-clean-DB CI wiring** — Phase 1078 CI-01
+- **SEC-OBSV-03 alembic-clean-DB CI wiring** — Phase 1078 CI-01 → CLOSED 2026-05-21 (structural; e2e live-stack verify deferred to Phase 1079 VG-01)
 
 Discovered 2026-05-21 by Plan 1075-05 full-suite verification (NOT in original v1017 scope):
 

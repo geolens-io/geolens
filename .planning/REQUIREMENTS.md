@@ -17,7 +17,7 @@ Each maps to exactly one phase.
 
 ### CI Hardening
 
-- [ ] **CI-01**: Wire `test_alembic_upgrade_clean_db.sh` (built in v1016 Phase 1071 KNOWN-02) into GitHub Actions. The workflow must spin up a clean Postgres + PostGIS instance, run `alembic upgrade head`, and fail the build if migrations break against a fresh DB. Closes SEC-OBSV-03 from Phase 1072 triage.
+- [x] **CI-01**: Wire `test_alembic_upgrade_clean_db.sh` (built in v1016 Phase 1071 KNOWN-02) into GitHub Actions. The workflow must spin up a clean Postgres + PostGIS instance, run `alembic upgrade head`, and fail the build if migrations break against a fresh DB. Closes SEC-OBSV-03 from Phase 1072 triage.
 
 ### Ingest P2 Closure
 
@@ -67,7 +67,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | TI-01 | Phase 1075 | Complete |
 | TI-02 | Phase 1075 | Complete (11/11 — Plans 02 + 03 + 04 done) |
 | TI-03 | Phase 1079 | Pending |
-| CI-01 | Phase 1078 | Pending |
+| CI-01 | Phase 1078 | Complete |
 | ING-01 | Phase 1077 | Complete |
 | ING-02 | Phase 1076 | Complete |
 | ING-03 | Phase 1076 | Complete |
