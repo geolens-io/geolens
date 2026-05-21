@@ -145,14 +145,19 @@
 ### Phase 1073: Audit Remediation
 **Goal**: Every HIGH/MEDIUM/LOW/INFO finding surfaced by Phase 1072 triage is closed in code + tests + docs, or explicitly deferred via a pending-todo file with rationale
 **Depends on**: Phase 1072 (cannot close findings until they are classified and ID'd)
-**Requirements**: REMED-01, REMED-02 (expanding mid-milestone into concrete REMED-XX IDs per Phase 1072 triage; `/gsd-autonomous` may insert Phase 1073.5 to split by severity tier if finding count warrants)
+**Requirements**: REMED-01, REMED-02, REMED-03, REMED-04 (expanded mid-milestone from Phase 1072 triage; 4 P2 findings — TanStack invalidation, JobStatusResponse progress contract, ingest task phase-bracket helper extraction, COG/Titiler URL helper + SEC-OBSV-01/02 docstrings)
 **Success Criteria** (what must be TRUE):
   1. Every HIGH-severity finding from Phase 1072 is closed by a code change + test that pins the fix
   2. Every MEDIUM-severity finding from Phase 1072 is closed by a code change + test that pins the fix
   3. Every LOW-severity finding from Phase 1072 is closed by a code change + test, or moved to a pending-todo file with rationale and a Phase 1074 acknowledgment line
   4. Every INFO-severity finding from Phase 1072 is closed inline (docstring/comment/.env.example/.md doc) or moved to a pending-todo file with rationale
   5. The merge gate remains PASS (matching post-v1014 state) after Phase 1073 lands — no new HIGH/MEDIUM findings introduced by the remediation work itself
-**Plans**: TBD
+**Plans**: 4 plans
+
+  - [ ] 1073-01-PLAN.md — REMED-01 (TanStack invalidation for useReuploadCommit + useCreateVrt + 3 VRT mutations → jobStatusByDataset)
+  - [ ] 1073-02-PLAN.md — REMED-02 (JobStatusResponse adds progress/current_step/rows_processed + alembic 0022 + worker writes)
+  - [ ] 1073-03-PLAN.md — REMED-03 (Phase-bracket session helper extracted in tasks_common.py, ingest_file/ingest_raster consume)
+  - [ ] 1073-04-PLAN.md — REMED-04 (build_titiler_cog_url helper + SEC-OBSV-01/02 docstring pins)
 
 ### Phase 1074: Close Gate
 **Goal**: All v1016 close-gate criteria pass — including the two v1015 close-gate process items (full backend pytest + `e2e:smoke:builder`+typecheck) and live Playwright MCP smoke — and `v1016` + `v1.5.1` tags are cut + pushed
