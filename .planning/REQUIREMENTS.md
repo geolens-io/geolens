@@ -74,24 +74,24 @@ Populated by gsd-roadmapper during ROADMAP.md creation.
 
 | Requirement | Phase | Status |
 |---|---|---|
-| IA-P0-01 | TBD | Pending |
-| REUPLOAD-IDOR-01 | TBD | Pending |
-| IA-P1-02 | TBD | Pending |
-| IA-P0-02 | TBD | Pending |
-| IA-P0-03 | TBD | Pending |
-| IA-P0-04 | TBD | Pending |
-| IA-P1-06 | TBD | Pending |
-| IA-P1-03 | TBD | Pending |
-| IA-P1-04 | TBD | Pending |
-| IA-P1-01 | TBD | Pending |
-| HYG-01 | TBD | Pending |
-| HYG-02 | TBD | Pending |
-| HYG-03 | TBD | Pending |
+| IA-P0-01 | Phase 1065 | Pending |
+| REUPLOAD-IDOR-01 | Phase 1065 | Pending |
+| IA-P1-02 | Phase 1065 | Pending |
+| IA-P0-02 | Phase 1066 | Pending |
+| IA-P0-03 | Phase 1066 | Pending |
+| IA-P0-04 | Phase 1067 | Pending |
+| IA-P1-06 | Phase 1068 | Pending |
+| IA-P1-03 | Phase 1068 | Pending |
+| IA-P1-04 | Phase 1069 | Pending |
+| IA-P1-01 | Phase 1069 | Pending |
+| HYG-01 | Phase 1070 | Pending |
+| HYG-02 | Phase 1070 | Pending |
+| HYG-03 | Phase 1070 | Pending |
 
 **Coverage:**
 - v1015 requirements: 13 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 13 (will be 0 after roadmap)
+- Mapped to phases: 13
+- Unmapped: 0
 
 ## Pre-tag gates (per v1010-v1014 pattern)
 
@@ -115,4 +115,4 @@ Populated by gsd-roadmapper during ROADMAP.md creation.
 
 ---
 *Requirements defined: 2026-05-20*
-*Last updated: 2026-05-20 after initial v1015 definition*
+*Last updated: 2026-05-21 — traceability table populated by gsd-roadmapper*

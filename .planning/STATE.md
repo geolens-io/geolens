@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-21T00:00:09.328Z"
 last_activity: 2026-05-21
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,19 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 1065 - Download Token Wiring + Reupload IDOR Closure
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-21 — Milestone v1015 started
+Status: Ready to start Phase 1065
+Last activity: 2026-05-21 — ROADMAP.md created for v1015; 13/13 requirements mapped across 6 phases (1065-1070)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** None — v1014 Security Audit Remediation shipped. Use `/gsd-new-milestone` to start the next cycle.
+**Current focus:** Phase 1065 — Download Token Wiring + Reupload IDOR Closure
 
 ## Last Shipped Milestone
 
@@ -36,12 +38,28 @@ See: .planning/PROJECT.md
 **Phases:** 1061-1064 (4 phases, 17 plans, 28/28 reqs)
 **Tag:** `v1014` (local) + `v1.4.0` (public, local-only per A-04 — push with `git push origin v1014 v1.4.0`)
 **Archive:** `.planning/milestones/v1014-ROADMAP.md`
-**Inline review fixes:** 21 (6 BLOCKER + 13 WARNING + 2 INFO) across Phases 1061-1063; 1 VERIFICATION-found BLOCKER (Phase 1061 layering invariant) closed inline by commit `5f8a6b86`.
 
 **Previous:** v1013 Ingest Hardening (shipped 2026-05-20, public tag `v1.3.0`, archive `.planning/milestones/v1013-ROADMAP.md`)
 
-## Operator Next Steps
+## Accumulated Context
 
-- Push tags: `git push origin v1014 v1.4.0`
-- Run `/gsd-new-milestone` to start the next cycle (or `/gsd-review-backlog` to promote backlog items).
-- 5 INFO findings + 6 REQUIREMENTS.md doc-gaps + router_reupload.py IDOR remediation flagged in `.planning/milestones/v1014-MILESTONE-AUDIT.md` for next housekeeping pass.
+### Decisions
+
+- **2026-05-20 (v1014):** router_reupload.py IDOR deferred from v1014 to v1015; pre-commit exclusion at `.pre-commit-config.yaml:76-79` documents the gap
+- **2026-05-20 (v1014):** 5 INFO findings (Phase 1062 IN-01/02/03 + Phase 1063 IN-01/02) deferred without pending todo files — creating them is HYG-01
+- **2026-05-21 (v1015):** Phase 1067 heartbeat decision gates on choose-(a)-or-(b) before implementation; `/gsd:discuss-phase` recommended before planning
+
+### Pending Todos
+
+- `.planning/todos/pending/2026-05-20-in01-revalidate-redirect-http-305.md` — v1014 INFO: HTTP 305 in `_revalidate_redirect` (cheap close in Phase 1070)
+- `.planning/todos/pending/2026-05-20-in02-run-ogr2ogr-gdal-followlocation-comment.md` — v1014 INFO: GDAL_HTTP_FOLLOWLOCATION rationale comment (cheap close in Phase 1070)
+
+### Blockers/Concerns
+
+- **Phase 1067 decision gate:** IA-P0-04 requires choosing heartbeat option (a) vs (b) before implementation. Use `/gsd:discuss-phase 1067` to surface tradeoffs before planning.
+
+## Session Continuity
+
+Last session: 2026-05-21
+Stopped at: Roadmap created — ready to plan Phase 1065
+Resume file: None
