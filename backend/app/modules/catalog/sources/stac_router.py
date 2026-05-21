@@ -33,6 +33,7 @@ from app.modules.catalog.sources.adapters.stac import (
     search_stac_items,
 )
 from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.platform.storage.titiler_url import build_titiler_cog_url
 
 import httpx
 
@@ -45,6 +46,23 @@ async def _fetch_cog_info(url: str) -> dict | None:
 
     Returns dict with band_count, dtype, width, height, band_info (with
     min/max per band for rescaling), or None on failure.
+
+    SEC-OBSV-02 (sec-audit 2026-05-21): SSRF protection here is a DUAL GATE.
+    Both gates MUST be preserved when adding new callers -- bypassing either
+    is an SSRF regression:
+
+    Gate 1 (caller-side): EVERY caller of _fetch_cog_info MUST first call
+    app.modules.catalog.sources.security.validate_url_for_ssrf(url) before
+    passing the URL here. The import-flow call at line 454 satisfies this;
+    any new caller MUST add the same pre-validation.
+
+    Gate 2 (Titiler-side): docker-compose's Titiler service sets
+    CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif,.tiff,.cog,.vrt -- even if a
+    malicious URL slips past Gate 1, Titiler's own GDAL VSI clamp rejects
+    non-raster file extensions.
+
+    Removing Gate 1 OR loosening Gate 2 must be a deliberate audit-tracked
+    decision, not a refactor side-effect.
     """
     try:
         async with httpx.AsyncClient(
@@ -52,8 +70,7 @@ async def _fetch_cog_info(url: str) -> dict | None:
         ) as client:
             # Fetch structural info
             info_resp = await client.get(
-                "http://titiler:8000/cog/info",
-                params={"url": url},
+                build_titiler_cog_url("info", query={"url": url})
             )
             if info_resp.status_code != 200:
                 return None
@@ -66,8 +83,7 @@ async def _fetch_cog_info(url: str) -> dict | None:
             band_info = []
             try:
                 stats_resp = await client.get(
-                    "http://titiler:8000/cog/statistics",
-                    params={"url": url},
+                    build_titiler_cog_url("statistics", query={"url": url})
                 )
                 if stats_resp.status_code == 200:
                     stats = stats_resp.json()
