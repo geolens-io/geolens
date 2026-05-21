@@ -60,6 +60,11 @@ export function getExportUrl(
   return `${API_BASE}/datasets/${id}/export?${query.toString()}`;
 }
 
+/** Path for the COG download endpoint. Centralised so `/download/cog` lives in one place. */
+export function getCogDownloadUrl(id: string): string {
+  return `${API_BASE}/datasets/${id}/download/cog`;
+}
+
 async function authenticatedDownload(url: string, filename: string): Promise<void> {
   const token = useAuthStore.getState().token;
 

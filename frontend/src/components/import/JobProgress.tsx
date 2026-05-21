@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ApiError } from '@/api/client';
-import { downloadCog } from '@/api/datasets';
+import { downloadCog, getCogDownloadUrl } from '@/api/datasets';
 import { IngestWarningsBanner } from './IngestWarningsBanner';
 
 interface JobProgressProps {
@@ -39,7 +39,7 @@ function ConnectDropdownInline({ datasetId }: { datasetId: string }) {
         <DropdownMenuItem
           onClick={() => {
             navigator.clipboard.writeText(
-              `${window.location.origin}/api/datasets/${datasetId}/download/cog`,
+              `${window.location.origin}${getCogDownloadUrl(datasetId)}`,
             );
             toast.success(t('jobProgress.copiedCogUrl'));
           }}
