@@ -112,7 +112,7 @@
   4. The pre-commit `visibility-filter-coverage` hook exclusion for `router_reupload.py` is deleted and the hook passes on the current codebase
 **Plans**: 3 plans
 Plans:
-- [ ] 1065-01-PLAN.md — Backend download-token endpoint + frontend mint flow + Playwright regression
+- [x] 1065-01-PLAN.md — Backend download-token endpoint + frontend mint flow + Playwright regression
 - [ ] 1065-02-PLAN.md — Close 6 reupload IDOR handlers + delete pre-commit exclusion
 - [ ] 1065-03-PLAN.md — Add _assert_compatible_record_type to reupload_service_preview
 
@@ -172,7 +172,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1065. Download Token Wiring + Reupload IDOR Closure | 0/TBD | Not started | - |
+| 1065. Download Token Wiring + Reupload IDOR Closure | 1/3 | In Progress|  |
 | 1066. Ingest Entry-Point Hardening | 0/TBD | Not started | - |
 | 1067. Worker Heartbeat Decision | 0/TBD | Not started | - |
 | 1068. Service Ingest Hardening | 0/TBD | Not started | - |

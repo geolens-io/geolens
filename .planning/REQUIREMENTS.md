@@ -10,7 +10,7 @@ REQ-IDs are sourced directly from the originating audit (`docs-internal/audits/i
 
 ### Download (Tier A — Ship-blocking)
 
-- [ ] **IA-P0-01**: User can click "Download COG" on any raster dataset detail page and receive the COG file. Backend exposes `POST /auth/download-token/{dataset_id}` returning a short-lived `typ='download'` token (helper `auth/service.py:create_download_token` already exists, currently unwired); frontend `downloadCog()` (currently passes session JWT as `?token=` and 401s against `router_export.py:185-201`) mints the download token first, then opens the existing `GET /api/datasets/{id}/download/cog/?token=...` URL. Add Playwright regression that fails on the prior `Authorization: Bearer <session-JWT>` path.
+- [x] **IA-P0-01**: User can click "Download COG" on any raster dataset detail page and receive the COG file. Backend exposes `POST /auth/download-token/{dataset_id}` returning a short-lived `typ='download'` token (helper `auth/service.py:create_download_token` already exists, currently unwired); frontend `downloadCog()` (currently passes session JWT as `?token=` and 401s against `router_export.py:185-201`) mints the download token first, then opens the existing `GET /api/datasets/{id}/download/cog/?token=...` URL. Add Playwright regression that fails on the prior `Authorization: Bearer <session-JWT>` path.
 
 ### Reupload (Tier A + Tier B)
 
@@ -74,7 +74,7 @@ Populated by gsd-roadmapper during ROADMAP.md creation.
 
 | Requirement | Phase | Status |
 |---|---|---|
-| IA-P0-01 | Phase 1065 | Pending |
+| IA-P0-01 | Phase 1065 | Complete |
 | REUPLOAD-IDOR-01 | Phase 1065 | Pending |
 | IA-P1-02 | Phase 1065 | Pending |
 | IA-P0-02 | Phase 1066 | Pending |
