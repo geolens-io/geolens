@@ -223,6 +223,10 @@ def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
         error_message=job.error_message,
         warning_message=warning_message,
         warnings=warnings,
+        # REMED-02 / ingest-audit P2-07: surface worker-written progress fields.
+        progress=job.progress,
+        current_step=job.current_step,
+        rows_processed=job.rows_processed,
         archive_failed=archive_failed,
         temporal_parse_errors=temporal_parse_errors,
         started_at=job.started_at,

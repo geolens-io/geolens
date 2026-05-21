@@ -70,6 +70,28 @@ class JobStatusResponse(BaseModel):
     # hatch for the table-name collision case that predates the structured
     # shape; clients should prefer ``warnings`` and fall back to it.
     warnings: list[IngestJobWarning] = Field(default_factory=list)
+    # REMED-02 / ingest-audit P2-07: progress fields populated by the ingest
+    # worker at natural step boundaries so the UI can surface progress during
+    # multi-minute ingests (raster COG convert, large VRT mosaics) instead of
+    # rendering a dead spinner. All three default to None so pre-existing job
+    # rows + service ingests that never write them validate cleanly. The
+    # `current_step` Literal is the union of vector + raster step names — the
+    # DB column intentionally stays a flexible String(32) so adding a step
+    # only requires touching this Literal (single-source-of-truth boundary).
+    progress: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    current_step: (
+        Literal[
+            "validating",
+            "ogr2ogr",
+            "finalize",
+            "archiving",
+            "complete",
+            "cog_convert",
+            "quicklook",
+        ]
+        | None
+    ) = None
+    rows_processed: Annotated[int, Field(ge=0)] | None = None
     archive_failed: bool = False
     # TYPE-3: the temporal parser only ever emits these two keys; pin the
     # shape so adding a third key requires touching the contract deliberately.

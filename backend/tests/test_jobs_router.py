@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from typing import TYPE_CHECKING
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
@@ -347,6 +348,94 @@ class TestGetJobStatus:
             "temporal_end": "also-bad",
         }
         assert "temporal_bogus" not in errors
+
+    async def test_job_status_includes_progress_fields_default_none(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """REMED-02 / P2-07: new progress fields default to None when never written.
+
+        Pre-existing jobs (or any job before workers populate the new columns)
+        must continue to validate as JobStatusResponse — the three new fields
+        are optional and default to None.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="pending")
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "progress" in data and data["progress"] is None
+        assert "current_step" in data and data["current_step"] is None
+        assert "rows_processed" in data and data["rows_processed"] is None
+
+    async def test_job_status_returns_written_progress_values(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """REMED-02 / P2-07: worker-written progress values surface via the API."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="running")
+
+        # Simulate a worker mid-flight progress write.
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.ingest_jobs "
+                "SET progress = 0.5, current_step = 'ogr2ogr', rows_processed = 1234 "
+                "WHERE id = :job_id"
+            ),
+            {"job_id": str(job.id)},
+        )
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["progress"] == 0.5
+        assert data["current_step"] == "ogr2ogr"
+        assert data["rows_processed"] == 1234
+
+
+# ---------------------------------------------------------------------------
+# REMED-02 / P2-07: Pydantic contract bounds for new progress fields
+# ---------------------------------------------------------------------------
+
+
+def test_job_status_response_rejects_out_of_range_progress():
+    """REMED-02 / P2-07: ``progress`` field rejects values outside [0.0, 1.0]."""
+    from pydantic import ValidationError
+
+    from app.platform.jobs.schemas import JobStatusResponse
+
+    base_kwargs = {
+        "id": uuid.uuid4(),
+        "status": "running",
+        "dataset_id": None,
+        "source_filename": "x.geojson",
+        "error_message": None,
+        "started_at": None,
+        "completed_at": None,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    # Happy path: in-range progress + valid current_step + non-negative rows.
+    JobStatusResponse(
+        **base_kwargs, progress=0.42, current_step="ogr2ogr", rows_processed=10000
+    )
+
+    # ge=0.0
+    with pytest.raises(ValidationError):
+        JobStatusResponse(**base_kwargs, progress=-0.1)
+
+    # le=1.0
+    with pytest.raises(ValidationError):
+        JobStatusResponse(**base_kwargs, progress=1.5)
+
+    # current_step Literal allowlist
+    with pytest.raises(ValidationError):
+        JobStatusResponse(**base_kwargs, current_step="bogus")
+
+    # rows_processed ge=0
+    with pytest.raises(ValidationError):
+        JobStatusResponse(**base_kwargs, rows_processed=-1)
 
 
 # ---------------------------------------------------------------------------

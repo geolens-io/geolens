@@ -5,8 +5,10 @@ from typing import Any
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     func,
@@ -58,6 +60,18 @@ class IngestJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # REMED-02 / ingest-audit P2-07: progress fields. Workers write these at
+    # natural step boundaries (see tasks_vector.ingest_file + tasks_raster.ingest_raster)
+    # so the polling UI (BulkTrackingList, ReuploadDialog) can show progress
+    # during 10-minute raster ingests / large VRT mosaics. All three are
+    # nullable for back-compat — pre-migration rows + service-ingest paths
+    # that don't write them surface as None via JobStatusResponse.
+    # The Pydantic Literal at the API boundary is the contract for valid
+    # current_step values; the DB column is intentionally a flexible String(32)
+    # so adding a step doesn't require a migration (per project KNOWN-04).
+    progress: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    rows_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # IA-P0-04 (Phase 1067 option b): last_heartbeat_at column dropped.
     # Stale recovery uses started_at < JOB_TIMEOUT_SECONDS instead — see
     # platform/jobs/worker.py:recover_stale_jobs.
