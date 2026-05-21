@@ -11,6 +11,111 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-05-21
+
+### Hardening sweep (v1016 milestone)
+
+Phases 1071-1074 — 26 requirements closing the v1015 tech-debt tail + 5 v1014
+INFO pending todos + Dependabot #40, plus 4 P2 findings surfaced by the fresh
+`/sec-audit` + `/ingest-audit` re-runs. Both re-audits returned PASS at
+HIGH/MEDIUM severity — v1014's 27 closures + v1015's 9 closures + Phase 1071's
+11 KNOWN closures all verified clean by both auditors.
+
+### Security & Hardening (Phase 1071 — Known Items Closure)
+
+- **KNOWN-13:** Bumped `idna` to ≥ 3.15 in `backend/uv.lock` and pinned the
+  floor in `backend/pyproject.toml`, closing Dependabot #40 (CVE-2026-45409 /
+  GHSA-65pc-fj4g-8rjx — DoS via `idna.encode()` with crafted inputs).
+- **KNOWN-10:** `where_validator.py` now enforces AST-level rejection of
+  table-qualified column references. The prior implementation's docstring
+  claimed AST-level rejection but sqlglot's postgres dialect folds `tbl.col`
+  into an `exp.Column` with `.table` populated rather than emitting a separate
+  `exp.Dot` node, so the validator silently accepted bypasses. A 6-line
+  conditional in the allowlist walk honors the documented security contract,
+  with a permanent regression test covering both `tbl.col` and `db.tbl.col`.
+- **KNOWN-01:** `_resolve_download_user` now returns `Identity | None` (Shape A)
+  so anonymous download tokens for public datasets can flow through the COG
+  download path end-to-end. Previously the consumer rejected any token
+  missing `sub` with HTTP 401, breaking the entire anonymous flow that the
+  mint endpoint nominally supported. `AuditEvent.user_id` retyped to
+  `uuid.UUID | None` to persist anonymous audit rows. 6 regression tests pin
+  authenticated + anonymous-public + anonymous-private-rejected + expired +
+  wrong-scope + defense-in-depth-private paths.
+- **KNOWN-03:** Promoted `_gdal_safe_env` → `gdal_safe_env` as a shared helper
+  with an optional `extras=` keyword, and wired all 3 raster GDAL subprocesses
+  (`gdaladdo`, `gdalwarp`, `gdal_translate` in `cog.py`) through it.
+  `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` now clamps every raster CLI call, not
+  only `_build_vrt`. 7 regression tests pin the clamp at each call site.
+- **KNOWN-04:** Consolidated the 7-prefix VRT VSI allow-list into a single
+  module-level `VRT_VSI_ALLOWED_PREFIXES` constant in `raster/vrt.py`,
+  consumed by both `validate_vrt_body` and the `_VRT_SAFE_ENV` overlay.
+  Adding a new VSI scheme now requires editing exactly one place; the prior
+  dual-edit risk that v1015 flagged is closed.
+- **KNOWN-05:** Added `TestExportRevokedViewerParity` integration test that
+  pins the export endpoint returns 403 for a viewer whose `export` permission
+  was revoked (full parity with v1014 SEC-S04; previously only anonymous-401
+  was verified). Production code unchanged — the `require_permission("export")`
+  guard was already correct.
+- **KNOWN-08, KNOWN-11:** Documentation closures for v1014 INFO findings —
+  `.env.example` now documents `PASSWORD_MIN_LENGTH` + `PASSWORD_REQUIRE_CLASSES`
+  near the existing auth settings, and `_sanitize_authorization_token` has an
+  inline docstring noting the 8-character minimum it enforces.
+- **KNOWN-09:** `validate_password_complexity`'s whitespace-as-symbol-class
+  stance documented in the function docstring with rationale; pinned by a
+  trailing-whitespace regression test.
+- **KNOWN-12:** `StacSearchBody.limit` and `offset` now carry Pydantic `ge`/`le`
+  bounds (`limit ∈ [1, 200]`, `offset ≥ 0`) to match the GET endpoint and
+  reject `limit=999999` / `offset=-1` at the validation layer.
+- **KNOWN-02:** Added `backend/scripts/test_alembic_upgrade_clean_db.sh` that
+  runs `alembic upgrade head` against a throwaway PostGIS container,
+  exercising the full migration chain (0001 → 0022) on a clean DB rather
+  than verifying via `down_revision` linkage alone.
+
+### Hardening (Phase 1073 — Audit Remediation)
+
+Closes 4 P2 findings surfaced by the Phase 1072 re-audits:
+
+- **REMED-01:** `useReuploadCommit`, `useCreateVrt`, and the VRT-mutation
+  hooks now call `queryClient.invalidateQueries({ queryKey: jobStatusByDataset(...) })`
+  on success, so dataset-detail no longer shows stale ingest warnings until a
+  forced refresh.
+- **REMED-02:** Added `progress` / `current_step` / `rows_processed` to
+  `JobStatusResponse` + `IngestJob` (migration `0022_ingest_jobs_progress_columns`).
+  Vector and raster ingest workers write these fields at phase boundaries via
+  a new "brief-session" pattern, so 10-minute raster ingests show progress in
+  the UI instead of appearing dead.
+- **REMED-03:** Extracted `_job_phase_session` async context manager into
+  `tasks_common.py` with consistent rollback-on-exception semantics. Both
+  vector (19 sites) and raster (12 sites) workers now consume the helper
+  instead of duplicating the load+yield+commit/rollback pattern.
+- **REMED-04:** Consolidated Titiler URL construction into a single
+  `build_titiler_cog_url` helper in `backend/app/platform/storage/titiler_url.py`,
+  consumed by the tiles router and STAC connector. Pinned defense-in-depth
+  docstrings at `tiles/router.py` (internal-only proxy contract) and
+  `stac_router.py` (`_fetch_cog_info` dual-gate: `validate_url_for_ssrf` +
+  Titiler extension allowlist). Structural tests prevent re-inlining.
+
+### Audit verification (Phase 1072)
+
+- Fresh `/sec-audit` re-run: **PASS**, 0 findings. v1014's 16 HIGH/MEDIUM
+  closures all verified in code; Phase 1071 KNOWN closures additionally
+  verified.
+- Fresh `/ingest-audit` re-run: **PASS**, 0 P0/P1, 9 P2 (8 v1015-carried
+  deferred to v1017 hygiene, 1 reframed). Lifecycle map healthy end-to-end —
+  every prior hazard has a verified guard at the correct waypoint.
+- Triage at `.planning/audits/TRIAGE-2026-05-21.md` maps each open finding to
+  its remediation phase.
+
+### Migrations
+
+- `0022_ingest_jobs_progress_columns` — adds `progress`, `current_step`,
+  `rows_processed` to `catalog.ingest_jobs`. Reversible.
+
+### Tags
+
+- Local: `v1016`
+- Public: `v1.5.1`
+
 ## [1.5.0] - 2026-05-20
 
 ### Ingest/Export lifecycle hardening (v1015 milestone)

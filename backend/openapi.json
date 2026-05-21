@@ -6370,6 +6370,25 @@
             "title": "Created At",
             "type": "string"
           },
+          "current_step": {
+            "anyOf": [
+              {
+                "enum": [
+                  "validating",
+                  "ogr2ogr",
+                  "finalize",
+                  "complete",
+                  "cog_convert",
+                  "quicklook"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Step"
+          },
           "dataset_id": {
             "anyOf": [
               {
@@ -6397,6 +6416,31 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "rows_processed": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows Processed"
           },
           "source_filename": {
             "anyOf": [
@@ -13818,11 +13862,16 @@
           },
           "limit": {
             "default": 10,
+            "description": "Maximum number of items returned (1-200).",
+            "maximum": 200.0,
+            "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
           },
           "offset": {
             "default": 0,
+            "description": "Number of items to skip for pagination.",
+            "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
           }
@@ -25340,7 +25389,7 @@
     },
     "/datasets/{dataset_id}/download/cog": {
       "get": {
-        "description": "Download the Cloud-Optimized GeoTIFF for a raster dataset.\n\nLocal storage: streams the COG file with Content-Type image/tiff.\nS3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).\nAccepts standard auth or ?token= JWT query parameter for browser downloads.",
+        "description": "Download the Cloud-Optimized GeoTIFF for a raster dataset.\n\nLocal storage: streams the COG file with Content-Type image/tiff.\nS3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).\nAccepts standard auth or ?token= JWT query parameter for browser downloads.\n\nKNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous\ndownload token (issued by POST /auth/download-token/{id} for a public\ndataset) is presented on ``?token=``. The function branches on\nuser-None to enforce public visibility and emit the audit row with\nuser_id=NULL.",
         "operationId": "download_cog_datasets__dataset_id__download_cog_get",
         "parameters": [
           {
