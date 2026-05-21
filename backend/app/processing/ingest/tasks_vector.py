@@ -385,10 +385,25 @@ async def ingest_service(
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
     from app.core.db import async_session
+    from app.modules.catalog.sources.security import (
+        SSRFError,
+        validate_url_for_ssrf,
+    )
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.processing.ingest.service import generate_table_name
     from app.platform.jobs.models import IngestJob
+
+    # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
+    # The route-level check at commit_import covers the preview→commit
+    # TOCTOU, but manifest-path jobs skip that route entirely. This
+    # second check ensures all service-URL fetches see fresh DNS.
+    try:
+        await validate_url_for_ssrf(source_url)
+    except SSRFError as exc:
+        raise RuntimeError(
+            f"source_url failed safety check at worker fetch time: {exc}"
+        ) from exc
 
     port = get_processing_port()
     job_uuid = uuid.UUID(job_id)

@@ -344,6 +344,10 @@ async def reupload_service(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
     )
     from app.core.db import async_session
+    from app.modules.catalog.sources.security import (
+        SSRFError,
+        validate_url_for_ssrf,
+    )
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.metadata import (
         _qtable,
@@ -362,6 +366,16 @@ async def reupload_service(
     from app.platform.jobs.models import IngestJob
     from sqlalchemy import text
     from sqlalchemy.orm import joinedload
+
+    # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
+    # The route-level check at commit_import covers the preview→commit
+    # TOCTOU, but manifest-path reuploads skip that route entirely.
+    try:
+        await validate_url_for_ssrf(source_url)
+    except SSRFError as exc:
+        raise RuntimeError(
+            f"source_url failed safety check at worker fetch time: {exc}"
+        ) from exc
 
     port = get_processing_port()
     Dataset = port.get_dataset_orm_class()

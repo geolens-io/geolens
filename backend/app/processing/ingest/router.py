@@ -630,6 +630,27 @@ async def commit_import(
             detail="Job already processed",
         )
 
+    # IA-P0-03: re-validate job.source_url against SSRF rules at commit
+    # time. Closes the preview→commit DNS-rebinding TOCTOU (default 60s
+    # job TTL): an attacker could resolve a public address at preview
+    # and a private one at commit. Mirrors the per-hop redirect defense
+    # added in v1014 SEC-S04 (`_revalidate_redirect` event hook on
+    # `make_safe_client()`), which closes the redirect-chain TOCTOU;
+    # this closes the FIRST-hop TOCTOU on the recorded source_url.
+    if job.source_url and not job.file_path:
+        from app.modules.catalog.sources.security import (
+            SSRFError,
+            validate_url_for_ssrf,
+        )
+
+        try:
+            await validate_url_for_ssrf(job.source_url)
+        except SSRFError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"source_url failed safety check at commit time: {exc}",
+            )
+
     # Re-validate the body against the subclass the job belongs to. Extras
     # from other subclasses are silently ignored (Pydantic default), so
     # kitchen-sink bodies still commit cleanly (D-02).
