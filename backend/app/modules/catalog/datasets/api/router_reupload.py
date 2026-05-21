@@ -65,12 +65,27 @@ _VECTOR_EXTENSIONS: frozenset[str] = frozenset({
 })
 
 
-def _assert_compatible_record_type(dataset, filename: str | None) -> None:
-    """Raise HTTP 400 when the file extension is incompatible with dataset.record.record_type.
+def _assert_compatible_record_type(
+    dataset,
+    filename: str | None,
+    *,
+    service_type: str | None = None,
+) -> None:
+    """Raise HTTP 400 when the source is incompatible with dataset.record.record_type.
 
-    Called from both reupload_dataset (multipart) and request_presigned_reupload (S3)
-    after dataset lookup, before extension validation, so the user sees the precise
-    cross-record-type message rather than a generic "extension not allowed" error.
+    Called from `reupload_dataset` (multipart), `request_presigned_reupload` (S3),
+    and `reupload_service_preview` (service URL) after dataset lookup, before
+    pipeline work, so the user sees the precise cross-record-type message rather
+    than a deep-pipeline 500.
+
+    File paths (`reupload_dataset`, `request_presigned_reupload`) pass a filename
+    and the helper checks the file extension. Service paths
+    (`reupload_service_preview`) pass `service_type` instead — all supported
+    service types (WFS, ArcGIS FeatureServer, OGC API – Features) are vector, so
+    any non-vector record type is rejected.
+
+    IA-P1-02 (Phase 1065 plan 03): service-URL guard added — VRT rejection +
+    raster-vs-vector-service mismatch surfaced early.
 
     Audit action `reupload.commit` is shipped — see test_provenance_attribution.py.
     Do not rename to `dataset.reupload`.
@@ -103,6 +118,18 @@ def _assert_compatible_record_type(dataset, filename: str | None) -> None:
             detail=(
                 "This dataset is a raster dataset; "
                 "only .tif/.tiff files are supported for reupload."
+            ),
+        )
+
+    if service_type is not None and record_type == "raster_dataset":
+        # All supported service types (WFS*, ArcGIS*, OGC API*) are vector sources.
+        # Pinned by tasks_common._classify_service_type which only accepts these prefixes.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This dataset is a raster dataset; "
+                "vector services (WFS, ArcGIS FeatureServer, OGC API – Features) "
+                "are not supported for reupload."
             ),
         )
 
@@ -203,6 +230,10 @@ async def reupload_service_preview(
             detail="Dataset not found",
         )
     await check_dataset_access(db, dataset, dataset_id, user)
+
+    # IA-P1-02: surface cross-record-type swaps as a useful 400 before the
+    # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
+    _assert_compatible_record_type(dataset, None, service_type=request.service_type)
 
     try:
         await validate_url_for_ssrf(request.url)
