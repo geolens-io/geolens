@@ -1,3 +1,5 @@
+import os
+import time
 import uuid
 import tempfile
 
@@ -13,6 +15,29 @@ from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
 from app.platform.cache import init_cache
 from app.core.config import settings
+
+# Captured at module load (and refreshed in pytest_configure) so any test that
+# reads it does not race the fixture body's mutation. Defaults to "master" when
+# pytest-xdist is not active (sequential `pytest` or `pytest -x` runs).
+_WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
+
+
+def pytest_configure(config):
+    """Re-capture the pytest-xdist worker id under config-time hooks.
+
+    pytest-xdist injects ``config.workerinput['workerid']`` (e.g. ``"gw0"``)
+    when running parallel workers. Mirror it back into the module-level
+    ``_WORKER_ID`` constant + ``PYTEST_XDIST_WORKER`` env var so the
+    test-DB naming helper sees a stable value regardless of whether the
+    plugin set the env var itself.
+    """
+    global _WORKER_ID
+    workerinput = getattr(config, "workerinput", None)
+    if workerinput is not None:
+        worker_id = workerinput.get("workerid", "master")
+        _WORKER_ID = worker_id
+        # Mirror into env so any subprocess (or late import) also sees it.
+        os.environ["PYTEST_XDIST_WORKER"] = worker_id
 
 # Shared test geometries
 EMPTY_FEATURE_COLLECTION = {
@@ -62,11 +87,26 @@ def _quote_database_identifier(db_name: str) -> str:
     return '"' + db_name.replace('"', '""') + '"'
 
 
-def _session_test_database_name(base_name: str) -> str:
+def _worker_test_database_name(base_name: str) -> str:
+    """Compose a per-worker, per-session test DB name within PG's 63-char limit.
+
+    Layout: ``{safe_base}_{worker_id}_{8-hex-uuid}``
+
+    The worker_id is read fresh from the ``PYTEST_XDIST_WORKER`` env var so
+    callers (e.g. the regression test) can manipulate the value via
+    ``monkeypatch`` without relying on module-load-time capture. When the
+    env var is unset (sequential pytest, ``-x``, IDE runners), the worker_id
+    defaults to ``"master"`` — this gives the legacy single-session DB its
+    own non-empty namespace token, preventing collisions with concurrent
+    xdist runs against the same Postgres server.
+    """
     suffix = uuid.uuid4().hex[:8]
-    max_base_len = 63 - len(suffix) - 1
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    # Reserve space for `_{worker_id}_{suffix}` in the 63-char identifier budget.
+    overhead = len(worker_id) + len(suffix) + 2  # two underscores
+    max_base_len = 63 - overhead
     safe_base = (base_name or "geolens_test")[:max_base_len].rstrip("_")
-    return f"{safe_base or 'geolens'}_{suffix}"
+    return f"{safe_base or 'geolens'}_{worker_id}_{suffix}"
 
 
 def _drop_test_database_if_exists(db_name: str) -> None:
@@ -103,7 +143,7 @@ def _test_db_lifecycle():
     clear connection error; DB-independent tests will run normally.
     """
     original_test_db_name = settings.postgres_db_test
-    db_name = _session_test_database_name(original_test_db_name)
+    db_name = _worker_test_database_name(original_test_db_name)
     settings.postgres_db_test = db_name
     should_drop_db = False
 
@@ -252,6 +292,19 @@ def _test_db_lifecycle():
     finally:
         if should_drop_db:
             # --- Teardown: drop the test database ---
+            #
+            # Ordering invariant (TI-01, Phase 1075):
+            #   1. pg_terminate_backend() to all sessions on the test DB
+            #   2. SHORT SLEEP — let libpq drain the killed connection state.
+            #      pg_terminate_backend is asynchronous from libpq's POV: the
+            #      SQL call returns true as soon as the backend receives
+            #      SIGTERM, NOT after the connection is fully reaped from
+            #      pg_stat_activity. Without this beat, a follow-up DROP can
+            #      race the still-shutting-down session and surface as
+            #      "database is being accessed by other users" or, in the
+            #      next pytest run, an InvalidCatalogNameError when the
+            #      stale connection is briefly visible.
+            #   3. DROP DATABASE IF EXISTS
             teardown_engine = sqlalchemy.create_engine(
                 settings.database_url_sync, isolation_level="AUTOCOMMIT"
             )
@@ -265,6 +318,12 @@ def _test_db_lifecycle():
                         ),
                         {"db_name": db_name},
                     )
+                    # 50ms is empirically sufficient for asyncpg-driven
+                    # connection kills on a local PG instance; remote/CI
+                    # deployments may need more, but the next run's
+                    # `DROP DATABASE IF EXISTS` is idempotent so a stale
+                    # connection only delays cleanup, never breaks it.
+                    time.sleep(0.05)
                     conn.execute(
                         text(
                             f"DROP DATABASE IF EXISTS {_quote_database_identifier(db_name)}"
@@ -486,9 +545,10 @@ async def test_db_session(client: AsyncClient):
 # Isolation note (tech debt)
 # ---------------------------------------------------------------------------
 #
-# The current fixture model creates a single test database per pytest session
-# and shares it across all tests. Isolation is enforced by:
-#   1. Unique names (uuid4 suffixes) in test data factories
+# The current fixture model creates a single test database per pytest-xdist
+# WORKER per session and shares it across all tests on that worker. Isolation
+# is enforced by:
+#   1. Unique names (uuid4 suffixes + worker_id) in test data factories
 #   2. Per-test cleanup via explicit DELETE / DROP TABLE in test teardown
 #   3. Session-scoped roles and admin seeded once via _ensure_roles_and_admin
 #
@@ -502,10 +562,13 @@ async def test_db_session(client: AsyncClient):
 # Both are large changes deferred to a dedicated PR. The opt-in ``clean_tables``
 # fixture below is provided for tests that need extra determinism today.
 #
-# Concurrent pytest sessions are isolated by suffixing the configured
-# ``POSTGRES_DB_TEST`` base name once per session. Each run drops only its own
-# physical database during teardown, so background and interactive runs can
-# target the same Postgres server without cross-contamination.
+# Concurrent pytest sessions AND parallel pytest-xdist workers are isolated by
+# suffixing the configured ``POSTGRES_DB_TEST`` base name with the worker_id
+# (``"master"`` when xdist is inactive, ``"gw0"`` / ``"gw1"`` / ... under
+# ``-n auto``) plus an 8-char uuid hex. Each run drops only its own physical
+# database during teardown, so background runs, interactive runs, and parallel
+# xdist workers can target the same Postgres server without cross-contamination
+# (TI-01, Phase 1075).
 
 
 @pytest.fixture(autouse=True)
