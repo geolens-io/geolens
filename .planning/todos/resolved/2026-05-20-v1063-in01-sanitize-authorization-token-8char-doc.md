@@ -1,4 +1,12 @@
 ---
+resolved: 2026-05-21
+resolved_in_phase: 1071
+resolved_by_plan: 1071-02
+resolution: "Added inline docstring paragraph on _sanitize_authorization_token explaining the 8-character floor as defense against silent token truncation."
+commit: d153384735d2cb99751c56149fc7970c50c3de89
+---
+
+---
 created: 2026-05-20T00:00:00Z
 title: "v1063 IN-01: _sanitize_authorization_token 8-char minimum undocumented"
 area: documentation

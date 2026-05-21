@@ -1,4 +1,12 @@
 ---
+resolved: 2026-05-21
+resolved_in_phase: 1071
+resolved_by_plan: 1071-02
+resolution: "Documented PASSWORD_MIN_LENGTH and PASSWORD_REQUIRE_CLASSES in .env.example near the existing auth settings."
+commit: 40c5d6c89f470734bd46c6e77fdb74ecef4c68cd
+---
+
+---
 created: 2026-05-20T00:00:00Z
 title: "v1062 IN-01: .env.example missing PASSWORD_MIN_LENGTH / PASSWORD_REQUIRE_CLASSES documentation"
 area: documentation
