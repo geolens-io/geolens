@@ -58,9 +58,9 @@ class IngestJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None
-    )
+    # IA-P0-04 (Phase 1067 option b): last_heartbeat_at column dropped.
+    # Stale recovery uses started_at < JOB_TIMEOUT_SECONDS instead — see
+    # platform/jobs/worker.py:recover_stale_jobs.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
     )

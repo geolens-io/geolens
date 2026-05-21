@@ -14,7 +14,7 @@ from pathlib import Path
 
 import structlog
 import uvicorn
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
@@ -39,30 +39,40 @@ RECOVERY_LOCK_KEY = 224_001
 
 
 async def recover_stale_jobs() -> None:
-    """Mark stale jobs as failed using an advisory lock + heartbeat check.
+    """Mark stale jobs as failed using an advisory lock + started_at threshold.
+
+    IA-P0-04 (Phase 1067, option b): heartbeat column dropped. Stale detection
+    relies on ``started_at < now - JOB_TIMEOUT_SECONDS`` (1 hour), matching
+    the steady-state ``fail_stale_jobs`` sweep that runs every 5 minutes from
+    the lifespan task ``_stale_jobs_sweeper``.
 
     This handles two cases:
-    1. Worker was killed while processing a job (status='running', no recent
-       heartbeat) — detected via last_heartbeat_at age threshold.
+    1. Worker was killed while processing a job (status='running' AND
+       started_at older than 1 hour) — newly-started workers reclaim them
+       on startup via this advisory-locked recovery path.
     2. Job was created but never queued — e.g., the HTTP request that
-       would have called defer_async() got a 502 (status='pending'
-       with no corresponding procrastinate task, older than 1 hour)
+       would have called defer_async() got a 502 (status='pending' with
+       no corresponding procrastinate task, older than 1 hour).
 
     An advisory lock prevents multiple workers from running recovery
     concurrently on startup (e.g., rolling restart). A worker that fails to
     acquire the lock skips recovery — another worker already holds it.
 
-    Jobs with a recent heartbeat are NOT marked as stale, so an actively
-    running job on another worker instance survives a rolling restart.
+    **Rolling-deploy behavior:** Running jobs that started less than 1 hour
+    ago are NOT marked stale, so a 6-minute ingest survives a rolling worker
+    restart. The previous heartbeat-based logic was effectively broken
+    (the column was declared but never written, so every job looked
+    heartbeat-less + 5min-old after deploy and got force-killed); option (b)
+    restores actively-running ingests by leaning on the existing 1h timeout.
 
-    Each recovered job is logged individually with its job_id for
-    traceability.
+    Each recovered job is logged individually with its job_id.
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
 
     now = datetime.now(timezone.utc)
-    stale_cutoff = now - timedelta(minutes=5)
+    stale_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
     pending_cutoff = now - timedelta(hours=1)
 
     async with async_session() as session:
@@ -77,30 +87,27 @@ async def recover_stale_jobs() -> None:
             log.info("Stale job recovery skipped — another worker holds the lock")
             return
 
-        # Recover running jobs whose heartbeat is older than 5 minutes.
-        # Jobs with no heartbeat AND created more than 5 minutes ago are
-        # also considered stale (covers the pre-heartbeat code path).
+        # Recover running jobs whose started_at is older than 1 hour.
+        # Mirrors fail_stale_jobs (router.py:39) which the lifespan
+        # sweeper runs every 5 minutes for the same purpose. The advisory
+        # lock ensures startup recovery and the sweeper don't collide.
         stale_result = await session.execute(
             select(IngestJob).where(
                 IngestJob.status == "running",
-                or_(
-                    IngestJob.last_heartbeat_at < stale_cutoff,
-                    and_(
-                        IngestJob.last_heartbeat_at.is_(None),
-                        IngestJob.created_at < stale_cutoff,
-                    ),
-                ),
+                IngestJob.started_at < stale_cutoff,
             )
         )
         stale_jobs = list(stale_result.scalars())
         for job in stale_jobs:
             job.status = "failed"
-            job.error_message = "Stale: worker restarted while job was running"
+            job.error_message = (
+                f"Stale: running for over {JOB_TIMEOUT_SECONDS // 60} minutes"
+            )
             job.completed_at = now
             log.warning(
                 "Recovered stale running job",
                 job_id=str(job.id),
-                last_heartbeat=str(job.last_heartbeat_at),
+                started_at=str(job.started_at),
             )
 
         # Recover orphaned pending jobs (never queued)

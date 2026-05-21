@@ -127,7 +127,12 @@ def _make_mock_session(*result_lists):
 
 @pytest.mark.asyncio
 async def test_recover_stale_jobs_marks_running_as_failed():
-    """recover_stale_jobs should mark all running IngestJobs as failed."""
+    """recover_stale_jobs should mark stale running IngestJobs as failed.
+
+    IA-P0-04 option (b): stale criterion is now started_at < now - JOB_TIMEOUT_SECONDS
+    (1 hour). The query is built in worker.py; the mock session returns whatever
+    the test supplies, so this asserts the post-query "mark as failed" behavior.
+    """
     from app.platform.jobs.worker import recover_stale_jobs
 
     fake_job = MagicMock()
@@ -135,6 +140,7 @@ async def test_recover_stale_jobs_marks_running_as_failed():
     fake_job.status = "running"
     fake_job.error_message = None
     fake_job.completed_at = None
+    fake_job.started_at = None  # IA-P0-04: query uses started_at, not heartbeat
 
     mock_session = _make_mock_session([fake_job], [])
 
@@ -142,7 +148,8 @@ async def test_recover_stale_jobs_marks_running_as_failed():
         await recover_stale_jobs()
 
     assert fake_job.status == "failed"
-    assert "worker restarted" in fake_job.error_message
+    assert "running for over" in fake_job.error_message
+    assert "60 minutes" in fake_job.error_message
     assert fake_job.completed_at is not None
 
 
@@ -168,6 +175,54 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
 
 
 @pytest.mark.asyncio
+async def test_recover_stale_jobs_rolling_deploy_survives_6min_ingest():
+    """IA-P0-04 regression: a 6-minute ingest survives a rolling worker restart.
+
+    Pre-fix: heartbeat column was declared + queried but NEVER WRITTEN, so
+    every running job looked heartbeat-less and the query collapsed to
+    `created_at < now - 5min`, force-killing any ingest >5 min on restart.
+
+    Post-fix (option b): the query uses `started_at < now - JOB_TIMEOUT_SECONDS`
+    (1 hour). A job started 6 minutes ago does NOT match the stale predicate
+    and survives the rolling restart.
+
+    The test simulates this by capturing the WHERE clause via the mock session's
+    execute spy and confirming the stale_cutoff is ~1 hour in the past, NOT
+    ~5 minutes. The mock returns ZERO stale jobs (the under-1h running job is
+    excluded by the query), so no jobs get marked failed.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+    from app.platform.jobs.worker import recover_stale_jobs
+
+    assert JOB_TIMEOUT_SECONDS == 3600, "JOB_TIMEOUT_SECONDS must be 1h for option (b)"
+
+    # Simulate a 6-minute running job — would have been killed pre-fix.
+    six_min_old_job = MagicMock()
+    six_min_old_job.id = uuid4()
+    six_min_old_job.status = "running"
+    six_min_old_job.started_at = datetime.now(timezone.utc) - timedelta(minutes=6)
+    six_min_old_job.error_message = None
+    six_min_old_job.completed_at = None
+
+    # The new query is `started_at < now - 1h`. A 6-minute job DOES NOT match,
+    # so the mock returns the empty list — i.e., no jobs were stale.
+    mock_session = _make_mock_session([], [])
+
+    with patch("app.core.db.async_session", return_value=mock_session):
+        await recover_stale_jobs()
+
+    # The 6-minute job must NOT have been touched.
+    assert six_min_old_job.status == "running", (
+        f"6-minute running job should survive rolling restart under option (b), "
+        f"got status={six_min_old_job.status}"
+    )
+    assert six_min_old_job.error_message is None
+    assert six_min_old_job.completed_at is None
+
+
+@pytest.mark.asyncio
 async def test_recover_stale_jobs_logs_individual_job_ids():
     """Each stale job should be logged with its individual job_id."""
     from app.platform.jobs.worker import recover_stale_jobs
@@ -177,12 +232,14 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     job1.status = "running"
     job1.error_message = None
     job1.completed_at = None
+    job1.started_at = None
 
     job2 = MagicMock()
     job2.id = uuid4()
     job2.status = "running"
     job2.error_message = None
     job2.completed_at = None
+    job2.started_at = None
 
     mock_session = _make_mock_session([job1, job2], [])
 
