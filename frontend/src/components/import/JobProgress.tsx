@@ -147,7 +147,9 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             </Button>
             {isRasterEntry && (
               <>
-                <Button variant="outline" size="sm" onClick={() => downloadCog(job.dataset_id!)}>
+                <Button variant="outline" size="sm" onClick={async () => {
+                  try { await downloadCog(job.dataset_id!); } catch { toast.error('Could not start COG download — try again'); }
+                }}>
                   <Download className="me-1 size-3" />
                   Download COG
                 </Button>

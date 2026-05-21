@@ -102,12 +102,32 @@ export async function downloadExport(
   return authenticatedDownload(getExportUrl(id, format), filename);
 }
 
-export function downloadCog(id: string): void {
-  const token = useAuthStore.getState().token;
+/**
+ * Mint a short-lived download-scoped JWT for a single dataset.
+ *
+ * IA-P0-01: The COG download URL requires a typ='download' JWT on ?token=.
+ * Session JWTs are rejected by the backend (router_export.py:186-192).
+ * This helper calls POST /auth/download-token/{id} to obtain the correct token.
+ * apiFetch automatically injects the session JWT in the Authorization header.
+ */
+export async function mintDownloadToken(id: string): Promise<string> {
+  const data = await apiFetch<{ token: string; expires_in: number }>(
+    `/auth/download-token/${id}`,
+    { method: 'POST' }
+  );
+  return data.token;
+}
+
+/**
+ * Open the COG download URL in a new tab.
+ *
+ * Mints a fresh download token first — never places the session JWT on the URL.
+ * Callers must handle errors (e.g. via toast.error) since this is async.
+ */
+export async function downloadCog(id: string): Promise<void> {
+  const downloadToken = await mintDownloadToken(id);
   const url = new URL(`${API_BASE}/datasets/${id}/download/cog`, window.location.origin);
-  if (token) {
-    url.searchParams.set('token', token);
-  }
+  url.searchParams.set('token', downloadToken);
   window.open(url.toString(), '_blank');
 }
 
