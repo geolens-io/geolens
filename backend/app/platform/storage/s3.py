@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import BinaryIO
+from typing import AsyncIterator, BinaryIO
 
 import boto3
 from botocore.config import Config
@@ -94,6 +94,23 @@ class S3StorageProvider:
             return response["Body"].read()
 
         return await asyncio.to_thread(_get)
+
+    async def get_stream(self, key: str) -> AsyncIterator[bytes]:
+        """S3 streaming is served via presigned GET redirect; never reached.
+
+        The router (``router_export.py:375-379``) returns
+        ``RedirectResponse(presigned_url, 302)`` for the ``s3`` storage
+        backend, so this method is unreachable in the current code path.
+        Defining it explicitly satisfies the ``StorageProvider`` Protocol
+        and surfaces a clear error if a future refactor accidentally
+        invokes it on S3.
+        """
+        raise NotImplementedError(
+            "S3 streaming is served via presigned GET redirect from the "
+            "router; this method should never be reached. See "
+            "router_export.py:375-379."
+        )
+        yield b""  # unreachable, satisfies AsyncIterator return type
 
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Download key to a local file path. Creates parent dirs."""

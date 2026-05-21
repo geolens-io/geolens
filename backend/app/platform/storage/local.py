@@ -3,7 +3,13 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
-from typing import BinaryIO
+from typing import AsyncIterator, BinaryIO
+
+
+# Chunk size for streaming reads (ING-03 / P2-03). 1 MiB is large enough to
+# amortize syscall overhead but small enough that worst-case resident memory
+# per concurrent download stays bounded.
+_STREAM_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 
 
 class LocalStorageProvider:
@@ -30,6 +36,34 @@ class LocalStorageProvider:
         """Retrieve raw bytes for a key."""
         path = self.base_dir / key
         return await asyncio.to_thread(path.read_bytes)
+
+    async def get_stream(self, key: str) -> AsyncIterator[bytes]:
+        """Stream key bytes in 1 MiB chunks (ING-03 / P2-03).
+
+        Avoids the 5 GB resident-memory spike that ``get()`` would cause for
+        a large COG download — the full file is never materialized as a
+        single ``bytes`` object. Each chunk is read in a worker thread via
+        ``asyncio.to_thread`` so the event loop stays responsive.
+
+        The file handle is closed inside a ``finally:`` block so consumer
+        abort (e.g. client disconnect mid-stream) does not leak file
+        descriptors. Raises ``FileNotFoundError`` upfront if the key is
+        missing — matches the ``get()`` exception shape so the router's
+        existing ``except FileNotFoundError`` branch can stay unchanged.
+        """
+        path = self.base_dir / key
+        if not await asyncio.to_thread(path.exists):
+            raise FileNotFoundError(f"Storage key not found: {key}")
+
+        f = await asyncio.to_thread(open, path, "rb")
+        try:
+            while True:
+                chunk = await asyncio.to_thread(f.read, _STREAM_CHUNK_BYTES)
+                if not chunk:
+                    return
+                yield chunk
+        finally:
+            await asyncio.to_thread(f.close)
 
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Copy file to dest. If src == dest, return as-is."""

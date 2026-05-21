@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import builtins
 from pathlib import Path
-from typing import BinaryIO, Protocol
+from typing import AsyncIterator, BinaryIO, Protocol
 
 
 class StorageProvider(Protocol):
@@ -14,6 +14,16 @@ class StorageProvider(Protocol):
 
     async def get(self, key: str) -> bytes:
         """Retrieve raw bytes for a key."""
+        ...
+
+    def get_stream(self, key: str) -> AsyncIterator[bytes]:
+        """Stream key bytes as an async iterator.
+
+        For large files (e.g. COGs) where loading the full payload into memory
+        is prohibitive. Implementations should yield in fixed-size chunks
+        (typically 1 MiB) and ensure the underlying file handle is closed
+        even on consumer abort. Raises FileNotFoundError if key does not exist.
+        """
         ...
 
     async def get_to_file(self, key: str, dest: Path) -> Path:
