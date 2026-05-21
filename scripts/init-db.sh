@@ -1,7 +1,19 @@
 #!/bin/bash
 set -e
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+# Phase 1079 VG-01 fix: heredoc delimiter must be QUOTED ('EOSQL') so bash
+# does NOT perform command substitution on the backticks (`...`) inside the
+# SQL comments below. Prior to this fix, unquoted `<<-EOSQL` caused bash to
+# try executing `GRANT SELECT ON ALL TABLES`, `grant_reader_access`, and
+# `backend/app/processing/ingest/metadata.py` as shell commands, aborting
+# the script with `set -e` BEFORE psql ever ran. The bug was latent because
+# the live geolens-db container's pgdata volume is persistent (init-db.sh
+# only runs once on a fresh volume), and the backtick comments were added
+# in Phase 271 (commit 8a5d2b6a, 2026-05-07) AFTER that one-time init.
+# Phase 1079 surfaced this when the alembic-clean-db script (which builds a
+# fresh DB on every run) finally exercised init-db.sh against a clean
+# volume.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'EOSQL'
     -- Extensions
     CREATE EXTENSION IF NOT EXISTS postgis;
     CREATE EXTENSION IF NOT EXISTS pg_trgm;

@@ -143,25 +143,47 @@ docker run -d \
   "${TEST_IMAGE}" >/dev/null
 
 # -----------------------------------------------------------------------
-# Poll readiness — pg_isready alone is not enough because init-db.sh runs
-# AFTER initial readiness. Poll for the `vector` extension explicitly so
-# we don't race the extension-creation step.
+# Poll readiness — three concerns:
+#   1. pg_isready alone is not enough because init-db.sh runs AFTER initial
+#      readiness. Poll for the `vector` extension explicitly so we don't
+#      race the extension-creation step.
+#   2. (Phase 1079 VG-01 fix) docker-entrypoint.sh's init-script phase
+#      runs against a temporary Postgres listening ONLY on the Unix socket;
+#      `pg_isready` and `docker exec ... psql` succeed via the socket during
+#      this phase. After all init scripts finish, the temporary server
+#      shuts down and the production server is started with TCP listening.
+#      A TCP-only client (asyncpg from alembic) connecting during the
+#      bootstrap-to-production transition gets `ConnectionDoesNotExistError`.
+#      The fix is to ALSO probe via TCP from the host (outside the container),
+#      which only succeeds once the production server is up on the mapped port.
+#   3. The TCP probe uses `pg_isready` from the host if available, otherwise
+#      `nc -z` on the port. Either way, the probe runs OUTSIDE `docker exec`
+#      so it goes through the host port-mapping.
 # -----------------------------------------------------------------------
+_tcp_ready() {
+  if command -v pg_isready >/dev/null 2>&1; then
+    pg_isready -h 127.0.0.1 -p "${PG_PORT}" -U "${PG_USER}" -d "${PG_DB}" -q -t 2 2>/dev/null
+  else
+    nc -z 127.0.0.1 "${PG_PORT}" 2>/dev/null
+  fi
+}
+
 echo -n "==> Waiting up to ${WAIT_SECONDS}s for DB readiness + extensions..."
 elapsed=0
 while [ "${elapsed}" -lt "${WAIT_SECONDS}" ]; do
+  # Step 1: in-container readiness (Unix socket; passes during bootstrap)
+  # Step 2: in-container extension probe (confirms init-db.sh + 10_postgis.sh ran)
+  # Step 3: host-side TCP readiness (confirms production server up — bootstrap
+  #         restart finished, host port-mapping is live)
   if docker exec "${CONTAINER_NAME}" pg_isready -U "${PG_USER}" -d "${PG_DB}" >/dev/null 2>&1; then
-    # pg_isready true → DB accepting connections. Now confirm init-db.sh ran
-    # by checking for the `vector` extension (the last one init-db.sh creates
-    # before COMMIT). If init-db.sh failed, the migration will fail at the
-    # baseline extension-check and we want to surface that as a real failure,
-    # not a readiness timeout.
     if docker exec "${CONTAINER_NAME}" \
          psql -U "${PG_USER}" -d "${PG_DB}" -tAc \
          "SELECT 1 FROM pg_extension WHERE extname='vector'" 2>/dev/null \
          | grep -q '^1$'; then
-      echo " ready."
-      break
+      if _tcp_ready; then
+        echo " ready."
+        break
+      fi
     fi
   fi
   sleep 1
@@ -198,6 +220,30 @@ export POSTGRES_PASSWORD="${PG_PASSWORD}"
 export POSTGRES_HOST="localhost"
 export POSTGRES_PORT="${PG_PORT}"
 export POSTGRES_DB="${PG_DB}"
+
+# Phase 1079 VG-01 fix: backend/ has no [build-system] in pyproject.toml, so
+# the `app` package is not installed into the venv's site-packages — it is
+# imported via the cwd entry on sys.path. When `uv run --no-dev` invokes the
+# `alembic` console script entry point, the launcher does not implicitly add
+# cwd to sys.path the way `python -c "..."` does. The alembic `env.py` then
+# fails at `from app.core.config import settings` with ModuleNotFoundError.
+# PYTHONPATH=. restores the cwd-on-sys.path behavior. (First live run of
+# this script in Phase 1079 surfaced the bug; Phase 1071 close-gate had
+# deferred the live run to Phase 1074, which also did not exercise it.)
+export PYTHONPATH=.
+
+# Phase 1079 VG-01 fix: app/core/config.py's database_connect_args returns
+# `{}` (no ssl key) when database_ssl_mode='disable'. asyncpg's
+# connect_utils.py:655-656 then defaults `ssl='prefer'` on TCP, which
+# triggers a STARTTLS upgrade attempt against the throwaway PostGIS
+# container — which has no SSL configured — and the connection drops with
+# `ConnectionError: unexpected connection_lost() call`. PGSSLMODE is the
+# documented asyncpg env-var hook that pre-empts the prefer default
+# (connect_utils.py:653: `if ssl is None: ssl = os.getenv('PGSSLMODE')`).
+# Setting PGSSLMODE=disable here is local to this script — it does NOT
+# affect the running geolens stack, which connects via the app config's
+# `prefer` default and a Postgres server that may legitimately offer SSL.
+export PGSSLMODE=disable
 
 alembic_rc=0
 uv run --no-dev alembic upgrade head || alembic_rc=$?
