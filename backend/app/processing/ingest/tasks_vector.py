@@ -6,8 +6,6 @@ from pathlib import Path
 
 import structlog
 
-from sqlalchemy import select
-
 from app.processing.ingest.tasks_common import (
     IngestContext,
     _append_job_warning,
@@ -15,6 +13,7 @@ from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _detect_and_override_geometry,
     _finalize_ingest,
+    _job_phase_session,
     _resolve_effective_srid,
     _run_service_import_with_wfs_fallback,
     _validate_upload_file_safety,
@@ -47,7 +46,6 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
     ``.planning/debug/worker-missing-greenlet-100.md`` for the full diagnosis.
     """
     _bind_task_log_context(task_name="ingest_file", job_id=job_id)
-    from app.core.db import async_session
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.processing.ingest.service import generate_table_name
     from app.platform.jobs.models import IngestJob
@@ -58,20 +56,14 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session): load job, mark running, validate,
-        # detect CRS, generate table name. Snapshot the values needed for
-        # phase 2 into local variables so the ogr2ogr subprocess can run
-        # without a session held open.
+        # Phase 1 (short-lived session via _job_phase_session — REMED-03 /
+        # P2-05): load job, mark running, validate, detect CRS, generate
+        # table name. Snapshot values needed for phase 2 into local
+        # variables so the ogr2ogr subprocess can run without a session
+        # held open (#100 greenlet rule lives in the helper docstring).
         # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            job = result.scalar_one_or_none()
+        async with _job_phase_session(job_uuid, phase="phase1") as (session, job):
             if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job not found, skipping", job_id=job_id
-                )
                 return
 
             # 1. Update job to running.
@@ -180,15 +172,13 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
 
         # REMED-02 / ingest-audit P2-07: write current_step="ogr2ogr" BEFORE
         # the long subprocess so the UI sees the transition even if ogr2ogr
-        # hangs. A brief-session pattern (mirrors phase-2 re-load below) is
-        # required here — the #100 greenlet rule forbids holding a session
-        # open across run_ogr2ogr, but the progress write must commit so it
-        # cannot be lost on rollback if ogr2ogr raises.
-        async with async_session() as _progress_session:
-            _progress_result = await _progress_session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            _progress_job = _progress_result.scalar_one_or_none()
+        # hangs. Brief-session pattern via _job_phase_session — the #100
+        # greenlet rule forbids holding a session open across run_ogr2ogr,
+        # but the progress write must commit so it cannot be lost on
+        # rollback if ogr2ogr raises.
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_ogr2ogr"
+        ) as (_progress_session, _progress_job):
             if _progress_job is not None:
                 _progress_job.current_step = "ogr2ogr"
                 _progress_job.progress = 0.1
@@ -204,129 +194,122 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         )
 
         # ----------------------------------------------------------------- #
-        # Phase 2 (short-lived session): post-ogr2ogr finalization. Re-load
-        # the job in a fresh session — its attributes were already snapshotted
-        # into ``um``/``source_filename``/``layer_name`` above.
+        # Phase 2 (short-lived session via _job_phase_session — REMED-03 /
+        # P2-05): post-ogr2ogr finalization. Re-load the job in a fresh
+        # session — its attributes were already snapshotted into
+        # ``um`` / ``source_filename`` / ``layer_name`` above.
         # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            job = result.scalar_one_or_none()
+        async with _job_phase_session(job_uuid, phase="phase2") as (session, job):
             if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job vanished between phases, skipping",
-                    job_id=job_id,
-                )
                 return
 
-            try:
-                # REMED-02 / ingest-audit P2-07: progress signal for phase-2 work.
-                # Intentionally NOT committed here — participates in the same
-                # transaction as _finalize_ingest's terminal commit so a rollback
-                # cleans this up too. The brief-session "ogr2ogr" write above
-                # is the durable mid-flight checkpoint.
-                job.current_step = "finalize"
-                job.progress = 0.7
+            # REMED-02 / ingest-audit P2-07: progress signal for phase-2 work.
+            # Intentionally NOT committed here — participates in the same
+            # transaction as _finalize_ingest's terminal commit so a rollback
+            # cleans this up too. The brief-session "ogr2ogr" write above
+            # is the durable mid-flight checkpoint.
+            #
+            # REMED-03 / P2-05: _job_phase_session owns the rollback-on-exception
+            # shape that used to live here as a manual try/except. If any
+            # statement below raises, the helper rolls the session back and
+            # re-raises; the outer `except Exception as exc` handler then
+            # writes the failure record via a fresh session.
+            job.current_step = "finalize"
+            job.progress = 0.7
 
-                # 3a. Rename any source column that collides with a GeoLens-internal
-                #     name (gid, geom, geometry, geom_4326, fid, ogc_fid). Runs BEFORE
-                #     the user-geometry-override and _finalize_ingest steps so that
-                #     construct_point_geometry / add_4326_column cannot clash with a
-                #     source attribute of the same name.
-                from app.processing.ingest.metadata import rename_reserved_columns
+            # 3a. Rename any source column that collides with a GeoLens-internal
+            #     name (gid, geom, geometry, geom_4326, fid, ogc_fid). Runs BEFORE
+            #     the user-geometry-override and _finalize_ingest steps so that
+            #     construct_point_geometry / add_4326_column cannot clash with a
+            #     source attribute of the same name.
+            from app.processing.ingest.metadata import rename_reserved_columns
 
-                reserved_renames = await rename_reserved_columns(session, table_name)
-                if reserved_renames:
-                    from app.processing.ingest.warnings import (
-                        make_reserved_rename_warning,
+            reserved_renames = await rename_reserved_columns(session, table_name)
+            if reserved_renames:
+                from app.processing.ingest.warnings import (
+                    make_reserved_rename_warning,
+                )
+
+                _append_job_warning(
+                    job, make_reserved_rename_warning(reserved_renames)
+                )
+
+            # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
+            #     the source column list from ogrinfo (stored in info["columns"]).
+            if file_path.lower().endswith(".zip"):
+                from app.processing.ingest.metadata import (
+                    detect_dbf_truncation_collisions,
+                )
+                from app.processing.ingest.ogr import run_ogrinfo_preview
+                from app.processing.ingest.warnings import (
+                    make_dbf_truncation_warning,
+                )
+
+                preview_cols = info.get("columns") or []
+                if not preview_cols:
+                    preview_info = await run_ogrinfo_preview(
+                        file_path, sample_limit=0, layer_name=layer_name
                     )
-
+                    preview_cols = preview_info.get("columns") or []
+                dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
+                if dbf_collisions:
                     _append_job_warning(
-                        job, make_reserved_rename_warning(reserved_renames)
+                        job, make_dbf_truncation_warning(dbf_collisions)
+                    )
+                    structlog.get_logger().warning(
+                        "Shapefile DBF 10-char truncation collision detected",
+                        table=table_name,
+                        collisions=dbf_collisions,
                     )
 
-                # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
-                #     the source column list from ogrinfo (stored in info["columns"]).
-                if file_path.lower().endswith(".zip"):
-                    from app.processing.ingest.metadata import (
-                        detect_dbf_truncation_collisions,
-                    )
-                    from app.processing.ingest.ogr import run_ogrinfo_preview
-                    from app.processing.ingest.warnings import (
-                        make_dbf_truncation_warning,
-                    )
-
-                    preview_cols = info.get("columns") or []
-                    if not preview_cols:
-                        preview_info = await run_ogrinfo_preview(
-                            file_path, sample_limit=0, layer_name=layer_name
-                        )
-                        preview_cols = preview_info.get("columns") or []
-                    dbf_collisions = detect_dbf_truncation_collisions(preview_cols)
-                    if dbf_collisions:
-                        _append_job_warning(
-                            job, make_dbf_truncation_warning(dbf_collisions)
-                        )
-                        structlog.get_logger().warning(
-                            "Shapefile DBF 10-char truncation collision detected",
-                            table=table_name,
-                            collisions=dbf_collisions,
-                        )
-
-                if user_wants_geom:
-                    override_geom_type = await _detect_and_override_geometry(
-                        session,
-                        table_name=table_name,
-                        user_metadata=um,
-                    )
-                    if override_geom_type is not None:
-                        has_geometry = True
-                        geometry_type = override_geom_type
-
-                # Use srid_override if provided
-                effective_srid = _resolve_effective_srid(
-                    detected_srid=srid,
-                    srid_override=srid_override,
-                )
-
-                # 4. Determine source format from file extension
-                suffix = Path(file_path).suffix.lower()
-                # Strip leading dot for format name; handle .zip -> look inside filename
-                source_format = suffix.lstrip(".")
-                if source_format == "zip":
-                    source_format = "shapefile"
-
-                # 5-9. Shared post-ogr2ogr pipeline
-                dataset = await _finalize_ingest(
-                    IngestContext(
-                        session=session,
-                        job=job,
-                        table_name=table_name,
-                        user_id=user_id,
-                        has_geometry=has_geometry,
-                        effective_srid=effective_srid,
-                        source_format=source_format,
-                        source_filename=source_filename,
-                        original_srid=srid,
-                        user_metadata=um,
-                    )
-                )
-
-                # 9c. Archive original file to storage provider (R-2).
-                await _archive_original_file(
+            if user_wants_geom:
+                override_geom_type = await _detect_and_override_geometry(
                     session,
-                    job=job,
-                    dataset_id=dataset.id,
-                    file_path=file_path,
+                    table_name=table_name,
+                    user_metadata=um,
                 )
+                if override_geom_type is not None:
+                    has_geometry = True
+                    geometry_type = override_geom_type
 
-                final_status = "complete"
+            # Use srid_override if provided
+            effective_srid = _resolve_effective_srid(
+                detected_srid=srid,
+                srid_override=srid_override,
+            )
 
-            except Exception:  # broad: re-raised below; rollback first so the
-                # outer handler can write a clean failure record via a fresh session.
-                await session.rollback()
-                raise
+            # 4. Determine source format from file extension
+            suffix = Path(file_path).suffix.lower()
+            # Strip leading dot for format name; handle .zip -> look inside filename
+            source_format = suffix.lstrip(".")
+            if source_format == "zip":
+                source_format = "shapefile"
+
+            # 5-9. Shared post-ogr2ogr pipeline
+            dataset = await _finalize_ingest(
+                IngestContext(
+                    session=session,
+                    job=job,
+                    table_name=table_name,
+                    user_id=user_id,
+                    has_geometry=has_geometry,
+                    effective_srid=effective_srid,
+                    source_format=source_format,
+                    source_filename=source_filename,
+                    original_srid=srid,
+                    user_metadata=um,
+                )
+            )
+
+            # 9c. Archive original file to storage provider (R-2).
+            await _archive_original_file(
+                session,
+                job=job,
+                dataset_id=dataset.id,
+                file_path=file_path,
+            )
+
+            final_status = "complete"
 
     except Exception as exc:  # broad: ingest pipeline spans GDAL/PostGIS/S3/FS — any step can fail; record failure status
         structlog.get_logger().exception(
@@ -336,7 +319,15 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         )
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
-        async with async_session() as err_session:
+        # REMED-03 / P2-05: route through _job_phase_session so the helper
+        # owns the session-lifecycle boilerplate. The yielded job is
+        # ignored — we issue a SQL UPDATE rather than mutating the ORM row
+        # so a NULL job (race with row delete) still produces a clean
+        # no-op update instead of an AttributeError.
+        async with _job_phase_session(job_uuid, phase="error_write") as (
+            err_session,
+            _err_job,
+        ):
             from sqlalchemy import update as sa_update
 
             await err_session.execute(
@@ -366,11 +357,12 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # staging dir retention policy handles eventual cleanup.
         is_fan_out_child = False
         try:
-            async with async_session() as _check_session:
-                _check_result = await _check_session.execute(
-                    select(IngestJob).where(IngestJob.id == job_uuid)
-                )
-                _check_job = _check_result.scalar_one_or_none()
+            # REMED-03 / P2-05: route through _job_phase_session. The helper
+            # yields the IngestJob row directly, so we just check user_metadata.
+            async with _job_phase_session(job_uuid, phase="cleanup_check") as (
+                _check_session,
+                _check_job,
+            ):
                 if _check_job is not None and (_check_job.user_metadata or {}).get(
                     "fan_out_parent_id"
                 ):
@@ -414,7 +406,6 @@ async def ingest_service(
     survive across a long asyncio subprocess.
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
-    from app.core.db import async_session
     from app.modules.catalog.sources.security import (
         SSRFError,
         validate_url_for_ssrf,
@@ -440,19 +431,12 @@ async def ingest_service(
 
     try:
         # ----------------------------------------------------------------- #
-        # Phase 1 (short-lived session): load job, mark running, generate
-        # table name. Snapshot all values needed for phase 2.
+        # Phase 1 (short-lived session via _job_phase_session — REMED-03 /
+        # P2-05): load job, mark running, generate table name. Snapshot all
+        # values needed for phase 2.
         # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            # Load job record
-            result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            job = result.scalar_one_or_none()
+        async with _job_phase_session(job_uuid, phase="phase1") as (session, job):
             if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job not found, skipping", job_id=job_id
-                )
                 return
 
             # 1. Update job to running.
@@ -503,12 +487,10 @@ async def ingest_service(
 
         # REMED-02 / ingest-audit P2-07: stamp current_step="ogr2ogr" before
         # the long remote-service fetch (same brief-session pattern as
-        # ingest_file).
-        async with async_session() as _progress_session:
-            _progress_result = await _progress_session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            _progress_job = _progress_result.scalar_one_or_none()
+        # ingest_file). Routed through _job_phase_session per REMED-03.
+        async with _job_phase_session(
+            job_uuid, phase="progress_write_ogr2ogr"
+        ) as (_progress_session, _progress_job):
             if _progress_job is not None:
                 _progress_job.current_step = "ogr2ogr"
                 _progress_job.progress = 0.1
@@ -541,62 +523,51 @@ async def ingest_service(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
         # ----------------------------------------------------------------- #
-        async with async_session() as session:
-            result = await session.execute(
-                select(IngestJob).where(IngestJob.id == job_uuid)
-            )
-            job = result.scalar_one_or_none()
+        async with _job_phase_session(job_uuid, phase="phase2") as (session, job):
             if job is None:
-                structlog.get_logger().warning(
-                    "Ingest job vanished between phases, skipping",
-                    job_id=job_id,
-                )
                 return
 
-            try:
-                # REMED-02 / ingest-audit P2-07: mirror ingest_file's phase-2
-                # progress write. Uncommitted — _finalize_ingest's terminal
-                # commit owns the transaction lifecycle.
-                job.current_step = "finalize"
-                job.progress = 0.7
+            # REMED-02 / ingest-audit P2-07: mirror ingest_file's phase-2
+            # progress write. Uncommitted — _finalize_ingest's terminal
+            # commit owns the transaction lifecycle.
+            # REMED-03 / P2-05: helper owns the rollback-on-exception shape
+            # that used to live as a manual try/except around this block.
+            job.current_step = "finalize"
+            job.progress = 0.7
 
-                # 4a. Rename any source column that collides with a GeoLens-internal
-                #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
-                from app.processing.ingest.metadata import rename_reserved_columns
+            # 4a. Rename any source column that collides with a GeoLens-internal
+            #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
+            from app.processing.ingest.metadata import rename_reserved_columns
 
-                reserved_renames = await rename_reserved_columns(session, table_name)
-                if reserved_renames:
-                    from app.processing.ingest.warnings import (
-                        make_reserved_rename_warning,
-                    )
-
-                    _append_job_warning(
-                        job, make_reserved_rename_warning(reserved_renames)
-                    )
-
-                # 5-8. Shared post-ogr2ogr pipeline
-                dataset_source_url = (
-                    f"{source_url}/{layer_id}" if layer_id is not None else source_url
+            reserved_renames = await rename_reserved_columns(session, table_name)
+            if reserved_renames:
+                from app.processing.ingest.warnings import (
+                    make_reserved_rename_warning,
                 )
-                await _finalize_ingest(
-                    IngestContext(
-                        session=session,
-                        job=job,
-                        table_name=table_name,
-                        user_id=user_id,
-                        has_geometry=False if is_non_spatial else None,
-                        effective_srid=None if is_non_spatial else 4326,
-                        source_format=source_format,
-                        source_filename=source_filename,
-                        original_srid=None,
-                        user_metadata=um,
-                        source_url=dataset_source_url,
-                    )
+
+                _append_job_warning(
+                    job, make_reserved_rename_warning(reserved_renames)
                 )
-            except Exception:  # broad: re-raised below; rollback first so the
-                # outer handler can write a clean failure record via a fresh session.
-                await session.rollback()
-                raise
+
+            # 5-8. Shared post-ogr2ogr pipeline
+            dataset_source_url = (
+                f"{source_url}/{layer_id}" if layer_id is not None else source_url
+            )
+            await _finalize_ingest(
+                IngestContext(
+                    session=session,
+                    job=job,
+                    table_name=table_name,
+                    user_id=user_id,
+                    has_geometry=False if is_non_spatial else None,
+                    effective_srid=None if is_non_spatial else 4326,
+                    source_format=source_format,
+                    source_filename=source_filename,
+                    original_srid=None,
+                    user_metadata=um,
+                    source_url=dataset_source_url,
+                )
+            )
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise
         structlog.get_logger().exception(
@@ -606,7 +577,11 @@ async def ingest_service(
         )
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
-        async with async_session() as err_session:
+        # REMED-03 / P2-05: route through _job_phase_session.
+        async with _job_phase_session(job_uuid, phase="error_write") as (
+            err_session,
+            _err_job,
+        ):
             from sqlalchemy import update as sa_update
 
             await err_session.execute(
