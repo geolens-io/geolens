@@ -150,9 +150,9 @@ class TestOgrConnectionString:
 class TestDatabaseConnectArgs:
     """Test database_connect_args property."""
 
-    def test_disable_returns_empty(self):
+    def test_disable_returns_ssl_false(self):
         s = _make_settings(database_ssl_mode="disable")
-        assert s.database_connect_args == {}
+        assert s.database_connect_args == {"ssl": False}
 
     def test_prefer_returns_ssl_prefer(self):
         s = _make_settings(database_ssl_mode="prefer")
@@ -278,7 +278,7 @@ class TestExternalPooler:
             database_ssl_mode="disable",
         )
         args = s.database_connect_args
-        assert args == {"statement_cache_size": 0}
+        assert args == {"statement_cache_size": 0, "ssl": False}
 
 
 class TestJwtSecretLengthValidator:
