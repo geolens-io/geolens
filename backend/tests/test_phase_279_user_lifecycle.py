@@ -147,11 +147,15 @@ async def test_register_emits_user_register_audit(
     unique = uuid.uuid4().hex[:8]
     username = f"audituser_{unique}"
     email = f"audituser_{unique}@example.com"
+    # TD-02 (Plan 1081-01): v1014 SEC-S16 enforces 12-char minimum + 3-of-4 class
+    # diversity at validate_password_complexity. The prior "securepass123" literal
+    # (lowercase + digit = 2 classes) fails the 3-of-4 rule before the register
+    # audit path runs. "TestPass1234!" mirrors conftest.py:491 / test_password_policy.py:37.
     resp = await client.post(
         "/auth/register/",
         json={
             "username": username,
-            "password": "securepass123",
+            "password": "TestPass1234!",
             "email": email,
         },
     )
@@ -199,11 +203,15 @@ async def test_register_disabled_does_not_emit_audit(
     before_count = len(list(before.scalars().all()))
 
     unique = uuid.uuid4().hex[:8]
+    # TD-03 (Plan 1081-01): v1014 SEC-S16 enforces 12-char minimum + 3-of-4 class
+    # diversity at validate_password_complexity. The prior "securepass123" literal
+    # (lowercase + digit = 2 classes) fails the 3-of-4 rule before the registration
+    # disabled path runs. "TestPass1234!" mirrors conftest.py:491 / test_password_policy.py:37.
     resp = await client.post(
         "/auth/register/",
         json={
             "username": f"shouldfail_{unique}",
-            "password": "securepass123",
+            "password": "TestPass1234!",
         },
     )
     assert resp.status_code == 403
