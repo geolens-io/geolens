@@ -41,12 +41,14 @@ Fresh re-audit runs against the v1015 ship state. Last baselines: `/sec-audit` 2
 - [ ] **AUDIT-02**: `/ingest-audit` re-run produces `INGEST-AUDIT-2026-05-21.md` at `.planning/audits/`
 - [ ] **AUDIT-03**: Triage classification doc maps each finding to severity (HIGH/MEDIUM/LOW/INFO) and assigns it to Phase 1073 or 1074
 
-### Audit Remediation (Expands Mid-Milestone)
+### Audit Remediation (Expanded from Phase 1072 triage 2026-05-21)
 
-Meta-requirements that expand into concrete `REMED-XX` IDs after Phase 1072 triage lands. `/gsd-autonomous` handles via mid-milestone `/gsd-phase` insertion if finding count warrants splitting Phase 1073.
+Both fresh audits returned PASS at HIGH/MEDIUM. v1014/v1015/Phase 1071 closed all prior HIGH/MEDIUM/P0/P1 findings. Triage at `.planning/audits/TRIAGE-2026-05-21.md` classified remaining open items: 4 P2 findings worth closing in v1016, 8 deferred to v1017.
 
-- [ ] **REMED-01**: All HIGH and MEDIUM severity findings from AUDIT-03 triage are closed in code + tests
-- [ ] **REMED-02**: All LOW and INFO severity findings from AUDIT-03 triage are closed in code + docs (INFO may close as pending todo files if scope warrants deferral)
+- [ ] **REMED-01**: TanStack mutations for re-upload commit + VRT creation invalidate `jobStatusByDataset` so dataset-detail page no longer shows stale warnings (ingest-audit P2-06)
+- [ ] **REMED-02**: `JobStatusResponse` schema carries `progress` / `current_step` / `rows_processed` fields populated by ingest worker writes so 10-min raster ingests show progress in UI (ingest-audit P2-07)
+- [ ] **REMED-03**: Ingest task chunk-loop logic deduplicated into a shared helper testable in isolation (ingest-audit P2-05)
+- [ ] **REMED-04**: COG URL construction consolidated into a single storage helper consumed by raster/cog.py + stac_router.py + presigned helpers; SEC-OBSV-01 + SEC-OBSV-02 docstring contracts pinned at the same time (ingest-audit P2-01 + sec-audit SEC-OBSV-01/02)
 
 ### Close Gate
 
@@ -91,6 +93,8 @@ Will be populated by `gsd-roadmapper` during roadmap creation. Final count: 24 u
 | AUDIT-03 | Phase 1072 | Pending |
 | REMED-01 | Phase 1073 | Pending |
 | REMED-02 | Phase 1073 | Pending |
+| REMED-03 | Phase 1073 | Pending |
+| REMED-04 | Phase 1073 | Pending |
 | GATE-01 | Phase 1074 | Pending |
 | GATE-02 | Phase 1074 | Pending |
 | GATE-03 | Phase 1074 | Pending |
@@ -99,10 +103,10 @@ Will be populated by `gsd-roadmapper` during roadmap creation. Final count: 24 u
 | GATE-06 | Phase 1074 | Pending |
 
 **Coverage:**
-- v1016 requirements: 24 total (upfront)
-- Mapped to phases: 24
+- v1016 requirements: 26 total (24 upfront + REMED expanded from 2 → 4 after Phase 1072 triage)
+- Mapped to phases: 26
 - Unmapped: 0 ✓
-- Note: REMED-01..02 expand into concrete `REMED-XX` IDs mid-milestone via `/gsd-phase` after Phase 1072 ships
+- Phase 1072 triage (2026-05-21): both audits PASS; REMED expanded from meta to concrete (REMED-01..04 close 4 P2 findings); 8 v1015-carried P2 deferred to v1017
 
 ---
 *Requirements defined: 2026-05-21*
