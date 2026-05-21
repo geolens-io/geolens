@@ -29,7 +29,7 @@ Drawn from `.planning/audits/INGEST-AUDIT-2026-05-21.md`. P2-06 + P2-07 were clo
 - [x] **ING-04**: P2-04 — Restrict worker exports temp-dir sweep at `backend/app/platform/jobs/worker.py:174-185` to entries older than 1 hour via `stat.st_mtime`; log skipped items. Avoids truncating in-flight large exports on worker restart.
 - [ ] **ING-05**: P2-05 — Extract `uploadChunks(urls, file, partSize)` helper in a new `frontend/src/api/_presignedUpload.ts`; rewire `ingest.ts:147-159` + `datasets.ts:370-383` through it. Single point for future retry/abort/backoff.
 - [ ] **ING-06**: P2-08 — Add single-retry behaviour to `_apply_reupload_swap` at `tasks_common.py:880`. On `lock_timeout` failure, retry once with `SET LOCAL lock_timeout = '15s'` plus a brief sleep; log the contention event so ops can correlate with autovacuum runs.
-- [ ] **ING-07**: P2-09 — Add optional `strict_cog: bool` field to `RasterCommitRequest`. When true, raster commit rejects non-COG TIFFs at the magic-byte rule instead of silently routing through `check_and_prepare_cog` conversion. Default `False` preserves current behavior.
+- [x] **ING-07**: P2-09 — Add optional `strict_cog: bool` field to `RasterCommitRequest`. When true, raster commit rejects non-COG TIFFs at the magic-byte rule instead of silently routing through `check_and_prepare_cog` conversion. Default `False` preserves current behavior.
 
 ### Verification Gap
 
@@ -74,7 +74,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | ING-04 | Phase 1076 | Complete |
 | ING-05 | Phase 1077 | Pending |
 | ING-06 | Phase 1076 | Pending |
-| ING-07 | Phase 1076 | Pending |
+| ING-07 | Phase 1076 | Complete |
 | VG-01 | Phase 1079 | Pending |
 | HYG-01 | Phase 1079 | Pending |
 

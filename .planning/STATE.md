@@ -4,13 +4,13 @@ milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
 stopped_at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
-last_updated: "2026-05-21T19:45:15.492Z"
+last_updated: "2026-05-21T20:00:58.211Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 10
   completed_phases: 1
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 10
   percent: 10
 ---
 
@@ -19,7 +19,7 @@ progress:
 ## Current Position
 
 Phase: 1076 (backend-ingest-p2-closure) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-05-21
 Next phase: 1076 / 1077 / 1078 (parallel-eligible per ROADMAP dependencies)
@@ -75,6 +75,7 @@ See: .planning/PROJECT.md
 - [Phase ?]: ING-03: S3 provider get_stream raises NotImplementedError (S3 path returns 302 presigned redirect and never reaches get_stream)
 - [Phase ?]: ING-03: Pre-stream storage.exists() probe at the router before handing iterator to StreamingResponse — deferred FileNotFoundError would surface as 500 instead of clean 404
 - [Phase ?]: Worker exports sweep gated on mtime>1h via EXPORTS_SWEEP_AGE_SECONDS=3600; helper extracted to module level for unit testing (ING-04)
+- [Phase ?]: ING-07 / P2-09 closed (Phase 1076-05): RasterCommitRequest gains optional strict_cog: bool = False; module-level _enforce_strict_cog(...) helper in tasks_raster.py runs check_cog_compliance via asyncio.to_thread between CRS validation and the cog_convert progress write. Default False preserves backward compatibility — 67 existing raster tests + new 4-test pin file = 92/92 passing.
 
 ### Pending Todos
 
@@ -86,7 +87,7 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T19:45:10.117Z
+Last session: 2026-05-21T20:00:40.190Z
 Stopped at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
 Resume file: None
 
