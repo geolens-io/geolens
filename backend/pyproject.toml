@@ -59,6 +59,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio",
+    "pytest-xdist>=3.6.0",
     "httpx",
     "ruff",
     "jsonschema>=4.19",
