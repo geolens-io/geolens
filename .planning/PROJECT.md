@@ -12,6 +12,19 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1016 Hardening Sweep
+
+**Goal:** Close the v1015 tech-debt tail + v1014 INFO pending todos + Dependabot #40 (idna ≥ 3.15), then run fresh `/sec-audit` + `/ingest-audit` and remediate any newly surfaced findings. Tag local `v1016` + public `v1.5.1` (patch).
+
+**Target features:**
+
+- **Known-items closure (13 items)** — Dependabot #40 idna bump (CVE-2026-45409) + 5 v1014 INFO doc/test closures (password env docs, whitespace symbol class, where_validator dot AST test, sanitize_authorization_token 8-char doc, stac_search_body pagination bounds) + 7 v1015 tech-debt items (`_resolve_download_user` JWT consumption gap, alembic clean-DB upgrade exercise, `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` clamp expansion across GDAL subprocesses, VRT VSI allow-list consolidation, export 403 parity for revoked-export-on-viewer, e2e:smoke:builder + typecheck enforced in close-gate, full backend pytest enforced in close-gate).
+- **Fresh audit sweep** — Re-run `/sec-audit` + `/ingest-audit` to catch anything new since 2026-05-19 baseline; capture reports + triage classification at `.planning/audits/`.
+- **Audit remediation** — Tier-ordered closure of HIGH/MEDIUM/LOW/INFO findings surfaced by the re-audit. Sub-phase split via mid-milestone `/gsd-phase` if finding count warrants it.
+- **Close gate** — CHANGELOG `[1.5.1]` entry; full backend pytest + frontend vitest + `e2e:smoke:builder` + `npm run typecheck` green; live Playwright MCP smoke on `localhost:8080` against rebuilt containers; tags `v1016` + `v1.5.1` cut.
+
+**Key context:** Audit-first sequencing precedent from v1014 (which ran `/sec-audit` outside the milestone, then closed findings in tiered phases). v1016 internalizes the audit run as Phase 1072 because audits are due fresh; tradeoff is a possible roadmap-amendment step after 1072 lands (acceptable — `/gsd-autonomous` handles this via mid-milestone `/gsd-phase`). Stale 2026-05-05 `recreate-public-repo-before-launch` todo moved to `resolved/` (1.0.0 already shipped publicly; framing is moot). Public version is patch `v1.5.1` (hygiene/hardening only — backward-compatible).
+
 ## Recent Shipped Milestone: v1015 Ingest/Export Lifecycle Hardening
 
 **Shipped:** 2026-05-20
