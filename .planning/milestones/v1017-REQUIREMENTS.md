@@ -1,4 +1,4 @@
-# Requirements: GeoLens v1017 Test Infra & Audit Tail
+# v1017 Test Infra & Audit Tail — Requirements Archive
 
 **Defined:** 2026-05-21
 **Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.

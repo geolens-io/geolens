@@ -12,21 +12,32 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1017 Test Infra & Audit Tail
+## Recent Shipped Milestone: v1017 Test Infra & Audit Tail
 
-**Goal:** Close the v1015/v1016 hygiene tail — fix test infrastructure (conftest test-DB lifecycle + 11 baseline pytest failures), close 8 deferred ingest-audit P2 items, wire `test_alembic_upgrade_clean_db.sh` into GitHub Actions CI, and resolve the Phase 1071 KNOWN-02 docker-smoke verification gap.
+**Shipped:** 2026-05-21
+**Tag:** `v1017` (local) + `v1.5.2` (public) at commit `c968392b`
 
-**Target features:**
+**Goal delivered:** Closed the v1015/v1016 hygiene tail. Restored test signal accuracy by refactoring the broken conftest test-DB lifecycle (eliminated 1363 `asyncpg.exceptions.InvalidCatalogNameError` errors) and fixing all 11 v1015 baseline pytest failures at root cause. Closed 7 deferred backend/frontend ingest P2 findings. Wired `test_alembic_upgrade_clean_db.sh` into GitHub Actions CI. Re-verified the Phase 1071 KNOWN-02 docker-smoke gap (caught and fixed 3 latent script bugs inline). Captured post-fix pytest baseline. Archived the 196-item quick_tasks tail.
 
-- **Test infrastructure** — Conftest refactor eliminating 1363 `asyncpg.exceptions.InvalidCatalogNameError` test-DB-lifecycle errors; fix 11 v1015 baseline pytest failures (`test_defer_orphan_guard.py` ×3, `test_ingest.py` ×3, `test_maps_style_json.py` ×5)
-- **CI hardening** — Wire `test_alembic_upgrade_clean_db.sh` into GitHub Actions (closes SEC-OBSV-03)
-- **Ingest P2 closure** — 8 deferred items: `_apply_reupload_swap` lock_timeout retry (P2-08), strict-COG-mode flag on `RasterCommitRequest` (P2-09), `metadata.py` internal commit boundary (P2-02), local-storage COG buffering → streaming (P2-03), exports temp-dir unconditional sweep (P2-04), presigned chunk-loop helper extraction (P2-05), P2-14/15 remaining carryover
-- **Verification gap** — Phase 1071 KNOWN-02 docker-smoke re-verify
-- **Hygiene close** — Quick_tasks tail triage/archive pass on the 174 carried items
+**Delivered (13/13 reqs, 5 phases 1075-1079, 20 plans):**
 
-**Public tag target:** `v1.5.2` (patch — hygiene/hardening only)
-**Phase numbering:** Continues from v1016 (1074 → 1075+)
-**Re-audit:** Skipped at front; full `/sec-audit` + `/ingest-audit` run at close-gate as verification, not gating.
+- **Test infrastructure (Phase 1075)** — `backend/tests/conftest.py` refactored to use per-worker test-DB isolation via `PYTEST_XDIST_WORKER`; eliminated the 1363 `InvalidCatalogNameError` errors. `pytest-xdist>=3.6.0` added to dev dependencies; 6 regression tests pin lifecycle invariants. All 11 v1015 baseline pytest failures fixed at root cause (no skips): 3 mock-fixture drift (v1015 `fde5d9ae` IDOR closure), 3 mock signature drift + SSRF re-validation (v1016 IA-P0-02/03), 5 snake_case canonicalization (Phase 1060 `a400eb89`).
+- **Backend ingest P2 closure (Phase 1076)** — ING-02: `metadata.py` 4 internal commits removed (`_finalize_ingest` is single phase-2 commit point); regression test pins rollback. ING-03: New `StorageProvider.get_stream()` Protocol + local 1 MiB chunked impl (5 GB COG no longer pins 5 GB resident memory). ING-04: Worker exports temp-dir sweep gated on `stat.st_mtime > 1h`. ING-06: `_apply_reupload_swap` single retry on `LockNotAvailableError` with 15s timeout + 200ms sleep. ING-07: New optional `RasterCommitRequest.strict_cog: bool = False` field (backward-compat default).
+- **Frontend ingest P2 closure (Phase 1077)** — ING-01: `getCogDownloadUrl(id)` helper extracted to `datasets.ts`; `JobProgress.tsx` no longer string-concats. ING-05: New `frontend/src/api/_presignedUpload.ts` with `uploadChunks(urls, file, partSize)` helper; both `ingest.ts` and `datasets.ts` now share the canonical helper.
+- **CI hardening (Phase 1078)** — New `alembic-clean-db` job in `.github/workflows/ci.yml`. Triggers on push-to-main + PRs touching alembic/scripts/models/db paths. Wraps `backend/scripts/test_alembic_upgrade_clean_db.sh`. Closes SEC-OBSV-03 from v1016 Phase 1072.
+- **Verification + hygiene (Phase 1079)** — TI-03: Pytest baseline at `.planning/audits/PYTEST-BASELINE-2026-05-21.md` (3018/0 InvalidCatalogNameError sequentially). VG-01: Docker-smoke verified against rebuilt stack — **caught and fixed 3 latent bugs in the Phase 1071 script** (PYTHONPATH=., PGSSLMODE=disable, init-db.sh heredoc quoting) before the script ran cleanly. Same fixes benefit CI-01. HYG-01: 196 quick_tasks archived (exceeded <50 target).
+
+**Close-gate results:** Backend pytest 3018/0 (sequential, 0 InvalidCatalogNameError); frontend `tsc -b` exit 0 on touched files; vitest 2105/2105; e2e:smoke:builder 25/26 (1 skipped); live Playwright MCP smoke 5/5 surfaces green on `localhost:8080`; CHANGELOG `[1.5.2] - 2026-05-21` covers all 13 requirements.
+
+**Audit verdict:** PASSED — 13/13 reqs · 5/5 phases · 5/5 integration · 5/5 MCP surfaces. See `.planning/v1017-MILESTONE-AUDIT.md`.
+
+**Tech-debt followups for v1018 (8 items):**
+
+- 7 Phase 1075 NEW-DISCOVERY failures (test_layering broad-except justification, test_phase_279_user_lifecycle ×2 password policy drift, test_reupload_idor environmental ogrinfo gap, test_reupload_service ×2 SSRF gate drift, test_tasks_common_phase_brackets async loop contamination)
+- 1 production-code defect from Phase 1079-03 fix-discovery: `backend/app/core/config.py:database_connect_args` should set `connect_args["ssl"]=False` when `database_ssl_mode=='disable'` (low priority — production never sets `disable`)
+
+**Migrations:** None. All v1017 changes are internal refactors + helper extraction + optional schema field (`strict_cog` default False).
+**Milestone close:** 13/13 reqs satisfied; tag `v1017` + `v1.5.2` at commit `c968392b`. See `.planning/milestones/v1017-ROADMAP.md` for full archive.
 
 ## Recent Shipped Milestone: v1016 Hardening Sweep
 
@@ -1231,4 +1242,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-21 — started milestone v1017 Test Infra & Audit Tail. Scope: TD-1 (11 v1015 baseline pytest failures), TD-2 (1363 conftest test-DB-lifecycle errors), TD-3 (SEC-OBSV-03 alembic clean-DB CI wiring), TD-4..7 (8 ingest-audit P2 items: autovacuum lock retry, strict-COG flag, presigned chunk-loop helper, local-storage COG buffering, exports temp-dir sweep, metadata.py internal commits, P2-14/15), Phase 1071 KNOWN-02 docker-smoke verification gap, and quick_tasks tail triage. Public tag target: v1.5.2 (patch). Previously shipped: v1016 Hardening Sweep (26 reqs across 4 phases 1071-1074, local tag v1016, public tag v1.5.1 at 70241f96; archive: .planning/milestones/v1016-ROADMAP.md).*
+*Last updated: 2026-05-21 — shipped milestone v1017 Test Infra & Audit Tail (13 requirements across 5 phases 1075-1079, local tag v1017, public tag v1.5.2 at c968392b). TI-01 conftest refactor eliminated 1363 InvalidCatalogNameError; TI-02 fixed all 11 v1015 baseline failures at root cause; ING-01..07 closed 7 backend/frontend ingest P2 findings; CI-01 wired alembic clean-DB script into GitHub Actions (SEC-OBSV-03 closed); VG-01 docker-smoke verified (with 3 latent script bugs fixed inline); TI-03 pytest baseline captured; HYG-01 archived 196 quick_tasks. Audit PASSED; close-gate green (pytest 3018/0 InvalidCatalogNameError, e2e:smoke:builder 25/26, live MCP 5/5). 8 tech-debt items for v1018. Archive: .planning/milestones/v1017-ROADMAP.md. Previously shipped: v1016 Hardening Sweep (26 reqs, archive: .planning/milestones/v1016-ROADMAP.md).*
