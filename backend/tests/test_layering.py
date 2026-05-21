@@ -1566,13 +1566,15 @@ def test_no_unjustified_broad_except_sites() -> None:
     """
     # Match `except Exception:` and `except Exception as foo:` lines
     # under backend/app/ only (tests/ is out of scope).
+    # Use `[ \t]+` instead of `\s+` for portable ERE — macOS (Apple Git)
+    # git grep -E does not treat `\s` as a whitespace character class.
     result = subprocess.run(
         [
             "git",
             "grep",
             "-n",
             "-E",
-            r"except Exception(\s+as\s+\w+)?:",
+            r"except Exception([ \t]+as[ \t]+\w+)?:",
             "--",
             "backend/app/",
         ],

@@ -1027,7 +1027,7 @@ async def _apply_reupload_swap(
     try:
         async with session.begin_nested():
             await _swap_with_timeout(_FIRST_TIMEOUT)
-    except Exception as first_exc:
+    except Exception as first_exc:  # broad: catch any swap failure to inspect for lock-timeout before re-raising
         if not _is_lock_timeout_error(first_exc):
             raise
 
