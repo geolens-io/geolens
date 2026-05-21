@@ -25,7 +25,7 @@ Drawn from `.planning/audits/INGEST-AUDIT-2026-05-21.md`. P2-06 + P2-07 were clo
 
 - [ ] **ING-01**: P2-01 — Add `getCogDownloadUrl(id)` helper in `frontend/src/api/datasets.ts` alongside `getExportUrl()`. Replace string concat at `frontend/src/components/import/JobProgress.tsx:42`. Drift risk mitigation.
 - [x] **ING-02**: P2-02 — Drop internal `await session.commit()` from `metadata.py` helpers (`ensure_geom_column`, `clip_to_mercator_bounds`, `add_4326_column`, `grant_reader_access`). Let `_finalize_ingest` commit once. Add a regression test that exercises a phase-2 failure scenario.
-- [ ] **ING-03**: P2-03 — Switch local-storage COG export from `await storage.get(asset_uri)` (full buffer) to a streaming `get_stream(asset_uri)` provider method. Eliminates 5 GB resident memory pre-stream on self-hosters.
+- [x] **ING-03**: P2-03 — Switch local-storage COG export from `await storage.get(asset_uri)` (full buffer) to a streaming `get_stream(asset_uri)` provider method. Eliminates 5 GB resident memory pre-stream on self-hosters.
 - [ ] **ING-04**: P2-04 — Restrict worker exports temp-dir sweep at `backend/app/platform/jobs/worker.py:174-185` to entries older than 1 hour via `stat.st_mtime`; log skipped items. Avoids truncating in-flight large exports on worker restart.
 - [ ] **ING-05**: P2-05 — Extract `uploadChunks(urls, file, partSize)` helper in a new `frontend/src/api/_presignedUpload.ts`; rewire `ingest.ts:147-159` + `datasets.ts:370-383` through it. Single point for future retry/abort/backoff.
 - [ ] **ING-06**: P2-08 — Add single-retry behaviour to `_apply_reupload_swap` at `tasks_common.py:880`. On `lock_timeout` failure, retry once with `SET LOCAL lock_timeout = '15s'` plus a brief sleep; log the contention event so ops can correlate with autovacuum runs.
@@ -70,7 +70,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | CI-01 | Phase 1078 | Pending |
 | ING-01 | Phase 1077 | Pending |
 | ING-02 | Phase 1076 | Complete |
-| ING-03 | Phase 1076 | Pending |
+| ING-03 | Phase 1076 | Complete |
 | ING-04 | Phase 1076 | Pending |
 | ING-05 | Phase 1077 | Pending |
 | ING-06 | Phase 1076 | Pending |

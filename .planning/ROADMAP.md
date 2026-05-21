@@ -138,9 +138,9 @@
   3. Worker exports temp-dir sweep at `backend/app/platform/jobs/worker.py:174-185` only deletes entries older than 1 hour (via `stat.st_mtime`) and logs each skipped item; in-flight large exports survive worker restarts
   4. `_apply_reupload_swap` retries once with `SET LOCAL lock_timeout = '15s'` plus a brief sleep on a `lock_timeout` failure and logs the contention event for ops correlation
   5. `RasterCommitRequest` accepts an optional `strict_cog: bool` field (default `False`); when `True`, raster commit rejects non-COG TIFFs at the magic-byte rule instead of silently routing through `check_and_prepare_cog` conversion
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 - [x] 1076-01-PLAN.md — ING-02 metadata.py phase-2 commit boundary + regression test
-- [ ] 1076-02-PLAN.md — ING-03 local-storage COG streaming via storage.get_stream()
+- [x] 1076-02-PLAN.md — ING-03 local-storage COG streaming via storage.get_stream()
 - [ ] 1076-03-PLAN.md — ING-04 worker exports temp-dir mtime guard
 - [ ] 1076-04-PLAN.md — ING-06 _apply_reupload_swap lock_timeout single retry
 - [ ] 1076-05-PLAN.md — ING-07 strict_cog opt-in flag on RasterCommitRequest
@@ -185,7 +185,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 5/5 | Complete | 2026-05-21 |
-| 1076. Backend Ingest P2 Closure | 1/6 | In Progress|  |
+| 1076. Backend Ingest P2 Closure | 2/6 | In Progress|  |
 | 1077. Frontend Ingest P2 Closure | 0/0 | Not started | - |
 | 1078. CI Alembic Clean-DB Upgrade Workflow | 0/0 | Not started | - |
 | 1079. Close Gate + Hygiene | 0/0 | Not started | - |
