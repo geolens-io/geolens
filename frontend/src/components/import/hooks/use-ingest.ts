@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
 import { ApiError, apiFetch } from '@/api/client';
@@ -101,7 +101,17 @@ export function useUploadConfig() {
 }
 
 export function useCreateVrt() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (request: VrtCreateRequest) => createVrt(request),
+    // REMED-01 (ingest-audit P2-06): VrtCreateResponse exposes `job_id`
+    // only (no `dataset_id` — the VRT dataset row is created later as
+    // part of the ingest job). Invalidate the jobStatus cache for the
+    // new job so any subscribed UI (e.g., the polling job-status
+    // banner via useJobStatus) refetches immediately rather than
+    // waiting for the next 2s interval.
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(data.job_id) });
+    },
   });
 }
