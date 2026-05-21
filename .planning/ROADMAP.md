@@ -104,7 +104,7 @@
 
 **Sequencing rationale:** Test infrastructure runs FIRST (Phase 1075) so every downstream phase gets clean pytest signal. Backend + Frontend P2 closures (Phase 1076, 1077) split by surface for testability. CI-01 alembic workflow (Phase 1078) is independent of test infra and ingest work. Close-gate (Phase 1079) bundles the post-fix pytest baseline doc (TI-03 must be LAST so it captures the post-fix steady state), the deferred docker-smoke verification (VG-01), and the quick_tasks triage (HYG-01) into a single closure phase that also runs the full close-gate protocol.
 
-- [ ] **Phase 1075: Conftest Test-DB Lifecycle Refactor + Baseline Fixes** - Eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` conftest errors and fix the 11 v1015-carryover baseline pytest failures so pytest signal is trustworthy on all downstream phases
+- [x] **Phase 1075: Conftest Test-DB Lifecycle Refactor + Baseline Fixes** - Eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` conftest errors and fix the 11 v1015-carryover baseline pytest failures so pytest signal is trustworthy on all downstream phases (Complete 2026-05-21 within named scope; 7 verification-gap findings + parallel-mode environmental cap documented for Phase 1079)
 - [ ] **Phase 1076: Backend Ingest P2 Closure** - Close 5 backend P2 findings: metadata.py internal commit subversion (P2-02), local-storage COG streaming (P2-03), worker exports temp-dir age guard (P2-04), reupload swap autovacuum retry (P2-08), strict_cog raster commit flag (P2-09)
 - [ ] **Phase 1077: Frontend Ingest P2 Closure** - Extract `getCogDownloadUrl()` helper (P2-01) and shared `uploadChunks()` presigned-upload helper (P2-05) so future retry/abort/backoff lands in one place
 - [ ] **Phase 1078: CI Alembic Clean-DB Upgrade Workflow** - Wire `test_alembic_upgrade_clean_db.sh` into a GitHub Actions workflow that spins up a clean Postgres + PostGIS, runs `alembic upgrade head`, and fails the build on migration regressions (closes SEC-OBSV-03 from Phase 1072 triage)
@@ -121,12 +121,12 @@
   2. Per-test database creation/teardown works reliably under both `pytest -x` (sequential) and `pytest -n auto` (parallel) — no test contaminates another
   3. Each of the 11 v1015 baseline failures (`test_defer_orphan_guard.py` ×3, `test_ingest.py` ×3, `test_maps_style_json.py` ×5) is either fixed at root cause (production code or test logic) or skipped with `pytest.mark.skip(reason=...)` linked to a tracked GitHub issue
   4. Full backend pytest run reports the same green/red signal a developer sees locally — no infrastructure noise hiding logic regressions
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed (Complete 2026-05-21)
 - [x] 1075-01-PLAN.md — Conftest test-DB lifecycle refactor (TI-01: pytest-xdist worker isolation, ordered teardown, regression test)
 - [x] 1075-02-PLAN.md — Fix `test_defer_orphan_guard.py` 3 failures (TI-02 partial)
 - [x] 1075-03-PLAN.md — Fix `test_ingest.py` 3 named failures (TI-02 partial: test_upload_success, test_csv_upload_success, test_service_job_commits_with_service_body)
 - [x] 1075-04-PLAN.md — Fix `test_maps_style_json.py` 5 failures (TI-02 partial — shared root-cause analysis)
-- [ ] 1075-05-PLAN.md — Full-suite verification + commit (closes TI-01 + TI-02)
+- [x] 1075-05-PLAN.md — Full-suite verification + commit (TI-01 + TI-02 closed within named scope; 7 verification-gap findings handed to 1079, see `1075-05-VERIFICATION.md`)
 
 ### Phase 1076: Backend Ingest P2 Closure
 **Goal:** Close the backend ingest P2 lifecycle hardening tail — remove all forward-only commit hazards, memory pressure spikes, and rare-but-real swap failures
@@ -178,7 +178,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 4/5 | In Progress|  |
+| 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 5/5 | Complete | 2026-05-21 |
 | 1076. Backend Ingest P2 Closure | 0/0 | Not started | - |
 | 1077. Frontend Ingest P2 Closure | 0/0 | Not started | - |
 | 1078. CI Alembic Clean-DB Upgrade Workflow | 0/0 | Not started | - |

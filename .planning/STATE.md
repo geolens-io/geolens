@@ -3,25 +3,26 @@ gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
-stopped_at: v1017 roadmap created; STATE.md updated
-last_updated: "2026-05-21T18:37:42.148Z"
+stopped_at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope
+last_updated: "2026-05-21T22:00:00.000Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 10
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 20
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1075 (conftest-test-db-lifecycle-refactor-baseline-fixes) — EXECUTING
-Plan: 4 of 5
-Status: Ready to execute
+Phase: 1075 (conftest-test-db-lifecycle-refactor-baseline-fixes) — COMPLETE
+Plan: 5 of 5 (all done)
+Status: Phase 1075 ships within named scope (TI-01 + TI-02 closed); 7-failure verification gap + parallel-mode environmental cap documented for Phase 1079 hand-off
 Last activity: 2026-05-21
+Next phase: 1076 / 1077 / 1078 (parallel-eligible per ROADMAP dependencies)
 
 ## Project Reference
 
@@ -65,6 +66,10 @@ See: .planning/PROJECT.md
 - [Phase ?]: 2026-05-21 (1075-01): worker_id default is 'master' (not empty/blank) for the test-DB naming layout — prevents collisions between sequential pytest and parallel xdist runs against the same Postgres server. 50ms grace window between pg_terminate_backend and DROP DATABASE eliminates the libpq-async-shutdown race that surfaced as 1363 InvalidCatalogNameError errors in v1016 Phase 1074.
 - [Phase ?]: 1075-04: Single atomic commit for all 5 test_maps_style_json.py failures because they share one root cause (Phase 1060 commit a400eb89 builder canonicalization), mirroring Plan 02's shared-cause precedent
 - [Phase ?]: 1075-04: MapLibre style-JSON wire-vs-storage casing asymmetry is intentional contract. Build (export) emits camelCase for frontend; parse (import) → MapLayerInput → DB uses snake_case for persistence parity. Tests must choose casing per the boundary they pin
+- 2026-05-21 (v1017 Phase 1075-05): TI-01 closure verified at full-suite scale — `grep -c "InvalidCatalogNameError"` returns 0 on both `pytest tests/` (sequential, 539s, 2994 PASS) and `pytest tests/ -n auto` (parallel, 56s, 1649 PASS truncated by recovery cascade). The conftest test-DB lifecycle refactor (Plan 1075-01) scales to the full backend/tests/ tree.
+- 2026-05-21 (v1017 Phase 1075-05): TI-02 closure verified within named scope — all 11 v1015 baseline failures in the 3 named files (test_defer_orphan_guard.py x3, test_ingest.py x3, test_maps_style_json.py x5) are now PASSED. Zero `pytest.mark.skip` decorators were exercised across Plans 02/03/04.
+- 2026-05-21 (v1017 Phase 1075-05): VERIFICATION GAP — full-suite run uncovered 7 unexpected failures in OTHER test files (test_layering, test_phase_279_user_lifecycle x2, test_reupload_idor, test_reupload_service x2, test_tasks_common_phase_brackets) outside TI-02's named scope. These are pre-existing drift surfaces (2 production-code drift, 2 test-fixture drift, 2 environmental/GDAL, 1 async lifecycle drift) that per-file Plans 02/03/04 could not surface. Recommended follow-up: Plan 1075-06 OR v1018 hygiene task to disposition via the Plan 02/03/04 protocol. Critical advisory to Phase 1079 TI-03 planner: do NOT mark the post-v1017 pytest baseline doc as "captured" without first dispositioning these 7.
+- 2026-05-21 (v1017 Phase 1075-05): PARALLEL-MODE ENVIRONMENTAL CAP — `pytest -n auto` (16 xdist workers on this host) triggered a Postgres backend crash and postmaster recovery mode, producing 1363 `asyncpg.exceptions.CannotConnectNowError`. This is a DIFFERENT exception class and root cause from TI-01's surface (host PG load capacity vs test-DB lifecycle race). Recommended follow-up: tune to `-n 4` or `-n 8` for host runs, increase PG max_connections, or add per-worker pool sizing to conftest. NOT a TI-01 regression.
 
 ### Pending Todos
 
@@ -76,13 +81,17 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T18:37:21.442Z
-Stopped at: v1017 roadmap created; STATE.md updated
+Last session: 2026-05-21T22:00:00.000Z
+Stopped at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
 Resume file: None
 
 ## Operator Next Steps
 
-- Invoke `/gsd:plan-phase 1075` to plan the conftest test-DB lifecycle refactor (foundation phase — gates downstream test signal)
+- Phase 1075 is closed. Three downstream phases are now unblocked and parallel-eligible:
+  - Invoke `/gsd:plan-phase 1076` (Backend Ingest P2 Closure — depends on 1075)
+  - Invoke `/gsd:plan-phase 1077` (Frontend Ingest P2 Closure — depends on 1075)
+  - Invoke `/gsd:plan-phase 1078` (CI Alembic Workflow — independent of 1075/1076/1077)
+- Phase 1079 (Close Gate + Hygiene) is gated on all prior phases; Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures).
 
 ## Deferred Items
 
@@ -91,5 +100,10 @@ Carried into v1017 from v1016 close (2026-05-21):
 - **174 quick_tasks** — triaged in Phase 1079 HYG-01 (target: trim to <50 active)
 - **1 verification_gap** — Phase 1071 KNOWN-02 docker smoke (deferred from Phase 1074 close-gate); re-verified live in Phase 1079 VG-01
 - **8 v1015-carried P2** — TD-DEFER-01..08; 7 closed in v1017 ING-01..07 (1 was closed in v1016 Phase 1073 REMED-01/02)
-- **11 v1015 baseline pytest failures + 1363 test-DB-lifecycle conftest infra errors** — Phase 1075 TI-01 (conftest) + TI-02 (11 failures)
+- **11 v1015 baseline pytest failures + 1363 test-DB-lifecycle conftest infra errors** — Phase 1075 TI-01 (conftest) + TI-02 (11 failures) → CLOSED 2026-05-21 within named scope
 - **SEC-OBSV-03 alembic-clean-DB CI wiring** — Phase 1078 CI-01
+
+Discovered 2026-05-21 by Plan 1075-05 full-suite verification (NOT in original v1017 scope):
+
+- **7 new sequential failures outside TI-02 named scope** — `test_layering.py::test_no_unjustified_broad_except_sites`, `test_phase_279_user_lifecycle.py::test_register_emits_user_register_audit`, `test_phase_279_user_lifecycle.py::test_register_disabled_does_not_emit_audit`, `test_reupload_idor.py::TestReuploadIDOROwnerAllowed::test_owner_gets_non_404_on_service_preview`, `test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version`, `test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure`, `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception`. Recommended disposition: Plan 1075-06 follow-up OR v1018 hygiene sweep. See `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` NEW-DISCOVERY table for per-test root cause and fix shape.
+- **Parallel-mode environmental cap (`pytest -n auto` on 16 xdist workers triggers Postgres recovery cascade — 1363 CannotConnectNowError)** — Recommended disposition: tune `-n 4`/`-n 8` for host runs OR increase PG `max_connections` OR add per-worker pool sizing to conftest. Defer to v1018 conftest hardening or Phase 1079 follow-up.
