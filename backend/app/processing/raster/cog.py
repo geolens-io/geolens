@@ -1,10 +1,11 @@
 """COG compliance check, conversion, and raster metadata extraction."""
 
 import hashlib
-import os
 import subprocess
 import tempfile
 from pathlib import Path
+
+from app.processing.raster.vrt import gdal_safe_env
 
 
 _FLOAT_DTYPES = {"float32", "float64", "float16", "float", "complex"}
@@ -199,7 +200,13 @@ def prepare_with_overviews(
     if resampling is None:
         resampling = "average" if _is_float_dtype(dtype) else "nearest"
 
-    env = {**os.environ, "GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
+    # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
+    # (CPL_VSIL_CURL_ALLOWED_EXTENSIONS, VRT_VIRTUAL_OVERVIEWS,
+    # GDAL_HTTP_FOLLOWLOCATION) on top of the per-call extras. v1015 Phase
+    # 1068 originally scoped these to _build_vrt only.
+    env = gdal_safe_env(
+        extras={"GDAL_CACHEMAX": "200", "COMPRESS_OVERVIEW": compression}
+    )
     cmd = [
         "gdaladdo",
         "-r",
@@ -268,7 +275,11 @@ def convert_to_cog(
         if resampling:
             warp_cmd.extend(["-r", resampling])
         warp_cmd.extend([input_path, warp_tmp])
-        warp_result = subprocess.run(warp_cmd, capture_output=True, text=True)
+        # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
+        # (was env=None before — inherited unclamped os.environ).
+        warp_result = subprocess.run(
+            warp_cmd, capture_output=True, text=True, env=gdal_safe_env()
+        )
         if warp_result.returncode != 0:
             Path(warp_tmp).unlink(missing_ok=True)
             raise RuntimeError(f"gdalwarp failed: {warp_result.stderr}")
@@ -279,7 +290,9 @@ def convert_to_cog(
     )
     try:
         predictor = _predictor_for_dtype(dtype, compression)
-        env = {**os.environ, "GDAL_CACHEMAX": "200"}
+        # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
+        # on top of GDAL_CACHEMAX=200.
+        env = gdal_safe_env(extras={"GDAL_CACHEMAX": "200"})
         cmd = [
             "gdal_translate",
             "-of",
