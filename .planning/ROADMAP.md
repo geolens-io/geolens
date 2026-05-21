@@ -120,7 +120,16 @@
   9. `_sanitize_authorization_token` 8-character minimum is documented inline at the function (v1063 IN-01 pending todo closed + moved to `resolved/`)
   10. `StacSearchBody.limit` and `StacSearchBody.offset` carry Pydantic `ge`/`le` constraints (v1063 IN-02 pending todo closed + moved to `resolved/`)
   11. `idna` is bumped to ≥ 3.15 in `backend/uv.lock`, Dependabot alert #40 (CVE-2026-45409 / GHSA-65pc-fj4g-8rjx) is closed, and the bump survives a pytest run
-**Plans**: TBD
+**Plans**: 8 plans
+
+  - [ ] 1071-01-PLAN.md — KNOWN-13 (Dependabot idna ≥ 3.15 bump in backend/uv.lock + pyproject floor)
+  - [ ] 1071-02-PLAN.md — KNOWN-08, KNOWN-11 (.env.example PASSWORD_* docs + ogr.py _sanitize_authorization_token 8-char inline doc; archive 2 pending todos)
+  - [ ] 1071-03-PLAN.md — KNOWN-09, KNOWN-10, KNOWN-12 (password whitespace symbol-class docstring + where_validator exp.Dot test + StacSearchBody Pydantic ge/le bounds; archive 3 pending todos)
+  - [ ] 1071-04-PLAN.md — KNOWN-01 (_resolve_download_user accepts no-sub anonymous download tokens; download_cog branches on None user)
+  - [ ] 1071-05-PLAN.md — KNOWN-02 (backend/scripts/test_alembic_upgrade_clean_db.sh + scripts/README.md)
+  - [ ] 1071-06-PLAN.md — KNOWN-03 (CPL_VSIL_CURL_ALLOWED_EXTENSIONS clamp on gdaladdo/gdalwarp/gdal_translate via shared gdal_safe_env helper)
+  - [ ] 1071-07-PLAN.md — KNOWN-04 (VRT_VSI_ALLOWED_PREFIXES single source of truth in raster/vrt.py; ingest/validation.py imports it)
+  - [ ] 1071-08-PLAN.md — KNOWN-05 (live 403-for-revoked-export-on-viewer test in test_export_hardening.py)
 
 ### Phase 1072: Re-audit & Triage
 **Goal**: Fresh `/sec-audit` and `/ingest-audit` runs against the v1015 ship state produce captured audit reports and a triage doc that maps every new finding to a severity tier and assigns it to Phase 1073 or 1074
