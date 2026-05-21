@@ -56,6 +56,38 @@ def gdal_safe_env(*, extras: dict[str, str] | None = None) -> dict[str, str]:
         env.update(extras)
     return env
 
+
+# KNOWN-04 (Phase 1071): VSI prefix allow-list for VRT <SourceFilename>
+# body content. Single source of truth — any module that needs to know
+# which GDAL virtual-filesystem handlers VRT processing accepts must
+# import this constant, not re-declare its own copy.
+#
+# The seven prefixes here cover the GDAL VSI handlers that the COG
+# ingest path legitimately uses for managed-storage VRTs:
+#
+#   /vsiaz/   — Azure Blob Storage
+#   /vsicurl/ — generic HTTPS sources
+#   /vsigs/   — Google Cloud Storage
+#   /vsimem/  — in-memory (testing scaffolds)
+#   /vsis3/   — AWS S3 (primary production backend)
+#   /vsitar/  — tar archive members
+#   /vsizip/  — zip archive members
+#
+# When adding a new VSI scheme: add it HERE only. validate_vrt_body in
+# ingest/validation.py already consumes this constant; future consumers
+# (env-overlay extensions, source classifiers, OpenAPI examples) must
+# import from the same constant rather than copy-pasting.
+VRT_VSI_ALLOWED_PREFIXES: tuple[str, ...] = (
+    "/vsiaz/",
+    "/vsicurl/",
+    "/vsigs/",
+    "/vsimem/",
+    "/vsis3/",
+    "/vsitar/",
+    "/vsizip/",
+)
+
+
 # Maps VrtCreateRequest resolution_strategy values to gdalbuildvrt -resolution values.
 _RES_MAP: dict[str, str] = {
     "finest": "highest",
