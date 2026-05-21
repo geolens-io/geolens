@@ -390,8 +390,13 @@ async def upload_file(
         allowed_list = await _get_allowed_extensions_safely(db)
         validate_file_extension(file.filename, allowed_list)
 
+        # IA-P0-02: enforce max_file_size_bytes at HTTP entry. Symmetric
+        # with the presigned path's request-time check (:158-165).
+        max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
+        max_size_bytes = max_size_mb * 1024 * 1024
+
         job = await create_ingest_job(db, file.filename, "", user.id)
-        saved_path = await save_upload_file(file, str(job.id))
+        saved_path = await save_upload_file(file, str(job.id), max_size_bytes=max_size_bytes)
         validation_path = str(saved_path)
         downloaded_validation_path: Path | None = None
 

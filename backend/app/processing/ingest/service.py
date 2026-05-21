@@ -7,6 +7,7 @@ and table registration for existing PostGIS tables.
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import re
 import uuid
@@ -112,7 +113,11 @@ async def get_job_or_404(
     return job
 
 
-async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
+async def save_upload_file(
+    file: UploadFile,
+    job_id: str,
+    max_size_bytes: int | None = None,
+) -> Path | str:
     """Save an uploaded file to staging (local) or S3.
 
     In S3 mode, uploads directly to S3 and returns the S3 key string.
@@ -124,6 +129,18 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
     Callers MUST validate `file.filename` is non-empty before calling —
     raising on a missing filename is the route handler's responsibility so
     the error surfaces as HTTP 400, not an internal TypeError (TYPE-6).
+
+    IA-P0-02 (Phase 1066): when ``max_size_bytes`` is provided, the chunk
+    loop accumulates bytes and raises ``HTTPException(413)`` as soon as the
+    cumulative byte count exceeds the limit, BEFORE the upload completes —
+    closing asymmetry with the presigned path which checks ``file_size`` at
+    request time (``router.py:158-165``). The presigned path uses 422
+    because the Pydantic schema validates ``file_size`` declaratively; the
+    multipart path uses 413 (Payload Too Large) because the limit is hit
+    while streaming and 413 matches reverse-proxy semantics.
+
+    Partial files in local mode are cleaned up via the existing
+    ``except: os.unlink`` block; the 413 raise hits that path naturally.
     """
     if not file.filename:
         raise ValueError("Upload missing filename")
@@ -134,7 +151,26 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
         storage = get_storage()
         safe_name = Path(file.filename).name  # strip path traversal
         s3_key = f"staging/{job_id}/{safe_name}"
-        await storage.put(s3_key, file.file)
+        if max_size_bytes is not None:
+            # Stream-and-accumulate so S3 mode enforces the same limit as
+            # local mode without buffering the whole file in memory first.
+            total = 0
+            buffered = io.BytesIO()
+            while chunk := await file.read(65536):
+                total += len(chunk)
+                if total > max_size_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        detail=(
+                            f"File size exceeds maximum allowed "
+                            f"({max_size_bytes / (1024 * 1024):.1f} MB)."
+                        ),
+                    )
+                buffered.write(chunk)
+            buffered.seek(0)
+            await storage.put(s3_key, buffered)
+        else:
+            await storage.put(s3_key, file.file)
         return s3_key
 
     staging_dir = Path(settings.upload_staging_dir)
@@ -144,10 +180,21 @@ async def save_upload_file(file: UploadFile, job_id: str) -> Path | str:
     dest = staging_dir / f"{job_id}_{safe_name}"
 
     loop = asyncio.get_event_loop()
+    total = 0
     try:
         f = await loop.run_in_executor(None, open, dest, "wb")
         try:
             while chunk := await file.read(65536):
+                if max_size_bytes is not None:
+                    total += len(chunk)
+                    if total > max_size_bytes:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                            detail=(
+                                f"File size exceeds maximum allowed "
+                                f"({max_size_bytes / (1024 * 1024):.1f} MB)."
+                            ),
+                        )
                 await loop.run_in_executor(None, f.write, chunk)
         finally:
             await loop.run_in_executor(None, f.close)
