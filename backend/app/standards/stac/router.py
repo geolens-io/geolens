@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -1144,8 +1144,17 @@ class StacSearchBody(BaseModel):
     collections: list[str] | None = None
     ids: list[str] | None = None
     intersects: dict | None = None
-    limit: int = 10
-    offset: int = 0
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description="Maximum number of items returned (1-1000). Downstream clamp at 200 still applies.",
+    )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Number of items to skip for pagination.",
+    )
 
 
 @stac_router.post(
@@ -1178,6 +1187,8 @@ async def search_post(
         ids=body.ids,
         intersects=body.intersects,
         # H-24: clamp body limit to 200 (was 1000) for parity with GET search.
+        # KNOWN-12 (Phase 1071): StacSearchBody.limit now carries ge=1, le=1000;
+        # the min(body.limit, 200) keeps the operational 200-item ceiling.
         limit=max(1, min(body.limit, 200)),
         offset=max(0, body.offset),
     )

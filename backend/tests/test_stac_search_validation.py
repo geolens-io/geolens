@@ -134,3 +134,37 @@ class TestSecFu05StacIntersectsMaxLength:
             f"POST with large intersects dict returned 422 — "
             f"body path must not apply max_length: {resp.text}"
         )
+
+
+@pytest.mark.anyio
+class TestStacSearchBodyBounds:
+    """KNOWN-12: POST /stac/search body.limit/offset carry Pydantic ge/le."""
+
+    async def test_post_search_limit_above_le_rejected(self, client: AsyncClient):
+        """limit=10001 must be rejected by Pydantic 422 (not silently clamped)."""
+        resp = await client.post("/stac/search", json={"limit": 10001})
+        assert resp.status_code == 422, resp.text
+        body = resp.json()
+        # GeoLens uses RFC 7807 problem-details shape — `detail` is a string
+        # (e.g. "body.limit: Input should be less than or equal to 1000"),
+        # not FastAPI's default list-of-errors structure.
+        detail = str(body.get("detail", "")).lower()
+        assert "limit" in detail and (
+            "less than or equal" in detail or "le " in detail or "<=" in detail
+        ), f"422 detail did not name limit/le bound: {body}"
+
+    async def test_post_search_negative_offset_rejected(self, client: AsyncClient):
+        """offset=-1 must be rejected by Pydantic 422 (not silently clamped)."""
+        resp = await client.post("/stac/search", json={"offset": -1})
+        assert resp.status_code == 422, resp.text
+
+    async def test_post_search_zero_limit_rejected(self, client: AsyncClient):
+        """limit=0 must be rejected by Pydantic 422 (ge=1)."""
+        resp = await client.post("/stac/search", json={"limit": 0})
+        assert resp.status_code == 422, resp.text
+
+    async def test_post_search_limit_within_bounds_accepted(self, client: AsyncClient):
+        """limit=200 (within 1-1000) must pass schema validation."""
+        resp = await client.post("/stac/search", json={"limit": 200, "offset": 0})
+        # 200 OK or any non-422 — the schema layer accepts.
+        assert resp.status_code != 422, resp.text
