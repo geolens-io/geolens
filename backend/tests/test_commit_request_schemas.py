@@ -109,6 +109,20 @@ class TestRasterCommitRequest:
         with pytest.raises(ValidationError):
             RasterCommitRequest.model_validate({"compression": "LZW"})
 
+    # ING-07 / P2-09: optional strict_cog opt-in. Default False preserves
+    # backward compatibility with every existing raster commit call site.
+    def test_raster_strict_cog_default_false(self) -> None:
+        r = RasterCommitRequest(title="DEM")
+        assert r.strict_cog is False
+
+    def test_raster_strict_cog_can_opt_in(self) -> None:
+        r = RasterCommitRequest(title="DEM", strict_cog=True)
+        assert r.strict_cog is True
+
+    def test_raster_strict_cog_omitted_validates(self) -> None:
+        r = RasterCommitRequest.model_validate({"title": "DEM"})
+        assert r.strict_cog is False
+
 
 class TestServiceCommitRequest:
     def test_valid_minimal(self) -> None:
@@ -177,6 +191,7 @@ class TestFieldDistribution:
             "compression",
             "resampling",
             "nodata_override",
+            "strict_cog",
         }
 
     def test_service_fields(self) -> None:

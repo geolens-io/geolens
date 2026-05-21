@@ -182,6 +182,17 @@ class RasterCommitRequest(BaseCommitRequest):
         default=None,
         description="Raster only: nodata value to use when source has none defined.",
     )
+    strict_cog: bool = Field(
+        default=False,
+        description=(
+            "Raster only: reject non-COG TIFFs at commit time instead of "
+            "converting them. Default False preserves the existing "
+            "auto-convert behavior. When True, the ingest job fails fast "
+            "with a clear error before the COG conversion subprocess runs. "
+            "Use this when ingesting an externally-produced COG catalog "
+            "where on-the-fly rewriting is undesirable. (ING-07 / P2-09)"
+        ),
+    )
 
 
 class ServiceCommitRequest(BaseCommitRequest):
