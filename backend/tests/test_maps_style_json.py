@@ -614,14 +614,19 @@ def test_parse_maplibre_style_import_preserves_cluster_intent_metadata():
     layer = imported.layers[0]
     assert layer.dataset_id == dataset_id
     assert layer.paint == {"circle-color": "#2255aa", "circle-radius": 6}
+    # Phase 1060 (`a400eb89`): MapLayerInput's `_normalize_paint_boundary`
+    # post-validator runs `canonicalize_builder_style_config`, converting
+    # builder.* keys to snake_case for storage parity (DB-side canonical form).
+    # The wire-format export (build_maplibre_style) still emits camelCase, but
+    # the model returned by parse_maplibre_style_import is the persistence shape.
     assert layer.style_config == {
         "render_mode": "cluster",
         "builder": {
-            "clusterRadius": 64,
-            "clusterMaxZoom": 12,
-            "clusterColor": "#fb923c",
-            "clusterTextColor": "#111827",
-            "clusterTextSize": 13,
+            "cluster_radius": 64,
+            "cluster_max_zoom": 12,
+            "cluster_color": "#fb923c",
+            "cluster_text_color": "#111827",
+            "cluster_text_size": 13,
         },
     }
 
@@ -860,10 +865,13 @@ def test_parse_maplibre_style_import_matches_geolens_sources_and_warns_external(
     assert layer.opacity == 0.5
     assert "_private" not in layer.paint
     assert layer.label_config == {"column": "name"}
+    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # snake_case (e.g. fillDisabled -> fill_disabled). Note `symbol.iconImage`
+    # stays camelCase — the canonicalization map only covers builder keys.
     assert layer.style_config == {
         "render_mode": "symbol",
         "symbol": {"iconImage": "bus"},
-        "builder": {"fillDisabled": True},
+        "builder": {"fill_disabled": True},
     }
 
 
@@ -1009,10 +1017,14 @@ def test_parse_maplibre_style_import_restores_outline_and_extrusion_companions()
     assert imported.summary.layers_imported == 1
     layer = imported.layers[0]
     assert layer.style_config is not None
+    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # snake_case. Companion-restoration helpers in style_json.py still write
+    # camelCase into the builder dict, but the model_validator rewrites them
+    # at the persistence boundary.
     assert layer.style_config["builder"] == {
-        "outlineColor": "#112233",
-        "outlineWidth": 4,
-        "heightColumn": "height_m",
+        "outline_color": "#112233",
+        "outline_width": 4,
+        "height_column": "height_m",
     }
 
 
@@ -1061,12 +1073,16 @@ def test_parse_maplibre_style_import_restores_line_arrow_companion():
     assert imported.summary.layers_imported == 1
     layer = imported.layers[0]
     assert layer.dataset_id == dataset_id
+    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # snake_case. Arrow size/spacing also come back as floats because
+    # `_builder_from_arrow_companion` runs the layout values through
+    # `_finite_number`, which casts to float.
     assert layer.style_config == {
         "render_mode": "arrow",
         "builder": {
-            "arrowColor": "#fb923c",
-            "arrowSize": 18,
-            "arrowSpacing": 120,
+            "arrow_color": "#fb923c",
+            "arrow_size": 18.0,
+            "arrow_spacing": 120.0,
         },
     }
 
@@ -1115,12 +1131,15 @@ def test_build_maplibre_style_round_trip_preserves_terrain_and_builder_state():
     )
     assert imported_polygon.style_config is not None
     builder = imported_polygon.style_config["builder"]
-    assert builder["outlineColor"] == "#abcdef"
-    assert builder["outlineWidth"] == 3
-    assert builder["heightColumn"] == "h"
-    assert builder["heightScale"] == 1.4
-    assert builder["extrusionMinZoom"] == 12.25
-    assert builder["extrusionOpacity"] == 0.91
+    # Phase 1060 (`a400eb89`): MapLayerInput canonicalizes builder.* keys to
+    # snake_case at the persistence boundary. The full round-trip
+    # (build -> parse -> MapLayerInput) lands here with snake_case keys.
+    assert builder["outline_color"] == "#abcdef"
+    assert builder["outline_width"] == 3
+    assert builder["height_column"] == "h"
+    assert builder["height_scale"] == 1.4
+    assert builder["extrusion_min_zoom"] == 12.25
+    assert builder["extrusion_opacity"] == 0.91
 
     imported_dem = next(
         layer for layer in imported.layers if layer.dataset_id == dem_id
