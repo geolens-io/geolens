@@ -33,7 +33,7 @@ These failures are pre-existing — the production code has moved (v1014 SEC-S16
 
 ### Backend Config Hygiene
 
-- [ ] **TD-07**: Fix `backend/app/core/config.py:database_connect_args` SSL handling — when `database_ssl_mode == 'disable'`, `connect_args["ssl"]` must be set to `False` (currently the disable path silently lets asyncpg negotiate default TLS). Discovered during Phase 1079-03 VG-01 docker-smoke fix sweep. Low operational priority (production never sets `'disable'`) but the disable branch should be honoured for parity with the documented config surface. Add a unit test pinning the connect_args shape across the 3 ssl-mode branches (`disable`, `require`, default).
+- [x] **TD-07**: Fix `backend/app/core/config.py:database_connect_args` SSL handling — when `database_ssl_mode == 'disable'`, `connect_args["ssl"]` must be set to `False` (currently the disable path silently lets asyncpg negotiate default TLS). Discovered during Phase 1079-03 VG-01 docker-smoke fix sweep. Low operational priority (production never sets `'disable'`) but the disable branch should be honoured for parity with the documented config surface. Add a unit test pinning the connect_args shape across the 3 ssl-mode branches (`disable`, `require`, default).
 
 ### Close Gate
 
@@ -66,7 +66,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TD-01 | Phase 1080 | Complete |
-| TD-07 | Phase 1080 | Pending |
+| TD-07 | Phase 1080 | Complete |
 | TD-02 | Phase 1081 | Pending |
 | TD-03 | Phase 1081 | Pending |
 | TD-05 | Phase 1081 | Pending |

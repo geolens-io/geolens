@@ -89,7 +89,7 @@
 
 ### v1018 Hygiene — v1017 Tech-Debt Tail (Active)
 
-- [ ] **Phase 1080: Production-Code Drift + Config Hygiene** - Resolve the broad-except layering test failure (TD-01) and the database_connect_args SSL disable branch (TD-07); both are 1-2 line production-code changes with pinned regression tests
+- [x] **Phase 1080: Production-Code Drift + Config Hygiene** - Resolve the broad-except layering test failure (TD-01) and the database_connect_args SSL disable branch (TD-07); both are 1-2 line production-code changes with pinned regression tests (completed 2026-05-21)
 - [ ] **Phase 1081: Test Fixture & Assertion Drift** - Fix the four test-drift failures sharing pre-existing root causes: SEC-S16 password policy drift (TD-02, TD-03), SSRF gate drift in reupload_service (TD-05), and async loop contamination (TD-06)
 - [ ] **Phase 1082: Test Environmental** - Disposition the ogrinfo CLI environmental dependency in test_reupload_idor (TD-04) via skip-with-rationale or mock-out; decision documented in test docstring
 - [ ] **Phase 1083: Close Gate** - Capture PYTEST-BASELINE-v1018.md, run full close-gate (sequential pytest + e2e:smoke:builder + live Playwright MCP smoke), write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
@@ -104,9 +104,9 @@
   1. `pytest backend/tests/test_layering.py::test_no_unjustified_broad_except_sites` passes on a clean tree — either the two broad `except:` clauses at `tasks_common.py:231,237` are narrowed to specific exception classes, or each carries an in-line justification comment that the layering rule recognises
   2. A unit test pinning the `database_connect_args` shape across the three ssl-mode branches (`disable`, `require`, default) passes; when `database_ssl_mode == 'disable'`, `connect_args["ssl"]` is `False`, not a TLS context object or absent
   3. Both fixes land with no `pytest.mark.skip` decorators on either named test; running the two named invocations together on a clean `backend/` tree exits green
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 - [x] 1080-01-PLAN.md — TD-01: justify the two broad-except sites in `_job_phase_session` so `test_no_unjustified_broad_except_sites` passes
-- [ ] 1080-02-PLAN.md — TD-07: set `connect_args["ssl"] = False` on the disable branch and pin the 3-case `database_connect_args` shape
+- [x] 1080-02-PLAN.md — TD-07: set `connect_args["ssl"] = False` on the disable branch and pin the 3-case `database_connect_args` shape
 
 ### Phase 1081: Test Fixture & Assertion Drift
 **Goal:** All four pre-existing test-drift failures are fixed at root cause; pytest signal for the named test files is clean without any skip decorators
@@ -146,7 +146,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1080. Production-Code Drift + Config Hygiene | 1/2 | In Progress|  |
+| 1080. Production-Code Drift + Config Hygiene | 2/2 | Complete   | 2026-05-21 |
 | 1081. Test Fixture & Assertion Drift | 0/? | Not started | - |
 | 1082. Test Environmental | 0/? | Not started | - |
 | 1083. Close Gate | 0/? | Not started | - |
