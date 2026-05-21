@@ -11,6 +11,94 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-05-21
+
+### Production-code drift + config hygiene (v1018 milestone — Phase 1080)
+
+- **TD-01:** Justified the two broad `except Exception:` clauses in
+  `backend/app/processing/ingest/tasks_common.py` at lines 232 and 238
+  with `# broad: caller-yielded block may raise any exception; we must
+  rollback the session before re-raising to avoid pool leak` same-line
+  comments matching the codebase's dominant style (140/141 sites
+  justified). `test_no_unjustified_broad_except_sites` exits 0 on a
+  clean tree. (commit `40beab0a`)
+- **TD-07:** `database_connect_args` in `backend/app/core/config.py`
+  now uses an explicit if/elif/else chain — `disable` → `ssl=False`,
+  `prefer` → `ssl="prefer"`, else → SSLContext. The `disable` branch
+  previously omitted the `ssl` key and asyncpg defaulted to `'prefer'`,
+  silently negotiating TLS against a non-SSL Postgres.
+  `TestDatabaseConnectArgs.test_disable_returns_ssl_false` pins the
+  shape across all three branches (9/9 tests pass). (commits `7a448b21`,
+  `758791f6`)
+- **WR-01 inline fix (Phase 1080 code review):** Also justified the
+  broad-except at `tasks_common.py:1030` (outside the original TD-01
+  scope but the same anti-pattern); fixed a macOS `git grep -E` `\s`
+  portability bug in `backend/tests/test_layering.py` so the layering
+  rule runs identically on macOS and Linux. (commit `4f9160cf`)
+- **WR-02 inline fix (Phase 1080 code review):**
+  `test_verify_full_returns_ssl_context_with_verify` in
+  `backend/tests/test_config.py` never actually called
+  `database_connect_args` (pre-existing defect in TD-07-touched code);
+  now covers the verify-full branch end-to-end. (commit `200b829a`)
+
+### Test fixture & assertion drift (Phase 1081)
+
+- **TD-02 / TD-03:** Aligned the register-audit password fixtures in
+  `backend/tests/test_phase_279_user_lifecycle.py` to SEC-S16 (12-char
+  minimum, 3-of-4 class diversity per v1014). Old `securepass123`
+  (2 classes, fails new policy) → `TestPass1234!` (4 classes, matches
+  conftest literal). Two tests now pass:
+  `test_register_emits_user_register_audit` and
+  `test_register_disabled_does_not_emit_audit`. NOTE: REQUIREMENTS.md
+  originally named these as `test_register_password_too_short` /
+  `test_register_password_diversity`, which don't exist in the codebase —
+  the name drift is documented in `.planning/audits/PYTEST-BASELINE-v1018.md`
+  NEW-DISCOVERY table. Same SEC-S16 fix shape applies. (commit `9bc2294b`)
+- **TD-05:** Both `TestServiceReuploadWorker` tests now satisfy the
+  v1016 IA-P0-03 `validate_url_for_ssrf` re-validation surface added
+  to the reupload_service worker, mirroring the Plan 1075-03 fix
+  pattern from `test_ingest.py`. Mock target:
+  `app.modules.catalog.sources.security.validate_url_for_ssrf` (the
+  defining module — lazy-import rule applies). One commit, two tests.
+  (commit `9eccc80b`)
+- **TD-06:** `test_job_phase_session_none_branch_rolls_back_on_exception`
+  now passes in full-suite sequential mode (not just isolation). Added
+  the `client` fixture arg to the test signature so conftest's
+  per-function monkey-patch of `db_module.async_session` rebinds the
+  engine to a fresh event loop before the helper's lazy import
+  resolves — closing the cross-loop contamination.
+  `backend/tests/test_tasks_common_phase_brackets.py`. (commit `d660a27d`)
+
+### Test environmental (Phase 1082)
+
+- **TD-04:** `test_owner_gets_non_404_on_service_preview` in
+  `backend/tests/test_reupload_idor.py` no longer depends on the host
+  having `ogrinfo` (GDAL CLI) on PATH. Replaced the live preview call
+  with `patch("app.modules.catalog.datasets.api.router_reupload.run_service_preview",
+  new=AsyncMock(side_effect=IngestionError(...)))`. Note the
+  caller-namespace patch target — the router does `from
+  app.modules.catalog.sources.preview import run_service_preview` at
+  module load, so the defining-module patch is a no-op. The test
+  docstring documents the TD-04 disposition (mock-out, shape b).
+  (commit `8a1d2777`)
+
+### Close gate (Phase 1083)
+
+- **TD-08:** Captured post-v1018 pytest baseline at
+  `.planning/audits/PYTEST-BASELINE-v1018.md` (sequential mode, 539 s);
+  3025 passed / 0 failed / 38 skipped; 0 InvalidCatalogNameError;
+  0 failures attributable to TD-01..07. All 7 named TD test invocations
+  pass together in one sequential run (exit 0).
+  REQUIREMENTS.md TD-02/TD-03 test-name drift reconciled in the
+  baseline's NEW-DISCOVERY table (stale names documented, no functional
+  impact — same SEC-S16 fix shape applies).
+
+### Internal
+
+- 4 phases (1080-1083), 8 requirements (TD-01..TD-08) plus 2
+  inline-fix bonuses (WR-01 + WR-02), all closed.
+- Tag: `v1018` (local) + `v1.5.3` (public).
+
 ## [1.5.2] - 2026-05-21
 
 ### Test infrastructure (v1017 milestone — Phase 1075)
