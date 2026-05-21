@@ -84,7 +84,6 @@ class JobStatusResponse(BaseModel):
             "validating",
             "ogr2ogr",
             "finalize",
-            "archiving",
             "complete",
             "cog_convert",
             "quicklook",
