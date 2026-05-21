@@ -113,12 +113,15 @@
 **Depends on:** Phase 1080 (clean production-code baseline before applying fixture and assertion patches)
 **Requirements:** TD-02, TD-03, TD-05, TD-06
 **Success Criteria** (what must be TRUE):
-  1. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_password_too_short` passes — test asserts the post-SEC-S16 (v1014, 12-char minimum) failure mode, not the pre-policy one
-  2. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_password_diversity` passes — test uses a password that fails the 3-of-4 class diversity rule under the `PASSWORD_REQUIRE_CLASSES` default
+  1. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_emits_user_register_audit` passes — fixture password updated from `securepass123` (2 classes, fails SEC-S16 3-of-4 diversity) to `TestPass1234!` (matches conftest.py:491 / test_password_policy.py:37 SEC-S16-compliant literal). NOTE: REQUIREMENTS.md / 1081-CONTEXT.md name this test `test_register_password_too_short` — that test does not exist; path correction surfaced during planning, to be reconciled in Phase 1083 close gate.
+  2. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_disabled_does_not_emit_audit` passes — same SEC-S16 fixture drift, same fix shape. NOTE: REQUIREMENTS.md names this test `test_register_password_diversity`; same path correction as #1.
   3. Both `pytest backend/tests/test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version` and `…::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` pass in one commit — mocks/fixtures satisfy the v1016 IA-P0-03 `validate_url_for_ssrf` re-validation surface
-  4. `pytest backend/tests/test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` passes in full-suite sequential mode (not just isolation) — the async loop contamination is resolved at the fixture or teardown level, not papered over with a skip
+  4. `pytest backend/tests/test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` passes in full-suite sequential mode (not just isolation) — the async loop contamination is resolved at the fixture or teardown level, not papered over with a skip. Plan 1080-01's broad-except justifications at `tasks_common.py:232,238` preserved.
   5. All four target tests pass together in a single sequential `pytest` invocation covering all four named test files, with zero `pytest.mark.skip` decorators added
-**Plans:** TBD
+**Plans:** 3 plans
+- [ ] 1081-01-PLAN.md — TD-02/TD-03: align password fixtures in two register-audit tests to SEC-S16 (12-char + 3-of-4 class) policy
+- [ ] 1081-02-PLAN.md — TD-05: mirror Plan 1075-03's SSRF re-validation patch pattern into both TestServiceReuploadWorker tests
+- [ ] 1081-03-PLAN.md — TD-06: add `client` fixture arg to `test_job_phase_session_none_branch_rolls_back_on_exception` so the helper's lazy `async_session` import resolves to the per-function test factory
 
 ### Phase 1082: Test Environmental
 **Goal:** The ogrinfo CLI environmental dependency in test_reupload_idor is resolved with an explicit, documented decision — no silent environmental failures in CI
@@ -136,7 +139,7 @@
 **Requirements:** TD-08
 **Success Criteria** (what must be TRUE):
   1. `.planning/audits/PYTEST-BASELINE-v1018.md` exists and documents: total tests, total passes, failures attributable to TD-01..07 (must be 0), any residual unexpected failures with honest disposition (deferred to v1019 with rationale)
-  2. Full sequential `uv run pytest backend/` passes the following named invocations with no skip-mark additions: `test_layering.py::test_no_unjustified_broad_except_sites`, `test_phase_279_user_lifecycle.py::test_register_password_too_short`, `test_phase_279_user_lifecycle.py::test_register_password_diversity`, both `test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_*` targets, `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception`, and the TD-07 `database_connect_args` unit test
+  2. Full sequential `uv run pytest backend/` passes the following named invocations with no skip-mark additions: `test_layering.py::test_no_unjustified_broad_except_sites`, `test_phase_279_user_lifecycle.py::test_register_emits_user_register_audit`, `test_phase_279_user_lifecycle.py::test_register_disabled_does_not_emit_audit`, both `test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_*` targets, `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception`, and the TD-07 `database_connect_args` unit test. Reconciliation of REQUIREMENTS.md TD-02/TD-03 test-name drift discovered during Phase 1081 planning is also resolved (update REQUIREMENTS.md row text OR add a path-correction note to `.planning/v1017-MILESTONE-AUDIT.md`).
   3. `npm run e2e:smoke:builder` exits green (no new failures beyond pre-existing documented skips)
   4. Live Playwright MCP smoke covers 5 surfaces on `localhost:8080` and all pass
   5. `CHANGELOG.md` carries a `[1.5.3] - 2026-05-21` entry covering TD-01..TD-08; local tag `v1018` and public tag `v1.5.3` are cut at the post-baseline commit
@@ -147,7 +150,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1080. Production-Code Drift + Config Hygiene | 2/2 | Complete   | 2026-05-21 |
-| 1081. Test Fixture & Assertion Drift | 0/? | Not started | - |
+| 1081. Test Fixture & Assertion Drift | 0/3 | Plans created | - |
 | 1082. Test Environmental | 0/? | Not started | - |
 | 1083. Close Gate | 0/? | Not started | - |
 

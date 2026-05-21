@@ -19,9 +19,9 @@ Each requirement maps to exactly one phase.
 
 These failures are pre-existing — the production code has moved (v1014 SEC-S16, v1016 IA-P0-02/03) but the tests were not updated at the time. Each must be fixed at root cause (no `pytest.mark.skip` without an explicit issue link).
 
-- [ ] **TD-02**: Fix `backend/tests/test_phase_279_user_lifecycle.py::test_register_password_too_short` — re-align test assertions to v1014 SEC-S16 password policy (12-char minimum, 3-of-4 class diversity, configurable via `PASSWORD_MIN_LENGTH`/`PASSWORD_REQUIRE_CLASSES`). Test must reproduce the post-SEC-S16 failure mode, not the pre-policy one.
+- [x] **TD-02**: Fix `backend/tests/test_phase_279_user_lifecycle.py::test_register_password_too_short` — re-align test assertions to v1014 SEC-S16 password policy (12-char minimum, 3-of-4 class diversity, configurable via `PASSWORD_MIN_LENGTH`/`PASSWORD_REQUIRE_CLASSES`). Test must reproduce the post-SEC-S16 failure mode, not the pre-policy one.
 
-- [ ] **TD-03**: Fix `backend/tests/test_phase_279_user_lifecycle.py::test_register_password_diversity` — same SEC-S16 policy drift as TD-02 (companion test). Update test to use a password that fails diversity check under the 3-of-4 class rule with the configured `PASSWORD_REQUIRE_CLASSES` default.
+- [x] **TD-03**: Fix `backend/tests/test_phase_279_user_lifecycle.py::test_register_password_diversity` — same SEC-S16 policy drift as TD-02 (companion test). Update test to use a password that fails diversity check under the 3-of-4 class rule with the configured `PASSWORD_REQUIRE_CLASSES` default.
 
 - [ ] **TD-05**: Fix `backend/tests/test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version` AND `…::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` — SSRF gate drift. Same root cause Plan 1075-03 closed in `test_ingest.py`: v1016 IA-P0-03 added `validate_url_for_ssrf` re-validation inside the reupload_service worker. Update mocks/fixtures to satisfy the new validation surface. Both companion tests share one root cause → one commit.
 
@@ -67,8 +67,8 @@ Populated by `gsd-roadmapper` 2026-05-21.
 |-------------|-------|--------|
 | TD-01 | Phase 1080 | Complete |
 | TD-07 | Phase 1080 | Complete |
-| TD-02 | Phase 1081 | Pending |
-| TD-03 | Phase 1081 | Pending |
+| TD-02 | Phase 1081 | Complete |
+| TD-03 | Phase 1081 | Complete |
 | TD-05 | Phase 1081 | Pending |
 | TD-06 | Phase 1081 | Pending |
 | TD-04 | Phase 1082 | Pending |
