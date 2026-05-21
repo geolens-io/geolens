@@ -131,7 +131,8 @@
   1. `pytest backend/tests/test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` has a documented disposition: either (a) guarded with `pytest.skip(reason="ogrinfo not on PATH — see <env-doc link>")` via `pytest.importorskip` / `which ogrinfo` probe, OR (b) the live `ogrinfo` call is replaced with a mock so the test does not depend on host tooling
   2. The chosen approach is documented in the test's docstring (at minimum: one sentence explaining the dependency and the resolution)
   3. The test never silently passes on a host lacking `ogrinfo` (no false green) and never fails with an unguided `FileNotFoundError` or `subprocess.CalledProcessError` on a stock CI image
-**Plans:** TBD
+**Plans:** 1 plan
+- [ ] 1082-01-PLAN.md — TD-04: mock `run_service_preview` at the defining-module path (shape b mock-out) so the test does not depend on `gdal-bin` / `ogrinfo` on host PATH; docstring extended with disposition rationale
 
 ### Phase 1083: Close Gate
 **Goal:** v1018 ships with a captured pytest baseline showing 0 TD-01..07 failures, full close-gate green, CHANGELOG written, and both tags cut
@@ -151,7 +152,7 @@
 |-------|----------------|--------|-----------|
 | 1080. Production-Code Drift + Config Hygiene | 2/2 | Complete   | 2026-05-21 |
 | 1081. Test Fixture & Assertion Drift | 0/3 | Plans created | - |
-| 1082. Test Environmental | 0/? | Not started | - |
+| 1082. Test Environmental | 0/1 | Plans created | - |
 | 1083. Close Gate | 0/? | Not started | - |
 
 ## Backlog
