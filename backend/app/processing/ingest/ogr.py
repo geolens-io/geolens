@@ -560,6 +560,12 @@ async def run_ogr2ogr(
     if layer_name:
         cmd.append(layer_name)
 
+    # HYG-03 (Phase 1070, v1014 IN-02): GDAL_HTTP_FOLLOWLOCATION is NOT set
+    # here because `run_ogr2ogr` processes LOCAL FILE PATHS only; libcurl
+    # redirect control is irrelevant when there are no HTTP fetches. The
+    # service-URL sibling `run_ogr2ogr_service` (below) DOES set
+    # GDAL_HTTP_FOLLOWLOCATION=NO because it issues real HTTP requests.
+    # See Phase 1061 Plan 04 SUMMARY for the SEC-S04 redirect-bypass closure.
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,

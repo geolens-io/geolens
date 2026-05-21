@@ -78,7 +78,10 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
     Raising SSRFError from a response hook aborts further redirect-following
     and propagates the exception to the awaiting caller.
     """
-    if response.status_code not in (301, 302, 303, 307, 308):
+    # HYG-03 (Phase 1070, v1014 IN-01): include HTTP 305 (Use Proxy) for
+    # completeness even though RFC 7231 deprecated it and httpx does not
+    # follow 305 redirects by default. Cheap defense-in-depth.
+    if response.status_code not in (301, 302, 303, 305, 307, 308):
         return
     location = response.headers.get("Location")
     if not location:
