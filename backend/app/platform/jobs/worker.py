@@ -38,6 +38,82 @@ log = structlog.get_logger()
 RECOVERY_LOCK_KEY = 224_001
 
 
+# ING-04 (P2-04): exports temp-dir sweep age threshold. Only entries
+# whose mtime is older than this many seconds are deleted on worker
+# startup. In-flight large exports younger than 1 hour survive a
+# rolling worker restart; truly orphaned crash-residue gets cleaned.
+# Matches the 1-hour window used by the worker stale-job recovery
+# (`JOB_TIMEOUT_SECONDS` in router.py) so a 6-minute COG export that
+# survives a rolling restart at the job layer also keeps its on-disk
+# staging artifact.
+EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
+
+
+def _sweep_orphaned_exports(
+    exports_dir: Path,
+    *,
+    age_threshold_seconds: int = EXPORTS_SWEEP_AGE_SECONDS,
+) -> tuple[int, int]:
+    """Sweep orphaned export temp entries older than ``age_threshold_seconds``.
+
+    ING-04 (P2-04): entries whose ``stat.st_mtime`` is within the last
+    ``age_threshold_seconds`` are skipped (and logged) so an in-flight
+    large export does not get truncated by a worker restart. Entries
+    older than the threshold are removed (``shutil.rmtree`` for
+    directories, ``Path.unlink`` for files).
+
+    Args:
+        exports_dir: The ``<staging>/exports/`` directory to sweep. A
+            missing directory is treated as a no-op (no error raised).
+        age_threshold_seconds: Skip entries newer than this many seconds.
+            Defaults to ``EXPORTS_SWEEP_AGE_SECONDS`` (1 hour).
+
+    Returns:
+        ``(deleted_count, skipped_count)``.
+    """
+    import shutil
+
+    if not exports_dir.exists():
+        return (0, 0)
+
+    entries = list(exports_dir.iterdir())
+    if not entries:
+        return (0, 0)
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+    deleted_count = 0
+    skipped_count = 0
+    for item in entries:
+        try:
+            item_mtime = item.stat().st_mtime
+        except FileNotFoundError:
+            # Raced with another worker / external cleanup — treat as already-gone.
+            continue
+        age_seconds = now_ts - item_mtime
+        if age_seconds < age_threshold_seconds:
+            log.info(
+                "sweep_skipped_recent_export",
+                path=str(item),
+                age_seconds=round(age_seconds, 1),
+                threshold_seconds=age_threshold_seconds,
+            )
+            skipped_count += 1
+            continue
+        if item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
+        else:
+            item.unlink(missing_ok=True)
+        deleted_count += 1
+
+    if deleted_count or skipped_count:
+        log.info(
+            "exports_sweep_complete",
+            deleted=deleted_count,
+            skipped=skipped_count,
+        )
+    return (deleted_count, skipped_count)
+
+
 async def recover_stale_jobs() -> None:
     """Mark stale jobs as failed using an advisory lock + started_at threshold.
 
@@ -170,19 +246,14 @@ async def main() -> None:
     ensure_staging_ready(settings.upload_staging_dir)
     ensure_staging_ready(Path(settings.upload_staging_dir) / "exports")
 
-    # Sweep orphaned export temp dirs from previous crashes
-    import shutil
-
+    # Sweep orphaned export temp dirs from previous crashes.
+    # ING-04 (P2-04): only delete entries older than EXPORTS_SWEEP_AGE_SECONDS
+    # (1 hour). In-flight exports started shortly before a rolling worker
+    # restart survive the sweep — a 10-minute COG export is no longer
+    # truncated mid-download because the new worker process happened to
+    # boot during the export's stream phase.
     exports_dir = Path(settings.upload_staging_dir) / "exports"
-    if exports_dir.exists():
-        orphaned = list(exports_dir.iterdir())
-        if orphaned:
-            for item in orphaned:
-                if item.is_dir():
-                    shutil.rmtree(item, ignore_errors=True)
-                else:
-                    item.unlink(missing_ok=True)
-            log.info("Cleaned orphaned export temp files", count=len(orphaned))
+    _sweep_orphaned_exports(exports_dir)
 
     # 3. Initialize providers
     init_storage()
