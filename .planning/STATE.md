@@ -1,33 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1016
-milestone_name: Hardening Sweep
-status: complete
-stopped_at: v1016 shipped and archived
-last_updated: "2026-05-21"
-last_activity: v1016 shipped and archived
+milestone: v1017
+milestone_name: Test Infra & Audit Tail
+status: planning
+last_updated: "2026-05-21T17:31:25.504Z"
+last_activity: 2026-05-21
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1074 — COMPLETE
-Status: v1016 milestone archived — no active phases
-Last activity: 2026-05-21 — v1016 shipped and archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-21 — Milestone v1017 started
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** None — awaiting /gsd-new-milestone for next milestone
+**Current focus:** v1017 Test Infra & Audit Tail — close v1015/v1016 hygiene tail (conftest refactor, 11 baseline pytest failures, 8 ingest P2, SEC-OBSV-03 CI wiring)
 
 ## Last Shipped Milestone
 
@@ -70,6 +70,7 @@ Resume file: None
 ## Deferred Items
 
 Items acknowledged at v1016 close (2026-05-21):
+
 - 174 quick_tasks carried from prior milestones (v1014/v1015/earlier)
 - 1 verification_gap (Phase 1071 KNOWN-02 docker smoke — by-design deferred to Phase 1074, verified green there)
 - 8 v1015-carried P2 (TD-DEFER-01..08) - for v1017 hygiene
