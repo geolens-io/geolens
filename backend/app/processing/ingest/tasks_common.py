@@ -226,7 +226,11 @@ async def _job_phase_session(
                 job_id=str(job_uuid),
                 phase=phase,
             )
-            yield session, None
+            try:
+                yield session, None
+            except Exception:
+                await session.rollback()
+                raise
             return
         try:
             yield session, job

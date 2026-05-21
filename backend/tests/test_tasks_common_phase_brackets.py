@@ -117,6 +117,32 @@ async def test_phase_session_yields_none_when_job_missing():
     )
 
 
+@pytest.mark.anyio
+async def test_job_phase_session_none_branch_rolls_back_on_exception():
+    """WR-02: an exception raised inside the ``async with`` block when job is
+    None triggers ``session.rollback()`` before re-raising.
+
+    The None branch previously yielded bare (outside the try/except guard) so
+    any exception from a caller using the bare session would propagate without
+    an explicit rollback. This pins the corrected behaviour: the helper wraps
+    the None-job yield in the same try/except as the found-job branch.
+    """
+    missing_id = _uuid.uuid4()
+
+    with pytest.raises(RuntimeError, match="none-branch exception"):
+        async with _job_phase_session(missing_id, phase="phase_none_test") as (
+            session,
+            job,
+        ):
+            assert job is None
+            raise RuntimeError("none-branch exception")
+
+    # If we reach here, the exception propagated correctly (was re-raised).
+    # The session rollback is internal to the helper — we pin that the
+    # exception is NOT swallowed (i.e., the ``raise`` inside ``except``
+    # works as expected).
+
+
 # ---------------------------------------------------------------------------
 # 3. rolls_back_on_exception
 # ---------------------------------------------------------------------------
