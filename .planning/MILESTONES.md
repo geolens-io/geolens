@@ -1,5 +1,45 @@
 # Milestones
 
+## v1015 Ingest/Export Lifecycle Hardening (Shipped: 2026-05-20)
+
+**Phases completed:** 6 phases (1065-1070), 13 plans, 13/13 requirements
+
+**Local tag:** `v1015` (commit `e4a7026b`)
+**Public tag:** `v1.5.0` (at `e4a7026b`; not pushed per A-04 user decision — push with `git push origin v1015 v1.5.0`)
+**Commit range:** `9f5f35b6` (smart discuss context) → `a3dafa2f` (milestone audit)
+
+**Key accomplishments:**
+
+1. **Download token wiring (Phase 1065, IA-P0-01)** — Wired `POST /api/auth/download-token/{id}` to mint short-lived `typ='download'` JWTs; frontend `downloadCog()` async refactored to mint→open. Closes the in-production COG download 401 regression. Playwright spec pins the two-request order; OpenAPI snapshot regenerated.
+2. **Reupload IDOR closure (Phase 1065, REUPLOAD-IDOR-01 + IA-P1-02)** — All 6 handlers in `router_reupload.py` gated by `check_dataset_access` (write-mode + ownership) on top of existing `require_permission("edit_metadata")`. Pre-commit `visibility-filter-coverage` exclusion deleted; future regressions fail at commit. `reupload_service_preview` gains `_assert_compatible_record_type` call with new keyword-only `service_type` parameter — vector→raster + any→VRT swaps surface as HTTP 400 before pipeline execution.
+3. **Ingest entry-point hardening (Phase 1066, IA-P0-02 + IA-P0-03)** — `save_upload_file` enforces `max_size_bytes` per chunk (HTTP 413 before disk/S3 spend; symmetric with presigned path). `commit_import` + `ingest_service` worker + `reupload_service` worker re-validate `source_url` SSRF, closing the preview→commit DNS-rebinding TOCTOU on the FIRST hop.
+4. **Worker heartbeat decision — option (b) (Phase 1067, IA-P0-04)** — Dropped `IngestJob.last_heartbeat_at` column (Alembic 0021) + `IS NULL` recovery branch; `recover_stale_jobs` now uses `started_at < JOB_TIMEOUT_SECONDS` (1h) mirroring the lifespan `fail_stale_jobs` sweep. The column was declared and queried but never written, so every running ingest >5 min was force-killed on rolling deploy. **Result: a 6-minute ingest now survives a rolling worker restart**; long-running ingests (>1h) still fail safely. Rolling-deploy regression test pins behavior.
+5. **Service ingest hardening (Phase 1068, IA-P1-06 + IA-P1-03)** — `run_ogr2ogr_service` switches from `GDAL_HTTP_HEADERS=Authorization: Bearer <token>` (visible via `/proc/<pid>/environ`) to `GDAL_HTTP_HEADER_FILE` pointing at a 0600 tempfile (unlinked in `finally` even on subprocess failure). VRT hardening adds 3 layers: `validate_vrt_body` (XML sniff + `<SourceFilename>` traversal guard with 7-prefix GDAL VSI allowlist), `validate_file_content` dispatch, and `gdalbuildvrt` subprocess env overlay (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS=tif,tiff,vrt` + `VRT_VIRTUAL_OVERVIEWS=NO` + `GDAL_HTTP_FOLLOWLOCATION=NO`).
+6. **Export hardening (Phase 1069, IA-P1-04 + IA-P1-01)** — `validate_where_clause` rejects `;`/`--`/`/* */`/unbalanced single-quotes via fast-path string-level checks before the v1014 SEC-S09 AST allowlist. `export_dataset_endpoint` gates on `Depends(require_permission("export"))` instead of bare `get_current_active_user` — closes asymmetry with `download_cog`'s capability matrix.
+7. **Close-gate hygiene (Phase 1070, HYG-01/02/03)** — 5 v1014 deferred INFO pending-todo files created; 6 retroactive REQUIREMENTS.md ticks discovered already-checked at v1014 archival (no edit needed); 2 cheap v1014 INFO todos closed inline (HTTP 305 in `_revalidate_redirect`; `GDAL_HTTP_FOLLOWLOCATION` rationale docstring on `run_ogr2ogr`).
+
+**Smoke gate:** Backend pytest 59/59 new v1015 + 134/134 pure-unit in modified areas (18 DB-bound errors are pre-existing local infra). Live orchestrator-driven Playwright MCP smoke 5/5 surfaces PASS on rebuilt containers: IA-P0-01 mint returns 200 + correct JWT shape; IA-P1-04 statement terminator/comment/unbalanced-quote rejected at 400; IA-P1-01 anonymous export 401; catalog + dataset detail + maps load with 0 console errors.
+
+**Migrations:** `0021_drop_ingest_job_last_heartbeat_at` (reversible).
+
+**Inline review-fix discipline:** No `v1015.1` deferrals — 21 cumulative atomic commits across the 6 phases, all tests pass at HEAD.
+
+**Tech-debt followups (7 items, queued for next housekeeping pass):**
+
+- Phase 1065: pre-existing `_resolve_download_user` no-sub JWT consumption gap (anonymous download token issued but not consumed; not a v1015 regression).
+- Phase 1067: `alembic upgrade head` against a clean DB not exercised in close-gate (test-DB-bound; ordering verified via `down_revision` linkage).
+- Phase 1068: `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` clamp scoped to `_build_vrt`; other GDAL subprocesses (raster ingest, COG conversion) inherit unclamped env — defensible follow-up.
+- Phase 1068: VRT VSI allow-list (7 prefixes) requires dual-edit (validator + env overlay) when adding a new scheme — document in CODE OWNERS or AGENTS.md.
+- Phase 1069: IA-P1-01 capability gate verified via signature inspection + live 401 for anonymous; full live 403-for-revoked-export-on-viewer left to v1014 SEC-S04 parity. Add second-user MCP test in a future close-gate.
+- Phase 1070: full `e2e:smoke:builder` Playwright suite + frontend `npm run typecheck` not run during close-gate — covered by live MCP smoke + per-plan local verification at completion time.
+- Phase 1070: backend pytest scope locally restricted to touched-area + new v1015 files; DB-bound suites need CI test DB.
+
+**Known deferred items at close:** 174 historical quick tasks (carryover from prior milestones) + 5 pending todos (4 from HYG-01 + 1 pre-existing cross-repo task). See STATE.md Deferred Items and the `gsd-sdk query audit-open` report at close.
+
+See `.planning/milestones/v1015-ROADMAP.md` for full archive.
+
+---
+
 ## v1014 Security Audit Remediation (Shipped: 2026-05-20)
 
 **Phases completed:** 4 phases (1061-1064), 17 plans, 28/28 requirements

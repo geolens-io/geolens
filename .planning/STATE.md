@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1015
 milestone_name: Ingest/Export Lifecycle Hardening
-status: completed
+status: Awaiting next milestone
 stopped_at: Roadmap created — ready to plan Phase 1065
-last_updated: "2026-05-21T01:10:28.451Z"
-last_activity: 2026-05-21 -- Phase 1070 marked complete
+last_updated: "2026-05-21T01:13:10.051Z"
+last_activity: 2026-05-21 — Milestone v1015 completed and archived
 progress:
   total_phases: 11
   completed_phases: 1
@@ -18,12 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1070 — COMPLETE
+Phase: Milestone v1015 complete
 Plan: —
-Status: Phase 1070 complete
-Last activity: 2026-05-21 -- Phase 1070 marked complete
-
-Progress: [░░░░░░░░░░] 0%
+Status: Awaiting next milestone
+Last activity: 2026-05-21 — Milestone v1015 completed and archived
 
 ## Project Reference
 
@@ -64,3 +62,7 @@ See: .planning/PROJECT.md
 Last session: 2026-05-21T00:30:12.564Z
 Stopped at: Roadmap created — ready to plan Phase 1065
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

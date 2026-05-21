@@ -74,7 +74,7 @@
 - ✅ **v1012 New-User Hardening + Reupload** — Phases 1053-1056 (shipped 2026-05-19, public tag `v1.2.1`) <!-- 1060/A-01: prior ROADMAP entry claimed v1.3.0 but actual CHANGELOG + git tag is v1.2.1 -->
 - ✅ **v1013 Ingest Hardening** — Phases 1057-1060 (shipped 2026-05-20, local tag `v1013`, public tag `v1.3.0`) — see [archive](milestones/v1013-ROADMAP.md)
 - ✅ **v1014 Security Audit Remediation** — Phases 1061-1064 (shipped 2026-05-20, local tag `v1014`, public tag `v1.4.0`) — see [archive](milestones/v1014-ROADMAP.md)
-- ✅ **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (shipped 2026-05-20, local tag `v1015`, public tag `v1.5.0`) — see [archive](milestones/v1015-ROADMAP.md)
+- 🚧 **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (in progress)
 
 ## Phases
 
@@ -86,13 +86,98 @@
 
 ✅ Complete — see [archive](milestones/v1013-ROADMAP.md). All 4 phases (1057-1060) and 10 requirements satisfied. Local tag `v1013` + public tag `v1.3.0`.
 
-### v1015 Ingest/Export Lifecycle Hardening (Shipped 2026-05-20)
+---
 
-✅ Complete — see [archive](milestones/v1015-ROADMAP.md). All 6 phases (1065-1070) and 13 requirements satisfied. Local tag `v1015` + public tag `v1.5.0`. Closes 4 P0 + 5 P1 from `/ingest-audit` 2026-05-19 + `router_reupload.py` IDOR + v1014 hygiene tail. Live Playwright MCP smoke 5/5 surfaces green against rebuilt containers.
+### 🚧 v1015 Ingest/Export Lifecycle Hardening (In Progress)
+
+**Milestone Goal:** Make every ingest, reupload, and export path correct, atomic, and secure by default. Close the 4 P0 + 5 P1 findings from `/ingest-audit` 2026-05-19, remediate the `router_reupload.py` resource-level IDOR that v1014 acknowledged but deferred, and fold in v1014's hygiene tail — flipping the v1014 milestone audit verdict from "tech_debt + WARNING" to clean.
+
+- [ ] **Phase 1065: Download Token Wiring + Reupload IDOR Closure** - Wire the broken-in-prod COG download token endpoint, close the reupload IDOR across all 6 handlers, add the missing record-type guard on service reupload preview
+- [ ] **Phase 1066: Ingest Entry-Point Hardening** - Enforce upload size limit at HTTP entry and re-validate source URLs at commit to close the DNS-rebinding TOCTOU window
+- [ ] **Phase 1067: Worker Heartbeat Decision** - Resolve the never-written `last_heartbeat_at` column story; rolling deploys no longer force-kill long-running ingests
+- [ ] **Phase 1068: Service Ingest Hardening** - Eliminate the subprocess bearer-token env leak and harden `.vrt` ingest against magic-byte bypass and path-traversal SSRF
+- [ ] **Phase 1069: Export Hardening** - Expand the `validate_where_clause` injection allow-list and gate vector export on the `export` permission capability
+- [ ] **Phase 1070: Close Gate + Hygiene** - Write 5 missing v1014 pending-todo files, tick 6 stale REQUIREMENTS.md checkboxes, close 2 cheap INFO todos, run all pre-tag gates, cut `v1015` + `v1.5.0`
+
+## Phase Details
+
+### Phase 1065: Download Token Wiring + Reupload IDOR Closure
+**Goal**: Users can download COG files without a 401 error, and editors cannot access another user's dataset through any reupload handler
+**Depends on**: Nothing (first phase of v1015)
+**Requirements**: IA-P0-01, REUPLOAD-IDOR-01, IA-P1-02
+**Success Criteria** (what must be TRUE):
+  1. A non-admin user clicking "Download COG" on a public raster dataset detail page receives the COG file — no 401 error
+  2. An editor without dataset access cannot reupload data into another user's dataset via any of the 6 `router_reupload.py` handlers — each returns 403
+  3. A vector-to-raster reupload service preview surfaces a useful 4xx error before any pipeline execution, instead of a deep-pipeline 500
+  4. The pre-commit `visibility-filter-coverage` hook exclusion for `router_reupload.py` is deleted and the hook passes on the current codebase
+**Plans**: 3 plans
+Plans:
+- [x] 1065-01-PLAN.md — Backend download-token endpoint + frontend mint flow + Playwright regression
+- [ ] 1065-02-PLAN.md — Close 6 reupload IDOR handlers + delete pre-commit exclusion
+- [ ] 1065-03-PLAN.md — Add _assert_compatible_record_type to reupload_service_preview
+
+### Phase 1066: Ingest Entry-Point Hardening
+**Goal**: Ingest upload and commit paths enforce size limits and URL safety at the HTTP boundary before any disk write or pipeline work
+**Depends on**: Phase 1065
+**Requirements**: IA-P0-02, IA-P0-03
+**Success Criteria** (what must be TRUE):
+  1. An upload exceeding `max_file_size_bytes` via the direct multipart route returns 413 before any disk write or staging-bucket write occurs
+  2. A `commit_import` call whose source URL resolves to a private IP (DNS-rebinding simulation) is rejected at commit time even if the preview step resolved cleanly
+  3. Service-URL worker tasks re-validate the source URL before fetching — a rebinding URL rejected after preview does not proceed into the worker pipeline
+**Plans**: TBD
+
+### Phase 1067: Worker Heartbeat Decision
+**Goal**: The `IngestJob.last_heartbeat_at` inconsistency is resolved and rolling deploys no longer silently force-kill running ingests
+**Depends on**: Phase 1066
+**Requirements**: IA-P0-04
+**Success Criteria** (what must be TRUE):
+  1. A rolling-deploy simulation (worker killed mid-ingest after 6 minutes) leaves the job recoverable on restart rather than permanently force-killed
+  2. The `last_heartbeat_at` situation is consistent: either the column is written every ≤60s by long-running tasks and the 5-min stale cutoff is correct, or the column and `IS NULL` recovery branch are removed and recovery relies solely on `JOB_TIMEOUT_SECONDS`
+**Plans**: TBD
+
+### Phase 1068: Service Ingest Hardening
+**Goal**: Bearer tokens are never observable in subprocess environments and `.vrt` ingest is hardened against bypass and path-traversal attacks
+**Depends on**: Phase 1067
+**Requirements**: IA-P1-06, IA-P1-03
+**Success Criteria** (what must be TRUE):
+  1. A subprocess env audit of `run_ogr2ogr_service` confirms no `Authorization:` substring is present in the spawned process environment
+  2. Uploading a file with a `.vrt` extension that lacks the `<VRTDataset` XML signature is rejected at validation before reaching the worker
+  3. A `.vrt` file containing `<SourceFilename>../etc/hostname</SourceFilename>` or an absolute path in `<SourceFilename>` is blocked by the content scanner
+  4. Worker env caps (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS`, `VRT_VIRTUAL_OVERVIEWS=NO`) are set before any GDAL VRT operation in the worker
+**Plans**: TBD
+
+### Phase 1069: Export Hardening
+**Goal**: The export where-clause validator rejects known injection vectors and vector export enforces the capability matrix the same way COG download does
+**Depends on**: Phase 1068
+**Requirements**: IA-P1-04, IA-P1-01
+**Success Criteria** (what must be TRUE):
+  1. A where-clause containing `;`, `--`, `/* */`, or an unbalanced single-quote is rejected by `validate_where_clause` and never reaches `ogr2ogr`
+  2. Valid where-clauses with balanced quotes and no statement terminators pass validation and export succeeds
+  3. A viewer whose `export` permission has been revoked by an admin receives 403 from `/api/datasets/{id}/export/` (vector export), matching the existing COG download behavior
+**Plans**: TBD
+
+### Phase 1070: Close Gate + Hygiene
+**Goal**: v1014 tech-debt tail is fully cleared, all pre-tag gates pass, and `v1015` + `v1.5.0` tags are cut
+**Depends on**: Phase 1069
+**Requirements**: HYG-01, HYG-02, HYG-03
+**Success Criteria** (what must be TRUE):
+  1. Five pending-todo files for v1014 INFO findings exist under `.planning/todos/pending/` (Phase 1062 IN-01/02/03 + Phase 1063 IN-01/02)
+  2. Six v1014 REQUIREMENTS.md checkboxes that were implemented but left unchecked are ticked in the archive with a `(retroactive)` annotation
+  3. Two existing cheap v1014 INFO todos are closed and moved from `pending/` to `resolved/`
+  4. All pre-tag gates pass: typecheck 0 / vitest / e2e:smoke:builder / i18n parity / backend pytest / live Playwright MCP smoke (IA-P0-01 download end-to-end + REUPLOAD-IDOR closure + heartbeat rolling-deploy simulation) / CHANGELOG `[1.5.0]` populated
+  5. Tags `v1015` + `v1.5.0` are cut locally at the close-gate commit
+**Plans**: TBD
 
 ## Progress
 
-(No active phases — start next milestone with `/gsd-new-milestone`)
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1065. Download Token Wiring + Reupload IDOR Closure | 1/3 | In Progress|  |
+| 1066. Ingest Entry-Point Hardening | 0/TBD | Not started | - |
+| 1067. Worker Heartbeat Decision | 0/TBD | Not started | - |
+| 1068. Service Ingest Hardening | 0/TBD | Not started | - |
+| 1069. Export Hardening | 0/TBD | Not started | - |
+| 1070. Close Gate + Hygiene | 0/TBD | Not started | - |
 
 ## Backlog
 

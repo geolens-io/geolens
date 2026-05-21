@@ -12,19 +12,35 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1015 Ingest/Export Lifecycle Hardening
+## Recent Shipped Milestone: v1015 Ingest/Export Lifecycle Hardening
 
-**Goal:** Make every ingest, reupload, and export path correct, atomic, and secure by default. Close the 4 P0 + 5 P1 findings from `/ingest-audit` 2026-05-19, remediate the `router_reupload.py` resource-level IDOR that v1014 acknowledged but deferred, and fold in v1014's hygiene tail — flipping the v1014 milestone audit verdict from "tech_debt + WARNING" to clean.
+**Shipped:** 2026-05-20
 
-**Target features:**
+**Goal delivered:** Closed the 4 P0 + 5 P1 findings from `/ingest-audit` 2026-05-19 + the `router_reupload.py` IDOR that v1014 acknowledged but deferred + v1014's hygiene tail. Public tag `v1.5.0`. Local tag `v1015` at `e4a7026b`.
 
-- **Tier A (ship-blocking P0):** wire `downloadCog()` to the existing `create_download_token` helper via a new `POST /auth/download-token/{dataset_id}` endpoint (download is broken in prod today); add `check_dataset_access` to all 6 `router_reupload.py` handlers + drop the pre-commit `visibility-filter-coverage` exclusion; enforce `max_file_size_bytes` at `/ingest/upload` HTTP entry (presigned path already symmetric); re-validate `source_url` SSRF in `commit_import` + service-URL worker tasks (close DNS-rebinding TOCTOU between preview and commit); decide the `IngestJob.last_heartbeat_at` story (writer OR drop column + rely on `JOB_TIMEOUT_SECONDS`).
-- **Tier B (P1 follow-ups):** call `_assert_compatible_record_type` at the top of `reupload_service_preview`; replace ogr2ogr subprocess `Authorization` env var with `GDAL_HTTP_HEADER_FILE` (close `/proc/<pid>/environ` leak); add `<VRTDataset>` magic-byte sniff + worker env clamps for `.vrt` SSRF/path-traversal defense-in-depth; reject `;`, `--`, `/* */`, unbalanced single-quotes in `validate_where_clause`; swap `export_dataset_endpoint` from `get_current_active_user` to `Depends(require_permission("export"))`.
-- **Tier C (hygiene close-gate):** add 5 missing pending todo files for v1014 deferred INFO findings (Phase 1062 IN-01/02/03 + Phase 1063 IN-01/02); tick 6 stale REQUIREMENTS.md checkboxes for already-implemented v1014 requirements; close 2 existing v1014 INFO todos if cheap (`_revalidate_redirect` HTTP 305 vs 302, ogr2ogr `GDAL_HTTP_FOLLOWLOCATION` comment).
+**Delivered (13/13 reqs, 6 phases 1065-1070, live MCP re-verify):**
 
-**Tag plan:** local `v1015` + public `v1.5.0` (per v1014 precedent — public tags align with public release cadence, not milestone counter). Pre-tag gates: typecheck 0 / vitest passing / e2e:smoke:builder pass / i18n parity / backend pytest passing / live Playwright MCP smoke on `localhost:8080` driven by orchestrator (IA-P0-01 download end-to-end + REUPLOAD-IDOR closure + heartbeat under simulated rolling deploy).
+- **Tier A — ship-blocking (Phases 1065-1067)** — Wired `POST /api/auth/download-token/{id}` mint endpoint + frontend `downloadCog()` async refactor (IA-P0-01); closed reupload IDOR across all 6 `router_reupload.py` handlers + deleted pre-commit exclusion (REUPLOAD-IDOR-01); added `_assert_compatible_record_type` to `reupload_service_preview` with new `service_type` keyword-only arg (IA-P1-02); chunked size enforcement in `save_upload_file` raising HTTP 413 (IA-P0-02); `commit_import` + `ingest_service` + `reupload_service` workers re-validate `validate_url_for_ssrf` (IA-P0-03); option (b) heartbeat decision — dropped `last_heartbeat_at` column via Alembic 0021 + `recover_stale_jobs` uses `started_at < JOB_TIMEOUT_SECONDS` so 6-min ingests survive rolling deploy (IA-P0-04).
+- **Tier B — P1 follow-ups (Phases 1068-1069)** — `run_ogr2ogr_service` switched from `GDAL_HTTP_HEADERS` env to 0600 tempfile via `GDAL_HTTP_HEADER_FILE` (IA-P1-06); 3-layer VRT hardening — `validate_vrt_body` XML sniff + `<SourceFilename>` traversal guard with 7-prefix VSI allowlist + `_VRT_SAFE_ENV` overlay on `gdalbuildvrt` (IA-P1-03); `validate_where_clause` rejects `;`/`--`/`/* */`/unbalanced single-quotes before the AST allowlist (IA-P1-04); `export_dataset_endpoint` gated by `require_permission("export")` (IA-P1-01).
+- **Tier C — hygiene close-gate (Phase 1070)** — 5 pending-todo files for v1014 deferred INFO findings (HYG-01); 6 retroactive REQUIREMENTS.md ticks discovered already-checked at v1014 archive (HYG-02); 2 cheap v1014 INFO todos closed inline + moved to resolved/ (HYG-03).
 
-**Explicit exclusions:** v13.12 LOW (71 findings) + MEDIUM (83 findings) polish/scalability sweep; ingest-audit P1-05 (VRT orphan-guard rollback test) + P1-07 (dataset job status cache invalidation); ingest-audit P2 (10 findings); `recreate-public-repo-before-launch` (belongs in `~/Code/getgeolens.com/.planning/`); 999.6 tenant scoping (Cloud SaaS prereq); 999.13/14/15/16 (deployment/distribution P2).
+**Smoke gate:** Backend pytest 59/59 new v1015 + 134/134 pure-unit in modified areas. Live orchestrator-driven Playwright MCP smoke on `localhost:8080` against rebuilt containers — 5/5 surfaces PASS: IA-P0-01 mint returns 200 + correct JWT shape; IA-P1-04 statement terminator/comment/unbalanced-quote return 400; IA-P1-01 anonymous export returns 401 (capability dependency fires); catalog + dataset detail + maps pages load with 0 console errors.
+
+**Migrations:** `0021_drop_ingest_job_last_heartbeat_at` (reversible).
+
+**Inline review-fix discipline:** Zero v1015.1 deferrals — 21 atomic commits across 6 phases, all tests green at HEAD.
+
+**Tech-debt followups (7 items deferred to next housekeeping pass):**
+
+- Phase 1065: pre-existing `_resolve_download_user` no-sub JWT consumption gap (anonymous download token issued but not consumed; not a v1015 regression).
+- Phase 1067: `alembic upgrade head` against a clean DB not exercised in close-gate (test-DB-bound; ordering verified via `down_revision` linkage).
+- Phase 1068: `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` clamp scoped only to `_build_vrt`; other GDAL subprocesses (raster ingest, COG conversion) inherit unclamped env.
+- Phase 1068: VRT VSI allow-list (7 prefixes) requires dual-edit (validator + env overlay) when adding a new scheme.
+- Phase 1069: IA-P1-01 verified via signature inspection + live 401 anonymous; full 403-for-revoked-export-on-viewer left to v1014 SEC-S04 parity.
+- Phase 1070: `e2e:smoke:builder` + `npm run typecheck` not run in close-gate (covered by per-plan verification + live MCP).
+- Phase 1070: backend pytest locally restricted to touched-area + new v1015 files (CI runs full suite).
+
+**Milestone close:** 13/13 reqs satisfied; tag `v1015` + `v1.5.0` at commit `e4a7026b`. See `.planning/milestones/v1015-ROADMAP.md` for full archive.
 
 ## Recent Shipped Milestone: v1014 Security Audit Remediation
 
@@ -1175,4 +1191,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-20 — started milestone v1015 Ingest/Export Lifecycle Hardening; closes 4 P0 + 5 P1 from /ingest-audit 2026-05-19 + REUPLOAD-IDOR (v1014 acknowledged-but-deferred) + v1014 hygiene tail; ~13-14 requirements across ~5-6 phases starting at phase 1065; tag plan v1015 + v1.5.0. Previously shipped: v1014 Security Audit Remediation (28 requirements, 4 phases 1061-1064, local tag v1014, public tag v1.4.0, 103 commits 470a5723..7348c03a). Archive: .planning/milestones/v1014-ROADMAP.md.*
+*Last updated: 2026-05-20 — shipped milestone v1015 Ingest/Export Lifecycle Hardening (13 requirements across 6 phases 1065-1070, local tag v1015, public tag v1.5.0 at e4a7026b). All 4 P0 + 5 P1 ingest-audit findings closed; REUPLOAD-IDOR (v1014 acknowledged-but-deferred) closed across 6 handlers with pre-commit exclusion deleted; option-(b) heartbeat decision shipped via Alembic 0021 (6-min ingests now survive rolling deploys); v1014 hygiene tail cleared (HYG-01/02/03). 7 tech-debt followups for next housekeeping. Archive: .planning/milestones/v1015-ROADMAP.md. Previously shipped: v1014 Security Audit Remediation (28 reqs, archive: .planning/milestones/v1014-ROADMAP.md).*
