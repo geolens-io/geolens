@@ -105,7 +105,7 @@
 **Sequencing rationale:** Test infrastructure runs FIRST (Phase 1075) so every downstream phase gets clean pytest signal. Backend + Frontend P2 closures (Phase 1076, 1077) split by surface for testability. CI-01 alembic workflow (Phase 1078) is independent of test infra and ingest work. Close-gate (Phase 1079) bundles the post-fix pytest baseline doc (TI-03 must be LAST so it captures the post-fix steady state), the deferred docker-smoke verification (VG-01), and the quick_tasks triage (HYG-01) into a single closure phase that also runs the full close-gate protocol.
 
 - [x] **Phase 1075: Conftest Test-DB Lifecycle Refactor + Baseline Fixes** - Eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` conftest errors and fix the 11 v1015-carryover baseline pytest failures so pytest signal is trustworthy on all downstream phases (Complete 2026-05-21 within named scope; 7 verification-gap findings + parallel-mode environmental cap documented for Phase 1079)
-- [ ] **Phase 1076: Backend Ingest P2 Closure** - Close 5 backend P2 findings: metadata.py internal commit subversion (P2-02), local-storage COG streaming (P2-03), worker exports temp-dir age guard (P2-04), reupload swap autovacuum retry (P2-08), strict_cog raster commit flag (P2-09)
+- [x] **Phase 1076: Backend Ingest P2 Closure** - Close 5 backend P2 findings: metadata.py internal commit subversion (P2-02), local-storage COG streaming (P2-03), worker exports temp-dir age guard (P2-04), reupload swap autovacuum retry (P2-08), strict_cog raster commit flag (P2-09) (Complete 2026-05-21; 256/256 targeted regression tests passing)
 - [ ] **Phase 1077: Frontend Ingest P2 Closure** - Extract `getCogDownloadUrl()` helper (P2-01) and shared `uploadChunks()` presigned-upload helper (P2-05) so future retry/abort/backoff lands in one place
 - [ ] **Phase 1078: CI Alembic Clean-DB Upgrade Workflow** - Wire `test_alembic_upgrade_clean_db.sh` into a GitHub Actions workflow that spins up a clean Postgres + PostGIS, runs `alembic upgrade head`, and fails the build on migration regressions (closes SEC-OBSV-03 from Phase 1072 triage)
 - [ ] **Phase 1079: Close Gate + Hygiene** - Capture post-v1017 pytest baseline doc (TI-03), docker-smoke re-verify deferred Phase 1071 KNOWN-02 (VG-01), triage 174 quick_tasks to <50 active (HYG-01), full close-gate protocol (pytest + typecheck + e2e:smoke + live MCP), CHANGELOG `[1.5.2] - 2026-05-21`, tag `v1017` + `v1.5.2`
@@ -138,13 +138,13 @@
   3. Worker exports temp-dir sweep at `backend/app/platform/jobs/worker.py:174-185` only deletes entries older than 1 hour (via `stat.st_mtime`) and logs each skipped item; in-flight large exports survive worker restarts
   4. `_apply_reupload_swap` retries once with `SET LOCAL lock_timeout = '15s'` plus a brief sleep on a `lock_timeout` failure and logs the contention event for ops correlation
   5. `RasterCommitRequest` accepts an optional `strict_cog: bool` field (default `False`); when `True`, raster commit rejects non-COG TIFFs at the magic-byte rule instead of silently routing through `check_and_prepare_cog` conversion
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 - [x] 1076-01-PLAN.md — ING-02 metadata.py phase-2 commit boundary + regression test
 - [x] 1076-02-PLAN.md — ING-03 local-storage COG streaming via storage.get_stream()
 - [x] 1076-03-PLAN.md — ING-04 worker exports temp-dir mtime guard
 - [x] 1076-04-PLAN.md — ING-06 _apply_reupload_swap lock_timeout single retry
 - [x] 1076-05-PLAN.md — ING-07 strict_cog opt-in flag on RasterCommitRequest
-- [ ] 1076-06-PLAN.md — Phase verification + close-gate
+- [x] 1076-06-PLAN.md — Phase verification + close-gate
 
 ### Phase 1077: Frontend Ingest P2 Closure
 **Goal:** Close the frontend ingest P2 hygiene tail — centralize drift-prone URL construction and chunked-upload logic so future retry/abort/backoff lands in one place
@@ -185,7 +185,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1075. Conftest Test-DB Lifecycle Refactor + Baseline Fixes | 5/5 | Complete | 2026-05-21 |
-| 1076. Backend Ingest P2 Closure | 5/6 | In Progress|  |
+| 1076. Backend Ingest P2 Closure | 6/6 | Complete | 2026-05-21 |
 | 1077. Frontend Ingest P2 Closure | 0/0 | Not started | - |
 | 1078. CI Alembic Clean-DB Upgrade Workflow | 0/0 | Not started | - |
 | 1079. Close Gate + Hygiene | 0/0 | Not started | - |

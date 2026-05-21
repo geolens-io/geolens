@@ -3,33 +3,33 @@ gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
 status: executing
-stopped_at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
-last_updated: "2026-05-21T20:00:58.211Z"
+stopped_at: Phase 1076 complete (6/6 plans); ING-02..07 closed; ready for Phase 1077/1078 (parallel-eligible) and Phase 1079 (gated on all three)
+last_updated: "2026-05-21T21:30:00.000Z"
 last_activity: 2026-05-21
 progress:
   total_phases: 10
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 10
-  percent: 10
+  completed_plans: 16
+  percent: 20
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1076 (backend-ingest-p2-closure) — EXECUTING
-Plan: 5 of 6
-Status: Ready to execute
+Phase: 1076 (backend-ingest-p2-closure) — COMPLETE
+Plan: 6 of 6 (all done)
+Status: Complete 2026-05-21
 Last activity: 2026-05-21
-Next phase: 1076 / 1077 / 1078 (parallel-eligible per ROADMAP dependencies)
+Next phase: 1077 / 1078 (parallel-eligible; 1079 gated on all three)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1076 — backend-ingest-p2-closure
+**Current focus:** Phase 1077 / 1078 (parallel-eligible after Phase 1076 closure)
 
 ## Last Shipped Milestone
 
@@ -57,6 +57,7 @@ See: .planning/PROJECT.md
 
 ### Decisions
 
+- **2026-05-21 (v1017 Phase 1076):** All 5 ING requirements (ING-02, ING-03, ING-04, ING-06, ING-07) closed; backend ingest P2 tail fully resolved. Cumulative impact: 4 internal commits dropped from `metadata.py` phase-2 helpers, 1 new `StorageProvider.get_stream()` async-generator method, 1 mtime-guarded worker exports sweep, 1 single-retry on `lock_timeout` in `_apply_reupload_swap`, 1 opt-in `strict_cog` flag on `RasterCommitRequest`. 256/256 targeted regression tests pass; zero cross-plan interference; zero anomalies. See `.planning/phases/1076-backend-ingest-p2-closure/1076-VERIFICATION.md` for the full test evidence trail and `.planning/phases/1076-backend-ingest-p2-closure/1076-SUMMARY.md` for the closure summary.
 - **2026-05-21 (v1017):** Test infrastructure MUST run first (Phase 1075) so every downstream phase gets clean pytest signal — TI-01 conftest refactor is a precondition for accurate test results on ING-02 regression test + close-gate.
 - **2026-05-21 (v1017):** TI-03 pytest baseline doc is the LAST phase work (Phase 1079) — it captures the post-fix steady state after all 4 prior phases land.
 - **2026-05-21 (v1017):** CI-01 alembic workflow (Phase 1078) is independent of test infra and ingest P2 work — can execute in parallel with Phase 1076/1077 if/when capacity allows.
@@ -87,17 +88,16 @@ None — v1017 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T20:00:40.190Z
-Stopped at: Phase 1075 complete (5/5 plans); TI-01 + TI-02 closed within named scope; verification gap (7 failures) handed off to Phase 1079
+Last session: 2026-05-21T21:30:00.000Z
+Stopped at: Phase 1076 complete (6/6 plans); ING-02..07 closed; ready for Phase 1077/1078 (parallel-eligible) and Phase 1079 (gated on all three)
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 1075 is closed. Three downstream phases are now unblocked and parallel-eligible:
-  - Invoke `/gsd:plan-phase 1076` (Backend Ingest P2 Closure — depends on 1075)
+- Phase 1076 is closed. Two downstream phases are now unblocked and parallel-eligible:
   - Invoke `/gsd:plan-phase 1077` (Frontend Ingest P2 Closure — depends on 1075)
   - Invoke `/gsd:plan-phase 1078` (CI Alembic Workflow — independent of 1075/1076/1077)
-- Phase 1079 (Close Gate + Hygiene) is gated on all prior phases; Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures).
+- Phase 1079 (Close Gate + Hygiene) is gated on all prior phases; Phase 1079's TI-03 baseline planner MUST first disposition the 7 verification-gap failures documented in `.planning/phases/1075-conftest-test-db-lifecycle-refactor-baseline-fixes/1075-05-VERIFICATION.md` (or open Plan 1075-06 to do so before TI-03 captures). Phase 1076 also surfaced 3 pre-existing environmental issues (ENV-01..03) that overlap with the verification-gap set — see `1076-VERIFICATION.md` Pre-Existing Environmental Issues section.
 
 ## Deferred Items
 
