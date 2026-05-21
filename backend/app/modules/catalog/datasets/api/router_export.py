@@ -184,6 +184,12 @@ async def _resolve_download_user(
     # Fallback: download-scoped JWT in ?token= query param (browser <a href> downloads)
     qt = request.query_params.get("token")
     if qt:
+        # WR-04 (Phase 1071 review): no audience claim is verified here because
+        # the mint endpoint (auth/router.py) does not emit an `aud` claim in
+        # download-token payloads. If a future change adds `aud` to minted tokens
+        # for tenant isolation or scope restriction, this decode MUST also pass
+        # `audience=<expected_aud>` — otherwise PyJWT's audience validation is
+        # silently skipped and tokens with any or no audience are accepted.
         try:
             payload = jwt.decode(
                 qt, settings.jwt_secret_key.get_secret_value(), algorithms=["HS256"]
