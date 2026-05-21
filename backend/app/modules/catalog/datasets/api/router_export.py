@@ -153,7 +153,7 @@ async def _resolve_download_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: Identity | None = Depends(get_optional_user),
-) -> User:
+) -> Identity | None:
     """Resolve user for download endpoints.
 
     Accepts standard auth (header JWT, API key) plus a ``token`` query
@@ -165,6 +165,18 @@ async def _resolve_download_user(
     server logs, referer headers). Restricting query-param auth to
     download-scoped tokens bounds damage if the URL is exposed. The
     Authorization header path keeps accepting full session JWTs unchanged.
+
+    KNOWN-01 (Phase 1071): returns ``Identity | None`` rather than ``User``.
+    The mint endpoint at ``POST /auth/download-token/{id}`` issues a no-sub
+    download token for anonymous callers on public datasets. A VALID no-sub
+    token is a valid auth signal — the typ/scope/exp checks already gate
+    the request — so we return ``None`` instead of raising 401. The
+    downstream consumer (``download_cog``) is responsible for enforcing
+    public visibility when user is None.
+
+    401 is reserved for: no auth signal at all (no header AND no token),
+    invalid token bytes, wrong typ, wrong scope, expired token, or a
+    sub-bearing token whose user no longer exists / is inactive.
     """
     if user is not None:
         return user
@@ -202,6 +214,7 @@ async def _resolve_download_user(
 
         user_id = payload.get("sub")
         if user_id:
+            # Sub-bearing authenticated download token: look up the user.
             try:
                 result = await db.execute(
                     select(User).where(User.id == uuid.UUID(user_id))
@@ -211,6 +224,13 @@ async def _resolve_download_user(
                     return found
             except ValueError:
                 pass
+            # Sub-bearing token whose user disappeared or is inactive — 401
+            # (fall through to the unconditional 401 below).
+        else:
+            # KNOWN-01: no-sub anonymous download token. Token is valid
+            # (typ/scope/exp all passed); return None and let download_cog
+            # enforce public-visibility as defense-in-depth.
+            return None
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -222,7 +242,7 @@ async def _resolve_download_user(
 async def download_cog(
     dataset_id: uuid.UUID,
     request: Request,
-    user: Identity = Depends(_resolve_download_user),
+    user: Identity | None = Depends(_resolve_download_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download the Cloud-Optimized GeoTIFF for a raster dataset.
@@ -230,21 +250,18 @@ async def download_cog(
     Local storage: streams the COG file with Content-Type image/tiff.
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
+
+    KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+    download token (issued by POST /auth/download-token/{id} for a public
+    dataset) is presented on ``?token=``. The function branches on
+    user-None to enforce public visibility and emit the audit row with
+    user_id=NULL.
     """
     from slugify import slugify
 
     from app.modules.auth.permissions import get_effective_permissions
 
-    # 0. Verify export permission
-    user_roles = await get_user_roles(db, user)
-    matrix = await get_effective_permissions(db)
-    if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Missing permission: export",
-        )
-
-    # 1. Fetch dataset
+    # 1. Fetch dataset FIRST so we can branch visibility/permission on user-None.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -252,8 +269,30 @@ async def download_cog(
             detail="Dataset not found",
         )
 
-    # 2. Visibility check
-    await check_dataset_access(db, dataset, dataset_id, user)
+    # 2. Visibility + permission check (branches on authenticated vs anonymous).
+    if user is None:
+        # Anonymous download via mint-issued no-sub token. The mint endpoint at
+        # POST /auth/download-token/{id} already enforced
+        # check_dataset_access_or_anonymous(); the token's typ/scope/exp checks
+        # in _resolve_download_user are the auth gate. Still require public
+        # visibility here as defense-in-depth (a tampered/replayed token
+        # cannot grant access to a private dataset).
+        await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+        if dataset.record.visibility != "public":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Anonymous download requires public dataset",
+            )
+    else:
+        # Authenticated path: full RBAC visibility check + export permission.
+        await check_dataset_access(db, dataset, dataset_id, user)
+        user_roles = await get_user_roles(db, user)
+        matrix = await get_effective_permissions(db)
+        if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing permission: export",
+            )
 
     # 3. Verify raster type
     if dataset.record.record_type != "raster_dataset":
@@ -273,11 +312,13 @@ async def download_cog(
     # 5. Build filename
     filename = f"{slugify(dataset.record.title)}.cog.tif"
 
-    # 6. Audit log
+    # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
+    # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
+    # uuid.UUID | None to match.
     await audit_emit(
         db,
         AuditEvent(
-            user_id=user.id,
+            user_id=user.id if user is not None else None,
             action="dataset.download_cog",
             resource_type="dataset",
             resource_id=dataset_id,

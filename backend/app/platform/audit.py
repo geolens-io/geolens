@@ -15,9 +15,17 @@ logger = structlog.stdlib.get_logger(__name__)
 
 @dataclass(frozen=True)
 class AuditEvent:
-    """Immutable audit event passed to every registered AuditSink."""
+    """Immutable audit event passed to every registered AuditSink.
 
-    user_id: uuid.UUID
+    ``user_id`` is optional (uuid.UUID | None): the underlying ``audit_logs.user_id``
+    column is nullable (ON DELETE SET NULL via FK to catalog.users) and is used by:
+    - SAML JIT-provisioning rows that pre-date the user creation
+    - Anonymous-download audit rows (KNOWN-01, Phase 1071): public datasets can
+      be downloaded by anonymous callers, and the audit row records this with
+      user_id=NULL rather than fabricating an actor.
+    """
+
+    user_id: uuid.UUID | None
     action: str
     resource_type: str
     resource_id: uuid.UUID | None = None

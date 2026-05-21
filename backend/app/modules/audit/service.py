@@ -80,14 +80,19 @@ def _apply_filters(
 
 async def log_action(
     session: AsyncSession,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     action: str,
     resource_type: str,
     resource_id: uuid.UUID | None = None,
     details: dict | None = None,
     ip_address: str | None = None,
 ) -> None:
-    """Create an audit log entry. Does NOT commit -- caller's transaction handles it."""
+    """Create an audit log entry. Does NOT commit -- caller's transaction handles it.
+
+    ``user_id=None`` is structurally accepted: the underlying ``audit_logs.user_id``
+    column is nullable (ON DELETE SET NULL FK + SAML-JIT preexisting use case +
+    KNOWN-01 anonymous-download closure).
+    """
     entry = AuditLog(
         user_id=user_id,
         action=action,

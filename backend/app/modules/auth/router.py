@@ -260,11 +260,12 @@ async def create_download_token_endpoint(
 
     # Issue the download-scoped token.
     # - Authenticated user: use AuthService.create_download_token (includes sub claim).
-    # - Anonymous user on public dataset: issue a token without sub — the COG download
-    #   endpoint's _resolve_download_user handles a missing sub gracefully (it only
-    #   attempts a user lookup when sub is present: router_export.py:202-213).
-    #   Using a zero-sub anonymous token would wrongly associate the download with
-    #   a non-existent user; omitting sub is the correct anonymous-download path.
+    # - Anonymous user on public dataset: issue a token without sub. The COG download
+    #   endpoint's _resolve_download_user returns None for sub-less tokens, and
+    #   download_cog branches on user-None to enforce public visibility + emit the
+    #   audit row with user_id=NULL. (KNOWN-01 closure in Phase 1071; v1015
+    #   Phase 1065 left this consumer gap behind — the consumer used to reject
+    #   any sub-less token with 401, breaking the end-to-end anonymous flow.)
     if user is not None:
         from app.modules.auth.providers import AuthenticatedIdentity  # LAZY — per D-17
 
