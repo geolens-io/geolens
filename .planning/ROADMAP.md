@@ -104,8 +104,8 @@
   1. `pytest backend/tests/test_layering.py::test_no_unjustified_broad_except_sites` passes on a clean tree — either the two broad `except:` clauses at `tasks_common.py:231,237` are narrowed to specific exception classes, or each carries an in-line justification comment that the layering rule recognises
   2. A unit test pinning the `database_connect_args` shape across the three ssl-mode branches (`disable`, `require`, default) passes; when `database_ssl_mode == 'disable'`, `connect_args["ssl"]` is `False`, not a TLS context object or absent
   3. Both fixes land with no `pytest.mark.skip` decorators on either named test; running the two named invocations together on a clean `backend/` tree exits green
-**Plans:** 2 plans
-- [ ] 1080-01-PLAN.md — TD-01: justify the two broad-except sites in `_job_phase_session` so `test_no_unjustified_broad_except_sites` passes
+**Plans:** 1/2 plans executed
+- [x] 1080-01-PLAN.md — TD-01: justify the two broad-except sites in `_job_phase_session` so `test_no_unjustified_broad_except_sites` passes
 - [ ] 1080-02-PLAN.md — TD-07: set `connect_args["ssl"] = False` on the disable branch and pin the 3-case `database_connect_args` shape
 
 ### Phase 1081: Test Fixture & Assertion Drift
@@ -146,7 +146,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1080. Production-Code Drift + Config Hygiene | 0/2 | Planned | - |
+| 1080. Production-Code Drift + Config Hygiene | 1/2 | In Progress|  |
 | 1081. Test Fixture & Assertion Drift | 0/? | Not started | - |
 | 1082. Test Environmental | 0/? | Not started | - |
 | 1083. Close Gate | 0/? | Not started | - |

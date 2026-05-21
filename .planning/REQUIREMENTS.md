@@ -13,7 +13,7 @@ Each requirement maps to exactly one phase.
 
 ### Production-Code Drift
 
-- [ ] **TD-01**: Resolve `test_layering.py::test_no_unjustified_broad_except_sites` — production-code drift. The two broad `except:` clauses at `backend/app/platform/jobs/tasks_common.py:231,237` must either be narrowed to a specific exception class OR carry an in-line justification comment that the layering test recognises. Pin behaviour by running `pytest backend/tests/test_layering.py::test_no_unjustified_broad_except_sites` and confirming it PASSES on a clean tree without skip.
+- [x] **TD-01**: Resolve `test_layering.py::test_no_unjustified_broad_except_sites` — production-code drift. The two broad `except:` clauses at `backend/app/platform/jobs/tasks_common.py:231,237` must either be narrowed to a specific exception class OR carry an in-line justification comment that the layering test recognises. Pin behaviour by running `pytest backend/tests/test_layering.py::test_no_unjustified_broad_except_sites` and confirming it PASSES on a clean tree without skip.
 
 ### Test Fixture & Assertion Drift
 
@@ -65,7 +65,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TD-01 | Phase 1080 | Pending |
+| TD-01 | Phase 1080 | Complete |
 | TD-07 | Phase 1080 | Pending |
 | TD-02 | Phase 1081 | Pending |
 | TD-03 | Phase 1081 | Pending |
