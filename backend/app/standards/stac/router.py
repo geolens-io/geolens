@@ -1147,8 +1147,13 @@ class StacSearchBody(BaseModel):
     limit: int = Field(
         default=10,
         ge=1,
-        le=1000,
-        description="Maximum number of items returned (1-1000). Downstream clamp at 200 still applies.",
+        le=200,
+        # WR-01 (Phase 1071 review): le=200 matches the GET /stac/search handler
+        # ceiling (router.py:544). The previous le=1000 created a schema
+        # asymmetry where POST appeared to accept up to 1000 items while the
+        # effective ceiling was 200. Conservative: align schemas so the public
+        # API contract is honest.
+        description="Maximum number of items returned (1-200).",
     )
     offset: int = Field(
         default=0,

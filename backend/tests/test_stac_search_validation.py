@@ -141,12 +141,15 @@ class TestStacSearchBodyBounds:
     """KNOWN-12: POST /stac/search body.limit/offset carry Pydantic ge/le."""
 
     async def test_post_search_limit_above_le_rejected(self, client: AsyncClient):
-        """limit=10001 must be rejected by Pydantic 422 (not silently clamped)."""
-        resp = await client.post("/stac/search", json={"limit": 10001})
+        """limit=201 must be rejected by Pydantic 422 (le=200, WR-01 Phase 1071 review).
+
+        WR-01: POST /stac/search schema now matches GET ceiling (le=200).
+        """
+        resp = await client.post("/stac/search", json={"limit": 201})
         assert resp.status_code == 422, resp.text
         body = resp.json()
         # GeoLens uses RFC 7807 problem-details shape — `detail` is a string
-        # (e.g. "body.limit: Input should be less than or equal to 1000"),
+        # (e.g. "body.limit: Input should be less than or equal to 200"),
         # not FastAPI's default list-of-errors structure.
         detail = str(body.get("detail", "")).lower()
         assert "limit" in detail and (
@@ -164,7 +167,7 @@ class TestStacSearchBodyBounds:
         assert resp.status_code == 422, resp.text
 
     async def test_post_search_limit_within_bounds_accepted(self, client: AsyncClient):
-        """limit=200 (within 1-1000) must pass schema validation."""
+        """limit=200 (at the le=200 ceiling) must pass schema validation."""
         resp = await client.post("/stac/search", json={"limit": 200, "offset": 0})
         # 200 OK or any non-422 — the schema layer accepts.
         assert resp.status_code != 422, resp.text
