@@ -109,7 +109,15 @@ fi
 
 # Refuse to run if the chosen port is in use; a stale container or other
 # postgres on this port would silently mask migration failures.
-if lsof -iTCP:"${PG_PORT}" -sTCP:LISTEN -n -P >/dev/null 2>&1; then
+# WR-02 (Phase 1071 review): lsof is macOS/BSD-native; on Linux it may be
+# absent. Fall back to nc -z (universally available on macOS and Linux) so
+# the port-in-use guard works in both CI environments. The script
+# auto-detects which tool is available.
+_port_in_use() {
+  lsof -iTCP:"${PG_PORT}" -sTCP:LISTEN -n -P >/dev/null 2>&1 \
+    || nc -z 127.0.0.1 "${PG_PORT}" 2>/dev/null
+}
+if _port_in_use; then
   echo "ERROR: port ${PG_PORT} is already in use" >&2
   echo "       override with ALEMBIC_TEST_DB_PORT=<free-port>" >&2
   exit 1
