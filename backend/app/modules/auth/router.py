@@ -9,8 +9,9 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.dependencies import get_current_active_user
+from app.modules.auth.dependencies import get_current_active_user, get_optional_user
 from app.modules.auth.models import ApiKey, User
+from app.core.identity import Identity
 from app.modules.auth.providers import AuthenticationError
 from app.modules.auth.providers.local import LocalAuthProvider
 from app.modules.auth.schemas import (
@@ -20,6 +21,7 @@ from app.modules.auth.schemas import (
     ApiKeyListResponse,
     ChangePasswordRequest,
     ConfigResponse,
+    DownloadTokenResponse,
     PermissionsResponse,
     RefreshRequest,
     RegisterResponse,
@@ -28,6 +30,7 @@ from app.modules.auth.schemas import (
     UserResponse,
 )
 from app.modules.auth.service import AuthService
+from app.core.config import settings
 from app.core.dependencies import get_client_ip, get_db
 from app.core.persistent_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -214,6 +217,78 @@ async def logout(
     service = AuthService(db)
     await service.revoke_all_tokens(current_user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/download-token/{dataset_id}", response_model=DownloadTokenResponse)
+@limiter.limit("60/minute")
+async def create_download_token_endpoint(
+    request: Request,
+    dataset_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> DownloadTokenResponse:
+    """Mint a short-lived download-scoped JWT for a single dataset.
+
+    IA-P0-01 / SEC-04: the existing COG download URL path requires a
+    ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
+    are rejected. This endpoint issues that token after verifying the caller
+    has read access to the dataset.
+
+    Anonymous callers are allowed for public datasets. The returned token has
+    ``typ='download'``, ``scope='dataset:{dataset_id}'``, and a TTL of 120s.
+    """
+    from datetime import UTC, datetime, timedelta  # LAZY — stdlib, per D-17 ordering
+
+    import jwt as _jwt  # LAZY — per D-17
+
+    from app.modules.catalog.authorization import (  # LAZY — per D-17
+        check_dataset_access_or_anonymous,
+    )
+    from app.modules.catalog.datasets.domain.service import (  # LAZY — per D-17
+        get_dataset,
+    )
+
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
+    # check_dataset_access_or_anonymous raises 404 if the caller cannot read
+    # the dataset (private dataset, no access). Allows anonymous on public datasets.
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+
+    # Issue the download-scoped token.
+    # - Authenticated user: use AuthService.create_download_token (includes sub claim).
+    # - Anonymous user on public dataset: issue a token without sub — the COG download
+    #   endpoint's _resolve_download_user handles a missing sub gracefully (it only
+    #   attempts a user lookup when sub is present: router_export.py:202-213).
+    #   Using a zero-sub anonymous token would wrongly associate the download with
+    #   a non-existent user; omitting sub is the correct anonymous-download path.
+    if user is not None:
+        from app.modules.auth.providers import AuthenticatedIdentity  # LAZY — per D-17
+
+        identity = AuthenticatedIdentity(
+            user_id=user.id, username=user.username  # type: ignore[attr-defined]
+        )
+        service = AuthService(db)
+        token = service.create_download_token(identity, dataset_id)
+    else:
+        # Anonymous download token for public dataset — no sub claim.
+        now = datetime.now(UTC)
+        payload = {
+            "typ": "download",
+            "scope": f"dataset:{dataset_id}",
+            "exp": now + timedelta(seconds=120),
+            "iat": now,
+        }
+        token = _jwt.encode(
+            payload,
+            settings.jwt_secret_key.get_secret_value(),
+            algorithm=settings.jwt_algorithm,
+        )
+
+    return DownloadTokenResponse(token=token, expires_in=120)
 
 
 @router.get("/config/", response_model=ConfigResponse)

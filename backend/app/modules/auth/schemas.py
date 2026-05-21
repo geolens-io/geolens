@@ -17,6 +17,13 @@ class TokenResponse(BaseModel):
     expires_in: int = Field(description="Seconds until the access token expires")
 
 
+class DownloadTokenResponse(BaseModel):
+    token: str = Field(
+        description="Short-lived download-scoped JWT (typ='download', TTL ≤ 120s)"
+    )
+    expires_in: int = Field(default=120, description="Seconds until the download token expires")
+
+
 class UserCreate(BaseModel):
     username: str = Field(
         min_length=3,
