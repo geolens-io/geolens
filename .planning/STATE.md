@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1015
 milestone_name: Ingest/Export Lifecycle Hardening
-status: Ready to start Phase 1065
+status: completed
 stopped_at: Roadmap created — ready to plan Phase 1065
-last_updated: "2026-05-21T00:30:12.567Z"
-last_activity: 2026-05-21 — ROADMAP.md created for v1015; 13/13 requirements mapped across 6 phases (1065-1070)
+last_updated: "2026-05-21T00:44:44.909Z"
+last_activity: 2026-05-21 -- Phase 1065 marked complete
 progress:
   total_phases: 11
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 1
-  percent: 0
+  completed_plans: 3
+  percent: 9
 ---
 
 # State
 
 ## Current Position
 
-Phase: Phase 1065 - Download Token Wiring + Reupload IDOR Closure
+Phase: 1065 — COMPLETE
 Plan: —
-Status: Ready to start Phase 1065
-Last activity: 2026-05-21 — ROADMAP.md created for v1015; 13/13 requirements mapped across 6 phases (1065-1070)
+Status: Phase 1065 complete
+Last activity: 2026-05-21 -- Phase 1065 marked complete
 
 Progress: [░░░░░░░░░░] 0%
 
