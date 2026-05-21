@@ -677,27 +677,53 @@ async def run_ogr2ogr_service(
     # validate_url_for_ssrf runs at submission time but ogr2ogr does its own
     # HTTP; GDAL_HTTP_FOLLOWLOCATION=NO is the only way to disable
     # redirect-following in libcurl under GDAL.
-    if token and service_type in ("wfs", "ogcapi_features"):
-        safe_token = _sanitize_authorization_token(token)  # SEC-FU-04: raises ValueError before subprocess
-        env = {
-            **os.environ,
-            "GDAL_HTTP_HEADERS": f"Authorization: Bearer {safe_token}",
-            "GDAL_HTTP_FOLLOWLOCATION": "NO",
-        }
-    else:
+    #
+    # IA-P1-06 (Phase 1068): Authorization headers MUST NOT pass through the
+    # subprocess env (visible via /proc/<pid>/environ for the lifetime of the
+    # process). Switch to GDAL_HTTP_HEADER_FILE pointed at a 0600 tempfile
+    # that holds the header line — the env var is the file PATH, not the
+    # token. The tempfile is unlinked in the finally block below.
+    header_file_path: str | None = None
+    try:
         env = {**os.environ, "GDAL_HTTP_FOLLOWLOCATION": "NO"}
+        if token and service_type in ("wfs", "ogcapi_features"):
+            safe_token = _sanitize_authorization_token(token)  # SEC-FU-04: raises ValueError before subprocess
+            # Write the header to a 0600 tempfile under the staging dir
+            # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600
+            # (NamedTemporaryFile already creates owner-only on POSIX, but
+            # set explicitly for clarity).
+            import tempfile
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
+            fd, header_file_path = tempfile.mkstemp(
+                prefix="gdal_auth_", suffix=".hdr"
+            )
+            try:
+                os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
+            finally:
+                os.close(fd)
+            os.chmod(header_file_path, 0o600)
+            env["GDAL_HTTP_HEADER_FILE"] = header_file_path
 
-    # Use the shared helper for graceful kill-on-timeout (R-9).
-    stdout, stderr = await _communicate_with_timeout(
-        proc, timeout, tool_name="ogr2ogr (service)"
-    )
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+
+        # Use the shared helper for graceful kill-on-timeout (R-9).
+        stdout, stderr = await _communicate_with_timeout(
+            proc, timeout, tool_name="ogr2ogr (service)"
+        )
+    finally:
+        if header_file_path is not None:
+            try:
+                os.unlink(header_file_path)
+            except OSError:
+                # File may have been removed by another process; not a security
+                # concern since contents are only the bearer token + we wrote
+                # the file as 0600.
+                pass
 
     if proc.returncode != 0:
         stripped = _strip_ogr_driver_list(stderr.decode())  # SEED-04: strip driver list noise

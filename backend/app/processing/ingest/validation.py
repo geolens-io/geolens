@@ -4,8 +4,10 @@ Validates uploaded files beyond extension checks:
 - Content-type verification via magic byte detection (puremagic)
 - ZIP archive safety (compression ratio, nested archives, decompressed size)
 - File size enforcement against configured limits
+- VRT XML sniff + path-traversal guard on `<SourceFilename>` body (IA-P1-03)
 """
 
+import re
 import zipfile
 from pathlib import Path
 
@@ -31,6 +33,17 @@ EXTENSION_CONTENT_MAP: dict[str, set[str]] = {
     ".xls": {".xls", ".doc"},  # Old BIFF format
 }
 
+# Maximum bytes to read when scanning a .vrt body for path-traversal markers.
+VRT_BODY_SCAN_LIMIT = 256 * 1024  # 256 KiB
+
+# Regex to extract <SourceFilename> body content from VRT XML. The VRT
+# driver supports both relative paths and absolute paths; we reject any
+# `..` segment or absolute path that escapes the staging directory.
+_VRT_SOURCEFILENAME_RE = re.compile(
+    rb"<SourceFilename(?:[^>]*)>([^<]*)</SourceFilename>",
+    re.IGNORECASE,
+)
+
 # ZIP bomb thresholds
 MAX_COMPRESSION_RATIO = 500
 MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
@@ -54,12 +67,98 @@ def _is_text_content(header: bytes) -> bool:
     return b"\x00" not in header
 
 
+def validate_vrt_body(file_path: str) -> None:
+    """Validate a .vrt file's XML body for path-traversal markers.
+
+    IA-P1-03 (Phase 1068): the GDAL VRT driver follows `<SourceFilename>`
+    body content as if it were a path/URL. A malicious VRT can declare
+    `<SourceFilename>../../etc/hostname</SourceFilename>` and GDAL will
+    happily open the resolved path, leaking host content into the raster
+    pipeline. Defense-in-depth alongside the staging-dir resolution check
+    in `manifest_sources.classify_manifest_source`.
+
+    Rejects:
+    - VRTs whose XML body doesn't start with `<VRTDataset`
+    - `<SourceFilename>` containing any `..` segment
+    - `<SourceFilename>` resolving to an absolute path (`/etc/x` etc.)
+      EXCEPT recognized GDAL VSI prefixes (/vsis3/, /vsicurl/, /vsizip/)
+      which the COG ingest path legitimately uses for managed-storage VRTs.
+
+    Raises ValueError with user-friendly message on any violation.
+    """
+    # Cap read size — VRTs should be small XML. Anything beyond a few KB
+    # is suspicious in itself, but we cap at 256 KiB for safety while
+    # still allowing legitimate large band-stacks (~thousands of sources).
+    with open(file_path, "rb") as f:
+        body = f.read(VRT_BODY_SCAN_LIMIT)
+
+    if not body:
+        raise ValueError("The uploaded VRT file is empty.")
+
+    # Strip leading whitespace + XML declaration; the root element must
+    # be VRTDataset for this to be a valid VRT.
+    stripped = body.lstrip()
+    if stripped.startswith(b"<?xml"):
+        # Skip past the XML declaration
+        idx = stripped.find(b"?>")
+        if idx != -1:
+            stripped = stripped[idx + 2 :].lstrip()
+    if not stripped.startswith(b"<VRTDataset"):
+        raise ValueError(
+            "File has .vrt extension but is not a valid VRT XML document "
+            "(missing <VRTDataset root element)."
+        )
+
+    # Scan every <SourceFilename> for path-traversal markers.
+    vsi_prefixes = (
+        "/vsis3/",
+        "/vsicurl/",
+        "/vsizip/",
+        "/vsigs/",
+        "/vsiaz/",
+        "/vsitar/",
+        "/vsimem/",
+    )
+    for match in _VRT_SOURCEFILENAME_RE.finditer(body):
+        raw_path = match.group(1).decode("utf-8", errors="replace").strip()
+        # Reject `..` segments anywhere in the path
+        if ".." in raw_path:
+            logger.warning(
+                "VRT body contains path-traversal marker",
+                event_type="security",
+                reason="vrt_path_traversal",
+                source_filename=raw_path[:200],
+            )
+            raise ValueError(
+                f"VRT <SourceFilename> contains path-traversal marker: {raw_path!r}. "
+                "Use relative paths without '..' segments or VSI URIs."
+            )
+        # Reject absolute paths unless they're GDAL VSI prefixes
+        if raw_path.startswith("/") and not raw_path.startswith(vsi_prefixes):
+            logger.warning(
+                "VRT body contains absolute filesystem path",
+                event_type="security",
+                reason="vrt_absolute_path",
+                source_filename=raw_path[:200],
+            )
+            raise ValueError(
+                f"VRT <SourceFilename> uses absolute path: {raw_path!r}. "
+                "Use relative paths or VSI URIs (e.g., /vsis3/, /vsicurl/)."
+            )
+
+
 def validate_file_content(file_path: str, filename: str) -> None:
     """Verify file content matches declared extension via magic bytes.
 
     Raises ValueError with user-friendly message on mismatch or empty file.
     """
     suffix = Path(filename).suffix.lower()
+
+    # IA-P1-03: .vrt gets its own XML+traversal check (magic bytes are
+    # XML which puremagic doesn't reliably distinguish from generic text).
+    if suffix == ".vrt":
+        validate_vrt_body(file_path)
+        return
 
     with open(file_path, "rb") as f:
         header = f.read(HEADER_READ_SIZE)

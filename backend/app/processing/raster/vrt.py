@@ -1,11 +1,29 @@
 """VRT build module: gdalbuildvrt subprocess wrappers and source path resolver."""
 
+import os
 import subprocess
 from contextlib import ExitStack
 from pathlib import Path
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
 from app.core.config import settings
+
+
+# IA-P1-03 (Phase 1068): clamp the GDAL VSI surface that VRT processing
+# can reach. CPL_VSIL_CURL_ALLOWED_EXTENSIONS gates which URL-fetched
+# extensions GDAL will open; VRT_VIRTUAL_OVERVIEWS=NO blocks the implicit
+# overview-pyramid expansion that could pull additional remote sources
+# during a VRT build.
+_VRT_SAFE_ENV: dict[str, str] = {
+    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "tif,tiff,vrt",
+    "VRT_VIRTUAL_OVERVIEWS": "NO",
+    "GDAL_HTTP_FOLLOWLOCATION": "NO",
+}
+
+
+def _gdal_safe_env() -> dict[str, str]:
+    """Return os.environ overlaid with VRT/GDAL safety clamps."""
+    return {**os.environ, **_VRT_SAFE_ENV}
 
 # Maps VrtCreateRequest resolution_strategy values to gdalbuildvrt -resolution values.
 _RES_MAP: dict[str, str] = {
@@ -197,7 +215,12 @@ def _build_vrt(
         cmd.append("-separate")
     cmd.extend(["-resolution", gdal_res, output_path, *source_paths])
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=_gdal_safe_env(),
+        )
     except FileNotFoundError:
         return _write_python_vrt(
             source_paths,
