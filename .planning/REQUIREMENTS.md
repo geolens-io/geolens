@@ -13,7 +13,7 @@ Each maps to exactly one phase.
 
 - [x] **TI-01**: Conftest test-DB lifecycle refactor — eliminate the 1363 `asyncpg.exceptions.InvalidCatalogNameError` errors observed in v1016 Phase 1074 full-suite run. Per-test database creation/teardown must succeed reliably across the entire `backend/tests/` tree under `pytest -x` and `pytest -n auto`.
 - [x] **TI-02**: Fix 11 v1015 baseline pytest failures — `test_defer_orphan_guard.py` ×3, `test_ingest.py` ×3, `test_maps_style_json.py` ×5. Failures must be either fixed at root cause (production code or test logic) or skipped with a documented rationale in a `pytest.mark.skip(reason=...)` decorator linked to an issue. (Plan 02: 3/11 fixed — test_defer_orphan_guard.py complete. Plans 03 + 04 cover the remaining 8.)
-- [ ] **TI-03**: Establish post-v1017 pytest baseline — full `backend/tests/` suite passes (or has documented skips only); zero `InvalidCatalogNameError` errors. Captured in a baseline doc at `.planning/audits/PYTEST-BASELINE-2026-05-21.md` so future regressions are spotted immediately.
+- [x] **TI-03**: Establish post-v1017 pytest baseline — full `backend/tests/` suite passes (or has documented skips only); zero `InvalidCatalogNameError` errors. Captured in a baseline doc at `.planning/audits/PYTEST-BASELINE-2026-05-21.md` so future regressions are spotted immediately.
 
 ### CI Hardening
 
@@ -33,11 +33,11 @@ Drawn from `.planning/audits/INGEST-AUDIT-2026-05-21.md`. P2-06 + P2-07 were clo
 
 ### Verification Gap
 
-- [ ] **VG-01**: Phase 1071 KNOWN-02 docker-smoke re-verify — confirm the alembic clean-DB upgrade script runs successfully against a freshly built `docker compose up -d --build` stack (db + api + worker). Document any environmental discrepancies between the in-script approach and live container runtime. Closes the deferred follow-up flagged in v1016 STATE.md `Deferred Items`.
+- [x] **VG-01**: Phase 1071 KNOWN-02 docker-smoke re-verify — confirm the alembic clean-DB upgrade script runs successfully against a freshly built `docker compose up -d --build` stack (db + api + worker). Document any environmental discrepancies between the in-script approach and live container runtime. Closes the deferred follow-up flagged in v1016 STATE.md `Deferred Items`.
 
 ### Hygiene Close
 
-- [ ] **HYG-01**: Quick_tasks tail triage — review the 174 carried `quick_tasks` records, archive or close those superseded by v1014/v1015/v1016 work, and move any still-relevant items into `.planning/todos/pending/` with proper frontmatter. Goal: trim the tail to under 50 active items.
+- [x] **HYG-01**: Quick_tasks tail triage — review the 174 carried `quick_tasks` records, archive or close those superseded by v1014/v1015/v1016 work, and move any still-relevant items into `.planning/todos/pending/` with proper frontmatter. Goal: trim the tail to under 50 active items.
 
 ## Future Requirements
 
@@ -66,7 +66,7 @@ Populated by `gsd-roadmapper` 2026-05-21.
 |-------------|-------|--------|
 | TI-01 | Phase 1075 | Complete |
 | TI-02 | Phase 1075 | Complete (11/11 — Plans 02 + 03 + 04 done) |
-| TI-03 | Phase 1079 | Pending |
+| TI-03 | Phase 1079 | Complete |
 | CI-01 | Phase 1078 | Complete |
 | ING-01 | Phase 1077 | Complete |
 | ING-02 | Phase 1076 | Complete |
@@ -75,8 +75,8 @@ Populated by `gsd-roadmapper` 2026-05-21.
 | ING-05 | Phase 1077 | Complete |
 | ING-06 | Phase 1076 | Complete |
 | ING-07 | Phase 1076 | Complete |
-| VG-01 | Phase 1079 | Pending |
-| HYG-01 | Phase 1079 | Pending |
+| VG-01 | Phase 1079 | Complete |
+| HYG-01 | Phase 1079 | Complete |
 
 **Coverage:**
 - v1017 requirements: 13 total

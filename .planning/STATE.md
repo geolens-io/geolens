@@ -2,34 +2,34 @@
 gsd_state_version: 1.0
 milestone: v1017
 milestone_name: Test Infra & Audit Tail
-status: executing
-stopped_at: Phase 1078 complete (2/2 plans); CI-01 + SEC-OBSV-03 closed; ready for Phase 1079 (close gate + hygiene)
-last_updated: "2026-05-21T20:45:00.000Z"
-last_activity: 2026-05-21 -- Phase 1078 complete; CI alembic clean-DB workflow wired (CI-01)
+status: complete
+stopped_at: v1017 close-gate complete; all 5 phases (1075-1079) and 13/13 requirements satisfied; tags v1017 + v1.5.2 cut
+last_updated: "2026-05-21T21:05:00.000Z"
+last_activity: 2026-05-21 -- v1017 close-gate complete
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
-  percent: 80
+  completed_phases: 5
+  total_plans: 20
+  completed_plans: 20
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1078 (ci-alembic-clean-db-upgrade-workflow) — COMPLETE
-Plan: 2 of 2 — Close-gate landed
-Status: Phase 1078 complete; ready for Phase 1079
-Last activity: 2026-05-21 -- Phase 1078 complete; CI alembic clean-DB workflow wired (CI-01)
-Next phase: 1079 (Close Gate + Hygiene — gated on 1075/1076/1077/1078, all now closed)
+Phase: 1079 (close-gate-hygiene) — COMPLETE
+Plan: 5 of 5
+Status: v1017 milestone close-gate complete; ready for /gsd-audit-milestone → /gsd-complete-milestone v1017 → /gsd-cleanup
+Last activity: 2026-05-21 -- Phase 1079 closed; 13/13 reqs satisfied
+Next phase: Milestone lifecycle (audit → complete → cleanup)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1079 — close gate + hygiene (next eligible)
+**Current focus:** Phase 1079 — close-gate-hygiene
 
 ## Last Shipped Milestone
 

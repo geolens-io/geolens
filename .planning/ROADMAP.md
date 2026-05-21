@@ -76,7 +76,7 @@
 - ✅ **v1014 Security Audit Remediation** — Phases 1061-1064 (shipped 2026-05-20, local tag `v1014`, public tag `v1.4.0`) — see [archive](milestones/v1014-ROADMAP.md)
 - ✅ **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (shipped 2026-05-20, local tag `v1015`, public tag `v1.5.0`) — see [archive](milestones/v1015-ROADMAP.md)
 - ✅ **v1016 Hardening Sweep** — Phases 1071-1074 (shipped 2026-05-21, local tag v1016, public tag v1.5.1) — see [archive](milestones/v1016-ROADMAP.md)
-- 🚧 **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (in progress)
+- ✅ **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (shipped 2026-05-21, local tag `v1017`, public tag `v1.5.2`)
 
 ## Phases
 
@@ -98,7 +98,7 @@
 
 ---
 
-### 🚧 v1017 Test Infra & Audit Tail (In Progress)
+### ✅ v1017 Test Infra & Audit Tail (Shipped 2026-05-21)
 
 **Milestone Goal:** Restore test signal accuracy by refactoring the broken conftest test-DB lifecycle that produced 1363 `InvalidCatalogNameError` errors in v1016's full pytest run; fix the 11 carried baseline pytest failures so a green suite means something; close the 7 deferred P2 ingest findings (TD-DEFER-01..08, minus the 1 closed in v1016); wire `test_alembic_upgrade_clean_db.sh` (built in v1016 Phase 1071) into GitHub Actions to close SEC-OBSV-03; re-verify the deferred Phase 1071 KNOWN-02 docker smoke; and trim the 174-item quick_tasks tail to under 50. Public tag target: `v1.5.2` (patch — hygiene/hardening only, no user-facing features).
 
@@ -108,7 +108,7 @@
 - [x] **Phase 1076: Backend Ingest P2 Closure** - Close 5 backend P2 findings: metadata.py internal commit subversion (P2-02), local-storage COG streaming (P2-03), worker exports temp-dir age guard (P2-04), reupload swap autovacuum retry (P2-08), strict_cog raster commit flag (P2-09) (Complete 2026-05-21; 256/256 targeted regression tests passing)
 - [x] **Phase 1077: Frontend Ingest P2 Closure** - Extract `getCogDownloadUrl()` helper (P2-01) and shared `uploadChunks()` presigned-upload helper (P2-05) so future retry/abort/backoff lands in one place (Complete 2026-05-21; 2105/2105 vitest tests passing across 213 files; `tsc -b` exit 0 with zero errors in touched files)
 - [x] **Phase 1078: CI Alembic Clean-DB Upgrade Workflow** - Wire `test_alembic_upgrade_clean_db.sh` into a GitHub Actions workflow that spins up a clean Postgres + PostGIS, runs `alembic upgrade head`, and fails the build on migration regressions (Complete 2026-05-21; YAML lint exit 0; all 4 acceptance greps green; SEC-OBSV-03 closed structurally — e2e live-stack verify deferred to Phase 1079 VG-01)
-- [ ] **Phase 1079: Close Gate + Hygiene** - Capture post-v1017 pytest baseline doc (TI-03), docker-smoke re-verify deferred Phase 1071 KNOWN-02 (VG-01), triage 174 quick_tasks to <50 active (HYG-01), full close-gate protocol (pytest + typecheck + e2e:smoke + live MCP), CHANGELOG `[1.5.2] - 2026-05-21`, tag `v1017` + `v1.5.2`
+- [x] **Phase 1079: Close Gate + Hygiene** - (Complete 2026-05-21; TI-03 baseline doc, VG-01 docker-smoke re-verify (3 latent script bugs fixed inline), HYG-01 archived 196 quick_tasks, full close-gate green, CHANGELOG [1.5.2] entry, tags cut) — was: Capture post-v1017 pytest baseline doc (TI-03), docker-smoke re-verify deferred Phase 1071 KNOWN-02 (VG-01), triage 174 quick_tasks to <50 active (HYG-01), full close-gate protocol (pytest + typecheck + e2e:smoke + live MCP), CHANGELOG `[1.5.2] - 2026-05-21`, tag `v1017` + `v1.5.2`
 
 ## Phase Details
 
@@ -188,7 +188,7 @@
 | 1076. Backend Ingest P2 Closure | 6/6 | Complete | 2026-05-21 |
 | 1077. Frontend Ingest P2 Closure | 2/2 | Complete | 2026-05-21 |
 | 1078. CI Alembic Clean-DB Upgrade Workflow | 2/2 | Complete | 2026-05-21 |
-| 1079. Close Gate + Hygiene | 0/0 | Not started | - |
+| 1079. Close Gate + Hygiene | 5/5 | Complete | 2026-05-21 |
 
 ## Backlog
 
