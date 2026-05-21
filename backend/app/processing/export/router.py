@@ -12,7 +12,7 @@ from starlette.background import BackgroundTask
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
-from app.modules.auth.dependencies import get_current_active_user
+from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
 from app.platform.extensions import get_processing_port
 from app.processing.export.ogr import ExportError
@@ -40,7 +40,11 @@ async def export_dataset_endpoint(
     where: str | None = Query(
         None, description="Attribute filter expression, e.g. pop > 1000"
     ),
-    user: Identity = Depends(get_current_active_user),
+    # IA-P1-01 (Phase 1069): gate on the "export" capability instead of
+    # bare authentication. Mirrors router_export.download_cog (:236-245)
+    # which already consults the matrix. Closes the asymmetry where an
+    # admin revoking "export" from "viewer" still allowed vector export.
+    user: Identity = Depends(require_permission("export")),
     db: AsyncSession = Depends(get_db),
 ) -> FileResponse:
     """Export a dataset as a downloadable file.

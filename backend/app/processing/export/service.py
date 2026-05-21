@@ -63,7 +63,33 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
-    # Phase 1062 SEC-S09: AST gate FIRST — rejects UNION / subqueries / DDL /
+    # IA-P1-04 (Phase 1069): explicit pre-parse rejection of meta-SQL tokens.
+    # validate_where_ast (v1014 SEC-S09) catches most of these via AST allowlist,
+    # but explicit string-level rejection gives a clearer error and provides
+    # defense-in-depth against a sqlglot parser bug that silently tolerates a
+    # statement terminator or comment in a future release.
+    if ";" in where:
+        raise ValueError(
+            "WHERE clause must not contain statement terminator ';'"
+        )
+    if "--" in where:
+        raise ValueError(
+            "WHERE clause must not contain SQL line comment '--'"
+        )
+    if "/*" in where or "*/" in where:
+        raise ValueError(
+            "WHERE clause must not contain SQL block comment '/* */'"
+        )
+    # Unbalanced single-quote check — count unescaped quotes; legal usage is
+    # always even (open + close). SQL '' is the escape sequence so we collapse
+    # those first.
+    quote_count = where.replace("''", "").count("'")
+    if quote_count % 2 != 0:
+        raise ValueError(
+            "WHERE clause has unbalanced single-quotes"
+        )
+
+    # Phase 1062 SEC-S09: AST gate — rejects UNION / subqueries / DDL /
     # function calls that the identifier-only regex below cannot detect.
     validate_where_ast(where)
 
