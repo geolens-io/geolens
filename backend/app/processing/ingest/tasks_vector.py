@@ -74,9 +74,14 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 )
                 return
 
-            # 1. Update job to running
+            # 1. Update job to running.
+            # REMED-02 / ingest-audit P2-07: stamp current_step + progress
+            # together with status so the polling UI gets a fresh "validating"
+            # signal on the very first poll after the worker picks up the job.
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
+            job.current_step = "validating"
+            job.progress = 0.0
             await session.commit()
 
             # Resolve S3 key to local file for ogr2ogr
@@ -172,6 +177,23 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
         # then construct geometry post-import. This ensures the override
         # works even for CSVs where GDAL would auto-detect geometry.
         ogr_geometry_type = None if user_wants_geom else geometry_type
+
+        # REMED-02 / ingest-audit P2-07: write current_step="ogr2ogr" BEFORE
+        # the long subprocess so the UI sees the transition even if ogr2ogr
+        # hangs. A brief-session pattern (mirrors phase-2 re-load below) is
+        # required here — the #100 greenlet rule forbids holding a session
+        # open across run_ogr2ogr, but the progress write must commit so it
+        # cannot be lost on rollback if ogr2ogr raises.
+        async with async_session() as _progress_session:
+            _progress_result = await _progress_session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            _progress_job = _progress_result.scalar_one_or_none()
+            if _progress_job is not None:
+                _progress_job.current_step = "ogr2ogr"
+                _progress_job.progress = 0.1
+                await _progress_session.commit()
+
         await run_ogr2ogr(
             file_path,
             table_name,
@@ -199,6 +221,14 @@ async def ingest_file(job_id: str, file_path: str, user_id: str, **kwargs) -> No
                 return
 
             try:
+                # REMED-02 / ingest-audit P2-07: progress signal for phase-2 work.
+                # Intentionally NOT committed here — participates in the same
+                # transaction as _finalize_ingest's terminal commit so a rollback
+                # cleans this up too. The brief-session "ogr2ogr" write above
+                # is the durable mid-flight checkpoint.
+                job.current_step = "finalize"
+                job.progress = 0.7
+
                 # 3a. Rename any source column that collides with a GeoLens-internal
                 #     name (gid, geom, geometry, geom_4326, fid, ogc_fid). Runs BEFORE
                 #     the user-geometry-override and _finalize_ingest steps so that
@@ -425,9 +455,16 @@ async def ingest_service(
                 )
                 return
 
-            # 1. Update job to running
+            # 1. Update job to running.
+            # REMED-02 / ingest-audit P2-07: mirror ingest_file's progress
+            # writes so the polling UI shows step transitions for service
+            # ingests too. The service path has the same step boundaries as
+            # the file path (validating -> ogr2ogr -> finalize -> complete)
+            # except there is no "archiving" — services don't archive originals.
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
+            job.current_step = "validating"
+            job.progress = 0.0
             await session.commit()
 
             # 2. Determine service type from job metadata
@@ -463,6 +500,19 @@ async def ingest_service(
         # across this subprocess is what triggers the MissingGreenlet bug.
         # ----------------------------------------------------------------- #
         db_conn_str = build_pg_conn_str()
+
+        # REMED-02 / ingest-audit P2-07: stamp current_step="ogr2ogr" before
+        # the long remote-service fetch (same brief-session pattern as
+        # ingest_file).
+        async with async_session() as _progress_session:
+            _progress_result = await _progress_session.execute(
+                select(IngestJob).where(IngestJob.id == job_uuid)
+            )
+            _progress_job = _progress_result.scalar_one_or_none()
+            if _progress_job is not None:
+                _progress_job.current_step = "ogr2ogr"
+                _progress_job.progress = 0.1
+                await _progress_session.commit()
 
         # WFS namespace retry via shared helper (KISS-8).
         async def _do_import(layer_name: str) -> None:
@@ -504,6 +554,12 @@ async def ingest_service(
                 return
 
             try:
+                # REMED-02 / ingest-audit P2-07: mirror ingest_file's phase-2
+                # progress write. Uncommitted — _finalize_ingest's terminal
+                # commit owns the transaction lifecycle.
+                job.current_step = "finalize"
+                job.progress = 0.7
+
                 # 4a. Rename any source column that collides with a GeoLens-internal
                 #     name. Runs BEFORE _finalize_ingest (which calls add_4326_column).
                 from app.processing.ingest.metadata import rename_reserved_columns

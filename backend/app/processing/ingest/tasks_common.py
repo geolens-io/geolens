@@ -743,10 +743,18 @@ async def _finalize_ingest(ctx: IngestContext):
     )
     dataset.quality_detail = quality_score
 
-    # Update job to complete and commit dataset + job atomically
+    # Update job to complete and commit dataset + job atomically.
+    # REMED-02 / ingest-audit P2-07: stamp the terminal progress signal so the
+    # polling UI sees current_step=complete + progress=1.0 immediately on
+    # success. ``rows_processed`` is the feature_count derived by
+    # ``extract_metadata`` above; raster ingests (which do not call this
+    # helper) leave the column NULL — see tasks_raster.ingest_raster.
     job.status = "complete"
     job.dataset_id = dataset.id
     job.completed_at = datetime.now(timezone.utc)
+    job.current_step = "complete"
+    job.progress = 1.0
+    job.rows_processed = metadata.get("feature_count")
     await session.commit()
 
     # Generate vector quicklook thumbnail (non-fatal, after commit).
