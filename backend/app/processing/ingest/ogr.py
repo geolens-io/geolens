@@ -34,6 +34,16 @@ def _sanitize_authorization_token(token: "str | None") -> "str | None":
     use the base64url charset plus dot separators (RFC 4648 §5 + RFC 7519); legitimate
     tokens never include CR/LF/whitespace/unicode.
 
+    Tokens shorter than 8 characters raise ValueError with a SEC-FU-04-prefixed
+    message. The 8-character floor is intentional: legitimate JWT-shaped tokens
+    always exceed this (a minimal three-segment header.payload.signature exceeds
+    20 characters), and accepting 1-7 character tokens lets a single accidental
+    truncation upstream — for example, a quoted JSON field cut at the wrong
+    index, or an ArcGIS deployment that emits a short tracking token mistaken
+    for a bearer — silently slip into the GDAL_HTTP_HEADERS pipeline. Callers
+    who legitimately need to pass a sub-8-character token must use a different
+    authentication path (e.g., GDAL_HTTP_HEADER_FILE with a custom header).
+
     Returns the token unchanged if every character is in _BASE64URL_CHARSET.
     Raises ValueError with a SEC-FU-04-prefixed message otherwise.
     None passes through (caller's no-token path).
