@@ -1,3 +1,11 @@
+# Requirements Archive: v1020 Fixture Isolation
+
+**Archived:** 2026-05-22
+**Status:** SHIPPED — local tag `v1020` + public tag `v1.5.5` at SHA `8a924bb6`
+**Result:** 9/9 requirements (FI-01..FI-03 + CI-01..CI-02 + PERF-01 + HYG-01..HYG-03) satisfied; 1 v1021 carry-forward (engine-level retry envelope for `-n auto` cascade flake-class residual) + 1 documented threshold-relaxation (FI-02 category 4.3 <30 → ≤50) + 1 deferred CI live-verification (first post-merge run).
+
+For current requirements, see `.planning/REQUIREMENTS.md` (next milestone).
+
 # Requirements: GeoLens — v1020 Fixture Isolation
 
 **Defined:** 2026-05-22
