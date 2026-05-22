@@ -78,8 +78,15 @@
 - ✅ **v1016 Hardening Sweep** — Phases 1071-1074 (shipped 2026-05-21, local tag v1016, public tag v1.5.1) — see [archive](milestones/v1016-ROADMAP.md)
 - ✅ **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (shipped 2026-05-21, local tag `v1017`, public tag `v1.5.2`)
 - ✅ **v1018 Hygiene — v1017 Tech-Debt Tail** — Phases 1080-1083 (shipped 2026-05-21, local tag `v1018`, public tag `v1.5.3`) — see [archive](milestones/v1018-ROADMAP.md)
+- 🚧 **v1019 Hygiene Tail — v1018 Frontend + xdist + Process** — Phases 1084-1086 (in progress, target public tag `v1.5.4`) — see [archive](milestones/v1019-ROADMAP.md)
 
 ## Phases
+
+### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (In Progress)
+
+🚧 Active — 3 phases (1084-1086), 6 requirements (TD-09..TD-14). Frontend hygiene (36 TS errors + `/maps/new` 422 console-noise + `/api/api/` doubled-prefix), `pytest -n auto` xdist Postgres recovery cascade (spike-first then fix), process tightening (REQ nodeID pinning + executor SUMMARY checkbox flip; repo retro + global GSD skill update), TD-07 runtime symmetry rebuild bundled into close gate. Target public tag `v1.5.4` (patch — hygiene only, no migrations, no user-facing features). See [archive](milestones/v1019-ROADMAP.md) for phase detail.
+
+---
 
 ### v1017 Test Infra & Audit Tail (Shipped 2026-05-21)
 

@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1019
 milestone_name: Hygiene Tail — v1018 Frontend + xdist + Process
-status: planning
-last_updated: "2026-05-22T00:45:01.180Z"
+status: roadmap_ready
+last_updated: "2026-05-22T01:00:00.000Z"
 last_activity: 2026-05-22
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,78 +17,74 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap defined, ready for plan-phase)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-22 — Milestone v1019 started
+Status: Roadmap ready
+Last activity: 2026-05-22 — ROADMAP.md created for v1019; 6/6 reqs mapped
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1080 — Production-Code Drift + Config Hygiene
+**Current focus:** Phase 1084 — Frontend Hygiene Tail (first phase of v1019)
 
 ## Last Shipped Milestone
 
-**Version:** v1017 Test Infra & Audit Tail
+**Version:** v1018 Hygiene — v1017 Tech-Debt Tail
 **Shipped:** 2026-05-21
-**Phases:** 1075-1079 (5 phases, 13/13 reqs)
-**Tag:** `v1017` (local) + `v1.5.2` (public) at commit `c968392b`
-**Archive:** `.planning/milestones/v1017-ROADMAP.md`
+**Phases:** 1080-1083 (4 phases, 8/8 reqs)
+**Tag:** `v1018` (local) + `v1.5.3` (public) at commit `d1b76061`
+**Archive:** `.planning/milestones/v1018-ROADMAP.md`
 
-**Previous:** v1016 Hardening Sweep (shipped 2026-05-21, public tag `v1.5.1`, archive `.planning/milestones/v1016-ROADMAP.md`)
+**Previous:** v1017 Test Infra & Audit Tail (shipped 2026-05-21, public tag `v1.5.2`, archive `.planning/milestones/v1017-ROADMAP.md`)
 
-## Phase Plan (v1018)
+## Phase Plan (v1019)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1080 | Production-Code Drift + Config Hygiene | TD-01, TD-07 | — |
-| 1081 | Test Fixture & Assertion Drift | TD-02, TD-03, TD-05, TD-06 | 1080 |
-| 1082 | Test Environmental | TD-04 | 1081 |
-| 1083 | Close Gate | TD-08 | 1080, 1081, 1082 |
+| 1084 | Frontend Hygiene Tail (TS errors + /maps/new 422s + /api/api/ prefix) | TD-09, TD-11, TD-12 | — |
+| 1085 | pytest -n auto Stabilization (xdist spike + chosen fix) | TD-10 | 1084 |
+| 1086 | Process Tightening + Close Gate (retro + skill update + TD-07 runtime rebuild + tags) | TD-13, TD-14 | 1084, 1085 |
 
-**Coverage:** 8/8 requirements mapped — no orphans.
+**Coverage:** 6/6 requirements mapped — no orphans.
 
 ## Accumulated Context
 
 ### Decisions
 
-- **2026-05-21 (v1018 roadmap):** Phase 1080 pairs TD-01 (broad-except layering test) + TD-07 (database_connect_args SSL disable branch) — both are production-code changes (1-2 lines each) with regression tests; keeping them in one atomic phase minimises the production touch surface and lets Phase 1081 start from a provably clean baseline.
-- **2026-05-21 (v1018 roadmap):** Phase 1081 groups TD-02 + TD-03 + TD-05 + TD-06 — all four are test-side drift fixes with no production-code changes. TD-02/TD-03 share the SEC-S16 root cause; TD-05 collapses two sibling tests with one root cause (per REQUIREMENTS.md intentional `×2` notation); TD-06 is an async loop contamination fix at the fixture or teardown level.
-- **2026-05-21 (v1018 roadmap):** Phase 1082 is standalone for TD-04 (ogrinfo environmental dependency) — the decision (skip-with-rationale vs mock-out) is independent of the drift fixes and should be made on a clean baseline after Phase 1081.
-- **2026-05-21 (v1018 roadmap):** Phase 1083 is the close gate (TD-08): PYTEST-BASELINE-v1018.md + full sequential pytest + e2e:smoke:builder + live Playwright MCP smoke + CHANGELOG [1.5.3] + tags v1018 + v1.5.3. Must be last.
-- **2026-05-21 (v1018 roadmap):** Per Plan 1075-05 protocol — no `pytest.mark.skip` without an explicit issue link. All failures must be dispositioned at root cause.
-- **2026-05-21 (v1018 roadmap):** No fresh /sec-audit or /ingest-audit needed — v1016 ran both clean; v1017 audit verdict PASSED; v1018 is hygiene-only (backend test/config, no API contract changes, no migrations, no frontend work).
-- **2026-05-21 (v1018 roadmap):** Public tag target `v1.5.3` (patch) — hygiene only; no user-facing features, no migrations, no schema changes.
+- **2026-05-22 (v1019 roadmap):** Phase 1084 groups TD-09 + TD-11 + TD-12 — all three are frontend-only, zero backend dependency. TD-09 is pure typecheck; TD-11 and TD-12 are console-noise suppressions verified by Playwright MCP network log. Running them in one phase lets 1085 start from a clean joint frontend+backend baseline.
+- **2026-05-22 (v1019 roadmap):** Phase 1085 is spike-first per REQUIREMENTS.md mandate (TD-10): Plan 1085-01 commits PYTEST-XDIST-SPIKE-v1019.md with measured numbers before any fix lands; Plan 1085-02 implements whichever of the three fix shapes (pool sizing / max_connections bump / cap -n) the evidence supports.
+- **2026-05-22 (v1019 roadmap):** Phase 1086 bundles TD-13 (process tightening: retro + 3 global GSD skill file updates) + TD-14 (TD-07 runtime symmetry probe via container rebuild) into the close gate — both are low-risk, non-code-change deliverables that belong at close rather than disrupting earlier phases.
+- **2026-05-22 (v1019 roadmap):** Public tag target `v1.5.4` (patch) — hygiene only; no user-facing features, no migrations, no schema changes.
+- **2026-05-22 (v1019 roadmap):** No fresh /sec-audit or /ingest-audit needed — v1016 ran both clean; v1018 audit verdict PASSED; v1019 is hygiene-only.
+- **2026-05-22 (v1019 roadmap):** Close-gate pytest target is 3025+ / 0 failures (sequential), matching v1018 close baseline. xdist fix (1085) must not degrade sequential mode.
 
 ### Pending Todos
 
-None at roadmap time. All 8 TD items are dispositioned in REQUIREMENTS.md.
+None at roadmap time. All 6 TD items are dispositioned in REQUIREMENTS.md and mapped to phases.
 
 ### Blockers/Concerns
 
-None — v1018 roadmap is complete and ready for plan-phase.
+None — v1019 roadmap is complete and ready for plan-phase.
 
 ## Session Continuity
 
-Last session: 2026-05-21T23:32:41.129Z
-Stopped at: Roadmap defined; no phases started
+Last session: 2026-05-22
+Stopped at: Roadmap defined; ready for /gsd:plan-phase 1084
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run `/gsd:plan-phase 1084` to begin Phase 1084: Frontend Hygiene Tail
 
 ## Deferred Items
 
-Carried into v1018 from v1017 close (2026-05-21):
+Carried into v1019 from v1018 close (2026-05-21):
 
-- **TD-01** — `test_layering.py::test_no_unjustified_broad_except_sites` — broad-except production-code drift at `tasks_common.py:231,237`
-- **TD-02** — `test_phase_279_user_lifecycle.py::test_register_password_too_short` — SEC-S16 password policy drift
-- **TD-03** — `test_phase_279_user_lifecycle.py::test_register_password_diversity` — SEC-S16 password policy drift (companion)
-- **TD-04** — `test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` — ogrinfo CLI environmental dependency
-- **TD-05** — `test_reupload_service.py` ×2 — SSRF gate drift (same root cause, one commit)
-- **TD-06** — `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` — async loop contamination
-- **TD-07** — `backend/app/core/config.py:database_connect_args` SSL disable branch — low operational priority but disable path should be honoured
-- **TD-08** — Close gate (capture baseline, full pytest, e2e, MCP smoke, CHANGELOG, tags)
+- **TD-09** — 36 pre-existing TS errors across 14 frontend test files — deferred at v1018 close-gate per user decision
+- **TD-10** — `pytest -n auto` 16-worker xdist cascade — deferred at v1018 close-gate (environmental cap risk)
+- **TD-11** — `/maps/new` 422 console-noise (2 spurious requests before Create dialog short-circuit) — deferred at v1018 close-gate
+- **TD-12** — `/api/api/` double-prefix on quicklook proxy endpoints — deferred at v1018 close-gate
+- **TD-13** — Process tightening: REQ authoring node-ID pinning + executor SUMMARY checkbox flip — surfaced by v1018 docs/code drift bugs
+- **TD-14** — TD-07 runtime symmetry: verify `ssl=False` baked into deployed api/worker images (v1018 Phase 1080-02 fix predated the running stack at audit time)

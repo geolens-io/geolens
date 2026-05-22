@@ -90,17 +90,17 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TD-09 | TBD | Pending |
-| TD-10 | TBD | Pending |
-| TD-11 | TBD | Pending |
-| TD-12 | TBD | Pending |
-| TD-13 | TBD | Pending |
-| TD-14 | TBD | Pending |
+| TD-09 | Phase 1084 | Pending |
+| TD-10 | Phase 1085 | Pending |
+| TD-11 | Phase 1084 | Pending |
+| TD-12 | Phase 1084 | Pending |
+| TD-13 | Phase 1086 | Pending |
+| TD-14 | Phase 1086 | Pending |
 
 **Coverage:**
 - v1019 requirements: 6 total
-- Mapped to phases: 0 (pre-roadmap)
-- Unmapped: 6 ⚠️
+- Mapped to phases: 6
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-22*
