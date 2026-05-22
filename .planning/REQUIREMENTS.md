@@ -94,8 +94,8 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | TD-10 | Phase 1085 | Complete |
 | TD-11 | Phase 1084 | Pending |
 | TD-12 | Phase 1084 | Pending |
-| TD-13 | Phase 1086 | Pending |
-| TD-14 | Phase 1086 | Pending |
+| TD-13 | Phase 1086 / Plan 1086-01 | Pending |
+| TD-14 | Phase 1086 / Plan 1086-02 | Pending |
 
 **Coverage:**
 - v1019 requirements: 6 total
