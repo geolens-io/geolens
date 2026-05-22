@@ -141,8 +141,8 @@ describe('applySublayerOverrides', () => {
     // casing_color → line-color ONLY on the layer whose id includes 'casing'
     expect(map.setPaintProperty).toHaveBeenCalledWith('admin-boundary-casing', 'line-color', '#000000');
     // Should NOT set line-color on the main boundary layer for casing_color
-    const casingColorCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([id, prop]: [string, string]) => id === 'admin-boundary' && prop === 'line-color',
+    const casingColorCalls = ((map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls as [string, string][]).filter(
+      ([id, prop]) => id === 'admin-boundary' && prop === 'line-color',
     );
     expect(casingColorCalls).toHaveLength(0);
   });

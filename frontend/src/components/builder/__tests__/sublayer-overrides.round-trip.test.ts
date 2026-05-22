@@ -166,7 +166,7 @@ describe('sublayer_overrides round-trip parity (Phase 1059 BSE-01)', () => {
     applySublayerOverrides(map, { road: { stroke_color: '#ff0000' } });
 
     const calls = setPaintProperty.mock.calls;
-    const propsCalled = new Set(calls.map((c: [string, string, unknown]) => c[1]));
+    const propsCalled = new Set((calls as [string, string, unknown][]).map((c) => c[1]));
     // stroke_color → line-color IS expected
     expect(propsCalled.has('line-color')).toBe(true);
     // stroke_width → line-width NOT expected (field absent)

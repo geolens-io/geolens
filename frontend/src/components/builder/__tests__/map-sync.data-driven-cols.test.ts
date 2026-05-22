@@ -8,7 +8,7 @@ import {
 describe('getDataDrivenColumnsForLayer', () => {
   it('extracts the categorical / graduated column from style_config', () => {
     const cols = getDataDrivenColumnsForLayer({
-      style_config: { mode: 'categorical', column: 'economy', categories: [] },
+      style_config: { mode: 'categorical', column: 'economy', ramp: 'YlOrRd', categories: [] },
       paint: {},
     });
     expect(cols).toEqual(['economy']);
@@ -53,7 +53,7 @@ describe('getDataDrivenColumnsForLayer', () => {
 
   it('dedupes columns referenced from multiple sources', () => {
     const cols = getDataDrivenColumnsForLayer({
-      style_config: { mode: 'graduated', column: 'pop_est', breaks: [] },
+      style_config: { mode: 'graduated', column: 'pop_est', ramp: 'YlOrRd', breaks: [] },
       paint: {
         'fill-color': ['interpolate', ['linear'], ['get', 'pop_est'], 0, '#fff', 1000000, '#000'],
       },
@@ -104,9 +104,9 @@ describe('getDataDrivenColumnsForSource', () => {
 
   it('unions columns from every layer sharing a source via dedupe', () => {
     const layers: SyncLayerInput[] = [
-      makeLayer('l1', 'countries', { mode: 'categorical', column: 'economy', categories: [] }),
-      makeLayer('l2', 'countries', { mode: 'graduated', column: 'pop_est', breaks: [] }),
-      makeLayer('l3', 'reefs', { mode: 'categorical', column: 'type', categories: [] }),
+      makeLayer('l1', 'countries', { mode: 'categorical', column: 'economy', ramp: 'YlOrRd', categories: [] }),
+      makeLayer('l2', 'countries', { mode: 'graduated', column: 'pop_est', ramp: 'YlOrRd', breaks: [] }),
+      makeLayer('l3', 'reefs', { mode: 'categorical', column: 'type', ramp: 'YlOrRd', categories: [] }),
     ];
     const cols = getDataDrivenColumnsForSource('source-data-countries', layers);
     expect(cols.sort()).toEqual(['economy', 'pop_est']);
@@ -114,7 +114,7 @@ describe('getDataDrivenColumnsForSource', () => {
 
   it('returns empty array when no layer matches the source', () => {
     const layers: SyncLayerInput[] = [
-      makeLayer('l1', 'countries', { mode: 'categorical', column: 'economy', categories: [] }),
+      makeLayer('l1', 'countries', { mode: 'categorical', column: 'economy', ramp: 'YlOrRd', categories: [] }),
     ];
     const cols = getDataDrivenColumnsForSource('source-data-other_table', layers);
     expect(cols).toEqual([]);
@@ -124,7 +124,7 @@ describe('getDataDrivenColumnsForSource', () => {
     // A cluster layer takes a per-layer source-id; even at the same table_name,
     // it does NOT share `source-data-{table}` with non-cluster layers.
     const layers: SyncLayerInput[] = [
-      makeLayer('l1', 'countries', { mode: 'categorical', column: 'economy', categories: [] }),
+      makeLayer('l1', 'countries', { mode: 'categorical', column: 'economy', ramp: 'YlOrRd', categories: [] }),
       // simulated cluster layer
       {
         ...makeLayer('l2', 'countries'),
