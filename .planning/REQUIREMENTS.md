@@ -34,7 +34,7 @@ These items are pre-existing — surfaced during v1018 close-gate live Playwrigh
 
 ### Process Tightening
 
-- [ ] **TD-13**: Tighten REQUIREMENTS authoring + executor SUMMARY workflow to prevent the two drift patterns surfaced in v1018:
+- [x] **TD-13**: Tighten REQUIREMENTS authoring + executor SUMMARY workflow to prevent the two drift patterns surfaced in v1018:
   - **REQ authoring**: v1018 TD-02/03 paraphrased test names that did not exist in code (`test_register_password_too_short` / `test_register_password_diversity`) instead of pinning the actual `test_register_emits_user_register_audit` / `test_register_disabled_does_not_emit_audit`. Also `tasks_common.py` path drift (cited `backend/app/platform/jobs/` but actual is `backend/app/processing/ingest/`) and line drift (231/237 vs 232/238). **Fix shape**: future requirements that pin specific tests must use exact `path::TestClass::test_name` node-IDs, validated against `git grep` before commit. Production-code citations must include path + line, validated against `git grep` before commit.
   - **Executor SUMMARY flip**: v1018 Plan 1081-02 executor closed TD-05 in code but did not flip REQUIREMENTS.md `[ ]` → `[x]` / Pending → Complete (integration check caught it mid-audit, fixed inline as commit `5bf63166`). **Fix shape**: bake "update REQUIREMENTS.md checkbox + traceability row" into the executor's standard SUMMARY workflow before commit.
 
@@ -94,7 +94,7 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | TD-10 | Phase 1085 | Complete |
 | TD-11 | Phase 1084 | Pending |
 | TD-12 | Phase 1084 | Pending |
-| TD-13 | Phase 1086 / Plan 1086-01 | Pending |
+| TD-13 | Phase 1086 / Plan 1086-01 | Complete |
 | TD-14 | Phase 1086 / Plan 1086-02 | Pending |
 
 **Coverage:**
