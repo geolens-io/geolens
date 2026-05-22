@@ -117,7 +117,13 @@
   3. Every root-cause category identified in FI-01 has at least one regression test under `backend/tests/test_fixture_isolation_v1020.py` (or split per-category per FI-01 direction) that fails on the pre-fix HEAD and passes on the post-fix HEAD.
   4. The REQUIREMENTS.md traceability table for FI-02 and FI-03 cites every regression-pin test by exact `path::TestClass::test_name` node-ID (validated via `git grep -n "def <test_name>" <path>` per v1019 TD-13 `req_citation_pinning` rule).
   5. The traceability-flip for FI-02 + FI-03 (checkbox `[ ]` → `[x]` and row `Pending` → `Complete`) lands in the SAME commit as the SUMMARY.md write per v1019 TD-13 `requirements_traceability_flip` rule.
-**Plans**: TBD
+**Plans**: 5 plans (1088-01 unconditional silent-swallow fix, 1088-02 re-measure gate, 1088-03 conditional setup-contention fix, 1088-04 conditional in-test-contention fix, 1088-05 final close-out + TD-13 traceability flip)
+Plans:
+- [ ] 1088-01-PLAN.md — Replace silent-swallow with structured OperationalError handler at conftest.py:275-278 (category 4.1, 407/648 failures; FI-02 partial + FI-03 partial)
+- [ ] 1088-02-PLAN.md — Re-measure pytest -n auto after 1088-01; produce decision-point audit doc
+- [ ] 1088-03-PLAN.md — CONDITIONAL: structural fix for setup-phase contention if 1088-02 emits SPAWN-1088-03 (category 4.2)
+- [ ] 1088-04-PLAN.md — CONDITIONAL: retry-with-backoff around override_get_db if 1088-02 emits SPAWN-1088-04 (category 4.3)
+- [ ] 1088-05-PLAN.md — Final close gate; flip REQUIREMENTS.md FI-02 + FI-03 + ROADMAP.md Phase 1088 in single commit per TD-13
 
 ### Phase 1089: CI Gate + Perf Baseline + Parallel Default
 **Goal**: A future developer pushing a backend test or fixture change cannot land a regression that re-breaks parallel execution — CI blocks merge, perf baseline documents the chosen worker default, and `make test` runs parallel by default.
@@ -129,7 +135,13 @@
   3. `.planning/audits/PYTEST-XDIST-PERF-v1020.md` is committed and includes wall-clock + peak `pg_stat_activity` connection count for `pytest -n 4`, `pytest -n 8`, `pytest -n auto` (16 on the canonical M-series 16-core host), reusing the v1019 spike methodology (background sampler from `PYTEST-XDIST-SPIKE-v1019.md` Section 1), with a reproducibility section.
   4. A fresh clone running `make test` (no args) uses parallel execution — either via `Makefile` target rewrite or `pyproject.toml` `[tool.pytest.ini_options].addopts` — driven by the documented optimal default from PERF-01.
   5. A separate `make test-sequential` (or env-var opt-in) remains available for debugging — verified by running it from a fresh clone.
-**Plans**: TBD
+**Plans**: 5 plans (1088-01 unconditional silent-swallow fix, 1088-02 re-measure gate, 1088-03 conditional setup-contention fix, 1088-04 conditional in-test-contention fix, 1088-05 final close-out + TD-13 traceability flip)
+Plans:
+- [ ] 1088-01-PLAN.md — Replace silent-swallow with structured OperationalError handler at conftest.py:275-278 (category 4.1, 407/648 failures; FI-02 partial + FI-03 partial)
+- [ ] 1088-02-PLAN.md — Re-measure pytest -n auto after 1088-01; produce decision-point audit doc
+- [ ] 1088-03-PLAN.md — CONDITIONAL: structural fix for setup-phase contention if 1088-02 emits SPAWN-1088-03 (category 4.2)
+- [ ] 1088-04-PLAN.md — CONDITIONAL: retry-with-backoff around override_get_db if 1088-02 emits SPAWN-1088-04 (category 4.3)
+- [ ] 1088-05-PLAN.md — Final close gate; flip REQUIREMENTS.md FI-02 + FI-03 + ROADMAP.md Phase 1088 in single commit per TD-13
 
 ### Phase 1090: Skip Audit + Flake Hunt + Close-Gate
 **Goal**: A reader of the close-gate doc can see every sequential-mode skip dispositioned, every flake surfaced + dispositioned, and the v1019 WR-01 paper-trail closed — and can confirm tags `v1020` + `v1.5.5` cut at the close commit.
@@ -141,7 +153,13 @@
   3. The v1019 WR-01 paper-trail commit lands — either a CHANGELOG `[1.5.5]` line or a `docs/` note that cites v1019's audit and confirms `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is preserved (grep gate against the exact script name).
   4. Close gate is green: sequential pytest 3036/0/38 or higher, `pytest -n auto` 0 fixture-scope failures, frontend typecheck exit 0, e2e:smoke:builder matches v1019 baseline (25/0/1), live Playwright MCP 5/5 surfaces clean (no regressions in `/`, `/maps`, `/datasets/<uuid>`, `/maps/new`, `/maps/<uuid>`).
   5. Tags `v1020` (local) + `v1.5.5` (public) are cut at the close commit; both tags point to the same SHA.
-**Plans**: TBD
+**Plans**: 5 plans (1088-01 unconditional silent-swallow fix, 1088-02 re-measure gate, 1088-03 conditional setup-contention fix, 1088-04 conditional in-test-contention fix, 1088-05 final close-out + TD-13 traceability flip)
+Plans:
+- [ ] 1088-01-PLAN.md — Replace silent-swallow with structured OperationalError handler at conftest.py:275-278 (category 4.1, 407/648 failures; FI-02 partial + FI-03 partial)
+- [ ] 1088-02-PLAN.md — Re-measure pytest -n auto after 1088-01; produce decision-point audit doc
+- [ ] 1088-03-PLAN.md — CONDITIONAL: structural fix for setup-phase contention if 1088-02 emits SPAWN-1088-03 (category 4.2)
+- [ ] 1088-04-PLAN.md — CONDITIONAL: retry-with-backoff around override_get_db if 1088-02 emits SPAWN-1088-04 (category 4.3)
+- [ ] 1088-05-PLAN.md — Final close gate; flip REQUIREMENTS.md FI-02 + FI-03 + ROADMAP.md Phase 1088 in single commit per TD-13
 
 ---
 
