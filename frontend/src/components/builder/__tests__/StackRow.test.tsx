@@ -109,7 +109,7 @@ describe('StackRow', () => {
     expect(row).not.toBeNull();
 
     // Caret should be hidden
-    const caret = row.querySelector('[aria-hidden="true"][style*="visibility"]');
+    const caret = row!.querySelector('[aria-hidden="true"][style*="visibility"]');
     expect(caret).toBeTruthy();
     expect((caret as HTMLElement).style.visibility).toBe('hidden');
 

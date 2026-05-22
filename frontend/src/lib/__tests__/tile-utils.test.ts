@@ -80,8 +80,6 @@ describe('buildSignedTileUrl', () => {
 });
 
 describe('buildSignedTileUrl extraCols edge cases', () => {
-  const mockToken = { sig: 'abc123', exp: 1700000000, scope: 'ds_test' };
-
   it('omits &cols= when extraCols contains only whitespace', () => {
     // normalizeExtraCols filters entries that are falsy or whitespace-only.
     // A caller passing ['   '] (e.g. from a stale state value) must not

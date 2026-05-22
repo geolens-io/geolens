@@ -19,7 +19,7 @@ import { UploadForm } from '../UploadForm';
 // ---------------------------------------------------------------------------
 
 vi.mock('react-i18next', () => ({
-  useTranslation: (ns?: string) => ({
+  useTranslation: (_ns?: string) => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       if (key === 'common:close') return 'Close';
       if (key === 'upload.multiLayerResultsTitle') return 'Multi-layer ingest results';

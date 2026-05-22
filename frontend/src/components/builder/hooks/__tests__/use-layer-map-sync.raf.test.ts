@@ -30,7 +30,7 @@ vi.mock('@/components/builder/layer-adapters/registry', () => ({
 vi.mock('@/components/builder/map-sync', () => ({
   getLayerType: vi.fn(() => 'fill'),
   resolveAdapterType: vi.fn(() => 'fill'),
-  getCompoundOpacity: vi.fn((paint: Record<string, unknown>, _type: string, opacity: number) => opacity),
+  getCompoundOpacity: vi.fn((_paint: Record<string, unknown>, _type: string, opacity: number) => opacity),
   // Phase 1050 SF-04: use-layer-map-sync now routes through this helper.
   // The PERF-04 test only asserts call counts (does not validate sourceId
   // values), so a simple per-layer string is sufficient here.

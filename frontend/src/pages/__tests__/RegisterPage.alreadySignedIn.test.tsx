@@ -1,5 +1,4 @@
 import { render, screen } from '@/test/test-utils';
-import { renderHook, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -30,7 +29,7 @@ function makeWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  function Wrapper({ children }: { children: React.ReactNode }) {
+  function Wrapper({ children: _children }: { children: React.ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
@@ -75,12 +74,13 @@ describe('RegisterPage — authenticated user redirect (ROUTE-03)', () => {
       refreshToken: 'fake-refresh',
       expiresAt: Date.now() + 3600 * 1000,
       user: {
-        id: 1,
+        id: '1',
         username: 'admin',
         email: 'admin@example.com',
         roles: ['admin'],
         is_active: true,
-        is_approved: true,
+        status: 'active',
+        last_login_at: null,
         created_at: new Date().toISOString(),
       },
     });
@@ -117,12 +117,13 @@ describe('RegisterPage — authenticated user redirect (ROUTE-03)', () => {
       refreshToken: 'fake-refresh',
       expiresAt: Date.now() + 3600 * 1000,
       user: {
-        id: 1,
+        id: '1',
         username: 'admin',
         email: 'admin@example.com',
         roles: ['admin'],
         is_active: true,
-        is_approved: true,
+        status: 'active',
+        last_login_at: null,
         created_at: new Date().toISOString(),
       },
     });

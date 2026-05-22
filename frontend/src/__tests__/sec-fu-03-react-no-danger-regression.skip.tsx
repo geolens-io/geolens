@@ -26,8 +26,6 @@
  * Mirroring pattern: src/__tests__/sec-s14-eslint-regression.ts (Phase 1062-06)
  */
 
-import React from 'react';
-
 // This component uses dangerouslySetInnerHTML — banned by the SEC-FU-03 react/no-danger rule.
 // The inline disable keeps `npm run lint` green; run with --no-inline-config to see the rule fire.
 function DangerousComponent({ html }: { html: string }) {

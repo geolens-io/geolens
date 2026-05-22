@@ -40,7 +40,7 @@ vi.mock('@/api/maps', async (importOriginal) => {
 
 // Import the mocked functions AFTER the vi.mock declaration so we get the mock reference.
 // Dynamic import is required because vitest hoists vi.mock calls.
-import { removeLayerFromMapApi, bulkDeleteLayersApi } from '@/api/maps';
+import { bulkDeleteLayersApi } from '@/api/maps';
 
 // ---------------------------------------------------------------------------
 // Cleanup

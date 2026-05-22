@@ -187,8 +187,6 @@ describe('DatasetDetailHeader', () => {
   });
 
   it('overflow trigger renders with visible More label and aria-label', async () => {
-    const user = userEvent.setup();
-
     render(
       <DatasetDetailHeader
         title="Test Dataset"

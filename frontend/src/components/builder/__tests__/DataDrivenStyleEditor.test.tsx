@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { useColumnValues, useColumnStats } from '@/hooks/use-maps';
 import { getRampColors } from '@/lib/color-ramps';

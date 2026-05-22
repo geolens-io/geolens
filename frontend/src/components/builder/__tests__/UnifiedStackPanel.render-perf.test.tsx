@@ -54,7 +54,7 @@ vi.mock('react-i18next', () => ({
 // ---------------------------------------------------------------------------
 
 function HandlerStabilityFixture({
-  onRenderCountChange,
+  onRenderCountChange: _onRenderCountChange,
 }: {
   onRenderCountChange?: (count: number) => void;
 }) {
