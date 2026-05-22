@@ -135,13 +135,11 @@ Plans:
   3. `.planning/audits/PYTEST-XDIST-PERF-v1020.md` is committed and includes wall-clock + peak `pg_stat_activity` connection count for `pytest -n 4`, `pytest -n 8`, `pytest -n auto` (16 on the canonical M-series 16-core host), reusing the v1019 spike methodology (background sampler from `PYTEST-XDIST-SPIKE-v1019.md` Section 1), with a reproducibility section.
   4. A fresh clone running `make test` (no args) uses parallel execution — either via `Makefile` target rewrite or `pyproject.toml` `[tool.pytest.ini_options].addopts` — driven by the documented optimal default from PERF-01.
   5. A separate `make test-sequential` (or env-var opt-in) remains available for debugging — verified by running it from a fresh clone.
-**Plans**: 5 plans (1088-01 unconditional silent-swallow fix, 1088-02 re-measure gate, 1088-03 conditional setup-contention fix, 1088-04 conditional in-test-contention fix, 1088-05 final close-out + TD-13 traceability flip)
+**Plans**: 3 plans (1089-01 PERF-01 baseline, 1089-02 CI-01 gate, 1089-03 CI-02 default switch + close)
 Plans:
-- [ ] 1088-01-PLAN.md — Replace silent-swallow with structured OperationalError handler at conftest.py:275-278 (category 4.1, 407/648 failures; FI-02 partial + FI-03 partial)
-- [ ] 1088-02-PLAN.md — Re-measure pytest -n auto after 1088-01; produce decision-point audit doc
-- [ ] 1088-03-PLAN.md — CONDITIONAL: structural fix for setup-phase contention if 1088-02 emits SPAWN-1088-03 (category 4.2)
-- [ ] 1088-04-PLAN.md — CONDITIONAL: retry-with-backoff around override_get_db if 1088-02 emits SPAWN-1088-04 (category 4.3)
-- [ ] 1088-05-PLAN.md — Final close gate; flip REQUIREMENTS.md FI-02 + FI-03 + ROADMAP.md Phase 1088 in single commit per TD-13
+- [ ] 1089-01-PLAN.md — PERF-01 baseline measurement (audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md`); spike-style, no code changes
+- [ ] 1089-02-PLAN.md — CI-01 wiring (`pytest-parallel-isolation` job in `.github/workflows/ci.yml` after alembic-clean-db block); skip enterprise overlay
+- [ ] 1089-03-PLAN.md — CI-02 default switch (`Makefile:27` `make test` → `-n <PERF_N>`) + atomic TD-13 flip + Phase 1089 close
 
 ### Phase 1090: Skip Audit + Flake Hunt + Close-Gate
 **Goal**: A reader of the close-gate doc can see every sequential-mode skip dispositioned, every flake surfaced + dispositioned, and the v1019 WR-01 paper-trail closed — and can confirm tags `v1020` + `v1.5.5` cut at the close commit.
