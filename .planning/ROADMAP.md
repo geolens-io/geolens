@@ -87,7 +87,7 @@
 
 🚧 In progress — restoring `pytest -n auto` to a green baseline by fixing the 192 fixture-scope failures exposed in v1019, then locking parallel-test health in with a CI gate, perf baseline, and tuned default. Closes v1019's only deferral plus a small test-infra hygiene tail. Public tag target `v1.5.5` (patch — no migrations, no schema, no user-facing features). Sequential pytest baseline that must stay green: 3036/0/38 (v1019 close-gate). Phase 1087 spike-first per v1019 Phase 1085 precedent — the FI-01 taxonomy doc commits before any fix lands.
 
-- [ ] **Phase 1087: Fixture-Isolation Spike (Taxonomy)** — Measure + classify the 192 fixture-scope failures under `pytest -n auto` by root cause. Audit doc only — no code changes. Output: `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`.
+- [x] **Phase 1087: Fixture-Isolation Spike (Taxonomy)** — Measure + classify the 192 fixture-scope failures under `pytest -n auto` by root cause. Audit doc only — no code changes. Output: `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`.
 - [ ] **Phase 1088: Fixture-Isolation Fixes + Regression Pins** — Fix all 192 failures driven by the FI-01 taxonomy; pin each root-cause category with at least one regression test. Goal: 192 → 0 under `-n auto`; sequential baseline stays green at 3036/0/38 or higher.
 - [ ] **Phase 1089: CI Gate + Perf Baseline + Parallel Default** — Add `pytest-parallel-isolation` GitHub Actions job (sister to v1017 `alembic-clean-db`); capture `-n 4`/`-n 8`/`-n auto` benchmark; switch `make test` default to parallel with sequential opt-in retained.
 - [ ] **Phase 1090: Skip Audit + Flake Hunt + Close-Gate** — Disposition the 38 sequential-mode skips; run `pytest -n auto` 3× to surface non-deterministic flakes; paper-trail v1019 WR-01 `lint:sec-fu-03-no-false-positive` script; cut tags `v1020` + `v1.5.5`.
@@ -104,8 +104,8 @@
   3. Each failing node-ID is tagged with exactly one root-cause category; the four hypotheses from the v1019 audit (Redis singleton state, storage provider override, `app.dependency_overrides` leak, autouse-fixture coupling) are each present as named categories — additional categories permitted if measurement reveals them.
   4. The audit doc includes a reproducibility section mirroring `PYTEST-XDIST-SPIKE-v1019.md` Section 1 — exact commands a fresh operator runs to reproduce the measurement.
   5. The audit doc recommends a fix sequencing for Phase 1088 (which category goes first, with rationale — typically highest-impact category by failure count).
-**Plans**: 1 plan
-- [ ] 1087-01-PLAN.md — Spike measurement + categorization + audit doc commit (`PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`) + Phase SUMMARY + TD-13 traceability flip
+**Plans**: 1/1 plans complete (1087-01-PLAN.md — audit doc + SUMMARY)
+- [x] 1087-01-PLAN.md — Spike measurement + categorization + audit doc commit (`PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`) + Phase SUMMARY + TD-13 traceability flip
 
 ### Phase 1088: Fixture-Isolation Fixes + Regression Pins
 **Goal**: Developer running `cd backend && uv run pytest -n auto tests/` sees 0 fixture-scope failures from the cascade categories defined in FI-01, and the regression tests added in this phase reproduce the original failure when reverted.

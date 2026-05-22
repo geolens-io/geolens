@@ -15,7 +15,7 @@ Requirements for this milestone. All `FI-*` / `CI-*` / `PERF-*` / `HYG-*` IDs ma
 
 ### Fixture Isolation
 
-- [ ] **FI-01**: Spike — measure and classify the 192 fixture-scope failures under `pytest -n auto` by root cause. Categories must at minimum cover the four hypotheses from the v1019 audit: Redis singleton state, storage provider override, `app.dependency_overrides` leak, and autouse-fixture coupling. Output committed to `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` before any fix lands (spike-first per v1019 pattern). Audit doc must list every failing test by `path::TestClass::test_name` node-ID and tag each with one root-cause category.
+- [x] **FI-01**: Spike — measure and classify the 192 fixture-scope failures under `pytest -n auto` by root cause. Categories must at minimum cover the four hypotheses from the v1019 audit: Redis singleton state, storage provider override, `app.dependency_overrides` leak, and autouse-fixture coupling. Output committed to `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` before any fix lands (spike-first per v1019 pattern). Audit doc must list every failing test by `path::TestClass::test_name` node-ID and tag each with one root-cause category.
 
 - [ ] **FI-02**: Fix all 192 fixture-scope failures driven by the FI-01 taxonomy. Sequencing follows root-cause categories (highest-impact category first). Acceptance criterion: `cd backend && uv run pytest -n auto tests/` returns 0 fixture-scope failures (`failed + errors` from the cascade categories defined in FI-01 = 0); sequential baseline `pytest tests/` stays green at 3036/0/38 or higher.
 
@@ -69,7 +69,7 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FI-01 | Phase 1087 | Pending |
+| FI-01 | Phase 1087 | Complete |
 | FI-02 | Phase 1088 | Pending |
 | FI-03 | Phase 1088 | Pending |
 | CI-01 | Phase 1089 | Pending |
