@@ -1,5 +1,41 @@
 # Milestones
 
+## v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Shipped: 2026-05-22)
+
+**Phases completed:** 3 phases (1084-1086), 7 plans
+
+**Local tag:** `v1019` (commit `02cb25db`)
+**Public tag:** `v1.5.4` (at same commit)
+**Audit verdict:** PASSED (tech_debt — 1 v1020 carry-forward documented) — 6/6 reqs · 3/3 phases · 6/6 cross-phase integration checks · 5/5 live MCP smoke surfaces
+
+**Key accomplishments:**
+
+1. **Frontend hygiene (Phase 1084)** — TD-09: 37 TS errors across 15 untouched test files cleared (added `typecheck` script — was missing from package.json); zero suppressions, vitest 2105/2105 preserved. TD-11: `/maps/new` 422 console-noise eliminated via `<Route path="maps/new" element={<Navigate to="/maps" replace/>}>` route-level redirect (1-line addition to `App.tsx`). TD-12: `/api/api/` doubled-prefix fixed at `use-quicklook.ts:58` (dropped leading `/api/` from path literal; all other `apiFetch` callers already conformed).
+
+2. **pytest -n auto stabilization (Phase 1085)** — TD-10: SPIKE-first measurement (postgres `max_connections=30`, 16 workers × pool ceiling 7 = 112 theoretical conn; cascade reproduced with 628 `TooManyConnectionsError` + 1824 `CannotConnectNowError` = **2452 cascade errors**). Fix shape (a) chosen but turned out to be incomplete — the actual cascade was driven by setup-phase concurrent connections, not runtime pool. Final fix: **NullPool + 5s startup stagger** in `conftest.py` for xdist workers; sequential mode preserved (`pool_size=5+overflow=2`). Result: **2452 → 0 cascade errors**, sequential baseline 3025→3036 (+11). 11 regression tests pin the per-worker invariant.
+
+3. **Process tightening (Phase 1086)** — TD-13: repo retro at `.planning/retros/v1019-process.md` (covers 3 v1018 drift incidents: paraphrased test names, `tasks_common.py` path/line drift, Plan 1081-02 SUMMARY checkbox-flip miss). 3 global GSD skill files updated additively: `~/.claude/agents/gsd-planner.md` (+18 lines `<req_citation_pinning>`), `~/.claude/agents/gsd-executor.md` (+20 lines `<requirements_traceability_flip>`), `~/.claude/get-shit-done/templates/requirements.md` (+14 lines Code-Pinned Examples). New rule self-applied: TD-13 is the first plan whose executor obeys the new traceability-flip rule.
+
+4. **Runtime symmetry + close gate (Phase 1086)** — TD-14: `docker compose up -d --build api worker` rebuilt both images cleanly; `docker exec geolens-api-1 grep -n "ssl=False" app/core/config.py` → line 309 confirmed (same for worker). Source-runtime symmetry closed for v1018 Phase 1080-02. Close gate green: sequential pytest 3036/0/38, e2e:smoke:builder 25/0/1, frontend typecheck exit 0, live Playwright MCP 5/5 surfaces.
+
+**Inline fixes during code review (5 total):**
+- Phase 1084 WR-01: added missing `lint:sec-fu-03-no-false-positive` companion script (`902875bf`)
+- Phase 1085 WR-01 + WR-02: stagger docstring + NullPool sentinel comment (`6488fdf3`)
+- Phase 1085 WR-03: `warnings.warn` on malformed `PYTEST_XDIST_WORKER` (`37b86244`)
+- Phase 1085 CR-02: real NullPool branch coverage test via extracted `_make_test_async_engine` helper (`ea24168c`)
+
+**Patterns established (3 new):**
+- **Fixed-point bootstrap of new rules**: v1019 establishes a new traceability-flip rule that only takes effect from the plan that establishes it onward; pre-rule plans need a one-shot retroactive flip at audit time.
+- **Spike-first when fix shape is non-obvious**: TD-10 spike correctly identified shape (a) was the right surface, but the implementation surfaced that the *trigger* of the cascade was setup-phase concurrency, not runtime pool exhaustion — measuring the surface gave the right answer even when the deeper mechanism required iteration.
+- **Live MCP smoke as the canonical verification surface**: 5 surfaces in 3-5 minutes catches TD-11 + TD-12 regressions that headless e2e tests would not (network log assertions on `/api/api/` patterns + 422 responses).
+
+**Deferred to v1020 (1 item):**
+- 192 fixture-scope pytest failures exposed by `pytest -n auto` parallelism (not asyncpg cascade — that is closed; not a regression of TD-10 fix — sequential mode is clean). Needs a fixture-isolation hygiene audit in next milestone. Documented in CHANGELOG `[1.5.4]` Known Limitations.
+
+**Archive:** `.planning/milestones/v1019-ROADMAP.md` + `.planning/milestones/v1019-REQUIREMENTS.md` + `.planning/v1019-MILESTONE-AUDIT.md`
+
+---
+
 ## v1018 Hygiene — v1017 Tech-Debt Tail (Shipped: 2026-05-21)
 
 **Phases completed:** 9 phases, 8 plans, 5 tasks

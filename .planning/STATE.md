@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1019
 milestone_name: Hygiene Tail — v1018 Frontend + xdist + Process
-status: shipped
-stopped_at: "v1019 close-gate complete; orchestrator to cut tags v1019 + v1.5.4"
-last_updated: "2026-05-22T04:15:00.000Z"
-last_activity: 2026-05-22 — Phase 1086 close-gate PASSED; v1019 ready for tag cut
+status: Awaiting next milestone
+stopped_at: "v1019 archived; tags v1019 + v1.5.4 cut at 02cb25db"
+last_updated: "2026-05-22T12:45:00.000Z"
+last_activity: 2026-05-22 — Milestone v1019 completed and archived
 progress:
   total_phases: 3
   completed_phases: 3
@@ -18,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1086 — shipped (close-gate PASSED, awaiting tag cut by orchestrator)
-Plan: 1086-02 — complete
-Status: shipped
-Last activity: 2026-05-22 — Phase 1086 close-gate PASSED; v1019 ready for tag cut
+Phase: Milestone v1019 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-22 — Milestone v1019 completed and archived
 
 ## Project Reference
 

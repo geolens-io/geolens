@@ -82,56 +82,9 @@
 
 ## Phases
 
-### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Active)
+### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Shipped 2026-05-22)
 
-- [x] **Phase 1084: Frontend Hygiene Tail** — Eliminate the 36 pre-existing TypeScript errors and two console-noise patterns (/maps/new 422s, /api/api/ double-prefix) surfaced at v1018 close-gate (completed 2026-05-22)
-- [x] **Phase 1085: pytest -n auto Stabilization** — Spike then fix the xdist 16-worker Postgres connection-pool cascade so parallel test runs are clean (completed 2026-05-22)
-- [x] **Phase 1086: Process Tightening + Close Gate** — Write process retro + global skill update, verify TD-07 runtime symmetry, run full close-gate, cut tags (completed 2026-05-22)
-
-### Phase 1084: Frontend Hygiene Tail
-**Goal:** The frontend build is clean: zero TypeScript errors and zero spurious console noise on the two documented surfaces
-**Depends on:** Nothing (all three items are independent frontend fixes; no backend dependency)
-**Requirements:** TD-09, TD-11, TD-12
-**Success Criteria** (what must be TRUE):
-  1. `cd frontend && npm run typecheck` exits 0; the 36 pre-existing TS errors across the 14 test files identified in the v1018 Phase 1083 baseline are resolved with no `@ts-expect-error` or `@ts-ignore` suppressions added
-  2. A Playwright MCP smoke session visiting `/maps/new` records zero spurious 422 responses in the network log — the Create dialog short-circuit fires before any mutation hooks reach the backend
-  3. A Playwright MCP smoke session records zero `/api/api/` URL patterns in the network log — the quicklook proxy double-prefix is eliminated at source (`frontend/src/api/` client or route definition, not via nginx patch)
-**Plans:** 3 plans
-
-Plans:
-- [ ] 1084-01-PLAN.md — TS error cleanup: resolve 37 errors across 15 untouched test files, add npm typecheck script (TD-09)
-- [ ] 1084-02-PLAN.md — /maps/new 422 fix: route-level redirect (Option A) or in-component guard (Option B) (TD-11)
-- [ ] 1084-03-PLAN.md — /api/api/ doubled-prefix fix: drop leading /api from useQuicklook (TD-12)
-
-### Phase 1085: pytest -n auto Stabilization
-**Goal:** `pytest -n auto` completes a 16-worker xdist run against the backend test suite without triggering a Postgres recovery cascade; the chosen fix is evidence-driven from a committed spike doc
-**Depends on:** Phase 1084 (clean frontend baseline before backend test-infra work; ensures the close-gate in 1086 starts from a stable joint baseline)
-**Requirements:** TD-10
-**Success Criteria** (what must be TRUE):
-  1. `.planning/audits/PYTEST-XDIST-SPIKE-v1019.md` is committed and contains: observed Postgres `max_connections`, per-worker concurrent connection count measured during a 16-worker run, identification of which fix shape (pool sizing / `max_connections` bump / cap `-n`) was chosen, and the rationale
-  2. `pytest -n auto` (or the capped equivalent if cap was chosen) completes with zero `asyncpg` connection-refused or Postgres recovery-cascade errors; the chosen fix is in place in `backend/tests/conftest.py`, `docker-compose.yml`, or `Makefile` as appropriate
-  3. Sequential `uv run pytest backend/` still passes (the fix must not break sequential mode)
-**Plans:** 2/2 plans complete
-
-Plans:
-- [x] 1085-01-PLAN.md — SPIKE: measure max_connections + per-worker concurrent connection count, decide fix shape, commit PYTEST-XDIST-SPIKE-v1019.md (TD-10)
-- [x] 1085-02-PLAN.md — IMPLEMENT: apply chosen fix shape (a/b/c) + regression pin + verify pytest -n auto green + sequential baseline preserved (TD-10)
-
-### Phase 1086: Process Tightening + Close Gate
-**Goal:** Two process artifacts are committed, TD-07 runtime symmetry is confirmed in the deployed images, and v1019 ships with a full close-gate audit trail and both tags cut
-**Depends on:** Phase 1084, Phase 1085 (all hygiene fixes must land before baseline capture)
-**Requirements:** TD-13, TD-14
-**Success Criteria** (what must be TRUE):
-  1. `.planning/retros/v1019-process.md` exists and covers: the TD-02/03 test-name drift incident (paraphrased names vs actual `test_register_emits_user_register_audit` / `test_register_disabled_does_not_emit_audit`), the `tasks_common.py` path+line drift incident, and the Plan 1081-02 REQUIREMENTS.md checkbox-flip miss — with the new rules that prevent recurrence
-  2. Three GSD skill files are updated at `~/.claude/get-shit-done/`: `agents/gsd-planner` (REQ authoring node-ID pinning rule), `agents/gsd-executor` (SUMMARY checkbox flip before commit), and `templates/requirements.md` (node-ID schema example) — applicable across all GSD projects
-  3. `docker compose up -d --build api worker` succeeds; a probe of the running `api` container confirms `ssl=False` is present on the `database_ssl_mode='disable'` branch (e.g., `docker exec <api> grep -n "ssl=False" app/core/config.py` returns the line from v1018 Phase 1080-02)
-  4. Sequential `uv run pytest backend/` passes at 3025+ / 0 failures; `npm run e2e:smoke:builder` exits green; live Playwright MCP smoke covers 5 surfaces on `localhost:8080` and all pass
-  5. `CHANGELOG.md` carries a `[1.5.4] - 2026-05-22` entry covering TD-09..TD-14; local tag `v1019` and public tag `v1.5.4` are cut at the post-baseline commit
-**Plans:** 1/2 plans executed
-
-Plans:
-- [x] 1086-01-PLAN.md — TD-13 process tightening: repo retro + additive edits to 3 global GSD skill files (gsd-planner node-ID rule, gsd-executor SUMMARY checkbox-flip rule, requirements.md template node-ID example)
-- [ ] 1086-02-PLAN.md — TD-14 runtime symmetry + close gate: docker rebuild + ssl=False probe + CHANGELOG [1.5.4] + sequential pytest + e2e:smoke:builder + 5-surface Playwright MCP smoke (orchestrator-driven) + REQUIREMENTS.md flip + STATE.md to shipped
+✅ Complete — see [archive](milestones/v1019-ROADMAP.md). All 3 phases (1084-1086) and 6 requirements (TD-09..TD-14) satisfied. Local tag `v1019` + public tag `v1.5.4` at `02cb25db`. Closed the 4 v1018-deferred tech-debt items: TD-09 frontend TS hygiene (37 errors / 15 files → 0, `typecheck` script added); TD-11 `/maps/new` 422 console-noise (eliminated via `<Route path="maps/new" element={<Navigate to="/maps">}/>`); TD-12 `/api/api/` doubled prefix (single-line fix in `use-quicklook.ts:58`); TD-10 `pytest -n auto` cascade (2452 → 0 errors via NullPool + 5s startup stagger). Plus TD-13 process tightening (REQ nodeID pinning + executor SUMMARY checkbox-flip rules added to 3 global GSD skill files; repo retro committed) and TD-14 runtime symmetry (api+worker rebuild + ssl=False probe at config.py:309 confirmed). Sequential pytest 3036/0/38, e2e:smoke:builder 25/0/1, frontend typecheck exit 0, live Playwright MCP 5/5 surfaces green. One v1020 carry-forward: 192 fixture-scope failures exposed by parallel test execution (not cascade; needs fixture-isolation audit).
 
 ---
 

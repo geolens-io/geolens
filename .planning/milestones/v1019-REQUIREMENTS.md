@@ -1,3 +1,11 @@
+# Requirements Archive: v1019 Hygiene Tail — v1018 Frontend + xdist + Process
+
+**Archived:** 2026-05-22
+**Status:** SHIPPED — local tag `v1019` + public tag `v1.5.4` at SHA `02cb25db`
+**Result:** 6/6 requirements (TD-09..TD-14) satisfied; 0 v1020 carry-forward beyond the documented fixture-isolation known limitation.
+
+For current requirements, see `.planning/REQUIREMENTS.md` (next milestone).
+
 # Requirements: v1019 Hygiene Tail — v1018 Frontend + xdist + Process
 
 **Defined:** 2026-05-22

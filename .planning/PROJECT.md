@@ -12,19 +12,38 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1019 Hygiene Tail — v1018 Frontend + xdist + Process
+## Current Milestone: TBD (awaiting `/gsd-new-milestone`)
 
-**Goal:** Close the 4 deferred items from the v1018 audit (frontend TS hygiene, `/maps/new` 422 console-noise, `/api/api/` doubled prefix on quicklook proxy URLs, `pytest -n auto` Postgres recovery cascade), verify TD-07 runtime symmetry via api/worker container rebuild, and tighten REQUIREMENTS authoring + executor SUMMARY drift surfaced during v1018.
+**Status:** v1019 just shipped. PROJECT.md `Active` section is empty pending next milestone definition. Run `/gsd-new-milestone` to begin the next cycle.
 
-**Target items (6 TD reqs, 3 phases):**
-- **TD-09** Frontend TS hygiene — resolve 36 pre-existing TS errors in 14 untouched test files
-- **TD-10** `pytest -n auto` Postgres recovery cascade — spike first (measure max_connections + per-worker concurrent connection count), then implement chosen fix (per-worker pool sizing in conftest, PG max_connections tune, or `-n` cap)
-- **TD-11** `/maps/new` 422 console-noise — eliminate 2 spurious 422 calls that fire before the Create dialog short-circuits (v1008 catalog-first empty-state quirk)
-- **TD-12** `/api/api/` doubled prefix on legacy quicklook proxy URLs — restore single-prefix path
-- **TD-13** Process tightening — REQUIREMENTS nodeID pinning + executor SUMMARY traceability flip (both repo retro at `.planning/retros/v1019-process.md` and global skill update at `~/.claude/get-shit-done/`)
-- **TD-14** Runtime symmetry — TD-07 `connect_args["ssl"]=False` live in deployed `api`/`worker` images (close-gate: `docker compose up -d --build api worker` + version probe; bundled into Phase 1086, not a standalone phase)
+## Recent Shipped Milestone: v1019 Hygiene Tail — v1018 Frontend + xdist + Process
 
-**Key context:** All items are pre-existing (3 frontend, 1 test-infra, 2 process/runtime) — found, not regressions. xdist fix is spike-first per evidence; TD-13 lands in two places (project retro + global skill). Public tag target `v1.5.4` (patch — hygiene only, no migrations, no user-facing features). Continues phase numbering from v1018 (1080-1083 → 1084-1086).
+**Shipped:** 2026-05-22
+**Tag:** `v1019` (local) + `v1.5.4` (public) at commit `02cb25db`
+
+**Goal delivered:** Closed 4 v1018-deferred tech-debt items (frontend TS hygiene + `/maps/new` 422 noise + `/api/api/` doubled prefix + `pytest -n auto` Postgres cascade) plus 2 new items surfaced during v1019 planning (process tightening to prevent v1018-style REQ/executor drift, runtime symmetry verification for v1018 Phase 1080-02 ssl=False line). Live Playwright MCP 5/5 surfaces green; tags cut + recorded.
+
+**Delivered (6/6 reqs, 3 phases 1084-1086, 7 plans):**
+
+- **Frontend hygiene (Phase 1084)** — TD-09: 37 TS errors / 15 files → 0 (zero suppressions; added missing `typecheck` npm script; vitest 2105/2105 preserved). TD-11: `/maps/new` 422 console-noise eliminated via 1-line route-level `<Navigate to="/maps">` redirect in `App.tsx` (verified live via Playwright MCP — zero `/api/maps/new` requests, zero 422s). TD-12: `/api/api/` doubled prefix fixed at `use-quicklook.ts:58` (dropped leading `/api/` from path literal; only outlier in codebase).
+
+- **pytest -n auto stabilization (Phase 1085)** — TD-10: spike-first measurement reproduced **2452 cascade errors** (628 `TooManyConnectionsError` + 1824 `CannotConnectNowError`); fix shape (a) per-worker pool sizing chosen + iterated to NullPool + 5s startup stagger (root cause was setup-phase concurrent connections, not runtime pool). Result: **2452 → 0 cascade errors**; sequential baseline 3025→3036 (+11); 11 regression tests pin the per-worker invariant.
+
+- **Process tightening (Phase 1086 / Plan 01)** — TD-13: repo retro at `.planning/retros/v1019-process.md` covers 3 v1018 drift incidents (paraphrased test names, `tasks_common.py` path/line drift, Plan 1081-02 SUMMARY checkbox-flip miss). Global skill updates (additive): `~/.claude/agents/gsd-planner.md` (+18 lines `<req_citation_pinning>`), `~/.claude/agents/gsd-executor.md` (+20 lines `<requirements_traceability_flip>`), `~/.claude/get-shit-done/templates/requirements.md` (+14 lines Code-Pinned Examples).
+
+- **Runtime symmetry + close gate (Phase 1086 / Plan 02)** — TD-14: `docker compose up -d --build api worker` rebuilt both images; `docker exec geolens-api-1 grep -n "ssl=False" app/core/config.py` → line 309 confirmed (same for worker). Close gate: sequential pytest 3036/0/38 (+11 over v1018 baseline), e2e:smoke:builder 25/0/1 (matches v1017/v1018), frontend typecheck exit 0, live Playwright MCP 5/5 surfaces.
+
+**Audit verdict:** PASSED (tech_debt — 1 v1020 carry-forward) — 6/6 reqs · 3/3 phases · 6/6 cross-phase integration · 5/5 live MCP smoke surfaces. See `.planning/milestones/v1019-MILESTONE-AUDIT.md`.
+
+**Inline review fixes (5):** WR-01 (Plan 1084 lint companion script `902875bf`); WR-01+WR-02 (Plan 1085 stagger docstring + NullPool sentinel `6488fdf3`); WR-03 (Plan 1085 warning on malformed worker ID `37b86244`); CR-02 (Plan 1085 real NullPool branch coverage via `_make_test_async_engine` helper `ea24168c`).
+
+**Patterns established (3):** fixed-point bootstrap of new rules (audit-time retroactive flip for pre-rule plans); spike-first when fix shape non-obvious (surface measurement is right answer even when deeper mechanism iterates); live Playwright MCP as canonical close-gate verification (catches `/api/api/` and 422 patterns that headless e2e misses).
+
+**Deferred to v1020 (1 item):** 192 pytest fixture-scope failures exposed by `-n auto` parallelism (not asyncpg cascade — that is closed; not a regression of TD-10 — sequential mode clean). Documented in CHANGELOG `[1.5.4]` Known Limitations.
+
+**Migrations:** None. All v1019 changes are non-schema (frontend hygiene + test-infra knob + process docs + container probe).
+
+**Milestone close:** 6/6 reqs satisfied; tags `v1019` + `v1.5.4` at commit `02cb25db`. See `.planning/milestones/v1019-ROADMAP.md` for full archive.
 
 ## Recent Shipped Milestone: v1018 Hygiene — v1017 Tech-Debt Tail
 
@@ -1013,13 +1032,9 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-v1019 Hygiene Tail — v1018 Frontend + xdist + Process (6 items):
-- **TD-09** Frontend TS hygiene — 36 pre-existing TS errors in 14 untouched test files; `tsc -b` exit 0 with zero suppression
-- **TD-10** `pytest -n auto` Postgres recovery cascade — spike first (Plan 1085-01: measure max_connections + per-worker concurrent connection count), then implement chosen fix (Plan 1085-02)
-- **TD-11** `/maps/new` 422 console-noise — 2 spurious 422 calls eliminated before Create dialog short-circuits (v1008 catalog-first empty-state quirk surfaced during v1018 MCP smoke)
-- **TD-12** `/api/api/` doubled prefix on legacy quicklook proxy URLs — restore single-prefix path
-- **TD-13** Process tightening — REQUIREMENTS nodeID pinning (path::TestClass::test_name instead of paraphrased descriptions) + executor SUMMARY traceability flip (auto-update REQUIREMENTS.md `[ ]` → `[x]` and Pending → Complete on plan close); repo retro at `.planning/retros/v1019-process.md` + global skill update at `~/.claude/get-shit-done/`
-- **TD-14** Runtime symmetry — TD-07 `connect_args["ssl"]=False` live in deployed `api`/`worker` images (close-gate: `docker compose up -d --build api worker` + version probe; bundled into Phase 1086 close-gate, not a standalone phase)
+_Empty — v1019 shipped 2026-05-22 with 6/6 reqs (TD-09..TD-14) satisfied. Run `/gsd-new-milestone` to define next milestone scope._
+
+**Known v1020 carry-forward:** 192 fixture-scope pytest failures exposed by `pytest -n auto` parallelism (not asyncpg cascade — that is closed; not a regression of TD-10 fix). Needs a fixture-isolation audit in next milestone. Documented in CHANGELOG `[1.5.4]` Known Limitations.
 
 ### Out of Scope
 
@@ -1291,4 +1306,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-21 — opened milestone v1019 Hygiene Tail — v1018 Frontend + xdist + Process. Scope: 6 deferred items (4 from v1018 audit `tech_debt` + TD-07 runtime symmetry + REQUIREMENTS/executor process tightening). Target public tag `v1.5.4` (patch; hygiene only, no migrations, no user-facing features). Previous: v1018 Hygiene — v1017 Tech-Debt Tail (8 reqs across phases 1080-1083, tag v1018 + v1.5.3 at d1b76061, 0 v1019 deferrals from audit). Archive: .planning/milestones/v1018-ROADMAP.md.*
+*Last updated: 2026-05-22 — archived milestone v1019 Hygiene Tail — v1018 Frontend + xdist + Process (6 reqs TD-09..TD-14 satisfied; tags `v1019` + `v1.5.4` at `02cb25db`). Active is empty pending `/gsd-new-milestone`. Single v1020 carry-forward: 192 fixture-scope pytest failures exposed by `-n auto` parallelism (documented as Known Limitation in CHANGELOG `[1.5.4]`). Previous: v1018 Hygiene — v1017 Tech-Debt Tail (8 reqs across phases 1080-1083, tag v1018 + v1.5.3 at d1b76061). Archives: .planning/milestones/v1019-ROADMAP.md + .planning/milestones/v1019-REQUIREMENTS.md.*
