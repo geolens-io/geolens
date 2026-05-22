@@ -177,3 +177,59 @@ def test_stagger_window_prevents_concurrent_setup_spikes():
         f"({max_stagger_overhead_seconds}s). Reduce _SETUP_STAGGER_SECONDS — "
         "the stagger is larger than the setup time that needs separating."
     )
+
+
+def test_setup_stagger_delay_for_malformed_worker_id_emits_warning(monkeypatch):
+    """Malformed 'gw'-prefix worker IDs (e.g. 'gw' with empty suffix) emit a warning.
+
+    pytest-xdist uses 'gwN' IDs (e.g. gw0, gw15). If the format changes in a
+    future xdist version (e.g. 'gw-0', 'gw/3'), the ValueError path in
+    _get_setup_stagger_delay() returns 0.0, defeating the stagger silently.
+    The warning makes this observable in CI output so it is not silently swallowed.
+
+    Non-'gw'-prefix IDs (e.g. 'master', 'controller') return 0.0 without a
+    warning — those are the expected sequential/controller process IDs.
+    """
+    import warnings
+
+    # 'gw' with no numeric suffix → int("") raises ValueError → warning path
+    # Note: 'gw-0' is NOT malformed — int("-0") == 0, so it returns 0.0 stagger
+    # (same as gw0) without a warning. Only IDs where int(suffix) raises ValueError
+    # trigger the warning path.
+    malformed_gw_ids = ["gw", "gw/3", "gwX"]
+    for bad_id in malformed_gw_ids:
+        monkeypatch.setenv("PYTEST_XDIST_WORKER", bad_id)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            delay = _get_setup_stagger_delay()
+        assert delay == 0.0, (
+            f"Malformed gw-prefix ID '{bad_id}' should return 0.0 (got {delay}s)."
+        )
+        assert len(caught) == 1, (
+            f"Expected exactly 1 warning for malformed ID '{bad_id}'; got {len(caught)}."
+        )
+        assert bad_id in str(caught[0].message), (
+            f"Warning message should include the bad worker ID '{bad_id}'; "
+            f"got: {caught[0].message}"
+        )
+
+
+def test_setup_stagger_delay_for_non_gw_worker_id_returns_zero_no_warning(monkeypatch):
+    """Non-'gw'-prefix IDs return 0.0 without emitting a warning.
+
+    'master' (sequential) and hypothetical 'controller' IDs are expected non-gw
+    values — these are not malformed, just the non-xdist path. No warning needed.
+    """
+    import warnings
+
+    for expected_id in ["master", "controller", "worker_3"]:
+        monkeypatch.setenv("PYTEST_XDIST_WORKER", expected_id)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            delay = _get_setup_stagger_delay()
+        assert delay == 0.0, (
+            f"Non-gw ID '{expected_id}' should return 0.0 (got {delay}s)."
+        )
+        assert len(caught) == 0, (
+            f"Non-gw ID '{expected_id}' should not emit a warning (got {len(caught)})."
+        )

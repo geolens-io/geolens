@@ -2,6 +2,7 @@ import os
 import time
 import uuid
 import tempfile
+import warnings
 
 import pytest
 import sqlalchemy
@@ -94,6 +95,10 @@ def _get_setup_stagger_delay() -> float:
     try:
         worker_num = int(worker_id[2:])
     except ValueError:
+        warnings.warn(
+            f"Unexpected PYTEST_XDIST_WORKER format: {worker_id!r}; stagger disabled",
+            stacklevel=2,
+        )
         return 0.0
     return worker_num * _SETUP_STAGGER_SECONDS
 
