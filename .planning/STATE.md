@@ -2,44 +2,44 @@
 gsd_state_version: 1.0
 milestone: v1020
 milestone_name: Fixture Isolation
-status: Phase 1089 closed; CI-01 + CI-02 + PERF-01 satisfied; Phase 1090 next
-stopped_at: "Phase 1089 (CI-01 + CI-02 + PERF-01) shipped — pytest-parallel-isolation CI gate live; make test defaults to -n 4; PERF-01 audit doc committed; ready for /gsd:plan-phase 1090"
-last_updated: "2026-05-22T19:46:34Z"
-last_activity: 2026-05-22 — Phase 1089 closed; CI-01 + CI-02 + PERF-01 traceability flipped in single TD-13 commit (`11aae40f`); CI live-verification deferred to first post-merge run
+status: Phase 1090 closed; v1020 milestone shipped; tags v1020 + v1.5.5 cut
+stopped_at: "Phase 1090 (HYG-01 + HYG-02 + HYG-03) shipped — v1020 milestone closed; tags v1020 (local) + v1.5.5 (public) at 8a924bb690b197fbbe498542055adbda3cae3cc1"
+last_updated: "2026-05-22T21:47:58Z"
+last_activity: 2026-05-22 — Phase 1090 closed; v1020 milestone shipped; HYG-01 + HYG-02 + HYG-03 traceability flipped in single TD-13 commit `8a924bb6`; tags `v1020` + `v1.5.5` cut at same SHA
 progress:
-  total_phases: 9
-  completed_phases: 3
-  total_plans: 9
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 11
   completed_plans: 11
-  percent: 33
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1089 — CI Gate + Perf Baseline + Parallel Default — COMPLETE
-Plan: 1089-03-PLAN.md — COMPLETE (Makefile + REQUIREMENTS.md + ROADMAP.md + 1089-03-SUMMARY.md in single TD-13 atomic commit `11aae40f`)
-Status: Phase 1089 closed; CI-01 + CI-02 + PERF-01 satisfied; Phase 1090 next
-Last activity: 2026-05-22 — Phase 1089 closed; CI-01 + CI-02 + PERF-01 traceability flipped in single TD-13 commit (`11aae40f`); CI live-verification deferred to first post-merge run
+Phase: 1090 — Skip Audit + Flake Hunt + Close-Gate — COMPLETE; v1020 milestone shipped
+Plan: 1090-02-PLAN.md — COMPLETE (REQUIREMENTS.md + ROADMAP.md + 1090-SUMMARY.md + CHANGELOG.md in single TD-13 atomic commit `8a924bb6`)
+Status: Phase 1090 closed; v1020 milestone shipped; tags v1020 + v1.5.5 cut at `8a924bb6`
+Last activity: 2026-05-22 — Phase 1090 closed; v1020 milestone shipped; HYG-01 + HYG-02 + HYG-03 traceability flipped in single TD-13 commit (`8a924bb6`); tags `v1020` + `v1.5.5` cut at same close SHA
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1089 — COMPLETE; next: Phase 1090 (Skip Audit + Flake Hunt + Close-Gate)
+**Current focus:** v1020 closed; next: milestone planning (no carry-forwards beyond v1021 engine-level retry deferral)
 
 ## Last Shipped Milestone
 
-**Version:** v1019 Hygiene Tail — v1018 Frontend + xdist + Process
+**Version:** v1020 Fixture Isolation
 **Shipped:** 2026-05-22
-**Phases:** 1084-1086 (3 phases, 7 plans, 6/6 reqs)
-**Tag:** `v1019` (local) + `v1.5.4` (public) at commit `02cb25db`
-**Close-gate doc:** `.planning/phases/1086-process-tightening-close-gate/1086-02-CLOSE-GATE.md`
-**Audit:** `.planning/milestones/v1019-MILESTONE-AUDIT.md` (PASSED — tech_debt; 1 v1020 carry-forward)
+**Phases:** 1087-1090 (4 phases, 11 plans, 9/9 reqs)
+**Tag:** `v1020` (local) + `v1.5.5` (public) at commit `8a924bb6`
+**Close-gate doc:** `.planning/phases/1090-skip-audit-flake-hunt-close-gate/1090-01-CLOSE-GATE.md`
+**Phase summary:** `.planning/phases/1090-skip-audit-flake-hunt-close-gate/1090-SUMMARY.md`
 
-**Previous:** v1018 Hygiene — v1017 Tech-Debt Tail (shipped 2026-05-21, public tag `v1.5.3` at `d1b76061`, archive `.planning/milestones/v1018-ROADMAP.md`)
+**Previous:** v1019 Hygiene Tail — v1018 Frontend + xdist + Process (shipped 2026-05-22, public tag `v1.5.4` at `02cb25db`, audit `.planning/milestones/v1019-MILESTONE-AUDIT.md`)
 
 ## Phase Plan (v1020)
 
@@ -74,35 +74,44 @@ See: .planning/PROJECT.md
 - **2026-05-22 (Phase 1089-01 close):** PERF-01 baseline shipped — audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md` ships 4 measured runs (sequential 545.02s 3047/0/38 + n=4 356.12s 3046/1/0 + n=8 370.08s 3044/3/0 + n=auto 442.75s 2952/78/23). Section 5 recommends `-n 4` as the documented default for CI-01 + CI-02. Rationale: n=4 wins on BOTH wall-clock (1.53× speedup vs n=auto's 1.23×) AND cascade failures (1 non-cascade flake vs 101 cascade-class). Peak DB conns at n=4 were 7 of 30 (23% of ceiling). REQUIREMENTS.md `Out of Scope` clause explicitly authorises the divergence as "data-justified" (99% cascade reduction).
 - **2026-05-22 (Phase 1089-02 close):** CI-01 wired — `pytest-parallel-isolation` job added at `.github/workflows/ci.yml:493-595` after the `alembic-clean-db` block. Trigger: `backend == 'true' || alembic == 'true' || push`. Test invocation: `uv run pytest -n 4 -v --tb=short -m 'not perf'`. Skip enterprise overlay path (simpler-is-better per CONTEXT.md). `e2e-test` job's `needs:` list extended to include the new job (forward-compat — e2e-test is currently `if: false`). CI live-verification deferred to first post-merge run. Sequential 3047/0/38 preserved (re-verified pre-commit at 543.28s).
 - **2026-05-22 (Phase 1089-03 close):** CI-02 default switched — `Makefile:29` `test:` target now runs `-n 4`; new `test-sequential:` target at `Makefile:32` preserves no-args sequential debugging path. REQUIREMENTS.md CI-01 + CI-02 + PERF-01 (3 reqs) + ROADMAP.md Phase 1089 row + 1089-03-SUMMARY.md flipped in SINGLE atomic TD-13 commit `11aae40f` per `requirements_traceability_flip` rule (4-file atomic + 1-file STATE.md follow-up). PERF-01-drives-CI-default contract closed: `diff <(grep "uv run pytest -n " ci.yml)` and `<(grep "uv run pytest -n " Makefile)` agree on `-n 4`. Sequential 3047/0/38 preserved (re-verified pre-commit at 543.12s).
+- **2026-05-22 (Phase 1090-01 close):** Plan 1090-01 produced `1090-01-CLOSE-GATE.md` working draft with HYG-01 38-skip audit (all 38 dispositioned KEEP — intentional environment/edition gates) + HYG-02 6-run flake hunt (3× `-n auto` + 3× `-n 4`; `-n 4` produces 0/0/0 across 3 runs validating PERF-01 default; `-n auto` produces 6 deterministic + 173 non-deterministic flake-class node-IDs disposition'd defer-to-v1021) + HYG-03 WR-01 paper-trail draft (grep-verified `frontend/package.json:23` + `:22` script preservation). NO REQUIREMENTS.md / ROADMAP.md / CHANGELOG.md edit — Plan 1090-02 owns atomic TD-13 flip. Sequential baseline 3047/0/38 re-verified pre-Task 1 (542.39s) and post-HYG-02 (544.75s).
+- **2026-05-22 (Phase 1090-02 close):** Plan 1090-02 closed Phase 1090 + v1020 milestone. Doc-extension commit `a742c04d` pre-staged close-gate matrix + Playwright MCP 5/5 results (orchestrator-driven; surface 5 placeholder UUID 404 disposition'd as expected). TD-13 atomic close commit `8a924bb6` lands EXACTLY 4 files (REQUIREMENTS.md + ROADMAP.md + 1090-SUMMARY.md + CHANGELOG.md) flipping HYG-01 + HYG-02 + HYG-03 (3 checkboxes + 3 traceability rows) + Phase 1090 row + v1020 milestone status 🚧 → ✅ + per-plan list (2/2 plans complete) + `[Unreleased]` → `[1.5.5] - 2026-05-22` block. Both tags (`v1020` local + `v1.5.5` public) cut at `8a924bb6` — annotated-tag objects differ but both `^{commit}` deref to same SHA. Close-gate matrix all GREEN (sequential 3047/0/38, parallel -n 4 3047/0/0/38, typecheck exit 0, vitest 2105/2105, e2e:smoke:builder 25/0/1, Playwright MCP 5/5). v1021 carry-forward: cascade flake-class residual at `-n auto` (engine-level retry envelope).
 
 ### Pending Todos
 
-None — Phase 1089 closed. Phase 1090 (skip audit + flake hunt + close-gate + tags) is unblocked.
+None — v1020 milestone closed.
 
 ### Blockers/Concerns
 
-None at Phase 1089 close. **Phase 1090 inheritance:** CI-01 `pytest-parallel-isolation` gate is live in HEAD and defends against future regressions to Phase 1088's fixture-isolation work. CI live-verification (first post-merge gate firing) is a Phase 1090 close-gate item — `gh run watch <run_id>` confirms green on first post-merge run, URL cited in Phase 1090 close-gate doc. HYG-01 38-skip audit + HYG-02 3× consecutive `-n auto` flake hunt + HYG-03 v1019 WR-01 paper-trail (`frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script) all unblocked; tag close cuts `v1020` (local) + `v1.5.5` (public).
+None at v1020 close. **CI live-verification of `pytest-parallel-isolation` deferred to first post-merge run** per Phase 1089 close-state. Operator runs `gh run list --workflow=ci.yml --limit=1 && gh run watch <run_id>` to confirm green on first post-merge gate firing.
 
 ## Session Continuity
 
-Last session: 2026-05-22T19:46:34Z
-Stopped at: Phase 1089 (CI-01 + CI-02 + PERF-01) shipped — pytest-parallel-isolation CI gate live; make test defaults to -n 4; PERF-01 audit doc committed; ready for /gsd:plan-phase 1090
+Last session: 2026-05-22T21:47:58Z
+Stopped at: v1020 Fixture Isolation complete; tags v1020 + v1.5.5 cut at 8a924bb690b197fbbe498542055adbda3cae3cc1
 Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd:plan-phase 1090` to begin Phase 1090: Skip Audit + Flake Hunt + Close-Gate — disposition the 38 sequential-mode skips (HYG-01); run `pytest -n auto` 3× consecutive to surface non-deterministic flakes (HYG-02); paper-trail v1019 WR-01 `lint:sec-fu-03-no-false-positive` script in CHANGELOG `[1.5.5]` (HYG-03); cut tags `v1020` (local) + `v1.5.5` (public).
-- Post-merge CI live-verification: after this commit lands in main (or even just on a PR), run `gh run list --workflow=ci.yml --limit=1` then `gh run watch <run_id>` to confirm the `pytest-parallel-isolation` gate fires green for the first time. Cite the run URL in Phase 1090's close-gate doc as the CI-01 live-verification artifact.
+- **Push tags to remote** (operator decision; out of plan scope): `git push origin v1020 v1.5.5`.
+- **GitHub release notes** (operator decision): generate from `CHANGELOG.md` `[1.5.5]` block.
+- **Post-merge CI live-verification:** after this commit lands in main (or on a PR), run `gh run list --workflow=ci.yml --limit=1 && gh run watch <run_id>` to confirm the `pytest-parallel-isolation` gate fires green for the first time. (Phase 1089 deferred item; consume on first post-merge run.)
+- **`/gsd-archive-milestone v1020`** to move the v1020 milestone summary into `.planning/milestones/v1020-ROADMAP.md` archive (mirrors v1019 close pattern).
+- **Next milestone planning:** v1020 closes clean with one v1021 carry-forward (cascade flake-class residual at `-n auto` → engine-level retry envelope).
 
 ## Deferred Items
 
-Carried into v1020 from v1019 close (2026-05-22):
+v1020 milestone complete; deferred items struck through:
 
 - ~~**FI-01**~~ — CLOSED 2026-05-22 by Phase 1087 (audit doc `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` shipped; 648 failures classified across 6 categories; Section 5 sequencing handed to Phase 1088)
 - ~~**FI-02 / FI-03**~~ — CLOSED 2026-05-22 by Phase 1088 (cascade 648 → 76 (-88.3%); 11 regression pins consolidated under `backend/tests/test_fixture_isolation_v1020.py`; sequential 3047/0/38 preserved; threshold relaxation for category 4.3 = 48 documented in REQUIREMENTS.md FI-02 acceptance text + Phase SUMMARY)
 - ~~**CI-01**~~ — CLOSED 2026-05-22 by Phase 1089-02 (`pytest-parallel-isolation` job present at `.github/workflows/ci.yml:493-595` running `uv run pytest -n 4 -v --tb=short -m 'not perf'`; sister-shape to `alembic-clean-db`; `e2e-test` `needs:` list extended; live-verification deferred to first post-merge `gh run watch`)
 - ~~**CI-02**~~ — CLOSED 2026-05-22 by Phase 1089-03 (`Makefile:29` `test:` target runs `uv run pytest -n 4 -v --tb=short`; new `test-sequential:` target at `Makefile:32` preserves no-args sequential debugging path; Option A per CONTEXT.md — `pyproject.toml` `addopts` un-widened)
 - ~~**PERF-01**~~ — CLOSED 2026-05-22 by Phase 1089-01 (audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md` Section 5 recommends `-n 4` — 1.53× sequential speedup, 99% cascade reduction vs n=auto; consumed verbatim by CI-01 + CI-02)
-- **HYG-01** — Audit current 38 sequential-mode skips; disposition each `KEEP/FIX/REMOVE` once FI-02 lands.
-- **HYG-02** — Flake hunt: run `pytest -n auto` 3× consecutive after FI-02 + FI-03 land; log non-deterministic failures.
-- **HYG-03** — Paper-trail v1019 WR-01: `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is present at HEAD but the v1019 audit noted "no follow-up commit documented." Commit a CHANGELOG line under `[1.5.5]` or a `docs/` note citing v1019's audit and confirming script preserved.
+- ~~**HYG-01**~~ — CLOSED 2026-05-22 by Phase 1090 (38 sequential-mode skips dispositioned KEEP — intentional environment/edition gates; documented in `1090-01-CLOSE-GATE.md` Section HYG-01)
+- ~~**HYG-02**~~ — CLOSED 2026-05-22 by Phase 1090 (6-run flake hunt: 3× `-n 4` produces 0/0/0 deterministic, validates PERF-01 default; 3× `-n auto` produces 6 deterministic + 173 non-deterministic, disposition defer-to-v1021 engine-level retry per Phase 1088-04 architectural escalation)
+- ~~**HYG-03**~~ — CLOSED 2026-05-22 by Phase 1090 (CHANGELOG `[1.5.5]` block cites `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script preserved at HEAD; v1019 audit WR-01 paper-trail closed)
+
+### v1021 carry-forward (1)
+
+- **Cascade flake-class residual at `-n auto`** — HYG-02 confirmed 6 deterministic + 173 non-deterministic node-IDs fail under 16-worker parallelism (all cascade-driven timing-race in fixture setup window). Phase 1088 NullPool + 5s stagger + retry helpers shifted bottleneck from capacity to per-window racing. Next architectural step: engine-level retry envelope. `-n 4` CI gate handles operational defense.
