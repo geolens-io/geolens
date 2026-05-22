@@ -66,3 +66,30 @@ Note: pytest must be run from `backend/` with `.env.test` env vars loaded. Runni
 - Command: `cd frontend && npm run typecheck`
 - Result: exit 0 (tsc -b --noEmit produces no errors)
 - Verdict: **PASSED** — TD-09 regression check clear; 0 TypeScript errors
+
+## Playwright MCP Smoke Checklist (for orchestrator)
+
+The orchestrator runs this checklist via Playwright MCP against `http://localhost:8080` after this plan's automated close-gate passes. Five surfaces, zero console errors per surface, zero failed network requests per surface. Aggregate verdict: 5/5 PASS.
+
+| Surface | URL | Pass Criteria |
+|---------|-----|---------------|
+| 1. Landing / catalog list | `http://localhost:8080/` | Page renders; 0 console errors; 0 failed network requests |
+| 2. Maps list | `http://localhost:8080/maps` | Page renders; auth gate works or anonymous view loads; 0 console errors; 0 failed network requests; NO `/api/api/` patterns in network log (TD-12 regression check) |
+| 3. Dataset detail | `http://localhost:8080/datasets/<any-existing-uuid>` | Pick any uuid from a `/datasets` API response; page renders; 0 console errors |
+| 4. Map builder | `http://localhost:8080/maps/<any-existing-uuid>` (or `/maps/new` after login) | Editor scene loads; 0 console errors; NO 422 console-noise on the path `/maps/new` (TD-11 regression check) |
+| 5. Map viewer | `http://localhost:8080/maps/<any-existing-uuid>` (viewer mode if separate URL, otherwise same as 4) | Viewer renders the saved map state; 0 console errors |
+
+### Orchestrator instructions
+
+After this plan's SUMMARY commit lands, the orchestrator should:
+1. Confirm the stack is up (`docker compose ps` shows api + worker + frontend healthy).
+2. Run the 5-surface Playwright MCP smoke with `--use-playwright-mcp`.
+3. Append the result (5/5 PASS or N/5 with details) to this file as a new `## MCP Smoke Result` section.
+4. If 5/5 PASS, proceed to tag-cutting (`git tag v1019 <SHA>` + `git tag v1.5.4 <SHA>` — same SHA, the post-baseline commit).
+5. If any surface fails with 422s or `/api/api/` patterns, that indicates a TD-11 or TD-12 regression — block tag-cutting and surface to user.
+
+### TD-09/TD-11/TD-12 regression checks (called out specifically)
+
+- TD-09: surface 4 + 5 must show 0 console errors of shape `TS<n>` or `TypeError` (the 37 TS-error fix must not have introduced runtime regressions).
+- TD-11: surface 4's `/maps/new` path must show 0 `422` responses in the network log.
+- TD-12: surface 2's network log must show 0 URL patterns containing `/api/api/`.
