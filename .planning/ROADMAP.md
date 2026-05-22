@@ -127,10 +127,10 @@ Plans:
   3. `docker compose up -d --build api worker` succeeds; a probe of the running `api` container confirms `ssl=False` is present on the `database_ssl_mode='disable'` branch (e.g., `docker exec <api> grep -n "ssl=False" app/core/config.py` returns the line from v1018 Phase 1080-02)
   4. Sequential `uv run pytest backend/` passes at 3025+ / 0 failures; `npm run e2e:smoke:builder` exits green; live Playwright MCP smoke covers 5 surfaces on `localhost:8080` and all pass
   5. `CHANGELOG.md` carries a `[1.5.4] - 2026-05-22` entry covering TD-09..TD-14; local tag `v1019` and public tag `v1.5.4` are cut at the post-baseline commit
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 1086-01-PLAN.md — TD-13 process tightening: repo retro + additive edits to 3 global GSD skill files (gsd-planner node-ID rule, gsd-executor SUMMARY checkbox-flip rule, requirements.md template node-ID example)
+- [x] 1086-01-PLAN.md — TD-13 process tightening: repo retro + additive edits to 3 global GSD skill files (gsd-planner node-ID rule, gsd-executor SUMMARY checkbox-flip rule, requirements.md template node-ID example)
 - [ ] 1086-02-PLAN.md — TD-14 runtime symmetry + close gate: docker rebuild + ssl=False probe + CHANGELOG [1.5.4] + sequential pytest + e2e:smoke:builder + 5-surface Playwright MCP smoke (orchestrator-driven) + REQUIREMENTS.md flip + STATE.md to shipped
 
 ---
