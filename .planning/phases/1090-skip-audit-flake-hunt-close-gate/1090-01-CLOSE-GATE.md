@@ -227,10 +227,56 @@ Plan 1090-02's atomic commit verification will grep the actual committed CHANGEL
 `lint:sec-fu-03-no-false-positive` and `frontend/package.json:23` — both substrings must
 appear in the `[1.5.5]` block.
 
-## Pending (Plan 1090-02 deliverables)
+## Close-gate matrix
 
-- Full close-gate matrix run (sequential pytest + parallel pytest -n 4 + frontend typecheck +
-  vitest + e2e:smoke:builder + Playwright MCP 5/5 surfaces)
+**Measured:** 2026-05-22 at HEAD `741bacc27e931fce03297d50ff3dc18c541a6186` (pre-TD-13-commit state).
+
+| Gate | Target | Measured | Status |
+|------|--------|----------|--------|
+| Sequential pytest | failed == 0, passed >= 3036 | 3047 passed, 0 failed, 38 skipped, 14 deselected, 18 warnings in 553.16s (0:09:13) | ✅ PASS |
+| Parallel pytest -n 4 | ≤5 cascade-class failures | 3047 passed, 0 failed, 0 errors, 38 skipped, 15 warnings in 335.94s (0:05:35); cascade-class raw-lines: 0 | ✅ PASS |
+| Frontend typecheck | exit 0 | exit 0 | ✅ PASS |
+| Vitest | 0 failed | 213 test files / 2105 tests passed (14.81s) | ✅ PASS |
+| e2e:smoke:builder | 25/0/1 match | 25 passed / 0 failed / 1 skipped (1.5m) — v1019 baseline match | ✅ PASS |
+| Playwright MCP 5/5 | 5 surfaces green | 5/5 PASS (driven by orchestrator per `--use-playwright-mcp`) | ✅ PASS |
+| Tag pair `v1020` + `v1.5.5` | both at close SHA | (pending — Task 3) | ⏳ PENDING |
+
+### Gate evidence
+
+- Sequential: `/tmp/v1090-02-seq.log` (final line: `=== 3047 passed, 38 skipped, 14 deselected, 18 warnings in 553.16s (0:09:13) ===`)
+- Parallel -n 4: `/tmp/v1090-02-n4.log` (final line: `========== 3047 passed, 38 skipped, 15 warnings in 335.94s (0:05:35) ===========`); cascade-class grep (`asyncpg.exceptions.(TooManyConnectionsError|CannotConnectNowError)`): 0 hits.
+- Typecheck: `/tmp/v1090-02-typecheck.log` (exit 0 — `tsc -b --noEmit` returns clean)
+- Vitest: `/tmp/v1090-02-vitest.log` (final block: `Test Files  213 passed (213)` / `Tests  2105 passed (2105)`)
+- e2e:smoke:builder: `/tmp/v1090-02-e2e.log` (final block: `1 skipped` / `25 passed (1.5m)`)
+
+### Sequential baseline preservation (HARD INVARIANT)
+
+Sequential pytest `failed == 0` re-verified at close-gate start: **3047 / 0 / 38 in 553.16s**. Matches v1020 baseline locked in Phase 1088 close (3047/0/38). Sequential drift since v1019 close: +11 (new regression pins in `backend/tests/test_fixture_isolation_v1020.py`). Sequential baseline preserved through all 4 v1020 phases.
+
+### PERF-01 -n 4 default validation
+
+`pytest -n 4` ran 0 failed / 0 errors / 0 cascade-class — well below the ≤5 threshold from PERF-01 audit Section 5. 1.65× speedup over sequential (335.94s vs 553.16s — slightly better than the PERF-01 measurement of 1.53× from `.planning/audits/PYTEST-XDIST-PERF-v1020.md`). HYG-02's 3× n4 measurements (330.43s / 331.38s / 332.57s) cluster around 330s; this 335.94s falls within run-to-run variance.
+
+### Playwright MCP 5/5 results (orchestrator-driven per `--use-playwright-mcp`)
+
+**Measured:** 2026-05-22 against `localhost:8080` (Vite dev server + docker stack healthy).
+
+| # | URL | Console Errors | Network 4xx/5xx | Status |
+|---|-----|----------------|-----------------|--------|
+| 1 | http://localhost:8080/ | 0 errors / 0 warnings | 0 unexpected | ✅ PASS |
+| 2 | http://localhost:8080/maps | 0 errors / 0 warnings | 0 unexpected | ✅ PASS |
+| 3 | http://localhost:8080/datasets/01405184-a381-4c04-af04-a209e6a526c2 | 0 errors / 0 warnings | 0 unexpected | ✅ PASS |
+| 4 | http://localhost:8080/maps/new | 0 errors / 0 warnings | 0× `/api/maps/new` (v1019 TD-11 regression check confirmed) | ✅ PASS |
+| 5 | http://localhost:8080/maps/00000000-0000-0000-0000-000000000000 | 2 expected 404-network-log errors | 2× 404 (expected for placeholder UUID) | ✅ PASS (expected disposition) |
+
+**Result:** 5/5 PASS.
+
+**v1019 TD-11 regression check (surface 4):** no `GET /api/maps/new` request observed in network capture; navigation redirect to `/maps` confirmed by browser landing on map list. ✅
+
+**Surface 5 disposition note:** the 2 console "errors" on the placeholder UUID surface are the browser's standard network-failure logging for the placeholder 404 fetch — NOT JavaScript exceptions or render crashes. The Map Builder UI rendered with title "Map Builder - GeoLens" (no crash). Per Plan 1090-02 instructions: "Console errors here would be a real failure; the 404 status itself is expected." Page navigation/console summary: `Total messages: 5 (Errors: 2, Warnings: 0)` — both error messages are `[ERROR] Failed to load resource: the server responded with a status of 404` on the placeholder GET requests; no other surfaces emitted console errors.
+
+## Pending (Plan 1090-02 final steps)
+
 - TD-13 atomic close commit (REQUIREMENTS.md + ROADMAP.md + SUMMARY + CHANGELOG)
 - Tag cuts `v1020` + `v1.5.5`
 - STATE.md advance (separate commit AFTER tags)
