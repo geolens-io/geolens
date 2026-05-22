@@ -22,6 +22,35 @@ from app.core.config import settings
 _WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
 
 
+def _derive_test_pool_sizing() -> tuple[int, int]:
+    """Return (pool_size, max_overflow) sized to live within Postgres max_connections.
+
+    Sequential mode (worker_id == "master") keeps the historical (5, 2) pool that
+    the suite was built against. Under pytest-xdist, the per-worker pool is scaled
+    DOWN so the total fan-out (workers × per-worker conn) lives within the
+    max_connections=30 ceiling set in db/postgresql.conf:11 (PERF-05 / Phase 274).
+
+    Math (rationale from .planning/audits/PYTEST-XDIST-SPIKE-v1019.md):
+        - max_connections = 30
+        - admin headroom (psql + alembic + autovac) ≈ 4 conn
+        - usable budget = 30 − 4 = 26
+        - assume -n auto worst case = 16 workers (M-series macOS host)
+        - per-worker budget = floor(26 / 16) = 1 conn
+        - use pool_size=1, max_overflow=0: 16 × 1 = 16 total ≤ 30 (14 headroom)
+        - max_overflow=1 would give 16 × 2 = 32, exceeding the ceiling — rejected
+
+    The (5, 2) sequential default is preserved because request handlers in some
+    tests (e.g., reupload, IDOR) need >1 concurrent conn within a single test.
+    The v1018 sequential baseline (3025/0/38 in 539s) is the regression floor.
+    """
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    if worker_id == "master":
+        return (5, 2)
+    # Under xdist: pool_size=1, max_overflow=0 → 1 conn per worker.
+    # Total fan-out: 16 workers × 1 conn = 16, giving 14 headroom below max_connections=30.
+    return (1, 0)
+
+
 def pytest_configure(config):
     """Re-capture the pytest-xdist worker id under config-time hooks.
 
@@ -351,10 +380,18 @@ async def client(tmp_path):
 
     redirect_tempfile_to_staging(staging_dir)
 
+    # Pool sizing is derived per pytest-xdist worker via _derive_test_pool_sizing()
+    # to live within Postgres max_connections=30 (db/postgresql.conf:11). Under
+    # -n auto (16 workers on M-series macOS), per-worker = pool_size=1, max_overflow=0
+    # so total fan-out (16 × 1 = 16) is 14 below the ceiling. Sequential mode
+    # (worker_id=master) keeps the historical (5, 2) for request handlers that
+    # need concurrent DB conns within a single test. See
+    # .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
+    _pool_size, _max_overflow = _derive_test_pool_sizing()
     test_engine = create_async_engine(
         settings.test_database_url,
-        pool_size=5,
-        max_overflow=2,
+        pool_size=_pool_size,
+        max_overflow=_max_overflow,
         pool_timeout=30,
         echo=False,
     )
