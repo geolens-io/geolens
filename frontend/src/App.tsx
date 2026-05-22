@@ -57,6 +57,7 @@ export const appRoutes = (
       <Route path="collections" element={<CollectionsPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="collections/:id" element={<CollectionDetailPage />} errorElement={<RouteErrorBoundary />} />
       <Route path="maps" element={<MapsPage />} errorElement={<RouteErrorBoundary />} />
+      <Route path="maps/new" element={<Navigate to="/maps" replace />} />
       <Route path="maps/:id" element={<MapViewerGate />} errorElement={<RouteErrorBoundary />} />
 
       {/* Protected routes — auth required */}
