@@ -9,6 +9,7 @@ import structlog
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.modules.auth.models import Role, User, UserRole
@@ -26,29 +27,72 @@ def _derive_test_pool_sizing() -> tuple[int, int]:
     """Return (pool_size, max_overflow) sized to live within Postgres max_connections.
 
     Sequential mode (worker_id == "master") keeps the historical (5, 2) pool that
-    the suite was built against. Under pytest-xdist, the per-worker pool is scaled
-    DOWN so the total fan-out (workers × per-worker conn) lives within the
-    max_connections=30 ceiling set in db/postgresql.conf:11 (PERF-05 / Phase 274).
-
-    Math (rationale from .planning/audits/PYTEST-XDIST-SPIKE-v1019.md):
-        - max_connections = 30
-        - admin headroom (psql + alembic + autovac) ≈ 4 conn
-        - usable budget = 30 − 4 = 26
-        - assume -n auto worst case = 16 workers (M-series macOS host)
-        - per-worker budget = floor(26 / 16) = 1 conn
-        - use pool_size=1, max_overflow=0: 16 × 1 = 16 total ≤ 30 (14 headroom)
-        - max_overflow=1 would give 16 × 2 = 32, exceeding the ceiling — rejected
+    the suite was built against. Under pytest-xdist, returns (1, 0) as a signal
+    value; see _is_xdist_worker() below. The actual engine uses NullPool in xdist
+    mode (no persistent idle connections).
 
     The (5, 2) sequential default is preserved because request handlers in some
     tests (e.g., reupload, IDOR) need >1 concurrent conn within a single test.
     The v1018 sequential baseline (3025/0/38 in 539s) is the regression floor.
+
+    See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
     """
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
     if worker_id == "master":
         return (5, 2)
-    # Under xdist: pool_size=1, max_overflow=0 → 1 conn per worker.
-    # Total fan-out: 16 workers × 1 conn = 16, giving 14 headroom below max_connections=30.
+    # Under xdist: use (1, 0) as a sentinel; the engine creation switches to
+    # NullPool which has no persistent idle connections. Connections are only
+    # open during active DB operations, minimising the concurrent-connection
+    # fan-out across 16 workers against max_connections=30.
     return (1, 0)
+
+
+# Per-worker setup stagger — spreads the startup connection spike across time.
+#
+# Root-cause: when N workers run _test_db_lifecycle simultaneously, each opens
+# a sync SQLAlchemy connection to the main DB (dev_engine) PLUS connections to
+# their test DB (test_engine_sync, alembic, _saml_bridge_engine). With
+# N=16 workers and max_connections=30 (db/postgresql.conf:11), and the running
+# API/worker services already holding 8 persistent idle connections, the
+# concurrent setup fan-out saturates Postgres before any test runs.
+#
+# Fix: stagger each worker's startup by SETUP_STAGGER_SECONDS × worker_num.
+# The dev_engine + test_engine_sync phases each take <100ms. With a 1.5s stagger:
+#   - Worker 0 starts immediately (no delay)
+#   - Worker 1 starts after 1.5s (worker 0 is already past dev_engine)
+#   - Worker k starts after k × 1.5s
+# Peak concurrent main-DB connections during stagger window: ~2 (overlap of
+# consecutive workers' 100ms dev_engine phases). Safe under max_connections=30.
+#
+# This approach is O(STAGGER_SECONDS × worker_num) total overhead vs. O(N × setup_time)
+# for a hard serialiser — wall-clock impact is bounded by the LAST worker's stagger
+# (15 × 1.5s = 22.5s), not the sum.
+#
+# See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
+# Combined with NullPool for async engines (no idle connections post-setup),
+# the fix addresses both the setup-phase spike and the test-phase connection budget.
+# Setup phase per worker: dev_engine + test_engine_sync + alembic (22 steps) +
+# _saml_bridge_engine ≈ 3-5 seconds total. Stagger must be ≥ setup time so at
+# most 1 worker is in the migration phase at any time. Use 5s with some headroom.
+# Impact: last worker (gw15) delays 15 × 5 = 75s. Total parallel wall clock:
+#   75s (stagger overhead) + ~80s (test execution) ≈ 155s vs sequential 539s.
+_SETUP_STAGGER_SECONDS = 5.0
+
+
+def _get_setup_stagger_delay() -> float:
+    """Return the number of seconds this worker should sleep before running setup.
+
+    Sequential mode (master) returns 0 — no stagger needed.
+    xdist worker gw0 returns 0, gw1 returns 1.5, gw15 returns 22.5.
+    """
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    if not worker_id.startswith("gw"):
+        return 0.0
+    try:
+        worker_num = int(worker_id[2:])
+    except ValueError:
+        return 0.0
+    return worker_num * _SETUP_STAGGER_SECONDS
 
 
 def pytest_configure(config):
@@ -175,6 +219,12 @@ def _test_db_lifecycle():
     db_name = _worker_test_database_name(original_test_db_name)
     settings.postgres_db_test = db_name
     should_drop_db = False
+
+    # Stagger startup to prevent simultaneous connection spikes.
+    # See _get_setup_stagger_delay() and _SETUP_STAGGER_SECONDS for rationale.
+    _stagger_delay = _get_setup_stagger_delay()
+    if _stagger_delay > 0:
+        time.sleep(_stagger_delay)
 
     try:
         # --- Setup: create test database ---
@@ -380,21 +430,35 @@ async def client(tmp_path):
 
     redirect_tempfile_to_staging(staging_dir)
 
-    # Pool sizing is derived per pytest-xdist worker via _derive_test_pool_sizing()
-    # to live within Postgres max_connections=30 (db/postgresql.conf:11). Under
-    # -n auto (16 workers on M-series macOS), per-worker = pool_size=1, max_overflow=0
-    # so total fan-out (16 × 1 = 16) is 14 below the ceiling. Sequential mode
-    # (worker_id=master) keeps the historical (5, 2) for request handlers that
-    # need concurrent DB conns within a single test. See
-    # .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
+    # Pool sizing is derived per pytest-xdist worker via _derive_test_pool_sizing().
+    # The baseline connection budget is tight:
+    #   max_connections=30 (db/postgresql.conf:11, PERF-05 / Phase 274)
+    #   API+worker services: 8 persistent idle connections to the main DB
+    #   Postgres background: 5 connections
+    #   Available for test workers: 30 − 13 = 17 connections
+    # Under -n auto (16 workers), any pool that holds idle connections will
+    # consume the entire budget, leaving no room for setup-phase engines.
+    # NullPool (xdist mode) avoids idle-connection overhead — connections are
+    # opened only during active DB operations and closed immediately when released.
+    # Sequential mode (worker_id=master) keeps the historical (5, 2) QueuePool
+    # for request handlers that need concurrent DB conns within a single test.
+    # See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
     _pool_size, _max_overflow = _derive_test_pool_sizing()
-    test_engine = create_async_engine(
-        settings.test_database_url,
-        pool_size=_pool_size,
-        max_overflow=_max_overflow,
-        pool_timeout=30,
-        echo=False,
-    )
+    _is_xdist = os.environ.get("PYTEST_XDIST_WORKER", "master") != "master"
+    if _is_xdist:
+        test_engine = create_async_engine(
+            settings.test_database_url,
+            poolclass=NullPool,
+            echo=False,
+        )
+    else:
+        test_engine = create_async_engine(
+            settings.test_database_url,
+            pool_size=_pool_size,
+            max_overflow=_max_overflow,
+            pool_timeout=30,
+            echo=False,
+        )
     test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
 
     # Patch the database module so lifespan seed functions use our engine
