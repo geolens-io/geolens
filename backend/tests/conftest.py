@@ -9,7 +9,7 @@ import sqlalchemy
 import structlog
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -238,6 +238,81 @@ def _drop_test_database_if_exists(db_name: str) -> None:
         teardown_engine.dispose()
 
 
+# Retry budget for transient "too many clients already" contention during
+# per-worker test-DB CREATE. See `_create_test_db_with_retry` and audit
+# Section 4.1 (`.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`).
+_CREATE_DB_RETRY_BACKOFFS = (1.0, 2.0, 4.0)
+
+
+def _create_test_db_with_retry(
+    make_engine_fn,
+    quoted_db_name: str,
+    sleep_fn=time.sleep,
+    backoffs=_CREATE_DB_RETRY_BACKOFFS,
+) -> None:
+    """DROP + CREATE the per-worker test DB, with retry on transient contention.
+
+    Args:
+        make_engine_fn: Zero-arg callable returning a fresh sync SQLAlchemy
+            engine bound to the main DB at AUTOCOMMIT. The caller is
+            responsible for the engine's lifecycle on the first attempt; this
+            helper disposes and recreates the engine on retries so each
+            attempt opens a fresh connection (avoids reusing a connection
+            that was rejected by Postgres).
+        quoted_db_name: Already-quoted-and-escaped identifier (the output of
+            `_quote_database_identifier(db_name)`). Pre-quoting keeps this
+            helper SQL-injection-safe at the call site.
+        sleep_fn: Injected for testability. Production passes `time.sleep`;
+            the regression pin patches this to a no-op so retries do not
+            actually wait.
+        backoffs: Tuple of per-attempt sleep durations (seconds) between
+            failed attempts. Length determines retry budget. Total wait
+            budget under contention with the default ``(1.0, 2.0, 4.0)`` is
+            7s, bounded below the staggered-startup window's 75s ceiling.
+
+    Raises:
+        OperationalError: If every attempt raises an OperationalError whose
+            message contains ``"too many clients already"``. Re-raised so
+            the caller surfaces the contention loudly as a fixture error
+            (NOT swallowed silently — that was the v1019 defect at audit
+            Section 4.1, 407/648 failures, 62.8% of total).
+        OperationalError: Re-raised immediately for any other OperationalError
+            (DNS failure, refused connection, authentication, etc.) — the
+            caller decides whether to translate that into a `pytest.skip` or
+            propagate it.
+
+    The helper opens a context-managed connection per attempt and disposes
+    the engine before retrying so the connection pool does not hold any
+    rejected connection past the failure point.
+    """
+    last_exc: OperationalError | None = None
+    # Budget = 1 initial attempt + len(backoffs) retries.
+    attempt_budget = 1 + len(backoffs)
+    for attempt in range(attempt_budget):
+        engine = make_engine_fn()
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(f"DROP DATABASE IF EXISTS {quoted_db_name}"))
+                conn.execute(text(f"CREATE DATABASE {quoted_db_name}"))
+            return
+        except OperationalError as e:
+            last_exc = e
+            # Only retry transient connection-contention errors. Other
+            # OperationalError shapes (unreachable host, auth, etc.) propagate
+            # immediately so the caller can route them to pytest.skip().
+            if "too many clients already" not in str(e).lower():
+                raise
+            # Exhausted budget — re-raise to fail loudly, NOT silent-swallow.
+            if attempt == attempt_budget - 1:
+                raise
+            sleep_fn(backoffs[attempt])
+        finally:
+            engine.dispose()
+    # Unreachable — the loop either returns or raises. Defensive raise.
+    if last_exc is not None:  # pragma: no cover
+        raise last_exc
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _test_db_lifecycle():
     """Create, migrate, and tear down the test database once per session.
@@ -262,22 +337,49 @@ def _test_db_lifecycle():
 
     try:
         # --- Setup: create test database ---
-        dev_engine = sqlalchemy.create_engine(
-            settings.database_url_sync, isolation_level="AUTOCOMMIT"
-        )
+        #
+        # Audit Section 4.1 / Phase 1088-01 / FI-02: the original block here was a
+        # broad `except Exception: yield; return` that silently swallowed any
+        # failure from `dev_engine.connect()`. Under `pytest -n auto` against
+        # max_connections=30, the staggered-startup window placed the highest-
+        # numbered worker (gw15, 75s stagger) into the connection-saturation
+        # window, where `dev_engine.connect()` raised OperationalError("too many
+        # clients already"). The silent-swallow yielded with should_drop_db=False
+        # and returned, leaving the per-worker test DB uncreated. The 407
+        # downstream `InvalidCatalogNameError` failures (62.8% of all -n auto
+        # failures in the v1020 audit) all traced back to this single defect.
+        #
+        # The replacement structure below distinguishes:
+        #   - transient connection contention (`too many clients already`):
+        #     retry-with-backoff via `_create_test_db_with_retry`, fail loudly
+        #     on exhaustion so the issue surfaces as a fixture error (NOT as
+        #     downstream InvalidCatalogNameError).
+        #   - genuinely unreachable host (DNS failure, refused connection):
+        #     preserve the existing pytest.skip semantics so pure unit-test
+        #     runs outside Docker still work.
+        # See `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` §4.1 and
+        # `.planning/phases/1088-fixture-isolation-fixes-regression-pins/1088-01-PLAN.md`.
+        quoted_db_name = _quote_database_identifier(db_name)
+
+        def _open_dev_engine():
+            return sqlalchemy.create_engine(
+                settings.database_url_sync, isolation_level="AUTOCOMMIT"
+            )
+
         try:
-            with dev_engine.connect() as conn:
-                # Drop if exists for a clean slate
-                quoted_db_name = _quote_database_identifier(db_name)
-                conn.execute(text(f"DROP DATABASE IF EXISTS {quoted_db_name}"))
-                conn.execute(text(f"CREATE DATABASE {quoted_db_name}"))
+            _create_test_db_with_retry(_open_dev_engine, quoted_db_name)
             should_drop_db = True
-        except Exception:
-            # DB host unreachable — skip full setup; unit tests unaffected
-            yield
-            return
-        finally:
-            dev_engine.dispose()
+        except OperationalError as e:
+            err_msg = str(e).lower()
+            if "too many clients already" in err_msg:
+                # Retry budget exhausted: fail loudly so CI surfaces the real
+                # saturation, instead of masking it as 407 downstream
+                # InvalidCatalogNameError on this worker's tests.
+                raise
+            # Truly unreachable host (DNS failure, refused connection, auth
+            # error, etc.) — preserve the existing skip semantics for
+            # pure unit-test runs outside Docker.
+            pytest.skip(f"Postgres unreachable: {e}")
 
         # --- Init: extensions, schemas, roles ---
         test_engine_sync = sqlalchemy.create_engine(settings.test_database_url_sync)
