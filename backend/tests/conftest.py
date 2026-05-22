@@ -1,9 +1,11 @@
+import asyncio
 import os
 import time
 import uuid
 import tempfile
 import warnings
 
+import asyncpg.exceptions
 import pytest
 import sqlalchemy
 import structlog
@@ -309,6 +311,141 @@ def _create_test_db_with_retry(
         finally:
             engine.dispose()
     # Unreachable — the loop either returns or raises. Defensive raise.
+    if last_exc is not None:  # pragma: no cover
+        raise last_exc
+
+
+# Retry budget for transient "too many clients already" contention during
+# per-fixture async-session setup (e.g., `_ensure_roles_and_admin`). Same
+# shape as `_CREATE_DB_RETRY_BACKOFFS` above — bounded below the staggered-
+# startup window's 75s ceiling. See Plan 1088-03 and audit Section 4.2
+# (`.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`).
+_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)
+
+
+# Exception classes that signal transient connection contention worth
+# retrying. The async session-factory path can surface the contention as
+# EITHER:
+#   - `sqlalchemy.exc.OperationalError` (when SQLAlchemy wraps the DBAPI
+#     error via its async dialect translation layer), OR
+#   - the raw `asyncpg.exceptions.TooManyConnectionsError` /
+#     `CannotConnectNowError` (when the asyncpg connection error escapes
+#     through the greenlet boundary before SQLAlchemy translates it —
+#     observed in 188 setup-phase failures at audit Section 4.2 even with
+#     SQLAlchemy 2.x's async dialect).
+# Catching BOTH the SQLAlchemy wrapper AND the raw asyncpg classes is
+# required for the retry path to actually fire in practice — initial
+# Plan 1088-03 measurement showed retry coverage of only ~42% (188 → 109)
+# when only `OperationalError` was caught, because the majority of
+# contention failures surface as raw asyncpg exceptions through the
+# `bind.connect()` → `greenlet_spawn` → asyncpg connection_class path.
+_TRANSIENT_CONTENTION_EXCEPTIONS = (
+    OperationalError,
+    asyncpg.exceptions.TooManyConnectionsError,
+    asyncpg.exceptions.CannotConnectNowError,
+)
+
+
+async def _run_with_too_many_clients_retry(
+    coro_fn,
+    sleep_fn=asyncio.sleep,
+    backoffs=_SETUP_PHASE_RETRY_BACKOFFS,
+):
+    """Run an async fixture-setup callable with retry on transient contention.
+
+    Plan 1088-03 / audit Section 4.2: After Plan 1088-01's silent-swallow
+    fix closed the dominant per-worker DB lifecycle race (category 4.1,
+    407/648 failures), the residual setup-phase contention category 4.2
+    remained at 188 failures (re-measure at
+    `.planning/audits/PYTEST-XDIST-REMEASURE-AFTER-1088-01.md`). The failure
+    shape is identical across all 188 occurrences:
+
+        "failed on setup with 'asyncpg.exceptions.TooManyConnectionsError:
+         sorry, too many clients already'"
+
+    Root cause: the `client` fixture's first async-session connection
+    acquisition (inside `_ensure_roles_and_admin` at conftest.py:644-691)
+    races the connection ceiling. With max_connections=30 and 16 xdist
+    workers staggered at 5.0s intervals, the cascade window briefly opens
+    when several workers complete the staggered-startup gate simultaneously
+    and concurrently request session-factory connections.
+
+    This helper mirrors the shape of `_create_test_db_with_retry` (Plan
+    1088-01) but for async callables: it invokes ``coro_fn`` (a zero-arg
+    async callable that performs the DB operation), retries on the
+    transient contention exception family (`OperationalError`,
+    `asyncpg.TooManyConnectionsError`, `asyncpg.CannotConnectNowError`),
+    and re-raises after the budget is exhausted — NOT silently swallowed.
+
+    IMPORTANT — exception-family scope (see ``_TRANSIENT_CONTENTION_EXCEPTIONS``
+    above the helper): the helper must catch BOTH the SQLAlchemy-wrapped
+    OperationalError shape AND the raw asyncpg exception classes. During
+    initial Plan 1088-03 measurement, catching only ``OperationalError``
+    yielded a retry-coverage rate of ~42% (188 → 109) because the
+    majority of contention errors surface as raw
+    ``asyncpg.exceptions.TooManyConnectionsError`` through the
+    ``bind.connect()`` → ``greenlet_spawn`` path. Widening the catch to
+    include the asyncpg classes is what actually closes the 4.2 cascade.
+
+    Args:
+        coro_fn: Zero-arg async callable that performs the DB-touching
+            setup work (e.g., ``lambda: _ensure_roles_and_admin(factory)``).
+            Called fresh on each attempt so the underlying asyncpg
+            connection is re-acquired rather than reusing a rejected
+            connection.
+        sleep_fn: Async sleep injected for testability. Production passes
+            ``asyncio.sleep``; the regression pin patches this to a no-op
+            so retries do not actually wait.
+        backoffs: Tuple of per-attempt sleep durations (seconds) between
+            failed attempts. Length determines retry budget. Total wait
+            budget under contention with the default ``(1.0, 2.0, 4.0)``
+            is 7s, bounded below the staggered-startup window's 75s
+            ceiling.
+
+    Raises:
+        Exception: If every attempt raises one of
+            ``_TRANSIENT_CONTENTION_EXCEPTIONS`` whose message contains
+            ``"too many clients already"``, the last exception is re-raised
+            so the caller surfaces the contention loudly as a fixture
+            error (NOT swallowed silently).
+        Exception: Re-raised immediately for any
+            ``OperationalError`` whose message does NOT contain
+            ``"too many clients already"`` (DNS failure, refused
+            connection, authentication, etc.) — non-contention shapes
+            propagate so the caller can route them appropriately.
+        Exception: Any other exception (non-contention, non-OperationalError)
+            propagates immediately on the first attempt.
+
+    The helper is async-native (awaits ``coro_fn()`` and ``sleep_fn(...)``)
+    so it integrates cleanly with the existing async `client` fixture
+    body. The signature mirrors `_create_test_db_with_retry` so future
+    callers (or test pins) have a consistent retry-wrapper API for both
+    sync setup work (DDL CREATE/DROP) and async setup work (session
+    factories / asyncpg).
+    """
+    last_exc: BaseException | None = None
+    attempt_budget = 1 + len(backoffs)
+    for attempt in range(attempt_budget):
+        try:
+            return await coro_fn()
+        except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
+            last_exc = e
+            # `OperationalError` may carry shapes OTHER than connection
+            # contention (e.g., DNS failure, refused connection, auth).
+            # Those propagate immediately. The asyncpg-native classes in
+            # the tuple (`TooManyConnectionsError`,
+            # `CannotConnectNowError`) are unambiguously contention by
+            # construction, so the substring check is a no-op for them
+            # (asyncpg's own exception name + message both contain the
+            # canonical "too many clients already" substring or the
+            # equivalent connect-now phrasing).
+            if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                raise
+            # Exhausted budget — re-raise loudly, NOT silent-swallow.
+            if attempt == attempt_budget - 1:
+                raise
+            await sleep_fn(backoffs[attempt])
+    # Defensive — the loop either returns or raises.
     if last_exc is not None:  # pragma: no cover
         raise last_exc
 
@@ -623,8 +760,23 @@ async def client(tmp_path):
 
     limiter.enabled = False
 
-    # Ensure roles and admin user exist before tests
-    await _ensure_roles_and_admin(test_session_factory)
+    # Ensure roles and admin user exist before tests.
+    #
+    # Plan 1088-03 / audit Section 4.2: this is the FIRST async-session
+    # connection acquisition under the test_engine, and under -n auto
+    # it surfaced 188 of 365 residual failures as
+    # `asyncpg.TooManyConnectionsError: sorry, too many clients already`
+    # during fixture setup (see
+    # `.planning/audits/PYTEST-XDIST-REMEASURE-AFTER-1088-01.md`).
+    # Wrap with `_run_with_too_many_clients_retry` so transient
+    # connection-contention is retried with bounded backoff
+    # (1.0 + 2.0 + 4.0 = 7s) before failing loudly. The retry budget is
+    # the SAME shape as `_create_test_db_with_retry` from Plan 1088-01
+    # (audit Section 4.1) so both setup-phase contention sites use a
+    # consistent retry contract.
+    await _run_with_too_many_clients_retry(
+        lambda: _ensure_roles_and_admin(test_session_factory)
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
