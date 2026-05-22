@@ -79,8 +79,70 @@
 - ✅ **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (shipped 2026-05-21, local tag `v1017`, public tag `v1.5.2`)
 - ✅ **v1018 Hygiene — v1017 Tech-Debt Tail** — Phases 1080-1083 (shipped 2026-05-21, local tag `v1018`, public tag `v1.5.3`) — see [archive](milestones/v1018-ROADMAP.md)
 - ✅ **v1019 Hygiene Tail — v1018 Frontend + xdist + Process** — Phases 1084-1086 (shipped 2026-05-22, local tag `v1019`, public tag `v1.5.4`) — see [archive](milestones/v1019-ROADMAP.md)
+- 🚧 **v1020 Fixture Isolation** — Phases 1087-1090 (in progress; public tag target `v1.5.5`)
 
 ## Phases
+
+### v1020 Fixture Isolation (In progress — started 2026-05-22)
+
+🚧 In progress — restoring `pytest -n auto` to a green baseline by fixing the 192 fixture-scope failures exposed in v1019, then locking parallel-test health in with a CI gate, perf baseline, and tuned default. Closes v1019's only deferral plus a small test-infra hygiene tail. Public tag target `v1.5.5` (patch — no migrations, no schema, no user-facing features). Sequential pytest baseline that must stay green: 3036/0/38 (v1019 close-gate). Phase 1087 spike-first per v1019 Phase 1085 precedent — the FI-01 taxonomy doc commits before any fix lands.
+
+- [ ] **Phase 1087: Fixture-Isolation Spike (Taxonomy)** — Measure + classify the 192 fixture-scope failures under `pytest -n auto` by root cause. Audit doc only — no code changes. Output: `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`.
+- [ ] **Phase 1088: Fixture-Isolation Fixes + Regression Pins** — Fix all 192 failures driven by the FI-01 taxonomy; pin each root-cause category with at least one regression test. Goal: 192 → 0 under `-n auto`; sequential baseline stays green at 3036/0/38 or higher.
+- [ ] **Phase 1089: CI Gate + Perf Baseline + Parallel Default** — Add `pytest-parallel-isolation` GitHub Actions job (sister to v1017 `alembic-clean-db`); capture `-n 4`/`-n 8`/`-n auto` benchmark; switch `make test` default to parallel with sequential opt-in retained.
+- [ ] **Phase 1090: Skip Audit + Flake Hunt + Close-Gate** — Disposition the 38 sequential-mode skips; run `pytest -n auto` 3× to surface non-deterministic flakes; paper-trail v1019 WR-01 `lint:sec-fu-03-no-false-positive` script; cut tags `v1020` + `v1.5.5`.
+
+#### Phase Details
+
+### Phase 1087: Fixture-Isolation Spike (Taxonomy)
+**Goal**: Developer can read `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` and see every one of the 192 failures classified by root cause, with sufficient evidence to drive Phase 1088 sequencing.
+**Depends on**: Nothing (first phase of v1020; sequential baseline 3036/0/38 from v1019 is the start state)
+**Requirements**: FI-01
+**Success Criteria** (what must be TRUE):
+  1. `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` is committed to the repo at the close of Phase 1087, before any fix code lands (spike-first per v1019 Phase 1085 precedent).
+  2. The audit doc lists every failing test by exact `path::TestClass::test_name` node-ID — total node-ID count equals the measured failure count (≥ 192; spike may discover more or fewer than 192 once classified under fresh measurement).
+  3. Each failing node-ID is tagged with exactly one root-cause category; the four hypotheses from the v1019 audit (Redis singleton state, storage provider override, `app.dependency_overrides` leak, autouse-fixture coupling) are each present as named categories — additional categories permitted if measurement reveals them.
+  4. The audit doc includes a reproducibility section mirroring `PYTEST-XDIST-SPIKE-v1019.md` Section 1 — exact commands a fresh operator runs to reproduce the measurement.
+  5. The audit doc recommends a fix sequencing for Phase 1088 (which category goes first, with rationale — typically highest-impact category by failure count).
+**Plans**: TBD
+
+### Phase 1088: Fixture-Isolation Fixes + Regression Pins
+**Goal**: Developer running `cd backend && uv run pytest -n auto tests/` sees 0 fixture-scope failures from the cascade categories defined in FI-01, and the regression tests added in this phase reproduce the original failure when reverted.
+**Depends on**: Phase 1087 (FI-01's taxonomy drives the fix sequencing and the per-category regression-pin shape)
+**Requirements**: FI-02, FI-03
+**Success Criteria** (what must be TRUE):
+  1. `cd backend && uv run pytest -n auto tests/` returns 0 fixture-scope failures (`failed + errors` from the cascade categories defined in FI-01 = 0).
+  2. Sequential baseline `cd backend && uv run pytest tests/` stays green at 3036/0/38 or higher — no regression in sequential mode.
+  3. Every root-cause category identified in FI-01 has at least one regression test under `backend/tests/test_fixture_isolation_v1020.py` (or split per-category per FI-01 direction) that fails on the pre-fix HEAD and passes on the post-fix HEAD.
+  4. The REQUIREMENTS.md traceability table for FI-02 and FI-03 cites every regression-pin test by exact `path::TestClass::test_name` node-ID (validated via `git grep -n "def <test_name>" <path>` per v1019 TD-13 `req_citation_pinning` rule).
+  5. The traceability-flip for FI-02 + FI-03 (checkbox `[ ]` → `[x]` and row `Pending` → `Complete`) lands in the SAME commit as the SUMMARY.md write per v1019 TD-13 `requirements_traceability_flip` rule.
+**Plans**: TBD
+
+### Phase 1089: CI Gate + Perf Baseline + Parallel Default
+**Goal**: A future developer pushing a backend test or fixture change cannot land a regression that re-breaks parallel execution — CI blocks merge, perf baseline documents the chosen worker default, and `make test` runs parallel by default.
+**Depends on**: Phase 1088 (CI gate is meaningless until FI-02 lands; perf baseline measures the post-fix state; default-switch only safe after gate is green)
+**Requirements**: CI-01, CI-02, PERF-01
+**Success Criteria** (what must be TRUE):
+  1. A new GitHub Actions job named `pytest-parallel-isolation` (or close variant) exists in `.github/workflows/ci.yml`, runs `pytest -n auto` against the backend test suite, and triggers on push-to-main + PRs that touch `backend/**` or `pyproject.toml` or `db/**` — sister shape to v1017's `alembic-clean-db` job.
+  2. The new CI job's exit-0 result is a required check for merge; a deliberately-failing PR proves the gate blocks merge before being closed.
+  3. `.planning/audits/PYTEST-XDIST-PERF-v1020.md` is committed and includes wall-clock + peak `pg_stat_activity` connection count for `pytest -n 4`, `pytest -n 8`, `pytest -n auto` (16 on the canonical M-series 16-core host), reusing the v1019 spike methodology (background sampler from `PYTEST-XDIST-SPIKE-v1019.md` Section 1), with a reproducibility section.
+  4. A fresh clone running `make test` (no args) uses parallel execution — either via `Makefile` target rewrite or `pyproject.toml` `[tool.pytest.ini_options].addopts` — driven by the documented optimal default from PERF-01.
+  5. A separate `make test-sequential` (or env-var opt-in) remains available for debugging — verified by running it from a fresh clone.
+**Plans**: TBD
+
+### Phase 1090: Skip Audit + Flake Hunt + Close-Gate
+**Goal**: A reader of the close-gate doc can see every sequential-mode skip dispositioned, every flake surfaced + dispositioned, and the v1019 WR-01 paper-trail closed — and can confirm tags `v1020` + `v1.5.5` cut at the close commit.
+**Depends on**: Phase 1089 (skip audit + flake hunt must run on the post-CI-gate, default-parallel HEAD)
+**Requirements**: HYG-01, HYG-02, HYG-03
+**Success Criteria** (what must be TRUE):
+  1. The close-gate doc contains a table where each of the 38 (or current-count) sequential-mode skips, sourced via `pytest --collect-only -q | grep "SKIPPED"` or equivalent, is dispositioned as `KEEP (with one-line rationale)`, `FIX (with referencing plan)`, or `REMOVE`.
+  2. `pytest -n auto` is run 3× consecutively after FI-02 + FI-03 land; any test that fails non-deterministically (passes ≥1 of 3 runs, fails ≥1 of 3 runs) appears in the close-gate doc as a flake with a planned disposition (defer / fix in-milestone / quarantine).
+  3. The v1019 WR-01 paper-trail commit lands — either a CHANGELOG `[1.5.5]` line or a `docs/` note that cites v1019's audit and confirms `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is preserved (grep gate against the exact script name).
+  4. Close gate is green: sequential pytest 3036/0/38 or higher, `pytest -n auto` 0 fixture-scope failures, frontend typecheck exit 0, e2e:smoke:builder matches v1019 baseline (25/0/1), live Playwright MCP 5/5 surfaces clean (no regressions in `/`, `/maps`, `/datasets/<uuid>`, `/maps/new`, `/maps/<uuid>`).
+  5. Tags `v1020` (local) + `v1.5.5` (public) are cut at the close commit; both tags point to the same SHA.
+**Plans**: TBD
+
+---
 
 ### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Shipped 2026-05-22)
 

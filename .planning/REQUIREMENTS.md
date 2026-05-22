@@ -65,24 +65,24 @@ _None at v1020 roadmap time. Add items here if FI-01 surfaces additional root-ca
 
 ## Traceability
 
-Which phases cover which requirements. Updated by the roadmapper during ROADMAP.md creation.
+Which phases cover which requirements. Updated by the roadmapper during ROADMAP.md creation. Executor flips `Pending` → `Complete` in the SAME commit as the SUMMARY.md write per v1019 TD-13 `requirements_traceability_flip` rule.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FI-01 | TBD | Pending |
-| FI-02 | TBD | Pending |
-| FI-03 | TBD | Pending |
-| CI-01 | TBD | Pending |
-| CI-02 | TBD | Pending |
-| PERF-01 | TBD | Pending |
-| HYG-01 | TBD | Pending |
-| HYG-02 | TBD | Pending |
-| HYG-03 | TBD | Pending |
+| FI-01 | Phase 1087 | Pending |
+| FI-02 | Phase 1088 | Pending |
+| FI-03 | Phase 1088 | Pending |
+| CI-01 | Phase 1089 | Pending |
+| CI-02 | Phase 1089 | Pending |
+| PERF-01 | Phase 1089 | Pending |
+| HYG-01 | Phase 1090 | Pending |
+| HYG-02 | Phase 1090 | Pending |
+| HYG-03 | Phase 1090 | Pending |
 
 **Coverage:**
 - v1020 requirements: 9 total
-- Mapped to phases: 0 (TBD — roadmapper populates this)
-- Unmapped: 9 ⚠️ (expected pre-roadmap)
+- Mapped to phases: 9 (Phase 1087: 1 · Phase 1088: 2 · Phase 1089: 3 · Phase 1090: 3)
+- Unmapped: 0
 
 ---
 
@@ -101,4 +101,4 @@ For FI-02 / FI-03: test-name citations are TBD until FI-01's taxonomy lands. The
 ---
 
 *Requirements defined: 2026-05-22*
-*Last updated: 2026-05-22 after initial definition*
+*Last updated: 2026-05-22 — roadmapper mapped 9/9 requirements to Phases 1087-1090*
