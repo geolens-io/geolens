@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1019
 milestone_name: Hygiene Tail — v1018 Frontend + xdist + Process
-status: Roadmap ready
-stopped_at: "Roadmap defined; ready for /gsd:plan-phase 1084"
-last_updated: "2026-05-22T03:45:30.767Z"
-last_activity: 2026-05-22 — ROADMAP.md created for v1019; 6/6 reqs mapped
+status: shipped
+stopped_at: "v1019 close-gate complete; orchestrator to cut tags v1019 + v1.5.4"
+last_updated: "2026-05-22T04:15:00.000Z"
+last_activity: 2026-05-22 — Phase 1086 close-gate PASSED; v1019 ready for tag cut
 progress:
-  total_phases: 8
-  completed_phases: 2
+  total_phases: 3
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 25
+  completed_plans: 7
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (roadmap defined, ready for plan-phase)
-Plan: —
-Status: Roadmap ready
-Last activity: 2026-05-22 — ROADMAP.md created for v1019; 6/6 reqs mapped
+Phase: 1086 — shipped (close-gate PASSED, awaiting tag cut by orchestrator)
+Plan: 1086-02 — complete
+Status: shipped
+Last activity: 2026-05-22 — Phase 1086 close-gate PASSED; v1019 ready for tag cut
 
 ## Project Reference
 
@@ -32,13 +32,13 @@ See: .planning/PROJECT.md
 
 ## Last Shipped Milestone
 
-**Version:** v1018 Hygiene — v1017 Tech-Debt Tail
-**Shipped:** 2026-05-21
-**Phases:** 1080-1083 (4 phases, 8/8 reqs)
-**Tag:** `v1018` (local) + `v1.5.3` (public) at commit `d1b76061`
-**Archive:** `.planning/milestones/v1018-ROADMAP.md`
+**Version:** v1019 Hygiene Tail — v1018 Frontend + xdist + Process
+**Shipped:** 2026-05-22
+**Phases:** 1084-1086 (3 phases, 7 plans, 6/6 reqs)
+**Tag:** `v1019` (local) + `v1.5.4` (public) — pending orchestrator tag-cut after MCP smoke 5/5
+**Close-gate doc:** `.planning/phases/1086-process-tightening-close-gate/1086-02-CLOSE-GATE.md`
 
-**Previous:** v1017 Test Infra & Audit Tail (shipped 2026-05-21, public tag `v1.5.2`, archive `.planning/milestones/v1017-ROADMAP.md`)
+**Previous:** v1018 Hygiene — v1017 Tech-Debt Tail (shipped 2026-05-21, public tag `v1.5.3` at `d1b76061`, archive `.planning/milestones/v1018-ROADMAP.md`)
 
 ## Phase Plan (v1019)
 

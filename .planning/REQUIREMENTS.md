@@ -44,7 +44,7 @@ These items are pre-existing — surfaced during v1018 close-gate live Playwrigh
 
 ### Runtime Symmetry (close-gate bundled)
 
-- [ ] **TD-14**: Verify TD-07 (`connect_args["ssl"]=False` on `database_ssl_mode='disable'` branch from v1018 Phase 1080-02) is live in the deployed `api` and `worker` container images. v1018 Plan 1080-02 baked the fix into the source but the running stack at audit time was 8 hours old (predating the fix commit). Close-gate verification:
+- [x] **TD-14**: Verify TD-07 (`connect_args["ssl"]=False` on `database_ssl_mode='disable'` branch from v1018 Phase 1080-02) is live in the deployed `api` and `worker` container images. v1018 Plan 1080-02 baked the fix into the source but the running stack at audit time was 8 hours old (predating the fix commit). Close-gate verification:
   1. `docker compose up -d --build api worker`
   2. Probe the deployed images to confirm the new code is in place (e.g., grep the running container's `app/core/config.py` for the `ssl=False` line, or exercise the disable branch through a config-injection unit-test against the live image).
   3. Record the live-rebuild + probe result in the v1019 close-gate summary.
@@ -95,7 +95,7 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | TD-11 | Phase 1084 | Pending |
 | TD-12 | Phase 1084 | Pending |
 | TD-13 | Phase 1086 / Plan 1086-01 | Complete |
-| TD-14 | Phase 1086 / Plan 1086-02 | Pending |
+| TD-14 | Phase 1086 / Plan 1086-02 | Complete |
 
 **Coverage:**
 - v1019 requirements: 6 total
