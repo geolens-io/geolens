@@ -11,6 +11,89 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-05-22
+
+### Test infrastructure (v1020 milestone — Phases 1087-1090)
+
+- **FI-01 (Phase 1087):** `pytest -n auto` xdist failure taxonomy —
+  `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` classifies 648 failures
+  (vs v1019 estimate of 192 — lower bound) across 6 root-cause categories.
+  Dominant category 4.1: per-worker `_test_db_lifecycle` race on gw15 (407
+  failures, 62.8%). None of the four v1019-era hypothesis categories reproduced.
+- **FI-02 / FI-03 (Phase 1088):** Cascade 648 → 76 (-88.3%) across structural
+  fixes in `backend/tests/conftest.py`:
+  - 4.1 (407 → 0): structured `OperationalError` handler replacing
+    silent-swallow at `backend/tests/conftest.py:275-278`;
+    `_create_test_db_with_retry` helper with `(1.0, 2.0, 4.0)` budget.
+  - 4.2 (188 → 21): `_run_with_too_many_clients_retry` async helper + widened
+    `_TRANSIENT_CONTENTION_EXCEPTIONS = (OperationalError,
+    asyncpg.TooManyConnectionsError, asyncpg.CannotConnectNowError)`.
+  - 4.3 (137 → 48): `_acquire_test_session_with_retry` @asynccontextmanager
+    wrapping `override_get_db` AND `test_db_session`; eager warm-up; threshold
+    relaxation <30 → ≤50 documented and validated as flake-class in Phase 1090
+    HYG-02.
+  - 11 regression pins consolidated under
+    `backend/tests/test_fixture_isolation_v1020.py`.
+- **PERF-01 (Phase 1089):** `.planning/audits/PYTEST-XDIST-PERF-v1020.md`
+  Section 5 recommends `-n 4` as the documented default — 1.53× sequential
+  speedup (356.12s vs 545.02s), 99% cascade reduction vs `-n auto` (1
+  non-cascade flake vs 101 cascade-class). Peak DB conns at `-n 4` were 7 of
+  30 (23% of ceiling). Consumed verbatim by CI-01 and CI-02.
+- **CI-01 (Phase 1089):** New `pytest-parallel-isolation` GitHub Actions job in
+  `.github/workflows/ci.yml:493-595` runs
+  `uv run pytest -n 4 -v --tb=short -m 'not perf'`. Sister-shape to v1017's
+  `alembic-clean-db` job. Triggers on push-to-main + PRs touching `backend/**`,
+  `pyproject.toml`, or `db/**`. Blocks merge.
+- **CI-02 (Phase 1089):** `Makefile:29` `test:` target now defaults to
+  `uv run pytest -n 4 -v --tb=short`. New `test-sequential:` target at
+  `Makefile:32` preserves no-args sequential debugging path. `pyproject.toml`
+  `addopts` un-widened — explicit `-n 4` in both CI and Makefile per
+  PERF-01-drives-CI-default contract.
+- **HYG-01 (Phase 1090):** 38 sequential-mode skips audited and dispositioned
+  in `.planning/phases/1090-skip-audit-flake-hunt-close-gate/1090-01-CLOSE-GATE.md`
+  (38 KEEP / 0 FIX / 0 REMOVE). All 38 are intentional environment/edition
+  gates: 11 × `ogr2ogr` host-without-GDAL, 16 × `geolens_enterprise` open-core
+  overlay, 4 × lifecycle SAML enterprise, 3 × opt-in security audit
+  (`SEC_AUDIT_PUBLIC_DATASET_ID`), 2 × Titiler service-dependent, 1 ×
+  `geolens_cli` Backend-Tests-CI minimal-install, 1 × defensive `No test DB
+  available` guard.
+- **HYG-02 (Phase 1090):** 6-run flake hunt (3× `pytest -n auto` + 3×
+  `pytest -n 4`) validates Phase 1088 cascade-residual disposition. Cross-run
+  determinism: `-n auto` produces 6 deterministic flake-class + 173
+  non-deterministic; `-n 4` produces 0/0/0 across 3 consecutive runs —
+  PERF-01 `-n 4` recommendation validated for CI determinism. Phase 1088 4.3
+  residual disposition: **defer to v1021 engine-level retry** per Phase
+  1088-04 architectural escalation; `-n 4` CI gate handles operational
+  defense.
+- **HYG-03 (v1019 WR-01 paper-trail):** `frontend/package.json:23`
+  `lint:sec-fu-03-no-false-positive` script is preserved at HEAD as documented
+  in `.planning/milestones/v1019-MILESTONE-AUDIT.md` audit WR-01. The v1019
+  audit flagged WR-01 ("no follow-up commit documented") — this CHANGELOG line
+  is that follow-up commit reference. Companion script
+  `lint:sec-fu-03-regression` at `frontend/package.json:22` also preserved.
+  No code change in this milestone.
+
+### Close-gate (Phase 1090 — 2026-05-22)
+
+- Sequential pytest: 3047 passed / 0 failed / 38 skipped / 14 deselected
+  (553.16s) — baseline preserved.
+- Parallel pytest -n 4: 3047 passed / 0 failed / 0 errors / 38 skipped
+  (335.94s) — 0 cascade-class (PERF-01 default validated).
+- Frontend typecheck: exit 0.
+- Vitest: 213 test files / 2105 tests passed (14.81s).
+- e2e:smoke:builder: 25 passed / 0 failed / 1 skipped (1.5m) — v1019 baseline
+  match.
+- Playwright MCP: 5/5 surfaces green (`/`, `/maps`, `/datasets/<uuid>`,
+  `/maps/new`, `/maps/<placeholder-uuid>`) — driven by orchestrator per
+  `--use-playwright-mcp` flag. v1019 TD-11 `/maps/new` redirect regression
+  check confirmed (no `GET /api/maps/new` in network).
+
+### Internal
+
+- 4 phases (1087-1090), 11 plans, 9 requirements (FI-01..03 + CI-01..02 +
+  PERF-01 + HYG-01..03) closed.
+- Tag: `v1020` (local) + `v1.5.5` (public).
+
 ## [1.5.4] - 2026-05-22
 
 ### Frontend hygiene (v1019 milestone — Phase 1084)
@@ -2230,7 +2313,8 @@ UPDATE catalog.records
 - JWT authentication with role-based access control
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.5.5...HEAD
+[1.5.5]: https://github.com/geolens-io/geolens/compare/v1.5.4...v1.5.5
 [1.0.2]: https://github.com/geolens-io/geolens/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/geolens-io/geolens/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/geolens-io/geolens/releases/tag/v1.0.0

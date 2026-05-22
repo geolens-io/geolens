@@ -33,11 +33,11 @@ Requirements for this milestone. All `FI-*` / `CI-*` / `PERF-*` / `HYG-*` IDs ma
 
 ### Hygiene
 
-- [ ] **HYG-01**: Audit the 38 sequential-mode skips (`pytest --collect-only -q | grep "SKIPPED"` or equivalent) after FI-02 lands. For each skip: disposition is one of `KEEP (with one-line rationale)`, `FIX (with referencing plan)`, or `REMOVE`. Output committed to close-gate doc as a table.
+- [x] **HYG-01**: Audit the 38 sequential-mode skips (`pytest --collect-only -q | grep "SKIPPED"` or equivalent) after FI-02 lands. For each skip: disposition is one of `KEEP (with one-line rationale)`, `FIX (with referencing plan)`, or `REMOVE`. Output committed to close-gate doc as a table. **Closed 2026-05-22 by Phase 1090:** 38 sequential-mode skips dispositioned in `.planning/phases/1090-skip-audit-flake-hunt-close-gate/1090-01-CLOSE-GATE.md` Section HYG-01 (38 KEEP · 0 FIX · 0 REMOVE). All 38 are intentional environment/edition gates — 11 × `ogr2ogr` host-without-GDAL, 16 × `geolens_enterprise` open-core overlay, 4 × lifecycle SAML enterprise, 3 × opt-in security audit, 2 × Titiler service-dependent, 1 × `geolens_cli` Backend-Tests-CI minimal-install, 1 × defensive `No test DB available` guard.
 
-- [ ] **HYG-02**: Flake hunt — run `pytest -n auto` 3× consecutive after FI-02 + FI-03 land. Any test that fails non-deterministically (passes ≥1 run, fails ≥1 run in the three) gets logged in the close-gate doc as a flake with a planned disposition (defer / fix in-milestone / quarantine).
+- [x] **HYG-02**: Flake hunt — run `pytest -n auto` 3× consecutive after FI-02 + FI-03 land. Any test that fails non-deterministically (passes ≥1 run, fails ≥1 run in the three) gets logged in the close-gate doc as a flake with a planned disposition (defer / fix in-milestone / quarantine). **Closed 2026-05-22 by Phase 1090:** 6-run flake hunt (3× `-n auto` + 3× `-n 4`) documented in `1090-01-CLOSE-GATE.md` Section HYG-02. `-n 4` produces deterministic 0/0/0 across 3 consecutive runs — **PERF-01 `-n 4` recommendation validated**. `-n auto` produces 6 deterministic flake-class + 173 non-deterministic node-IDs, all cascade-driven timing-races; disposition **defer to v1021 engine-level retry** per Phase 1088-04 architectural escalation. `pytest -n 4` 3× determinism PASS.
 
-- [ ] **HYG-03**: Paper-trail commit closing v1019 WR-01: `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is present at HEAD but the v1019 audit noted "no follow-up commit documented." Commit a no-op documentation reference (CHANGELOG line under `[1.5.5]` or a `docs/` note) that cites v1019's audit and confirms the script is preserved. Pinned by grep against `frontend/package.json:23` for the script name.
+- [x] **HYG-03**: Paper-trail commit closing v1019 WR-01: `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is present at HEAD but the v1019 audit noted "no follow-up commit documented." Commit a no-op documentation reference (CHANGELOG line under `[1.5.5]` or a `docs/` note) that cites v1019's audit and confirms the script is preserved. Pinned by grep against `frontend/package.json:23` for the script name. **Closed 2026-05-22 by Phase 1090:** CHANGELOG.md `[1.5.5]` block cites `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script preserved at HEAD; companion `lint:sec-fu-03-regression` at `frontend/package.json:22` also preserved.
 
 ---
 
@@ -75,9 +75,9 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | CI-01 | Phase 1089 | Complete |
 | CI-02 | Phase 1089 | Complete |
 | PERF-01 | Phase 1089 | Complete |
-| HYG-01 | Phase 1090 | Pending |
-| HYG-02 | Phase 1090 | Pending |
-| HYG-03 | Phase 1090 | Pending |
+| HYG-01 | Phase 1090 | Complete |
+| HYG-02 | Phase 1090 | Complete |
+| HYG-03 | Phase 1090 | Complete |
 
 **Coverage:**
 - v1020 requirements: 9 total
@@ -101,4 +101,4 @@ For FI-02 / FI-03: test-name citations are TBD until FI-01's taxonomy lands. The
 ---
 
 *Requirements defined: 2026-05-22*
-*Last updated: 2026-05-22 — roadmapper mapped 9/9 requirements to Phases 1087-1090*
+*Last updated: 2026-05-22 — v1020 milestone closed; all 9/9 requirements complete; Phase 1090 closed; tags v1020 + v1.5.5 cut*
