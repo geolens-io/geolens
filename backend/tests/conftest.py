@@ -4,6 +4,7 @@ import time
 import uuid
 import tempfile
 import warnings
+from contextlib import asynccontextmanager
 
 import asyncpg.exceptions
 import pytest
@@ -450,6 +451,158 @@ async def _run_with_too_many_clients_retry(
         raise last_exc
 
 
+# Retry budget for transient "too many clients already" contention during
+# in-test session-factory acquisition (per-request `override_get_db` ->
+# `test_session_factory()`). Distinct from `_SETUP_PHASE_RETRY_BACKOFFS`:
+#
+# - Setup phase budget (1.0 + 2.0 + 4.0 = 7s): fires ONCE per worker at the
+#   `_ensure_roles_and_admin` call; bounded below the 75s staggered-startup
+#   window's ceiling.
+# - In-test phase budget (0.5 + 1.0 = 1.5s): fires per-request inside a
+#   test body; a single test may issue several sequential `TestClient.post`
+#   calls, each opening a new connection. The budget MUST be tight or
+#   stalls compound across requests within one test. 1.5s is the smallest
+#   window that empirically clears the connection-saturation peak (see
+#   Plan 1088-04 and audit Section 4.3).
+#
+# See Plan 1088-04 and audit Section 4.3
+# (`.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md:1109-1135` +
+# Section 5 suggestion at lines 1296-1299).
+_IN_TEST_RETRY_BACKOFFS = (0.5, 1.0)
+
+
+@asynccontextmanager
+async def _acquire_test_session_with_retry(
+    session_factory,
+    sleep_fn=asyncio.sleep,
+    backoffs=_IN_TEST_RETRY_BACKOFFS,
+):
+    """Async-context-manager wrapper for retrying ``test_session_factory()``
+    acquisition during in-test request handling.
+
+    Plan 1088-04 / audit Section 4.3: After Plan 1088-03's wrap of
+    ``_ensure_roles_and_admin`` closed setup-phase contention (category 4.2,
+    188 -> 47, below 50 threshold), residual category 4.3 (in-test
+    connection contention, 87 pre-fix -> 172 post-1088-01 -> 137 post-1088-03)
+    remained above the 30 threshold. The failure shape: tests internally
+    open multiple DB connections within their body (multiple
+    ``TestClient.post(...)`` calls), each triggering a fresh
+    ``override_get_db`` -> ``test_session_factory()`` connection acquisition
+    that races the ``max_connections=30`` ceiling.
+
+    IMPORTANT — lazy-connection contract (see Plan 1088-04 iter-1
+    measurement notes): SQLAlchemy + asyncpg + NullPool defer the actual
+    asyncpg connection acquisition until the FIRST query is executed
+    against the session (``await session.execute(...)``). The session
+    object itself can be created and ``__aenter__``-ed cheaply without
+    touching the pool. This means a naive retry around ``__aenter__``
+    alone provides ZERO coverage for the in-test contention surface
+    (the connection error fires later, inside the request handler, after
+    the session has been yielded and the retry envelope has exited).
+
+    Plan 1088-04 iter-1 first-attempt measurement confirmed this: wrapping
+    only ``__aenter__`` reduced 4.3 from 137 -> 135 (0 effective coverage).
+    The fix: eagerly trigger asyncpg connection acquisition INSIDE the
+    retry envelope by issuing a cheap ``SELECT 1`` after the session is
+    created. If the warm-up query raises a transient contention
+    exception, dispose the session and retry. Once the warm-up succeeds,
+    the underlying asyncpg connection is established and pooled into
+    the session's connection slot, so the subsequent yield to the FastAPI
+    request handler executes against an already-acquired connection.
+
+    The retry exception family is the same as the setup-phase helper
+    (``_TRANSIENT_CONTENTION_EXCEPTIONS``: SQLAlchemy-wrapped OperationalError
+    + raw ``asyncpg.exceptions.TooManyConnectionsError`` /
+    ``CannotConnectNowError``). Non-contention OperationalError shapes
+    (DNS, auth, refused-connection) propagate immediately so the test
+    fails loudly rather than retrying a non-transient failure.
+
+    Args:
+        session_factory: Zero-arg callable returning an async session
+            context manager (typically ``test_session_factory`` from the
+            `client` fixture closure). Called fresh on each attempt.
+        sleep_fn: Async sleep injected for testability. Production passes
+            ``asyncio.sleep``; the regression pin patches this to a no-op.
+        backoffs: Tuple of per-attempt sleep durations (seconds). Default
+            ``(0.5, 1.0)`` = 1.5s total wait budget — bounded for in-test
+            latency.
+
+    Yields:
+        The async session with its asyncpg connection already established
+        (warm-up query succeeded), ready for FastAPI dependency-injection
+        consumption.
+
+    Raises:
+        Exception: If every attempt raises one of
+            ``_TRANSIENT_CONTENTION_EXCEPTIONS`` matching the contention
+            substring (``"too many clients already"``) or is unambiguously
+            asyncpg-contention, the last exception is re-raised so the
+            caller surfaces the contention loudly as a test error (NOT
+            swallowed). Same loud-fail contract as
+            ``_run_with_too_many_clients_retry``.
+        Exception: Re-raised immediately for any ``OperationalError``
+            whose message does NOT contain ``"too many clients already"``
+            (non-contention shapes propagate so the caller can route them
+            appropriately).
+    """
+    last_exc: BaseException | None = None
+    attempt_budget = 1 + len(backoffs)
+    for attempt in range(attempt_budget):
+        cm = session_factory()
+        session = None
+        try:
+            session = await cm.__aenter__()
+            # Eagerly trigger asyncpg connection acquisition. Under NullPool,
+            # the session object alone does not hold a connection — the
+            # asyncpg `_connect_addr` is invoked lazily on the first query.
+            # By issuing a cheap `SELECT 1` here, any transient
+            # `TooManyConnectionsError` is raised INSIDE this retry
+            # envelope (where we can catch and retry) rather than later
+            # inside the request handler (outside the envelope, surfacing
+            # as a hard test-body failure). See lazy-connection contract
+            # in the docstring above.
+            await session.execute(text("SELECT 1"))
+        except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
+            last_exc = e
+            # The warm-up failed — dispose the session and decide retry vs.
+            # propagate. We must call __aexit__ to release any partial state
+            # (rollback any pending transaction, close the session) before
+            # the next attempt creates a fresh session.
+            try:
+                await cm.__aexit__(type(e), e, e.__traceback__)
+            except Exception:
+                # Disposal during a failed warm-up may itself raise on the
+                # contention path; ignore so the original exception is the
+                # one surfaced/retried.
+                pass
+            # Non-contention OperationalError shapes propagate immediately.
+            # Raw asyncpg classes (TooManyConnectionsError, CannotConnectNowError)
+            # are unambiguously contention so the substring guard is a no-op
+            # for them (their type alone qualifies for retry).
+            if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                raise
+            # Exhausted budget — re-raise loudly, NOT silent-swallow.
+            if attempt == attempt_budget - 1:
+                raise
+            await sleep_fn(backoffs[attempt])
+            continue
+        # Warm-up succeeded — yield to caller, then teardown via __aexit__.
+        try:
+            yield session
+        except BaseException:
+            # Pass exception info to the underlying context manager so it
+            # can roll back / clean up appropriately. Re-raise after.
+            import sys
+            await cm.__aexit__(*sys.exc_info())
+            raise
+        else:
+            await cm.__aexit__(None, None, None)
+        return
+    # Defensive — the loop either returns or raises.
+    if last_exc is not None:  # pragma: no cover
+        raise last_exc
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _test_db_lifecycle():
     """Create, migrate, and tear down the test database once per session.
@@ -739,8 +892,19 @@ async def client(tmp_path):
     from app.core.dependencies import get_db
     from app.api.main import app
 
+    # Plan 1088-04 / audit Section 4.3: wrap the per-request session-factory
+    # acquisition with `_acquire_test_session_with_retry` so transient
+    # `asyncpg.TooManyConnectionsError` / `OperationalError("too many clients
+    # already")` raised inside `__aenter__` is retried with bounded backoff
+    # (0.5 + 1.0 = 1.5s budget) before failing loudly. Distinct from
+    # Plan 1088-03's setup-phase wrap of `_ensure_roles_and_admin`: this one
+    # fires per-request inside the test body (e.g., when a test issues
+    # multiple sequential `TestClient.post(...)` calls), so the budget is
+    # intentionally tighter than the setup-phase 7s window. See
+    # `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` Section 4.3 +
+    # Section 5 suggestion (lines 1289-1299).
     async def override_get_db():
-        async with test_session_factory() as session:
+        async with _acquire_test_session_with_retry(test_session_factory) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -910,10 +1074,20 @@ async def test_db_session(client: AsyncClient):
 
     Uses the same session factory that the client fixture patches into the app,
     so records inserted here are visible to request handlers.
+
+    Plan 1088-04 / audit Section 4.3 Rule-2 extension: wrap the session
+    acquisition with `_acquire_test_session_with_retry`. The original plan
+    scoped only `override_get_db`, but iter-1 measurement showed 66 of the
+    remaining 4.3 failures route through this fixture (tests that combine
+    `test_db_session` for direct DB writes with `client` for HTTP requests
+    open >=2 distinct asyncpg connections per test body). The contention
+    surface is identical to `override_get_db` — same lazy-connection
+    failure pattern under NullPool — so the same retry helper applies.
+    Without this extension, post-1088-04 4.3 stays above the 30 threshold.
     """
     import app.core.db as db_module
 
-    async with db_module.async_session() as session:
+    async with _acquire_test_session_with_retry(db_module.async_session) as session:
         yield session
 
 

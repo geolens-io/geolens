@@ -31,6 +31,8 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from tests.conftest import (
+    _IN_TEST_RETRY_BACKOFFS,
+    _acquire_test_session_with_retry,
     _create_test_db_with_retry,
     _run_with_too_many_clients_retry,
 )
@@ -475,4 +477,348 @@ async def test_setup_phase_exhausts_retry_budget_then_fails_loudly():
         f"Expected exhausted retry budget = 1 initial + 3 retries = 4 "
         f"attempts; got {call_count['n']}. If this drifts, the loud-fail "
         "contract from audit Section 4.2 has changed."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plan 1088-04 / audit Section 4.3: in-test connection contention
+# ---------------------------------------------------------------------------
+#
+# After Plan 1088-03 closed category 4.2 (188 → 47, below 50 threshold),
+# residual category 4.3 stayed at 137 failures under `pytest -n auto` (see
+# `.planning/phases/1088-fixture-isolation-fixes-regression-pins/1088-03-SUMMARY.md`).
+# The failure shape: tests internally open multiple DB connections within
+# their body (multiple `TestClient.post(...)` calls), each triggering a
+# fresh `override_get_db` → `test_session_factory()` connection acquisition.
+# Distinct from 4.2 — here the `client` fixture has already completed
+# setup and yielded; the test itself is opening a connection mid-execution.
+#
+# Plan 1088-04 wraps the session-factory acquisition inside `override_get_db`
+# with `_acquire_test_session_with_retry` (an `@asynccontextmanager` that
+# retries on `_TRANSIENT_CONTENTION_EXCEPTIONS` with a tight backoff budget
+# of (0.5s, 1.0s) — bounded total wait 1.5s, well below any reasonable
+# request-handler timeout). The pin below guards the in-test retry path.
+
+
+class _FakeSession:
+    """Async-session test double that records `execute()` calls and lets the
+    test decide whether each call succeeds or raises a transient contention
+    exception. Stands in for the asyncpg-backed ``AsyncSession`` returned by
+    the real ``async_sessionmaker(test_engine)``.
+    """
+
+    def __init__(self, execute_outcomes):
+        # Each item is either ``None`` (success, returns a sentinel Result)
+        # or an ``Exception`` instance (raised by the matching execute call).
+        self._outcomes = list(execute_outcomes)
+        self.execute_calls = []
+
+    async def execute(self, statement, *args, **kwargs):
+        self.execute_calls.append(str(statement))
+        if not self._outcomes:
+            return MagicMock(name="result")
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return MagicMock(name="result")
+
+
+class _FakeSessionCM:
+    """Stand-in for the async-session context manager returned by
+    ``async_sessionmaker(test_engine)()``. The constructor accepts a
+    ``session`` (the object yielded on ``__aenter__``); the failure surface
+    is on the session's ``execute()``, mirroring the actual NullPool
+    lazy-connection contract.
+    """
+
+    def __init__(self, session):
+        self.session = session
+        self.aexit_called_with = None
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self.aexit_called_with = exc_type
+        return False
+
+
+@pytest.mark.asyncio
+async def test_in_test_contention_retries_succeeds():
+    """Audit Section 4.3 regression pin: transient TooManyConnections during
+    in-test ``override_get_db`` → ``test_session_factory()`` acquisition must
+    be retried with bounded backoff at the session-factory level, NOT
+    surfaced as a hard test-body error on the first attempt.
+
+    Pre-1088-04 shape (post-1088-03 HEAD before this plan): the `client`
+    fixture defined ``override_get_db`` as a direct ``async with
+    test_session_factory() as session: yield session`` body. Under
+    `pytest -n auto` against max_connections=30, tests internally opening
+    multiple DB connections (e.g., several sequential ``TestClient.post(...)``
+    calls inside a single test body) raced the connection ceiling — 137
+    failures across the suite (audit Section 4.3 / re-measure category
+    4.3 = 137 post-1088-03).
+
+    Post-1088-04 shape: ``_acquire_test_session_with_retry`` wraps the
+    factory acquisition AND issues a warm-up ``SELECT 1`` inside the
+    retry envelope so transient contention raised by asyncpg's lazy
+    connection acquisition (triggered by the warm-up query) is caught
+    and retried. Total wait budget under contention is 1.5s — bounded
+    for in-test latency (must not stall test bodies indefinitely),
+    shorter than the setup-phase 7s budget because in-test retries fire
+    per-request and a single test may issue several sequential requests.
+
+    This test exercises the canonical lazy-connection failure surface:
+    ``__aenter__`` succeeds (session object created cheaply), but the
+    warm-up ``session.execute(SELECT 1)`` raises ``OperationalError(
+    "too many clients already")`` on the first attempt and succeeds on
+    the retry.
+
+    Against the pre-1088-04 HEAD this test fails because
+    `_acquire_test_session_with_retry` does not exist; against the
+    post-1088-04 HEAD it passes because the retry succeeds on the 2nd
+    attempt.
+    """
+    factory_call_count = {"n": 0}
+    created_sessions = []
+
+    def fake_factory():
+        factory_call_count["n"] += 1
+        if factory_call_count["n"] == 1:
+            # First attempt: warm-up SELECT 1 raises contention.
+            session = _FakeSession(execute_outcomes=[
+                OperationalError(
+                    "SELECT 1",
+                    {},
+                    Exception("FATAL:  sorry, too many clients already"),
+                )
+            ])
+        else:
+            # Second attempt: warm-up succeeds.
+            session = _FakeSession(execute_outcomes=[None])
+        created_sessions.append(session)
+        return _FakeSessionCM(session)
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    # Exercise the helper. Post-fix HEAD: the context manager yields the
+    # post-retry session. Pre-fix HEAD: this test fails to import
+    # `_acquire_test_session_with_retry`.
+    async with _acquire_test_session_with_retry(
+        fake_factory,
+        sleep_fn=fake_sleep,
+    ) as session:
+        yielded = session
+
+    # Assertion 1: the factory was invoked >=2 times (retry path taken).
+    assert factory_call_count["n"] >= 2, (
+        f"Expected at least 2 factory invocations (1 fail + 1 retry); "
+        f"got {factory_call_count['n']}. The retry path was NOT taken — "
+        "this likely means the pre-1088-04 direct `async with "
+        "test_session_factory()` shape was restored."
+    )
+
+    # Assertion 2: the helper yielded the post-retry session.
+    assert yielded is created_sessions[-1], (
+        f"Expected post-retry session sentinel; got {yielded!r}. The "
+        "helper either swallowed the success or yielded the wrong value."
+    )
+
+    # Assertion 3: the warm-up SELECT 1 was executed at least once on the
+    # retry attempt (the lazy-connection contract — see helper docstring).
+    assert any(
+        "SELECT 1" in stmt
+        for s in created_sessions
+        for stmt in s.execute_calls
+    ), (
+        f"Expected the warm-up SELECT 1 to be executed inside the retry "
+        f"envelope so asyncpg connection acquisition is triggered eagerly. "
+        f"Sessions executed: {[s.execute_calls for s in created_sessions]!r}. "
+        "If the warm-up was elided, the lazy-connection failure surface "
+        "(asyncpg `_connect_addr`) would fire later, inside the request "
+        "handler, OUTSIDE this retry envelope — yielding 0 effective "
+        "coverage for category 4.3 (Plan 1088-04 iter-1 measurement)."
+    )
+
+    # Assertion 4: the helper slept exactly once between the failure and
+    # the retry, using the configured 0.5s first-backoff budget.
+    assert sleep_calls == [0.5], (
+        f"Expected exactly one 0.5s backoff sleep between attempts; "
+        f"got {sleep_calls!r}. In-test retry budget drift may indicate "
+        "the `_IN_TEST_RETRY_BACKOFFS` constant changed unexpectedly."
+    )
+
+    # Assertion 5: the backoff schedule constant has the canonical shape.
+    # Total wait budget 1.5s — bounded for in-test latency.
+    assert _IN_TEST_RETRY_BACKOFFS == (0.5, 1.0), (
+        f"Expected _IN_TEST_RETRY_BACKOFFS == (0.5, 1.0) for a 1.5s total "
+        f"in-test wait budget; got {_IN_TEST_RETRY_BACKOFFS!r}. If this "
+        "drifts, the in-test latency contract may have changed and "
+        "request-handler test bodies could stall."
+    )
+
+
+@pytest.mark.asyncio
+async def test_in_test_contention_retries_raw_asyncpg_too_many_connections():
+    """Plan 1088-04 critical-contract pin: the in-test retry helper MUST
+    catch the RAW ``asyncpg.exceptions.TooManyConnectionsError`` raised
+    during the warm-up ``SELECT 1``, not only the SQLAlchemy-wrapped
+    ``OperationalError`` shape.
+
+    Mirrors Plan 1088-03's
+    ``test_setup_phase_contention_retries_raw_asyncpg_too_many_connections``
+    pin. In production, under SQLAlchemy + asyncpg + NullPool, the
+    connection-saturation error raised by asyncpg's ``_connect_addr``
+    surfaces RAW through the ``greenlet_spawn`` boundary before
+    SQLAlchemy's DBAPI translation layer wraps it — observed in all 137
+    of the post-1088-03 category 4.3 failures (`/tmp/v1020-1088-04-xdist.log`).
+
+    This pin guards against a future refactor narrowing the catch back
+    to only ``OperationalError`` (which would silently drop the dominant
+    in-test contention surface, restoring the 4.3 cascade).
+    """
+    import asyncpg.exceptions
+
+    factory_call_count = {"n": 0}
+    created_sessions = []
+
+    def fake_factory():
+        factory_call_count["n"] += 1
+        if factory_call_count["n"] == 1:
+            session = _FakeSession(execute_outcomes=[
+                asyncpg.exceptions.TooManyConnectionsError(
+                    "sorry, too many clients already"
+                )
+            ])
+        else:
+            session = _FakeSession(execute_outcomes=[None])
+        created_sessions.append(session)
+        return _FakeSessionCM(session)
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    async with _acquire_test_session_with_retry(
+        fake_factory,
+        sleep_fn=fake_sleep,
+    ) as session:
+        yielded = session
+
+    # Retry path MUST have engaged for the raw asyncpg shape.
+    assert factory_call_count["n"] >= 2, (
+        f"Expected >=2 invocations after raw asyncpg.TooManyConnectionsError "
+        f"(retry path); got {factory_call_count['n']}. If this is 1, the "
+        "retry helper only caught the SQLAlchemy-wrapped OperationalError "
+        "and let the raw asyncpg exception propagate — exactly the bug "
+        "that would silently drop the dominant in-test contention surface."
+    )
+    assert yielded is created_sessions[-1]
+    assert sleep_calls == [0.5], (
+        f"Expected exactly one 0.5s backoff between attempts; "
+        f"got {sleep_calls!r}."
+    )
+
+
+@pytest.mark.asyncio
+async def test_in_test_propagates_non_contention_operational_error():
+    """Companion pin (4.3 symmetry): OperationalError shapes OTHER than
+    "too many clients already" must propagate immediately (NOT retried)
+    in the in-test retry path.
+
+    Mirrors the setup-phase pin
+    ``test_setup_phase_propagates_non_contention_operational_error``.
+    DNS failures, refused connections, authentication errors, etc. are
+    non-transient — retrying would just stall the test for 1.5s before
+    failing with the same exception. The helper must surface them on the
+    first attempt.
+    """
+    factory_call_count = {"n": 0}
+
+    def fake_factory():
+        factory_call_count["n"] += 1
+        session = _FakeSession(execute_outcomes=[
+            OperationalError(
+                "SELECT 1",
+                {},
+                Exception("could not translate host name \"postgres\" to address"),
+            )
+        ])
+        return _FakeSessionCM(session)
+
+    async def fake_sleep(seconds):
+        return None
+
+    with pytest.raises(OperationalError) as excinfo:
+        async with _acquire_test_session_with_retry(
+            fake_factory,
+            sleep_fn=fake_sleep,
+        ) as session:
+            # Should not reach here on the non-contention path.
+            pytest.fail(
+                "Helper yielded a session despite a non-contention "
+                "OperationalError; the retry net was widened beyond the "
+                "contention shape."
+            )
+
+    assert "could not translate host name" in str(excinfo.value), (
+        "OperationalError did not propagate; got "
+        f"{excinfo.value!r}. Non-contention shapes MUST raise on the first "
+        "attempt so callers can route them to an appropriate exit path."
+    )
+    assert factory_call_count["n"] == 1, (
+        f"Non-contention OperationalError was retried {factory_call_count['n']} "
+        "times; expected exactly 1 attempt. Widening the retry net to "
+        "include unreachable-host shapes would stall every test body 1.5s."
+    )
+
+
+@pytest.mark.asyncio
+async def test_in_test_exhausts_retry_budget_then_fails_loudly():
+    """Companion pin (4.3 symmetry): if every retry attempt raises
+    TooManyConnections, the in-test helper MUST re-raise (not swallow).
+
+    Mirrors the setup-phase pin
+    ``test_setup_phase_exhausts_retry_budget_then_fails_loudly``. Under a
+    fully-saturated host, the test fails loudly with OperationalError so
+    the JUnit XML carries the actionable error class rather than masking
+    it as a request-handler error after 1.5s of silent retries.
+    """
+    factory_call_count = {"n": 0}
+
+    def fake_factory():
+        factory_call_count["n"] += 1
+        session = _FakeSession(execute_outcomes=[
+            OperationalError(
+                "SELECT 1",
+                {},
+                Exception("FATAL:  sorry, too many clients already"),
+            )
+        ])
+        return _FakeSessionCM(session)
+
+    async def fake_sleep(seconds):
+        return None
+
+    with pytest.raises(OperationalError) as excinfo:
+        async with _acquire_test_session_with_retry(
+            fake_factory,
+            sleep_fn=fake_sleep,
+            backoffs=(0.0, 0.0, 0.0),
+        ) as session:
+            pytest.fail(
+                "Helper yielded a session despite every warm-up attempt "
+                "failing; the loud-fail contract has regressed."
+            )
+
+    assert "too many clients already" in str(excinfo.value).lower()
+    # Budget = 1 initial attempt + 3 retries = 4 total invocations.
+    assert factory_call_count["n"] == 4, (
+        f"Expected exhausted retry budget = 1 initial + 3 retries = 4 "
+        f"attempts; got {factory_call_count['n']}. If this drifts, the "
+        "loud-fail contract from audit Section 4.3 has changed."
     )
