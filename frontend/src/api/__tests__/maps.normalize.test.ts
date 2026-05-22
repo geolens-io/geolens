@@ -354,9 +354,11 @@ describe('getSharedMap normalizer integration', () => {
 
     const result = await getSharedMap('token-abc');
 
-    expect(result.basemap_style).toBe('dark-matter');
-    expect(typeof result.show_basemap_labels).toBe('boolean');
-    expect(result.show_basemap_labels).toBe(true);
+    expect(result).not.toBeNull();
+    const r1 = result!;
+    expect(r1.basemap_style).toBe('dark-matter');
+    expect(typeof r1.show_basemap_labels).toBe('boolean');
+    expect(r1.show_basemap_labels).toBe(true);
   });
 
   it('getSharedMap defaults show_basemap_labels to true when the backend payload omits the field (BSR-22 — embed viewer parity)', async () => {
@@ -371,7 +373,8 @@ describe('getSharedMap normalizer integration', () => {
 
     const result = await getSharedMap('token-embed');
 
-    expect(result.show_basemap_labels).toBe(true);
+    expect(result).not.toBeNull();
+    expect(result!.show_basemap_labels).toBe(true);
   });
 
   it('getSharedMap preserves show_basemap_labels: false when explicitly set', async () => {
@@ -383,7 +386,8 @@ describe('getSharedMap normalizer integration', () => {
 
     const result = await getSharedMap('token-satellite');
 
-    expect(result.show_basemap_labels).toBe(false);
+    expect(result).not.toBeNull();
+    expect(result!.show_basemap_labels).toBe(false);
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -406,8 +410,10 @@ describe('getSharedMap normalizer integration', () => {
 
     const result = await getSharedMap('token-cluster');
 
-    expect(result.layers).toHaveLength(1);
-    expect(result.layers[0].style_config?.render_mode).toBe('cluster');
+    expect(result).not.toBeNull();
+    const r2 = result!;
+    expect(r2.layers).toHaveLength(1);
+    expect(r2.layers[0].style_config?.render_mode).toBe('cluster');
   });
 });
 
@@ -480,15 +486,17 @@ describe('four-viewer parity', () => {
     const mapResult = await getMap('map-parity');
     const sharedResult = await getSharedMap('token-parity');
 
+    expect(sharedResult).not.toBeNull();
+    const sr = sharedResult!;
     // BSR-22 invariants: normalized outputs are structurally equivalent
-    expect(mapResult.basemap_style).toBe(sharedResult.basemap_style);
-    expect(mapResult.show_basemap_labels).toBe(sharedResult.show_basemap_labels);
-    expect(mapResult.basemap_config).toEqual(sharedResult.basemap_config);
-    expect(mapResult.terrain_config).toEqual(sharedResult.terrain_config);
-    expect(mapResult.layers.length).toBe(sharedResult.layers.length);
+    expect(mapResult.basemap_style).toBe(sr.basemap_style);
+    expect(mapResult.show_basemap_labels).toBe(sr.show_basemap_labels);
+    expect(mapResult.basemap_config).toEqual(sr.basemap_config);
+    expect(mapResult.terrain_config).toEqual(sr.terrain_config);
+    expect(mapResult.layers.length).toBe(sr.layers.length);
     // Layer ID and sort_order match
-    expect(mapResult.layers[0].id).toBe(sharedResult.layers[0].id);
-    expect(mapResult.layers[0].sort_order).toBe(sharedResult.layers[0].sort_order);
+    expect(mapResult.layers[0].id).toBe(sr.layers[0].id);
+    expect(mapResult.layers[0].sort_order).toBe(sr.layers[0].sort_order);
 
     // Both paths produce the same basemap stack entries when fed to buildMapStack
     // (using mapResult only, since buildMapStack takes MapLayerResponse[])
