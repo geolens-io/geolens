@@ -19,7 +19,8 @@
     "check:i18n:toast-strings": "node ./scripts/check-hardcoded-toast.mjs --strict",
     "lint:sec-s14-regression": "eslint --no-inline-config src/__tests__/sec-s14-eslint-regression.ts; test $? -ne 0",
     "lint:sec-s14-no-false-positive": "eslint src/__tests__/sec-s14-eslint-regression.skip.ts",
-    "lint:sec-fu-03-regression": "eslint --no-inline-config src/__tests__/sec-fu-03-react-no-danger-regression.skip.tsx; test $? -ne 0"
+    "lint:sec-fu-03-regression": "eslint --no-inline-config src/__tests__/sec-fu-03-react-no-danger-regression.skip.tsx; test $? -ne 0",
+    "lint:sec-fu-03-no-false-positive": "eslint src/__tests__/sec-fu-03-react-no-danger-regression.skip.tsx"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
