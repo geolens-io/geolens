@@ -85,7 +85,7 @@
 ### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Active)
 
 - [ ] **Phase 1084: Frontend Hygiene Tail** — Eliminate the 36 pre-existing TypeScript errors and two console-noise patterns (/maps/new 422s, /api/api/ double-prefix) surfaced at v1018 close-gate
-- [ ] **Phase 1085: pytest -n auto Stabilization** — Spike then fix the xdist 16-worker Postgres connection-pool cascade so parallel test runs are clean
+- [x] **Phase 1085: pytest -n auto Stabilization** — Spike then fix the xdist 16-worker Postgres connection-pool cascade so parallel test runs are clean (completed 2026-05-22)
 - [ ] **Phase 1086: Process Tightening + Close Gate** — Write process retro + global skill update, verify TD-07 runtime symmetry, run full close-gate, cut tags
 
 ### Phase 1084: Frontend Hygiene Tail
@@ -111,11 +111,11 @@ Plans:
   1. `.planning/audits/PYTEST-XDIST-SPIKE-v1019.md` is committed and contains: observed Postgres `max_connections`, per-worker concurrent connection count measured during a 16-worker run, identification of which fix shape (pool sizing / `max_connections` bump / cap `-n`) was chosen, and the rationale
   2. `pytest -n auto` (or the capped equivalent if cap was chosen) completes with zero `asyncpg` connection-refused or Postgres recovery-cascade errors; the chosen fix is in place in `backend/tests/conftest.py`, `docker-compose.yml`, or `Makefile` as appropriate
   3. Sequential `uv run pytest backend/` still passes (the fix must not break sequential mode)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 1085-01-PLAN.md — SPIKE: measure max_connections + per-worker concurrent connection count, decide fix shape, commit PYTEST-XDIST-SPIKE-v1019.md (TD-10)
-- [ ] 1085-02-PLAN.md — IMPLEMENT: apply chosen fix shape (a/b/c) + regression pin + verify pytest -n auto green + sequential baseline preserved (TD-10)
+- [x] 1085-02-PLAN.md — IMPLEMENT: apply chosen fix shape (a/b/c) + regression pin + verify pytest -n auto green + sequential baseline preserved (TD-10)
 
 ### Phase 1086: Process Tightening + Close Gate
 **Goal:** Two process artifacts are committed, TD-07 runtime symmetry is confirmed in the deployed images, and v1019 ships with a full close-gate audit trail and both tags cut
