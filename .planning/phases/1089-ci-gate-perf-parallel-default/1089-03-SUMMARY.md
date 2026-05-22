@@ -236,12 +236,15 @@ None.
   - v1019 WR-01 paper-trail (HYG-03) is documentation-only; not blocked by anything in Phase 1089.
 - **No blockers.** Next: `/gsd:plan-phase 1090` to begin Phase 1090.
 
-## Self-Check: PENDING (commits not yet made; will verify post-commit)
+## Self-Check: PASSED
 
-- Pending: `git diff-tree --no-commit-id --name-only -r HEAD` returns exactly 4 files for atomic commit (Makefile + REQUIREMENTS.md + ROADMAP.md + 1089-03-SUMMARY.md)
-- Pending: STATE.md advance commit lands as separate follow-up
-- Pending: 6 negative-shape grep verifications all succeed
-- Pending: PERF-01-drives-CI-default contract cross-check exits 0
+- VERIFIED: atomic commit `11aae40f` contains exactly 4 files (Makefile + REQUIREMENTS.md + ROADMAP.md + 1089-03-SUMMARY.md) — `git diff-tree --no-commit-id --name-only -r HEAD~1` returns the expected set
+- VERIFIED: STATE.md advance landed as separate follow-up commit `853f5831` (1 file)
+- VERIFIED: 6 negative-shape grep verifications all succeed (3 traceability rows + 3 checkbox flips + 1 ROADMAP Phase 1089 row)
+- VERIFIED: PERF-01-drives-CI-default contract cross-check — CI workflow and Makefile both report `-n 4` (instruction invariant #5 closed)
+- VERIFIED: Makefile dry-run shapes — `make -n test` includes `-n 4`; `make -n test-sequential` does NOT include `-n` flag
+- VERIFIED: STATE.md advance complete — status / completed_phases (2 → 3) / completed_plans (8 → 11) / Current Position / 3 strikethroughs in Deferred Items
+- VERIFIED: sequential pytest baseline `3047 passed, 0 failed, 38 skipped in 543.12s` re-verified pre-commit (matches Phase 1088 close-state and Plan 1089-01/02 baselines exactly on pass count)
 
 ---
 *Phase: 1089-ci-gate-perf-parallel-default*
