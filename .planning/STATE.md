@@ -2,33 +2,33 @@
 gsd_state_version: 1.0
 milestone: v1020
 milestone_name: Fixture Isolation
-status: Phase 1088 closed; FI-02 + FI-03 satisfied; Phase 1089 next
-stopped_at: "Phase 1088 (FI-02 + FI-03) shipped — cascade 648 → 76 (-88.3%); 11 regression pins; sequential 3047/0/38; threshold relaxation for 4.3 (=48) deferred to Phase 1090 HYG-02; ready for /gsd:plan-phase 1089"
-last_updated: "2026-05-22T18:30:00.000Z"
-last_activity: 2026-05-22 — Phase 1088 closed; FI-02 + FI-03 traceability flipped in single TD-13 commit (`6a618198`); cascade 648 → 76; threshold relaxation for category 4.3 (48 > 30 original, ≤ 50 relaxed) deferred to Phase 1090 HYG-02
+status: Phase 1089 closed; CI-01 + CI-02 + PERF-01 satisfied; Phase 1090 next
+stopped_at: "Phase 1089 (CI-01 + CI-02 + PERF-01) shipped — pytest-parallel-isolation CI gate live; make test defaults to -n 4; PERF-01 audit doc committed; ready for /gsd:plan-phase 1090"
+last_updated: "2026-05-22T19:46:34Z"
+last_activity: 2026-05-22 — Phase 1089 closed; CI-01 + CI-02 + PERF-01 traceability flipped in single TD-13 commit (`11aae40f`); CI live-verification deferred to first post-merge run
 progress:
   total_phases: 9
-  completed_phases: 6
-  total_plans: 11
+  completed_phases: 3
+  total_plans: 9
   completed_plans: 11
-  percent: 50
+  percent: 33
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1088 — Fixture-Isolation Fixes + Regression Pins — COMPLETE
-Plan: 1088-05-PLAN.md — COMPLETE (REQUIREMENTS.md + ROADMAP.md + 1088-05-SUMMARY.md in single TD-13 commit `6a618198`)
-Status: Phase 1088 closed; FI-02 + FI-03 satisfied; Phase 1089 next
-Last activity: 2026-05-22 — Phase 1088 closed; cascade 648 → 76 (-88.3%); 11 regression pins consolidated; sequential 3047/0/38 preserved; threshold relaxation for category 4.3 (=48) accepted as flake-class, deferred to Phase 1090 HYG-02
+Phase: 1089 — CI Gate + Perf Baseline + Parallel Default — COMPLETE
+Plan: 1089-03-PLAN.md — COMPLETE (Makefile + REQUIREMENTS.md + ROADMAP.md + 1089-03-SUMMARY.md in single TD-13 atomic commit `11aae40f`)
+Status: Phase 1089 closed; CI-01 + CI-02 + PERF-01 satisfied; Phase 1090 next
+Last activity: 2026-05-22 — Phase 1089 closed; CI-01 + CI-02 + PERF-01 traceability flipped in single TD-13 commit (`11aae40f`); CI live-verification deferred to first post-merge run
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1088 — COMPLETE; next: Phase 1089 (CI Gate + Perf Baseline + Parallel Default)
+**Current focus:** Phase 1089 — COMPLETE; next: Phase 1090 (Skip Audit + Flake Hunt + Close-Gate)
 
 ## Last Shipped Milestone
 
@@ -71,24 +71,28 @@ See: .planning/PROJECT.md
 - **2026-05-22 (Phase 1088-03 close):** Plan 1088-03 closed category 4.2 (188 → 47 → 21) via `_run_with_too_many_clients_retry` async helper + widened catch tuple `_TRANSIENT_CONTENTION_EXCEPTIONS = (OperationalError, asyncpg.TooManyConnectionsError, asyncpg.CannotConnectNowError)`. Iter-1 → iter-2 widening required after first measurement showed 42% coverage; raw asyncpg surfaces through `bind.connect()` → `greenlet_spawn` path. 4 regression pins.
 - **2026-05-22 (Phase 1088-04 close):** Plan 1088-04 partial close of category 4.3 (137 → 48) via `_acquire_test_session_with_retry` @asynccontextmanager wrapping `override_get_db` AND `test_db_session` (Rule-2 sibling fixture extension) + eager warm-up `SELECT 1` inside retry envelope (iter-1 zero-coverage → iter-2 → iter-3 progression). 48 residual fires AFTER `await session.commit()` releases warm-up's connection — outside any session-factory-level retry envelope. Architectural escalation REPORTED (NOT auto-applied) for engine-level pool retry vs HYG-02 acceptance. 4 regression pins.
 - **2026-05-22 (Phase 1088-05 close):** Phase 1088 close. Cascade 648 → 76 (-88.3%). Threshold relaxation for category 4.3 (=48; original audit threshold <30; relaxed to ≤50) orchestrator pre-approved; deferred to Phase 1090 HYG-02 flake hunt (3× consecutive runs validate determinism). REQUIREMENTS.md FI-02 + FI-03 + ROADMAP.md Phase 1088 + 1088-05-SUMMARY.md flipped in SINGLE commit `6a618198` per TD-13 `requirements_traceability_flip` rule. 11 regression pins consolidated under `backend/tests/test_fixture_isolation_v1020.py`. Sequential 3047/0/38 preserved.
+- **2026-05-22 (Phase 1089-01 close):** PERF-01 baseline shipped — audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md` ships 4 measured runs (sequential 545.02s 3047/0/38 + n=4 356.12s 3046/1/0 + n=8 370.08s 3044/3/0 + n=auto 442.75s 2952/78/23). Section 5 recommends `-n 4` as the documented default for CI-01 + CI-02. Rationale: n=4 wins on BOTH wall-clock (1.53× speedup vs n=auto's 1.23×) AND cascade failures (1 non-cascade flake vs 101 cascade-class). Peak DB conns at n=4 were 7 of 30 (23% of ceiling). REQUIREMENTS.md `Out of Scope` clause explicitly authorises the divergence as "data-justified" (99% cascade reduction).
+- **2026-05-22 (Phase 1089-02 close):** CI-01 wired — `pytest-parallel-isolation` job added at `.github/workflows/ci.yml:493-595` after the `alembic-clean-db` block. Trigger: `backend == 'true' || alembic == 'true' || push`. Test invocation: `uv run pytest -n 4 -v --tb=short -m 'not perf'`. Skip enterprise overlay path (simpler-is-better per CONTEXT.md). `e2e-test` job's `needs:` list extended to include the new job (forward-compat — e2e-test is currently `if: false`). CI live-verification deferred to first post-merge run. Sequential 3047/0/38 preserved (re-verified pre-commit at 543.28s).
+- **2026-05-22 (Phase 1089-03 close):** CI-02 default switched — `Makefile:29` `test:` target now runs `-n 4`; new `test-sequential:` target at `Makefile:32` preserves no-args sequential debugging path. REQUIREMENTS.md CI-01 + CI-02 + PERF-01 (3 reqs) + ROADMAP.md Phase 1089 row + 1089-03-SUMMARY.md flipped in SINGLE atomic TD-13 commit `11aae40f` per `requirements_traceability_flip` rule (4-file atomic + 1-file STATE.md follow-up). PERF-01-drives-CI-default contract closed: `diff <(grep "uv run pytest -n " ci.yml)` and `<(grep "uv run pytest -n " Makefile)` agree on `-n 4`. Sequential 3047/0/38 preserved (re-verified pre-commit at 543.12s).
 
 ### Pending Todos
 
-None — Phase 1088 closed. Phase 1089 (CI gate + perf baseline + parallel default) is unblocked.
+None — Phase 1089 closed. Phase 1090 (skip audit + flake hunt + close-gate + tags) is unblocked.
 
 ### Blockers/Concerns
 
-None at Phase 1088 close. **Phase 1089 inheritance:** post-Phase-1088 HEAD state is the input PERF-01 will benchmark; cascade-category residual at 72 is the gate CI-01 will defend against; parallel baseline at 76 total / 72 cascade is the documented state CI-02 will switch `make test` default to. **Phase 1090 inheritance:** 4.3 = 48 acceptable-flake residual + 4.4 = 3 + 4.5 = 4 = 55 residual carries to HYG-02 3× consecutive run validation; HYG-01 38-skip audit; HYG-03 v1019 WR-01 paper-trail.
+None at Phase 1089 close. **Phase 1090 inheritance:** CI-01 `pytest-parallel-isolation` gate is live in HEAD and defends against future regressions to Phase 1088's fixture-isolation work. CI live-verification (first post-merge gate firing) is a Phase 1090 close-gate item — `gh run watch <run_id>` confirms green on first post-merge run, URL cited in Phase 1090 close-gate doc. HYG-01 38-skip audit + HYG-02 3× consecutive `-n auto` flake hunt + HYG-03 v1019 WR-01 paper-trail (`frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script) all unblocked; tag close cuts `v1020` (local) + `v1.5.5` (public).
 
 ## Session Continuity
 
-Last session: 2026-05-22T18:30:00.000Z
-Stopped at: Phase 1088 (FI-02 + FI-03) shipped — cascade 648 → 76 (-88.3%); 11 regression pins; sequential 3047/0/38; threshold relaxation for 4.3 (=48) deferred to Phase 1090 HYG-02; ready for /gsd:plan-phase 1089
+Last session: 2026-05-22T19:46:34Z
+Stopped at: Phase 1089 (CI-01 + CI-02 + PERF-01) shipped — pytest-parallel-isolation CI gate live; make test defaults to -n 4; PERF-01 audit doc committed; ready for /gsd:plan-phase 1090
 Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd:plan-phase 1089` to begin Phase 1089: CI Gate + Perf Baseline + Parallel Default — adds `pytest-parallel-isolation` GH Actions job (sister to v1017 `alembic-clean-db`); captures `-n 4`/`-n 8`/`-n auto` benchmark; switches `make test` default to parallel with sequential opt-in retained.
+- Run `/gsd:plan-phase 1090` to begin Phase 1090: Skip Audit + Flake Hunt + Close-Gate — disposition the 38 sequential-mode skips (HYG-01); run `pytest -n auto` 3× consecutive to surface non-deterministic flakes (HYG-02); paper-trail v1019 WR-01 `lint:sec-fu-03-no-false-positive` script in CHANGELOG `[1.5.5]` (HYG-03); cut tags `v1020` (local) + `v1.5.5` (public).
+- Post-merge CI live-verification: after this commit lands in main (or even just on a PR), run `gh run list --workflow=ci.yml --limit=1` then `gh run watch <run_id>` to confirm the `pytest-parallel-isolation` gate fires green for the first time. Cite the run URL in Phase 1090's close-gate doc as the CI-01 live-verification artifact.
 
 ## Deferred Items
 
@@ -96,9 +100,9 @@ Carried into v1020 from v1019 close (2026-05-22):
 
 - ~~**FI-01**~~ — CLOSED 2026-05-22 by Phase 1087 (audit doc `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` shipped; 648 failures classified across 6 categories; Section 5 sequencing handed to Phase 1088)
 - ~~**FI-02 / FI-03**~~ — CLOSED 2026-05-22 by Phase 1088 (cascade 648 → 76 (-88.3%); 11 regression pins consolidated under `backend/tests/test_fixture_isolation_v1020.py`; sequential 3047/0/38 preserved; threshold relaxation for category 4.3 = 48 documented in REQUIREMENTS.md FI-02 acceptance text + Phase SUMMARY)
-- **CI-01** — Wire a `pytest-parallel-isolation` GitHub Actions job sister to v1017's `alembic-clean-db`. No CI gate today blocks regressions to parallel test health.
-- **CI-02** — Switch default `make test` invocation to parallel once FI-02 lands; sequential becomes the debugging opt-in.
-- **PERF-01** — Benchmark `pytest -n 4`/`pytest -n 8`/`pytest -n auto` post-FI-02 with v1019 spike methodology; pick documented optimal default for CI-02.
+- ~~**CI-01**~~ — CLOSED 2026-05-22 by Phase 1089-02 (`pytest-parallel-isolation` job present at `.github/workflows/ci.yml:493-595` running `uv run pytest -n 4 -v --tb=short -m 'not perf'`; sister-shape to `alembic-clean-db`; `e2e-test` `needs:` list extended; live-verification deferred to first post-merge `gh run watch`)
+- ~~**CI-02**~~ — CLOSED 2026-05-22 by Phase 1089-03 (`Makefile:29` `test:` target runs `uv run pytest -n 4 -v --tb=short`; new `test-sequential:` target at `Makefile:32` preserves no-args sequential debugging path; Option A per CONTEXT.md — `pyproject.toml` `addopts` un-widened)
+- ~~**PERF-01**~~ — CLOSED 2026-05-22 by Phase 1089-01 (audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md` Section 5 recommends `-n 4` — 1.53× sequential speedup, 99% cascade reduction vs n=auto; consumed verbatim by CI-01 + CI-02)
 - **HYG-01** — Audit current 38 sequential-mode skips; disposition each `KEEP/FIX/REMOVE` once FI-02 lands.
 - **HYG-02** — Flake hunt: run `pytest -n auto` 3× consecutive after FI-02 + FI-03 land; log non-deterministic failures.
 - **HYG-03** — Paper-trail v1019 WR-01: `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is present at HEAD but the v1019 audit noted "no follow-up commit documented." Commit a CHANGELOG line under `[1.5.5]` or a `docs/` note citing v1019's audit and confirming script preserved.
