@@ -57,16 +57,16 @@ def _derive_test_pool_sizing() -> tuple[int, int]:
 # concurrent setup fan-out saturates Postgres before any test runs.
 #
 # Fix: stagger each worker's startup by SETUP_STAGGER_SECONDS × worker_num.
-# The dev_engine + test_engine_sync phases each take <100ms. With a 1.5s stagger:
+# Alembic migration (22 steps) takes ≈ 3-5s per worker. With a 5.0s stagger:
 #   - Worker 0 starts immediately (no delay)
-#   - Worker 1 starts after 1.5s (worker 0 is already past dev_engine)
-#   - Worker k starts after k × 1.5s
-# Peak concurrent main-DB connections during stagger window: ~2 (overlap of
-# consecutive workers' 100ms dev_engine phases). Safe under max_connections=30.
+#   - Worker 1 starts after 5.0s (worker 0 is already past migration)
+#   - Worker k starts after k × 5.0s
+# Peak concurrent main-DB connections during stagger window: ~1-2.
+# Safe under max_connections=30.
 #
 # This approach is O(STAGGER_SECONDS × worker_num) total overhead vs. O(N × setup_time)
 # for a hard serialiser — wall-clock impact is bounded by the LAST worker's stagger
-# (15 × 1.5s = 22.5s), not the sum.
+# (15 × 5.0s = 75s), not the sum.
 #
 # See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
 # Combined with NullPool for async engines (no idle connections post-setup),
@@ -82,8 +82,11 @@ _SETUP_STAGGER_SECONDS = 5.0
 def _get_setup_stagger_delay() -> float:
     """Return the number of seconds this worker should sleep before running setup.
 
-    Sequential mode (master) returns 0 — no stagger needed.
-    xdist worker gw0 returns 0, gw1 returns 1.5, gw15 returns 22.5.
+    Sequential mode (master) or unrecognised worker ID returns 0.0 — no stagger needed.
+    xdist worker gw0 returns 0.0, gw1 returns 5.0, gw15 returns 75.0.
+
+    Note: if xdist changes its worker ID format (currently 'gwN'), unrecognised
+    IDs silently return 0.0, defeating the stagger for those workers.
     """
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
     if not worker_id.startswith("gw"):
@@ -443,6 +446,10 @@ async def client(tmp_path):
     # Sequential mode (worker_id=master) keeps the historical (5, 2) QueuePool
     # for request handlers that need concurrent DB conns within a single test.
     # See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
+    # NOTE: _pool_size/_max_overflow are computed for regression-test contract but
+    # not used here in xdist mode; NullPool replaces the pool entirely.
+    # See test_conftest_pool_sizing.py — the sentinel (1, 0) keeps budget arithmetic
+    # valid as a guard against future loosening of the xdist pool constraint.
     _pool_size, _max_overflow = _derive_test_pool_sizing()
     _is_xdist = os.environ.get("PYTEST_XDIST_WORKER", "master") != "master"
     if _is_xdist:
