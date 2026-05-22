@@ -490,6 +490,105 @@ jobs:
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
 
+  # ---------- pytest parallel-isolation gate (v1020 CI-01) ----------
+  # Phase 1089 CI-01: defend the Phase 1088 fixture-isolation fixes against regression.
+  # Runs `pytest -n 4` against the backend test suite (post-Phase-1088 HEAD
+  # baseline: 76 residual failures, mostly the flake-class deferred to Phase 1090 HYG-02).
+  # Recommended `-n` value drives from .planning/audits/PYTEST-XDIST-PERF-v1020.md Section 5
+  # (PERF-01 baseline). Sister-shape to alembic-clean-db (line 462).
+  pytest-parallel-isolation:
+    name: Pytest Parallel Isolation
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      POSTGRES_USER: geolens
+      POSTGRES_PASSWORD: geolens_test
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      # Must be ≥ 32 chars to satisfy the Settings validator (backend/app/config.py).
+      JWT_SECRET_KEY: test-secret-key-for-ci-padding-32chars
+      GEOLENS_ADMIN_USERNAME: admin
+      GEOLENS_ADMIN_PASSWORD: admin
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Start PostgreSQL with PostGIS + pgvector
+        working-directory: .
+        run: |
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          FROM postgis/postgis:17-3.5
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-17-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          docker run -d --name test-postgres \
+            -e POSTGRES_DB=postgres \
+            -e POSTGRES_USER=geolens \
+            -e POSTGRES_PASSWORD=geolens_test \
+            -p 5432:5432 \
+            geolens-test-db
+          for i in $(seq 1 30); do
+            if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
+
+      - name: Install Python dependencies
+        run: uv sync --locked --dev
+
+      - name: Set up database extensions, roles, and schemas
+        run: |
+          PGPASSWORD=geolens_test psql -h localhost -U geolens -d postgres -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS unaccent;
+            CREATE SCHEMA IF NOT EXISTS catalog;
+            CREATE SCHEMA IF NOT EXISTS data;
+            ALTER DATABASE postgres SET search_path TO catalog, data, public;
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'geolens_reader') THEN
+                CREATE ROLE geolens_reader NOLOGIN;
+              END IF;
+            END \$\$;
+            GRANT USAGE ON SCHEMA data TO geolens_reader;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO geolens_reader;
+          "
+
+      - name: Run migrations
+        run: uv run alembic upgrade head
+
+      - name: Run tests with -n 4
+        # Phase 1089 CI-01 gate: defends against regressions to Phase 1088 fixture-isolation work.
+        # `-n` value sourced from .planning/audits/PYTEST-XDIST-PERF-v1020.md Section 5.
+        # No coverage flags here — backend-test job already covers coverage; this job is a regression gate only.
+        # Skips enterprise overlay (CONTEXT.md decision: simpler is better; overlay-specific fixture races
+        # are tracked separately in Phase 1090 HYG-02 if they surface).
+        run: uv run pytest -n 4 -v --tb=short -m 'not perf'
+
   # ---------- frontend ----------
   frontend-lint:
     name: Frontend Lint & Typecheck
@@ -638,7 +737,7 @@ jobs:
     name: E2E Tests
     if: false
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
+    needs: [backend-lint, backend-test, pytest-parallel-isolation, frontend-lint, frontend-test, security-scan]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
