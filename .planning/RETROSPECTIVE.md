@@ -2,6 +2,59 @@
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*
 
+## Milestone: v1018 — Hygiene — v1017 Tech-Debt Tail
+
+**Shipped:** 2026-05-21
+**Phases:** 4 (1080-1083) | **Plans:** 8 | **Requirements:** 8/8 | **Tags:** `v1018` (local) + `v1.5.3` (public) at `d1b76061`
+
+### What Was Built
+
+- **TD-01 (Phase 1080):** Two `# broad:` justification comments on `except Exception:` clauses at `tasks_common.py:232,238` inside `_job_phase_session` (comment-only edit; rollback invariant preserved).
+- **TD-07 (Phase 1080):** Explicit `connect_args["ssl"] = False` on the `database_ssl_mode == "disable"` branch of `database_connect_args`; `if/elif` chain restructured; 3-branch shape pinned with 4-test `TestDatabaseConnectArgs` + 5-test `TestExternalPooler`.
+- **WR-01 (Phase 1080 inline review fix):** Third broad-except at `tasks_common.py:1030` justified + `test_layering.py:1577` regex fixed from `\s+` to `[ \t]+` (portable ERE) — closed a latent CI failure mode caused by macOS `git grep -E` not expanding `\s` as whitespace.
+- **WR-02 (Phase 1080 inline review fix):** `test_verify_full_returns_ssl_context_with_verify` restructured — was a dead test that constructed a `verify-full` Settings object then asserted on a `require`-mode object instead.
+- **TD-02/TD-03 (Phase 1081):** Two register-audit test password fixtures updated from `"securepass123"` to `"TestPass1234!"` (13-char, 4/4 SEC-S16 classes).
+- **TD-05 (Phase 1081):** `patch("app.modules.catalog.sources.security.validate_url_for_ssrf", new=AsyncMock())` added to both `TestServiceReuploadWorker` tests at the defining-module path (correct for lazy body-level from-import in `tasks_reupload.py:347`).
+- **TD-06 (Phase 1081):** Added `client` fixture arg to `test_job_phase_session_none_branch_rolls_back_on_exception` — transitively triggers `conftest.py`'s `db_module.async_session = test_session_factory` monkey-patch, fixing full-suite cross-loop pool contamination.
+- **TD-04 (Phase 1082):** `AsyncMock(side_effect=IngestionError(...))` patch on `router_reupload.run_service_preview` at the caller-namespace path (correct for module-top from-import) — removes `ogrinfo` CLI host dependency while preserving IDOR/auth invariant.
+- **TD-08 (Phase 1083):** PYTEST-BASELINE-v1018.md (3025/0/38 sequential, 0 InvalidCatalogNameError); frontend gates (tsc 0, vitest 2105/2105, e2e:smoke:builder 25/1); CHANGELOG [1.5.3]; tags `v1018` + `v1.5.3` at `d1b76061`; live MCP smoke 5/5 surfaces green.
+
+### What Worked
+
+- **Audit-first roadmap definition.** The v1017 audit's `frontmatter.deferred_to_v1018` was a clean machine-readable list of 8 items — REQUIREMENTS.md TD-01..TD-08 mapped one-to-one. Zero scope ambiguity going into Phase 1080.
+- **Planner caught upstream doc drift in real time.** Phase 1080 planner caught that `tasks_common.py` had moved from `platform/jobs/` to `processing/ingest/` and the broad-except lines were 232/238 not 231/237. Phase 1081 planner caught that TD-02/TD-03 REQUIREMENTS.md test names (`test_register_password_too_short`, `test_register_password_diversity`) didn't exist in code — the real names are `test_register_emits_user_register_audit` / `test_register_disabled_does_not_emit_audit`. Saved 2-3 executor cycles each.
+- **Code review caught a latent CI failure.** WR-01 was a third broad-except invisible to the layering test on macOS because Apple Git's `-E` doesn't expand `\s` as whitespace. Linux CI would have caught it; macOS dev never would have. Fixed dual-half (source + test regex portability) in one commit.
+- **Executor Rule 1 deviation (Phase 1082) on patch-target nuance.** The planner specified the defining-module path for `run_service_preview`, but `router_reupload.py:44` uses a module-top `from` import (vs `tasks_reupload.py:347`'s lazy body-level from-import). Module-top binding requires patching the caller namespace; defining-module patch is a silent no-op. Executor caught this on first test run and fixed it inline.
+- **Live MCP smoke as orchestrator-driven pre-tag gate.** Caught the v1008 `/maps/new` 422 console-noise pattern (PASS-with-note, not a regression — reproduced on v1017) and confirmed 0 console errors on all 5 surfaces of the rebuilt stack. Headless e2e and unit tests both missed the empty-state route quirk.
+
+### What Was Inefficient
+
+- **TD-05 traceability row was stale at audit time.** Plan 1081-02's SUMMARY commit closed the requirement but didn't flip the REQUIREMENTS.md checkbox. Integration check caught it mid-audit — required a small mid-audit fix commit. Future: bake "update REQUIREMENTS.md checkbox + traceability row" into the executor's standard SUMMARY workflow, not just the plan's `<output>` block.
+- **REQUIREMENTS.md drift went undetected until planning time.** The TD-02/TD-03 test-name paraphrase ("password_too_short" / "password_diversity" instead of the actual "emits_user_register_audit" / "disabled_does_not_emit_audit") slipped through both the audit narrative AND the milestone-init review. Pattern: requirement descriptions written in narrative form drift from the actual test artifact names. Mitigation candidate: requirements should reference exact pytest nodeIDs when pinning tests.
+
+### Patterns Established
+
+- **Same-line `# broad: <reason>` justification per layering test contract.** Codebase has 138 of 139 existing sites using `# broad:` (preferred). `# noqa: BLE001 <reason>` is the fallback when ruff would object to BLE001. The layering test does a simple substring match on the raw `git grep -E` output — no AST, no regex on the comment, no requirement for a multi-line preceding comment.
+- **Caller-namespace vs defining-module patch target rule.** When patching a function imported via `from x import y`: (1) module-top imports bind the symbol at module load → patch the CALLER namespace; (2) lazy body-level imports rebind per call → patch the DEFINING module. Surfaced via Plan 1082 executor Rule 1 deviation. Future Python mock targets should explicitly cite which case applies.
+- **macOS BSD vs GNU `grep -E` regex portability.** `\s+` in BRE/ERE is GNU-only — Apple Git uses BSD libc which treats `\s` as literal `s`. Always use `[ \t]+` for whitespace matching in portable layering rules. Same trap exists for `\d`, `\w`, etc.
+- **client-fixture transitive monkey-patch resolves cross-loop binding.** `test_tasks_common_phase_brackets.py` had 4 tests that pulled `test_db_session` (which depends on `client`, which monkey-patches `db_module.async_session = test_session_factory`) — only the failing test was a bare bracket caller. Adding `client` as a fixture arg fixed the cross-loop contamination without touching the production code that Plan 1080 had just justified.
+- **AsyncMock with side_effect=DomainException preserves existing handler-mapping semantics.** TD-04 mock raises `IngestionError` to drive the existing `except IngestionError → HTTPException(502)` branch, preserving the test's existing `status_code in (400, 502)` assertion. Returning a canned success dict would have pushed past the exception handler into the success path and broken the test.
+
+### Key Lessons
+
+1. **Hygiene milestones still produce meaningful pattern surfaces.** 8 named TD items + 2 inline review fixes + 3 cross-cutting patterns (broad-except justification shape, patch-target rule, regex portability) = high learning density per LOC changed.
+2. **Audit-driven scoping zero-defects-to-execute when the audit is rigorous.** v1017's audit was machine-readable in frontmatter; v1018 roadmap had zero ambiguity about scope. Future milestone audits should always emit the deferred-items list in YAML frontmatter for the next milestone's REQUIREMENTS.md to consume directly.
+3. **Live MCP smoke is the canonical pre-tag gate for any milestone touching the backend.** v1018 was backend-only (test + 1 production-code branch) but live MCP caught the `/maps/new` console-noise pattern that was invisible to headless e2e. Worth the 10-minute orchestrator-driven cost even on hygiene milestones.
+4. **REQUIREMENTS.md should reference exact test nodeIDs, not paraphrased descriptions.** v1018's TD-02/TD-03 drift cost a planner cycle to detect and document. Future test-pinning requirements should use the literal `path::TestClass::test_name` form.
+
+### Cost Observations
+
+- Model mix: ~30% opus (planning), ~70% sonnet (execution + review + verification)
+- Sessions: 1 (start-to-archive in single autonomous run via `/gsd-autonomous --from 1080`)
+- Notable: Zero v1018.1 carry-forward — all 2 code-review warnings fixed inline, 0 deferrals to v1019. Hygiene milestones can close cleanly when the deferred-items list is well-scoped and tested.
+
+---
+
 ## Milestone: v1011.1 — Builder Hygiene Carryover
 
 **Shipped:** 2026-05-18
