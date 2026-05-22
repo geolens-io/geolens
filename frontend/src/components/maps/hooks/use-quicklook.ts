@@ -55,7 +55,7 @@ function useQuicklookQuery(datasetId: string, size: number): UseQuicklookResult 
   } = useQuery({
     queryKey: ['quicklook', datasetId, size],
     queryFn: async () => {
-      const blob = await apiFetchBlob(`/api/datasets/${datasetId}/quicklook?size=${size}`);
+      const blob = await apiFetchBlob(`/datasets/${datasetId}/quicklook?size=${size}`);
       return URL.createObjectURL(blob);
     },
     enabled: true,

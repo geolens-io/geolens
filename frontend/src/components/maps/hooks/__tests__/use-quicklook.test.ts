@@ -186,7 +186,7 @@ describe('useQuicklook', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
 
     expect(mockApiFetchBlob).toHaveBeenCalledWith(
-      `/api/datasets/${id}/quicklook?size=256`,
+      `/datasets/${id}/quicklook?size=256`,
     );
   });
 });
