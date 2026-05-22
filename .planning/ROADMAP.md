@@ -111,10 +111,10 @@ Plans:
   1. `.planning/audits/PYTEST-XDIST-SPIKE-v1019.md` is committed and contains: observed Postgres `max_connections`, per-worker concurrent connection count measured during a 16-worker run, identification of which fix shape (pool sizing / `max_connections` bump / cap `-n`) was chosen, and the rationale
   2. `pytest -n auto` (or the capped equivalent if cap was chosen) completes with zero `asyncpg` connection-refused or Postgres recovery-cascade errors; the chosen fix is in place in `backend/tests/conftest.py`, `docker-compose.yml`, or `Makefile` as appropriate
   3. Sequential `uv run pytest backend/` still passes (the fix must not break sequential mode)
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 1085-01-PLAN.md — SPIKE: measure max_connections + per-worker concurrent connection count, decide fix shape, commit PYTEST-XDIST-SPIKE-v1019.md (TD-10)
+- [x] 1085-01-PLAN.md — SPIKE: measure max_connections + per-worker concurrent connection count, decide fix shape, commit PYTEST-XDIST-SPIKE-v1019.md (TD-10)
 - [ ] 1085-02-PLAN.md — IMPLEMENT: apply chosen fix shape (a/b/c) + regression pin + verify pytest -n auto green + sequential baseline preserved (TD-10)
 
 ### Phase 1086: Process Tightening + Close Gate

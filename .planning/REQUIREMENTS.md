@@ -25,7 +25,7 @@ These items are pre-existing — surfaced during v1018 close-gate live Playwrigh
 
 ### Test Infrastructure
 
-- [ ] **TD-10**: Stabilize `pytest -n auto` on 16 xdist workers so the Postgres recovery cascade does not occur. Symptom: when xdist spawns 16 workers, the asyncpg connection pool fan-out can exceed Postgres `max_connections`, triggering a recovery cycle that cascades across worker test-DBs. Fix is spike-first per evidence: Plan 1085-01 measures `max_connections` + per-worker concurrent connection count in a 16-worker run, then Plan 1085-02 implements the chosen fix shape from these three options:
+- [x] **TD-10**: Stabilize `pytest -n auto` on 16 xdist workers so the Postgres recovery cascade does not occur. Symptom: when xdist spawns 16 workers, the asyncpg connection pool fan-out can exceed Postgres `max_connections`, triggering a recovery cycle that cascades across worker test-DBs. Fix is spike-first per evidence: Plan 1085-01 measures `max_connections` + per-worker concurrent connection count in a 16-worker run, then Plan 1085-02 implements the chosen fix shape from these three options:
   - (a) per-worker pool sizing in `backend/tests/conftest.py` — scale asyncpg pool min/max per `PYTEST_XDIST_WORKER`
   - (b) docker-compose / postgres-test container `max_connections` bump
   - (c) Cap `-n` at 4 or 8 in Makefile / CI invocation
@@ -91,7 +91,7 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | TD-09 | Phase 1084 | Pending |
-| TD-10 | Phase 1085 | Pending |
+| TD-10 | Phase 1085 | Complete |
 | TD-11 | Phase 1084 | Pending |
 | TD-12 | Phase 1084 | Pending |
 | TD-13 | Phase 1086 | Pending |
