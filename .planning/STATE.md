@@ -1,27 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1018
-milestone_name: Hygiene — v1017 Tech-Debt Tail
-status: Awaiting next milestone
-stopped_at: Roadmap defined; no phases started
-last_updated: "2026-05-21T23:58:48.779Z"
-last_activity: 2026-05-21 — Milestone v1018 completed and archived
+milestone: v1019
+milestone_name: Hygiene Tail — v1018 Frontend + xdist + Process
+status: planning
+last_updated: "2026-05-22T00:45:01.180Z"
+last_activity: 2026-05-22
 progress:
-  total_phases: 9
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 44
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1018 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-21 — Milestone v1018 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-22 — Milestone v1019 started
 
 ## Project Reference
 

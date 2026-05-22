@@ -12,15 +12,48 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1018 Hygiene — v1017 Tech-Debt Tail
+## Current Milestone: v1019 Hygiene Tail — v1018 Frontend + xdist + Process
 
-**Goal:** Close the 8 tech-debt items deferred from v1017 audit. Restore full-suite pytest signal (no skips, no environmental noise), close one minor production-code defect (`backend/app/core/config.py` SSL handling), and cap the v1017 hygiene tail.
+**Goal:** Close the 4 deferred items from the v1018 audit (frontend TS hygiene, `/maps/new` 422 console-noise, `/api/api/` doubled prefix on quicklook proxy URLs, `pytest -n auto` Postgres recovery cascade), verify TD-07 runtime symmetry via api/worker container rebuild, and tighten REQUIREMENTS authoring + executor SUMMARY drift surfaced during v1018.
 
-**Target items:**
-- 7 Phase 1075 NEW-DISCOVERY pytest failures in files outside the named TI-02 scope — production-code drift (broad-except), v1014 SEC-S16 password policy drift (×2), environmental ogrinfo gap, SSRF gate drift (×2), async loop contamination
-- 1 Phase 1079-03 fix-discovery: `database_connect_args` should set `connect_args["ssl"]=False` when `database_ssl_mode=='disable'` (low priority — production never sets `disable`)
+**Target items (6 TD reqs, 3 phases):**
+- **TD-09** Frontend TS hygiene — resolve 36 pre-existing TS errors in 14 untouched test files
+- **TD-10** `pytest -n auto` Postgres recovery cascade — spike first (measure max_connections + per-worker concurrent connection count), then implement chosen fix (per-worker pool sizing in conftest, PG max_connections tune, or `-n` cap)
+- **TD-11** `/maps/new` 422 console-noise — eliminate 2 spurious 422 calls that fire before the Create dialog short-circuits (v1008 catalog-first empty-state quirk)
+- **TD-12** `/api/api/` doubled prefix on legacy quicklook proxy URLs — restore single-prefix path
+- **TD-13** Process tightening — REQUIREMENTS nodeID pinning + executor SUMMARY traceability flip (both repo retro at `.planning/retros/v1019-process.md` and global skill update at `~/.claude/get-shit-done/`)
+- **TD-14** Runtime symmetry — TD-07 `connect_args["ssl"]=False` live in deployed `api`/`worker` images (close-gate: `docker compose up -d --build api worker` + version probe; bundled into Phase 1086, not a standalone phase)
 
-**Key context:** All 8 are pre-existing — found, not regressions. Per Phase 1075-05 protocol: each failure must be dispositioned with explicit root-cause + fix-shape, no skip-marks. Public tag target `v1.5.3` (patch — hygiene only, no user-facing features, no migrations).
+**Key context:** All items are pre-existing (3 frontend, 1 test-infra, 2 process/runtime) — found, not regressions. xdist fix is spike-first per evidence; TD-13 lands in two places (project retro + global skill). Public tag target `v1.5.4` (patch — hygiene only, no migrations, no user-facing features). Continues phase numbering from v1018 (1080-1083 → 1084-1086).
+
+## Recent Shipped Milestone: v1018 Hygiene — v1017 Tech-Debt Tail
+
+**Shipped:** 2026-05-21
+**Tag:** `v1018` (local) + `v1.5.3` (public) at commit `d1b76061`
+
+**Goal delivered:** Closed the 8 tech-debt items deferred from v1017 audit. Restored full-suite pytest signal (0 InvalidCatalogNameError sequentially; 3025/0/38), closed one minor production-code defect (`database_connect_args["ssl"]=False` on disable branch), and capped the v1017 hygiene tail.
+
+**Delivered (8/8 reqs, 4 phases 1080-1083, 8 plans):**
+
+- **Phase 1080 Production-Code Drift + Config Hygiene** — TD-01 `# broad:` justification at `tasks_common.py:232,238` + bonus line-1030 third broad-except (macOS `git grep -E \s` BSD-vs-GNU portability bug caught and fixed inline at `test_layering.py:1577` — `\s+` → `[ \t]+`); TD-07 `connect_args["ssl"]=False` on disable branch + 3-case unit pin + bonus dead-test repair (`test_verify_full_returns_ssl_context_with_verify` constructed verify-full Settings but asserted on require-mode).
+- **Phase 1081 Test Fixture & Assertion Drift** — TD-02/03 password fixture upgraded (`securepass123` → `TestPass1234!` SEC-S16 fixture); TD-05 `validate_url_for_ssrf` mocked at defining module (lazy from-import); TD-06 `client` fixture arg added to `test_job_phase_session_none_branch_rolls_back_on_exception` — transitively monkey-patches `db_module.async_session`, eliminating asyncpg cross-loop pool contamination.
+- **Phase 1082 Test Environmental** — TD-04 `run_service_preview` AsyncMock caller-namespace patch (module-top from-import → caller) drives existing 502 branch, preserves IDOR assertion, removes ogrinfo CLI host dependency.
+- **Phase 1083 Close Gate** — TD-08 CHANGELOG `[1.5.3] - 2026-05-21`; backend pytest 3025/0/38 sequential (539s); frontend `tsc -b` exit 0 on touched files + vitest 2105/2105; e2e:smoke:builder 25/1 (matches v1017 baseline); live Playwright MCP smoke 5/5 surfaces PASS on `localhost:8080` (0 console errors aggregated, 0 failed network requests).
+
+**Audit verdict:** PASSED — 8/8 reqs · 4/4 phases · 8/8 cross-phase integration · 5/5 live MCP smoke surfaces. See `.planning/milestones/v1018-MILESTONE-AUDIT.md`.
+
+**Patterns established (3 new):**
+- `# broad:` same-line justification per `test_layering.py` substring-match contract (Phase 1080).
+- Caller-namespace vs defining-module mock-patch target rule: module-top from-import → caller namespace; lazy body-level from-import → defining module (Phase 1082).
+- macOS BSD vs GNU `grep -E` `\s` portability — always use `[ \t]+` (Phase 1080 WR-01).
+
+**Tech-debt followups for v1019 (4 items, all logged in REQUIREMENTS.md Future Requirements):**
+- 36 pre-existing TS errors in 14 untouched frontend test files (frontend hygiene)
+- `pytest -n auto` Postgres recovery cascade on 16 xdist workers (test-infra)
+- `/maps/new` 422 console-noise — 2 spurious 422s before Create dialog short-circuits (v1008 quirk)
+- Doubled `/api/api/` prefix on legacy quicklook proxy URLs (cosmetic; all return 200 OK)
+
+**Milestone close:** 8/8 reqs satisfied; zero v1019 deferrals from audit; tag `v1018` + `v1.5.3` at commit `d1b76061`. See `.planning/milestones/v1018-ROADMAP.md` for full archive.
 
 ## Recent Shipped Milestone: v1017 Test Infra & Audit Tail
 
@@ -980,13 +1013,13 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-v1018 Hygiene — v1017 Tech-Debt Tail (8 items):
-- TD-1: `test_layering.py::test_no_unjustified_broad_except_sites` — production-code drift in `tasks_common.py:231,237`
-- TD-2/TD-3: `test_phase_279_user_lifecycle.py` — `test_register_password_too_short` + `test_register_password_diversity` (v1014 SEC-S16 password policy drift)
-- TD-4: `test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` — environmental (`ogrinfo` CLI missing on host PATH)
-- TD-5/TD-6: `test_reupload_service.py` — `test_reupload_service_preserves_identity_and_increments_version` + `test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` (SSRF gate drift)
-- TD-7: `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` — async loop contamination, full-suite-only
-- TD-8: `backend/app/core/config.py:database_connect_args` should set `connect_args["ssl"]=False` when `database_ssl_mode=='disable'` (low priority; production never sets `disable`)
+v1019 Hygiene Tail — v1018 Frontend + xdist + Process (6 items):
+- **TD-09** Frontend TS hygiene — 36 pre-existing TS errors in 14 untouched test files; `tsc -b` exit 0 with zero suppression
+- **TD-10** `pytest -n auto` Postgres recovery cascade — spike first (Plan 1085-01: measure max_connections + per-worker concurrent connection count), then implement chosen fix (Plan 1085-02)
+- **TD-11** `/maps/new` 422 console-noise — 2 spurious 422 calls eliminated before Create dialog short-circuits (v1008 catalog-first empty-state quirk surfaced during v1018 MCP smoke)
+- **TD-12** `/api/api/` doubled prefix on legacy quicklook proxy URLs — restore single-prefix path
+- **TD-13** Process tightening — REQUIREMENTS nodeID pinning (path::TestClass::test_name instead of paraphrased descriptions) + executor SUMMARY traceability flip (auto-update REQUIREMENTS.md `[ ]` → `[x]` and Pending → Complete on plan close); repo retro at `.planning/retros/v1019-process.md` + global skill update at `~/.claude/get-shit-done/`
+- **TD-14** Runtime symmetry — TD-07 `connect_args["ssl"]=False` live in deployed `api`/`worker` images (close-gate: `docker compose up -d --build api worker` + version probe; bundled into Phase 1086 close-gate, not a standalone phase)
 
 ### Out of Scope
 
@@ -1258,4 +1291,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-21 — opened milestone v1018 Hygiene — v1017 Tech-Debt Tail. Scope: 8 deferred items (7 Phase 1075 NEW-DISCOVERY pytest failures + 1 Phase 1079-03 fix-discovery `database_connect_args` SSL handling). Target public tag `v1.5.3` (patch; hygiene only, no migrations, no user-facing features). Previous: v1017 Test Infra & Audit Tail (13 reqs across phases 1075-1079, tag v1017 + v1.5.2 at c968392b). Archive: .planning/milestones/v1017-ROADMAP.md.*
+*Last updated: 2026-05-21 — opened milestone v1019 Hygiene Tail — v1018 Frontend + xdist + Process. Scope: 6 deferred items (4 from v1018 audit `tech_debt` + TD-07 runtime symmetry + REQUIREMENTS/executor process tightening). Target public tag `v1.5.4` (patch; hygiene only, no migrations, no user-facing features). Previous: v1018 Hygiene — v1017 Tech-Debt Tail (8 reqs across phases 1080-1083, tag v1018 + v1.5.3 at d1b76061, 0 v1019 deferrals from audit). Archive: .planning/milestones/v1018-ROADMAP.md.*
