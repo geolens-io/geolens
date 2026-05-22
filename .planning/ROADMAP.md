@@ -104,7 +104,8 @@
   3. Each failing node-ID is tagged with exactly one root-cause category; the four hypotheses from the v1019 audit (Redis singleton state, storage provider override, `app.dependency_overrides` leak, autouse-fixture coupling) are each present as named categories — additional categories permitted if measurement reveals them.
   4. The audit doc includes a reproducibility section mirroring `PYTEST-XDIST-SPIKE-v1019.md` Section 1 — exact commands a fresh operator runs to reproduce the measurement.
   5. The audit doc recommends a fix sequencing for Phase 1088 (which category goes first, with rationale — typically highest-impact category by failure count).
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 1087-01-PLAN.md — Spike measurement + categorization + audit doc commit (`PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`) + Phase SUMMARY + TD-13 traceability flip
 
 ### Phase 1088: Fixture-Isolation Fixes + Regression Pins
 **Goal**: Developer running `cd backend && uv run pytest -n auto tests/` sees 0 fixture-scope failures from the cascade categories defined in FI-01, and the regression tests added in this phase reproduce the original failure when reverted.
