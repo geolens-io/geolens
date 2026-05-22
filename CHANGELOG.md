@@ -11,6 +11,83 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-05-22
+
+### Frontend hygiene (v1019 milestone — Phase 1084)
+
+- **TD-09:** Resolved 37 pre-existing TypeScript errors across 15 frontend test files;
+  `cd frontend && npm run typecheck` now exits 0 with zero `@ts-expect-error` / `@ts-ignore`
+  suppressions added. Fix patterns used: non-null assertion `result!` after
+  `expect().not.toBeNull()` for `SharedMapResponse | null` narrowing; added missing
+  `ramp: 'YlOrRd'` to 7 `StyleConfig` literals; cast `mock.calls` to typed tuples at
+  source; removed unused imports and declarations; replaced `is_approved` fixture field
+  (not in `UserResponse`) with `status`/`last_login_at`. Also added the missing
+  `"typecheck": "tsc -b --noEmit"` script to `frontend/package.json`. (commits `c828def8`,
+  `6127d2e9`, `821707df`)
+- **TD-11:** Added `<Route path="maps/new" element={<Navigate to="/maps" replace />} />`
+  to `frontend/src/App.tsx` immediately before the dynamic `<Route path="maps/:id">` —
+  static-segment precedence in React Router v7 intercepts the reserved path before
+  `MapViewerGate` mounts. Eliminates the 2 spurious `GET /api/maps/new` 422 responses
+  previously fired before the Create dialog short-circuited. `Navigate` was already
+  imported; no new imports needed; `replace` flag prevents back-button loop.
+  (commit `f1a40347`)
+- **TD-12:** Dropped the leading `/api` from the `apiFetchBlob` path in
+  `frontend/src/components/maps/hooks/use-quicklook.ts:58` — `use-quicklook` was the sole
+  outlier passing `/api/datasets/...` to `apiFetchBlob`, which itself prepends `API_BASE =
+  '/api'`, producing double-prefix `/api/api/datasets/...` URLs. Fix at source (hook, not
+  nginx or client base); all other `apiFetch`/`apiFetchBlob` callers already omit the
+  `/api` prefix. TDD order followed (red → green). (commit `27da412c`)
+
+### Test infrastructure (Phase 1085)
+
+- **TD-10:** Stabilized `pytest -n auto` on 16 xdist workers; asyncpg cascade eliminated.
+  Spike doc at `.planning/audits/PYTEST-XDIST-SPIKE-v1019.md` measured `max_connections=30`,
+  16 workers, 628 `TooManyConnectionsError` + 1824 `CannotConnectNowError` = 2453 cascade
+  errors before fix. Chosen fix shape (a): `NullPool` for xdist async engines in
+  `backend/tests/conftest.py` (zero idle connections per worker post-setup) + 5-second
+  per-worker startup stagger (`_SETUP_STAGGER_SECONDS=5.0`) to serialize the 22-migration
+  Alembic setup phases. After fix: 0 cascade errors under `-n auto`; sequential baseline
+  preserved at 3032/0/38 (v1018 baseline: 3025/0/38). 7 regression tests in
+  `backend/tests/test_conftest_pool_sizing.py` pin the fix against future conftest refactors.
+  (commits `af902329` spike, `1aaf81c5` + `9c9daf61` fix)
+
+  Known limitation: 192 pre-existing fixture-scope failures exposed by `pytest -n auto`
+  parallelism (not asyncpg cascade — that is closed); deferred to v1020 as a
+  fixture-isolation hygiene task.
+
+### Process tightening (Phase 1086)
+
+- **TD-13:** Committed `.planning/retros/v1019-process.md` covering the three v1018
+  documentation-drift incidents: TD-02/03 paraphrased test names (`test_register_password_too_short`
+  / `test_register_password_diversity` cited in REQ but actual symbols are
+  `test_register_emits_user_register_audit` / `test_register_disabled_does_not_emit_audit`),
+  `tasks_common.py` path+line drift (cited `backend/app/platform/jobs/` but actual
+  `backend/app/processing/ingest/`; cited lines 231/237 but actual 232/238), and Plan
+  1081-02 SUMMARY checkbox-flip miss (TD-05 closed in code but `[ ]` left in
+  REQUIREMENTS.md; caught by integration checker mid-audit, fixed as commit `5bf63166`).
+  Additively extended three global GSD skill files: `agents/gsd-planner.md` (new
+  `<req_citation_pinning>` section: test citations use `path::TestClass::test_name`
+  validated against `git grep` before commit), `agents/gsd-executor.md` (new
+  `<requirements_traceability_flip>` section: checkbox + traceability row flip in same
+  SUMMARY commit), and `templates/requirements.md` (new "Code-Pinned Examples" subsection
+  with AUTH-05/AUTH-06 node-ID examples). (commit `f7a17538`)
+
+### Runtime symmetry (Phase 1086)
+
+- **TD-14:** Rebuilt `api` + `worker` container images via
+  `docker compose up -d --build api worker` and probed the running runtime via
+  `docker exec geolens-api-1 grep -n 'ssl.*=.*False' app/core/config.py` — confirmed
+  line 309 (`connect_args["ssl"] = False`) is live in both containers (api and worker,
+  exit 0). Source-runtime gap from v1018 audit (8-hour drift between Phase 1080-02
+  commit and the running stack at audit time) is closed. Probe artifact at
+  `.planning/phases/1086-process-tightening-close-gate/1086-02-CLOSE-GATE.md`. (no
+  code commit; verification-only)
+
+### Internal
+
+- 3 phases (1084-1086), 6 requirements (TD-09..TD-14) closed.
+- Tag: `v1019` (local) + `v1.5.4` (public).
+
 ## [1.5.3] - 2026-05-21
 
 ### Production-code drift + config hygiene (v1018 milestone — Phase 1080)
