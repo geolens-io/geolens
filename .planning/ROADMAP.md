@@ -96,7 +96,12 @@
   1. `cd frontend && npm run typecheck` exits 0; the 36 pre-existing TS errors across the 14 test files identified in the v1018 Phase 1083 baseline are resolved with no `@ts-expect-error` or `@ts-ignore` suppressions added
   2. A Playwright MCP smoke session visiting `/maps/new` records zero spurious 422 responses in the network log — the Create dialog short-circuit fires before any mutation hooks reach the backend
   3. A Playwright MCP smoke session records zero `/api/api/` URL patterns in the network log — the quicklook proxy double-prefix is eliminated at source (`frontend/src/api/` client or route definition, not via nginx patch)
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 1084-01-PLAN.md — TS error cleanup: resolve 37 errors across 15 untouched test files, add npm typecheck script (TD-09)
+- [ ] 1084-02-PLAN.md — /maps/new 422 fix: route-level redirect (Option A) or in-component guard (Option B) (TD-11)
+- [ ] 1084-03-PLAN.md — /api/api/ doubled-prefix fix: drop leading /api from useQuicklook (TD-12)
 
 ### Phase 1085: pytest -n auto Stabilization
 **Goal:** `pytest -n auto` completes a 16-worker xdist run against the backend test suite without triggering a Postgres recovery cascade; the chosen fix is evidence-driven from a committed spike doc
