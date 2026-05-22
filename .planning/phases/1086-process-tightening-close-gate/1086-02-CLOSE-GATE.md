@@ -46,15 +46,23 @@ PASSED — the v1018 Phase 1080-02 `ssl=False` line is present in both the api a
 
 ### Sequential pytest
 
-- Command: `uv run pytest backend/`
-- Result: (pending Task 3)
-- Verdict: (pending Task 3)
-- vs v1018 baseline (3025/0/38): (pending Task 3)
-- vs v1085 new baseline (3032/0/38): (pending Task 3)
+- Command: `cd backend && env $(grep -v '^#' ../.env.test | grep -v '^$' | xargs) uv run pytest -p no:cacheprovider`
+- Result: **3036 passed, 0 failed, 38 skipped** in 532.51s (8 min 52s)
+- Verdict: **PASSED** (failed == 0 AND passed >= 3025)
+- vs v1018 baseline (3025/0/38): +11 passed, same skipped — sequential mode unaffected by Phase 1085 xdist changes
+- vs v1085 new baseline (3032/0/38): +4 passed — Phase 1084 added new test coverage
+
+Note: pytest must be run from `backend/` with `.env.test` env vars loaded. Running from repo root without env vars produces `alembic.util.exc.CommandError: No 'script_location' key found` errors — not a failure, just a cwd/env requirement.
 
 ### Frontend e2e:smoke:builder
 
-- Command: `cd frontend && npm run e2e:smoke:builder`
-- Result: (pending Task 3)
-- Verdict: (pending Task 3)
-- vs v1017/v1018 baseline (25-26/0/1): (pending Task 3)
+- Command: `npm run e2e:smoke:builder` (from repo root, targets root `package.json`)
+- Result: **25 passed, 0 failed, 1 skipped** in 1.5 min
+- Verdict: **PASSED** (exit 0)
+- vs v1017/v1018 baseline (25-26/0/1): matches exactly (25 passed / 1 skipped)
+
+### Frontend typecheck (TD-09 close-gate spot-check)
+
+- Command: `cd frontend && npm run typecheck`
+- Result: exit 0 (tsc -b --noEmit produces no errors)
+- Verdict: **PASSED** — TD-09 regression check clear; 0 TypeScript errors
