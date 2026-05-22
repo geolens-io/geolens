@@ -78,15 +78,15 @@
 - ✅ **v1016 Hardening Sweep** — Phases 1071-1074 (shipped 2026-05-21, local tag v1016, public tag v1.5.1) — see [archive](milestones/v1016-ROADMAP.md)
 - ✅ **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (shipped 2026-05-21, local tag `v1017`, public tag `v1.5.2`)
 - ✅ **v1018 Hygiene — v1017 Tech-Debt Tail** — Phases 1080-1083 (shipped 2026-05-21, local tag `v1018`, public tag `v1.5.3`) — see [archive](milestones/v1018-ROADMAP.md)
-- 🚧 **v1019 Hygiene Tail — v1018 Frontend + xdist + Process** — Phases 1084-1086 (in progress, target public tag `v1.5.4`) — see [archive](milestones/v1019-ROADMAP.md)
+- ✅ **v1019 Hygiene Tail — v1018 Frontend + xdist + Process** — Phases 1084-1086 (shipped 2026-05-22, local tag `v1019`, public tag `v1.5.4`) — see [archive](milestones/v1019-ROADMAP.md)
 
 ## Phases
 
 ### v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Active)
 
-- [ ] **Phase 1084: Frontend Hygiene Tail** — Eliminate the 36 pre-existing TypeScript errors and two console-noise patterns (/maps/new 422s, /api/api/ double-prefix) surfaced at v1018 close-gate
+- [x] **Phase 1084: Frontend Hygiene Tail** — Eliminate the 36 pre-existing TypeScript errors and two console-noise patterns (/maps/new 422s, /api/api/ double-prefix) surfaced at v1018 close-gate (completed 2026-05-22)
 - [x] **Phase 1085: pytest -n auto Stabilization** — Spike then fix the xdist 16-worker Postgres connection-pool cascade so parallel test runs are clean (completed 2026-05-22)
-- [ ] **Phase 1086: Process Tightening + Close Gate** — Write process retro + global skill update, verify TD-07 runtime symmetry, run full close-gate, cut tags
+- [x] **Phase 1086: Process Tightening + Close Gate** — Write process retro + global skill update, verify TD-07 runtime symmetry, run full close-gate, cut tags (completed 2026-05-22)
 
 ### Phase 1084: Frontend Hygiene Tail
 **Goal:** The frontend build is clean: zero TypeScript errors and zero spurious console noise on the two documented surfaces

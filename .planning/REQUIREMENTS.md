@@ -17,11 +17,11 @@ Each requirement maps to exactly one phase. Plan-level node-IDs / file paths are
 
 These items are pre-existing — surfaced during v1018 close-gate live Playwright MCP smoke but explicitly deferred per user decision. Each lands as a small, localized fix.
 
-- [ ] **TD-09**: Resolve the 36 pre-existing TypeScript errors across 14 untouched frontend test files. Scope is `tsc -b` exit 0 with zero `// @ts-expect-error` / `// @ts-ignore` suppressions added during the fix. Files in scope are the 14 surfaced by v1018 Phase 1083 baseline (`frontend/src/**/*.test.{ts,tsx}` set with errors at v1018 audit). Pin behaviour by running `cd frontend && npm run typecheck` and confirming exit 0 against the full project (not just touched files, which was the v1018 baseline gate). Track delta between v1017 baseline (36 errors / 14 files) and v1019 close (0 errors / 0 files) in CHANGELOG.
+- [x] **TD-09**: Resolve the 36 pre-existing TypeScript errors across 14 untouched frontend test files. Scope is `tsc -b` exit 0 with zero `// @ts-expect-error` / `// @ts-ignore` suppressions added during the fix. Files in scope are the 14 surfaced by v1018 Phase 1083 baseline (`frontend/src/**/*.test.{ts,tsx}` set with errors at v1018 audit). Pin behaviour by running `cd frontend && npm run typecheck` and confirming exit 0 against the full project (not just touched files, which was the v1018 baseline gate). Track delta between v1017 baseline (36 errors / 14 files) and v1019 close (0 errors / 0 files) in CHANGELOG.
 
-- [ ] **TD-11**: Eliminate the `/maps/new` 422 console-noise pattern — the page fires 2 spurious 422 requests before the Create dialog short-circuits and renders. Root cause is the v1008 catalog-first empty-state quirk (page mounts, mutation hooks fire against the not-yet-created map, then the Create dialog short-circuit takes over). Fix by gating the network calls behind the dialog-resolution state OR by routing `/maps/new` directly to the Create dialog without mounting the live editor surface. Pin behaviour by visiting `/maps/new` in a Playwright MCP smoke session and asserting zero 422 console entries in the network log.
+- [x] **TD-11**: Eliminate the `/maps/new` 422 console-noise pattern — the page fires 2 spurious 422 requests before the Create dialog short-circuits and renders. Root cause is the v1008 catalog-first empty-state quirk (page mounts, mutation hooks fire against the not-yet-created map, then the Create dialog short-circuit takes over). Fix by gating the network calls behind the dialog-resolution state OR by routing `/maps/new` directly to the Create dialog without mounting the live editor surface. Pin behaviour by visiting `/maps/new` in a Playwright MCP smoke session and asserting zero 422 console entries in the network log.
 
-- [ ] **TD-12**: Restore single-prefix URL path on legacy quicklook proxy endpoints — currently `/api/api/<…>` is generated for quicklook resources due to double-prefix concatenation (one prefix in the proxy base URL, one in the route definition). All current responses return 200 OK (cosmetic only), but the doubled prefix bypasses any future per-prefix auth / rate-limit middleware. Fix at the source: identify whether the duplication lives in the frontend client (`frontend/src/api/`) or the nginx/route-table side. Pin behaviour by grepping the frontend network log during a Playwright MCP smoke session and asserting zero `/api/api/` patterns.
+- [x] **TD-12**: Restore single-prefix URL path on legacy quicklook proxy endpoints — currently `/api/api/<…>` is generated for quicklook resources due to double-prefix concatenation (one prefix in the proxy base URL, one in the route definition). All current responses return 200 OK (cosmetic only), but the doubled prefix bypasses any future per-prefix auth / rate-limit middleware. Fix at the source: identify whether the duplication lives in the frontend client (`frontend/src/api/`) or the nginx/route-table side. Pin behaviour by grepping the frontend network log during a Playwright MCP smoke session and asserting zero `/api/api/` patterns.
 
 ### Test Infrastructure
 
@@ -90,10 +90,10 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TD-09 | Phase 1084 | Pending |
+| TD-09 | Phase 1084 / Plan 1084-01 | Complete |
 | TD-10 | Phase 1085 | Complete |
-| TD-11 | Phase 1084 | Pending |
-| TD-12 | Phase 1084 | Pending |
+| TD-11 | Phase 1084 / Plan 1084-02 | Complete |
+| TD-12 | Phase 1084 / Plan 1084-03 | Complete |
 | TD-13 | Phase 1086 / Plan 1086-01 | Complete |
 | TD-14 | Phase 1086 / Plan 1086-02 | Complete |
 
