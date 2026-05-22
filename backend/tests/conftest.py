@@ -48,6 +48,32 @@ def _derive_test_pool_sizing() -> tuple[int, int]:
     return (1, 0)
 
 
+def _make_test_async_engine(test_database_url: str):
+    """Create the async test engine for this worker.
+
+    xdist workers (PYTEST_XDIST_WORKER != 'master') use NullPool — no idle
+    connections persist between tests, keeping concurrent connection count within
+    max_connections=30 when 16 workers run simultaneously.
+
+    Sequential mode uses the historical (5, 2) QueuePool so request handlers that
+    need multiple concurrent DB connections within a single test still work.
+
+    This helper is extracted for direct testability (see test_conftest_pool_sizing.py
+    test_xdist_engine_uses_nullpool / test_sequential_engine_uses_queuepool).
+    """
+    is_xdist = os.environ.get("PYTEST_XDIST_WORKER", "master") != "master"
+    if is_xdist:
+        return create_async_engine(test_database_url, poolclass=NullPool, echo=False)
+    pool_size, max_overflow = _derive_test_pool_sizing()
+    return create_async_engine(
+        test_database_url,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_timeout=30,
+        echo=False,
+    )
+
+
 # Per-worker setup stagger — spreads the startup connection spike across time.
 #
 # Root-cause: when N workers run _test_db_lifecycle simultaneously, each opens
@@ -451,26 +477,9 @@ async def client(tmp_path):
     # Sequential mode (worker_id=master) keeps the historical (5, 2) QueuePool
     # for request handlers that need concurrent DB conns within a single test.
     # See .planning/audits/PYTEST-XDIST-SPIKE-v1019.md for measured numbers + rationale.
-    # NOTE: _pool_size/_max_overflow are computed for regression-test contract but
-    # not used here in xdist mode; NullPool replaces the pool entirely.
-    # See test_conftest_pool_sizing.py — the sentinel (1, 0) keeps budget arithmetic
-    # valid as a guard against future loosening of the xdist pool constraint.
-    _pool_size, _max_overflow = _derive_test_pool_sizing()
-    _is_xdist = os.environ.get("PYTEST_XDIST_WORKER", "master") != "master"
-    if _is_xdist:
-        test_engine = create_async_engine(
-            settings.test_database_url,
-            poolclass=NullPool,
-            echo=False,
-        )
-    else:
-        test_engine = create_async_engine(
-            settings.test_database_url,
-            pool_size=_pool_size,
-            max_overflow=_max_overflow,
-            pool_timeout=30,
-            echo=False,
-        )
+    # Engine-creation logic is extracted to _make_test_async_engine() so the
+    # NullPool-vs-QueuePool branch is directly testable (see test_conftest_pool_sizing.py).
+    test_engine = _make_test_async_engine(settings.test_database_url)
     test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
 
     # Patch the database module so lifespan seed functions use our engine

@@ -28,6 +28,7 @@ from tests.conftest import (
     _SETUP_STAGGER_SECONDS,
     _derive_test_pool_sizing,
     _get_setup_stagger_delay,
+    _make_test_async_engine,
 )
 
 # max_connections from db/postgresql.conf:11 (PERF-05 / Phase 274).
@@ -233,3 +234,56 @@ def test_setup_stagger_delay_for_non_gw_worker_id_returns_zero_no_warning(monkey
         assert len(caught) == 0, (
             f"Non-gw ID '{expected_id}' should not emit a warning (got {len(caught)})."
         )
+
+
+# ---------------------------------------------------------------------------
+# CR-02: NullPool branch coverage — verifies _make_test_async_engine()
+# actually uses NullPool under xdist (not just that the sentinel returns (1,0))
+# ---------------------------------------------------------------------------
+
+
+def test_xdist_engine_uses_nullpool(monkeypatch):
+    """_make_test_async_engine() must create a NullPool engine for xdist workers.
+
+    This is the critical regression guard that was missing from the original
+    7-test suite. The previous tests only verified _derive_test_pool_sizing()
+    returns the (1, 0) sentinel — but the client fixture could silently ignore
+    NullPool (e.g. if someone inverted the _is_xdist branch) and all 7 tests
+    would still pass. This test pins the actual engine class.
+
+    Uses a fake URL because no live DB is needed to construct the engine object.
+    The pool class is resolved at engine creation time, not connection time.
+    """
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    engine = _make_test_async_engine("postgresql+asyncpg://testuser:testpass@localhost/testdb")
+    try:
+        pool_class_name = type(engine.pool).__name__
+        assert pool_class_name == "NullPool", (
+            f"xdist engine must use NullPool; got {pool_class_name}. "
+            "Check the _is_xdist branch in _make_test_async_engine() — "
+            "reverting to QueuePool will cause connection fan-out under 16 workers."
+        )
+    finally:
+        import asyncio
+        asyncio.run(engine.dispose())
+
+
+def test_sequential_engine_uses_queuepool(monkeypatch):
+    """_make_test_async_engine() must create a non-NullPool engine for sequential mode.
+
+    Sequential mode (PYTEST_XDIST_WORKER unset or 'master') uses the historical
+    (5, 2) QueuePool so request handlers that need multiple concurrent DB connections
+    within a single test still work (e.g. reupload, IDOR tests).
+    """
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    engine = _make_test_async_engine("postgresql+asyncpg://testuser:testpass@localhost/testdb")
+    try:
+        pool_class_name = type(engine.pool).__name__
+        assert pool_class_name != "NullPool", (
+            f"Sequential engine must NOT use NullPool; got {pool_class_name}. "
+            "Sequential mode needs QueuePool so multi-conn tests can open >1 "
+            "concurrent connection within a single test."
+        )
+    finally:
+        import asyncio
+        asyncio.run(engine.dispose())
