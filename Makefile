@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration test test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline validate-v13-8
+.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline validate-v13-8
 
 dev:
 	docker compose up --build
@@ -24,7 +24,12 @@ migrate:
 migration:
 	docker compose exec api uv run alembic revision --autogenerate -m "$(msg)"
 
+# Phase 1089 CI-02: defaults to parallel execution per PYTEST-XDIST-PERF-v1020.md Section 5.
+# Use `make test-sequential` to opt into sequential debugging mode.
 test:
+	docker compose exec api uv run pytest -n 4 -v --tb=short
+
+test-sequential:
 	docker compose exec api uv run pytest -v --tb=short
 
 test-cov:

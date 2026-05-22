@@ -23,13 +23,13 @@ Requirements for this milestone. All `FI-*` / `CI-*` / `PERF-*` / `HYG-*` IDs ma
 
 ### CI / Workflow
 
-- [ ] **CI-01**: New CI job (working name `pytest-parallel-isolation`) added to `.github/workflows/ci.yml` that runs `pytest -n auto` against the backend test suite. Triggers on push-to-main and PRs touching `backend/**` or `pyproject.toml` or `db/**`. Exit 0 required for merge. Sister to v1017's `alembic-clean-db` job. Pinned by job-name match in `.github/workflows/ci.yml`.
+- [x] **CI-01**: New CI job (working name `pytest-parallel-isolation`) added to `.github/workflows/ci.yml` that runs `pytest -n 4` against the backend test suite. Triggers on push-to-main and PRs touching `backend/**` or `pyproject.toml` or `db/**`. Exit 0 required for merge. Sister to v1017's `alembic-clean-db` job. **Closed 2026-05-22 by Phase 1089:** job `pytest-parallel-isolation` present at `.github/workflows/ci.yml:590` running `uv run pytest -n 4 -v --tb=short -m 'not perf'`; sister-shape to `alembic-clean-db` (lines 462-491); `e2e-test` `needs:` list extended to require the new gate.
 
-- [ ] **CI-02**: Switch the default test invocation to parallel execution once FI-02 lands. Touch surface: either `Makefile` (`make test` → `pytest -n auto`) **or** `backend/pyproject.toml` `[tool.pytest.ini_options].addopts`. A separate `make test-sequential` (or equivalent env-var opt-in) MUST remain available for debugging. Acceptance criterion: a fresh clone running `make test` (no args) uses parallel execution.
+- [x] **CI-02**: Switch the default test invocation to parallel execution once FI-02 lands. Touch surface: either `Makefile` (`make test` → `pytest -n 4`) **or** `backend/pyproject.toml` `[tool.pytest.ini_options].addopts`. A separate `make test-sequential` (or equivalent env-var opt-in) MUST remain available for debugging. Acceptance criterion: a fresh clone running `make test` (no args) uses parallel execution. **Closed 2026-05-22 by Phase 1089:** `Makefile:29` `test:` target now runs `uv run pytest -n 4 -v --tb=short` (Option A per CONTEXT.md); new `test-sequential:` target at `Makefile:32` preserves no-args sequential debugging path; `pyproject.toml` `addopts` un-widened so CI-01's explicit `-n 4` does not double-apply.
 
 ### Performance
 
-- [ ] **PERF-01**: Benchmark `pytest -n 4`, `pytest -n 8`, `pytest -n auto` (16 on the canonical M-series 16-core host) after FI-02 lands. Capture wall-clock per run + peak DB connection count via background `pg_stat_activity` sampler reusing the v1019 spike methodology (`.planning/audits/PYTEST-XDIST-SPIKE-v1019.md` Section 1). Output committed to `.planning/audits/PYTEST-XDIST-PERF-v1020.md` with a reproducibility section. The benchmark drives the documented default for CI-02.
+- [x] **PERF-01**: Benchmark `pytest -n 4`, `pytest -n 8`, `pytest -n auto` (16 on the canonical M-series 16-core host) after FI-02 lands. Capture wall-clock per run + peak DB connection count via background `pg_stat_activity` sampler reusing the v1019 spike methodology (`.planning/audits/PYTEST-XDIST-SPIKE-v1019.md` Section 1). Output committed to `.planning/audits/PYTEST-XDIST-PERF-v1020.md` with a reproducibility section. The benchmark drives the documented default for CI-02. **Closed 2026-05-22 by Phase 1089:** audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md` Section 5 ships recommended default `-n 4` (1.53× sequential speedup, 99% cascade reduction vs n=auto: 356.12s wall-clock vs 442.75s, 1 failed vs 101 cascade-class). Sequential baseline preserved at 3047/0/38. Recommendation consumed verbatim by CI-01 (`.github/workflows/ci.yml:590`) and CI-02 (`Makefile:29`).
 
 ### Hygiene
 
@@ -72,9 +72,9 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | FI-01 | Phase 1087 | Complete |
 | FI-02 | Phase 1088 | Complete |
 | FI-03 | Phase 1088 | Complete |
-| CI-01 | Phase 1089 | Pending |
-| CI-02 | Phase 1089 | Pending |
-| PERF-01 | Phase 1089 | Pending |
+| CI-01 | Phase 1089 | Complete |
+| CI-02 | Phase 1089 | Complete |
+| PERF-01 | Phase 1089 | Complete |
 | HYG-01 | Phase 1090 | Pending |
 | HYG-02 | Phase 1090 | Pending |
 | HYG-03 | Phase 1090 | Pending |

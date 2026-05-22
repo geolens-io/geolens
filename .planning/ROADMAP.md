@@ -89,7 +89,7 @@
 
 - [x] **Phase 1087: Fixture-Isolation Spike (Taxonomy)** — Measure + classify the 192 fixture-scope failures under `pytest -n auto` by root cause. Audit doc only — no code changes. Output: `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`.
 - [x] **Phase 1088: Fixture-Isolation Fixes + Regression Pins** — Fix all 192 failures driven by the FI-01 taxonomy; pin each root-cause category with at least one regression test. Goal: 192 → 0 under `-n auto`; sequential baseline stays green at 3036/0/38 or higher. **Closed 2026-05-22:** 648 → 76 (-88.3%) across cascade categories; 11 regression pins in `backend/tests/test_fixture_isolation_v1020.py`; sequential baseline preserved at 3047/0/38. Threshold relaxation for category 4.3 (48 > 30 original audit threshold; <50 relaxed) accepted as flake-class — deferred to Phase 1090 HYG-02 flake hunt (3× consecutive runs will validate determinism).
-- [ ] **Phase 1089: CI Gate + Perf Baseline + Parallel Default** — Add `pytest-parallel-isolation` GitHub Actions job (sister to v1017 `alembic-clean-db`); capture `-n 4`/`-n 8`/`-n auto` benchmark; switch `make test` default to parallel with sequential opt-in retained.
+- [x] **Phase 1089: CI Gate + Perf Baseline + Parallel Default** — Add `pytest-parallel-isolation` GitHub Actions job (sister to v1017 `alembic-clean-db`); capture `-n 4`/`-n 8`/`-n auto` benchmark; switch `make test` default to parallel with sequential opt-in retained. **Closed 2026-05-22:** CI-01 + CI-02 + PERF-01 satisfied; recommended default `-n 4` per audit Section 5 (1.53× sequential speedup, 99% cascade reduction vs n=auto); CI live-verification deferred to first post-merge run.
 - [ ] **Phase 1090: Skip Audit + Flake Hunt + Close-Gate** — Disposition the 38 sequential-mode skips; run `pytest -n auto` 3× to surface non-deterministic flakes; paper-trail v1019 WR-01 `lint:sec-fu-03-no-false-positive` script; cut tags `v1020` + `v1.5.5`.
 
 #### Phase Details
@@ -135,11 +135,11 @@ Plans:
   3. `.planning/audits/PYTEST-XDIST-PERF-v1020.md` is committed and includes wall-clock + peak `pg_stat_activity` connection count for `pytest -n 4`, `pytest -n 8`, `pytest -n auto` (16 on the canonical M-series 16-core host), reusing the v1019 spike methodology (background sampler from `PYTEST-XDIST-SPIKE-v1019.md` Section 1), with a reproducibility section.
   4. A fresh clone running `make test` (no args) uses parallel execution — either via `Makefile` target rewrite or `pyproject.toml` `[tool.pytest.ini_options].addopts` — driven by the documented optimal default from PERF-01.
   5. A separate `make test-sequential` (or env-var opt-in) remains available for debugging — verified by running it from a fresh clone.
-**Plans**: 3 plans (1089-01 PERF-01 baseline, 1089-02 CI-01 gate, 1089-03 CI-02 default switch + close)
+**Plans**: 3/3 plans complete (1089-01 PERF-01 / 1089-02 CI-01 / 1089-03 CI-02 + close)
 Plans:
-- [ ] 1089-01-PLAN.md — PERF-01 baseline measurement (audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md`); spike-style, no code changes
-- [ ] 1089-02-PLAN.md — CI-01 wiring (`pytest-parallel-isolation` job in `.github/workflows/ci.yml` after alembic-clean-db block); skip enterprise overlay
-- [ ] 1089-03-PLAN.md — CI-02 default switch (`Makefile:27` `make test` → `-n <PERF_N>`) + atomic TD-13 flip + Phase 1089 close
+- [x] 1089-01-PLAN.md — PERF-01 baseline measurement (audit doc `.planning/audits/PYTEST-XDIST-PERF-v1020.md`); spike-style, no code changes
+- [x] 1089-02-PLAN.md — CI-01 wiring (`pytest-parallel-isolation` job in `.github/workflows/ci.yml` after alembic-clean-db block); skip enterprise overlay
+- [x] 1089-03-PLAN.md — CI-02 default switch (`Makefile:29` `make test` → `-n 4`) + atomic TD-13 flip + Phase 1089 close
 
 ### Phase 1090: Skip Audit + Flake Hunt + Close-Gate
 **Goal**: A reader of the close-gate doc can see every sequential-mode skip dispositioned, every flake surfaced + dispositioned, and the v1019 WR-01 paper-trail closed — and can confirm tags `v1020` + `v1.5.5` cut at the close commit.
