@@ -564,17 +564,19 @@ async def _acquire_test_session_with_retry(
             await session.execute(text("SELECT 1"))
         except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
             last_exc = e
-            # The warm-up failed — dispose the session and decide retry vs.
-            # propagate. We must call __aexit__ to release any partial state
-            # (rollback any pending transaction, close the session) before
-            # the next attempt creates a fresh session.
-            try:
-                await cm.__aexit__(type(e), e, e.__traceback__)
-            except Exception:
-                # Disposal during a failed warm-up may itself raise on the
-                # contention path; ignore so the original exception is the
-                # one surfaced/retried.
-                pass
+            # The warm-up failed — decide retry vs. propagate. Only call
+            # __aexit__ when __aenter__ succeeded (i.e. session is not None).
+            # Per PEP 343 the context-manager protocol forbids calling
+            # __aexit__ if __aenter__ raised; the previous unconditional call
+            # was undefined behaviour, masked by a broad except.
+            if session is not None:
+                try:
+                    await cm.__aexit__(type(e), e, e.__traceback__)
+                except Exception:
+                    # Disposal during a failed warm-up may itself raise on the
+                    # contention path; ignore so the original exception is the
+                    # one surfaced/retried.
+                    pass
             # Non-contention OperationalError shapes propagate immediately.
             # Raw asyncpg classes (TooManyConnectionsError, CannotConnectNowError)
             # are unambiguously contention so the substring guard is a no-op
