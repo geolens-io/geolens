@@ -151,13 +151,10 @@ Plans:
   3. The v1019 WR-01 paper-trail commit lands — either a CHANGELOG `[1.5.5]` line or a `docs/` note that cites v1019's audit and confirms `frontend/package.json:23` `lint:sec-fu-03-no-false-positive` script is preserved (grep gate against the exact script name).
   4. Close gate is green: sequential pytest 3036/0/38 or higher, `pytest -n auto` 0 fixture-scope failures, frontend typecheck exit 0, e2e:smoke:builder matches v1019 baseline (25/0/1), live Playwright MCP 5/5 surfaces clean (no regressions in `/`, `/maps`, `/datasets/<uuid>`, `/maps/new`, `/maps/<uuid>`).
   5. Tags `v1020` (local) + `v1.5.5` (public) are cut at the close commit; both tags point to the same SHA.
-**Plans**: 5 plans (1088-01 unconditional silent-swallow fix, 1088-02 re-measure gate, 1088-03 conditional setup-contention fix, 1088-04 conditional in-test-contention fix, 1088-05 final close-out + TD-13 traceability flip)
+**Plans**: 0/2 plans complete (1090-01 hygiene measurements / 1090-02 close-gate + tags)
 Plans:
-- [ ] 1088-01-PLAN.md — Replace silent-swallow with structured OperationalError handler at conftest.py:275-278 (category 4.1, 407/648 failures; FI-02 partial + FI-03 partial)
-- [ ] 1088-02-PLAN.md — Re-measure pytest -n auto after 1088-01; produce decision-point audit doc
-- [ ] 1088-03-PLAN.md — CONDITIONAL: structural fix for setup-phase contention if 1088-02 emits SPAWN-1088-03 (category 4.2)
-- [ ] 1088-04-PLAN.md — CONDITIONAL: retry-with-backoff around override_get_db if 1088-02 emits SPAWN-1088-04 (category 4.3)
-- [ ] 1088-05-PLAN.md — Final close gate; flip REQUIREMENTS.md FI-02 + FI-03 + ROADMAP.md Phase 1088 in single commit per TD-13
+- [ ] 1090-01-PLAN.md — HYG-01 38-skip audit + HYG-02 6-run flake hunt (3× -n auto + 3× -n 4) + HYG-03 WR-01 paper-trail draft → `1090-01-CLOSE-GATE.md` working draft
+- [ ] 1090-02-PLAN.md — Full close-gate verification (sequential pytest + parallel pytest -n 4 + frontend typecheck + vitest + e2e:smoke:builder + Playwright MCP 5/5 surfaces) + TD-13 atomic close commit (REQUIREMENTS.md + ROADMAP.md + 1090-SUMMARY.md + CHANGELOG.md) + tags `v1020` (local) + `v1.5.5` (public)
 
 ---
 
