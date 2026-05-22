@@ -77,7 +77,7 @@
 - ✅ **v1015 Ingest/Export Lifecycle Hardening** — Phases 1065-1070 (shipped 2026-05-20, local tag `v1015`, public tag `v1.5.0`) — see [archive](milestones/v1015-ROADMAP.md)
 - ✅ **v1016 Hardening Sweep** — Phases 1071-1074 (shipped 2026-05-21, local tag v1016, public tag v1.5.1) — see [archive](milestones/v1016-ROADMAP.md)
 - ✅ **v1017 Test Infra & Audit Tail** — Phases 1075-1079 (shipped 2026-05-21, local tag `v1017`, public tag `v1.5.2`)
-- ✅ **v1018 Hygiene — v1017 Tech-Debt Tail** — Phases 1080-1083 (shipped 2026-05-21, local tag `v1018`, public tag `v1.5.3`) — see [archive](milestones/v1018-ROADMAP.md)
+- **v1018 Hygiene — v1017 Tech-Debt Tail** — Phases 1080-1083 (in progress)
 
 ## Phases
 
@@ -87,11 +87,75 @@
 
 ---
 
-### v1018 Hygiene — v1017 Tech-Debt Tail (Shipped 2026-05-21)
+### v1018 Hygiene — v1017 Tech-Debt Tail (Active)
 
-✅ Complete — see [archive](milestones/v1018-ROADMAP.md). All 4 phases (1080-1083) and 8 requirements satisfied. Local tag `v1018` + public tag `v1.5.3` at `d1b76061`. Closed the 8 v1017-deferred tech-debt items: TD-01 broad-except justification at `tasks_common.py:232,238` + WR-01 line-1030 bonus + macOS `\s` portability fix; TD-07 `database_connect_args` `ssl=False` on disable branch + 3-case unit-test pin + WR-02 dead-test repair; TD-02/TD-03 SEC-S16 password fixture update; TD-05 SSRF re-validation mock; TD-06 async loop contamination fix via `client` fixture; TD-04 ogrinfo CLI mock-out at caller-namespace. Pytest 3025/0/38 sequential, frontend 2105/2105 + 25/1 e2e, live MCP 5/5 surfaces green. Zero deferrals to v1019.
+- [x] **Phase 1080: Production-Code Drift + Config Hygiene** - Resolve the broad-except layering test failure (TD-01) and the database_connect_args SSL disable branch (TD-07); both are 1-2 line production-code changes with pinned regression tests (completed 2026-05-21)
+- [ ] **Phase 1081: Test Fixture & Assertion Drift** - Fix the four test-drift failures sharing pre-existing root causes: SEC-S16 password policy drift (TD-02, TD-03), SSRF gate drift in reupload_service (TD-05), and async loop contamination (TD-06)
+- [x] **Phase 1082: Test Environmental** - Disposition the ogrinfo CLI environmental dependency in test_reupload_idor (TD-04) via skip-with-rationale or mock-out; decision documented in test docstring (completed 2026-05-21)
+- [ ] **Phase 1083: Close Gate** - Capture PYTEST-BASELINE-v1018.md, run full close-gate (sequential pytest + e2e:smoke:builder + live Playwright MCP smoke), write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
 
----
+## Phase Details
+
+### Phase 1080: Production-Code Drift + Config Hygiene
+**Goal:** Production code has no unjustified broad-except clauses and the database_connect_args disable branch honours the configured ssl_mode
+**Depends on:** Nothing (first phase; both changes are independent production-code touch points)
+**Requirements:** TD-01, TD-07
+**Success Criteria** (what must be TRUE):
+  1. `pytest backend/tests/test_layering.py::test_no_unjustified_broad_except_sites` passes on a clean tree — either the two broad `except:` clauses at `tasks_common.py:231,237` are narrowed to specific exception classes, or each carries an in-line justification comment that the layering rule recognises
+  2. A unit test pinning the `database_connect_args` shape across the three ssl-mode branches (`disable`, `require`, default) passes; when `database_ssl_mode == 'disable'`, `connect_args["ssl"]` is `False`, not a TLS context object or absent
+  3. Both fixes land with no `pytest.mark.skip` decorators on either named test; running the two named invocations together on a clean `backend/` tree exits green
+**Plans:** 2/2 plans complete
+- [x] 1080-01-PLAN.md — TD-01: justify the two broad-except sites in `_job_phase_session` so `test_no_unjustified_broad_except_sites` passes
+- [x] 1080-02-PLAN.md — TD-07: set `connect_args["ssl"] = False` on the disable branch and pin the 3-case `database_connect_args` shape
+
+### Phase 1081: Test Fixture & Assertion Drift
+**Goal:** All four pre-existing test-drift failures are fixed at root cause; pytest signal for the named test files is clean without any skip decorators
+**Depends on:** Phase 1080 (clean production-code baseline before applying fixture and assertion patches)
+**Requirements:** TD-02, TD-03, TD-05, TD-06
+**Success Criteria** (what must be TRUE):
+  1. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_emits_user_register_audit` passes — fixture password updated from `securepass123` (2 classes, fails SEC-S16 3-of-4 diversity) to `TestPass1234!` (matches conftest.py:491 / test_password_policy.py:37 SEC-S16-compliant literal). NOTE: REQUIREMENTS.md / 1081-CONTEXT.md name this test `test_register_password_too_short` — that test does not exist; path correction surfaced during planning, to be reconciled in Phase 1083 close gate.
+  2. `pytest backend/tests/test_phase_279_user_lifecycle.py::test_register_disabled_does_not_emit_audit` passes — same SEC-S16 fixture drift, same fix shape. NOTE: REQUIREMENTS.md names this test `test_register_password_diversity`; same path correction as #1.
+  3. Both `pytest backend/tests/test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_preserves_identity_and_increments_version` and `…::test_reupload_service_without_token_returns_retry_guidance_on_auth_failure` pass in one commit — mocks/fixtures satisfy the v1016 IA-P0-03 `validate_url_for_ssrf` re-validation surface
+  4. `pytest backend/tests/test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception` passes in full-suite sequential mode (not just isolation) — the async loop contamination is resolved at the fixture or teardown level, not papered over with a skip. Plan 1080-01's broad-except justifications at `tasks_common.py:232,238` preserved.
+  5. All four target tests pass together in a single sequential `pytest` invocation covering all four named test files, with zero `pytest.mark.skip` decorators added
+**Plans:** 3 plans
+- [ ] 1081-01-PLAN.md — TD-02/TD-03: align password fixtures in two register-audit tests to SEC-S16 (12-char + 3-of-4 class) policy
+- [ ] 1081-02-PLAN.md — TD-05: mirror Plan 1075-03's SSRF re-validation patch pattern into both TestServiceReuploadWorker tests
+- [ ] 1081-03-PLAN.md — TD-06: add `client` fixture arg to `test_job_phase_session_none_branch_rolls_back_on_exception` so the helper's lazy `async_session` import resolves to the per-function test factory
+
+### Phase 1082: Test Environmental
+**Goal:** The ogrinfo CLI environmental dependency in test_reupload_idor is resolved with an explicit, documented decision — no silent environmental failures in CI
+**Depends on:** Phase 1081 (test-drift fixes land first so this phase starts from a known-clean baseline)
+**Requirements:** TD-04
+**Success Criteria** (what must be TRUE):
+  1. `pytest backend/tests/test_reupload_idor.py::test_owner_gets_non_404_on_service_preview` has a documented disposition: either (a) guarded with `pytest.skip(reason="ogrinfo not on PATH — see <env-doc link>")` via `pytest.importorskip` / `which ogrinfo` probe, OR (b) the live `ogrinfo` call is replaced with a mock so the test does not depend on host tooling
+  2. The chosen approach is documented in the test's docstring (at minimum: one sentence explaining the dependency and the resolution)
+  3. The test never silently passes on a host lacking `ogrinfo` (no false green) and never fails with an unguided `FileNotFoundError` or `subprocess.CalledProcessError` on a stock CI image
+**Plans:** 1/1 plans complete
+- [x] 1082-01-PLAN.md — TD-04: mock `run_service_preview` at the defining-module path (shape b mock-out) so the test does not depend on `gdal-bin` / `ogrinfo` on host PATH; docstring extended with disposition rationale
+
+### Phase 1083: Close Gate
+**Goal:** v1018 ships with a captured pytest baseline showing 0 TD-01..07 failures, full close-gate green, CHANGELOG written, and both tags cut
+**Depends on:** Phase 1080, 1081, 1082 (all fixes must land before baseline is captured)
+**Requirements:** TD-08
+**Success Criteria** (what must be TRUE):
+  1. `.planning/audits/PYTEST-BASELINE-v1018.md` exists and documents: total tests, total passes, failures attributable to TD-01..07 (must be 0), any residual unexpected failures with honest disposition (deferred to v1019 with rationale)
+  2. Full sequential `uv run pytest backend/` passes the following named invocations with no skip-mark additions: `test_layering.py::test_no_unjustified_broad_except_sites`, `test_phase_279_user_lifecycle.py::test_register_emits_user_register_audit`, `test_phase_279_user_lifecycle.py::test_register_disabled_does_not_emit_audit`, both `test_reupload_service.py::TestServiceReuploadWorker::test_reupload_service_*` targets, `test_tasks_common_phase_brackets.py::test_job_phase_session_none_branch_rolls_back_on_exception`, and the TD-07 `database_connect_args` unit test. Reconciliation of REQUIREMENTS.md TD-02/TD-03 test-name drift discovered during Phase 1081 planning is also resolved (update REQUIREMENTS.md row text OR add a path-correction note to `.planning/v1017-MILESTONE-AUDIT.md`).
+  3. `npm run e2e:smoke:builder` exits green (no new failures beyond pre-existing documented skips)
+  4. Live Playwright MCP smoke covers 5 surfaces on `localhost:8080` and all pass
+  5. `CHANGELOG.md` carries a `[1.5.3] - 2026-05-21` entry covering TD-01..TD-08; local tag `v1018` and public tag `v1.5.3` are cut at the post-baseline commit
+**Plans:** 1/2 plans executed
+- [x] 1083-01-PLAN.md — Capture PYTEST-BASELINE-v1018.md, run frontend close-gate gates, write CHANGELOG [1.5.3], cut tags v1018 + v1.5.3
+- [ ] 1083-02-PLAN.md — Live Playwright MCP smoke on 5 surfaces (orchestrator-scoped; autonomous: false)
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1080. Production-Code Drift + Config Hygiene | 2/2 | Complete   | 2026-05-21 |
+| 1081. Test Fixture & Assertion Drift | 0/3 | Plans created | - |
+| 1082. Test Environmental | 1/1 | Complete   | 2026-05-21 |
+| 1083. Close Gate | 1/2 | In Progress|  |
 
 ## Backlog
 

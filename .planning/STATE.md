@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1018
 milestone_name: Hygiene — v1017 Tech-Debt Tail
-status: "Roadmap created — awaiting `/gsd:plan-phase 1080`"
+status: Awaiting next milestone
 stopped_at: Roadmap defined; no phases started
-last_updated: "2026-05-21T23:32:41.135Z"
-last_activity: 2026-05-21 — v1018 roadmap written
+last_updated: "2026-05-21T23:58:48.779Z"
+last_activity: 2026-05-21 — Milestone v1018 completed and archived
 progress:
   total_phases: 9
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
-  percent: 33
+  completed_plans: 8
+  percent: 44
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (roadmap defined; ready for plan-phase)
+Phase: Milestone v1018 complete
 Plan: —
-Status: Roadmap created — awaiting `/gsd:plan-phase 1080`
-Last activity: 2026-05-21 — v1018 roadmap written
+Status: Awaiting next milestone
+Last activity: 2026-05-21 — Milestone v1018 completed and archived
 
 ## Project Reference
 
@@ -79,9 +79,7 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Invoke `/gsd:plan-phase 1080` (Production-Code Drift + Config Hygiene — TD-01, TD-07)
-- Phase 1081 depends on 1080; phase 1082 depends on 1081; phase 1083 depends on all three.
-- Close-gate phase (1083) must capture `.planning/audits/PYTEST-BASELINE-v1018.md` AFTER all TD fixes land.
+- Start the next milestone with /gsd-new-milestone
 
 ## Deferred Items
 

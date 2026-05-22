@@ -1,5 +1,22 @@
 # Milestones
 
+## v1018 Hygiene — v1017 Tech-Debt Tail (Shipped: 2026-05-21)
+
+**Phases completed:** 9 phases, 8 plans, 5 tasks
+
+**Key accomplishments:**
+
+- One-liner:
+- `database_connect_args` now sets `ssl=False` explicitly on the `disable` branch, closing the silent-TLS-negotiation gap; 3-case branch shape pinned with renamed+updated unit tests
+- Fixture used:
+- AsyncMock patch on `app.modules.catalog.sources.security.validate_url_for_ssrf` added to both `TestServiceReuploadWorker` tests, restoring worker-contract coverage under the v1016 IA-P0-03 defense-in-depth gate.
+- `client` fixture arg added to `test_job_phase_session_none_branch_rolls_back_on_exception` — forces conftest monkey-patch to rebind `db_module.async_session` to a fresh per-function engine, eliminating asyncpg cross-loop pool contamination in full-suite mode
+- AsyncMock caller-namespace patch on `run_service_preview` in `test_owner_gets_non_404_on_service_preview` removes the ogrinfo CLI host dependency, restoring green pytest signal on macOS dev hosts without gdal-bin while keeping the IDOR/auth invariant fully exercised
+- Status:
+- Status:
+
+---
+
 ## v1017 Test Infra & Audit Tail (Shipped: 2026-05-21)
 
 **Phases completed:** 5 phases (1075-1079), 20 plans, 13/13 requirements
@@ -28,7 +45,6 @@
 - 1 production-code defect from Phase 1079-03 VG-01 fix-discovery: `backend/app/core/config.py:database_connect_args` should set `connect_args["ssl"]=False` when `database_ssl_mode=='disable'`
 
 **Archive:** `.planning/milestones/v1017-ROADMAP.md` + `.planning/milestones/v1017-REQUIREMENTS.md` + `.planning/v1017-MILESTONE-AUDIT.md`
-
 
 ## v1016 Hardening Sweep (Shipped: 2026-05-21)
 
