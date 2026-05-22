@@ -2,25 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1020
 milestone_name: Fixture Isolation
-status: planning
-last_updated: "2026-05-22T14:00:00.000Z"
-last_activity: 2026-05-22
+status: Phase 1087 closed; FI-01 satisfied; Phase 1088 next
+stopped_at: "Phase 1087 (FI-01 spike audit doc) shipped — 648 failures classified across 6 categories; ready for /gsd:plan-phase 1088"
+last_updated: "2026-05-22T14:52:16.882Z"
+last_activity: 2026-05-22 — Phase 1087 closed; FI-01 audit doc committed (648 failures classified across 6 categories; Section 5 recommends fixing per-worker DB lifecycle race first)
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 25
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (roadmap defined; awaiting `/gsd:plan-phase 1087`)
-Plan: —
-Status: Roadmap defined
-Last activity: 2026-05-22 — v1020 roadmap defined, 9/9 requirements mapped, 4 phases (1087-1090)
+Phase: 1087 — Fixture-Isolation Spike (Taxonomy) — COMPLETE
+Plan: 1087-01-PLAN.md — COMPLETE (audit doc + SUMMARY + TD-13 flips committed)
+Status: Phase 1087 closed; FI-01 satisfied; Phase 1088 next
+Last activity: 2026-05-22 — Phase 1087 closed; FI-01 audit doc committed (648 failures classified across 6 categories; Section 5 recommends fixing per-worker DB lifecycle race first)
 
 ## Project Reference
 
@@ -63,6 +64,8 @@ See: .planning/PROJECT.md
 - **2026-05-22 (v1020 roadmap):** Sequential pytest baseline that MUST stay green throughout v1020: **3036/0/38** (v1019 close-gate). FI-02 acceptance criterion explicitly preserves this — sequential mode must not regress while parallel mode is fixed.
 - **2026-05-22 (v1020 roadmap):** Out-of-scope reaffirmations from v1019 spike Section 4: shape (b) `max_connections` bump is rejected (production envelope at 30 is correct), shape (c) artificial `-n` cap below `auto` is rejected (masks the underlying contention). PERF-01 may document an optimal-but-conservative default different from `auto`, but capping `-n` artificially to dodge the fix is excluded.
 - **2026-05-22 (v1020 roadmap):** v1019 TD-13 rules are LIVE for v1020 from Day 1: REQ citation pinning (planner MUST validate `path::TestClass::test_name` node-IDs via `git grep -n "def <test_name>" <path>` before committing PLAN.md) + traceability flip (executor MUST flip REQUIREMENTS.md `[ ]` → `[x]` and `Pending` → `Complete` in the SAME commit as SUMMARY.md).
+- **2026-05-22 (Phase 1087 close):** Measurement against HEAD `d340c22e` produces **648 failures** under `pytest -n auto` (vs v1019's 192-failure estimate — a lower bound). Dominant category: **per-worker `_test_db_lifecycle` session-fixture race on gw15 (407 failures, 62.8%)** — silent-swallow in conftest.py:275-278 catches `OperationalError("too many clients already")` during staggered-startup window, fails to create per-worker DB, downstream tests fail with `InvalidCatalogNameError`. NONE of the 4 v1019 hypothesis categories (Redis singleton, storage override, dependency_overrides leak, autouse-fixture coupling) reproduced — each documented as 0-count in audit Section 4 for traceability.
+- **2026-05-22 (Phase 1087 close):** Section 5 fix sequencing for Phase 1088 — fix per-worker DB lifecycle race FIRST (single-file conftest.py fix; clear regression pin shape); 4.2/4.3/4.4 cascade subcategories sequenced behind re-measure gates because cascade categories interact (fixing 4.1 may partially resolve them). Re-measure protocol: drop stale per-worker DBs → sequential baseline `failed == 0` → `pytest -n auto --junitxml=...` → re-categorize → report movement across ALL categories.
 
 ### Pending Todos
 
@@ -74,19 +77,20 @@ None — v1020 roadmap is complete and ready for plan-phase. FI-02 + FI-03 plans
 
 ## Session Continuity
 
-Last session: 2026-05-22T14:00:00.000Z
-Stopped at: v1020 roadmap defined; ready for /gsd:plan-phase 1087
+Last session: 2026-05-22T18:00:00.000Z
+Stopped at: Phase 1087 (FI-01 spike audit doc) shipped — 648 failures classified across 6 categories; ready for /gsd:plan-phase 1088
 Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd:plan-phase 1087` to begin Phase 1087: Fixture-Isolation Spike (Taxonomy) — spike-first, audit doc only, no code changes
+- Run `/gsd:plan-phase 1088` to begin Phase 1088: Fixture-Isolation Fixes + Regression Pins — fixes 4.1 first per audit Section 5; FI-02 + FI-03 closed by this phase
 
 ## Deferred Items
 
 Carried into v1020 from v1019 close (2026-05-22):
 
-- **FI-01/FI-02/FI-03** — 192 fixture-scope pytest failures exposed by `pytest -n auto` parallelism (not asyncpg cascade — that is closed; not a regression of TD-10 — sequential mode is clean at 3036/0/38). Needs spike-driven fixture-isolation audit + per-category fixes + regression pins.
+- ~~**FI-01**~~ — CLOSED 2026-05-22 by Phase 1087 (audit doc `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` shipped; 648 failures classified across 6 categories; Section 5 sequencing handed to Phase 1088)
+- **FI-02/FI-03** — 648 fixture-scope failures (revised up from v1019's 192-failure estimate) — addressed by Phase 1088, sequenced by audit Section 5
 - **CI-01** — Wire a `pytest-parallel-isolation` GitHub Actions job sister to v1017's `alembic-clean-db`. No CI gate today blocks regressions to parallel test health.
 - **CI-02** — Switch default `make test` invocation to parallel once FI-02 lands; sequential becomes the debugging opt-in.
 - **PERF-01** — Benchmark `pytest -n 4`/`pytest -n 8`/`pytest -n auto` post-FI-02 with v1019 spike methodology; pick documented optimal default for CI-02.

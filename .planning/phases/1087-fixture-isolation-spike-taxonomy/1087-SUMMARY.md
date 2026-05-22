@@ -200,3 +200,14 @@ Performed at the end of execution:
   exactly: `1087-SUMMARY.md`, `REQUIREMENTS.md`, `ROADMAP.md` (TD-13 SAME-commit invariant).
 - `git diff HEAD~2..HEAD --name-only` shows ONLY `.planning/` files (code-pure spike per
   CONTEXT.md `<domain>` invariant).
+
+## Self-Check: PASSED
+
+All files exist at HEAD; both phase commits present in `git log`. Verified post-commit:
+
+- `.planning/audits/PYTEST-XDIST-FIXTURE-AUDIT-v1020.md` — FOUND (1369 lines)
+- `.planning/phases/1087-fixture-isolation-spike-taxonomy/1087-SUMMARY.md` — FOUND
+- `.planning/REQUIREMENTS.md` — FOUND (FI-01 `[x]` + `Complete`)
+- `.planning/ROADMAP.md` — FOUND (Phase 1087 `[x]` + `1/1 plans complete`)
+- `6c400062` — audit doc commit FOUND
+- `e40c4630` — SAME-commit (SUMMARY + REQUIREMENTS + ROADMAP) FOUND
