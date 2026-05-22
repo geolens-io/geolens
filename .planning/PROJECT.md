@@ -12,9 +12,21 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: TBD (awaiting `/gsd-new-milestone`)
+## Current Milestone: v1020 Fixture Isolation
 
-**Status:** v1019 just shipped. PROJECT.md `Active` section is empty pending next milestone definition. Run `/gsd-new-milestone` to begin the next cycle.
+**Goal:** Restore `pytest -n auto` to a green, reliable baseline by fixing the 192 fixture-scope failures exposed in v1019, then lock parallel-test health in with a CI gate, perf baseline, and tuned default — closing v1019's only deferral and a small test-infra hygiene tail.
+
+**Target features:**
+- Pre-fix baseline + failure taxonomy (`PYTEST-XDIST-FIXTURE-AUDIT-v1020.md`) — classify the 192 failures by root cause (Redis singleton, storage provider override, `app.dependency_overrides` leak, autouse-fixture coupling, other) before any fix lands. Spike-first per v1019 pattern.
+- Fixture-isolation fixes — convert/scope offending session-scoped fixtures so worker-local state stops leaking; goal 192 → 0 under `-n auto`.
+- CI gate — new GitHub Actions job (sister to v1017's `alembic-clean-db`) running `pytest -n auto` on push-to-main + relevant PRs, closing the regression window.
+- Worker-count tuning + perf baseline (`PYTEST-XDIST-PERF-v1020.md`) — benchmark `-n 4`/`-n 8`/`-n auto` wall-clock + connection peak after fix; pick documented optimal default.
+- Make `-n auto` the default test target — `make test` or `pyproject.toml` addopts switches to parallel-by-default once gate is green; sequential becomes the debugging opt-in.
+- Flake hunt + skip audit — audit current 38 sequential-mode skips; surface flakes parallelism exposes outside the 192; disposition each.
+
+**Status:** Roadmap defined; ready for `/gsd:plan-phase 1087`.
+
+**Public tag target:** `v1.5.5` (patch — hygiene only; no user-facing features, no migrations, no schema changes).
 
 ## Recent Shipped Milestone: v1019 Hygiene Tail — v1018 Frontend + xdist + Process
 
@@ -1032,9 +1044,7 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-_Empty — v1019 shipped 2026-05-22 with 6/6 reqs (TD-09..TD-14) satisfied. Run `/gsd-new-milestone` to define next milestone scope._
-
-**Known v1020 carry-forward:** 192 fixture-scope pytest failures exposed by `pytest -n auto` parallelism (not asyncpg cascade — that is closed; not a regression of TD-10 fix). Needs a fixture-isolation audit in next milestone. Documented in CHANGELOG `[1.5.4]` Known Limitations.
+v1020 Fixture Isolation — see `.planning/REQUIREMENTS.md` (FI-* requirements, mapped to phases 1087+ in ROADMAP.md). Closes the 192 fixture-scope failures carry-forward from v1019 (Known Limitation in CHANGELOG `[1.5.4]`) plus a small test-infra hygiene tail (CI gate, perf baseline, parallel-default, flake/skip audit).
 
 ### Out of Scope
 
@@ -1306,4 +1316,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 — archived milestone v1019 Hygiene Tail — v1018 Frontend + xdist + Process (6 reqs TD-09..TD-14 satisfied; tags `v1019` + `v1.5.4` at `02cb25db`). Active is empty pending `/gsd-new-milestone`. Single v1020 carry-forward: 192 fixture-scope pytest failures exposed by `-n auto` parallelism (documented as Known Limitation in CHANGELOG `[1.5.4]`). Previous: v1018 Hygiene — v1017 Tech-Debt Tail (8 reqs across phases 1080-1083, tag v1018 + v1.5.3 at d1b76061). Archives: .planning/milestones/v1019-ROADMAP.md + .planning/milestones/v1019-REQUIREMENTS.md.*
+*Last updated: 2026-05-22 — started milestone v1020 Fixture Isolation (broader test-infra sweep: 192 fixture-scope failures + CI gate + perf baseline + parallel-default + flake/skip audit). Target tag `v1.5.5` (patch — hygiene only, no migrations). Phase numbering continues at 1087 from v1019's 1086. Previous: v1019 Hygiene Tail — v1018 Frontend + xdist + Process (6 reqs TD-09..TD-14 satisfied; tags `v1019` + `v1.5.4` at `02cb25db`). Archives: .planning/milestones/v1019-ROADMAP.md + .planning/milestones/v1019-REQUIREMENTS.md + .planning/milestones/v1019-MILESTONE-AUDIT.md.*

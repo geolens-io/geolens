@@ -1,27 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1019
-milestone_name: Hygiene Tail — v1018 Frontend + xdist + Process
-status: Awaiting next milestone
-stopped_at: "v1019 archived; tags v1019 + v1.5.4 cut at 02cb25db"
-last_updated: "2026-05-22T12:45:00.000Z"
-last_activity: 2026-05-22 — Milestone v1019 completed and archived
+milestone: v1020
+milestone_name: Fixture Isolation
+status: planning
+last_updated: "2026-05-22T13:42:23.500Z"
+last_activity: 2026-05-22
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1019 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-22 — Milestone v1019 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-22 — Milestone v1020 started
 
 ## Project Reference
 
