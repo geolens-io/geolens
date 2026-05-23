@@ -101,9 +101,18 @@ export default defineConfig({
           // Location to an HTTPS client, triggering mixed-content
           // warnings or downgrade redirects. Detect the inbound scheme
           // and preserve it on the rewrite.
+          // WR-06 (Phase 1092 review): the detection regex must match the
+          // SAME shape as the replacement regex. Previously the detection
+          // required ``\/`` after the optional port (matching
+          // ``http://api:8000/path``) while the replacement matched both
+          // with-path and pathless forms — meaning a pathless
+          // ``Location: http://api:8000`` would skip detection and pass
+          // through unrewritten. FastAPI redirects always carry a path
+          // in practice, but the inconsistency was sloppy and brittle.
+          // Use ``(\/|$)`` to accept both shapes.
           proxy.on('proxyRes', (proxyRes, req) => {
             const location = proxyRes.headers.location
-            if (typeof location === 'string' && /^https?:\/\/api(:\d+)?\//.test(location)) {
+            if (typeof location === 'string' && /^https?:\/\/api(:\d+)?(\/|$)/.test(location)) {
               const externalHost = req.headers.host || 'localhost:8080'
               const forwardedProto = req.headers['x-forwarded-proto']
               const protoCandidate = Array.isArray(forwardedProto)
