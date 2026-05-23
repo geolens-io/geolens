@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1021
 milestone_name: Docker Rebuild Sweep + Engine-level Retry
-status: "1091-01 spike complete (audit doc at .planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md, commit 3309fed8); ready for /gsd:execute-phase 1091 plan 02"
-stopped_at: "1091-01 spike complete; awaiting 1091-02 (fix)"
-last_updated: "2026-05-23T14:32:04.030Z"
-last_activity: 2026-05-23 — v1021 ROADMAP.md created (3 phases, 6 reqs, coverage 6/6 — no orphans)
+status: Awaiting next milestone
+stopped_at: "v1021 ROADMAP.md created; ready for `/gsd:plan-phase 1091`"
+last_updated: "2026-05-23T21:35:37.264Z"
+last_activity: 2026-05-23 — Milestone v1021 completed and archived
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 1
-  percent: 0
+  completed_phases: 3
+  total_plans: 8
+  completed_plans: 11
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1091 (in progress — Ingest Correctness Sweep)
-Plan: 01 complete (spike) — next: 02 (fix)
-Status: 1091-01 spike complete (audit doc at `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md`, commit `3309fed8`); ready for `/gsd:execute-phase 1091 plan 02`
-Last activity: 2026-05-23 — 1091-01 spike committed (`3309fed8` audit + `1fa787ab` SUMMARY backfill); root cause identified, Shape A fix proposed for 1091-02
+Phase: Milestone v1021 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-23 — Milestone v1021 completed and archived
 
 ## Project Reference
 
@@ -88,8 +88,7 @@ Resume file: None
 
 ## Operator Next Steps
 
-- **`/gsd:execute-phase 1091 --plan 02`** — execute Plan 1091-02 (apply Shape A fix per `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` Section 3 + create regression tests in `backend/tests/test_quicklook_async_context.py`). Audit doc names file, line range, fix shape, and test function names at file:lineno resolution.
-- **Post-merge CI live-verification (v1020 deferred):** after v1021 closes, run `gh run list --workflow=ci.yml --limit=1 && gh run watch <run_id>` to confirm the `pytest-parallel-isolation` gate fires green for the first time.
+- Start the next milestone with /gsd-new-milestone
 
 ## Deferred Items
 

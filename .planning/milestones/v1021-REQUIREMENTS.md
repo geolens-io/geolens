@@ -1,3 +1,12 @@
+# Requirements Archive: v1021 Docker Rebuild Sweep + Engine-level Retry
+
+**Archived:** 2026-05-23
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: GeoLens — v1021 Docker Rebuild Sweep + Engine-level Retry
 
 **Defined:** 2026-05-23

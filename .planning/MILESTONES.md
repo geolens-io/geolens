@@ -1,5 +1,25 @@
 # Milestones
 
+## v1021 Docker Rebuild Sweep + Engine-level Retry (Shipped: 2026-05-23)
+
+**Phases completed:** 3 phases, 8 plans, 9 tasks
+
+**Key accomplishments:**
+
+- Identified the exact async-context boundary that produces `MissingGreenlet` on the `urban_areas_landscan_10m` post-commit flow — same session reused across an `asyncio.wait_for` cancellation at `tasks_common.py:826`, with the explosion deferred two lines later in `defer_embedding` because `expire_on_rollback` defaults to True.
+- Closed INGEST-01 by isolating the quicklook block onto a fresh `_job_phase_session` so the `asyncio.wait_for` cancellation cannot poison the outer ingest session, plus a post-upload rollback recovery so the URI persists even when the 10s timeout fires on pathological geometry — 109/109 datasets seeded with `quicklook_256_uri` populated post-fix.
+- Added post-loop reconciliation to `scripts/seed-natural-earth.py` against `/api/admin/jobs/?status=failed` scoped to the run window — the script's heuristic-driven Import Summary can no longer disagree with the persisted worker job-row status, and non-zero exit fires when reconciliation surfaces failures the per-dataset poll missed.
+- Closed v1021's two ingest-correctness requirements: INGEST-01 fixed the `urban_areas_landscan_10m` quicklook `MissingGreenlet` async-context bug via fresh-session isolation + post-cancellation rollback recovery, and OPS-01 added post-loop reconciliation to `scripts/seed-natural-earth.py` against `/api/admin/jobs/?status=failed` so the seed's "Succeeded: N" heuristic can no longer disagree with the persisted worker job-row status. 109/109 datasets seed clean end-to-end with quicklook URIs populated + GREEN reconciliation + exit 0.
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- Plan 1093-01 produced the architectural-decision-record + pre-fix-baseline-measurement audit doc at `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md` (5 sections + populated frontmatter) and chose the `RetryingAsyncEngine` composition wrapper class shape — rejecting `event.listen`, NullPool subclass, and `async_creator=` candidates with named tradeoffs. Pre-fix `pytest -n auto` 3-run baseline at v1021 HEAD `46f45c1b`: failure-count range 126–383 per run with 271–585 raw cascade lines. Sequential baseline (HARD GATE): 3051 passed / 3 pre-existing OOS failures (test_phase_275 + test_ssrf_redirect + test_layering LOC-cap) / 38 skipped in 550.02s. Zero code changes in this plan; Plan 1093-02 implements the wrapper verbatim per audit Section 3.
+- Rule 2 missing critical functionality (auto-applied):
+- Phase 1093 closes v1020's deferred engine-level retry envelope (TEST-01) per `.planning/milestones/v1020-phases/1088-fixture-isolation-fixes-regression-pins/1088-04-SUMMARY.md` architectural escalation REPORT. 2 plans across 2 sequential waves: Plan 1093-01 produced the audit doc + pre-fix `pytest -n auto` 3-run baseline (failure-count range 126–383 per run); Plan 1093-02 implemented the `_RetryingAsyncEngine` composition wrapper class with `do_connect` event handler at the underlying sync engine layer (Rule 2 extension required because `async_sessionmaker` bypasses the AsyncEngine wrapper's `connect()` override). Post-fix `pytest -n auto` Runs 1+2: 11/12 distinct failures (down from pre-fix 126/139 —
+
+---
+
 ## v1019 Hygiene Tail — v1018 Frontend + xdist + Process (Shipped: 2026-05-22)
 
 **Phases completed:** 3 phases (1084-1086), 7 plans
@@ -19,17 +39,20 @@
 4. **Runtime symmetry + close gate (Phase 1086)** — TD-14: `docker compose up -d --build api worker` rebuilt both images cleanly; `docker exec geolens-api-1 grep -n "ssl=False" app/core/config.py` → line 309 confirmed (same for worker). Source-runtime symmetry closed for v1018 Phase 1080-02. Close gate green: sequential pytest 3036/0/38, e2e:smoke:builder 25/0/1, frontend typecheck exit 0, live Playwright MCP 5/5 surfaces.
 
 **Inline fixes during code review (5 total):**
+
 - Phase 1084 WR-01: added missing `lint:sec-fu-03-no-false-positive` companion script (`902875bf`)
 - Phase 1085 WR-01 + WR-02: stagger docstring + NullPool sentinel comment (`6488fdf3`)
 - Phase 1085 WR-03: `warnings.warn` on malformed `PYTEST_XDIST_WORKER` (`37b86244`)
 - Phase 1085 CR-02: real NullPool branch coverage test via extracted `_make_test_async_engine` helper (`ea24168c`)
 
 **Patterns established (3 new):**
+
 - **Fixed-point bootstrap of new rules**: v1019 establishes a new traceability-flip rule that only takes effect from the plan that establishes it onward; pre-rule plans need a one-shot retroactive flip at audit time.
 - **Spike-first when fix shape is non-obvious**: TD-10 spike correctly identified shape (a) was the right surface, but the implementation surfaced that the *trigger* of the cascade was setup-phase concurrency, not runtime pool exhaustion — measuring the surface gave the right answer even when the deeper mechanism required iteration.
 - **Live MCP smoke as the canonical verification surface**: 5 surfaces in 3-5 minutes catches TD-11 + TD-12 regressions that headless e2e tests would not (network log assertions on `/api/api/` patterns + 422 responses).
 
 **Deferred to v1020 (1 item):**
+
 - 192 fixture-scope pytest failures exposed by `pytest -n auto` parallelism (not asyncpg cascade — that is closed; not a regression of TD-10 fix — sequential mode is clean). Needs a fixture-isolation hygiene audit in next milestone. Documented in CHANGELOG `[1.5.4]` Known Limitations.
 
 **Archive:** `.planning/milestones/v1019-ROADMAP.md` + `.planning/milestones/v1019-REQUIREMENTS.md` + `.planning/v1019-MILESTONE-AUDIT.md`

@@ -12,19 +12,35 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1021 Docker Rebuild Sweep + Engine-level Retry
+## Current Milestone: TBD (awaiting /gsd-new-milestone)
 
-**Goal:** Close the operational findings surfaced by the 2026-05-23 docker rebuild sweep (quick task 260523-at1) and retire v1020's engine-level retry carry-forward.
+**Status:** v1021 just shipped. PROJECT.md `Active` section is empty pending next milestone definition. Run `/gsd-new-milestone` to begin the next cycle.
 
-**Target features:**
-- Fix the `urban_areas_landscan_10m` quicklook generation failure (`MissingGreenlet: greenlet_spawn has not been called`) in `app/processing/ingest/tasks_common.py` — data lands but quicklook commit-phase aborts; reproducible across rebuilds.
-- Add seed-script post-loop reconciliation against `/api/admin/jobs/?status=failed` in `scripts/seed-natural-earth.py` so the seed's success-count cannot disagree with the worker job-row status.
-- Stop the trailing-slash 307 redirects from leaking the internal `http://api:8000` hostname (closes `/api/collections/` + `/api/auth/login/` — same root cause, broader surface than the documented `/collections/datasets` exception).
-- Eliminate the double alembic `upgrade head` invocation in the `migrate` service (entrypoint safety-net + explicit command both fire today; one is enough).
-- ACCEPT the `db` image `--platform=linux/amd64` pin (Apple Silicon hosts emulate via Rosetta); document rationale + future multi-arch build path so the warning is no longer a surprise.
-- Land the engine-level retry envelope for `pytest -n auto` (v1020 carry-forward) so the 173 non-deterministic node-IDs under 16-worker parallelism stop being a developer-environment papercut.
+## Recent Shipped Milestone: v1021 Docker Rebuild Sweep + Engine-level Retry
 
-**Source of findings:** `.planning/quick/260523-at1-rebuild-the-docker-containers-and-import/260523-at1-SUMMARY.md` (commit `e9817603`).
+**Shipped:** 2026-05-23
+**Tag:** `v1021` (local) + `v1.5.6` (public) at commit `35596a7a`
+
+**Goal delivered:** Closed the operational findings surfaced by the 2026-05-23 docker rebuild sweep (quick task `260523-at1`) and retired v1020's engine-level retry carry-forward.
+
+**Delivered (6/6 reqs, 3 phases 1091-1093, 8 plans):**
+
+- **Ingest correctness (Phase 1091)** — INGEST-01: `urban_areas_landscan_10m` quicklook `MissingGreenlet: greenlet_spawn has not been called` async-context bug closed at `backend/app/processing/ingest/tasks_common.py:898-906` via fresh `_job_phase_session("quicklook")` wrap (Shape A from spike audit) + iter-2 post-upload `await session.rollback()` recovery for the `sqlalchemy.org/e/20/8s2b` poisoned-cursor state on the timeout path. 4 regression pins at `backend/tests/test_quicklook_async_context.py`. Live: 109/109 datasets seed clean with `quicklook_256_uri` populated. OPS-01: `reconcile_failed_jobs()` in `scripts/seed-natural-earth.py:723` queries `GET /api/admin/jobs/?status=failed&limit=200` with run-window filter, exits non-zero on failure. 4 unit tests + 2 main() exit-code regression pins.
+
+- **Routing + infra hygiene (Phase 1092)** — ROUTE-01: `redirect_slashes=False` at `backend/app/api/main.py:443-487` + ~28 manual dual-shape decorators across `auth/router.py`, `settings/router.py`, `catalog/maps/router.py`, `admin/router.py`, etc. + `_add_trailing_slash_aliases(app)` programmatic hook covering remaining ~72 routes + Vite proxy `Location` rewrite at `frontend/vite.config.ts:90-128` (scheme-preserving). 8 tests at `backend/tests/test_redirect_slashes.py`. Live: 11 routes spot-checked, zero `api:8000` leaks. INFRA-01: `migrate` service `entrypoint: []` override at `docker-compose.yml:124`; alembic single-fire confirmed via `Context impl PostgresqlImpl` grep count = 1 (was 2). INFRA-02 (ACCEPT): `db/Dockerfile:1-18` inline rationale + CHANGELOG `[Unreleased]` entry for the `--platform=linux/amd64` pin.
+
+- **Engine-level retry envelope (Phase 1093)** — TEST-01 (closes v1020 carry-forward): `_RetryingAsyncEngine` composition wrapper class at `backend/tests/conftest.py:711` + `_install_dbapi_connect_retry` `do_connect` event handler at `:664`. REUSES `_TRANSIENT_CONTENTION_EXCEPTIONS` + `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` verbatim. 4 regression pins at `backend/tests/test_fixture_isolation_v1020.py`. In-test contention reduced 126/139 → 11/12 distinct per `-n auto` run (-91%) on Runs 1+2. Post-fix `pytest -n auto` 8/9/3 failed per run (literal ≤10 criterion satisfied — Option A disposition).
+
+**Audit verdict:** tech_debt (6/6 reqs satisfied; CLEAR-TO-TAG). See `.planning/milestones/v1021-MILESTONE-AUDIT.md`.
+
+**Patterns established:**
+- **Spike-first preserved** — Phase 1091 spike at `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` identified the exact `tasks_common.py:826` async-context boundary line BEFORE the fix; matches v1019/v1020 spike-first precedent.
+- **Iter-2 in-checkpoint diagnostic** — Plan 1091-02 caught the URI-persistence gap during live verification (blank canvas in storage but URI null in DB), iterated to add `await session.rollback()` recovery between upload and commit, re-verified GREEN. Inline checkpoint iteration > revert-and-replan when the surface is one missing recovery step.
+- **Composition wrapper preserves `.pool` accessor** — Phase 1093's `_RetryingAsyncEngine` uses `@property pool` delegation, NOT inheritance, so `test_conftest_pool_sizing.py:261,281` pins on `type(engine.pool).__name__` continue to pass.
+- **`do_connect` event handler ≠ wrapper `.connect()` override** — `async_sessionmaker(wrapper)` bypasses the AsyncEngine wrapper's `.connect()` override because it extracts `wrapper.sync_engine` directly. The production-effective retry path is the `do_connect` event handler installed on the sync engine.
+- **Dual-shape decorator + programmatic alias hook** — instead of registering both shapes by hand on every route (~100 routes), `_add_trailing_slash_aliases(app)` walks `app.routes` at startup and registers slash-variants for routes that don't already have them.
+
+**Deferred to v1022 (1 item):** Category 4.1 per-worker DB lifecycle parallel-mode cascade. `pytest -n auto` Runs 3+4 produced 709/1020 distinct failures with `InvalidCatalogNameError` cascade — different architectural surface than TEST-01's in-test wrapper. Findings at `.planning/phases/1093-engine-level-retry-envelope/1093-02-FINDINGS.md`. Recommended path: spike-first on `_test_db_lifecycle:~661-674` per-worker race OR `max_connections` dynamic-sizing. Phase 1093 review findings WR-01..04 (test pin coverage + edge cases) also queued for v1022 alongside this work.
 
 ## Recent Shipped Milestone: v1020 Fixture Isolation
 
@@ -1075,16 +1091,9 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-**v1021 Docker Rebuild Sweep + Engine-level Retry** — 6 requirements scoped from quick task 260523-at1 + v1020 carry-forward:
+_None — v1021 just shipped. Awaiting next milestone definition via `/gsd-new-milestone`._
 
-- INGEST-01 — Fix `urban_areas_landscan_10m` quicklook MissingGreenlet (Error 1)
-- OPS-01 — Seed-script post-loop reconciliation against `/api/admin/jobs/` (Issue 1)
-- ROUTE-01 — Stop internal-hostname leak on 307 trailing-slash redirects (Issues 2 + 5; closes both with one fix)
-- INFRA-01 — Dedup `migrate` service double alembic upgrade (Issue 3)
-- INFRA-02 — ACCEPT db `--platform=linux/amd64` pin; document + future multi-arch path (Issue 4)
-- TEST-01 — Engine-level retry envelope for `pytest -n auto` (v1020 carry-forward)
-
-**Findings doc:** `.planning/quick/260523-at1-rebuild-the-docker-containers-and-import/260523-at1-SUMMARY.md` (commit `e9817603`).
+**v1022 carry-forward (tracked for next milestone):** Category 4.1 per-worker DB lifecycle parallel-mode cascade. `pytest -n auto` produces 709/1020 distinct failures on Runs 3+4 (different surface than TEST-01's in-test wrapper). Findings doc at `.planning/phases/1093-engine-level-retry-envelope/1093-02-FINDINGS.md`. Operational defense via `-n 4` CI gate is in place; v1022 would close the residual. Phase 1093 review findings WR-01..04 also queued for v1022 alongside this work.
 
 ### Out of Scope
 
@@ -1356,4 +1365,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-23 — opened milestone v1021 Docker Rebuild Sweep + Engine-level Retry (6 reqs INGEST-01 + OPS-01 + ROUTE-01 + INFRA-01 + INFRA-02 + TEST-01) scoped from quick task 260523-at1 docker-rebuild sweep + v1020 carry-forward. Findings: `.planning/quick/260523-at1-rebuild-the-docker-containers-and-import/260523-at1-SUMMARY.md` (commit `e9817603`). Previous: v1020 Fixture Isolation (9/9 reqs FI-01..03 + CI-01..02 + PERF-01 + HYG-01..03 satisfied; tags `v1020` + `v1.5.5` at `8a924bb6`). Cascade reduction 648 → 76 (-88.3%); `pytest-parallel-isolation` CI gate live; `-n 4` parallel default.*
+*Last updated: 2026-05-23 — archived milestone v1021 Docker Rebuild Sweep + Engine-level Retry (6/6 reqs INGEST-01 + OPS-01 + ROUTE-01 + INFRA-01 + INFRA-02 + TEST-01 satisfied; tags `v1021` + `v1.5.6` at `35596a7a`). INGEST-01 quicklook MissingGreenlet fix + OPS-01 seed reconciliation + ROUTE-01 dual-shape decorator sweep (100 routes) + INFRA-01 migrate dedup + INFRA-02 platform pin ACCEPT + TEST-01 engine-retry envelope. In-test contention reduced 126/139 → 11/12 per `-n auto` run (-91%); 109/109 datasets seed clean with quicklook URIs. One v1022 carry-forward (Category 4.1 per-worker DB lifecycle cascade). Archives: `.planning/milestones/v1021-ROADMAP.md` + `.planning/milestones/v1021-REQUIREMENTS.md` + `.planning/milestones/v1021-MILESTONE-AUDIT.md`. Previous: v1020 Fixture Isolation (9/9 reqs satisfied; tags `v1020` + `v1.5.5` at `8a924bb6`).*
