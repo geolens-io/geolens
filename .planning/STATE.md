@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1022
 milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
 status: planning
-last_updated: "2026-05-23T23:35:59.472Z"
+last_updated: "2026-05-23T23:50:00.000Z"
 last_activity: 2026-05-23
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,10 +17,12 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap created, ready for Phase 1094 planning)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-23 — Milestone v1022 started
+Status: Roadmap created; ready for `/gsd:plan-phase 1094`
+Last activity: 2026-05-23 — Milestone v1022 roadmap created (4 phases 1094-1097, 5/5 requirements mapped)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Project Reference
 
@@ -42,30 +44,39 @@ See: .planning/PROJECT.md
 
 ## Phase Plan (v1022)
 
-Roadmap pending — see ROADMAP.md once roadmapper completes.
+| Phase | Goal | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 1094 Cascade Spike | Architectural audit produces `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` naming the exact Category 4.1 race surface + line-numbered fix shape + WR-02 cascade-pressure-hypothesis disposition | PARA-01 (spike deliverable / acceptance (e) only) | — |
+| 1095 Cascade Fix + WR-02 Closure | Land PARA-01 fix at Phase 1094's named line(s) + close PARA-02's WR-02 blocking-sleep footgun. Bundled because both surfaces share `backend/tests/conftest.py:~615-674` and the `-n auto` measurement gate must be re-run atomically. | PARA-01 (full closure) + PARA-02 (full closure) | Phase 1094 |
+| 1096 Hygiene Tail | Retire HYG-01 (WR-01 `do_connect` event handler pin + WR-03 bare-except narrowing + WR-04 listener teardown hook). Lands AFTER Phase 1095 so test pins target stabilized engine wrapper. | HYG-01 | Phase 1095 |
+| 1097 Live-Verify + Close Gate | Operator `gh run watch` for first post-merge `pytest-parallel-isolation` gate firing (closes v1020 deferred operator action) + close gate (sequential + `-n 4` + `-n auto` baselines + CHANGELOG `[1.5.7]` + tags `v1022`/`v1.5.7`) | CI-01 + CLOSE-01 | Phase 1096 |
 
-**Public tag target:** `v1.5.7` (patch — test-infra hygiene only; no API/schema changes, no migrations).
+**Coverage:** 5/5 v1022 requirements mapped, 0 orphans, 0 duplicates.
+
+**Public tag target:** `v1.5.7` (SemVer patch — test-infra hygiene only; no API/schema changes, no migrations).
+
+**HARD INVARIANT:** Sequential pytest `failed == 0` non-negotiable (v1019 TD-13). Baselines: sequential **3055/0/38** + `-n 4` **3054/0/38**.
 
 ## Accumulated Context
 
 ### Decisions
 
-- **2026-05-23 (v1021 roadmap):** Phase 1091 bundles INGEST-01 + OPS-01 — natural dependency: OPS-01's reconciliation regression test needs the `MissingGreenlet` shape from INGEST-01 to verify failures surface. Spike-first per v1019 Phase 1085 / v1020 Phase 1087 precedent — short audit deliverable identifies the exact async-context boundary line(s) in `app/processing/ingest/tasks_common.py` BEFORE the fix lands.
-- **2026-05-23 (v1021 roadmap):** Phase 1092 bundles ROUTE-01 + INFRA-01 + INFRA-02 — three hygiene items that share the `docker compose down -v && up -d --build` verification surface. ROUTE-01 is the largest item; INFRA-01 + INFRA-02 ride the same docker-compose change-set to minimize rebuild noise. MEMORY.md update (post-fix invariant) lands inside Phase 1092's TD-13 atomic close commit.
-- **2026-05-23 (v1021 roadmap):** Phase 1093 is the v1020 carry-forward closure — engine-level retry envelope for `pytest -n auto` per Phase 1088-04 architectural escalation REPORT. Scope is the test-fixture engine ONLY (`backend/tests/conftest.py` factory level); app-engine FastAPI request path is out of scope (different acceptance criteria — request latency vs test determinism).
-- **2026-05-23 (v1021 roadmap):** Public tag target `v1.5.6` (SemVer patch) — hygiene only; no user-facing features, no migrations, no schema changes, no API contract changes.
-- **2026-05-23 (v1021 roadmap):** Sequential pytest baseline that MUST stay green throughout v1021: **3047/0/38** (v1020 close-gate). TEST-01 acceptance criterion (b) explicitly preserves this. HARD INVARIANT: `failed == 0` non-negotiable.
-- **2026-05-23 (v1021 roadmap):** Out-of-scope reaffirmations from v1020: Postgres `max_connections` bump rejected (production envelope at 30 is correct); artificial `-n` cap below `auto` rejected (masks contention); multi-arch `db` image future TODO only (INFRA-02 is ACCEPT-only). Plus v1021-specific out-of-scope: app-code engine retry (different acceptance criteria), production-code refactor beyond `MissingGreenlet` fix, frontend 307 UX (backend leak is the user-visible bug).
-- **2026-05-23 (v1021 roadmap):** v1019 TD-13 rules are LIVE for v1021 from Day 1: REQ citation pinning (planner MUST validate `path::TestClass::test_name` node-IDs via `git grep -n "def <test_name>" <path>` BEFORE plans commit; applies to INGEST-01 `test_quicklook_async_context.py`, OPS-01 seed-script reconciliation test, ROUTE-01 `test_redirect_slashes.py`, TEST-01 engine-retry pin) + traceability flip (executor MUST flip REQUIREMENTS.md `[ ]` → `[x]` and `Pending` → `Complete` in the SAME commit as SUMMARY.md). Atomic-4-file invariant maintained across 7 phases of v1019/v1020.
-- **2026-05-23 (1091-01 spike):** MissingGreenlet on `urban_areas_landscan_10m` quicklook root-caused: H2 (asyncio.wait_for cancellation poisoning asyncpg cursor at `quicklook.py:163`) + H3 (`session.rollback` expiring eagerly-loaded `dataset.record` despite `expire_on_commit=False`; `expire_on_rollback` defaults True). Detonates at `defer_embedding` `helpers.py:123`, NOT inside `_generate_quicklook` (H5 FALSE). Fix Shape A (open fresh session at `tasks_common.py:824-828` via `_job_phase_session(phase='quicklook')`) named in `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` Section 3. Plan 1091-02 implements.
+- **2026-05-23 (v1022 roadmap):** Phase 1094 is spike-only per v1019 Phase 1085 / v1020 Phase 1087 / v1021 Phase 1091 precedent — measurement before fix for the architectural item (PARA-01). PARA-02/HYG-01/CI-01 are tight enough scope to skip a separate spike (REQUIREMENTS.md explicit).
+- **2026-05-23 (v1022 roadmap):** Phase 1095 bundles PARA-01 fix + PARA-02 closure. Three coupling reasons: (a) both surfaces live in adjacent lines of `backend/tests/conftest.py` (`_test_db_lifecycle` ~661-674 + `_invoke_sleep_in_sync_context` ~615 + `_install_dbapi_connect_retry` ~664); (b) the `-n auto` measurement gate (PARA-01 acceptance (a)) must re-run AFTER both changes land — splitting them across phases would double the gate cost and obscure which change moved the threshold; (c) PARA-02's cascade-pressure hypothesis (acceptance (d)) is most cleanly validated/refuted by measuring with both fixes in place. Test-infra atomicity > requirement-per-phase granularity when the surfaces share a file + measurement gate.
+- **2026-05-23 (v1022 roadmap):** Phase 1096 (HYG-01) sequenced AFTER Phase 1095 (PARA-01/02 fix) so new test pins target the stabilized engine wrapper, not the pre-fix shape. Avoids re-writing pins mid-milestone.
+- **2026-05-23 (v1022 roadmap):** Phase 1097 (CI-01 + CLOSE-01) sequenced LAST because CI-01 can only verify post-merge of PARA-01/PARA-02/HYG-01 — the gate's first firing must cover the complete post-v1022 engine-wrapper + per-worker-lifecycle code. Verifying mid-milestone would not validate the milestone-tip state.
+- **2026-05-23 (v1022 roadmap):** PARA-01 requirement spans 2 phases (1094 spike deliverable + 1095 fix). REQUIREMENTS.md `[x]` flip lands at Phase 1095 close (when all 5 PARA-01 acceptance criteria are satisfied), NOT at Phase 1094 close. Phase 1094's SUMMARY.md cites PARA-01 as "spike deliverable shipped; fix awaits Phase 1095". Standard pattern for multi-phase requirements (matches v1021 INGEST-01 → Phase 1091 spike + fix lived in one phase, but explicit traceability note carried).
+- **2026-05-23 (v1022 roadmap):** Public tag target `v1.5.7` (SemVer patch) — test-infra hygiene only; no user-facing features, no API/schema/migrations, no production-code behavior change beyond conftest/test-fixture engine layer. CHANGELOG `[1.5.7]` block lists PARA-01/PARA-02/HYG-01/CI-01 closures with test pin names + line numbers.
+- **2026-05-23 (v1022 roadmap):** Sequential pytest baseline that MUST stay green throughout v1022: **3055 passed / 0 NEW failed / 38 skipped** (v1021 Phase 1093 close-gate). HARD INVARIANT — `failed == 0` non-negotiable per v1019 TD-13.
+- **2026-05-23 (v1022 roadmap):** v1019 TD-13 rules LIVE for v1022 from Day 1: REQ citation pinning (planner MUST validate `path::TestClass::test_name` node-IDs via `git grep -n "def <test_name>" <path>` BEFORE plans commit; applies to PARA-01's new per-worker DB lifecycle pin, PARA-02's loop-yield regression pin, HYG-01's `test_engine_retry_do_connect_event_handler_*` pin) + traceability flip (executor MUST flip REQUIREMENTS.md `[ ]` → `[x]` and `Pending` → `Complete` in the SAME commit as SUMMARY.md).
 
 ### Pending Todos
 
-None at v1021 roadmap-create. Quick task 260523-at1 produced the source-of-scope SUMMARY; its operational findings became v1021 REQUIREMENTS.md. No backlog promotion needed.
+None at v1022 roadmap-create. v1021 ended with zero pending todos; all 4 deferred items (Category 4.1 cascade + WR-02 footgun + WR-01/03/04 hygiene + CI-01 live-verify) are now in-scope as v1022 requirements.
 
 ### Blockers/Concerns
 
-None at v1021 start. **CI live-verification of `pytest-parallel-isolation`** (deferred from v1020 Phase 1089) still pending first post-merge run — independent operator action, does not block v1021 execution.
+None at v1022 roadmap-create. Phase 1094 spike has no pre-requisites — `/gsd:plan-phase 1094` can start immediately.
 
 ### Quick Tasks Completed
 
@@ -75,13 +86,17 @@ None at v1021 start. **CI live-verification of `pytest-parallel-isolation`** (de
 
 ## Session Continuity
 
-Last session: 2026-05-23T14:31:50.165Z
-Stopped at: v1021 ROADMAP.md created; ready for `/gsd:plan-phase 1091`
+Last session: 2026-05-23T23:50:00.000Z
+Stopped at: v1022 ROADMAP.md + STATE.md + REQUIREMENTS.md traceability created; ready for `/gsd:plan-phase 1094`
 Resume file: None
 
 ## Operator Next Steps
 
-- Roadmap pending — once approved, run `/gsd:discuss-phase [N]` or `/gsd:plan-phase [N]` for the first phase.
+- Roadmap created (4 phases 1094-1097, 5/5 requirements mapped, 0 orphans).
+- Next: `/gsd:plan-phase 1094` to start the Cascade Spike (architectural audit deliverable).
+- After Phase 1094 ships: `/gsd:plan-phase 1095` (Cascade Fix + WR-02 Closure — bundled PARA-01 fix + PARA-02).
+- After Phase 1095 ships: `/gsd:plan-phase 1096` (Hygiene Tail — HYG-01).
+- After Phase 1096 merges to `main`: `/gsd:plan-phase 1097` (Live-Verify + Close Gate — CI-01 + CLOSE-01).
 
 ## Deferred Items
 
@@ -89,7 +104,7 @@ v1022 inherits the following from v1021 close-state (in scope for v1022):
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| test-infra | Category 4.1 per-worker DB lifecycle parallel-mode cascade (`-n auto` 709/1020 distinct) | Active — PARA-01 | v1021 Phase 1093 |
-| test-infra | WR-02 blocking `time.sleep` in `_invoke_sleep_in_sync_context` footgun | Active — PARA-02 | v1021 Phase 1093 |
-| test-infra | Phase 1093 review findings WR-01..04 (engine-retry test pin coverage + edge cases) | Active — HYG-01 | v1021 Phase 1093 |
-| ci-live-verify | `pytest-parallel-isolation` gate first post-merge run | Active — CI-01 | v1020 Phase 1089 |
+| test-infra | Category 4.1 per-worker DB lifecycle parallel-mode cascade (`-n auto` 709/1020 distinct) | Active — PARA-01 (Phase 1094 spike + Phase 1095 fix) | v1021 Phase 1093 |
+| test-infra | WR-02 blocking `time.sleep` in `_invoke_sleep_in_sync_context` footgun | Active — PARA-02 (Phase 1095) | v1021 Phase 1093 |
+| test-infra | Phase 1093 review findings WR-01..04 (engine-retry test pin coverage + edge cases) | Active — HYG-01 (Phase 1096) | v1021 Phase 1093 |
+| ci-live-verify | `pytest-parallel-isolation` gate first post-merge run | Active — CI-01 (Phase 1097) | v1020 Phase 1089 |

@@ -72,17 +72,25 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PARA-01 | TBD | Pending |
-| PARA-02 | TBD | Pending |
-| HYG-01 | TBD | Pending |
-| CI-01 | TBD | Pending |
-| CLOSE-01 | TBD | Pending |
+| PARA-01 | Phase 1094 (spike) + Phase 1095 (fix) | Pending |
+| PARA-02 | Phase 1095 | Pending |
+| HYG-01 | Phase 1096 | Pending |
+| CI-01 | Phase 1097 | Pending |
+| CLOSE-01 | Phase 1097 | Pending |
 
 **Coverage:**
 - v1022 requirements: 5 total
-- Mapped to phases: 0 (roadmapper to fill)
-- Unmapped: 5 ⚠ (pre-roadmap state)
+- Mapped to phases: 5
+- Unmapped: 0
+
+**Phase distribution:**
+- Phase 1094 (Spike): PARA-01 spike deliverable (audit doc; no code-fix)
+- Phase 1095 (Cascade Fix + WR-02): PARA-01 fix + PARA-02 (bundled — share conftest.py block + must land atomically for the `-n auto` measurement gate)
+- Phase 1096 (Hygiene Tail): HYG-01 (WR-01/03/04 — lands after engine wrapper stabilized by Phase 1095)
+- Phase 1097 (Live-Verify + Close Gate): CI-01 + CLOSE-01 (gate verification + close + tag cut)
+
+**Note on PARA-01 split across Phase 1094 + 1095:** The spike deliverable (PARA-01 acceptance criterion (e), `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md`) lands in Phase 1094 BEFORE the fix. The actual code-fix + measurement gate (acceptance criteria (a)-(d)) lands in Phase 1095. REQUIREMENTS.md `[x]` flip happens at Phase 1095 close (when all acceptance criteria are satisfied), not at Phase 1094 close. Phase 1094 produces an audit-shape artifact only; its SUMMARY.md cites PARA-01 as "spike deliverable shipped; fix awaits Phase 1095".
 
 ---
 *Requirements defined: 2026-05-23*
-*Last updated: 2026-05-23 after initial definition*
+*Last updated: 2026-05-23 after roadmap creation (traceability section populated)*

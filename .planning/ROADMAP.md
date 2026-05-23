@@ -81,8 +81,72 @@
 - ✅ **v1019 Hygiene Tail — v1018 Frontend + xdist + Process** — Phases 1084-1086 (shipped 2026-05-22, local tag `v1019`, public tag `v1.5.4`) — see [archive](milestones/v1019-ROADMAP.md)
 - ✅ **v1020 Fixture Isolation** — Phases 1087-1090 (shipped 2026-05-22, local tag `v1020`, public tag `v1.5.5`) — see [archive](milestones/v1020-ROADMAP.md)
 - ✅ **v1021 Docker Rebuild Sweep + Engine-level Retry** — Phases 1091-1093 (shipped 2026-05-23, local tag `v1021`, public tag `v1.5.6`) — see [archive](milestones/v1021-ROADMAP.md)
+- 🚧 **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (planning, public tag target `v1.5.7`)
 
 ## Phases
+
+### 🚧 v1022 Parallel-Test Cascade Closure + Hygiene Tail (In Progress)
+
+**Milestone Goal:** Close v1021's three test-infra carry-forwards in a single hygiene-shape milestone — (1) Category 4.1 per-worker DB lifecycle parallel-mode cascade (`pytest -n auto` 709/1020 distinct `InvalidCatalogNameError` failures on Runs 3+4); (2) WR-02 blocking `time.sleep()` footgun in `_invoke_sleep_in_sync_context` (may compound Category 4.1 pressure by freezing the asyncio loop up to 7s); (3) WR-01/03/04 engine-retry envelope hygiene; plus the v1020-deferred operator action of `pytest-parallel-isolation` CI gate first post-merge live-verify. **Public tag target:** `v1.5.7` (SemVer patch — test-infra hygiene only; no API/schema/migrations).
+
+**HARD INVARIANT:** `failed == 0` in sequential mode is non-negotiable (v1019 TD-13 rule). Baselines: sequential **3055/0/38** + `-n 4` **3054/0/38** must be preserved across every phase.
+
+- [ ] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable)
+- [ ] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate)
+- [ ] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook)
+- [ ] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut)
+
+## Phase Details
+
+### Phase 1094: Cascade Spike
+**Goal**: Architectural audit produces `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` identifying the exact race surface in `_test_db_lifecycle:~661-674` and naming the chosen fix shape with line numbers BEFORE any code-fix lands. Also addresses whether WR-02 closure is a prerequisite for PARA-01's ≤30 threshold (the cascade-pressure hypothesis must be validated or ruled out, satisfying PARA-02 acceptance criterion (d) early).
+**Depends on**: Nothing (v1022's first phase — follows v1019/v1020/v1021 spike-first precedent)
+**Requirements**: PARA-01 (spike deliverable / acceptance criterion (e) only — the code-fix lands in Phase 1095)
+**Success Criteria** (what must be TRUE):
+  1. `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` (or equivalent) exists with frontmatter + 5 sections (root-cause hypothesis enumeration, reproduction recipe, line-numbered fix-shape proposal, WR-02-prerequisite analysis, regression-pin shape proposal)
+  2. Pre-fix `pytest -n auto` 3-run baseline measurement captured verbatim in the audit doc with stale-DB cleanup between runs (mirroring PYTEST-XDIST-PERF-v1020.md Section 1 Step 1b) — establishes the "before" number that Phase 1095's post-fix measurement compares against
+  3. The audit doc explicitly addresses the WR-02 cascade-pressure question: either (a) "WR-02 closure is a prerequisite for ≤30 threshold" with evidence, or (b) "WR-02 closure is independent and PARA-02 can sequence either before or alongside PARA-01" with evidence. Silent deferral is NOT acceptable.
+  4. The chosen fix shape is specified with exact `backend/tests/conftest.py` line numbers and a one-paragraph rationale rejecting at least 2 alternative shapes (matches v1021 Phase 1091 spike + Phase 1093 audit-doc rigor)
+  5. Sequential pytest baseline preserved at `3055 passed / 0 NEW failed / 38 skipped` (no code changes in this phase — audit-shape only; baseline preservation is a stay-green check)
+**Plans**: TBD (likely 1-2 plans — spike measurement + audit doc; matches v1019 Phase 1085 / v1020 Phase 1087 / v1021 Phase 1091 plan-counts)
+
+### Phase 1095: Cascade Fix + WR-02 Closure
+**Goal**: Land the PARA-01 fix at the line(s) named in Phase 1094's audit doc + close PARA-02's WR-02 footgun. Bundled because (a) both surfaces live in the same `backend/tests/conftest.py` block (`_test_db_lifecycle` + `_invoke_sleep_in_sync_context` + `_install_dbapi_connect_retry` are adjacent lines ~615-674); (b) the `-n auto` measurement gate (PARA-01 acceptance criterion (a)) must be re-run AFTER both changes land — splitting them across phases would double the gate cost and obscure which change moved the threshold; (c) PARA-02's cascade-pressure hypothesis (acceptance criterion (d)) is most cleanly validated/refuted by measuring with both fixes in place. **Rationale for departing from one-req-per-phase:** test-infra atomicity > requirement-per-phase granularity when the surfaces share a file and a measurement gate.
+**Depends on**: Phase 1094 (spike audit doc names the fix shape; PARA-02 hypothesis disposition informs whether PARA-02 can sequence first/concurrent or must wait for PARA-01)
+**Requirements**: PARA-01 (fix — acceptance criteria (a)/(b)/(c)/(d); the `[x]` flip happens at this phase's close because all 5 PARA-01 criteria are now satisfied) + PARA-02 (full closure — all 4 acceptance criteria including the regression pin for `_invoke_sleep_in_sync_context`)
+**Success Criteria** (what must be TRUE):
+  1. `cd backend && uv run pytest -n auto tests/` produces ≤30 distinct failures (`failed + errors`) per run across 3 consecutive runs with stale-DB cleanup between runs (PARA-01 acceptance criterion (a); satisfies the audit-grade "Run 3 BREACHED" failure from v1021 Phase 1093-02 findings doc)
+  2. Sequential pytest baseline preserved at `3055 passed / 0 NEW failed / 38 skipped` (HARD INVARIANT — v1019 TD-13); `-n 4` baseline preserved at `3054 passed / 0 NEW failed / 38 skipped` (PARA-01 acceptance criteria (b)+(c))
+  3. At least one regression pin in `backend/tests/test_fixture_isolation_v1020.py` (or new `test_per_worker_db_lifecycle_v1022.py`) covers the per-worker DB lifecycle retry shape under the same `InvalidCatalogNameError` injection model v1020 uses (PARA-01 acceptance criterion (d))
+  4. `_invoke_sleep_in_sync_context` either yields non-blockingly (via `asyncio.run_in_executor` / `anyio.sleep` / equivalent) OR carries a load-bearing inline-commented rationale + documented mitigation (PARA-02 acceptance criterion (a)); a new regression pin asserts the asyncio loop continues scheduling other tasks during retry-backoff window (PARA-02 acceptance criterion (b))
+  5. All 4 existing `test_engine_retry_*` pins continue passing (PARA-02 acceptance criterion (c)); REQUIREMENTS.md `[ ]` → `[x]` flip + `Pending` → `Complete` lands in the SAME commit as SUMMARY.md per v1019 TD-13 `requirements_traceability_flip` rule
+**Plans**: TBD (likely 2-3 plans — PARA-01 fix wave + PARA-02 fix wave + atomic-close + measurement-gate wave; v1021 Phase 1093 ran 2 sequential plans for a similar architectural item)
+
+### Phase 1096: Hygiene Tail
+**Goal**: Retire the three remaining Phase 1093 review findings (WR-01 pin coverage for the `do_connect` event handler retry path + WR-03 bare-except narrowing in `_install_dbapi_connect_retry` + WR-04 listener teardown removal hook). All three target the engine wrapper code that Phase 1095 stabilizes — landing AFTER Phase 1095 ensures the test pins target the post-fix engine state (not the pre-fix state) and avoids re-writing pins mid-milestone.
+**Depends on**: Phase 1095 (engine wrapper stabilized; new pins target the post-fix `_install_dbapi_connect_retry` shape, not the pre-fix shape)
+**Requirements**: HYG-01 (all 3 sub-items: WR-01 + WR-03 + WR-04)
+**Success Criteria** (what must be TRUE):
+  1. A new regression pin (suggested name `test_engine_retry_do_connect_event_handler_retries_on_transient_error`) in `backend/tests/test_fixture_isolation_v1020.py` exercises the load-bearing `do_connect` event handler retry path (WR-01 closure; the 4 existing `test_engine_retry_*` pins cover the wrapper-method path but NOT the event-handler path that the v1021 -91% measurement validates)
+  2. The `except Exception: pass` block in `_install_dbapi_connect_retry` is either narrowed to a specific SQLAlchemy event-API exception class OR replaced with loud-fail (raise) so future SQLAlchemy event-API changes are visible (WR-03 closure; matches v1020 audit Section 4.1 anti-pattern condemnation)
+  3. A teardown removal call for the `do_connect` listener exists (candidate: `event.remove(sync_engine, "do_connect", <handler>)` in `_RetryingAsyncEngine.dispose()` override or pytest fixture finalizer) so a future refactor wrapping a shared engine multiple times does not stack listeners (WR-04 closure)
+  4. The 4 existing `test_engine_retry_*` pins + `test_xdist_engine_uses_nullpool` + `test_sequential_engine_uses_queuepool` continue passing — the v1021 wrapper invariants (`.pool` accessor via `@property` delegation + `_TRANSIENT_CONTENTION_EXCEPTIONS` single-definition at line 352 + `_SETUP_PHASE_RETRY_BACKOFFS` single-definition at line 333) must hold (HYG-01 acceptance criterion (b))
+  5. Sequential / `-n 4` / `-n auto` baselines preserved vs Phase 1095 post-fix state — zero NEW failures attributable to HYG-01 (HYG-01 acceptance criterion (c))
+**Plans**: TBD (likely 1 plan — three small surgical changes within `backend/tests/conftest.py` + `backend/tests/test_fixture_isolation_v1020.py`; tight enough scope to bundle)
+
+### Phase 1097: Live-Verify + Close Gate
+**Goal**: Operator runs `gh run watch` for the first post-v1022-merge `pytest-parallel-isolation` CI gate firing to verify it lands green on real GitHub Actions infrastructure (closes the v1020 Phase 1089 deferred operator action). Then close gate: sequential baseline re-confirmed + `-n 4` baseline re-confirmed + `-n auto` 3-run measurement table re-confirmed + CHANGELOG `[1.5.7]` written with per-requirement evidence + tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA. Must land LAST because CI-01 can only verify post-merge of PARA-01/PARA-02/HYG-01.
+**Depends on**: Phase 1096 (HYG-01 must be merged so the CI gate's first firing covers the complete post-v1022 engine-wrapper + per-worker-lifecycle code; verifying with HYG-01 still in flight would not validate the milestone-tip state)
+**Requirements**: CI-01 (post-merge live-verify of `pytest-parallel-isolation` gate) + CLOSE-01 (close-gate + tag cut)
+**Success Criteria** (what must be TRUE):
+  1. After v1022 merges to `main`, operator-captured `gh run list --workflow=ci.yml --limit=1 --json databaseId,status` + `gh run watch <run_id>` output is quoted verbatim in CLOSE-GATE.md showing the `pytest-parallel-isolation` job completing green (CI-01 acceptance criteria (a)+(b)); if the gate fails on first live run, the failure is fed back into a PARA-01 iteration commit BEFORE close (CI-01 acceptance criterion (c))
+  2. CLOSE-GATE.md quotes the sequential pytest result verbatim showing `3055 passed / 0 NEW failed / 38 skipped` with an explicit pre-existing-OOS table (`test_layering` + `test_phase_275` + `test_ssrf_redirect` may remain failing) (CLOSE-01 acceptance criterion (a))
+  3. CLOSE-GATE.md quotes the `-n 4` result verbatim showing `3054 passed / 0 NEW failed / 38 skipped` with an explicit OOS table + the `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (CLOSE-01 acceptance criteria (b)+(c))
+  4. Live docker stack health spot-check passes: `docker compose ps` shows 5 services healthy + `curl http://localhost:8080/api/health/` returns 200 (CLOSE-01 acceptance criterion (d))
+  5. `CHANGELOG.md` `[1.5.7]` block lists PARA-01, PARA-02, HYG-01, CI-01 closures with the test pin names + line numbers + the CI-01 live-verify run-watch log embedded; tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA and recorded in `.planning/MILESTONES.md` (CLOSE-01 acceptance criteria (e)+(f)+(g))
+**Plans**: TBD (likely 2 plans — Plan 01: post-merge CI live-verify capture; Plan 02: close-gate doc + CHANGELOG + tag cut)
+
+---
 
 ### v1021 Docker Rebuild Sweep + Engine-level Retry (Shipped 2026-05-23)
 
@@ -107,6 +171,15 @@
 ✅ Complete — see [archive](milestones/v1018-ROADMAP.md). All 4 phases (1080-1083) and 8 requirements satisfied. Local tag `v1018` + public tag `v1.5.3` at `d1b76061`. Closed the 8 v1017-deferred tech-debt items: TD-01 broad-except justification at `tasks_common.py:232,238` + WR-01 line-1030 bonus + macOS `\s` portability fix; TD-07 `database_connect_args` `ssl=False` on disable branch + 3-case unit-test pin + WR-02 dead-test repair; TD-02/TD-03 SEC-S16 password fixture update; TD-05 SSRF re-validation mock; TD-06 async loop contamination fix via `client` fixture; TD-04 ogrinfo CLI mock-out at caller-namespace. Pytest 3025/0/38 sequential, frontend 2105/2105 + 25/1 e2e, live MCP 5/5 surfaces green. Zero deferrals to v1019.
 
 ---
+
+## Progress
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1094. Cascade Spike | v1022 | 0/TBD | Not started | - |
+| 1095. Cascade Fix + WR-02 Closure | v1022 | 0/TBD | Not started | - |
+| 1096. Hygiene Tail | v1022 | 0/TBD | Not started | - |
+| 1097. Live-Verify + Close Gate | v1022 | 0/TBD | Not started | - |
 
 ## Backlog
 
