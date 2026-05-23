@@ -67,9 +67,9 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGEST-01 | TBD | Pending |
-| OPS-01 | TBD | Pending |
-| ROUTE-01 | TBD | Pending |
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| TEST-01 | TBD | Pending |
+| INGEST-01 | Phase 1091 | Pending |
+| OPS-01 | Phase 1091 | Pending |
+| ROUTE-01 | Phase 1092 | Pending |
+| INFRA-01 | Phase 1092 | Pending |
+| INFRA-02 | Phase 1092 | Pending |
+| TEST-01 | Phase 1093 | Pending |
