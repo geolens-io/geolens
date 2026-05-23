@@ -11,6 +11,52 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+_Target: v1.5.6 (v1021 milestone — Docker Rebuild Sweep + Engine-level Retry)_
+
+### Ingestion (v1021 milestone — Phase 1091)
+
+- **INGEST-01**: Fixed `urban_areas_landscan_10m` quicklook generation
+  failure (`MissingGreenlet: greenlet_spawn has not been called`) in
+  `app/processing/ingest/tasks_common.py`. The quicklook block now uses a
+  fresh `_job_phase_session("quicklook")` to avoid the async-context
+  boundary crossing on the timeout path. Live docker-rebuild + canonical
+  seed verified 109/109 datasets with `quicklook_256_uri` populated and
+  0 failed jobs.
+
+- **OPS-01**: Added post-loop reconciliation to
+  `scripts/seed-natural-earth.py`. The seed script now `GET /api/admin/jobs/?status=failed`
+  after the polling loop completes and surfaces any failed jobs in the
+  Import Summary block (filtered by run start_time window). Closes the
+  seed-script success-count vs persisted-job-row disagreement that masked
+  the INGEST-01 failure under a green summary.
+
+### Routing (v1021 milestone — Phase 1092)
+
+- **ROUTE-01**: Stopped the 307 trailing-slash redirect from leaking
+  `http://api:8000` in the `Location` header. `redirect_slashes=False` at
+  the FastAPI app level (`backend/app/api/main.py:443-469`); dual-shape
+  decorators register both `/api/collections/` + `/api/collections` and
+  `/api/auth/login/` + `/api/auth/login` directly against the same handler
+  (extends the Phase 280 `catalog/maps/router.py` precedent to two more
+  surfaces). Vite dev-proxy adds a `proxyRes` `Location`-header rewrite as
+  defense-in-depth (`frontend/vite.config.ts:90-100`). MEMORY.md
+  trailing-slash bullet refreshed to reflect the post-fix invariant.
+
+### Infrastructure (v1021 milestone — Phase 1092)
+
+- **INFRA-01**: Eliminated the double `alembic upgrade head` invocation in
+  the `migrate` service. The migrate service now declares an explicit
+  `entrypoint: []` in `docker-compose.yml` so it does not inherit the
+  `api-entrypoint.sh` safety-net (which still runs for the `api` + `worker`
+  services on cold start).
+
+- **INFRA-02** (ACCEPT): Formally accepted the `db` image's
+  `--platform=linux/amd64` pin on `db/Dockerfile:1`. Inline comment block
+  explains the pgvector 0.8.2 build reproducibility rationale and carries
+  a TODO marker for the future multi-arch path. Build warnings
+  (`FromPlatformFlagConstDisallowed` + Apple Silicon platform mismatch)
+  are now expected behavior pinned by the comment.
+
 ## [1.5.5] - 2026-05-22
 
 ### Test infrastructure (v1020 milestone — Phases 1087-1090)
