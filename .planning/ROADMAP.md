@@ -49,7 +49,7 @@
   5. Sequential pytest baseline `3047/0/38` preserved at phase close (HARD INVARIANT — non-negotiable per v1020 close-gate).
 **Plans:** 3 plans
 - [x] 1092-01-PLAN.md — ROUTE-01 hybrid fix (redirect_slashes=False + dual-shape registration + Vite Location rewrite + MEMORY.md refresh)
-- [ ] 1092-02-PLAN.md — INFRA-01 migrate service alembic-upgrade dedup (entrypoint override)
+- [x] 1092-02-PLAN.md — INFRA-01 migrate service alembic-upgrade dedup (entrypoint override)
 - [ ] 1092-03-PLAN.md — INFRA-02 ACCEPT + CHANGELOG + Phase 1092 close
 
 ### Phase 1093: Engine-level Retry Envelope
