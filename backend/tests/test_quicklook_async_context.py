@@ -3,17 +3,17 @@
 Pins the bug shape audited in
 ``.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md``: the same
 ``AsyncSession`` was reused across the ``asyncio.wait_for`` cancellation
-boundary at ``tasks_common.py:826``. When the 10s quicklook timeout
-fires on pathologically-shaped geometry (the live trigger was
+boundary in ``tasks_common._generate_quicklook``. When the 10s quicklook
+timeout fires on pathologically-shaped geometry (the live trigger was
 ``urban_areas_landscan_10m`` — 6018 multipolygons), the cancellation
 poisoned the asyncpg cursor. The defensive ``session.rollback()`` inside
 ``_generate_quicklook`` then expired every ORM attribute (because
 ``expire_on_rollback`` defaults to True even though ``expire_on_commit``
-is False at session.py:26). The bug detonated two function calls later
-at ``helpers.py:123`` when ``defer_embedding`` accessed
-``dataset.record.id`` and triggered a lazy-refresh against the still-
-poisoned greenlet bridge → ``MissingGreenlet`` escaped to the outer
-``except`` and the job row got ``status=failed``.
+is False at ``app/core/db/session.py``). The bug detonated two function
+calls later in ``defer_embedding`` when ``dataset.record.id`` was
+accessed and triggered a lazy-refresh against the still-poisoned
+greenlet bridge → ``MissingGreenlet`` escaped to the outer ``except``
+and the job row got ``status=failed``.
 
 Shape A fix (Plan 1091-02): wrap the quicklook block in its own
 ``_job_phase_session(job_uuid, phase="quicklook")`` so the cancellation
@@ -79,6 +79,50 @@ from tests.factories import get_user_id
 # ---------------------------------------------------------------------------
 # Helpers — shared between the three tests
 # ---------------------------------------------------------------------------
+
+
+def _force_quicklook_timeout(monkeypatch, timeout: float = 0.001) -> None:
+    """Force ``generate_vector_quicklook_with_timeout`` to use a tiny timeout.
+
+    CR-01 fix: ``_GENERATION_TIMEOUT_SECONDS`` is read once at function-
+    definition time as a default keyword-argument value (captured into
+    ``generate_vector_quicklook_with_timeout.__defaults__``). Mutating the
+    module attribute after import does NOT change ``__defaults__`` — the
+    function continues to use its captured 10s default. So the prior
+    ``monkeypatch.setattr(quicklook_module, "_GENERATION_TIMEOUT_SECONDS",
+    0.001)`` was a literal no-op and the tests silently exercised the
+    happy path instead of the cancellation/recovery path they claim to
+    pin.
+
+    Replace the wrapper itself with a closure that forwards everything to
+    the real wrapper while pinning ``timeout`` to the tiny value. This
+    way every call site that does ``await
+    generate_vector_quicklook_with_timeout(...)`` — including the
+    ``from ... import ...`` re-export inside ``_generate_quicklook`` —
+    routes through the override and the cancellation path is actually
+    exercised.
+
+    Verify by temporarily commenting out the iter-2 rollback recovery at
+    ``tasks_common.py`` (the ``await session.rollback()`` between upload
+    and URI write) and re-running the three tests that call this helper:
+    at least ``test_generate_quicklook_url_persists_after_geom_timeout``
+    must FAIL. If it still passes, the test setup is not exercising the
+    recovery path.
+    """
+    real_wrapper = quicklook_module.generate_vector_quicklook_with_timeout
+
+    async def _fast_timeout_wrapper(
+        db, table_name, geometry_type, size=256, timeout_override=timeout
+    ):
+        return await real_wrapper(
+            db, table_name, geometry_type, size, timeout=timeout_override
+        )
+
+    monkeypatch.setattr(
+        quicklook_module,
+        "generate_vector_quicklook_with_timeout",
+        _fast_timeout_wrapper,
+    )
 
 
 async def _create_test_dataset_with_table(
@@ -218,8 +262,11 @@ async def test_generate_quicklook_timeout_does_not_poison_outer_session(
     job_id = await _create_pending_job(session, admin_id)
 
     # Tiny timeout → cancellation fires synchronously the first time
-    # quicklook.py:163 awaits a DB execute.
-    monkeypatch.setattr(quicklook_module, "_GENERATION_TIMEOUT_SECONDS", 0.001)
+    # the quicklook generator awaits a DB execute. CR-01 fix:
+    # monkeypatching ``_GENERATION_TIMEOUT_SECONDS`` is a no-op because
+    # the wrapper captures it as a function default; override the
+    # wrapper itself instead.
+    _force_quicklook_timeout(monkeypatch)
 
     try:
         # Post-fix shape: open a fresh session for the quicklook block. This
@@ -375,8 +422,10 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
 
     # Force timeout cancellation on every quicklook generation in the
     # test — this exercises the poisoned-cursor recovery path that the
-    # iter-2 rollback closes.
-    monkeypatch.setattr(quicklook_module, "_GENERATION_TIMEOUT_SECONDS", 0.001)
+    # iter-2 rollback closes. See ``_force_quicklook_timeout`` docstring
+    # for why mutating ``_GENERATION_TIMEOUT_SECONDS`` directly does
+    # not work (CR-01).
+    _force_quicklook_timeout(monkeypatch)
 
     try:
         # Use the production-shape call: fresh session for the quicklook
@@ -452,7 +501,11 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
     )
     job_id = await _create_pending_job(session, admin_id)
 
-    monkeypatch.setattr(quicklook_module, "_GENERATION_TIMEOUT_SECONDS", 0.001)
+    # CR-01 fix: monkeypatch the wrapper directly. Mutating the module's
+    # ``_GENERATION_TIMEOUT_SECONDS`` constant has no effect because the
+    # wrapper's ``timeout`` parameter default is captured at function-
+    # definition time. See ``_force_quicklook_timeout`` docstring.
+    _force_quicklook_timeout(monkeypatch)
 
     try:
         with caplog.at_level("WARNING"):
