@@ -187,6 +187,48 @@ class TestRedirectSlashesNoLeak:
             f"in-container hostname leak: {location!r}"
         )
 
+    async def test_collections_datasets_slash_returns_404_not_307(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """WR-03 (Phase 1092): pin the new 404 contract for the with-slash
+        form of ``/collections/datasets``.
+
+        Pre-Phase 1092 this returned 307 with the
+        ``Location: http://api:8000/...`` leak. With redirect_slashes=False
+        at the app level the OGC catalog endpoint is registered as
+        ``/collections/datasets`` (no trailing slash) by design — see the
+        MEMORY.md ``project_v1013_post_smoke_fixes`` rationale — and the
+        with-slash form is now an unregistered surface that 404s.
+
+        Pinning the 404 contract here makes the narrowing explicit and
+        intentional. The MEMORY guidance that previously warned "do NOT
+        add a slash alias (causes 307 → api:8000 leak)" still holds, but
+        the failure mode has shifted from "leak through 307" to "404 with
+        no leak". This test guards both shapes — if someone re-introduces
+        a ``@collections_router.get("/datasets/", ...)`` alias it'll go
+        back to whatever shape that decorator produces (most likely 200
+        with duplicate handler, which would silently shadow OGC semantics
+        — also a failure but caught by other suites).
+        """
+        resp = await client.get(
+            "/collections/datasets/", follow_redirects=False
+        )
+
+        assert resp.status_code == 404, (
+            f"OGC exception contract narrowing: with-slash form must 404 "
+            f"(was 307+leak pre-Phase 1092); got {resp.status_code}; "
+            f"location={resp.headers.get('location')!r}"
+        )
+        # Even on the 404 path the no-leak invariant must hold —
+        # FastAPI's default 404 has no Location header but a future
+        # change that surfaces a Location here would re-introduce the
+        # ROUTE-01 vulnerability shape.
+        location = resp.headers.get("location", "")
+        assert "api:8000" not in location and "://api/" not in location, (
+            f"in-container hostname leak on 404 path: {location!r}"
+        )
+
 
 class TestAllTrailingSlashRoutesAcceptBothShapes:
     """ROUTE-01 broad enumeration (Phase 1092 / CR-01 sweep): every route
