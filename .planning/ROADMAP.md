@@ -32,7 +32,10 @@
   3. A regression test in `backend/tests/test_quicklook_async_context.py` (or equivalent) reproduces the original `MissingGreenlet: greenlet_spawn has not been called` shape under the pre-fix code path and passes under the fix (acceptance criterion (c) from INGEST-01); node-ID pinned in REQUIREMENTS.md traceability table per TD-13 `req_citation_pinning` rule.
   4. A short spike deliverable (`.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` or inline in `1091-01-SUMMARY.md`) identifies the exact line(s) in `app/processing/ingest/tasks_common.py` that cross the async-context boundary BEFORE the fix lands — spike-first per v1019/v1020 pattern.
   5. When INGEST-01 is regression-pinned by re-introducing the bug, `scripts/seed-natural-earth.py` exits non-zero AND prints a failed-job table with `source_filename`, `dataset_id`, and `error_message` (acceptance criterion (a) from OPS-01); when no failures exist, the script preserves its current exit-zero + green-summary behavior (acceptance criterion (b)); reconciliation logic is covered by unit test or integration test that stubs `/api/admin/jobs/` (acceptance criterion (c)).
-**Plans:** TBD
+**Plans:** 3 plans
+- [ ] 1091-01-PLAN.md — Spike: locate the MissingGreenlet async-context boundary (audit doc, no code edits)
+- [ ] 1091-02-PLAN.md — Apply the audit-proposed fix to tasks_common.py + regression test + live docker-rebuild verification
+- [ ] 1091-03-PLAN.md — OPS-01 reconciliation in seed-natural-earth.py + 4 unit tests + phase close
 
 ### Phase 1092: Routing + Infra Hygiene
 **Goal:** A reader of `MEMORY.md` can see one consistent rule for trailing-slash behavior across all `/api/*` routes (no internal-hostname leak in any 307 `Location` header), and an operator running `docker compose down -v && up -d --build` sees exactly one alembic upgrade block in `migrate` logs plus a documented (no longer surprising) `--platform=linux/amd64` warning on the `db` image.
