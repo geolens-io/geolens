@@ -522,27 +522,63 @@ async def test_generate_quicklook_url_persists_after_geom_timeout(
         assert dataset.quicklook_256_uri is not None
         assert dataset.quicklook_256_uri.endswith("quicklook_256.png")
 
-        # No `phase=commit` warning should have fired. structlog routes
-        # through the stdlib logger; the warning shape from
-        # `_generate_quicklook` includes the substring "quicklook_failed"
-        # AND "phase=commit" in the rendered record. We assert the
-        # composite shape so a future log refactor that drops one
-        # substring but keeps the other does not silently un-pin this
-        # regression.
-        rendered = "\n".join(record.getMessage() for record in caplog.records)
-        assert "phase='commit'" not in rendered and "phase=commit" not in rendered, (
+        # WR-02 (post-1091 review): assert on `record.msg` as a DICT, not as
+        # a string. The prior `phase='commit' not in rendered` and
+        # `phase=commit not in rendered` substring checks were dead
+        # assertions: structlog's BoundLogger with `stdlib.LoggerFactory()`
+        # passes the kwarg dict directly as `record.msg`, and
+        # `LogRecord.getMessage()` renders that dict via Python's __str__,
+        # which produces `{'phase': 'commit', ...}` — i.e. the actual
+        # separator is `: ` with single-quoted values. Neither
+        # `phase='commit'` (equals sign, quoted) nor `phase=commit` (equals
+        # sign, unquoted) was a substring of that representation, so the
+        # negated assertion was trivially satisfied regardless of whether
+        # the warning fired. Inspect the dict directly instead.
+        def _is_quicklook_failed(rec, *, phase: str) -> bool:
+            msg = rec.msg
+            if not isinstance(msg, dict):
+                return False
+            return (
+                msg.get("event") == "quicklook_failed"
+                and msg.get("phase") == phase
+            )
+
+        commit_phase_records = [
+            r for r in caplog.records if _is_quicklook_failed(r, phase="commit")
+        ]
+        assert commit_phase_records == [], (
             "iter-2 recovery rollback regressed: phase=commit warning fired "
-            "on the timeout path. Logged records:\n" + rendered
+            "on the timeout path. Logged dicts:\n"
+            + "\n".join(repr(r.msg) for r in caplog.records)
         )
         # phase=generate is also unexpected here (the wrapper catches
         # asyncio.TimeoutError and returns blank canvas bytes — no
         # exception escapes to _generate_quicklook's generate-block
         # try/except).
-        assert "phase='generate'" not in rendered and "phase=generate" not in rendered, (
+        generate_phase_records = [
+            r for r in caplog.records if _is_quicklook_failed(r, phase="generate")
+        ]
+        assert generate_phase_records == [], (
             "unexpected phase=generate warning on the timeout path — "
             "the wrapper should catch asyncio.TimeoutError and return "
-            "blank canvas bytes without raising. Logged records:\n"
-            + rendered
+            "blank canvas bytes without raising. Logged dicts:\n"
+            + "\n".join(repr(r.msg) for r in caplog.records)
+        )
+        # WR-01 (post-1091 review): the recovery rollback + merge are now
+        # wrapped in their own try/except. A `phase=recovery` warning on
+        # the clean timeout path would indicate the rollback() itself
+        # raised — that should not happen when the connection survives
+        # the cancellation (the typical test shape). Pin it negatively so
+        # a future regression in recovery semantics (e.g., a stray IO call
+        # ordered before the rollback) surfaces here.
+        recovery_phase_records = [
+            r for r in caplog.records if _is_quicklook_failed(r, phase="recovery")
+        ]
+        assert recovery_phase_records == [], (
+            "unexpected phase=recovery warning on the timeout path — "
+            "the iter-2 rollback should succeed on the in-test cancellation "
+            "shape. Logged dicts:\n"
+            + "\n".join(repr(r.msg) for r in caplog.records)
         )
     finally:
         await _drop_test_table(session, table_name)
