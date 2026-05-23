@@ -458,13 +458,31 @@ app = FastAPI(
         "url": "https://github.com/geolens-io/geolens",
     },
     terms_of_service="https://github.com/geolens-io/geolens/blob/main/LICENSE",
-    # ROUTE-01 (Phase 1092): redirect_slashes=False — trailing-slash callers
-    # no longer trigger a 307 with Location: http://api:8000/... See
-    # .planning/phases/1092-routing-infra-hygiene/1092-CONTEXT.md for the
-    # (c) hybrid rationale. Routes that need both shapes register them via
-    # stacked decorators (auth/router.py login, search/router.py
-    # list_collections, catalog/maps/router.py Phase 280 precedent).
+    # === Routing config ===
+    # ROUTE-01 (Phase 1092): redirect_slashes=False at the app level.
+    #
+    # Security: with redirect_slashes=True (the default), trailing-slash
+    # callers receive a 307 whose Location header carries the relative URL
+    # of the canonical form. Behind docker-compose the request Host
+    # resolves to the in-container ``api:8000`` hostname, leaking that
+    # internal name to external curl / SDK callers.
+    #
+    # All trailing-slash-only routes register a no-slash alias via
+    # stacked decorators (see backend/app/modules/auth/router.py,
+    # settings/router.py, admin/router.py, etc. — every router under
+    # backend/app/modules/ that uses the trailing-slash form). The
+    # canonical decorator stays in OpenAPI; the alias is hidden via
+    # ``include_in_schema=False``. This means BOTH URL shapes resolve to
+    # the same handler with the same status code, and no Location header
+    # is ever produced for the routing dispatch.
+    #
+    # See .planning/phases/1092-routing-infra-hygiene/1092-CONTEXT.md for
+    # the (c) hybrid rationale. The Phase 280 catalog/maps/router.py
+    # precedent (v13.14-followup `32d1d2e7`) established the stacked-
+    # decorator pattern this app-level flag now relies on across all
+    # affected routes.
     redirect_slashes=False,
+    # === End routing config ===
     lifespan=lifespan,
 )
 
