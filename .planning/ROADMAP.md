@@ -33,8 +33,8 @@
   4. A short spike deliverable (`.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` or inline in `1091-01-SUMMARY.md`) identifies the exact line(s) in `app/processing/ingest/tasks_common.py` that cross the async-context boundary BEFORE the fix lands — spike-first per v1019/v1020 pattern.
   5. When INGEST-01 is regression-pinned by re-introducing the bug, `scripts/seed-natural-earth.py` exits non-zero AND prints a failed-job table with `source_filename`, `dataset_id`, and `error_message` (acceptance criterion (a) from OPS-01); when no failures exist, the script preserves its current exit-zero + green-summary behavior (acceptance criterion (b)); reconciliation logic is covered by unit test or integration test that stubs `/api/admin/jobs/` (acceptance criterion (c)).
 **Plans:** 3 plans
-- [ ] 1091-01-PLAN.md — Spike: locate the MissingGreenlet async-context boundary (audit doc, no code edits)
-- [ ] 1091-02-PLAN.md — Apply the audit-proposed fix to tasks_common.py + regression test + live docker-rebuild verification
+- [x] 1091-01-PLAN.md — Spike: locate the MissingGreenlet async-context boundary (audit doc, no code edits)
+- [x] 1091-02-PLAN.md — Apply the audit-proposed fix to tasks_common.py + regression test + live docker-rebuild verification
 - [ ] 1091-03-PLAN.md — OPS-01 reconciliation in seed-natural-earth.py + 4 unit tests + phase close
 
 ### Phase 1092: Routing + Infra Hygiene
@@ -67,7 +67,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1091. Ingest Correctness Sweep | 0/TBD | Not started | - |
+| 1091. Ingest Correctness Sweep | 2/3 | In progress | - |
 | 1092. Routing + Infra Hygiene | 0/TBD | Not started | - |
 | 1093. Engine-level Retry Envelope | 0/TBD | Not started | - |
 

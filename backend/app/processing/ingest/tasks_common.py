@@ -205,8 +205,8 @@ async def _job_phase_session(
     **Enforces the #100 greenlet rule** by keeping the SQLAlchemy session
     lifetime scoped to the ``async with`` block. Long-running CPU /
     asyncio subprocess work MUST happen OUTSIDE this block, never inside
-    — see ``.planning/debug/worker-missing-greenlet-100.md`` and the
-    docstrings on ``ingest_file`` / ``ingest_raster``.
+    — see ``.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md``
+    and the docstrings on ``ingest_file`` / ``ingest_raster``.
 
     The ``phase`` keyword (``"phase1"``, ``"phase2"``, ``"progress_write"``,
     etc.) is included in the missing-row warning so operators can tell
@@ -629,10 +629,69 @@ async def _generate_quicklook(
 ) -> None:
     """Generate and upload a vector quicklook thumbnail (non-fatal).
 
-    Runs after commit so a connection-killing query (OOM, timeout on
-    complex geometry) cannot roll back the dataset. The inner try/except
-    splits "generation/upload failed" from "commit failed" so operators
-    can tell which phase died when reading logs.
+    Runs after the outer ingest commit so a connection-killing query
+    (OOM, timeout on complex geometry) cannot roll back the dataset.
+    The inner try/except splits "generation/upload failed" from
+    "commit failed" so operators can tell which phase died when
+    reading logs.
+
+    INGEST-01 / Phase 1091-02: the caller MUST pass a FRESH session
+    isolated from the outer ``_finalize_ingest`` session (use
+    ``_job_phase_session(job_uuid, phase="quicklook")``). The
+    ``asyncio.wait_for`` timeout in ``generate_vector_quicklook_with_timeout``
+    cancels the inner ``await db.execute`` mid-flight on pathological
+    geometry shapes (6018-multipolygon ``urban_areas_landscan_10m`` was
+    the live trigger). The cancellation poisons the asyncpg cursor,
+    and the defensive ``session.rollback()`` below expires every loaded
+    ORM attribute (``expire_on_rollback`` defaults to True). If this
+    rollback fires on the same session that holds the outer
+    ``dataset.record`` relationship, the next access (e.g.,
+    ``defer_embedding`` at helpers.py:123) trips ``MissingGreenlet``
+    on the lazy-refresh. Passing a fresh session keeps that surface
+    isolated. See
+    ``.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md``.
+
+    Internal phase ordering (INGEST-01 iter-2):
+
+    1. **Generate phase:** call ``generate_vector_quicklook_with_timeout``
+       AND upload the resulting bytes to storage. This phase reads from
+       ``session`` (the bounds + geom queries inside
+       ``quicklook.generate_vector_quicklook``); ``asyncio.wait_for``
+       inside the wrapper may cancel the geom query mid-flight on
+       pathological geometry, leaving the asyncpg cursor in an
+       invalid-transaction state ("Can't reconnect until invalid
+       transaction is rolled back" — sqlalchemy.org/e/20/8s2b). The
+       wrapper catches the ``asyncio.TimeoutError`` and returns
+       ``_blank_canvas(size)`` bytes per quicklook.py:235-236, so the
+       upload still succeeds.
+
+    2. **Recovery rollback:** ``await session.rollback()`` AFTER the
+       upload AND BEFORE the URI write. This is a no-op on the clean
+       path (no open transaction) and is the documented recovery for
+       the poisoned-cursor state on the timeout path. Without this
+       step, the subsequent ``session.commit()`` for the URI write
+       fails with the "Can't reconnect" error and the URI is never
+       persisted (INGEST-01 iter-1 live verification gap: blank canvas
+       uploaded to storage but ``quicklook_256_uri`` stayed NULL on
+       ``urban_areas_landscan_10m`` because the cursor was still
+       poisoned at commit time).
+
+    3. **URI write:** re-``merge`` the dataset (the pre-generation
+       merge entry was discarded by the rollback in step 2) and set
+       ``merged_dataset.quicklook_256_uri = ql_key`` so the write
+       lands in the fresh session's identity-map entry.
+
+    4. **Commit phase:** ``await session.commit()`` persists the URI.
+       The defensive try/except handles any residual commit failure
+       (e.g., DB pool drop, deadlock) — log a phase=commit warning
+       and rollback. The dataset row itself is already committed by
+       the outer ``_finalize_ingest:822`` so a failed quicklook
+       commit only loses the URI breadcrumb.
+
+    The outer session's view of the dataset is stale w.r.t.
+    ``quicklook_256_uri`` after this returns — callers that need the
+    URI must ``session.refresh(dataset)`` on the outer session, or
+    re-fetch via ``port.get_dataset``.
     """
     import io as _io
 
@@ -648,7 +707,6 @@ async def _generate_quicklook(
         ql_storage = get_storage()
         ql_key = f"vectors/{dataset.id}/quicklook_256.png"
         await ql_storage.put(ql_key, _io.BytesIO(ql_bytes))
-        dataset.quicklook_256_uri = ql_key
     except Exception as _ql_exc:  # broad: quicklook generation is non-fatal; geometry rendering can OOM/timeout
         _ql_log.warning(
             "quicklook_failed",
@@ -657,6 +715,21 @@ async def _generate_quicklook(
             error=str(_ql_exc),
         )
         return
+
+    # INGEST-01 iter-2: explicit recovery from any asyncio.wait_for
+    # cancellation that left the asyncpg cursor in an invalid-transaction
+    # state during the geom query. This is a no-op on the clean path and
+    # the documented recovery for the "Can't reconnect until invalid
+    # transaction is rolled back" error (sqlalchemy.org/e/20/8s2b). Without
+    # this rollback, the post-upload commit below fails on the timeout
+    # path and the URI never persists.
+    await session.rollback()
+
+    # Re-merge `dataset` into the now-clean session — the pre-generation
+    # merge entry (if any) was discarded by the rollback above. Write the
+    # URI on the merged copy so the commit below persists it.
+    merged_dataset = await session.merge(dataset)
+    merged_dataset.quicklook_256_uri = ql_key
 
     try:
         await session.commit()
@@ -822,10 +895,28 @@ async def _finalize_ingest(ctx: IngestContext):
     await session.commit()
 
     # Generate vector quicklook thumbnail (non-fatal, after commit).
+    #
+    # INGEST-01 / Phase 1091-02: the quicklook block opens its OWN
+    # session via `_job_phase_session(job_uuid, phase="quicklook")` so
+    # the `asyncio.wait_for` cancellation inside
+    # `generate_vector_quicklook_with_timeout` cannot poison the outer
+    # `session`. Without this isolation, the cancellation wedges the
+    # asyncpg cursor on `session`, the defensive `session.rollback()`
+    # inside `_generate_quicklook` expires every ORM attribute on
+    # `dataset` (including the eagerly-loaded `dataset.record`
+    # relationship — `expire_on_rollback` defaults to True), and the
+    # next outer `defer_embedding` call at line ~840 trips
+    # `MissingGreenlet` on the lazy-refresh of `dataset.record.id`.
+    # The fresh session keeps that failure mode entirely off `session`.
+    # See `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md`.
     if has_geometry:
-        await _generate_quicklook(
-            session, dataset, table_name, metadata.get("geometry_type", "")
-        )
+        async with _job_phase_session(job.id, phase="quicklook") as (
+            ql_session,
+            _ql_job,
+        ):
+            await _generate_quicklook(
+                ql_session, dataset, table_name, metadata.get("geometry_type", "")
+            )
 
     # Invalidate caches after successful ingest
     await invalidate_catalog_cache()
