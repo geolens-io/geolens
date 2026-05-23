@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -715,6 +716,119 @@ def print_summary(
 
 
 # ---------------------------------------------------------------------------
+# OPS-01 — post-loop reconciliation against /api/admin/jobs/?status=failed
+# ---------------------------------------------------------------------------
+
+
+async def reconcile_failed_jobs(
+    client: httpx.AsyncClient,
+    base_url: str,
+    api_key: str,
+    run_start_time: datetime,
+    limit: int = 200,
+) -> list[dict]:
+    """Reconcile the seed's per-dataset polling result against the persisted
+    worker job-row status.
+
+    Closes OPS-01 — quick task ``260523-at1`` SUMMARY Issue §1 documented
+    a disagreement between the seed's "Succeeded: N, Failed: M" heuristic
+    and ``/api/admin/jobs/?status=failed``. This function queries the admin
+    endpoint after the polling loop completes and returns any failed jobs
+    whose ``started_at`` falls inside the current run window
+    (``started_at > run_start_time``).
+
+    The function is **additive defense, not a sole gate**: if the admin
+    endpoint is unreachable (network error, 5xx, 401), the function logs
+    a warning and returns ``[]``. The script's existing per-dataset
+    polling stays the primary signal in that case.
+
+    Args:
+        client: httpx async client (reuses the seed's main client).
+        base_url: GeoLens base URL (no trailing slash).
+        api_key: API key with admin/upload permission. The bootstrap
+            key minted by ``bootstrap_api_key`` is admin since it is
+            minted under the admin user.
+        run_start_time: timezone-aware UTC datetime captured before the
+            seed's TaskGroup ran. Used to filter out stale failures
+            from prior runs.
+        limit: max rows per page; capped at 200 server-side.
+
+    Returns:
+        List of dicts with keys ``id``, ``source_filename``,
+        ``dataset_id``, ``error_message``, ``started_at``. Empty list
+        when no failures fall inside the run window OR when the admin
+        endpoint is unreachable.
+    """
+    headers = {"X-Api-Key": api_key}
+    try:
+        resp = await client.get(
+            f"{base_url}/api/admin/jobs/",
+            params={"status": "failed", "limit": limit},
+            headers=headers,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+        logger.warning(
+            "reconcile_failed_jobs: GET /api/admin/jobs/ failed (%s). "
+            "Skipping reconciliation; per-dataset polling result stands.",
+            exc,
+        )
+        return []
+    except Exception as exc:  # pragma: no cover — belt-and-braces
+        logger.warning(
+            "reconcile_failed_jobs: unexpected error from /admin/jobs/ (%s). "
+            "Skipping reconciliation.",
+            exc,
+        )
+        return []
+
+    # Response shape may be {"jobs": [...]} (canonical AdminJobListResponse)
+    # or a bare list (defensive). Try the dict shape first.
+    if isinstance(body, dict):
+        rows = body.get("jobs", [])
+    elif isinstance(body, list):
+        rows = body
+    else:
+        return []
+
+    failures: list[dict] = []
+    for row in rows:
+        started_raw = row.get("started_at")
+        if not started_raw:
+            # Job has not been claimed yet (status=pending shape); cannot
+            # be inside our run window without a started_at — skip.
+            continue
+        try:
+            # Accept both "...Z" and "...+00:00" — strip-replace handles "Z".
+            started_at = datetime.fromisoformat(
+                str(started_raw).replace("Z", "+00:00")
+            )
+        except ValueError:
+            logger.warning(
+                "reconcile_failed_jobs: cannot parse started_at=%r on job %r — skipping row",
+                started_raw,
+                row.get("id"),
+            )
+            continue
+        # Compare in UTC; the admin endpoint returns timezone-aware ISO-8601.
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        if started_at <= run_start_time:
+            continue
+        failures.append(
+            {
+                "id": row.get("id"),
+                "source_filename": row.get("source_filename"),
+                "dataset_id": row.get("dataset_id"),
+                "error_message": row.get("error_message"),
+                "started_at": started_raw,
+            }
+        )
+    return failures
+
+
+# ---------------------------------------------------------------------------
 # Post-import collection assignment
 # ---------------------------------------------------------------------------
 
@@ -924,8 +1038,15 @@ async def process_one(
 # ---------------------------------------------------------------------------
 
 
-async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
-    """Download and ingest Natural Earth datasets into GeoLens."""
+async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
+    """Download and ingest Natural Earth datasets into GeoLens.
+
+    Returns:
+        ``0`` when the per-dataset polling and post-loop reconciliation
+        both report zero failures; ``1`` when either signal indicates a
+        failure (per-dataset poll caught it OR OPS-01 reconciliation
+        surfaced a failed job-row the heuristic missed).
+    """
     base_url = args.base_url.rstrip("/")
     api_key = args.api_key
     bootstrap_key_id: str | None = None
@@ -977,6 +1098,11 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
         sem = asyncio.Semaphore(3)
         total = len(datasets)
 
+        # OPS-01: capture run start so reconcile_failed_jobs can filter out
+        # stale failures from prior runs. Captured BEFORE the TaskGroup so
+        # any job enqueued by this run will have started_at > run_start_time.
+        run_start_time = datetime.now(timezone.utc)
+
         print(f"\nImporting {total} datasets...")
 
         async with asyncio.TaskGroup() as tg:
@@ -1008,6 +1134,35 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
 
         print_summary(total, succeeded, skipped, failed, failures)
 
+        # OPS-01: post-loop reconciliation against /api/admin/jobs/?status=failed.
+        # Surfaces any persisted-failed job-rows the per-dataset polling missed.
+        # See reconcile_failed_jobs docstring + quick task 260523-at1 SUMMARY §1.
+        print()
+        print("--- Reconciliation ---")
+        reconciliation_failures = await reconcile_failed_jobs(
+            client, base_url, api_key, run_start_time
+        )
+        reconciliation_exit_nonzero = False
+        if reconciliation_failures:
+            reconciliation_exit_nonzero = True
+            count = len(reconciliation_failures)
+            plural = "s" if count != 1 else ""
+            print(
+                f"  ⚠ {count} failed job{plural} found in /api/admin/jobs/ "
+                f"that the per-dataset poll missed:"
+            )
+            for f in reconciliation_failures:
+                fname = f.get("source_filename") or "(unknown filename)"
+                ds_id = f.get("dataset_id") or "(no dataset)"
+                err = (f.get("error_message") or "").strip()
+                if len(err) > 200:
+                    err = err[:197] + "..."
+                if not err:
+                    err = "(no error_message)"
+                print(f"  {fname} [{ds_id}]: {err}")
+        else:
+            print("  GREEN: 0 failed jobs in /api/admin/jobs/ within run window")
+
         # Assign datasets to collections by theme
         print()
         print("--- Collection Assignment ---")
@@ -1020,6 +1175,12 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> None:
             await cleanup_bootstrap_key(
                 client, base_url, args.username, args.password, bootstrap_key_id
             )
+
+        # Exit non-zero when either signal (per-dataset poll OR OPS-01
+        # reconciliation) saw a failure. Failures from this run's
+        # per-dataset polling are reflected in `failed`; reconciliation
+        # surfaces any persisted-failed rows the heuristic missed.
+        return 1 if (failed > 0 or reconciliation_exit_nonzero) else 0
 
 
 # ---------------------------------------------------------------------------
@@ -1062,4 +1223,7 @@ if __name__ == "__main__":
                 file=sys.stderr,
             )
             sys.exit(1)
-        asyncio.run(main(args, datasets))
+        # OPS-01: surface main()'s return code so a failed reconciliation
+        # (or per-dataset failure) exits the process non-zero, letting
+        # CI/operator scripts pick up the signal.
+        sys.exit(asyncio.run(main(args, datasets)) or 0)

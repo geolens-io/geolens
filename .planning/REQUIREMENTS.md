@@ -19,7 +19,7 @@ Requirements for this milestone. All `INGEST-*` / `OPS-*` / `ROUTE-*` / `INFRA-*
 
 ### Operations
 
-- [ ] **OPS-01**: Add post-loop reconciliation to `scripts/seed-natural-earth.py` so the seed script's "Succeeded: N, Failed: M" summary cannot disagree with the persisted worker job-row status. After the polling loop completes, the script must `GET /api/admin/jobs/?status=failed` (scoped to job IDs from this run — by `started_at` window or job_id capture during enqueue) and report any failed jobs in the Import Summary block with their `source_filename`, `dataset_id`, and `error_message`. Acceptance criteria: (a) when INGEST-01 is regression-pinned by re-introducing the bug, `seed-natural-earth.py` exits non-zero AND prints the failed-job table; (b) when no failures exist, the script preserves its current exit-zero + green-summary behavior; (c) the reconciliation is unit-tested or covered by an integration test that stubs `/api/admin/jobs/` with a known-failed response.
+- [x] **OPS-01**: Add post-loop reconciliation to `scripts/seed-natural-earth.py` so the seed script's "Succeeded: N, Failed: M" summary cannot disagree with the persisted worker job-row status. After the polling loop completes, the script must `GET /api/admin/jobs/?status=failed` (scoped to job IDs from this run — by `started_at` window or job_id capture during enqueue) and report any failed jobs in the Import Summary block with their `source_filename`, `dataset_id`, and `error_message`. Acceptance criteria: (a) when INGEST-01 is regression-pinned by re-introducing the bug, `seed-natural-earth.py` exits non-zero AND prints the failed-job table; (b) when no failures exist, the script preserves its current exit-zero + green-summary behavior; (c) the reconciliation is unit-tested or covered by an integration test that stubs `/api/admin/jobs/` with a known-failed response. **Closed:** see `backend/tests/test_seed_natural_earth_reconciliation.py::test_reconciliation_surfaces_failed_jobs` + `::test_reconciliation_clean_when_no_failures` + `::test_reconciliation_filters_by_run_window` + `::test_reconciliation_handles_admin_endpoint_failure` (4 tests). Live docker-stack verification (Plan 1091-03 checkpoint) confirmed all 3 scenarios: happy path (109 datasets, all skip, GREEN reconciliation, exit 0); synthetic future-dated injection (`NOW() + INTERVAL '120 seconds'`) surfaced `⚠ 1 failed job found in /api/admin/jobs/ that the per-dataset poll missed: synthetic-test.zip [(no dataset)]: OPS-01 reconciliation test injection` + exit 1; post-cleanup re-run GREEN + exit 0. Implementation: `reconcile_failed_jobs(client, base_url, api_key, run_start_time, limit=200)` at `scripts/seed-natural-earth.py` with run-window filter (`started_at > run_start_time`) and additive-defense network-error handling (logs warning + returns `[]` rather than crashing). `main()` return type changed `None` → `int`; entry point wired with `sys.exit(asyncio.run(main(args, datasets)) or 0)`.
 
 ### Routing
 
@@ -68,7 +68,7 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | INGEST-01 | Phase 1091 | Complete |
-| OPS-01 | Phase 1091 | Pending |
+| OPS-01 | Phase 1091 | Complete |
 | ROUTE-01 | Phase 1092 | Pending |
 | INFRA-01 | Phase 1092 | Pending |
 | INFRA-02 | Phase 1092 | Pending |

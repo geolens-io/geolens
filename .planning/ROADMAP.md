@@ -14,7 +14,7 @@
 
 ## Phases
 
-- [ ] **Phase 1091: Ingest Correctness Sweep** — Fix the `urban_areas_landscan_10m` quicklook `MissingGreenlet` async-context bug AND add post-loop reconciliation to `scripts/seed-natural-earth.py` so the seed's "Succeeded: N" summary cannot disagree with `/api/admin/jobs/` status. Spike-first per v1019/v1020 pattern.
+- [x] **Phase 1091: Ingest Correctness Sweep** — Fix the `urban_areas_landscan_10m` quicklook `MissingGreenlet` async-context bug AND add post-loop reconciliation to `scripts/seed-natural-earth.py` so the seed's "Succeeded: N" summary cannot disagree with `/api/admin/jobs/` status. Spike-first per v1019/v1020 pattern.
 - [ ] **Phase 1092: Routing + Infra Hygiene** — Stop the 307 trailing-slash redirects from leaking the internal `http://api:8000` hostname (closes `/api/collections/` + `/api/auth/login/` + revisits the documented `/collections/datasets` exception); eliminate the double alembic `upgrade head` invocation in the `migrate` service; formally ACCEPT the `db` image `--platform=linux/amd64` pin with rationale doc.
 - [ ] **Phase 1093: Engine-level Retry Envelope** — Land the v1020-deferred engine-level retry envelope for `pytest -n auto` so the 48 deterministic + 173 non-deterministic node-IDs flagged in v1020 HYG-02 stop being a developer-environment papercut. Targets the test-fixture engine only (app-engine path is out of scope per REQUIREMENTS.md `Out of Scope`).
 
@@ -35,7 +35,7 @@
 **Plans:** 3 plans
 - [x] 1091-01-PLAN.md — Spike: locate the MissingGreenlet async-context boundary (audit doc, no code edits)
 - [x] 1091-02-PLAN.md — Apply the audit-proposed fix to tasks_common.py + regression test + live docker-rebuild verification
-- [ ] 1091-03-PLAN.md — OPS-01 reconciliation in seed-natural-earth.py + 4 unit tests + phase close
+- [x] 1091-03-PLAN.md — OPS-01 reconciliation in seed-natural-earth.py + 4 unit tests + phase close
 
 ### Phase 1092: Routing + Infra Hygiene
 **Goal:** A reader of `MEMORY.md` can see one consistent rule for trailing-slash behavior across all `/api/*` routes (no internal-hostname leak in any 307 `Location` header), and an operator running `docker compose down -v && up -d --build` sees exactly one alembic upgrade block in `migrate` logs plus a documented (no longer surprising) `--platform=linux/amd64` warning on the `db` image.
@@ -67,7 +67,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1091. Ingest Correctness Sweep | 2/3 | In progress | - |
+| 1091. Ingest Correctness Sweep | 3/3 | Complete | 2026-05-23 |
 | 1092. Routing + Infra Hygiene | 0/TBD | Not started | - |
 | 1093. Engine-level Retry Envelope | 0/TBD | Not started | - |
 
