@@ -4,8 +4,8 @@ milestone: v1020
 milestone_name: Fixture Isolation
 status: Phase 1090 closed; v1020 milestone shipped; tags v1020 + v1.5.5 cut
 stopped_at: "Phase 1090 (HYG-01 + HYG-02 + HYG-03) shipped — v1020 milestone closed; tags v1020 (local) + v1.5.5 (public) at 8a924bb690b197fbbe498542055adbda3cae3cc1"
-last_updated: "2026-05-22T21:47:58Z"
-last_activity: 2026-05-22 — Phase 1090 closed; v1020 milestone shipped; HYG-01 + HYG-02 + HYG-03 traceability flipped in single TD-13 commit `8a924bb6`; tags `v1020` + `v1.5.5` cut at same SHA
+last_updated: "2026-05-23T11:46:51Z"
+last_activity: 2026-05-23 — Quick 260523-at1: docker rebuild + seed sweep — 1 Error (urban_areas_landscan quicklook MissingGreenlet), 5 Issues, 4 Gaps documented in SUMMARY
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,7 +21,7 @@ progress:
 Phase: 1090 — Skip Audit + Flake Hunt + Close-Gate — COMPLETE; v1020 milestone shipped
 Plan: 1090-02-PLAN.md — COMPLETE (REQUIREMENTS.md + ROADMAP.md + 1090-SUMMARY.md + CHANGELOG.md in single TD-13 atomic commit `8a924bb6`)
 Status: Phase 1090 closed; v1020 milestone shipped; tags v1020 + v1.5.5 cut at `8a924bb6`
-Last activity: 2026-05-22 — Phase 1090 closed; v1020 milestone shipped; HYG-01 + HYG-02 + HYG-03 traceability flipped in single TD-13 commit (`8a924bb6`); tags `v1020` + `v1.5.5` cut at same close SHA
+Last activity: 2026-05-23 — Quick 260523-at1: docker rebuild + seed sweep — 1 Error (urban_areas_landscan quicklook MissingGreenlet), 5 Issues, 4 Gaps documented in SUMMARY
 
 ## Project Reference
 
@@ -84,6 +84,12 @@ None — v1020 milestone closed.
 ### Blockers/Concerns
 
 None at v1020 close. **CI live-verification of `pytest-parallel-isolation` deferred to first post-merge run** per Phase 1089 close-state. Operator runs `gh run list --workflow=ci.yml --limit=1 && gh run watch <run_id>` to confirm green on first post-merge gate firing.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260523-at1 | Rebuild docker containers + import all seed data; surface errors/issues/gaps | 2026-05-23 | n/a (.planning/ gitignored) | [260523-at1-rebuild-the-docker-containers-and-import](./quick/260523-at1-rebuild-the-docker-containers-and-import/) |
 
 ## Session Continuity
 
