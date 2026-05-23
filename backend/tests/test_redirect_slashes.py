@@ -77,6 +77,15 @@ class TestRedirectSlashesNoLeak:
             f"Expected 200 on canonical no-slash form, got "
             f"{resp.status_code}; location={resp.headers.get('location')!r}"
         )
+        # WR-02 (Phase 1092): the no-leak invariant is ROUTE-01's actual
+        # closure — it must hold on every test, not just the previously
+        # leaking surfaces. A future regression that emits an explicit 302
+        # with a relative Location from this route would slip past a
+        # status-only assertion.
+        location = resp.headers.get("location", "")
+        assert "api:8000" not in location and "://api/" not in location, (
+            f"in-container hostname leak: {location!r}"
+        )
 
     async def test_auth_login_slash_returns_correctly_without_leak(
         self,
@@ -143,6 +152,13 @@ class TestRedirectSlashesNoLeak:
             f"canonical no-slash form, got {resp.status_code}; "
             f"body={resp.text[:200]}"
         )
+        # WR-02 (Phase 1092): no-leak invariant on every test, not just
+        # the previously-leaking variants. See test_collections_no_slash
+        # for rationale.
+        location = resp.headers.get("location", "")
+        assert "api:8000" not in location and "://api/" not in location, (
+            f"in-container hostname leak: {location!r}"
+        )
 
     async def test_collections_datasets_no_slash_preserved(
         self,
@@ -161,6 +177,14 @@ class TestRedirectSlashesNoLeak:
             f"OGC exception regression: GET /collections/datasets must "
             f"return 200, got {resp.status_code}; "
             f"location={resp.headers.get('location')!r}"
+        )
+        # WR-02 (Phase 1092): no-leak invariant on every test, including
+        # the OGC catalog surface — defends against an out-of-scope
+        # middleware re-introducing a Location header here. See
+        # test_collections_no_slash for rationale.
+        location = resp.headers.get("location", "")
+        assert "api:8000" not in location and "://api/" not in location, (
+            f"in-container hostname leak: {location!r}"
         )
 
 
