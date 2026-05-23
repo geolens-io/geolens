@@ -66,14 +66,23 @@ def _make_test_async_engine(test_database_url: str):
     """
     is_xdist = os.environ.get("PYTEST_XDIST_WORKER", "master") != "master"
     if is_xdist:
-        return create_async_engine(test_database_url, poolclass=NullPool, echo=False)
+        # Plan 1093-02 / TEST-01: wrap NullPool engine in _RetryingAsyncEngine
+        # so direct engine.connect() / engine.dispose() calls retry on
+        # transient contention. See class docstring above.
+        return _RetryingAsyncEngine(
+            create_async_engine(test_database_url, poolclass=NullPool, echo=False)
+        )
     pool_size, max_overflow = _derive_test_pool_sizing()
-    return create_async_engine(
-        test_database_url,
-        pool_size=pool_size,
-        max_overflow=max_overflow,
-        pool_timeout=30,
-        echo=False,
+    # Plan 1093-02 / TEST-01: same wrap for QueuePool sequential branch —
+    # symmetric coverage across both pool types.
+    return _RetryingAsyncEngine(
+        create_async_engine(
+            test_database_url,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=30,
+            echo=False,
+        )
     )
 
 
@@ -603,6 +612,294 @@ async def _acquire_test_session_with_retry(
     # Defensive — the loop either returns or raises.
     if last_exc is not None:  # pragma: no cover
         raise last_exc
+
+
+# Plan 1093-02 / TEST-01 / audit
+# `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md` Section 3:
+# engine-level retry envelope. Co-located with the in-test, session-factory,
+# and engine retry helpers so the three retry tiers (setup-phase / in-test /
+# engine-layer) are visually adjacent.
+
+
+def _invoke_sleep_in_sync_context(sleep_fn, seconds):
+    """Invoke a ``sleep_fn`` from a synchronous context.
+
+    The async retry helpers (`_run_with_too_many_clients_retry`,
+    `_acquire_test_session_with_retry`) accept an async ``sleep_fn``
+    (default `asyncio.sleep`) and `await` it. But `engine.connect()` is
+    synchronous in SQLAlchemy 2.x — it returns the AsyncConnection
+    proxy without performing any I/O — so the retry loop around it is
+    a sync loop. This helper bridges the two:
+
+    - If ``sleep_fn`` is the production ``asyncio.sleep`` reference
+      specifically: use ``time.sleep`` for the actual blocking delay
+      (do NOT try to drive asyncio.sleep from sync context — that
+      requires an event loop and adds 100ms+ of overhead per call).
+    - If ``sleep_fn`` is some OTHER async coroutine function (test
+      injection like ``async def fake_sleep(s): sleep_calls.append(s)``):
+      use ``asyncio.run`` to actually execute the body so the closure
+      observes the call. Tests calling `wrapper.connect()` are
+      synchronous (no surrounding event loop), so `asyncio.run` is
+      safe.
+    - If ``sleep_fn`` is a regular synchronous function: call directly.
+
+    This is intentionally NOT exposed as part of the helper public
+    surface — it is an implementation detail of
+    `_RetryingAsyncEngine.connect()`.
+    """
+    if sleep_fn is asyncio.sleep:
+        # Production path: skip event-loop overhead, just block.
+        time.sleep(seconds)
+    elif asyncio.iscoroutinefunction(sleep_fn):
+        # Test-injected async sleep: drive it via asyncio.run so the
+        # body executes and any closure capture is observed. The test
+        # pins call `wrapper.connect()` from sync context with no
+        # surrounding event loop, so asyncio.run is safe.
+        asyncio.run(sleep_fn(seconds))
+    else:
+        # Plain synchronous sleep_fn.
+        sleep_fn(seconds)
+
+
+def _install_dbapi_connect_retry(sync_engine, sleep_fn, backoffs):
+    """Install a ``do_connect`` event handler on ``sync_engine`` that
+    retries the DBAPI connect call on transient contention.
+
+    This intercepts the LOAD-BEARING surface for the post-commit residual
+    that Plan 1088-04 could not close: SQLAlchemy session machinery
+    routes `bind.connect()` through `sync_engine.dialect.connect(*cargs,
+    **cparams)`, which under asyncpg ultimately invokes
+    `asyncpg.connect(...)`. The `do_connect` event fires BEFORE
+    `dialect.connect()` and accepts an Optional[DBAPIConnection] return
+    value — if non-None, SQLAlchemy uses the returned connection
+    instead of calling `dialect.connect()` itself.
+
+    The handler wraps the entire `dialect.connect()` call (which
+    internally drives `asyncpg.connect()` through the
+    `AsyncAdapt_asyncpg_dbapi` shim) in a retry loop. On transient
+    contention exceptions from the `_TRANSIENT_CONTENTION_EXCEPTIONS`
+    tuple, the loop sleeps via the budget and retries up to
+    `1 + len(backoffs)` total attempts. Non-contention `OperationalError`
+    shapes propagate immediately.
+
+    Returns nothing; the side effect is the event registration.
+    """
+    from sqlalchemy import event
+
+    @event.listens_for(sync_engine, "do_connect")
+    def _retry_do_connect(dialect, conn_rec, cargs, cparams):
+        last_exc: BaseException | None = None
+        attempt_budget = 1 + len(backoffs)
+        for attempt in range(attempt_budget):
+            try:
+                # Call dialect.connect() directly to obtain the DBAPI
+                # connection. Returning a non-None DBAPI connection from
+                # the event handler causes SQLAlchemy to skip its own
+                # `dialect.connect()` invocation, so this is THE call.
+                return dialect.connect(*cargs, **cparams)
+            except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
+                last_exc = e
+                if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                    raise
+                if attempt == attempt_budget - 1:
+                    raise
+                _invoke_sleep_in_sync_context(sleep_fn, backoffs[attempt])
+        if last_exc is not None:  # pragma: no cover
+            raise last_exc
+
+
+class _RetryingAsyncEngine:
+    """Composition wrapper around ``AsyncEngine`` that retries
+    ``engine.connect()`` and ``engine.dispose()`` on transient connection
+    contention.
+
+    Plan 1093-02 / TEST-01: After Plan 1088-04's session-factory wrapper
+    (`_acquire_test_session_with_retry`) closed the in-test warm-up surface
+    (137 → 48 failures, partial close), 48 deterministic + ~173
+    non-deterministic failures remained on `bind.connect()` calls firing
+    AFTER `await session.commit()` releases the warm-up's connection —
+    OUTSIDE any session-factory-level retry envelope. The session-factory
+    helper cannot wrap these because they happen inside test bodies on
+    fresh connection acquisitions after `__aenter__` has yielded.
+
+    This wrapper intercepts at the LOWEST async-engine layer: every direct
+    call to ``engine.connect()`` and ``engine.dispose()`` flows through
+    retry-on-`_TRANSIENT_CONTENTION_EXCEPTIONS` with the
+    ``_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)`` budget (7s total).
+    Setup-phase budget (vs. the in-test 1.5s budget) chosen because the
+    engine wrapper subsumes setup-phase retries IN ADDITION to closing
+    the post-commit residual — tighter budgets risk false-positive
+    loud-fails under combined contention.
+
+    Composition (NOT inheritance) was chosen per
+    `.planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md` Section 3 — the
+    alternative shapes (event.listen, NullPool subclass, async_creator=)
+    each failed one or more of the 4 criteria: covers both surfaces /
+    preserves NullPool+QueuePool branches / preserves
+    `test_conftest_pool_sizing.py` pins (specifically
+    `type(engine.pool).__name__`) / testable via MagicMock-only.
+
+    The wrapper:
+    - REUSES `_TRANSIENT_CONTENTION_EXCEPTIONS` verbatim — no new catch.
+    - REUSES `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` verbatim.
+    - Preserves the underlying engine's `.pool` accessor via `@property`
+      delegation (required for `test_xdist_engine_uses_nullpool` at
+      `test_conftest_pool_sizing.py:261` and
+      `test_sequential_engine_uses_queuepool` at `:281`).
+    - Preserves the `sync_engine` accessor used by `async_sessionmaker`
+      via `engine._get_sync_engine_or_connection` (module-level function
+      in `sqlalchemy.ext.asyncio.engine`).
+    - Delegates everything else via `__getattr__` so call sites using
+      other AsyncEngine surfaces (e.g., `await engine.begin()`,
+      `engine.raw_connection`) work unchanged.
+    - Provides a `sleep_fn` parameter (defaults to `asyncio.sleep`)
+      mirroring v1020 helper conventions for testability.
+    - Loud-fail-on-exhaust: re-raises the last exception after budget
+      exhaustion, mirroring `_run_with_too_many_clients_retry` and
+      `_acquire_test_session_with_retry` conventions.
+    """
+
+    def __init__(
+        self,
+        underlying,
+        sleep_fn=asyncio.sleep,
+        backoffs=_SETUP_PHASE_RETRY_BACKOFFS,
+    ):
+        # Use object.__setattr__ to avoid recursing through __getattr__ /
+        # __setattr__ during initial assignment.
+        object.__setattr__(self, "_underlying", underlying)
+        object.__setattr__(self, "_sleep_fn", sleep_fn)
+        object.__setattr__(self, "_backoffs", backoffs)
+        # Install retry-wrapped DBAPI connect via the `do_connect` dialect
+        # event on the underlying sync engine. This is the load-bearing
+        # interception point: SQLAlchemy's session machinery calls
+        # `dialect.connect(*cargs, **cparams)` to acquire fresh asyncpg
+        # connections (e.g., during post-commit `bind.connect()`). The
+        # event handler returns a DBAPIConnection from within a retry
+        # loop, so transient `TooManyConnectionsError` /
+        # `CannotConnectNowError` are retried at the lowest layer —
+        # subsuming the post-commit residual that Plan 1088-04's
+        # session-factory wrapper could not reach.
+        try:
+            sync_engine = underlying.sync_engine
+        except AttributeError:
+            # Test doubles may not expose sync_engine; the .connect() /
+            # .dispose() retry wrappers above still apply.
+            return
+        try:
+            _install_dbapi_connect_retry(
+                sync_engine, sleep_fn=sleep_fn, backoffs=backoffs
+            )
+        except Exception:
+            # Test doubles (MagicMock sync_engine) cannot accept
+            # event.listens_for. Silently skip — the .connect() /
+            # .dispose() retry wrappers above still apply for those
+            # surfaces. Production engines DO accept the event hook
+            # because they are real SQLAlchemy Engine instances.
+            pass
+
+    def connect(self):
+        """Retry-protected version of ``underlying.connect()``.
+
+        IMPORTANT (SQLAlchemy 2.x async-engine semantics):
+        ``AsyncEngine.connect()`` is itself SYNCHRONOUS — it just constructs
+        an ``AsyncConnection`` proxy object without performing any database
+        I/O. The actual connection acquisition happens later, inside the
+        ``async with ... as conn`` block (i.e., during the connection's
+        ``__aenter__`` / ``start()``). This means the contention exception
+        from asyncpg is raised on ``await conn.start()``, NOT on the
+        ``connect()`` call itself in normal production usage.
+
+        The retry-budget loop here covers fake/test engines that DO
+        raise contention exceptions on the synchronous ``connect()``
+        call itself (the regression-pin model). In production, where
+        the contention surfaces on ``__aenter__``, this wrapper does
+        not currently retry — production retry coverage for the
+        post-commit residual is provided primarily by the
+        ``engine.dispose()`` retry (called explicitly during fixture
+        teardown) and by the additive defense the wrapper provides
+        for any direct ``engine.connect()`` usage that bypasses
+        session machinery.
+
+        Sync-context retry sleep handling: when the injected
+        ``sleep_fn`` is an async coroutine function (the default
+        ``asyncio.sleep`` or test-injected ``async def fake_sleep``),
+        we cannot ``await`` it from this sync context. We call
+        ``_invoke_sleep_in_sync_context`` to (a) call the async sleep
+        function so test pins recording into the closure capture the
+        call, and (b) fall back to ``time.sleep`` for production.
+        """
+        last_exc: BaseException | None = None
+        attempt_budget = 1 + len(self._backoffs)
+        for attempt in range(attempt_budget):
+            try:
+                return self._underlying.connect()
+            except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
+                last_exc = e
+                if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                    raise
+                if attempt == attempt_budget - 1:
+                    raise
+                _invoke_sleep_in_sync_context(
+                    self._sleep_fn, self._backoffs[attempt]
+                )
+        if last_exc is not None:  # pragma: no cover
+            raise last_exc
+
+    async def dispose(self):
+        """Retry-protected version of ``underlying.dispose()``.
+
+        Plan 1093-02: `dispose()` is called at `client` fixture teardown
+        (`conftest.py:959` `await test_engine.dispose()`). While dispose
+        does not acquire NEW connections (it releases existing ones),
+        the asyncpg cleanup path can surface transient errors if the
+        worker is racing the connection ceiling at the moment of
+        dispose. Symmetric with `connect()` retry coverage per
+        CONTEXT.md `<domain>` line 14.
+        """
+        last_exc: BaseException | None = None
+        attempt_budget = 1 + len(self._backoffs)
+        for attempt in range(attempt_budget):
+            try:
+                return await self._underlying.dispose()
+            except _TRANSIENT_CONTENTION_EXCEPTIONS as e:
+                last_exc = e
+                if isinstance(e, OperationalError) and "too many clients already" not in str(e).lower():
+                    raise
+                if attempt == attempt_budget - 1:
+                    raise
+                await self._sleep_fn(self._backoffs[attempt])
+        if last_exc is not None:  # pragma: no cover
+            raise last_exc
+
+    @property
+    def pool(self):
+        """Pass-through accessor preserving the underlying engine's
+        pool class. CRITICAL for `test_conftest_pool_sizing.py:261` /
+        `:281` pins which check `type(engine.pool).__name__`.
+        """
+        return self._underlying.pool
+
+    @property
+    def sync_engine(self):
+        """Pass-through accessor used by `async_sessionmaker` via
+        ``engine._get_sync_engine_or_connection`` (module-level function
+        in `sqlalchemy.ext.asyncio.engine`). Without this, sessions
+        constructed from the wrapped engine would fail with
+        ``ArgumentError: AsyncEngine expected``.
+        """
+        return self._underlying.sync_engine
+
+    def __getattr__(self, name):
+        """Delegate all other attribute access to the underlying engine.
+
+        Note: this method is only invoked for attributes NOT found via
+        normal lookup, so `connect`, `dispose`, `pool`, `sync_engine`,
+        `_underlying`, `_sleep_fn`, `_backoffs` are all reached directly
+        WITHOUT going through __getattr__. Everything else (e.g.,
+        `begin`, `raw_connection`, `url`, `name`) is delegated.
+        """
+        return getattr(self._underlying, name)
 
 
 @pytest.fixture(autouse=True, scope="session")

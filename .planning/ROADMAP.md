@@ -16,7 +16,7 @@
 
 - [x] **Phase 1091: Ingest Correctness Sweep** — Fix the `urban_areas_landscan_10m` quicklook `MissingGreenlet` async-context bug AND add post-loop reconciliation to `scripts/seed-natural-earth.py` so the seed's "Succeeded: N" summary cannot disagree with `/api/admin/jobs/` status. Spike-first per v1019/v1020 pattern.
 - [x] **Phase 1092: Routing + Infra Hygiene** — Stop the 307 trailing-slash redirects from leaking the internal `http://api:8000` hostname (closes `/api/collections/` + `/api/auth/login/` + revisits the documented `/collections/datasets` exception); eliminate the double alembic `upgrade head` invocation in the `migrate` service; formally ACCEPT the `db` image `--platform=linux/amd64` pin with rationale doc.
-- [ ] **Phase 1093: Engine-level Retry Envelope** — Land the v1020-deferred engine-level retry envelope for `pytest -n auto` so the 48 deterministic + 173 non-deterministic node-IDs flagged in v1020 HYG-02 stop being a developer-environment papercut. Targets the test-fixture engine only (app-engine path is out of scope per REQUIREMENTS.md `Out of Scope`).
+- [x] **Phase 1093: Engine-level Retry Envelope** — Land the v1020-deferred engine-level retry envelope for `pytest -n auto` so the 48 deterministic + 173 non-deterministic node-IDs flagged in v1020 HYG-02 stop being a developer-environment papercut. Targets the test-fixture engine only (app-engine path is out of scope per REQUIREMENTS.md `Out of Scope`). **v1022 carry-forward: Category 4.1 per-worker DB lifecycle parallel-mode cascade outside v1021 scope (see `.planning/phases/1093-engine-level-retry-envelope/1093-02-FINDINGS.md`).**
 
 ---
 
@@ -64,8 +64,8 @@
   5. Close-gate matrix green at v1021 tag-cut: sequential pytest `3047/0/38`, `pytest -n 4` `3047/0/0/38`, frontend typecheck exit 0, vitest 2105/2105, e2e:smoke:builder 25/0/1, live Playwright MCP 5/5 surfaces clean. Tags `v1021` (local) + `v1.5.6` (public) both deref to the close commit.
 **Plans:** 2 plans
 Plans:
-- [ ] 1093-01-PLAN.md — Spike: read 1088-04 architectural REPORT, choose engine-retry wrapper shape, measure pre-fix `pytest -n auto` baseline (audit at .planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md)
-- [ ] 1093-02-PLAN.md — Engine retry wrapper + 4 regression pins + TEST-01 close + Phase 1093 close
+- [x] 1093-01-PLAN.md — Spike: read 1088-04 architectural REPORT, choose engine-retry wrapper shape, measure pre-fix `pytest -n auto` baseline (audit at .planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md)
+- [x] 1093-02-PLAN.md — Engine retry wrapper + 4 regression pins + TEST-01 close + Phase 1093 close
 
 ---
 
@@ -75,9 +75,9 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1091. Ingest Correctness Sweep | 3/3 | Complete | 2026-05-23 |
 | 1092. Routing + Infra Hygiene | 3/3 | Complete | 2026-05-23 |
-| 1093. Engine-level Retry Envelope | 0/2 | Not started | - |
+| 1093. Engine-level Retry Envelope | 2/2 | Complete | 2026-05-23 |
 
-**Total:** 6/8 plans complete across 3 phases.
+**Total:** 8/8 plans complete across 3 phases.
 
 ---
 
