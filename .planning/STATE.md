@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1021
 milestone_name: Docker Rebuild Sweep + Engine-level Retry
-status: planning
-last_updated: "2026-05-23T13:50:57.560Z"
-last_activity: 2026-05-23
+status: "1091-01 spike complete (audit doc at .planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md, commit 3309fed8); ready for /gsd:execute-phase 1091 plan 02"
+stopped_at: "1091-01 spike complete; awaiting 1091-02 (fix)"
+last_updated: "2026-05-23T14:32:04.030Z"
+last_activity: 2026-05-23 — v1021 ROADMAP.md created (3 phases, 6 reqs, coverage 6/6 — no orphans)
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -17,10 +18,10 @@ progress:
 
 ## Current Position
 
-Phase: 1091 (next to plan — Ingest Correctness Sweep)
-Plan: —
-Status: ROADMAP.md committed; ready for `/gsd:plan-phase 1091`
-Last activity: 2026-05-23 — v1021 ROADMAP.md created (3 phases, 6 reqs, coverage 6/6 — no orphans)
+Phase: 1091 (in progress — Ingest Correctness Sweep)
+Plan: 01 complete (spike) — next: 02 (fix)
+Status: 1091-01 spike complete (audit doc at `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md`, commit `3309fed8`); ready for `/gsd:execute-phase 1091 plan 02`
+Last activity: 2026-05-23 — 1091-01 spike committed (`3309fed8` audit + `1fa787ab` SUMMARY backfill); root cause identified, Shape A fix proposed for 1091-02
 
 ## Project Reference
 
@@ -63,6 +64,7 @@ See: .planning/PROJECT.md
 - **2026-05-23 (v1021 roadmap):** Sequential pytest baseline that MUST stay green throughout v1021: **3047/0/38** (v1020 close-gate). TEST-01 acceptance criterion (b) explicitly preserves this. HARD INVARIANT: `failed == 0` non-negotiable.
 - **2026-05-23 (v1021 roadmap):** Out-of-scope reaffirmations from v1020: Postgres `max_connections` bump rejected (production envelope at 30 is correct); artificial `-n` cap below `auto` rejected (masks contention); multi-arch `db` image future TODO only (INFRA-02 is ACCEPT-only). Plus v1021-specific out-of-scope: app-code engine retry (different acceptance criteria), production-code refactor beyond `MissingGreenlet` fix, frontend 307 UX (backend leak is the user-visible bug).
 - **2026-05-23 (v1021 roadmap):** v1019 TD-13 rules are LIVE for v1021 from Day 1: REQ citation pinning (planner MUST validate `path::TestClass::test_name` node-IDs via `git grep -n "def <test_name>" <path>` BEFORE plans commit; applies to INGEST-01 `test_quicklook_async_context.py`, OPS-01 seed-script reconciliation test, ROUTE-01 `test_redirect_slashes.py`, TEST-01 engine-retry pin) + traceability flip (executor MUST flip REQUIREMENTS.md `[ ]` → `[x]` and `Pending` → `Complete` in the SAME commit as SUMMARY.md). Atomic-4-file invariant maintained across 7 phases of v1019/v1020.
+- **2026-05-23 (1091-01 spike):** MissingGreenlet on `urban_areas_landscan_10m` quicklook root-caused: H2 (asyncio.wait_for cancellation poisoning asyncpg cursor at `quicklook.py:163`) + H3 (`session.rollback` expiring eagerly-loaded `dataset.record` despite `expire_on_commit=False`; `expire_on_rollback` defaults True). Detonates at `defer_embedding` `helpers.py:123`, NOT inside `_generate_quicklook` (H5 FALSE). Fix Shape A (open fresh session at `tasks_common.py:824-828` via `_job_phase_session(phase='quicklook')`) named in `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` Section 3. Plan 1091-02 implements.
 
 ### Pending Todos
 
@@ -80,13 +82,13 @@ None at v1021 start. **CI live-verification of `pytest-parallel-isolation`** (de
 
 ## Session Continuity
 
-Last session: 2026-05-23
+Last session: 2026-05-23T14:31:50.165Z
 Stopped at: v1021 ROADMAP.md created; ready for `/gsd:plan-phase 1091`
 Resume file: None
 
 ## Operator Next Steps
 
-- **`/gsd:plan-phase 1091`** — decompose Phase 1091 (INGEST-01 spike + fix + OPS-01 reconciliation) into PLAN.md(s). Spike-first per v1019/v1020 pattern.
+- **`/gsd:execute-phase 1091 --plan 02`** — execute Plan 1091-02 (apply Shape A fix per `.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md` Section 3 + create regression tests in `backend/tests/test_quicklook_async_context.py`). Audit doc names file, line range, fix shape, and test function names at file:lineno resolution.
 - **Post-merge CI live-verification (v1020 deferred):** after v1021 closes, run `gh run list --workflow=ci.yml --limit=1 && gh run watch <run_id>` to confirm the `pytest-parallel-isolation` gate fires green for the first time.
 
 ## Deferred Items
