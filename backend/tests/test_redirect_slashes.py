@@ -23,11 +23,12 @@ documented ``/collections/datasets`` exception which must remain unchanged.
 
 from __future__ import annotations
 
-# pytest-asyncio auto mode (configured in backend/pyproject.toml). Async
-# test methods inherit the project's event loop without explicit
-# ``@pytest.mark.asyncio`` decorators. See backend/tests/test_auth.py for
-# the convention precedent — new contributors copying this file should
-# preserve that convention.
+# anyio auto mode (configured in backend/pyproject.toml as
+# ``anyio_mode = "auto"`` with pytest-asyncio strict). Async test methods
+# inherit AnyIO's event loop without explicit ``@pytest.mark.asyncio``
+# decorators — AnyIO owns the project's coroutine tests by convention.
+# See backend/tests/test_auth.py for the convention precedent; new
+# contributors copying this file should preserve that convention.
 
 from httpx import AsyncClient
 
