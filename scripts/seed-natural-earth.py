@@ -1148,7 +1148,7 @@ async def main(args: argparse.Namespace, datasets: list[dict]) -> int:
             count = len(reconciliation_failures)
             plural = "s" if count != 1 else ""
             print(
-                f"  ⚠ {count} failed job{plural} found in /api/admin/jobs/ "
+                f"  WARN: {count} failed job{plural} found in /api/admin/jobs/ "
                 f"that the per-dataset poll missed:"
             )
             for f in reconciliation_failures:
