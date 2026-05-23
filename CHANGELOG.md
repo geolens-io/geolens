@@ -34,12 +34,21 @@ _Target: v1.5.6 (v1021 milestone — Docker Rebuild Sweep + Engine-level Retry)_
 
 - **ROUTE-01**: Stopped the 307 trailing-slash redirect from leaking
   `http://api:8000` in the `Location` header. `redirect_slashes=False` at
-  the FastAPI app level (`backend/app/api/main.py:443-469`); dual-shape
-  decorators register both `/api/collections/` + `/api/collections` and
-  `/api/auth/login/` + `/api/auth/login` directly against the same handler
-  (extends the Phase 280 `catalog/maps/router.py` precedent to two more
-  surfaces). Vite dev-proxy adds a `proxyRes` `Location`-header rewrite as
-  defense-in-depth (`frontend/vite.config.ts:90-100`). MEMORY.md
+  the FastAPI app level (`backend/app/api/main.py:443-487`); dual-shape
+  decorators register both trailing-slash and no-trailing-slash variants
+  against the same handler across every trailing-slash-only route in
+  `backend/app/modules/` (~28 routes spanning auth, settings, admin,
+  audit, embed_tokens, datasets, search, sources, maps, collections —
+  extends the Phase 280 `catalog/maps/router.py` precedent from 2
+  surfaces to the full set). The canonical decorator stays in OpenAPI;
+  the alias is hidden via `include_in_schema=False` — the OpenAPI
+  snapshot is unchanged. Vite dev-proxy adds a `proxyRes`
+  `Location`-header rewrite as defense-in-depth
+  (`frontend/vite.config.ts:90-128`) with scheme preservation
+  (`x-forwarded-proto`) and aligned detection / replacement regexes.
+  Pinned by `backend/tests/test_redirect_slashes.py` (7 tests including
+  a broad enumeration over `app.routes` that fails if any new trailing-
+  slash-only route lands without a sibling alias). MEMORY.md
   trailing-slash bullet refreshed to reflect the post-fix invariant.
 
 ### Infrastructure (v1021 milestone — Phase 1092)
