@@ -723,13 +723,40 @@ async def _generate_quicklook(
     # transaction is rolled back" error (sqlalchemy.org/e/20/8s2b). Without
     # this rollback, the post-upload commit below fails on the timeout
     # path and the URI never persists.
-    await session.rollback()
+    #
+    # WR-01 (post-1091 review): the rollback() and merge() calls are
+    # themselves asyncpg IO and may raise OperationalError (or similar)
+    # if the connection died between upload and recovery — the exact
+    # poisoning scenario we are defending against. Without the wrapper,
+    # an escape here propagates through `_job_phase_session`'s rollback-
+    # on-exception handler → out of `_finalize_ingest` → into the outer
+    # task-entry-point `except Exception`, which writes `status="failed"`
+    # on the job row. Because the dataset row was already committed by
+    # the outer `_finalize_ingest`, that produces dataset-published +
+    # job-failed — the exact disagreement OPS-01 surfaces. Wrap the
+    # recovery block to preserve the documented "non-fatal" contract:
+    # log a `phase=recovery` warning and return; the URI breadcrumb is
+    # lost but the dataset stays published.
+    try:
+        await session.rollback()
 
-    # Re-merge `dataset` into the now-clean session — the pre-generation
-    # merge entry (if any) was discarded by the rollback above. Write the
-    # URI on the merged copy so the commit below persists it.
-    merged_dataset = await session.merge(dataset)
-    merged_dataset.quicklook_256_uri = ql_key
+        # Re-merge `dataset` into the now-clean session — the pre-generation
+        # merge entry (if any) was discarded by the rollback above. Write the
+        # URI on the merged copy so the commit below persists it.
+        merged_dataset = await session.merge(dataset)
+        merged_dataset.quicklook_256_uri = ql_key
+    except Exception as _ql_recovery_exc:  # broad: non-fatal contract — connection drop between upload and recovery must not propagate
+        try:
+            await session.rollback()
+        except Exception:  # broad: best-effort cleanup; connection may be irrecoverable
+            pass
+        _ql_log.warning(
+            "quicklook_failed",
+            phase="recovery",
+            table=table_name,
+            error=str(_ql_recovery_exc)[:500],
+        )
+        return
 
     try:
         await session.commit()
