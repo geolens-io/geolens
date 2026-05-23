@@ -12,9 +12,19 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: TBD (awaiting /gsd-new-milestone)
+## Current Milestone: v1021 Docker Rebuild Sweep + Engine-level Retry
 
-**Status:** v1020 just shipped. PROJECT.md `Active` section is empty pending next milestone definition. Run `/gsd-new-milestone` to begin the next cycle.
+**Goal:** Close the operational findings surfaced by the 2026-05-23 docker rebuild sweep (quick task 260523-at1) and retire v1020's engine-level retry carry-forward.
+
+**Target features:**
+- Fix the `urban_areas_landscan_10m` quicklook generation failure (`MissingGreenlet: greenlet_spawn has not been called`) in `app/processing/ingest/tasks_common.py` — data lands but quicklook commit-phase aborts; reproducible across rebuilds.
+- Add seed-script post-loop reconciliation against `/api/admin/jobs/?status=failed` in `scripts/seed-natural-earth.py` so the seed's success-count cannot disagree with the worker job-row status.
+- Stop the trailing-slash 307 redirects from leaking the internal `http://api:8000` hostname (closes `/api/collections/` + `/api/auth/login/` — same root cause, broader surface than the documented `/collections/datasets` exception).
+- Eliminate the double alembic `upgrade head` invocation in the `migrate` service (entrypoint safety-net + explicit command both fire today; one is enough).
+- ACCEPT the `db` image `--platform=linux/amd64` pin (Apple Silicon hosts emulate via Rosetta); document rationale + future multi-arch build path so the warning is no longer a surprise.
+- Land the engine-level retry envelope for `pytest -n auto` (v1020 carry-forward) so the 173 non-deterministic node-IDs under 16-worker parallelism stop being a developer-environment papercut.
+
+**Source of findings:** `.planning/quick/260523-at1-rebuild-the-docker-containers-and-import/260523-at1-SUMMARY.md` (commit `e9817603`).
 
 ## Recent Shipped Milestone: v1020 Fixture Isolation
 
@@ -1065,9 +1075,16 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-_None — v1020 just shipped. Awaiting next milestone definition via `/gsd-new-milestone`._
+**v1021 Docker Rebuild Sweep + Engine-level Retry** — 6 requirements scoped from quick task 260523-at1 + v1020 carry-forward:
 
-**v1021 carry-forward (tracked for next milestone):** Engine-level retry envelope for `pytest -n auto` cascade flake-class residual. Phase 1088-04 architectural escalation REPORT (not auto-applied) at `.planning/phases/1088-fixture-isolation-fixes-regression-pins/1088-04-SUMMARY.md`. Operational defense via `-n 4` CI gate is in place; v1021 would close the residual for max-parallelism developer environments. See `.planning/milestones/v1020-MILESTONE-AUDIT.md` §9 + `.planning/milestones/v1020-ROADMAP.md` Carry-Forwards section.
+- INGEST-01 — Fix `urban_areas_landscan_10m` quicklook MissingGreenlet (Error 1)
+- OPS-01 — Seed-script post-loop reconciliation against `/api/admin/jobs/` (Issue 1)
+- ROUTE-01 — Stop internal-hostname leak on 307 trailing-slash redirects (Issues 2 + 5; closes both with one fix)
+- INFRA-01 — Dedup `migrate` service double alembic upgrade (Issue 3)
+- INFRA-02 — ACCEPT db `--platform=linux/amd64` pin; document + future multi-arch path (Issue 4)
+- TEST-01 — Engine-level retry envelope for `pytest -n auto` (v1020 carry-forward)
+
+**Findings doc:** `.planning/quick/260523-at1-rebuild-the-docker-containers-and-import/260523-at1-SUMMARY.md` (commit `e9817603`).
 
 ### Out of Scope
 
@@ -1339,4 +1356,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 — archived milestone v1020 Fixture Isolation (9/9 reqs FI-01..03 + CI-01..02 + PERF-01 + HYG-01..03 satisfied; tags `v1020` + `v1.5.5` at `8a924bb6`). Cascade reduction 648 → 76 (-88.3%); `pytest-parallel-isolation` CI gate live; `-n 4` parallel default. One v1021 carry-forward (engine-level retry envelope). Archives: .planning/milestones/v1020-ROADMAP.md + .planning/milestones/v1020-REQUIREMENTS.md + .planning/milestones/v1020-MILESTONE-AUDIT.md. Previous: v1019 Hygiene Tail — v1018 Frontend + xdist + Process (6 reqs TD-09..TD-14 satisfied; tags `v1019` + `v1.5.4` at `02cb25db`).*
+*Last updated: 2026-05-23 — opened milestone v1021 Docker Rebuild Sweep + Engine-level Retry (6 reqs INGEST-01 + OPS-01 + ROUTE-01 + INFRA-01 + INFRA-02 + TEST-01) scoped from quick task 260523-at1 docker-rebuild sweep + v1020 carry-forward. Findings: `.planning/quick/260523-at1-rebuild-the-docker-containers-and-import/260523-at1-SUMMARY.md` (commit `e9817603`). Previous: v1020 Fixture Isolation (9/9 reqs FI-01..03 + CI-01..02 + PERF-01 + HYG-01..03 satisfied; tags `v1020` + `v1.5.5` at `8a924bb6`). Cascade reduction 648 → 76 (-88.3%); `pytest-parallel-isolation` CI gate live; `-n 4` parallel default.*

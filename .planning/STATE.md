@@ -1,27 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1020
-milestone_name: Fixture Isolation
-status: Phase 1090 closed; v1020 milestone shipped; tags v1020 + v1.5.5 cut
-stopped_at: "Phase 1090 (HYG-01 + HYG-02 + HYG-03) shipped — v1020 milestone closed; tags v1020 (local) + v1.5.5 (public) at 8a924bb690b197fbbe498542055adbda3cae3cc1"
-last_updated: "2026-05-23T11:46:51Z"
-last_activity: 2026-05-23 — Quick 260523-at1: docker rebuild + seed sweep — 1 Error (urban_areas_landscan quicklook MissingGreenlet), 5 Issues, 4 Gaps documented in SUMMARY
+milestone: v1021
+milestone_name: Docker Rebuild Sweep + Engine-level Retry
+status: planning
+last_updated: "2026-05-23T13:50:57.560Z"
+last_activity: 2026-05-23
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1090 — Skip Audit + Flake Hunt + Close-Gate — COMPLETE; v1020 milestone shipped
-Plan: 1090-02-PLAN.md — COMPLETE (REQUIREMENTS.md + ROADMAP.md + 1090-SUMMARY.md + CHANGELOG.md in single TD-13 atomic commit `8a924bb6`)
-Status: Phase 1090 closed; v1020 milestone shipped; tags v1020 + v1.5.5 cut at `8a924bb6`
-Last activity: 2026-05-23 — Quick 260523-at1: docker rebuild + seed sweep — 1 Error (urban_areas_landscan quicklook MissingGreenlet), 5 Issues, 4 Gaps documented in SUMMARY
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-23 — Milestone v1021 started
 
 ## Project Reference
 
