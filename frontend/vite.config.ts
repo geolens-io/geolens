@@ -91,13 +91,28 @@ export default defineConfig({
           // redirect_slashes=False lands in FastAPI, no 307 should reach
           // this hook, but the rewrite catches future code paths that
           // re-introduce one (e.g. an explicit 307 from a route handler).
+          //
+          // WR-05 (Phase 1092 review): scheme preservation. If the Vite
+          // dev server is fronted by an HTTPS terminator (uncommon for
+          // bundled dev but possible in mirror setups, behind tunnels
+          // like ngrok, or in CI environments wrapping localhost), an
+          // ``x-forwarded-proto: https`` header arrives on the request.
+          // Hard-coding ``http://`` in the rewrite would emit a downgraded
+          // Location to an HTTPS client, triggering mixed-content
+          // warnings or downgrade redirects. Detect the inbound scheme
+          // and preserve it on the rewrite.
           proxy.on('proxyRes', (proxyRes, req) => {
             const location = proxyRes.headers.location
             if (typeof location === 'string' && /^https?:\/\/api(:\d+)?\//.test(location)) {
               const externalHost = req.headers.host || 'localhost:8080'
+              const forwardedProto = req.headers['x-forwarded-proto']
+              const protoCandidate = Array.isArray(forwardedProto)
+                ? forwardedProto[0]
+                : forwardedProto
+              const scheme = protoCandidate === 'https' ? 'https' : 'http'
               proxyRes.headers.location = location.replace(
                 /^https?:\/\/api(:\d+)?/,
-                `http://${externalHost}`,
+                `${scheme}://${externalHost}`,
               )
             }
           });
