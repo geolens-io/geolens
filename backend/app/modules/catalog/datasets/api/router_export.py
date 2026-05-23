@@ -54,6 +54,11 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.get("/dcat", response_class=JSONResponse, include_in_schema=False)
 @router.get("/dcat/", response_class=JSONResponse)
 async def get_dcat_catalog(
     request: Request,

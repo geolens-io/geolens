@@ -533,6 +533,13 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@search_router.get(
+    "/facets", response_model=FacetCountResponse, include_in_schema=False
+)
 @search_router.get("/facets/", response_model=FacetCountResponse)
 # WR-02: no semantic-search rate limit on /facets/ — this endpoint does pure
 # SQL aggregation and never calls the embedding model. Applying the 30/min
@@ -613,6 +620,12 @@ async def search_facets_endpoint(
     return result
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /facets above.
+@search_router.get(
+    "/datasets",
+    response_model=OGCFeatureCollectionResponse,
+    include_in_schema=False,
+)
 @search_router.get("/datasets/", response_model=OGCFeatureCollectionResponse)
 @limiter.limit(_semantic_search_rate_limit)
 async def search_datasets_endpoint(
@@ -634,6 +647,13 @@ async def search_datasets_endpoint(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /facets above.
+@search_router.post(
+    "/saved",
+    response_model=SavedSearchResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @search_router.post(
     "/saved/",
     response_model=SavedSearchResponse,
@@ -651,6 +671,10 @@ async def create_saved_search_endpoint(
     return SavedSearchResponse.model_validate(saved)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /facets above.
+@search_router.get(
+    "/saved", response_model=SavedSearchListResponse, include_in_schema=False
+)
 @search_router.get("/saved/", response_model=SavedSearchListResponse)
 async def list_saved_searches_endpoint(
     skip: int = Query(0, ge=0),

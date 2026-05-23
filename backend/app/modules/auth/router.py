@@ -115,6 +115,12 @@ async def login(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. The slash
+# form stays canonical (already published in OpenAPI); the no-slash form
+# is a hidden alias closing the 404 regression introduced by
+# redirect_slashes=False (see api/main.py).
+@router.post("/refresh", response_model=TokenResponse, include_in_schema=False)
 @router.post("/refresh/", response_model=TokenResponse)
 @limiter.limit("30/minute")
 async def refresh(
@@ -146,6 +152,13 @@ async def refresh(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.post(
+    "/register",
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post(
     "/register/", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED
 )
@@ -207,6 +220,10 @@ async def register(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.post(
+    "/logout", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False
+)
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     current_user: User = Depends(get_current_active_user),
@@ -297,6 +314,8 @@ async def create_download_token_endpoint(
     return DownloadTokenResponse(token=token, expires_in=120)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.get("/config", response_model=ConfigResponse, include_in_schema=False)
 @router.get("/config/", response_model=ConfigResponse)
 async def config(
     db: AsyncSession = Depends(get_db),
@@ -311,6 +330,8 @@ async def config(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.get("/me", response_model=UserResponse, include_in_schema=False)
 @router.get("/me/", response_model=UserResponse)
 async def me(
     current_user: User = Depends(get_current_active_user),
@@ -331,6 +352,12 @@ async def me(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.get(
+    "/me/permissions",
+    response_model=PermissionsResponse,
+    include_in_schema=False,
+)
 @router.get("/me/permissions/", response_model=PermissionsResponse)
 async def me_permissions(
     current_user: User = Depends(get_current_active_user),
@@ -358,6 +385,10 @@ async def me_permissions(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.get(
+    "/api-keys", response_model=ApiKeyListResponse, include_in_schema=False
+)
 @router.get("/api-keys/", response_model=ApiKeyListResponse)
 async def list_my_api_keys(
     skip: int = Query(0, ge=0),
@@ -387,6 +418,13 @@ async def list_my_api_keys(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.post(
+    "/api-keys",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post(
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
@@ -476,6 +514,12 @@ async def revoke_my_api_key(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /refresh above.
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+)
 @router.post("/change-password/", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     body: ChangePasswordRequest,

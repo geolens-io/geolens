@@ -151,6 +151,11 @@ async def _fail_preview(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.post("/probe", response_model=ProbeResponse, include_in_schema=False)
 @router.post("/probe/", response_model=ProbeResponse)
 async def probe_service_url(
     request: ProbeRequest,
@@ -283,6 +288,10 @@ async def probe_service_url(
     return response
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /probe above.
+@router.post(
+    "/preview", response_model=ServicePreviewResponse, include_in_schema=False
+)
 @router.post("/preview/", response_model=ServicePreviewResponse)
 async def preview_service_layer(
     request: ServicePreviewRequest,

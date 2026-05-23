@@ -226,6 +226,15 @@ async def oauth_callback(
         )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.get(
+    "/providers",
+    response_model=list[OAuthProviderPublic],
+    include_in_schema=False,
+)
 @router.get("/providers/", response_model=list[OAuthProviderPublic])
 async def list_public_providers(
     db: AsyncSession = Depends(get_db),

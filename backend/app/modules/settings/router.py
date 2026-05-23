@@ -197,6 +197,11 @@ async def _rebuild_embedding_column(db: AsyncSession, new_dims: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.get("/all", response_model=SettingsAllResponse, include_in_schema=False)
 @router.get("/all/", response_model=SettingsAllResponse)
 async def get_all_settings(
     request: Request,
@@ -247,6 +252,12 @@ async def get_all_settings(
     return SettingsAllResponse(env_only=env_only, tabs=tabs)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/enterprise-tabs",
+    response_model=EnterpriseTabsResponse,
+    include_in_schema=False,
+)
 @router.get("/enterprise-tabs/", response_model=EnterpriseTabsResponse)
 async def get_enterprise_only_tabs(
     _user: Identity = Depends(require_permission("manage_settings")),
@@ -268,6 +279,9 @@ async def get_enterprise_only_tabs(
     return EnterpriseTabsResponse(tabs=sorted(_ENTERPRISE_ONLY_TABS))
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above. The empty
+# path "" registers PUT /settings (prefix-only, no trailing slash).
+@router.put("", response_model=SettingsAllResponse, include_in_schema=False)
 @router.put("/", response_model=SettingsAllResponse)
 async def update_settings(
     body: SettingsUpdateRequest,
@@ -350,6 +364,8 @@ async def update_settings(
     return await get_all_settings(request=request, _user=user, db=db)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
 @router.post("/reset/", response_model=SettingsAllResponse)
 async def reset_settings(
     body: SettingsResetRequest,
@@ -379,6 +395,12 @@ async def reset_settings(
     return await get_all_settings(request=request, _user=user, db=db)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/api-key-status",
+    response_model=ApiKeyStatusResponse,
+    include_in_schema=False,
+)
 @router.get("/api-key-status/", response_model=ApiKeyStatusResponse)
 async def get_api_key_status(
     _user: Identity = Depends(require_permission("manage_settings")),
@@ -390,6 +412,12 @@ async def get_api_key_status(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post(
+    "/detect-embedding-dims",
+    response_model=DetectEmbeddingDimsResponse,
+    include_in_schema=False,
+)
 @router.post("/detect-embedding-dims/", response_model=DetectEmbeddingDimsResponse)
 async def detect_embedding_dims(
     _user: Identity = Depends(require_permission("manage_settings")),
@@ -416,6 +444,10 @@ async def detect_embedding_dims(
     return DetectEmbeddingDimsResponse(dimensions=dims)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/config-mode", response_model=ConfigModeResponse, include_in_schema=False
+)
 @router.get("/config-mode/", response_model=ConfigModeResponse)
 async def get_config_mode() -> ConfigModeResponse:
     """Return whether the app is in env-only config mode (public, no auth)."""
@@ -466,6 +498,12 @@ def _snapshot_provider(provider) -> dict:
     }
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/oauth-providers",
+    response_model=list[OAuthProviderResponse],
+    include_in_schema=False,
+)
 @router.get("/oauth-providers/", response_model=list[OAuthProviderResponse])
 async def list_oauth_providers(
     _user: Identity = Depends(require_permission("manage_settings")),
@@ -476,6 +514,13 @@ async def list_oauth_providers(
     return [OAuthProviderResponse.model_validate(p) for p in providers]
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.post(
+    "/oauth-providers",
+    response_model=OAuthProviderResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post(
     "/oauth-providers/",
     response_model=OAuthProviderResponse,
@@ -672,6 +717,8 @@ async def delete_oauth_provider(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get("/edition", response_model=EditionInfoResponse, include_in_schema=False)
 @router.get("/edition/", response_model=EditionInfoResponse)
 async def edition_info() -> EditionInfoResponse:
     """Return current edition and available features. Public, no auth required."""
@@ -679,6 +726,10 @@ async def edition_info() -> EditionInfoResponse:
     return EditionInfoResponse(edition=info.edition, features=list(info.features))
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/feature-flags", response_model=FeatureFlagsResponse, include_in_schema=False
+)
 @router.get("/feature-flags/", response_model=FeatureFlagsResponse)
 async def get_feature_flags(
     db: AsyncSession = Depends(get_db),
@@ -690,6 +741,8 @@ async def get_feature_flags(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
 @router.get("/branding/", response_model=BrandingResponse)
 async def get_branding(
     db: AsyncSession = Depends(get_db),
@@ -711,6 +764,12 @@ async def get_branding(
     return BrandingResponse(show_badge=show_badge)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/basemaps",
+    response_model=list[BasemapPublicResponse],
+    include_in_schema=False,
+)
 @router.get("/basemaps/", response_model=list[BasemapPublicResponse])
 @limiter.limit(_basemap_proxy_rate_limit)
 async def get_basemaps(
@@ -744,6 +803,10 @@ async def get_basemaps(
     return result
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/map-defaults", response_model=MapDefaultsResponse, include_in_schema=False
+)
 @router.get("/map-defaults/", response_model=MapDefaultsResponse)
 async def get_map_defaults(
     db: AsyncSession = Depends(get_db),
@@ -753,6 +816,10 @@ async def get_map_defaults(
     return MapDefaultsResponse(**stored)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/enabled-widgets", response_model=list[str] | None, include_in_schema=False
+)
 @router.get("/enabled-widgets/", response_model=list[str] | None)
 async def get_enabled_widgets(
     db: AsyncSession = Depends(get_db),
@@ -761,6 +828,10 @@ async def get_enabled_widgets(
     return await ENABLED_WIDGETS.get(db)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /all above.
+@router.get(
+    "/tile-config", response_model=TileConfigResponse, include_in_schema=False
+)
 @router.get("/tile-config/", response_model=TileConfigResponse)
 async def get_tile_config(
     request: Request,

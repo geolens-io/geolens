@@ -356,6 +356,16 @@ def _build_map_response(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.post(
+    "",
+    response_model=MapResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post("/", response_model=MapResponse, status_code=status.HTTP_201_CREATED)
 async def create_map_endpoint(
     body: MapCreate,
@@ -410,6 +420,8 @@ async def create_map_endpoint(
     return _build_map_response(map_obj, [], created_by_username=user.username)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see POST /maps above.
+@router.get("", response_model=MapListResponse, include_in_schema=False)
 @router.get("/", response_model=MapListResponse)
 async def list_maps_endpoint(
     skip: int = Query(0, ge=0),

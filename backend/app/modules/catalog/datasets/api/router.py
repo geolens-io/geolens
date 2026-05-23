@@ -69,6 +69,11 @@ router = APIRouter(
 _CATALOG_CACHE_TTL = 60  # seconds
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.get("", response_model=DatasetListResponse, include_in_schema=False)
 @router.get("/", response_model=DatasetListResponse)
 async def list_all_datasets(
     request: Request,
@@ -331,6 +336,13 @@ async def update_dataset_metadata(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.post(
+    "/bulk-delete", response_model=BulkDeleteResponse, include_in_schema=False
+)
 @router.post("/bulk-delete/", response_model=BulkDeleteResponse)
 async def bulk_delete_datasets_endpoint(
     body: BulkDeleteRequest,

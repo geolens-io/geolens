@@ -84,6 +84,16 @@ def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     raise HTTPException(status_code=default_status, detail=detail)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post(
     "/users/",
     response_model=UserResponse,
@@ -125,6 +135,13 @@ async def create_user(
     return _user_response(user)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/users",
+    response_model=UserListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/users/",
     response_model=UserListResponse,
@@ -148,6 +165,13 @@ async def list_users(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/users/names",
+    response_model=list[UserNameItem],
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/users/names/",
     response_model=list[UserNameItem],
@@ -227,6 +251,12 @@ async def update_user(
     return _user_response(user)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/deactivate",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
 @router.post(
     "/users/{user_id}/deactivate/",
     response_model=UserResponse,
@@ -259,6 +289,12 @@ async def deactivate_user(
     return _user_response(user)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/convert-saml-to-local",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
 @router.post(
     "/users/{user_id}/convert-saml-to-local/",
     response_model=UserResponse,
@@ -328,6 +364,12 @@ async def convert_saml_to_local(
     return _user_response(user)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/approve",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
 @router.post(
     "/users/{user_id}/approve/",
     response_model=UserResponse,
@@ -361,6 +403,12 @@ async def approve_user(
     return _user_response(user)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/reject",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+)
 @router.post(
     "/users/{user_id}/reject/",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -424,6 +472,12 @@ async def delete_user(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/stats",
+    response_model=CatalogStatsResponse,
+    include_in_schema=False,
+)
 @router.get(
     "/stats/",
     response_model=CatalogStatsResponse,
@@ -437,6 +491,13 @@ async def get_catalog_stats(
     return await service.get_catalog_stats()
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/jobs",
+    response_model=AdminJobListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/jobs/",
     response_model=AdminJobListResponse,
@@ -479,6 +540,13 @@ async def list_admin_jobs(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/api-keys",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post(
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
@@ -520,6 +588,13 @@ async def create_api_key(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/api-keys",
+    response_model=AdminApiKeyListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/api-keys/",
     response_model=AdminApiKeyListResponse,
@@ -578,6 +653,13 @@ def _ai_status(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/ai-status",
+    response_model=AIStatusResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/ai-status/",
     response_model=AIStatusResponse,
@@ -599,6 +681,12 @@ async def get_ai_status(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.patch(
+    "/ai-status",
+    response_model=AIStatusResponse,
+    include_in_schema=False,
+)
 @router.patch(
     "/ai-status/",
     response_model=AIStatusResponse,
@@ -620,6 +708,13 @@ async def update_ai_status(
     )
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/embedding-stats",
+    response_model=EmbeddingStatsResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/embedding-stats/",
     response_model=EmbeddingStatsResponse,
@@ -633,6 +728,12 @@ async def get_embedding_stats(
     return await service.get_embedding_stats()
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/backfill-embeddings",
+    response_model=BackfillResponse,
+    include_in_schema=False,
+)
 @router.post(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
@@ -707,6 +808,13 @@ async def revoke_api_key(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/infrastructure",
+    response_model=InfrastructureResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/infrastructure/",
     response_model=InfrastructureResponse,
@@ -749,6 +857,13 @@ async def get_infrastructure(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.get(
+    "/share-tokens",
+    response_model=AdminShareTokenListResponse,
+    dependencies=[Depends(require_permission("manage_users"))],
+    include_in_schema=False,
+)
 @router.get(
     "/share-tokens/",
     response_model=AdminShareTokenListResponse,

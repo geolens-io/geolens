@@ -68,6 +68,16 @@ def _collection_to_response(
 # ---------------------------------------------------------------------------
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
+# no-trailing-slash variants register against the same handler. Slash form
+# stays canonical (already in OpenAPI); no-slash is a hidden alias closing
+# the 404 regression introduced by redirect_slashes=False (api/main.py).
+@router.post(
+    "",
+    response_model=CollectionResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
 @router.post(
     "/", response_model=CollectionResponse, status_code=status.HTTP_201_CREATED
 )
@@ -110,6 +120,8 @@ async def create_collection_endpoint(
 _CATALOG_CACHE_TTL = 60  # seconds
 
 
+# ROUTE-01 (Phase 1092): dual-shape decorator — see POST above.
+@router.get("", response_model=CollectionListResponse, include_in_schema=False)
 @router.get("/", response_model=CollectionListResponse)
 async def list_collections_endpoint(
     skip: int = Query(0, ge=0),
