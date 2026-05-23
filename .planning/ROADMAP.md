@@ -47,7 +47,10 @@
   3. `./db/Dockerfile` carries an inline comment on line 1 (or immediately above) explaining the `--platform=linux/amd64` pin rationale (pgvector build reproducibility against `postgis/postgis:17-3.5`) and a TODO link to the future multi-arch path (acceptance criterion (a) from INFRA-02).
   4. One project-level doc (CHANGELOG `[1.5.6]` block, `./db/README.md`, or `MEMORY.md`) carries the operator-facing rationale for the `db` image platform pin (acceptance criterion (b) from INFRA-02); `docker compose up -d --build` still warns but the warning is now expected behavior pinned by a comment (acceptance criterion (c)).
   5. Sequential pytest baseline `3047/0/38` preserved at phase close (HARD INVARIANT — non-negotiable per v1020 close-gate).
-**Plans:** TBD
+**Plans:** 3 plans
+- [x] 1092-01-PLAN.md — ROUTE-01 hybrid fix (redirect_slashes=False + dual-shape registration + Vite Location rewrite + MEMORY.md refresh)
+- [ ] 1092-02-PLAN.md — INFRA-01 migrate service alembic-upgrade dedup (entrypoint override)
+- [ ] 1092-03-PLAN.md — INFRA-02 ACCEPT + CHANGELOG + Phase 1092 close
 
 ### Phase 1093: Engine-level Retry Envelope
 **Goal:** A developer running `cd backend && uv run pytest -n auto tests/` on a canonical 16-core M-series host sees ≤10 failed tests across 3 consecutive runs (down from v1020's HYG-02 baseline of 48 deterministic + 173 non-deterministic = up to 221), while the `-n 4` CI default and sequential baseline stay green.
