@@ -41,6 +41,7 @@ loaded once per session.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import pathlib
 import sys
@@ -253,4 +254,165 @@ async def test_reconciliation_handles_admin_endpoint_failure(caplog) -> None:
     assert "reconcile" in rendered or "/admin/jobs" in rendered, (
         f"warning did not mention reconcile or /admin/jobs: caplog records = "
         f"{[r.getMessage() for r in caplog.records]!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# WR-03 (post-1091 review) — main() exit-code wiring pins
+# ---------------------------------------------------------------------------
+#
+# The four tests above pin the four branches of ``reconcile_failed_jobs``
+# itself. The tests below pin the integration logic at
+# ``seed-natural-earth.py:1145-1147,1183`` — i.e. the ``reconciliation_
+# exit_nonzero`` flag and the final ``return 1 if (failed > 0 or
+# reconciliation_exit_nonzero) else 0`` line. Without these tests a
+# refactor that accidentally drops the flag toggle (e.g., re-shaping the
+# print block and forgetting to set ``reconciliation_exit_nonzero``
+# inside the ``if`` branch) would silently regress the OPS-01 acceptance
+# criterion ("script exits non-zero when /admin/jobs/ has failed rows
+# the per-dataset poll missed") with nothing in CI to catch it.
+#
+# Approach: monkeypatch every IO dependency the function reaches for
+# (httpx client, fetch_existing_datasets, reconcile_failed_jobs,
+# create_collections, print_summary) and call ``main(args, datasets=[])``.
+# The empty datasets list keeps the TaskGroup body a no-op so we do
+# not need to mock the per-dataset ``process_one`` path. The mocks
+# isolate the exit-code computation surface, which is the only thing
+# WR-03 targets.
+
+
+@pytest.fixture
+def _seed_main_args(tmp_path):
+    """Minimal argparse.Namespace that main() reads."""
+    return argparse.Namespace(
+        api_key="test-api-key",
+        username=None,
+        password=None,
+        base_url="http://localhost:8080",
+        dry_run=False,
+        theme="all",
+        dataset=None,
+        cache_dir=None,
+    )
+
+
+def _stub_httpx_client_class(seed_module, response_payload: dict):
+    """Replace ``httpx.AsyncClient`` on the seed module with an async-context
+    factory whose nested instance returns ``response_payload`` from every GET.
+
+    Returns the patched ``AsyncClient`` class for assertion access.
+    """
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            self._response = MagicMock()
+            self._response.json = MagicMock(return_value=response_payload)
+            self._response.raise_for_status = MagicMock(return_value=None)
+            self._response.status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, *args, **kwargs):
+            return self._response
+
+        async def post(self, *args, **kwargs):
+            return self._response
+
+        async def delete(self, *args, **kwargs):
+            return self._response
+
+    seed_module.httpx.AsyncClient = _FakeAsyncClient  # type: ignore[attr-defined]
+    return _FakeAsyncClient
+
+
+@pytest.mark.anyio
+async def test_main_returns_nonzero_when_reconciliation_finds_failures(
+    monkeypatch, _seed_main_args
+) -> None:
+    """WR-03 (post-1091 review): main() must return 1 when the per-dataset
+    polling sees zero failures BUT ``reconcile_failed_jobs`` surfaces a
+    failure inside the run window. Pins the OPS-01 contract that the
+    reconciliation result propagates into the script's exit code.
+
+    A refactor that re-shapes the print block and forgets to set
+    ``reconciliation_exit_nonzero = True`` inside the ``if
+    reconciliation_failures:`` branch would regress the exit code from
+    1 to 0 — this test fails loudly in that case.
+    """
+    seed = _load_seed_module()
+
+    # Stub httpx so health-check + fetch_existing_datasets succeed.
+    _stub_httpx_client_class(seed, {"datasets": [], "jobs": [], "total": 0})
+
+    # Bypass network IO for the helpers main() invokes around the
+    # exit-code wiring.
+    monkeypatch.setattr(
+        seed, "fetch_existing_datasets", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(
+        seed, "create_collections", AsyncMock(return_value=None)
+    )
+    # Stub print_summary so the captured stdout stays uncluttered; the
+    # function's return value is unused by main().
+    monkeypatch.setattr(seed, "print_summary", MagicMock(return_value=None))
+
+    # The KEY stub: reconciliation surfaces ONE failure inside the
+    # run window. Per-dataset polling saw zero failures (empty
+    # `results` list because we pass `datasets=[]`). Exit code must
+    # be 1.
+    fake_failure = {
+        "id": "deadbeef-1111-2222-3333-444444444444",
+        "source_filename": "test.zip",
+        "dataset_id": "ffcba726-d61c-48e9-8786-3b41b5fc96f8",
+        "error_message": "MissingGreenlet on stress shape",
+        "started_at": "2026-05-23T11:05:00+00:00",
+    }
+    monkeypatch.setattr(
+        seed, "reconcile_failed_jobs", AsyncMock(return_value=[fake_failure])
+    )
+
+    rc = await seed.main(_seed_main_args, datasets=[])
+
+    assert rc == 1, (
+        "main() must return 1 when reconcile_failed_jobs surfaces a "
+        "failure even if per-dataset polling saw zero failures. "
+        f"Got: {rc!r}"
+    )
+
+
+@pytest.mark.anyio
+async def test_main_returns_zero_on_clean_run(
+    monkeypatch, _seed_main_args
+) -> None:
+    """WR-03 (post-1091 review): main() must return 0 when both per-dataset
+    polling AND reconciliation report zero failures. Companion negative
+    test to ``test_main_returns_nonzero_when_reconciliation_finds_failures``:
+    confirms the clean path stays clean and the OPS-01 reconciliation
+    does not flip exit code spuriously when its result list is empty.
+    """
+    seed = _load_seed_module()
+
+    _stub_httpx_client_class(seed, {"datasets": [], "jobs": [], "total": 0})
+
+    monkeypatch.setattr(
+        seed, "fetch_existing_datasets", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(
+        seed, "create_collections", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(seed, "print_summary", MagicMock(return_value=None))
+    # Reconciliation returns []: no failures found in the run window.
+    monkeypatch.setattr(
+        seed, "reconcile_failed_jobs", AsyncMock(return_value=[])
+    )
+
+    rc = await seed.main(_seed_main_args, datasets=[])
+
+    assert rc == 0, (
+        "main() must return 0 when per-dataset polling AND reconciliation "
+        f"both report zero failures. Got: {rc!r}"
     )
