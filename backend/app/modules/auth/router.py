@@ -55,12 +55,17 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-# ROUTE-01 (Phase 1092): both slash and no-slash variants register the same
-# handler directly. Canonical OpenAPI-published form is /login; /login/ is
-# a hidden alias for callers that send it. Mirrors Phase 280 dual-shape
-# pattern in catalog/maps/router.py. SP-11 (v1009.1) original rationale
-# (POST body strip on 307) is now structurally impossible because
-# redirect_slashes=False at the app level (see api/main.py).
+# SP-11 (v1009.1) superseded by ROUTE-01 (Phase 1092): both slash and
+# no-slash variants register the same handler directly. Canonical
+# OpenAPI-published form is /login; /login/ is a hidden alias for callers
+# that send it. Mirrors Phase 280 dual-shape pattern in
+# catalog/maps/router.py. SP-11's original closure (no-trailing-slash-only
+# registration to prevent FastAPI's 307 from stripping the POST body for
+# OAuth2 form callers) is now structurally impossible because
+# redirect_slashes=False at the app level (see api/main.py). Keep
+# ``SP-11`` as the grep-anchor prefix so future maintainers searching the
+# repo for that audit ID land on this load-bearing context rather than
+# just hitting the in-prose mention.
 @router.post("/login/", response_model=TokenResponse, include_in_schema=False)
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
