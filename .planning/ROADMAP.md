@@ -15,7 +15,7 @@
 ## Phases
 
 - [x] **Phase 1091: Ingest Correctness Sweep** — Fix the `urban_areas_landscan_10m` quicklook `MissingGreenlet` async-context bug AND add post-loop reconciliation to `scripts/seed-natural-earth.py` so the seed's "Succeeded: N" summary cannot disagree with `/api/admin/jobs/` status. Spike-first per v1019/v1020 pattern.
-- [ ] **Phase 1092: Routing + Infra Hygiene** — Stop the 307 trailing-slash redirects from leaking the internal `http://api:8000` hostname (closes `/api/collections/` + `/api/auth/login/` + revisits the documented `/collections/datasets` exception); eliminate the double alembic `upgrade head` invocation in the `migrate` service; formally ACCEPT the `db` image `--platform=linux/amd64` pin with rationale doc.
+- [x] **Phase 1092: Routing + Infra Hygiene** — Stop the 307 trailing-slash redirects from leaking the internal `http://api:8000` hostname (closes `/api/collections/` + `/api/auth/login/` + revisits the documented `/collections/datasets` exception); eliminate the double alembic `upgrade head` invocation in the `migrate` service; formally ACCEPT the `db` image `--platform=linux/amd64` pin with rationale doc.
 - [ ] **Phase 1093: Engine-level Retry Envelope** — Land the v1020-deferred engine-level retry envelope for `pytest -n auto` so the 48 deterministic + 173 non-deterministic node-IDs flagged in v1020 HYG-02 stop being a developer-environment papercut. Targets the test-fixture engine only (app-engine path is out of scope per REQUIREMENTS.md `Out of Scope`).
 
 ---
@@ -50,7 +50,7 @@
 **Plans:** 3 plans
 - [x] 1092-01-PLAN.md — ROUTE-01 hybrid fix (redirect_slashes=False + dual-shape registration + Vite Location rewrite + MEMORY.md refresh)
 - [x] 1092-02-PLAN.md — INFRA-01 migrate service alembic-upgrade dedup (entrypoint override)
-- [ ] 1092-03-PLAN.md — INFRA-02 ACCEPT + CHANGELOG + Phase 1092 close
+- [x] 1092-03-PLAN.md — INFRA-02 ACCEPT + CHANGELOG + Phase 1092 close
 
 ### Phase 1093: Engine-level Retry Envelope
 **Goal:** A developer running `cd backend && uv run pytest -n auto tests/` on a canonical 16-core M-series host sees ≤10 failed tests across 3 consecutive runs (down from v1020's HYG-02 baseline of 48 deterministic + 173 non-deterministic = up to 221), while the `-n 4` CI default and sequential baseline stay green.
@@ -71,7 +71,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1091. Ingest Correctness Sweep | 3/3 | Complete | 2026-05-23 |
-| 1092. Routing + Infra Hygiene | 0/TBD | Not started | - |
+| 1092. Routing + Infra Hygiene | 3/3 | Complete | 2026-05-23 |
 | 1093. Engine-level Retry Envelope | 0/TBD | Not started | - |
 
 **Total:** 0/TBD plans complete across 3 phases.
