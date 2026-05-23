@@ -646,9 +646,9 @@ async def _generate_quicklook(
     ORM attribute (``expire_on_rollback`` defaults to True). If this
     rollback fires on the same session that holds the outer
     ``dataset.record`` relationship, the next access (e.g.,
-    ``defer_embedding`` at helpers.py:123) trips ``MissingGreenlet``
-    on the lazy-refresh. Passing a fresh session keeps that surface
-    isolated. See
+    ``defer_embedding`` in ``app/processing/embeddings/helpers.py``)
+    trips ``MissingGreenlet`` on the lazy-refresh. Passing a fresh
+    session keeps that surface isolated. See
     ``.planning/audits/INGEST-QUICKLOOK-ASYNC-CONTEXT-v1021.md``.
 
     Internal phase ordering (INGEST-01 iter-2):
@@ -685,8 +685,8 @@ async def _generate_quicklook(
        The defensive try/except handles any residual commit failure
        (e.g., DB pool drop, deadlock) — log a phase=commit warning
        and rollback. The dataset row itself is already committed by
-       the outer ``_finalize_ingest:822`` so a failed quicklook
-       commit only loses the URI breadcrumb.
+       the outer ``_finalize_ingest``'s terminal commit so a failed
+       quicklook commit only loses the URI breadcrumb.
 
     The outer session's view of the dataset is stale w.r.t.
     ``quicklook_256_uri`` after this returns — callers that need the

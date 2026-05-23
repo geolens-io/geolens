@@ -305,25 +305,26 @@ async def test_generate_quicklook_timeout_poisons_outer_session_pre_fix(
 ):
     """Negative-form pin of the production ``MissingGreenlet`` shape.
 
-    Pre-fix code path at ``tasks_common.py:826`` reused the outer
+    Pre-fix code path in ``_generate_quicklook`` reused the outer
     ``_finalize_ingest`` session for the quicklook block. The
-    ``await session.commit()`` at line 662 failed when the asyncio
-    cancellation poisoned the asyncpg cursor; the defensive
-    ``await session.rollback()`` at line 666 then expired every loaded
-    ORM attribute on ``dataset`` (because ``expire_on_rollback``
-    defaults to True even with ``expire_on_commit=False`` at
-    session.py:26). When ``defer_embedding`` next accessed
-    ``dataset.record.id`` at helpers.py:123, SQLAlchemy attempted a
-    lazy-refresh — which is synchronous attribute access in an async
+    ``await session.commit()`` failed when the asyncio cancellation
+    poisoned the asyncpg cursor; the defensive
+    ``await session.rollback()`` then expired every loaded ORM
+    attribute on ``dataset`` (because ``expire_on_rollback`` defaults
+    to True even with ``expire_on_commit=False`` configured at
+    ``app/core/db/session.py``). When ``defer_embedding`` next
+    accessed ``dataset.record.id``, SQLAlchemy attempted a lazy-
+    refresh — which is synchronous attribute access in an async
     context, requiring the greenlet bridge — and raised
     ``MissingGreenlet`` instead of refreshing.
 
     This test directly reproduces the ORM-side detonation by:
     1. Opening an active transaction on the session that holds the
        eagerly-loaded ``dataset.record``.
-    2. Rolling it back (mimicking line 666 of pre-fix code).
+    2. Rolling it back (mimicking the defensive rollback in the
+       pre-fix code path).
     3. Accessing ``dataset.record`` from a sync attribute getter
-       (mimicking helpers.py:123's `dataset.record.id`).
+       (mimicking ``defer_embedding``'s ``dataset.record.id`` access).
 
     Under the pre-fix shape this raises ``MissingGreenlet``; Plan
     1091-02's Shape A fix moves the rollback onto a fresh session so
@@ -352,10 +353,10 @@ async def test_generate_quicklook_timeout_poisons_outer_session_pre_fix(
         # Force an active transaction on the session so the rollback has
         # something to roll back (without an open tx, SQLAlchemy's
         # rollback is a no-op and does NOT expire attributes). In
-        # production, the active transaction at the line-666 rollback
+        # production, the active transaction at the defensive-rollback
         # site is the one opened implicitly by the failed
-        # ``await session.commit()`` at line 662 — the commit's IO
-        # mid-flight is what poisons the cursor and leaves the
+        # ``await session.commit()`` immediately above — the commit's
+        # IO mid-flight is what poisons the cursor and leaves the
         # transaction open for the rollback to flush.
         await session.execute(text("SELECT 1"))
 
@@ -374,9 +375,10 @@ async def test_generate_quicklook_timeout_poisons_outer_session_pre_fix(
         )
 
         # The lazy-refresh on the expired relationship now trips the
-        # greenlet bridge — same shape as the production failure at
-        # helpers.py:123 → attributes.py:569. This is a synchronous
-        # __get__ attempting async IO without an active greenlet.
+        # greenlet bridge — same shape as the production failure
+        # inside ``defer_embedding``'s ``dataset.record.id`` access.
+        # This is a synchronous __get__ attempting async IO without
+        # an active greenlet.
         with pytest.raises(MissingGreenlet):
             _ = dataset.record  # pyright: ignore[reportUnusedExpression]
     finally:
@@ -397,8 +399,8 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
     Pins INGEST-01 iter-2: even when ``asyncio.wait_for`` cancels the
     geom query mid-flight (poisoning the asyncpg cursor on the fresh
     quicklook session), the post-upload ``session.rollback()`` recovery
-    at tasks_common.py:726 clears the cursor state and the subsequent
-    URI write commits cleanly.
+    inside ``_generate_quicklook`` clears the cursor state and the
+    subsequent URI write commits cleanly.
 
     Pre-iter-2 (rollback was inside the commit-except branch only),
     this test would have left ``dataset.quicklook_256_uri`` as NULL —
@@ -443,8 +445,10 @@ async def test_generate_quicklook_completes_on_multipolygon_shape(
         # session committed its merged copy; the outer session's view of
         # the row is stale until we refresh.
         await session.refresh(dataset)
-        # Blank canvas was uploaded on timeout per quicklook.py:235-236;
-        # the iter-2 recovery rollback in _generate_quicklook ensures the
+        # Blank canvas was uploaded on timeout — see
+        # ``generate_vector_quicklook_with_timeout`` in
+        # ``app/processing/vector/quicklook.py`` (TimeoutError branch).
+        # The iter-2 recovery rollback in _generate_quicklook ensures the
         # URI write commits cleanly even on the cancellation path.
         assert dataset.quicklook_256_uri is not None, (
             "URI must persist on the timeout path — iter-2 rollback "
