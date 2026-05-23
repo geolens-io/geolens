@@ -458,6 +458,13 @@ app = FastAPI(
         "url": "https://github.com/geolens-io/geolens",
     },
     terms_of_service="https://github.com/geolens-io/geolens/blob/main/LICENSE",
+    # ROUTE-01 (Phase 1092): redirect_slashes=False — trailing-slash callers
+    # no longer trigger a 307 with Location: http://api:8000/... See
+    # .planning/phases/1092-routing-infra-hygiene/1092-CONTEXT.md for the
+    # (c) hybrid rationale. Routes that need both shapes register them via
+    # stacked decorators (auth/router.py login, search/router.py
+    # list_collections, catalog/maps/router.py Phase 280 precedent).
+    redirect_slashes=False,
     lifespan=lifespan,
 )
 

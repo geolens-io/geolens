@@ -55,8 +55,13 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
-# SP-11 (v1009.1): no trailing slash — FastAPI's default 307 strips the
-# POST body for OAuth2 form callers. Do NOT add a trailing slash on cleanup.
+# ROUTE-01 (Phase 1092): both slash and no-slash variants register the same
+# handler directly. Canonical OpenAPI-published form is /login; /login/ is
+# a hidden alias for callers that send it. Mirrors Phase 280 dual-shape
+# pattern in catalog/maps/router.py. SP-11 (v1009.1) original rationale
+# (POST body strip on 307) is now structurally impossible because
+# redirect_slashes=False at the app level (see api/main.py).
+@router.post("/login/", response_model=TokenResponse, include_in_schema=False)
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit(_login_rate_limit)
 async def login(

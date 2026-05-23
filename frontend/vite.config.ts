@@ -86,6 +86,21 @@ export default defineConfig({
           proxy.on('proxyReq', (proxyReq, req) => {
             if (req.headers.host) proxyReq.setHeader('X-Forwarded-Host', req.headers.host);
           });
+          // ROUTE-01 defense-in-depth (Phase 1092): rewrite any upstream
+          // Location: http://api:8000/... to the external origin. Once
+          // redirect_slashes=False lands in FastAPI, no 307 should reach
+          // this hook, but the rewrite catches future code paths that
+          // re-introduce one (e.g. an explicit 307 from a route handler).
+          proxy.on('proxyRes', (proxyRes, req) => {
+            const location = proxyRes.headers.location
+            if (typeof location === 'string' && /^https?:\/\/api(:\d+)?\//.test(location)) {
+              const externalHost = req.headers.host || 'localhost:8080'
+              proxyRes.headers.location = location.replace(
+                /^https?:\/\/api(:\d+)?/,
+                `http://${externalHost}`,
+              )
+            }
+          });
         },
       },
       '/raster-tiles': {

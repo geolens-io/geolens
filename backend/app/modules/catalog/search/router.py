@@ -914,6 +914,15 @@ def _build_collection_links(public_api_url: str) -> list[dict]:
     ]
 
 
+# ROUTE-01 (Phase 1092): both slash and no-slash variants register the same
+# handler directly. Canonical OpenAPI form is "" (no-slash); the trailing
+# slash variant is a hidden alias for callers that send it. Mirrors the
+# Phase 280 dual-shape pattern in catalog/maps/router.py. Prevents the
+# 307 + http://api:8000 Location-header leak when redirect_slashes=False
+# at the app level (see api/main.py).
+@collections_router.get(
+    "/", response_model=OGCCollectionsResponse, include_in_schema=False
+)
 @collections_router.get("", response_model=OGCCollectionsResponse)
 async def list_collections(
     request: Request,
