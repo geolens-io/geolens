@@ -1,57 +1,50 @@
 ---
 gsd_state_version: 1.0
-milestone: v1021
-milestone_name: Docker Rebuild Sweep + Engine-level Retry
-status: Awaiting next milestone
-stopped_at: "v1021 ROADMAP.md created; ready for `/gsd:plan-phase 1091`"
-last_updated: "2026-05-23T21:35:37.264Z"
-last_activity: 2026-05-23 — Milestone v1021 completed and archived
+milestone: v1022
+milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
+status: planning
+last_updated: "2026-05-23T23:35:59.472Z"
+last_activity: 2026-05-23
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 11
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1021 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-23 — Milestone v1021 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-23 — Milestone v1022 started
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1021 Docker Rebuild Sweep + Engine-level Retry — close operational findings from quick task `260523-at1` + retire v1020's engine-level retry carry-forward.
+**Current focus:** v1022 Parallel-Test Cascade Closure + Hygiene Tail — close v1021's Category 4.1 per-worker DB lifecycle parallel-mode cascade + WR-02 sleep footgun + WR-01..04 review findings + `pytest-parallel-isolation` CI live-verify.
 
 ## Last Shipped Milestone
 
-**Version:** v1020 Fixture Isolation
-**Shipped:** 2026-05-22
-**Phases:** 1087-1090 (4 phases, 11 plans, 9/9 reqs)
-**Tag:** `v1020` (local) + `v1.5.5` (public) at commit `8a924bb6`
-**Close-gate doc:** `.planning/phases/1090-skip-audit-flake-hunt-close-gate/1090-01-CLOSE-GATE.md`
-**Phase summary:** `.planning/phases/1090-skip-audit-flake-hunt-close-gate/1090-SUMMARY.md`
+**Version:** v1021 Docker Rebuild Sweep + Engine-level Retry
+**Shipped:** 2026-05-23
+**Phases:** 1091-1093 (3 phases, 8 plans, 6/6 reqs)
+**Tag:** `v1021` (local) + `v1.5.6` (public) at commit `35596a7a`
+**Milestone audit:** `.planning/milestones/v1021-MILESTONE-AUDIT.md`
+**Archived phases:** `.planning/milestones/v1021-phases/`
 
-**Previous:** v1019 Hygiene Tail — v1018 Frontend + xdist + Process (shipped 2026-05-22, public tag `v1.5.4` at `02cb25db`).
+**Previous:** v1020 Fixture Isolation (shipped 2026-05-22, public tag `v1.5.5` at `8a924bb6`).
 
-## Phase Plan (v1021)
+## Phase Plan (v1022)
 
-| Phase | Goal | Requirements | Depends on |
-|-------|------|--------------|------------|
-| 1091 | Ingest Correctness Sweep — fix `urban_areas_landscan_10m` quicklook `MissingGreenlet` (spike-first) + seed-script post-loop reconciliation against `/api/admin/jobs/` | INGEST-01, OPS-01 | — (v1020 close-gate `3047/0/38` sequential is start state) |
-| 1092 | Routing + Infra Hygiene — stop 307 internal-hostname leak (`/api/collections/` + `/api/auth/login/`); dedupe double alembic `upgrade head` in `migrate` service; ACCEPT `db --platform=linux/amd64` pin with rationale | ROUTE-01, INFRA-01, INFRA-02 | 1091 |
-| 1093 | Engine-level Retry Envelope — close v1020 carry-forward; engine-layer retry for `pytest -n auto` (test-fixture engine only); preserve `-n 4` CI default | TEST-01 | 1092 |
+Roadmap pending — see ROADMAP.md once roadmapper completes.
 
-**Coverage:** 6/6 requirements mapped — no orphans, no duplicates.
-
-**Public tag target:** `v1.5.6` (patch — bug fixes + ops hygiene; no API/schema changes, no migrations beyond docker-compose/entrypoint fixes).
+**Public tag target:** `v1.5.7` (patch — test-infra hygiene only; no API/schema changes, no migrations).
 
 ## Accumulated Context
 
@@ -88,16 +81,15 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Roadmap pending — once approved, run `/gsd:discuss-phase [N]` or `/gsd:plan-phase [N]` for the first phase.
 
 ## Deferred Items
 
-v1021 inherits the following from v1020 close-state (still open at v1021 start):
+v1022 inherits the following from v1021 close-state (in scope for v1022):
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| ci-live-verify | `pytest-parallel-isolation` gate first post-merge run | Pending operator action (`gh run watch`) | v1020 Phase 1089 |
-
-Items closed by v1021 scope:
-
-- **Cascade flake-class residual at `-n auto`** (v1020 carry-forward) — addressed by Phase 1093 TEST-01 (engine-level retry envelope).
+| test-infra | Category 4.1 per-worker DB lifecycle parallel-mode cascade (`-n auto` 709/1020 distinct) | Active — PARA-01 | v1021 Phase 1093 |
+| test-infra | WR-02 blocking `time.sleep` in `_invoke_sleep_in_sync_context` footgun | Active — PARA-02 | v1021 Phase 1093 |
+| test-infra | Phase 1093 review findings WR-01..04 (engine-retry test pin coverage + edge cases) | Active — HYG-01 | v1021 Phase 1093 |
+| ci-live-verify | `pytest-parallel-isolation` gate first post-merge run | Active — CI-01 | v1020 Phase 1089 |

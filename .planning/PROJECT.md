@@ -12,9 +12,21 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: TBD (awaiting /gsd-new-milestone)
+## Current Milestone: v1022 Parallel-Test Cascade Closure + Hygiene Tail
 
-**Status:** v1021 just shipped. PROJECT.md `Active` section is empty pending next milestone definition. Run `/gsd-new-milestone` to begin the next cycle.
+**Goal:** Close v1021's Category 4.1 per-worker DB lifecycle parallel-mode cascade (`pytest -n auto` 709/1020 `InvalidCatalogNameError` distinct failures), investigate the WR-02 blocking `time.sleep` footgun in `_invoke_sleep_in_sync_context`, retire WR-01..04 review findings (engine-retry test pin coverage + edge cases), and live-verify the v1020 `pytest-parallel-isolation` CI gate.
+
+**Target features:**
+- Spike-first audit of per-worker DB lifecycle race (v1019/v1020/v1021 precedent — measurement before fix)
+- Category 4.1 cascade fix (architectural — `_test_db_lifecycle:~661-674` race OR `max_connections` dynamic-sizing)
+- WR-02 sleep footgun investigation/fix (may be load-bearing for Cat 4.1)
+- WR-01..04 hygiene closure (test pin coverage + edge cases for `_RetryingAsyncEngine`)
+- `pytest-parallel-isolation` CI gate first post-merge live-verify (`gh run watch`)
+- Close-gate: sequential pytest **3055/0/38** preserved + `-n 4` 3054/0/38 preserved + `-n auto` distinct failures ≤ measurable threshold
+
+**Public tag target:** `v1.5.7` (SemVer patch — test-infra hygiene only; no API/schema/migrations).
+
+**HARD INVARIANT:** `failed == 0` in sequential mode is non-negotiable (v1019 TD-13 rule).
 
 ## Recent Shipped Milestone: v1021 Docker Rebuild Sweep + Engine-level Retry
 
@@ -1091,9 +1103,13 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-_None — v1021 just shipped. Awaiting next milestone definition via `/gsd-new-milestone`._
+**v1022 Parallel-Test Cascade Closure + Hygiene Tail** (started 2026-05-23):
 
-**v1022 carry-forward (tracked for next milestone):** Category 4.1 per-worker DB lifecycle parallel-mode cascade. `pytest -n auto` produces 709/1020 distinct failures on Runs 3+4 (different surface than TEST-01's in-test wrapper). Findings doc at `.planning/phases/1093-engine-level-retry-envelope/1093-02-FINDINGS.md`. Operational defense via `-n 4` CI gate is in place; v1022 would close the residual. Phase 1093 review findings WR-01..04 also queued for v1022 alongside this work.
+- [ ] **PARA-01**: `pytest -n auto` Category 4.1 per-worker DB lifecycle parallel-mode cascade closed at root cause (`_test_db_lifecycle:~661-674` race OR `max_connections` dynamic-sizing — spike-first decides). `-n auto` distinct failures reduced from 709/1020 to a measurable threshold (target ≤ 30 per run, deterministic across 3+ consecutive runs).
+- [ ] **PARA-02**: WR-02 footgun closed — blocking `time.sleep` in `_invoke_sleep_in_sync_context` replaced with non-blocking yield-equivalent (or load-bearing rationale documented) so engine retry path does not starve the asyncio loop up to 7s per retry-backoff.
+- [ ] **HYG-01**: WR-01..04 review findings (Phase 1093 code review) retired — test pin coverage + edge cases for `_RetryingAsyncEngine` extended in `backend/tests/test_fixture_isolation_v1020.py`.
+- [ ] **CI-01**: `pytest-parallel-isolation` CI gate first post-merge live-verify confirmed green on real GitHub Actions runner (`gh run watch`). Closes v1020 deferred operator action.
+- [ ] **CLOSE-01**: Close-gate preserved — sequential pytest 3055/0/38, `-n 4` 3054/0/38, CHANGELOG `[1.5.7]` entry written, tags `v1022` (local) + `v1.5.7` (public) cut.
 
 ### Out of Scope
 
@@ -1365,4 +1381,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-23 — archived milestone v1021 Docker Rebuild Sweep + Engine-level Retry (6/6 reqs INGEST-01 + OPS-01 + ROUTE-01 + INFRA-01 + INFRA-02 + TEST-01 satisfied; tags `v1021` + `v1.5.6` at `35596a7a`). INGEST-01 quicklook MissingGreenlet fix + OPS-01 seed reconciliation + ROUTE-01 dual-shape decorator sweep (100 routes) + INFRA-01 migrate dedup + INFRA-02 platform pin ACCEPT + TEST-01 engine-retry envelope. In-test contention reduced 126/139 → 11/12 per `-n auto` run (-91%); 109/109 datasets seed clean with quicklook URIs. One v1022 carry-forward (Category 4.1 per-worker DB lifecycle cascade). Archives: `.planning/milestones/v1021-ROADMAP.md` + `.planning/milestones/v1021-REQUIREMENTS.md` + `.planning/milestones/v1021-MILESTONE-AUDIT.md`. Previous: v1020 Fixture Isolation (9/9 reqs satisfied; tags `v1020` + `v1.5.5` at `8a924bb6`).*
+*Last updated: 2026-05-23 — started milestone v1022 Parallel-Test Cascade Closure + Hygiene Tail (5 reqs PARA-01..02 + HYG-01 + CI-01 + CLOSE-01). Closes v1021's Category 4.1 per-worker DB lifecycle parallel-mode cascade (`pytest -n auto` 709/1020 `InvalidCatalogNameError` distinct failures), WR-02 sleep footgun, Phase 1093 review findings WR-01..04, and v1020-deferred `pytest-parallel-isolation` CI gate live-verify. Spike-first per v1019/v1020/v1021 precedent. Public tag target `v1.5.7` (SemVer patch; no API/schema/migrations). HARD INVARIANT: `failed == 0` in sequential mode. Previous: v1021 Docker Rebuild Sweep + Engine-level Retry (6/6 reqs satisfied; tags `v1021` + `v1.5.6` at `35596a7a`).*
