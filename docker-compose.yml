@@ -51,27 +51,14 @@ x-ai-env: &ai-env
 # ==============================================================================
 # Services
 # ==============================================================================
-# Resource budget for 2GB VPS deployment target (Phase 272 / INF-01).
+# Resource budget for local-dev steady-state (db + api + worker + titiler +
+# vite frontend): db(768M) + api(384M) + worker(384M) + titiler(256M) +
+# frontend(512M) = 2304M. Vite needs ~512 MB to bundle without OOM-kill;
+# substitute nginx in a production deploy to fit a 2 GB VPS.
 #
-# Default-profile is the LOCAL DEV profile and uses Vite dev server, which
-# needs ~512 MB to bundle the GeoLens dep graph without OOM-kill. That
-# breaks the strict 2 GB VPS sum here (~2304 MB), so the 2 GB VPS target
-# applies to the DEMO/PRODUCTION overlay (docker-compose.demo.yml) which
-# substitutes nginx for vite — the production frontend fits in ~64 MB.
-#
-# Local-dev steady-state (db + api + worker + titiler + vite frontend):
-#   db(768M) + api(384M) + worker(384M) + titiler(256M) + frontend(512M) = 2304M
-#
-# Demo/production steady-state (db + api + worker + titiler + nginx frontend):
-#   db(768M) + api(384M) + worker(384M) + titiler(256M) + frontend(128M) = 1920M
-# Leaves ~128 MB host headroom on a 2 GB VPS (kernel + Docker engine ~150-200 MB).
-#
-# Transient peaks:
-#   - migrate(384M) runs once at startup; exits before api starts (depends_on:
-#     service_completed_successfully), so does not compound with steady-state.
-#   - --profile backup adds 192M when active (cron-driven; mostly idle).
-#   - --profile cloud-dev (minio + valkey) is local-dev only, NOT counted toward
-#     the 2 GB VPS budget.
+# Transient peaks: migrate(384M) is one-shot and exits before api starts.
+# --profile backup adds 192M when active. --profile cloud-dev (minio + valkey)
+# is local-dev only.
 #
 # Limits are honored when deploying via `docker compose up` (Compose-native
 # limits don't require Swarm mode).
@@ -213,8 +200,8 @@ services:
       - ./backend/tests:/app/tests
       - upload_staging:/app/staging
     # UVICORN_WORKERS=1 is the dev default to keep --reload working (uvicorn forbids
-    # --workers > 1 with --reload). Production demo overlay (docker-compose.demo.yml)
-    # overrides without --reload, allowing UVICORN_WORKERS > 1 for true parallelism.
+    # --workers > 1 with --reload). For a production deploy without --reload,
+    # raise UVICORN_WORKERS to 2-4 for true parallelism.
     # All continuation lines at the same indent so `>` folds newlines into
     # single spaces. Mismatched indent makes YAML preserve the newlines and
     # sh then sees a multi-line script (uvicorn flags become "command not
@@ -260,9 +247,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    # 2GB VPS budget: api fits uvicorn single-worker baseline (~150M) + GDAL ingest
-    # offloaded to worker. 384M cap matches worker reservation symmetry. Streaming
-    # upload (UPLOAD_MAX_SIZE_MB=500) uses 100M peak in-process via SpooledTemp.
+    # api fits uvicorn single-worker baseline (~150M) + GDAL ingest offloaded to
+    # worker. 384M cap matches worker reservation symmetry. Streaming upload
+    # (UPLOAD_MAX_SIZE_MB=500) uses 100M peak in-process via SpooledTemp.
     deploy:
       resources:
         limits:
@@ -403,9 +390,8 @@ services:
       - ALL
     # NOTE: read_only NOT applied to frontend (dev). Vite writes HMR cache to
     # /tmp/.vite/ and /app/node_modules/.vite/; the bind-mount of source under
-    # /app means the root filesystem is effectively writable already. Production
-    # frontend (docker-compose.demo.yml frontend target) uses nginx-unprivileged
-    # which IS compatible with read_only.
+    # /app means the root filesystem is effectively writable already. A
+    # production nginx frontend would be compatible with read_only.
     ports:
       - "${FRONTEND_PORT:-8080}:5173"
     volumes:
@@ -426,10 +412,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    # Vite dev server (or nginx in demo overlay) — minimal footprint.
-    # Dev: 512M is the floor for vite + esbuild dep bundling on this graph;
-    # 128M OOM-kills vite during optimizer pass. Demo overlay (nginx) drops
-    # back to a small footprint.
+    # Vite dev server — 512M is the floor for vite + esbuild dep bundling on
+    # this graph; 128M OOM-kills vite during optimizer pass. A nginx production
+    # build fits in a much smaller footprint.
     deploy:
       resources:
         limits:
@@ -503,11 +488,9 @@ services:
     environment:
       # Phase 1061 SEC-S07: fail-closed expansion. The CONF-12 var-default-minioadmin
       # fallback leaked trivial credentials through any SSH-tunnel or port-forward
-      # on the cloud-dev profile. Require explicit env-var values now.
-      # For the demo overlay, scripts/init-demo-env.sh populates these.
-      # For plain dev, add MINIO_ROOT_USER= / MINIO_ROOT_PASSWORD= to .env
-      # (see .env.example for the documented section).
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (run scripts/init-demo-env.sh or set in .env)}"
+      # on the cloud-dev profile. Require explicit env-var values now — set
+      # MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env (see .env.example).
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (set in .env)}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
     volumes:
       - minio_data:/data

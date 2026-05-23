@@ -165,9 +165,7 @@ test('S05 VEC-IDOR — anonymous /related/ on a private dataset returns no oracl
 // S06 — Demo credentials not accepted by default
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('S06 — admin user with known-demo password "demodemo" cannot log in', async ({ request }) => {
-  // Skip on demo deploys (GEOLENS_DEMO_MODE=true and operator opted-in)
-  test.skip(process.env.GEOLENS_DEMO_MODE === 'true', 'Demo mode allows demodemo by design — operator opt-in');
+test('S06 — admin user with known-public password "demodemo" cannot log in', async ({ request }) => {
   const res = await request.post(`${API}/auth/login/`, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     form: { username: 'admin', password: 'demodemo' },

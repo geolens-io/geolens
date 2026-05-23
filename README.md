@@ -32,40 +32,6 @@ Full user, admin, and API documentation lives at **[docs.getgeolens.com](https:/
 - **Admin guide:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
 - **API reference:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
 
-## Try the Themed Demo
-
-GeoLens ships with three themed demo collections — **Planet Earth** (raster + VRT mosaics), **Global Development & People** (indicator choropleths), and **Borders, Boundaries & Contested Space** (geopolitics done carefully) — and nine signature maps that load deterministically with one command:
-
-```bash
-cp .env.demo .env
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
-```
-
-<p align="center">
-  <img src=".github/assets/geolens-demo-tour.gif" alt="GeoLens demo tour showing map builder, catalog search, and dataset detail" width="900" />
-</p>
-
-After the seeder image build completes (most of the time is the GEBCO 2024 download — ~10–15 minutes on a fast connection, cached on rebuild), open http://localhost:8080 and navigate to **Maps**. The signature stories include:
-
-- **Earth as Seen from Space** — bathymetry + topography + ice on a dark world view
-- **Global Bathymetry** — GEBCO 2024 ocean floor with viridis colormap
-- **GDP per Capita PPP 2023** — country choropleth from World Bank Open Data
-- **Manhattan Skyline** — OpenStreetMap building footprints extruded by height for 3D fill-extrusion rendering
-- **Population at a Glance** — proportional-symbol populated places, sized by population
-- **The World's Disputed Places** — every disputed area Natural Earth tracks
-- **One Territory, Multiple Official Maps** — Kashmir as China, India, and Pakistan see it (toggle the layers!)
-- **Conflict Events 2024** — UCDP Georeferenced Event Dataset, fatal events of organized violence
-- **Refugees by Country of Origin 2023** — UNHCR statistics joined to country polygons
-
-All data is bundled at image build time — **no outbound network calls at runtime**. The demo can be reset every 24 hours by the included `reset` service. To force a full reset:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.demo.yml exec reset /scripts/reset-demo.sh
-docker compose -f docker-compose.yml -f docker-compose.demo.yml restart seeder
-```
-
-Source attribution and licenses for every demo dataset are documented on each dataset's detail page. All bundled data is CC-BY 4.0, ODbL 1.0, or Public Domain.
-
 ## Published Artifacts
 
 GeoLens is published through the standard package registries:
@@ -274,19 +240,6 @@ geolens apply geolens.yaml         # validates + applies via /ingest/manifest/ap
 ```
 
 See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manifest schema, source kinds, and CI integration patterns.
-
-### Demo Mode
-
-Run a pre-populated demo instance with sample Natural Earth data:
-
-```bash
-cp .env.demo .env
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
-```
-
-The demo overlay auto-seeds 20 representative datasets, sets them to public visibility, and resets data every 24 hours. See `.env.demo` for configuration.
-
-For a smaller, single-dataset walkthrough that does not require the demo image build, see [Add Your First Dataset](#add-your-first-dataset) above and the working example at [`examples/manifests/first-catalog/`](examples/manifests/first-catalog/).
 
 ### Seed Data
 

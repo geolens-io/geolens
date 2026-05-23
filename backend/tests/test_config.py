@@ -319,51 +319,25 @@ class TestJwtSecretLengthValidator:
             assert "32 characters" in str(exc_info.value)
 
 
-class TestDemoCredentialsGuard:
-    """Phase 268 H-19 / Phase 1061 SEC-S06: refuse to boot with known-public
-    .env.demo literal values REGARDLESS of GEOLENS_DEMO_MODE.
+class TestKnownBadCredentialsGuard:
+    """Refuse to boot with known-public credential literals from git history."""
 
-    Phase 1061 SEC-S06 removes the GEOLENS_DEMO_MODE=true early-return so
-    that operators MUST run scripts/init-demo-env.sh to generate per-deploy
-    random credentials before starting the demo overlay. The two tests that
-    previously asserted the literal values were "accepted" in demo mode
-    (the old bypass behavior) are updated to assert they are now refused.
-    """
-
-    def test_demo_jwt_secret_rejected_without_demo_mode(self):
-        # Use the literal value committed to .env.demo.example
+    def test_known_bad_jwt_secret_rejected(self):
         with pytest.raises(Exception) as exc_info:
             _make_settings(
                 jwt_secret_key="demo-only-do-not-use-in-production-change-me"
             )
         assert "JWT_SECRET_KEY" in str(exc_info.value)
 
-    def test_demo_jwt_secret_rejected_even_in_demo_mode(self):
-        """Phase 1061 SEC-S06: demo mode no longer bypasses the guard."""
-        with pytest.raises(Exception) as exc_info:
-            _make_settings(
-                jwt_secret_key="demo-only-do-not-use-in-production-change-me",
-                geolens_demo_mode=True,
-            )
-        assert "JWT_SECRET_KEY" in str(exc_info.value)
-
-    def test_demo_admin_password_rejected_without_demo_mode(self):
+    def test_known_bad_admin_password_rejected(self):
         with pytest.raises(Exception) as exc_info:
             _make_settings(geolens_admin_password="demodemo")
         assert "GEOLENS_ADMIN_PASSWORD" in str(exc_info.value)
 
-    def test_demo_admin_password_rejected_even_in_demo_mode(self):
-        """Phase 1061 SEC-S06: 'demodemo' is refused in demo mode too."""
+    def test_known_bad_postgres_password_rejected(self):
         with pytest.raises(Exception) as exc_info:
-            _make_settings(
-                geolens_admin_password="demodemo",
-                geolens_demo_mode=True,
-            )
-        assert "GEOLENS_ADMIN_PASSWORD" in str(exc_info.value)
-
-    def test_geolens_demo_mode_defaults_to_false(self):
-        s = _make_settings()
-        assert s.geolens_demo_mode is False
+            _make_settings(postgres_password="geolens-demo-2026")
+        assert "POSTGRES_PASSWORD" in str(exc_info.value)
 
 
 class TestLogLevelValidator:

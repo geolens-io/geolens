@@ -12,22 +12,6 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
-DEMO_COMPOSE_PATH = REPO_ROOT / "docker-compose.demo.yml"
-
-
-class ComposeLoader(yaml.SafeLoader):
-    """PyYAML loader that accepts Compose's custom `!override` tag."""
-
-
-def _construct_override(loader, node):
-    if isinstance(node, yaml.SequenceNode):
-        return loader.construct_sequence(node)
-    if isinstance(node, yaml.MappingNode):
-        return loader.construct_mapping(node)
-    return loader.construct_scalar(node)
-
-
-ComposeLoader.add_constructor("!override", _construct_override)
 
 
 @pytest.fixture(scope="module")
@@ -40,25 +24,6 @@ def compose():
 @pytest.fixture(scope="module")
 def services(compose):
     return compose["services"]
-
-
-@pytest.fixture(scope="module")
-def demo_services():
-    """Parse the production/demo overlay once per test module."""
-    with DEMO_COMPOSE_PATH.open() as f:
-        return yaml.load(f, Loader=ComposeLoader)["services"]
-
-
-def _to_mb(value) -> int:
-    """Convert '512M', '1G', '2.0G' style to integer megabytes."""
-    if value is None:
-        return 0
-    s = str(value).strip().upper()
-    if s.endswith("G"):
-        return int(float(s[:-1]) * 1024)
-    if s.endswith("M"):
-        return int(float(s[:-1]))
-    return int(s) // (1024 * 1024)
 
 
 # ---------------------------------------------------------------------------
@@ -90,21 +55,6 @@ class TestInf01ResourceLimits:
         assert limits, f"{service} missing deploy.resources.limits"
         assert "cpus" in limits, f"{service} missing cpus limit"
         assert "memory" in limits, f"{service} missing memory limit"
-
-    def test_demo_profile_steady_state_within_2gb(self, services, demo_services):
-        """db + api + worker + titiler + nginx frontend memory <= 2 GB target."""
-        default_services = ["db", "api", "worker", "titiler", "frontend"]
-        total_mb = 0
-        for service in default_services:
-            svc = demo_services.get(service, services[service])
-            if "deploy" not in svc:
-                svc = services[service]
-            total_mb += _to_mb(svc["deploy"]["resources"]["limits"]["memory"])
-        # 2 GB target with host overhead headroom; 1920 MB is the planned value.
-        assert total_mb <= 2048, (
-            f"steady-state {total_mb} MB exceeds 2 GB target "
-            f"(plan was 1920 MB; see 272-PATTERNS.md §20)"
-        )
 
 
 # ---------------------------------------------------------------------------

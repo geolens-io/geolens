@@ -1,8 +1,6 @@
-"""Phase 275 / API-14 regression: demo cluster cosmetics + correctness.
+"""Phase 275 / API-14 regression: README + cross-cutting correctness locks.
 
 Static regression locks in:
-- docker-compose.demo.yml uses 'Procrastinate worker' not 'Celery worker'
-  (M-74 — GeoLens has not used Celery since v1.0.0).
 - No 'demo.geolens.io' references remain in active code/docs (M-75 — the
   project owns getgeolens.com only per memory project_domain_ownership.md).
 - README.md §'See It in Action' has the JWT-mint one-liner so a first-time
@@ -24,18 +22,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _read(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-
-
-def test_demo_compose_says_procrastinate_not_celery() -> None:
-    """API-14 / M-74: docker-compose.demo.yml must say 'Procrastinate worker' not 'Celery'."""
-    body = _read("docker-compose.demo.yml")
-    assert "Celery worker" not in body, (
-        "docker-compose.demo.yml still references 'Celery worker' — "
-        "GeoLens uses Procrastinate. (M-74)"
-    )
-    assert "Procrastinate worker" in body, (
-        "docker-compose.demo.yml missing the 'Procrastinate worker' comment"
-    )
 
 
 def test_no_geolens_io_typos() -> None:

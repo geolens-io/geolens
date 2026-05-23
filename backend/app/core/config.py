@@ -12,15 +12,13 @@ def reveal(secret: SecretStr | None) -> str | None:
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
-# Phase 268 H-19 / Phase 1061 SEC-S06: known-public demo credentials committed
-# in the old .env.demo. Any deployment using these literal strings is
-# trivially exploitable — the values are world-known via the public repo.
-# Phase 1061 extends the validator to refuse ALL THREE literals unconditionally
-# (i.e., even when GEOLENS_DEMO_MODE=true) so operators must run
-# scripts/init-demo-env.sh to generate per-deploy random values first.
-DEMO_JWT_SECRET = "demo-only-do-not-use-in-production-change-me"
-DEMO_ADMIN_PASSWORD = "demodemo"
-DEMO_POSTGRES_PASSWORD = "geolens-demo-2026"  # Phase 1061 SEC-S06
+# Known-public credential literals that leaked through the project's git
+# history. The values live in `git log` forever, so refuse them at boot — a
+# deployment using these strings is trivially exploitable by anyone with read
+# access to the repo.
+KNOWN_BAD_JWT_SECRET = "demo-only-do-not-use-in-production-change-me"
+KNOWN_BAD_ADMIN_PASSWORD = "demodemo"
+KNOWN_BAD_POSTGRES_PASSWORD = "geolens-demo-2026"
 
 # Phase 268 H-28: known-public example values that the JWT length validator
 # would otherwise accept. Any of these strings on a real deployment lets an
@@ -77,12 +75,6 @@ class Settings(BaseSettings):
 
     log_json: bool = False
     log_level: str = "INFO"
-
-    # Phase 268 H-19: explicit opt-in for the public-demo overlay. When false
-    # (default), the application refuses to boot if known-public demo
-    # credentials (.env.demo defaults) are detected. Set GEOLENS_DEMO_MODE=true
-    # only under docker-compose.demo.yml.
-    geolens_demo_mode: bool = False
 
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-4-20250514"
@@ -212,56 +204,30 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_demo_credentials_guard(self) -> "Settings":
-        """Refuse to boot with known-public .env.demo template values.
-
-        Phase 268 H-19 (original): refused boot with .env.demo defaults
-        UNLESS GEOLENS_DEMO_MODE=true was explicitly set.
-
-        Phase 1061 SEC-S06 (extended): refuses boot with the LITERAL
-        committed .env.demo values REGARDLESS of GEOLENS_DEMO_MODE. The
-        audit's headline scenario is an operator deploying
-        docker-compose.demo.yml verbatim to a public-internet host with
-        GEOLENS_DEMO_MODE=true — that previously succeeded, leaking
-        known-public JWT / admin / postgres credentials (committed in
-        .env.demo, world-readable from the repo). Now the operator must
-        first run scripts/init-demo-env.sh to generate per-deploy random
-        values; the literal committed strings are always refused.
-
-        Note: GEOLENS_DEMO_MODE=true still relaxes other policies (e.g.,
-        admin auto-seeding, reset interval) — this validator only blocks
-        the specific known-public literal strings.
-        """
+    def validate_known_bad_credentials(self) -> "Settings":
         jwt_value = self.jwt_secret_key.get_secret_value()
         admin_value = self.geolens_admin_password.get_secret_value()
         pg_value = self.postgres_password.get_secret_value()
 
-        hint = (
-            " Run `scripts/init-demo-env.sh` to generate per-deploy random "
-            "credentials, or set the value manually with `openssl rand -hex 32`."
-        )
+        hint = " Generate a fresh value with `openssl rand -hex 32`."
 
-        if jwt_value == DEMO_JWT_SECRET:
+        if jwt_value == KNOWN_BAD_JWT_SECRET:
             raise ValueError(
-                "JWT_SECRET_KEY is set to the known-public .env.demo template "
-                "value. This value is committed to the public repository and "
-                "anyone with read access can forge JWTs against this deployment."
-                + hint
+                "JWT_SECRET_KEY is set to a known-public literal from the "
+                "project's git history. Anyone with repo read access can forge "
+                "JWTs against this deployment." + hint
             )
 
-        if admin_value == DEMO_ADMIN_PASSWORD:
+        if admin_value == KNOWN_BAD_ADMIN_PASSWORD:
             raise ValueError(
-                "GEOLENS_ADMIN_PASSWORD is set to the known-public .env.demo "
-                "template value ('demodemo'). This is committed to the public "
-                "repository and anyone with read access can log in as admin."
-                + hint
+                "GEOLENS_ADMIN_PASSWORD is set to a known-public literal "
+                "('demodemo') from the project's git history." + hint
             )
 
-        if pg_value == DEMO_POSTGRES_PASSWORD:
+        if pg_value == KNOWN_BAD_POSTGRES_PASSWORD:
             raise ValueError(
-                "POSTGRES_PASSWORD is set to the known-public .env.demo template "
-                "value. This is committed to the public repository."
-                + hint
+                "POSTGRES_PASSWORD is set to a known-public literal from the "
+                "project's git history." + hint
             )
 
         return self

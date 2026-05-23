@@ -34,40 +34,6 @@ Die Benutzer-, Admin- und API-Dokumentation finden Sie unter **[docs.getgeolens.
 - **Admin-Handbuch:** [docs.getgeolens.com/guides/admin](https://docs.getgeolens.com/guides/admin/)
 - **API-Referenz:** [docs.getgeolens.com/guides/api](https://docs.getgeolens.com/guides/api/)
 
-## Thematische Demo ausprobieren
-
-GeoLens enthält drei thematische Demo-Sammlungen: **Planet Earth** (Raster + VRT-Mosaike), **Global Development & People** (Indikator-Choroplethen) und **Borders, Boundaries & Contested Space** (sorgfältig behandelte Geopolitik). Neun Beispielkarten werden deterministisch mit einem Befehl geladen:
-
-```bash
-cp .env.demo .env
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
-```
-
-<p align="center">
-  <img src=".github/assets/geolens-demo-tour.gif" alt="GeoLens Demo-Tour mit Map Builder, Katalogsuche und Datensatzdetails" width="900" />
-</p>
-
-Wenn der Seeder-Image-Build abgeschlossen ist, öffnen Sie http://localhost:8080 und wechseln Sie zu **Maps**. Der Download von GEBCO 2024 ist meist der langsamste Teil, etwa 10 bis 15 Minuten bei einer schnellen Verbindung, und wird danach im Cache wiederverwendet. Die Beispielgeschichten umfassen:
-
-- **Earth as Seen from Space**: Bathymetrie + Topografie + Eis in einer dunklen Weltansicht
-- **Global Bathymetry**: GEBCO 2024 Meeresboden mit Viridis-Colormap
-- **GDP per Capita PPP 2023**: Länder-Choropleth aus World Bank Open Data
-- **Manhattan Skyline**: OpenStreetMap-Gebäudegrundrisse höhenextrudiert für 3D-Fill-Extrusion-Rendering
-- **Population at a Glance**: bevölkerte Orte als proportionale Symbole, nach Einwohnerzahl skaliert
-- **The World's Disputed Places**: alle umstrittenen Gebiete, die Natural Earth führt
-- **One Territory, Multiple Official Maps**: Kashmir aus Sicht von China, Indien und Pakistan (Layer ein-/ausschalten)
-- **Conflict Events 2024**: UCDP Georeferenced Event Dataset, tödliche Ereignisse organisierter Gewalt
-- **Refugees by Country of Origin 2023**: UNHCR-Statistiken mit Länderpolygonen verknüpft
-
-Alle Daten werden beim Image-Build gebündelt: **keine ausgehenden Netzwerkaufrufe zur Laufzeit**. Die Demo kann alle 24 Stunden über den `reset` Service zurückgesetzt werden. Einen vollständigen Reset erzwingen Sie so:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.demo.yml exec reset /scripts/reset-demo.sh
-docker compose -f docker-compose.yml -f docker-compose.demo.yml restart seeder
-```
-
-Quellenangaben und Lizenzen für jeden Demo-Datensatz sind auf der jeweiligen Detailseite dokumentiert. Alle gebündelten Daten sind CC-BY 4.0, ODbL 1.0 oder Public Domain.
-
 ## Veröffentlichte Artefakte
 
 GeoLens wird über die Standard-Paketregister veröffentlicht:
@@ -210,17 +176,6 @@ docker compose ps
 ```
 
 Zur Produktionsbereitstellung siehe den [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). Für Upgrades siehe den [Upgrade Guide](https://docs.getgeolens.com/guides/quickstart/upgrade/).
-
-### Demo Mode
-
-Starten Sie eine vorbefüllte Demo-Instanz mit Natural Earth Beispieldaten:
-
-```bash
-cp .env.demo .env
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
-```
-
-Das Demo-Overlay seedet automatisch 20 repräsentative Datensätze, setzt sie auf öffentliche Sichtbarkeit und setzt Daten alle 24 Stunden zurück. Siehe `.env.demo` für die Konfiguration.
 
 ### Seed Data
 

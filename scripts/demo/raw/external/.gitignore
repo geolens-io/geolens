@@ -1,7 +1,0 @@
-# Fetched data files — populated at seeder run time, not committed.
-*.tif
-*.geojson
-*.zip
-*.json
-!.gitignore
-!.gitkeep

@@ -85,9 +85,8 @@ def test_valkey_image_pinned() -> None:
 def test_uv_installer_pins_are_aligned() -> None:
     """API-08 / L-21: all numeric uv installer pins must agree on a single version.
 
-    Only matches numeric `vMAJOR.MINOR.PATCH`-style pins — `python3.x-bookworm-slim`
-    convenience tags in `docker/seeder/Dockerfile` are intentionally a different
-    pin namespace and are out of scope for this alignment check.
+    Only matches numeric `vMAJOR.MINOR.PATCH`-style pins. `python3.x-bookworm-slim`
+    convenience tags are a different pin namespace and are out of scope.
     """
     versions: set[str] = set()
     for filename in ("docker-compose.yml", "Dockerfile"):
@@ -112,15 +111,6 @@ def test_oc_audit_methodology_acknowledges_enterprise_repo() -> None:
     assert not _exists("docker-compose.enterprise.yml"), (
         "docker-compose.enterprise.yml should NOT be in the OSS repo root — it "
         "lives in the private geolens-enterprise overlay"
-    )
-    # The misleading "exists alongside" wording on line 47 must be gone.
-    assert (
-        "exists alongside `docker-compose.yml` and `docker-compose.demo.yml`"
-        not in body
-    ), (
-        ".claude/commands/oc-audit.md still claims docker-compose.enterprise.yml "
-        "'exists alongside' the OSS compose files. Fix line 47 to point at the "
-        "private geolens-enterprise overlay (API-10 / M-53)."
     )
     # The misleading "# known to exist" comment in Subagent 4 step 1 must be gone.
     assert "# known to exist" not in body, (
