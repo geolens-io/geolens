@@ -83,9 +83,14 @@ class TestRedirectSlashesNoLeak:
         client: AsyncClient,
     ) -> None:
         """``POST /auth/login/`` resolves directly — no 307 redirect with
-        ``api:8000`` leak. With the wrong credentials the response is
-        401/422; with valid credentials it would be 200. Either way the
-        contract is "not 307".
+        ``api:8000`` leak. The ``client`` fixture seeds the admin user via
+        ``_ensure_roles_and_admin`` (``conftest.py:_ensure_roles_and_admin``)
+        with ``settings.geolens_admin_username`` /
+        ``settings.geolens_admin_password.get_secret_value()`` — defaults
+        ``admin`` / ``admin`` in the test env (see ``.env.example``). The
+        test posts those same credentials, so the deterministic outcome is
+        200 with a JWT pair in the response body. Accepting 401/422 here
+        would silently mask credential-seed or JWT-issuance regressions.
 
         SP-11 (v1009.1) originally pinned the no-trailing-slash-only
         registration because FastAPI's default 307 stripped the POST body
@@ -104,10 +109,14 @@ class TestRedirectSlashesNoLeak:
             "redirect_slashes still enabled; "
             f"Location={resp.headers.get('location')!r}"
         )
-        # 200 = success, 401 = bad creds, 422 = malformed body.
-        # All acceptable contracts; 307 is the failure shape.
-        assert resp.status_code in (200, 401, 422), (
-            f"Expected 200/401/422, got {resp.status_code}; body={resp.text[:200]}"
+        # admin/admin is the seeded fixture credential pair
+        # (conftest.py:_ensure_roles_and_admin). Deterministic 200 against
+        # the seeded admin record; a non-200 here means the fixture is
+        # broken or the auth path regressed — both are failures we want to
+        # surface, not absorb.
+        assert resp.status_code == 200, (
+            f"Expected 200 against seeded admin/admin credentials, got "
+            f"{resp.status_code}; body={resp.text[:200]}"
         )
         location = resp.headers.get("location", "")
         assert "api:8000" not in location and "://api/" not in location, (
@@ -119,7 +128,9 @@ class TestRedirectSlashesNoLeak:
         client: AsyncClient,
     ) -> None:
         """Canonical no-slash surface preserved: ``POST /auth/login`` still
-        resolves directly. The OpenAPI-published form.
+        resolves directly. The OpenAPI-published form. Same deterministic
+        200 contract as the slash variant (admin/admin against seeded
+        fixture).
         """
         resp = await client.post(
             "/auth/login",
@@ -127,9 +138,10 @@ class TestRedirectSlashesNoLeak:
             follow_redirects=False,
         )
 
-        assert resp.status_code in (200, 401, 422), (
-            f"Expected 200/401/422 on canonical no-slash form, got "
-            f"{resp.status_code}; body={resp.text[:200]}"
+        assert resp.status_code == 200, (
+            f"Expected 200 against seeded admin/admin credentials on "
+            f"canonical no-slash form, got {resp.status_code}; "
+            f"body={resp.text[:200]}"
         )
 
     async def test_collections_datasets_no_slash_preserved(
