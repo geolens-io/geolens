@@ -79,7 +79,7 @@ Each task was committed atomically as part of the spike's single docs commit (no
 2. **Task 2: Static analysis — trace failure path through tasks_common.py and quicklook.py** — included in single docs commit below
 3. **Task 3: Commit to ONE root cause and propose fix shape for Plan 1091-02** — included in single docs commit below
 
-**Single docs commit:** `[HASH-FILLED-IN-AFTER-COMMIT]` (`docs(1091-01): spike — async-context boundary audit`)
+**Single docs commit:** `3309fed8` (`docs(1091-01): spike — async-context boundary audit`)
 
 _Note: Spike work is documentation-only by contract — the plan's <constraint> "NO production code modified in this plan" + "force-add `.planning/` files (gitignored)" pins the single-commit shape. Per-task commits would split the audit doc across mid-states which provides no review value._
 
@@ -130,7 +130,7 @@ None.
 - FOUND: `.planning/phases/1091-ingest-correctness-sweep/1091-01-SUMMARY.md`
 - FOUND: docker stack still healthy (api/db/frontend/titiler/worker = Up 3 hours (healthy); migrate = Exited (0))
 - FOUND: failed-job row 90254766-... still present in `/api/admin/jobs/?status=failed` (total=1)
-- Commit hash recorded after `gsd-sdk query commit` lands below.
+- Commit hash: `3309fed8` (recorded via `git rev-parse --short HEAD` post-commit).
 
 ---
 
