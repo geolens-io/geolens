@@ -62,7 +62,10 @@
   3. At least one regression pin in `backend/tests/test_fixture_isolation_v1020.py` (or a new `test_engine_retry_envelope.py`) covers the engine-level retry shape under the same `TooManyConnectionsError` / `CannotConnectNowError` injection model that v1020 already uses for the fixture-layer pins (acceptance criterion (c) from TEST-01); node-ID(s) pinned in REQUIREMENTS.md traceability table per TD-13 `req_citation_pinning` rule.
   4. PERF-01 default `-n 4` stays unchanged in `Makefile:29` and `.github/workflows/ci.yml:493-595` — the engine envelope is additive defense, not a replacement (acceptance criterion (d) from TEST-01).
   5. Close-gate matrix green at v1021 tag-cut: sequential pytest `3047/0/38`, `pytest -n 4` `3047/0/0/38`, frontend typecheck exit 0, vitest 2105/2105, e2e:smoke:builder 25/0/1, live Playwright MCP 5/5 surfaces clean. Tags `v1021` (local) + `v1.5.6` (public) both deref to the close commit.
-**Plans:** TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 1093-01-PLAN.md — Spike: read 1088-04 architectural REPORT, choose engine-retry wrapper shape, measure pre-fix `pytest -n auto` baseline (audit at .planning/audits/ENGINE-RETRY-ENVELOPE-v1021.md)
+- [ ] 1093-02-PLAN.md — Engine retry wrapper + 4 regression pins + TEST-01 close + Phase 1093 close
 
 ---
 
@@ -72,9 +75,9 @@
 |-------|----------------|--------|-----------|
 | 1091. Ingest Correctness Sweep | 3/3 | Complete | 2026-05-23 |
 | 1092. Routing + Infra Hygiene | 3/3 | Complete | 2026-05-23 |
-| 1093. Engine-level Retry Envelope | 0/TBD | Not started | - |
+| 1093. Engine-level Retry Envelope | 0/2 | Not started | - |
 
-**Total:** 0/TBD plans complete across 3 phases.
+**Total:** 6/8 plans complete across 3 phases.
 
 ---
 
