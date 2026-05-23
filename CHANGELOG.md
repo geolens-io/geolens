@@ -47,8 +47,15 @@ _Target: v1.5.6 (v1021 milestone — Docker Rebuild Sweep + Engine-level Retry)_
 - **INFRA-01**: Eliminated the double `alembic upgrade head` invocation in
   the `migrate` service. The migrate service now declares an explicit
   `entrypoint: []` in `docker-compose.yml` so it does not inherit the
-  `api-entrypoint.sh` safety-net (which still runs for the `api` + `worker`
-  services on cold start).
+  `api-entrypoint.sh` safety-net from the Dockerfile. The `api` + `worker`
+  services do NOT inherit from the Dockerfile either — they each have an
+  explicit `entrypoint:` directive in `docker-compose.yml` (api at line
+  198, worker at line 296) pointing at `api-entrypoint.sh` and
+  `worker-entrypoint.sh` respectively. Their safety-net runs because
+  their explicit entrypoint scripts call it, not via Dockerfile
+  inheritance. The migrate service was the only one still picking up the
+  inherited ENTRYPOINT, which is why setting it to `[]` here is the
+  correct one-service change.
 
 - **INFRA-02** (ACCEPT): Formally accepted the `db` image's
   `--platform=linux/amd64` pin on `db/Dockerfile:1`. Inline comment block

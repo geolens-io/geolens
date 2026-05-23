@@ -111,9 +111,16 @@ services:
     # inherit backend/scripts/api-entrypoint.sh from the Dockerfile api target.
     # The inherited entrypoint's safety-net (api-entrypoint.sh:62-68) ALSO runs
     # `uv run --no-dev alembic upgrade head`, which doubled the alembic
-    # invocation on every startup. The api + worker services keep the
-    # safety-net for cold-start protection. See backend/scripts/api-entrypoint.sh
-    # line 60-72 for the safety-net rationale.
+    # invocation on every startup. The api + worker services do NOT inherit
+    # the Dockerfile ENTRYPOINT either — they each have an explicit
+    # `entrypoint:` directive below (api at line ~198, worker at line ~296)
+    # that points at the same api-entrypoint.sh / worker-entrypoint.sh
+    # scripts. Their safety-net runs because their entrypoint scripts call
+    # it, not because of Dockerfile inheritance. Setting `entrypoint: []`
+    # here is correct ONLY because this migrate service didn't redeclare an
+    # entrypoint of its own — it was the one still picking up the
+    # Dockerfile inheritance. See backend/scripts/api-entrypoint.sh line
+    # 60-72 for the safety-net rationale.
     entrypoint: []
     command: sh -c "uv run --no-dev alembic upgrade head"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
