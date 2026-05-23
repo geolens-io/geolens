@@ -107,6 +107,14 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
+    # INFRA-01 (Phase 1092): explicit empty entrypoint so this service does NOT
+    # inherit backend/scripts/api-entrypoint.sh from the Dockerfile api target.
+    # The inherited entrypoint's safety-net (api-entrypoint.sh:62-68) ALSO runs
+    # `uv run --no-dev alembic upgrade head`, which doubled the alembic
+    # invocation on every startup. The api + worker services keep the
+    # safety-net for cold-start protection. See backend/scripts/api-entrypoint.sh
+    # line 60-72 for the safety-net rationale.
+    entrypoint: []
     command: sh -c "uv run --no-dev alembic upgrade head"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
     # should stop the dependency chain, not retry blindly.
