@@ -539,6 +539,108 @@ app.add_middleware(DynamicCORSMiddleware)
 
 app.include_router(api_router)
 
+
+def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
+    """ROUTE-01 (Phase 1092 review CR-01): register a hidden no-slash alias
+    for every trailing-slash route in the app.
+
+    With ``redirect_slashes=False`` at the app level, routes registered
+    ONLY with a trailing slash silently 404 when called without it.
+    Pre-sweep this affected ~100 routes. The 13 routers under
+    ``backend/app/modules/`` got explicit stacked-decorator aliases on
+    ~28 high-traffic routes (see CR-01 sweep commit). This function
+    closes the remaining ~72 routes (datasets/api/router_metadata,
+    catalog/records, processing/ai, processing/ingest,
+    platform/config_ops, etc.) without further per-file edits.
+
+    For every existing trailing-slash APIRoute, register an equivalent
+    no-slash route that calls the same endpoint function with the same
+    response model, dependencies, and status code. The alias is hidden
+    from OpenAPI via ``include_in_schema=False`` — the canonical
+    trailing-slash form stays the documented surface.
+
+    Future trailing-slash routes added to the app are picked up
+    automatically — this hook runs once on app construction, after all
+    routers have been included. Adding the same route twice (once
+    manually via stacked decorator, once via this function) is
+    structurally safe because we check ``existing_paths`` before
+    registering.
+
+    Method+path collisions (alias would shadow an existing no-slash
+    registration) are skipped, preserving the explicit registration as
+    canonical. This means the 28 manual stacked-decorator aliases from
+    the CR-01 sweep remain authoritative — this function only adds
+    aliases for routes that lack one.
+    """
+    from fastapi.routing import APIRoute
+
+    # Snapshot existing (method, path) pairs to avoid double-registration.
+    existing_paths: set[tuple[str, str]] = set()
+    for route in target_app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        for method in route.methods:
+            existing_paths.add((method, route.path))
+
+    added = 0
+    for route in list(target_app.routes):
+        if not isinstance(route, APIRoute):
+            continue
+        if not route.path.endswith("/") or route.path == "/":
+            continue
+        no_slash = route.path.rstrip("/")
+
+        # Skip if ANY method already has a no-slash sibling registered
+        # (i.e. a manual stacked decorator already covers this surface).
+        # We check method-by-method below.
+        for method in route.methods:
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            if (method, no_slash) in existing_paths:
+                continue
+            # Register the alias. Inherit response_model, dependencies,
+            # status_code, etc. from the canonical route — APIRoute
+            # exposes these directly.
+            target_app.add_api_route(
+                path=no_slash,
+                endpoint=route.endpoint,
+                response_model=route.response_model,
+                status_code=route.status_code,
+                tags=route.tags,
+                dependencies=route.dependencies,
+                summary=route.summary,
+                description=route.description,
+                response_description=route.response_description,
+                responses=route.responses,
+                deprecated=route.deprecated,
+                methods=[method],
+                operation_id=None,  # MUST differ from canonical for
+                                    # uniqueness; FastAPI auto-generates
+                                    # when None.
+                response_model_include=route.response_model_include,
+                response_model_exclude=route.response_model_exclude,
+                response_model_by_alias=route.response_model_by_alias,
+                response_model_exclude_unset=route.response_model_exclude_unset,
+                response_model_exclude_defaults=route.response_model_exclude_defaults,
+                response_model_exclude_none=route.response_model_exclude_none,
+                include_in_schema=False,  # ROUTE-01: hide aliases from OpenAPI
+                response_class=route.response_class,
+                name=f"{route.name}__no_slash_alias" if route.name else None,
+                openapi_extra=route.openapi_extra,
+                generate_unique_id_function=route.generate_unique_id_function,
+            )
+            existing_paths.add((method, no_slash))
+            added += 1
+
+    if added > 0:
+        # Re-build the FastAPI route table cache by clearing any cached
+        # OpenAPI spec — the next /openapi.json request rebuilds from
+        # the current app.routes state.
+        target_app.openapi_schema = None
+
+
+_add_trailing_slash_aliases(app)
+
 init_metrics(app)
 
 
