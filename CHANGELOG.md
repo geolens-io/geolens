@@ -11,7 +11,11 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-_Target: v1.5.6 (v1021 milestone — Docker Rebuild Sweep + Engine-level Retry)_
+_No entries yet — open the next milestone with `/gsd:new-milestone` to begin v1022._
+
+## [1.5.6] - 2026-05-23
+
+_v1021 milestone — Docker Rebuild Sweep + Engine-level Retry. Tags `v1021` (local) + `v1.5.6` (public) at commit `775f4d49`. Audit verdict: tech_debt (CLEAR-TO-TAG); see `.planning/milestones/v1021-MILESTONE-AUDIT.md`. One v1022 carry-forward: Category 4.1 per-worker DB lifecycle parallel-mode cascade._
 
 ### Ingestion (v1021 milestone — Phase 1091)
 
@@ -2375,7 +2379,8 @@ UPDATE catalog.records
 - JWT authentication with role-based access control
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.5.5...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.5.6...HEAD
+[1.5.6]: https://github.com/geolens-io/geolens/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/geolens-io/geolens/compare/v1.5.4...v1.5.5
 [1.0.2]: https://github.com/geolens-io/geolens/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/geolens-io/geolens/compare/v1.0.0...v1.0.1
