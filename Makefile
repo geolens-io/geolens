@@ -6,10 +6,33 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline validate-v13-8
+.PHONY: dev down reset-db migrate migration test test-sequential test-cov e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli audit-sink-discipline billing-extraction-discipline catalog-domain-discipline validate-v13-8
 
-dev:
+# Pre-flight: verify boot-required env vars are non-empty in .env before any
+# `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
+# at startup if JWT_SECRET_KEY / GEOLENS_ADMIN_USERNAME / GEOLENS_ADMIN_PASSWORD
+# are empty). Skip with `make dev SKIP_PREFLIGHT=1` if you know your .env is good.
+preflight:
+ifndef SKIP_PREFLIGHT
+	@bash scripts/preflight-env.sh
+endif
+
+dev: preflight
 	docker compose up --build
+
+# Friendly per-service health view + URL crib sheet.
+status:
+	@docker compose ps --format "table {{.Service}}\t{{.State}}\t{{.Status}}" 2>/dev/null
+	@echo ""
+	@echo "URLs (defaults — override via .env):"
+	@echo "  Frontend:  http://localhost:8080"
+	@echo "  API docs:  http://localhost:8080/api/docs"
+	@echo "  OpenAPI:   http://localhost:8080/api/openapi.json"
+
+# Post-flight health probe: env vars + db connectivity + GDAL availability.
+# Requires the stack to be running.
+doctor:
+	@bash scripts/check-env.sh
 
 down:
 	docker compose down
