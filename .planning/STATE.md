@@ -1,29 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1022
-milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
-status: "v1022 SHIPPED (DEGRADED CLOSE). Plan 1097-02 closure commit 7383592a (atomic-4-file: 1097-01-CLOSE-GATE.md + MILESTONES.md + REQUIREMENTS.md + 1097-02-SUMMARY.md) + self-check fixup 103b3b6b. Tags v1022 (local) + v1.5.7 (public) cut at SHA 48707fb1 (Plan 1097-01 close-gate) and pushed to origin. CLOSE-01 = Complete (degraded) — 6 of 7 acceptance criteria (a)+(b)+(c)+(d)+(e)+(g) GREEN; (f) CI-01 live-verify deferred to v1023 per user AskUserQuestion after GH Actions billing block at push time (run 26359374410: 0/13 jobs executed, all failed/skipped at runner-allocation — billing annotation at /tmp/v1022-1097-billing-annotation.json). Gate-shape verified locally via Plan 1097-01 baselines (3-run -n auto 2/3/2 distinct deterministic + 0 ICN frames + sequential 3060/3 OOS/38 + -n 4 3059/4 OOS/38). CI-01-v1023 added to REQUIREMENTS.md Future Requirements ### Carryover from v1022 with operator action (resolve billing → gh run rerun 26359374410 (preserves SHA 5344cd50) → document GREEN evidence in v1023 closure phase). Phase 1097 = COMPLETE (degraded). Ready for orchestrator /gsd:audit-milestone v1022 → /gsd:complete-milestone v1022 → /gsd:cleanup-milestone v1022."
-stopped_at: v1022 SHIPPED (DEGRADED). Plan 1097-02 SUMMARY committed at 7383592a + self-check fixup 103b3b6b; tags v1022 + v1.5.7 pushed to origin at SHA 48707fb1; CLOSE-01 Complete (degraded); CI-01 deferred to v1023. Working tree clean. Ready for /gsd:audit-milestone v1022.
-last_updated: "2026-05-24T11:30:00.000Z"
-last_activity: 2026-05-24 — v1022 SHIPPED (degraded close). Plan 1097-02 atomic-4-file commit 7383592a + self-check 103b3b6b. Tags v1022 + v1.5.7 cut at 48707fb1 and pushed. CLOSE-01 Complete (degraded); CI-01 deferred to v1023 (GH Actions billing block).
+milestone: v1023
+milestone_name: CI Live-Verify + OOS Hygiene Tail
+status: planning
+last_updated: "2026-05-24T11:38:56.624Z"
+last_activity: 2026-05-24
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1097 Live-Verify + Close Gate (COMPLETE — DEGRADED CLOSE; 2 of 2 plans complete; v1022 milestone SHIPPED at SHA 48707fb1 with tags v1022 + v1.5.7)
-Plan: 1097-02-PLAN.md (complete — atomic-4-file closure commit 7383592a + self-check fixup 103b3b6b; tags pushed; CLOSE-01 Complete (degraded); CI-01 deferred to v1023)
-Status: v1022 SHIPPED (DEGRADED CLOSE). Plan 1097-02 closure commit `7383592a` (atomic-4-file: 1097-01-CLOSE-GATE.md + MILESTONES.md + REQUIREMENTS.md + 1097-02-SUMMARY.md) + self-check fixup `103b3b6b`. Tags `v1022` (local) + `v1.5.7` (public) cut at SHA `48707fb1` (Plan 1097-01 close-gate) and pushed to origin (`refs/tags/v1022` + `refs/tags/v1.5.7` confirmed via `git ls-remote`). CLOSE-01 = Complete (degraded) — 6 of 7 acceptance criteria (a)+(b)+(c)+(d)+(e)+(g) GREEN; (f) CI-01 live-verify deferred to v1023 per user AskUserQuestion after GH Actions billing block at push time (run 26359374410: 0/13 jobs executed, all failed/skipped at runner-allocation, no test execution shape — billing annotation at `/tmp/v1022-1097-billing-annotation.json`). Gate-shape verified locally via Plan 1097-01 baselines (3-run `-n auto` 2/3/2 distinct deterministic + 0 ICN frames + sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38). CI-01-v1023 added to REQUIREMENTS.md Future Requirements `### Carryover from v1022` with full operator action documented (resolve billing at https://github.com/organizations/geolens-io/settings/billing → `gh run rerun 26359374410` (preserves SHA `5344cd50`) → document GREEN evidence in v1023 closure phase). Phase 1097 = COMPLETE (degraded). v1022 milestone = SHIPPED. Ready for orchestrator `/gsd:audit-milestone v1022` → `/gsd:complete-milestone v1022` → `/gsd:cleanup-milestone v1022`.
-Last activity: 2026-05-24 — v1022 SHIPPED (degraded close). Plan 1097-02 atomic-4-file commit `7383592a` + self-check `103b3b6b`. Tags `v1022` + `v1.5.7` cut at `48707fb1` and pushed. CLOSE-01 Complete (degraded); CI-01 deferred to v1023 (GH Actions billing block).
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-24 — Milestone v1023 started
 
 ## Project Reference
 
