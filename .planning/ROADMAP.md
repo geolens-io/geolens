@@ -122,7 +122,7 @@
   4. `_invoke_sleep_in_sync_context` either yields non-blockingly (via `asyncio.run_in_executor` / `anyio.sleep` / equivalent) OR carries a load-bearing inline-commented rationale + documented mitigation (PARA-02 acceptance criterion (a)); a new regression pin asserts the asyncio loop continues scheduling other tasks during retry-backoff window (PARA-02 acceptance criterion (b))
   5. All 4 existing `test_engine_retry_*` pins continue passing (PARA-02 acceptance criterion (c)); REQUIREMENTS.md `[ ]` → `[x]` flip + `Pending` → `Complete` lands in the SAME commit as SUMMARY.md per v1019 TD-13 `requirements_traceability_flip` rule
 **Plans**: 2 plans
-- [ ] 1095-01-PLAN.md — PARA-01 fix (Shape A*): wrap 3 sibling `_init_tile_pool_for_tests` fixtures' `asyncpg.create_pool` in `_run_with_too_many_clients_retry` envelope + `test_init_tile_pool_retries_on_transient_too_many_clients` regression pin + `pytest -n auto` 3-run post-fix baseline ≤30 distinct deterministic + atomic-6-file commit with REQUIREMENTS.md PARA-01 traceability flip
+- [x] 1095-01-PLAN.md — PARA-01 fix (Shape A*): wrap 3 sibling `_init_tile_pool_for_tests` fixtures' `asyncpg.create_pool` in `_run_with_too_many_clients_retry` envelope + `test_init_tile_pool_retries_on_transient_too_many_clients` regression pin + `pytest -n auto` 3-run post-fix baseline ≤30 distinct deterministic + atomic-6-file commit with REQUIREMENTS.md PARA-01 traceability flip — **closed commit `398dc53d` 2026-05-23 (distinct = 20/8/16 ≤30 deterministic, 0 ICN frames)**
 - [ ] 1095-02-PLAN.md — PARA-02 closure (WR-02): `_invoke_sleep_in_sync_context` Shape Y1 non-blocking yield (default) OR Shape Y2 load-bearing rationale (fallback) + `test_engine_retry_yields_event_loop_during_backoff` regression pin + 4 existing `test_engine_retry_*` pins re-verified + sequential 3055/0/38 + `-n 4` 3054/0/38 + `-n auto` 3-run rollup gates + atomic-4-file commit with REQUIREMENTS.md PARA-02 traceability flip
 
 ### Phase 1096: Hygiene Tail
@@ -180,7 +180,7 @@
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
-| 1095. Cascade Fix + WR-02 Closure | v1022 | 0/2 | Not started | - |
+| 1095. Cascade Fix + WR-02 Closure | v1022 | 1/2 | In progress | 1095-01 closed `398dc53d` 2026-05-23 |
 | 1096. Hygiene Tail | v1022 | 0/TBD | Not started | - |
 | 1097. Live-Verify + Close Gate | v1022 | 0/TBD | Not started | - |
 
