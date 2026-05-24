@@ -48,9 +48,51 @@ x-ai-env: &ai-env
   EMBEDDING_DIMS: "${EMBEDDING_DIMS:-1536}"
   EMBEDDING_BASE_URL: "${EMBEDDING_BASE_URL:-}"
 
+# Shared hardening profile for the FastAPI-image trio (api, worker, migrate).
+# All three run the same Dockerfile target and use the same setpriv-based
+# entrypoint flow (start as root -> chown volume mounts -> drop to uid 1001
+# -> exec app). Merging the block via `<<: *hardened-base` lets each service
+# add only its own user/init/tmpfs/command without re-stating security plumbing.
+#
+# titiler intentionally NOT in this anchor — it has cap_drop ALL but NO
+# cap_add (no setpriv-based uid drop), so granting it CHOWN/DAC_OVERRIDE/etc.
+# would weaken its profile.
+x-hardened-base: &hardened-base
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN          # chown -R appuser:appgroup ${STAGING_DIR}
+    - DAC_OVERRIDE   # chmod g+rwX inside arbitrary-perm volume mounts
+    - FOWNER         # chmod operates on files owned by other UIDs
+    - SETGID         # setpriv --regid 1001
+    - SETUID         # setpriv --reuid 1001
+  read_only: true
+
 # ==============================================================================
 # Services
 # ==============================================================================
+# Services at a glance:
+#   db        — PostgreSQL 17 + PostGIS 3.5 (catalog data, pgvector, pg_trgm)
+#   migrate   — one-shot alembic upgrade head, exits when done
+#   api       — FastAPI REST + OGC API + Records (host :8001 -> container :8000)
+#   worker    — Procrastinate job queue (GDAL ingest, embeddings, exports)
+#   titiler   — Raster tile server (internal only, reachable at http://titiler:8000)
+#   frontend  — Vite dev server (host :8080 -> container :5173, proxies /api -> api:8000)
+#   backup    — pg_dump + S3 upload, opt-in via `--profile backup`
+#   minio     — local S3 emulation, opt-in via `--profile cloud-dev`
+#   valkey    — local Redis-compatible cache, opt-in via `--profile cloud-dev`
+#
+# Ports at a glance (host -> container, override via .env):
+#   8080 -> frontend:5173   browser entry point; /api proxies to api:8000
+#   8001 -> api:8000        direct API access (rarely needed; prefer 8080/api)
+#   5434 -> db:5432         psql/DBeaver against local Postgres
+#   9000/9001 -> minio      cloud-dev profile only
+#   6379 -> valkey          cloud-dev profile only
+# All published ports bind 127.0.0.1 only. For QGIS / curl examples in the
+# README, use http://localhost:8080/api/... — that's the supported surface.
+#
 # Resource budget for local-dev steady-state (db + api + worker + titiler +
 # vite frontend): db(768M) + api(384M) + worker(384M) + titiler(256M) +
 # frontend(512M) = 2304M. Vite needs ~512 MB to bundle without OOM-kill;
@@ -126,24 +168,13 @@ services:
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
     # should stop the dependency chain, not retry blindly.
     restart: "no"
-    security_opt:
-      - no-new-privileges:true
-    # cap_drop ALL + minimal cap_add for entrypoint setpriv + chown.
-    # See backend/scripts/api-entrypoint.sh — same image as api/worker.
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETGID
-      - SETUID
-    # Immutable root filesystem; writable paths via tmpfs (cleared on exit).
-    # Smaller tmpfs than api since one-shot doesn't process uploads.
+    # Hardening (security_opt + cap_drop + cap_add + read_only): see
+    # x-hardened-base anchor at top of file.
+    <<: *hardened-base
+    # tmpfs sized smaller than api since one-shot doesn't process uploads.
     # /app/staging is tmpfs (not the upload_staging volume) — migrate never
     # writes uploads, but the shared api-entrypoint.sh probe requires the dir
     # writable before alembic runs.
-    read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
       - /home/appuser:size=64m,uid=1001,gid=1001
@@ -180,24 +211,13 @@ services:
     init: true
     stop_grace_period: 30s
     restart: unless-stopped
-    # no-new-privileges:true blocks setuid binaries from elevating privileges.
-    # It does NOT block setpriv (which de-escalates), so the entrypoint's
-    # "start as root -> fix volumes -> setpriv to uid 1001" pattern is unaffected.
-    security_opt:
-      - no-new-privileges:true
-    # cap_drop ALL + minimal cap_add for entrypoint setpriv + chown.
-    # See backend/scripts/api-entrypoint.sh for the volume-perm-fix + uid-drop flow.
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN          # chown -R appuser:appgroup ${STAGING_DIR}
-      - DAC_OVERRIDE   # chmod g+rwX inside arbitrary-perm volume mounts
-      - FOWNER         # chmod operates on files owned by other UIDs
-      - SETGID         # setpriv --regid 1001
-      - SETUID         # setpriv --reuid 1001
-    # Immutable root filesystem; writable paths via tmpfs (cleared on restart).
+    # Hardening (security_opt + cap_drop + cap_add + read_only): see
+    # x-hardened-base anchor at top of file. no-new-privileges:true blocks
+    # setuid escalation but NOT setpriv (which de-escalates), so the
+    # entrypoint's "start as root -> fix volumes -> setpriv to uid 1001"
+    # pattern works unchanged.
+    <<: *hardened-base
     # /app/staging is the named volume `upload_staging` (not tmpfs).
-    read_only: true
     tmpfs:
       - /tmp:size=512m,mode=1777
       - /home/appuser:size=128m,uid=1001,gid=1001
@@ -284,18 +304,8 @@ services:
     init: true
     stop_grace_period: 35s
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    # Same cap profile as api — same image, same setpriv-based entrypoint.
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETGID
-      - SETUID
-    read_only: true
+    # Hardening: see x-hardened-base anchor at top of file (same profile as api).
+    <<: *hardened-base
     tmpfs:
       - /tmp:size=512m,mode=1777
       - /home/appuser:size=128m,uid=1001,gid=1001
