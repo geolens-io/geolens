@@ -93,7 +93,7 @@
 
 - [x] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable) (completed 2026-05-24)
 - [x] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate) (completed 2026-05-24)
-- [ ] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook)
+- [x] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook) (completed 2026-05-24)
 - [ ] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut)
 
 ## Phase Details
@@ -136,7 +136,7 @@
   4. The 4 existing `test_engine_retry_*` pins + `test_xdist_engine_uses_nullpool` + `test_sequential_engine_uses_queuepool` continue passing — the v1021 wrapper invariants (`.pool` accessor via `@property` delegation + `_TRANSIENT_CONTENTION_EXCEPTIONS` single-definition at line 352 + `_SETUP_PHASE_RETRY_BACKOFFS` single-definition at line 333) must hold (HYG-01 acceptance criterion (b))
   5. Sequential / `-n 4` / `-n auto` baselines preserved vs Phase 1095 post-fix state — zero NEW failures attributable to HYG-01 (HYG-01 acceptance criterion (c))
 **Plans**: 1 plan
-- [ ] 1096-01-PLAN.md — Close HYG-01: WR-03 narrow `except Exception:` → `(TypeError, AttributeError)` at `_RetryingAsyncEngine.__init__` (conftest.py:826-836) + WR-04 `event.remove(sync_engine, "do_connect", handler)` in `_RetryingAsyncEngine.dispose()` override (signature change to `_install_dbapi_connect_retry` — returns handler ref) + 3 new pins in `test_fixture_isolation_v1020.py` (`test_engine_retry_do_connect_event_handler_retries_on_transient_error` for WR-01 + `test_init_tile_pool_catches_raw_asyncpg_too_many_connections` and `test_init_tile_pool_propagates_non_transient_error` for WR-01-1095 carry-forward). Atomic-4-file commit (conftest.py + test_fixture_isolation_v1020.py + 1096-01-SUMMARY.md + REQUIREMENTS.md with HYG-01 `[x]` + Traceability `Complete` flip).
+- [x] 1096-01-PLAN.md — Close HYG-01: WR-03 narrow `except Exception:` → `(TypeError, AttributeError, InvalidRequestError)` [Rule 1 — narrow tuple expanded by 1 class when MagicMock surfaced sqlalchemy.exc.InvalidRequestError under SQLAlchemy 2.x] at `_RetryingAsyncEngine.__init__` (conftest.py:842) + WR-04 `event.remove(self._sync_engine, "do_connect", self._do_connect_handler)` in `_RetryingAsyncEngine.dispose()` override (conftest.py:934-977) + signature change to `_install_dbapi_connect_retry` at line 753 (returns registered handler) + 3 new pins in `test_fixture_isolation_v1020.py`: `test_engine_retry_do_connect_event_handler_retries_on_transient_error` at line 1391 (WR-01 — exercises engine.dialect.dispatch.do_connect, NOT engine.dispatch.do_connect [Rule 3 — DialectEvents lives on dialect.dispatch]) + `test_init_tile_pool_catches_raw_asyncpg_too_many_connections` at line 1557 + `test_init_tile_pool_propagates_non_transient_error` at line 1666 (WR-01-1095 carry-forward). Atomic-4-file commit `c119f94c`. Gates GREEN: 9 retry pins; pool-sizing 2/2; sequential 3060/3 OOS/38; -n 4 3057/6 OOS/38; -n auto 3-run 5/2/2 distinct deterministic ≤30 ZERO ICN — **closed commit `c119f94c` 2026-05-24**
 
 ### Phase 1097: Live-Verify + Close Gate
 **Goal**: Operator runs `gh run watch` for the first post-v1022-merge `pytest-parallel-isolation` CI gate firing to verify it lands green on real GitHub Actions infrastructure (closes the v1020 Phase 1089 deferred operator action). Then close gate: sequential baseline re-confirmed + `-n 4` baseline re-confirmed + `-n auto` 3-run measurement table re-confirmed + CHANGELOG `[1.5.7]` written with per-requirement evidence + tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA. Must land LAST because CI-01 can only verify post-merge of PARA-01/PARA-02/HYG-01.
@@ -182,7 +182,7 @@
 |-------|-----------|----------------|--------|-----------|
 | 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
 | 1095. Cascade Fix + WR-02 Closure | v1022 | 2/2 | Complete   | 2026-05-24 |
-| 1096. Hygiene Tail | v1022 | 0/1 | Not started | - |
+| 1096. Hygiene Tail | v1022 | 1/1 | Complete   | 2026-05-24 |
 | 1097. Live-Verify + Close Gate | v1022 | 0/TBD | Not started | - |
 
 ## Backlog

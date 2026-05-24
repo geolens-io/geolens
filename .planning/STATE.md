@@ -3,25 +3,25 @@ gsd_state_version: 1.0
 milestone: v1022
 milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
 status: completed
-stopped_at: Plan 1095-02 SUMMARY committed at ca7a85fb; PARA-02 traceability flipped [x]/Complete; Phase 1095 CLOSED. Next: Phase 1096 HYG-01.
-last_updated: "2026-05-24T02:44:00Z"
-last_activity: 2026-05-24 — Plan 1095-02 SUMMARY shipped; WR-02 Shape Y2 (load-bearing rationale) applied at conftest.py after Y1 produced 658 RuntimeError cascade; -n auto 3-run distinct = 3/2/3 deterministic (BETTER than Plan 01 floor 20/8/16); PARA-02 closed; Phase 1095 CLOSED.
+stopped_at: Plan 1096-01 SUMMARY committed at c119f94c; HYG-01 traceability flipped [x]/Complete. Phase 1096 CLOSED. Next: Phase 1097 (CI-01 live-verify + CLOSE-01 tag cut).
+last_updated: "2026-05-24T04:10:00.000Z"
+last_activity: 2026-05-24 — Plan 1096-01 SUMMARY shipped; HYG-01 closed (WR-03 narrow-except + WR-04 listener teardown + 3 new pins); Phase 1096 CLOSED
 progress:
   total_phases: 9
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 4
-  percent: 22
+  completed_phases: 4
+  total_plans: 5
+  completed_plans: 6
+  percent: 44
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1095 Cascade Fix + WR-02 Closure (CLOSED — 2 of 2 plans complete; both PARA-01 + PARA-02 Complete)
-Plan: 1095-01-PLAN.md (complete — Shape A* wrap applied + PARA-01 closed); 1095-02-PLAN.md (complete — Shape Y2 load-bearing rationale + PARA-02 closed)
-Status: Plan 1095-02 closed via commit `ca7a85fb` (atomic-4-file). PARA-02 complete; Phase 1095 CLOSED. Both PARA-01 + PARA-02 = `[x]` + `Complete` in REQUIREMENTS.md. Phase 1095 rollup gates GREEN: `-n auto` 3-run = 3/2/3 distinct deterministic (all pre-existing OOS); sequential 3057/3 OOS/38 (0 NEW); `-n 4` 3055/5 (2 OOS + 2 oauth flake + 1 documented test_publish_blocked flake)/38 (0 NEW). Next: Phase 1096 HYG-01 (WR-01/03/04).
-Last activity: 2026-05-24 — Plan 1095-02 SUMMARY shipped; WR-02 Shape Y2 (load-bearing rationale) applied at conftest.py after Y1 produced 658 RuntimeError cascade; PARA-02 closed; Phase 1095 CLOSED
+Phase: 1096 Hygiene Tail (CLOSED — 1 of 1 plan complete; HYG-01 Complete)
+Plan: 1096-01-PLAN.md (complete — WR-03 narrow-except + WR-04 listener teardown + 3 new pins; HYG-01 closed)
+Status: Plan 1096-01 closed via commit `c119f94c` (atomic-4-file). HYG-01 complete; Phase 1096 CLOSED. HYG-01 = `[x]` + `Complete` in REQUIREMENTS.md. Phase 1096 rollup gates GREEN: 9 retry-pin family green; pool-sizing invariants 2/2; sequential 3060/3 pre-existing OOS/38 (+3 vs Phase 1095 close 3057); `-n 4` 3057/6 OOS-flake/38; `-n auto` 3-run distinct 5/2/2 deterministic ≤30, ZERO ICN frames in all 3 runs. [Rule 1 deviation] WR-03 narrow-tuple expanded from (TypeError, AttributeError) to (TypeError, AttributeError, InvalidRequestError) when MagicMock test doubles raised sqlalchemy.exc.InvalidRequestError under SQLAlchemy 2.x. [Rule 3 deviation] WR-01 pin dispatch lookup uses engine.dialect.dispatch.do_connect (DialectEvents lives on dialect.dispatch, not engine.dispatch). Next: Phase 1097 (CI-01 live-verify + CLOSE-01 tag cut).
+Last activity: 2026-05-24 — Plan 1096-01 SUMMARY shipped; HYG-01 closed (WR-03 narrow-except + WR-04 listener teardown + 3 new pins); Phase 1096 CLOSED
 
 Progress: [██████████] 100%
 
@@ -77,6 +77,7 @@ See: .planning/PROJECT.md
 - [Phase 1095-01]: 2026-05-23: PARA-01 closed via Shape A* wrap at 3 `_init_tile_pool_for_tests` fixture sites (test_tiles.py:151 + test_embed_tokens.py:56 + test_tile_signing.py:107) routing raw `asyncpg.create_pool(...)` through the existing `_run_with_too_many_clients_retry` envelope at conftest.py:359. Regression pin `test_init_tile_pool_retries_on_transient_too_many_clients` at test_fixture_isolation_v1020.py:1144. Post-fix 3-run baseline = 20/8/16 distinct (all ≤30, 0 ICN frames). Mean shift 16.3 → 14.7 vs pre-fix 14/14/21. Sequential 3055/0/38 + `-n 4` 3054/0/38 baseline preservation re-measurement deferred to Plan 1095-02 close.
 - [Phase 1095-01]: 2026-05-23: Optional xfail pre-fix regression pin (`test_init_tile_pool_no_retry_pre_fix_raises_too_many_clients`) DEFERRED to Plan 02 per CONTEXT.md `<specifics>` Plan 01 Step 6 — positive pin alone is load-bearing for the wrap-shape regression-detection contract.
 - [Phase ?]: [Phase 1095-02]: 2026-05-24: PARA-02 closed via Shape Y2 (load-bearing rationale + retained time.sleep) at conftest.py:_invoke_sleep_in_sync_context after Shape Y1 (asyncio.run(asyncio.sleep(seconds))) produced 658 RuntimeError cascade failures at Task 5 Run 1 — production caller _retry_do_connect via greenlet_spawn has a running event loop in calling thread. Audit Section 4.3 INDEPENDENT disposition empirically validated: post-Y2 3-run -n auto distinct = 3/2/3 (BETTER than Plan 01 floor 20/8/16). Pin test_engine_retry_yields_event_loop_during_backoff (Shape Y2 alternative) asserts WR-02/PARA-02/Plan-1095-02/greenlet_spawn/Section-4.3-or-4.4/time.sleep tokens at source-of-record. Atomic-4-file commit ca7a85fb. Phase 1095 CLOSED.
+- [Phase 1096-01]: 2026-05-24: HYG-01 closed via WR-03 narrow-except (TypeError, AttributeError, InvalidRequestError) at conftest.py:842 + WR-04 listener teardown via event.remove in _RetryingAsyncEngine.dispose() override at conftest.py:934-977 + _install_dbapi_connect_retry signature change at conftest.py:753 to return registered handler. 3 new pins added at test_fixture_isolation_v1020.py: WR-01 do_connect event-handler pin at line 1391 (uses real sqlalchemy.create_engine("sqlite:///:memory:") to exercise the load-bearing event-handler path on engine.dialect.dispatch.do_connect, not engine.dispatch.do_connect); WR-01-1095 carry-forward catches_raw_asyncpg at line 1557 + propagates_non_transient_error at line 1666 (fixture-layer parity with engine-layer pins at lines 978/1030). [Rule 1] narrow tuple expanded from plan-spec (TypeError, AttributeError) to (TypeError, AttributeError, InvalidRequestError) when MagicMock raised sqlalchemy.exc.InvalidRequestError under SQLAlchemy 2.x. [Rule 3] dispatch retrieval uses dialect.dispatch.do_connect (DialectEvents). Atomic-4-file commit c119f94c. Gates: 9 retry pins green; pool-sizing 2/2; sequential 3060/3 OOS/38 (+3 vs Phase 1095); -n 4 3057/6 OOS/38; -n auto 3-run distinct 5/2/2 deterministic ≤30, ZERO ICN frames. Phase 1096 CLOSED.
 
 ### Pending Todos
 
@@ -94,8 +95,8 @@ None at v1022 roadmap-create. Phase 1094 spike has no pre-requisites — `/gsd:p
 
 ## Session Continuity
 
-Last session: 2026-05-24T02:44:02.349Z
-Stopped at: Plan 1095-01 SUMMARY committed at 398dc53d; PARA-01 traceability flipped [x]/Complete. Plan 1095-02 next.
+Last session: 2026-05-24T04:10:00.000Z
+Stopped at: Plan 1096-01 SUMMARY committed at c119f94c; HYG-01 traceability flipped [x]/Complete. Phase 1096 CLOSED. Phase 1097 (CI-01 + CLOSE-01) next.
 Resume file: None
 
 ## Operator Next Steps
