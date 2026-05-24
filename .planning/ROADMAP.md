@@ -129,16 +129,15 @@ Plans:
 **Depends on**: Phase 1099
 **Requirements**: CI-01, CLOSE-01
 **Success Criteria** (what must be TRUE):
-  1. `gh run watch <run_id>` confirms `pytest-parallel-isolation` job conclusion `success` on real GH Actions infrastructure (closes v1022 carry-forward)
-  2. Sequential pytest result quoted verbatim in CLOSE-GATE.md: `3063+ passed / 0 failed / 38 skipped` (literal zero — no OOS rows)
-  3. `-n 4` result quoted verbatim: `3063+ passed / 0 failed / 38 skipped` (literal zero)
+  1. `gh run watch <run_id>` confirms `pytest-parallel-isolation` job conclusion `success` on real GH Actions infrastructure (closes v1022 carry-forward) — degraded close authorized 2026-05-24 due to persistent GH Actions billing block; substitute evidence (docker health + `/api/health` 200 + local-stack baselines) captured per CONTEXT.md D-01b; v1024+ carry-forward
+  2. Sequential pytest result quoted verbatim in CLOSE-GATE.md: `3062 passed / 0 failed / 38 skipped` (literal zero — no OOS rows; passed-count is 3062 not 3063+ because OOS-02 was deleted per Phase 1098)
+  3. `-n 4` result quoted verbatim: `3062 passed / 0 failed / 38 skipped` (literal zero)
   4. `-n auto` 3-run measurement table shows `≤30` distinct (failed+errors) per run, `0` ICN frames (PARA-01 invariant preserved)
-  5. CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02 closures with test pin names + line numbers; tags `v1023` (local) + `v1.5.8` (public) cut and pushed
-**Plans**: TBD
+  5. CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02, OAUTH-03 closures with test pin names + line numbers; tags `v1023` (local) + `v1.5.8` (public) cut and pushed (push best-effort per D-06c)
+**Plans**: 1 plan (consolidated per CONTEXT.md D-03a — single plan / 5 tasks / 1 close gate)
 
 Plans:
-- [ ] 1100-01: CI live-verify (`gh run rerun 26359374410` or new dispatch + `gh run watch`) + embed run log
-- [ ] 1100-02: Close gate (final baseline measurements + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`)
+- [ ] 1100-01-PLAN.md — CI Live-Verify (degraded — billing block) + Close Gate (baselines + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`)
 
 ---
 
@@ -176,7 +175,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1098. OOS Triad Closure | v1023 | 1/1 | Shipped | 2026-05-24 |
 | 1099. OAuth Parallel-Mode Stabilization | v1023 | 1/1 | Shipped | 2026-05-24 |
-| 1100. CI Live-Verify + Close Gate | v1023 | 0/2 | Not started | - |
+| 1100. CI Live-Verify + Close Gate | v1023 | 0/1 | Not started | - |
 
 ## Backlog
 
