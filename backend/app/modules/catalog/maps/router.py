@@ -107,16 +107,7 @@ router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRIT
 
 
 def _build_frame_ancestors(origins: list[str] | None) -> str:
-    """Build a CSP frame-ancestors directive value from an allowed_origins list.
-
-    SEC-S08 (Phase 1062-05): the shared-map endpoint emits a per-token
-    Content-Security-Policy header derived from EmbedToken.allowed_origins.
-
-    - None/empty → ``frame-ancestors 'self'`` (restrictive default).
-    - Non-empty  → ``frame-ancestors 'self' <origin1> <origin2> ...``
-      Origins are validated for CRLF to prevent header injection before
-      being joined with spaces (per CSP syntax).
-    """
+    """Build a CSP frame-ancestors directive value from an allowed_origins list (SEC-S08, Phase 1062-05). CRLF-validated to prevent header injection."""
     if not origins:
         return "frame-ancestors 'self'"
     safe: list[str] = []
@@ -132,12 +123,7 @@ def _build_frame_ancestors(origins: list[str] | None) -> str:
 
 
 def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
-    """Map a DatasetMeta tuple (or None) to the kwargs _build_layer_response expects.
-
-    Centralizes the "Unknown" / empty-string / None defaults so callers don't
-    repeat 9 ternaries every time they want a layer response after a fresh
-    `get_dataset_meta` call.
-    """
+    """Map a DatasetMeta tuple (or None) to the kwargs _build_layer_response expects (centralizes Unknown/empty/None defaults)."""
     if meta is None:
         return DatasetMetaKwargs(
             dataset_name="Unknown",
