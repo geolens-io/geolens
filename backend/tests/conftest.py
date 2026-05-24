@@ -12,7 +12,7 @@ import sqlalchemy
 import structlog
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
-from sqlalchemy.exc import SQLAlchemyError, OperationalError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, InvalidRequestError
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -719,7 +719,13 @@ def _install_dbapi_connect_retry(sync_engine, sleep_fn, backoffs):
     `1 + len(backoffs)` total attempts. Non-contention `OperationalError`
     shapes propagate immediately.
 
-    Returns nothing; the side effect is the event registration.
+    Returns:
+        The registered ``_retry_do_connect`` handler function. The caller
+        (``_RetryingAsyncEngine.__init__``) stores this reference so
+        ``_RetryingAsyncEngine.dispose()`` can ``event.remove(sync_engine,
+        "do_connect", <handler>)`` it on teardown, preventing listener
+        stacking if a future refactor wraps a shared engine multiple
+        times (WR-04 closure — Phase 1096 / HYG-01).
     """
     from sqlalchemy import event
 
@@ -743,6 +749,8 @@ def _install_dbapi_connect_retry(sync_engine, sleep_fn, backoffs):
                 _invoke_sleep_in_sync_context(sleep_fn, backoffs[attempt])
         if last_exc is not None:  # pragma: no cover
             raise last_exc
+
+    return _retry_do_connect
 
 
 class _RetryingAsyncEngine:
@@ -822,18 +830,46 @@ class _RetryingAsyncEngine:
         except AttributeError:
             # Test doubles may not expose sync_engine; the .connect() /
             # .dispose() retry wrappers above still apply.
+            # WR-04 (Phase 1096 / HYG-01): pre-initialize listener refs
+            # to None so dispose() can no-op cleanly.
+            object.__setattr__(self, "_sync_engine", None)
+            object.__setattr__(self, "_do_connect_handler", None)
             return
         try:
-            _install_dbapi_connect_retry(
+            handler = _install_dbapi_connect_retry(
                 sync_engine, sleep_fn=sleep_fn, backoffs=backoffs
             )
-        except Exception:
-            # Test doubles (MagicMock sync_engine) cannot accept
-            # event.listens_for. Silently skip — the .connect() /
-            # .dispose() retry wrappers above still apply for those
-            # surfaces. Production engines DO accept the event hook
-            # because they are real SQLAlchemy Engine instances.
-            pass
+        except (TypeError, AttributeError, InvalidRequestError):
+            # WR-03 closure (Phase 1096 / HYG-01): narrowed from
+            # `except Exception` per v1020 audit Section 4.1 silent-swallow
+            # anti-pattern. Test doubles (MagicMock sync_engine) cannot
+            # accept `event.listens_for` — SQLAlchemy raises one of three
+            # documented event-API failure shapes:
+            #   1. TypeError — when SQLAlchemy probes `.dispatch.listeners`
+            #      on a non-Event-API object.
+            #   2. AttributeError — when the probe itself fails (no
+            #      `.dispatch` attribute at all).
+            #   3. sqlalchemy.exc.InvalidRequestError — when
+            #      `_EventKey._resolve()` (`sqlalchemy/event/api.py:34`)
+            #      cannot find the named event on the target (the actual
+            #      shape raised against MagicMock in current SQLAlchemy
+            #      2.x: "No such event 'do_connect' for target ...").
+            # Narrowing the catch to these three documented failure modes
+            # ensures future SQLAlchemy event-API changes (e.g., a new
+            # exception class indicating a real install regression)
+            # surface as loud-fails instead of being silently swallowed.
+            # The .connect() / .dispose() retry wrappers above still
+            # apply for test-double surfaces. Production engines DO
+            # accept the event hook because they are real SQLAlchemy
+            # Engine instances.
+            handler = None
+        # WR-04 closure (Phase 1096 / HYG-01): store the handler ref + sync
+        # engine ref so `dispose()` can `event.remove(...)` the listener
+        # and prevent stacking when a shared engine is wrapped multiple
+        # times. `handler` is None when install was silently skipped per
+        # WR-03 narrow-catch above; dispose() must guard against this.
+        object.__setattr__(self, "_sync_engine", sync_engine)
+        object.__setattr__(self, "_do_connect_handler", handler)
 
     def connect(self):
         """Retry-protected version of ``underlying.connect()``.
@@ -893,7 +929,54 @@ class _RetryingAsyncEngine:
         worker is racing the connection ceiling at the moment of
         dispose. Symmetric with `connect()` retry coverage per
         CONTEXT.md `<domain>` line 14.
+
+        WR-04 closure (Phase 1096 / HYG-01): before delegating to the
+        underlying dispose, remove the `do_connect` event listener
+        registered by `_install_dbapi_connect_retry` in `__init__`.
+        Without removal, a future refactor wrapping the SAME shared
+        sync engine multiple times would stack listeners — every
+        `do_connect` event would fire each registered handler in turn,
+        compounding the retry budget and silently degrading the
+        production-effective retry contract. Removal happens BEFORE
+        the retry loop so the listener is gone even if the underlying
+        dispose retries / exhausts the budget. Guards against
+        ``_do_connect_handler is None`` (WR-03 install caught) and
+        ``_sync_engine is None`` (test double without sync_engine
+        accessor) so the no-listener path is a clean no-op.
         """
+        from sqlalchemy import event
+
+        # WR-04: remove the do_connect listener exactly once, before
+        # the underlying dispose runs. Idempotent via the None guard:
+        # repeated dispose() calls do not re-attempt removal because
+        # we clear the refs after a successful remove.
+        if (
+            self._do_connect_handler is not None
+            and self._sync_engine is not None
+        ):
+            try:
+                event.remove(
+                    self._sync_engine,
+                    "do_connect",
+                    self._do_connect_handler,
+                )
+            except Exception:
+                # Conservative narrow: if SQLAlchemy refuses the remove
+                # (e.g., already-removed by a sibling dispose, or test
+                # double mutates between install + remove), do not block
+                # the underlying dispose. The latent risk this WR-04
+                # closure addresses is "future refactor wraps a shared
+                # engine multiple times" — which would manifest as
+                # listener-count > 1 on re-install, not as a remove
+                # failure. Caught broadly here BUT immediately reset
+                # to None below so subsequent dispose() calls don't
+                # re-attempt the remove and produce noisy duplicates.
+                pass
+            # Reset refs so repeat-dispose is a clean no-op and the
+            # wrapper does not retain a stale handler reference that
+            # could be mistakenly re-used.
+            object.__setattr__(self, "_do_connect_handler", None)
+
         last_exc: BaseException | None = None
         attempt_budget = 1 + len(self._backoffs)
         for attempt in range(attempt_budget):
