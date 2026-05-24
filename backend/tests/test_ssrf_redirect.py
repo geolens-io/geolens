@@ -97,22 +97,30 @@ async def test_non_redirect_status_passthrough():
 
 
 @pytest.mark.anyio
-async def test_make_safe_client_blocks_private_ip_redirect():
-    """SSRF revalidation contract — a 3xx redirect to a private IP is rejected.
+async def test_revalidate_redirect_blocks_rfc1918_10x_redirect():
+    """A 302 -> RFC-1918 10/8 redirect is rejected by _revalidate_redirect.
+
+    Distinct private-IP class from test_redirect_to_private_ip_blocked
+    (which covers 127/8 loopback). Pins that the SSRF revalidation hook
+    rejects RFC-1918 10/8 redirects in addition to the loopback class.
 
     Behavioral test for the SSRF revalidation contract — supersedes the
     pre-2026-05-24 identity check (which was brittle to module-level
     mock.patch contamination from sibling tests). v1023 Phase 1098 OOS-03.
 
-    Tests _revalidate_redirect directly (mirroring lines 22-97) rather than
-    going through make_safe_client(), because the latter constructs an
-    httpx.AsyncClient that some sibling tests patch globally without restoring
-    (e.g. seed-script tests that swap httpx.AsyncClient for a fake — see D-10:
-    leaker hunt deferred indefinitely; the contract test below is immune).
+    WR-01/WR-02 fix (2026-05-24): the original rewrite was byte-overlap
+    with test_redirect_to_private_ip_blocked (lines 20-29, same 127.0.0.1
+    target), and was named for make_safe_client() without exercising it.
+    This revision uses RFC-1918 10.0.0.5 to fill the address-class gap and
+    renames to match the function actually exercised (_revalidate_redirect).
+
+    Per D-10 the leaker hunt is deferred indefinitely; this test exercises
+    _revalidate_redirect directly to remain immune to sibling-test
+    contamination of httpx.AsyncClient at the make_safe_client() layer.
     """
     response = httpx.Response(
         302,
-        headers={"Location": "http://127.0.0.1/internal"},
+        headers={"Location": "http://10.0.0.5/internal"},  # RFC-1918 10/8 class
         request=httpx.Request("GET", "https://attacker.example/redirect"),
     )
     # Behavioral: the SSRF hook rejects the redirect (the contract)
