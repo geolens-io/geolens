@@ -82,8 +82,65 @@
 - ✅ **v1020 Fixture Isolation** — Phases 1087-1090 (shipped 2026-05-22, local tag `v1020`, public tag `v1.5.5`) — see [archive](milestones/v1020-ROADMAP.md)
 - ✅ **v1021 Docker Rebuild Sweep + Engine-level Retry** — Phases 1091-1093 (shipped 2026-05-23, local tag `v1021`, public tag `v1.5.6`) — see [archive](milestones/v1021-ROADMAP.md)
 - ✅ **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (shipped 2026-05-24, local tag `v1022`, public tag `v1.5.7`) — see [archive](milestones/v1022-ROADMAP.md)
+- 🚧 **v1023 CI Live-Verify + OOS Hygiene Tail** — Phases 1098-1100 (in progress)
 
 ## Phases
+
+### v1023 CI Live-Verify + OOS Hygiene Tail (In Progress)
+
+**Milestone Goal:** Retire the 3 pre-existing OOS sequential failures + 2 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` literal (not "0 NEW failed"), and provide external CI evidence for the `pytest-parallel-isolation` gate via live GH Actions run.
+
+- [ ] **Phase 1098: OOS Triad Closure** — Fix `test_layering`, `test_phase_275_readme_accuracy`, and `test_ssrf_redirect` so sequential `failed == 0` is literal
+- [ ] **Phase 1099: OAuth Parallel-Mode Stabilization** — Fix `test_callback_missing_state_returns_error` and `test_callback_invalid_code_returns_error` so `-n 4` flakes are eliminated
+- [ ] **Phase 1100: CI Live-Verify + Close Gate** — Operator live-verify of `pytest-parallel-isolation` on real GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`
+
+## Phase Details
+
+### Phase 1098: OOS Triad Closure
+**Goal**: Sequential pytest baseline achieves `failed == 0` literal by retiring the 3 long-carried OOS failures
+**Depends on**: Nothing (first phase of v1023; no architectural dependency)
+**Requirements**: OOS-01, OOS-02, OOS-03
+**Success Criteria** (what must be TRUE):
+  1. `pytest` (sequential, no `-n`) reports `3063+ passed / 0 failed / 38 skipped` — the OOS rows are gone, not bypassed
+  2. Each of the 3 fixed tests also passes under `-n 4` and `-n auto`
+  3. Root cause is documented inline at each failing assertion site (comment block or inline rationale)
+  4. No regression on sibling test families (LOC-cap invariants, README-accuracy pins, SSRF test family)
+**Plans**: TBD
+
+Plans:
+- [ ] 1098-01: Diagnose + fix OOS triad (test_layering / test_phase_275_readme_accuracy / test_ssrf_redirect)
+
+### Phase 1099: OAuth Parallel-Mode Stabilization
+**Goal**: `-n 4` pytest baseline achieves `failed == 0` literal by eliminating the 2 OAuth callback flakes
+**Depends on**: Phase 1098
+**Requirements**: OAUTH-01, OAUTH-02
+**Success Criteria** (what must be TRUE):
+  1. `pytest -n 4` reports `3063+ passed / 0 failed / 38 skipped` — no OAuth flakes present across 3 consecutive runs
+  2. Both tests also pass deterministically in sequential and `-n auto` modes
+  3. Root cause documented (likely shared-state leakage between parallel workers); fix is at the test-isolation layer unless a real production concurrency bug is found
+  4. Zero regression on the broader `test_callback_*` OAuth test family
+**Plans**: TBD
+
+Plans:
+- [ ] 1099-01: Diagnose + fix OAuth parallel-mode flakes (test_callback_missing_state_returns_error / test_callback_invalid_code_returns_error)
+
+### Phase 1100: CI Live-Verify + Close Gate
+**Goal**: External CI evidence is captured for the `pytest-parallel-isolation` gate and v1023 is formally closed with tags
+**Depends on**: Phase 1099
+**Requirements**: CI-01, CLOSE-01
+**Success Criteria** (what must be TRUE):
+  1. `gh run watch <run_id>` confirms `pytest-parallel-isolation` job conclusion `success` on real GH Actions infrastructure (closes v1022 carry-forward)
+  2. Sequential pytest result quoted verbatim in CLOSE-GATE.md: `3063+ passed / 0 failed / 38 skipped` (literal zero — no OOS rows)
+  3. `-n 4` result quoted verbatim: `3063+ passed / 0 failed / 38 skipped` (literal zero)
+  4. `-n auto` 3-run measurement table shows `≤30` distinct (failed+errors) per run, `0` ICN frames (PARA-01 invariant preserved)
+  5. CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02 closures with test pin names + line numbers; tags `v1023` (local) + `v1.5.8` (public) cut and pushed
+**Plans**: TBD
+
+Plans:
+- [ ] 1100-01: CI live-verify (`gh run rerun 26359374410` or new dispatch + `gh run watch`) + embed run log
+- [ ] 1100-02: Close gate (final baseline measurements + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`)
+
+---
 
 ### v1022 Parallel-Test Cascade Closure + Hygiene Tail (Shipped 2026-05-24)
 
@@ -117,7 +174,9 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| _Awaiting next milestone_ | — | — | — | — |
+| 1098. OOS Triad Closure | v1023 | 0/1 | Not started | - |
+| 1099. OAuth Parallel-Mode Stabilization | v1023 | 0/1 | Not started | - |
+| 1100. CI Live-Verify + Close Gate | v1023 | 0/2 | Not started | - |
 
 ## Backlog
 

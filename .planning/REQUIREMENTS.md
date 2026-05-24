@@ -75,19 +75,19 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CI-01 | TBD | Pending |
-| OOS-01 | TBD | Pending |
-| OOS-02 | TBD | Pending |
-| OOS-03 | TBD | Pending |
-| OAUTH-01 | TBD | Pending |
-| OAUTH-02 | TBD | Pending |
-| CLOSE-01 | TBD | Pending |
+| CI-01 | Phase 1100 | Pending |
+| OOS-01 | Phase 1098 | Pending |
+| OOS-02 | Phase 1098 | Pending |
+| OOS-03 | Phase 1098 | Pending |
+| OAUTH-01 | Phase 1099 | Pending |
+| OAUTH-02 | Phase 1099 | Pending |
+| CLOSE-01 | Phase 1100 | Pending |
 
 **Coverage:**
 - v1023 requirements: 7 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 7 ⚠️ (will be 0 ✓ after roadmapper runs)
+- Mapped to phases: 7 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-24*
-*Last updated: 2026-05-24 after initial definition*
+*Last updated: 2026-05-24 — traceability updated by roadmapper (v1023 ROADMAP.md creation)*
