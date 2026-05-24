@@ -97,12 +97,27 @@ async def test_non_redirect_status_passthrough():
     await _revalidate_redirect(response)
 
 
-def test_make_safe_client_has_event_hook():
-    """make_safe_client() returns a client with the revalidation hook wired."""
+@pytest.mark.anyio
+async def test_make_safe_client_blocks_private_ip_redirect():
+    """make_safe_client returns a client whose hook pipeline rejects SSRF redirects.
+
+    Behavioral test for the SSRF revalidation contract — supersedes the
+    pre-2026-05-24 identity check (which was brittle to module-level
+    mock.patch contamination from sibling tests). v1023 Phase 1098 OOS-03.
+    """
     client = make_safe_client()
-    hooks = client._event_hooks.get("response", [])
-    assert _revalidate_redirect in hooks, (
-        "make_safe_client must include _revalidate_redirect in event_hooks['response']"
+    # Sanity: the response-hook pipeline is wired (non-empty)
+    response_hooks = client._event_hooks.get("response", [])
+    assert response_hooks, "make_safe_client must wire at least one response hook"
+    # Behavioral: a 302 -> 127.0.0.1 redirect must be rejected end-to-end
+    response = httpx.Response(
+        302,
+        headers={"Location": "http://127.0.0.1/internal"},
+        request=httpx.Request("GET", "https://attacker.example/redirect"),
     )
+    with pytest.raises(SSRFError):
+        for hook in response_hooks:
+            await hook(response)
+    # Constructor-arg checks (not patchable — safe to retain per D-11)
     assert client.follow_redirects is True
     assert client.max_redirects == 5
