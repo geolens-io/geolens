@@ -186,7 +186,7 @@ For licensing or evaluation, contact `enterprise@getgeolens.com`.
 
 ## Quick Start
 
-**Prerequisites:** Docker Engine 24+ and Docker Compose v2. Minimum host: 4 GB RAM and 10 GB free disk for the base stack and a small dataset; 8 GB+ RAM recommended for raster work or catalogs above ~100 datasets. See [Resource Sizing](https://docs.getgeolens.com/guides/quickstart/resource-sizing/) for production sizing.
+**Prerequisites:** Docker Engine 24+ and Docker Compose v2.
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git
@@ -293,7 +293,7 @@ The two changes that produced this envelope:
 1. **DBM-04 (Phase 271):** `db_max_overflow` 5 → 3, reclaiming 14 connections
    of headroom under Procrastinate spikes.
 2. **PERF-05 (Phase 274):** `max_connections` 50 → 30, reclaiming ~10MiB of
-   shared memory per dropped slot (~200MiB total — material on a 2GB VPS).
+   shared memory per dropped slot (~200MiB total).
 
 Operators expecting frequent ad-hoc admin sessions on top of full worker + API
 saturation should bump `max_connections` back to 35-40 in their own

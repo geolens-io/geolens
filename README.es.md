@@ -152,7 +152,7 @@ Conecta desde QGIS con **Layer > Add WFS / OGC API Features** y apunta a `http:/
 
 ## Inicio rápido
 
-**Requisitos:** Docker Engine 24+ y Docker Compose v2. Mínimo recomendado para el host: 4 GB de RAM y 10 GB libres para la pila base y un dataset pequeño; 8 GB+ de RAM para trabajos raster o catálogos de más de 100 datasets. Consulta [Resource Sizing](https://docs.getgeolens.com/guides/quickstart/resource-sizing/) para dimensionamiento de producción.
+**Requisitos:** Docker Engine 24+ y Docker Compose v2.
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git

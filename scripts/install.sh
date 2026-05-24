@@ -52,20 +52,6 @@ check_port() {
   fi
 }
 
-disk_available_kb() {
-  df -k . 2>/dev/null | awk 'NR == 2 {print $4} END {if (NR < 2) print 0}'
-}
-
-memory_total_kb() {
-  if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.memsize >/dev/null 2>&1; then
-    sysctl -n hw.memsize | awk '{print int($1 / 1024)}'
-  elif [ -r /proc/meminfo ]; then
-    awk '/MemTotal/ {print $2}' /proc/meminfo
-  else
-    printf '0\n'
-  fi
-}
-
 # Read a value from .env. Handles values containing `=` correctly (returns the
 # full remainder after the first `=`). Returns empty if the key is missing or
 # the value is empty.
@@ -151,17 +137,6 @@ need_command git
 need_command docker
 
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required. Install Docker Desktop or the docker compose plugin."
-
-mem_kb="$(memory_total_kb)"
-if [ "$mem_kb" -gt 0 ] && [ "$mem_kb" -lt 4194304 ]; then
-  warn "this host reports less than 4 GB RAM. GeoLens may start slowly or fail under raster workloads."
-fi
-
-disk_kb="$(disk_available_kb)"
-[ -n "$disk_kb" ] || disk_kb=0
-if [ "$disk_kb" -gt 0 ] && [ "$disk_kb" -lt 10485760 ]; then
-  warn "less than 10 GB disk is available in the current filesystem."
-fi
 
 # If the user already cd'd into a checkout, use it. Otherwise honor INSTALL_DIR.
 PROJECT_HINT=""

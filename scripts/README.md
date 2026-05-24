@@ -94,11 +94,10 @@ Creates minimal test datasets for end-to-end test suites.
 ### `install.sh`
 
 First-run installer for a self-hosted GeoLens stack. Verifies prerequisites
-(`git`, `docker`, Docker Compose v2), warns on hosts under 4 GB RAM / 10 GB
-disk, generates a `JWT_SECRET_KEY` (via `openssl rand -hex 32`, with
-`/dev/urandom` fallback), seeds admin credentials in `.env`, checks the
-configured `DB_PORT` / `API_PORT` / `FRONTEND_PORT` are free, and runs
-`docker compose up -d`.
+(`git`, `docker`, Docker Compose v2), generates a `JWT_SECRET_KEY` (via
+`openssl rand -hex 32`, with `/dev/urandom` fallback), seeds admin
+credentials in `.env`, checks the configured `DB_PORT` / `API_PORT` /
+`FRONTEND_PORT` are free, and runs `docker compose up -d`.
 
 ```bash
 # From inside a checkout
