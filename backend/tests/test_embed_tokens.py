@@ -31,6 +31,7 @@ from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
 from app.modules.embed_tokens.service import create_embed_token, update_embed_token
 from app.platform.cache.provider import get_cache
 
+from tests.conftest import _run_with_too_many_clients_retry
 from tests.factories import create_dataset, get_user_id
 
 
@@ -53,8 +54,10 @@ async def _init_tile_pool_for_tests(request):
     import app.processing.tiles.pool as pool_module
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
-    pool = await asyncpg.create_pool(
-        dsn=dsn, min_size=1, max_size=3, command_timeout=10
+    pool = await _run_with_too_many_clients_retry(
+        lambda: asyncpg.create_pool(
+            dsn=dsn, min_size=1, max_size=3, command_timeout=10
+        )
     )
     pool_module._tile_pool = pool
     yield

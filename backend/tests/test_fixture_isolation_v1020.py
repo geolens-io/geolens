@@ -25,6 +25,7 @@ Cross-references:
   LOCKED sequencing and the TD-13 `requirements_traceability_flip` rule.
 """
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1111,4 +1112,131 @@ def test_engine_retry_exhausts_budget_then_fails_loudly():
     assert len(sleep_calls) == 3, (
         f"Expected 3 sleep calls between 4 attempts; got {len(sleep_calls)} "
         f"({sleep_calls!r})."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1095 / PARA-01 — regression pin family for _init_tile_pool_for_tests
+# ---------------------------------------------------------------------------
+# Pin the wrap pattern applied at the 3 sibling `_init_tile_pool_for_tests`
+# fixtures in backend/tests/{test_tiles,test_embed_tokens,test_tile_signing}.py
+# per spike audit `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md`
+# Section 3.2 (Shape A* — wrap `asyncpg.create_pool(...)` in the existing
+# `_run_with_too_many_clients_retry` envelope at `conftest.py:359`).
+#
+# Distinct from the `test_engine_retry_*` family above because:
+# - Engine family tests the engine-layer wrapper / do_connect event handler
+#   (Plan 1093-02 / TEST-01) for the post-commit `bind.connect()` surface.
+# - Init-tile-pool family tests the FIXTURE-LAYER wrap of raw
+#   `asyncpg.create_pool(...)` calls in 3 test files that bypass both the
+#   session-factory and engine wrappers. This was the dominant cascade
+#   source in v1022's `pytest -n auto` baseline (16 workers × 3 conns = 48
+#   demand vs max_connections=30 ceiling).
+#
+# The pin documents the EXACT calling-convention shape used at the 3 fixture
+# sites — a `lambda: asyncpg.create_pool(dsn=..., min_size=1, max_size=3,
+# command_timeout=10)` zero-arg async callable passed to
+# `_run_with_too_many_clients_retry`. If a future refactor breaks the
+# fixture invocation shape (drops the wrap, changes the lambda signature,
+# or substitutes a different envelope), this pin breaks too.
+
+
+def test_init_tile_pool_retries_on_transient_too_many_clients():
+    """Phase 1095 / PARA-01 (d): the Shape A* wrap pattern applied at the
+    3 ``_init_tile_pool_for_tests`` fixtures must retry on injected
+    ``asyncpg.exceptions.TooManyConnectionsError`` instead of failing on
+    first attempt.
+
+    The 3 fixtures live at:
+      - ``backend/tests/test_tiles.py:151``
+      - ``backend/tests/test_embed_tokens.py:56``
+      - ``backend/tests/test_tile_signing.py:107``
+
+    Each wraps ``asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3,
+    command_timeout=10)`` in
+    ``_run_with_too_many_clients_retry(lambda: asyncpg.create_pool(...))``.
+    This pin reproduces the same wrap shape against a fake
+    ``asyncpg.create_pool`` callable that raises
+    ``TooManyConnectionsError`` on the first 2 attempts then returns a
+    sentinel pool on the 3rd.
+
+    Asserts: (a) the returned pool IS the sentinel from the 3rd attempt
+    (proves retry returned, not raise), (b) the fake create_pool was
+    invoked exactly 3 times (proves attempts 1+2 failed and attempt 3
+    succeeded), (c) the injected ``sleep_fn`` was called exactly 2 times
+    with backoffs ``[1.0, 2.0]`` (proves 2 sleeps between 3 attempts at
+    the canonical first-two ``_SETUP_PHASE_RETRY_BACKOFFS`` values),
+    (d) ``_SETUP_PHASE_RETRY_BACKOFFS == (1.0, 2.0, 4.0)`` drift-guard.
+
+    Pre-Plan-1095-01 HEAD: the 3 fixture sites called ``asyncpg.create_pool``
+    directly without an envelope; a transient ``TooManyConnectionsError``
+    failed the fixture immediately.
+    Post-Plan-1095-01 HEAD: the wrap absorbs the first 2 transient
+    failures and returns the pool on the 3rd attempt.
+    """
+    import asyncpg.exceptions
+
+    sentinel_pool = MagicMock(name="sentinel_pool")
+    call_count = {"n": 0}
+
+    async def fake_create_pool(*, dsn, min_size, max_size, command_timeout):
+        """Fake `asyncpg.create_pool` — fails twice, then returns sentinel."""
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            raise asyncpg.exceptions.TooManyConnectionsError(
+                "sorry, too many clients already"
+            )
+        return sentinel_pool
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+
+    # The lambda shape MUST mirror the 3 fixture sites EXACTLY (same kwargs
+    # in same order). Drift here means drift at the fixture sites too.
+    result = asyncio.run(
+        _run_with_too_many_clients_retry(
+            lambda: fake_create_pool(
+                dsn="postgresql://geolens@localhost:5434/test",
+                min_size=1,
+                max_size=3,
+                command_timeout=10,
+            ),
+            sleep_fn=fake_sleep,
+        )
+    )
+
+    # Assertion 1: retry returned the sentinel pool (not raised).
+    assert result is sentinel_pool, (
+        f"Expected the sentinel pool from the 3rd attempt; got {result!r}. "
+        "If this is not the sentinel, the envelope swallowed the success "
+        "or returned the wrong value, breaking the fixture contract."
+    )
+
+    # Assertion 2: exactly 3 attempts (1 success after 2 failures).
+    assert call_count["n"] == 3, (
+        f"Expected exactly 3 `asyncpg.create_pool` invocations (2 transient "
+        f"failures + 1 success); got {call_count['n']}. If this is <3, the "
+        "envelope re-raised early; if >3, the envelope kept retrying past "
+        "success."
+    )
+
+    # Assertion 3: exactly 2 sleeps between 3 attempts, at canonical
+    # first-two `_SETUP_PHASE_RETRY_BACKOFFS` values (1.0, 2.0).
+    assert sleep_calls == [1.0, 2.0], (
+        f"Expected exactly 2 sleeps at [1.0, 2.0]s (canonical first-two "
+        f"_SETUP_PHASE_RETRY_BACKOFFS values); got {sleep_calls!r}. "
+        "Drift here means the envelope is using a different backoff schedule "
+        "than the canonical 7s setup-phase budget — review Plan 1088-03 + "
+        "Plan 1095-01 in tandem."
+    )
+
+    # Assertion 4: drift-guard on the backoff schedule constant.
+    assert _SETUP_PHASE_RETRY_BACKOFFS == (1.0, 2.0, 4.0), (
+        f"Expected _SETUP_PHASE_RETRY_BACKOFFS == (1.0, 2.0, 4.0) for a 7s "
+        f"total setup-phase wait budget; got {_SETUP_PHASE_RETRY_BACKOFFS!r}. "
+        "If this drifts, the fixture-layer retry contract has changed AND "
+        "the v1020 setup-phase budget has changed — review Plan 1088-03 + "
+        "Plan 1095-01 in tandem."
     )

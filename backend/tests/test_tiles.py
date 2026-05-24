@@ -21,6 +21,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
+from tests.conftest import _run_with_too_many_clients_retry
 from tests.factories import get_user_id
 
 
@@ -148,8 +149,10 @@ async def _init_tile_pool_for_tests():
     import app.processing.tiles.pool as pool_module
 
     dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
-    pool = await asyncpg.create_pool(
-        dsn=dsn, min_size=1, max_size=3, command_timeout=10
+    pool = await _run_with_too_many_clients_retry(
+        lambda: asyncpg.create_pool(
+            dsn=dsn, min_size=1, max_size=3, command_timeout=10
+        )
     )
     pool_module._tile_pool = pool
     yield
