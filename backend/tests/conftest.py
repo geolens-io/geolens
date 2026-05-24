@@ -632,9 +632,27 @@ def _invoke_sleep_in_sync_context(sleep_fn, seconds):
     a sync loop. This helper bridges the two:
 
     - If ``sleep_fn`` is the production ``asyncio.sleep`` reference
-      specifically: use ``time.sleep`` for the actual blocking delay
-      (do NOT try to drive asyncio.sleep from sync context — that
-      requires an event loop and adds 100ms+ of overhead per call).
+      specifically: use ``time.sleep`` for the actual blocking delay.
+      WR-02 (PARA-02 / Plan 1095-02) — Shape Y2 (load-bearing
+      rationale): ``asyncio.run(asyncio.sleep(seconds))`` was
+      empirically tested at Plan 1095-02 Task 5 Run 1 and produced
+      658 ``RuntimeError: asyncio.run() cannot be called from a
+      running event loop`` cascade failures across `pytest -n auto`,
+      because the load-bearing production caller path
+      (``_install_dbapi_connect_retry._retry_do_connect``, invoked
+      via SQLAlchemy's ``do_connect`` event handler from inside
+      ``greenlet_spawn``) DOES have a running event loop in the
+      calling thread — the greenlet yielded into it. The blocking
+      ``time.sleep`` here is load-bearing for sync-context
+      compatibility. Documented mitigation: the engine-wrapper
+      retry budget is bounded by ``_SETUP_PHASE_RETRY_BACKOFFS =
+      (1.0, 2.0, 4.0)`` (7s total) and the 3 ``_init_tile_pool_*``
+      fixture sites that bypassed this surface entirely are now
+      wrapped at Plan 1095-01 via ``_run_with_too_many_clients_retry``
+      — the cascade source the WR-02 caveat warned about is closed
+      at its actual source-of-record, not at this helper. See
+      ``.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md`` Section
+      4.3 (WR-02 INDEPENDENT disposition) + Section 4.4 (caveat).
     - If ``sleep_fn`` is some OTHER async coroutine function (test
       injection like ``async def fake_sleep(s): sleep_calls.append(s)``):
       use ``asyncio.run`` to actually execute the body so the closure
@@ -648,7 +666,26 @@ def _invoke_sleep_in_sync_context(sleep_fn, seconds):
     `_RetryingAsyncEngine.connect()`.
     """
     if sleep_fn is asyncio.sleep:
-        # Production path: skip event-loop overhead, just block.
+        # WR-02 (PARA-02 / Plan 1095-02) — Shape Y2 load-bearing
+        # rationale. asyncio.run(asyncio.sleep(seconds)) was attempted
+        # as Shape Y1 at Plan 1095-02 Task 5 Run 1 and immediately
+        # produced 658 RuntimeError cascade failures across `pytest
+        # -n auto`: the production caller `_retry_do_connect` is
+        # invoked via SQLAlchemy's `do_connect` event handler from
+        # INSIDE `greenlet_spawn`, where the asyncio loop in the
+        # calling thread IS running — the greenlet just yielded into
+        # it. asyncio.run() refuses to nest inside a running loop.
+        # time.sleep is the correct primitive for this sync-context
+        # bridge. The WR-02 "loop starvation" caveat (audit Section
+        # 4.4) is mitigated structurally: (a) the canonical 7s budget
+        # `_SETUP_PHASE_RETRY_BACKOFFS = (1.0, 2.0, 4.0)` bounds the
+        # max starvation window, (b) the cascade source the caveat
+        # warned about (`_init_tile_pool_*` fixtures bypassing the
+        # engine-wrapper layer entirely) is closed at its actual
+        # source-of-record at Plan 1095-01 (Shape A* wrap of the 3
+        # `_init_tile_pool_for_tests` fixtures in
+        # `_run_with_too_many_clients_retry`). See audit Section 4.3
+        # for the WR-02 INDEPENDENT disposition rationale.
         time.sleep(seconds)
     elif asyncio.iscoroutinefunction(sleep_fn):
         # Test-injected async sleep: drive it via asyncio.run so the

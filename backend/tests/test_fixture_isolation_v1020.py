@@ -1240,3 +1240,120 @@ def test_init_tile_pool_retries_on_transient_too_many_clients():
         "the v1020 setup-phase budget has changed — review Plan 1088-03 + "
         "Plan 1095-01 in tandem."
     )
+
+
+# Phase 1095 / PARA-02 (WR-02 closure) — the pin below extends the existing
+# `test_engine_retry_*` family (covers the engine-wrapper retry surface).
+# The WR-02 footgun lives on the engine-wrapper path (audit Section 4.1
+# call-site map), so the `test_engine_retry_*` family is the semantically
+# correct home for the loop-yield regression pin. Distinct from Plan 01's
+# `test_init_tile_pool_*` pin which covers the pool-init surface.
+
+
+def test_engine_retry_yields_event_loop_during_backoff():
+    """Phase 1095 / PARA-02 (b): Shape Y2 (load-bearing rationale)
+    regression pin. The production-path branch at
+    ``backend/tests/conftest.py:_invoke_sleep_in_sync_context`` retains
+    blocking ``time.sleep(seconds)`` rather than the originally-planned
+    Shape Y1 ``asyncio.run(asyncio.sleep(seconds))``, because Y1 produced
+    658 ``RuntimeError: asyncio.run() cannot be called from a running
+    event loop`` cascade failures at Plan 1095-02 Task 5 Run 1 — the
+    production caller path (``_retry_do_connect`` via SQLAlchemy's
+    ``do_connect`` event handler from inside ``greenlet_spawn``) DOES
+    have a running event loop in the calling thread.
+
+    The pin name retained for traceability symmetry with the original
+    Plan 02 PARA-02 (b) shape. Under Shape Y2, the regression-detection
+    contract becomes: assert the load-bearing rationale block exists
+    verbatim at the source-of-record line, so a future refactor cannot
+    silently remove the WR-02 / PARA-02 cross-references without also
+    breaking this pin.
+
+    The Shape Y2 rationale block MUST contain (drift-guard):
+    - The token ``WR-02`` (links to the original footgun audit finding).
+    - The token ``PARA-02`` (links to the closed requirement).
+    - The token ``Plan 1095-02`` (links to the empirical regression
+      that drove the Y1→Y2 fallback).
+    - The token ``greenlet_spawn`` (load-bearing rationale: why Y1
+      cannot work — production caller path has running loop in thread).
+    - The token ``Section 4.3`` OR ``Section 4.4`` (audit
+      cross-reference to the WR-02 INDEPENDENT disposition + caveat).
+    - The substring ``time.sleep`` on the production-path branch line
+      (the blocking primitive is structurally load-bearing).
+
+    Pre-Plan-1095-02 HEAD (Shape Y0): the inline comment at
+    ``if sleep_fn is asyncio.sleep:`` was the terse 1-line "Production
+    path: skip event-loop overhead, just block." — no WR-02 / PARA-02
+    cross-reference, no greenlet_spawn rationale.
+
+    Post-Plan-1095-02 HEAD (Shape Y2): the inline comment block is the
+    load-bearing rationale documented above; this pin asserts the block
+    is intact so silent removal breaks CI rather than slipping past
+    review.
+
+    Why Y2 over Y1 (empirical evidence): Plan 1095-02 Task 5 Run 1 of
+    ``pytest -n auto`` post-Y1-fix produced 156 failed + 227 errors =
+    383 distinct (vs. Plan 01 close baseline of 20/8/16). 658 of those
+    failures had the RuntimeError signature above. The Y1 candidate
+    cited in the CONTEXT.md `<decisions>` and the Plan 02 `<interfaces>`
+    blocks did not account for the greenlet-bridge running-loop case.
+    The Plan 02 Y1/Y2 fork rule (explicit fallback per CONTEXT.md
+    `<decisions>` `WR-02 fix shape`) was triggered and Y2 applied.
+    """
+    from pathlib import Path
+
+    conftest_path = (
+        Path(__file__).parent / "conftest.py"
+    )
+    conftest_text = conftest_path.read_text()
+
+    # Locate the Shape Y2 rationale block by anchor on the
+    # production-path branch keyword.
+    anchor = "if sleep_fn is asyncio.sleep:"
+    anchor_idx = conftest_text.find(anchor)
+    assert anchor_idx >= 0, (
+        f"Anchor `{anchor}` not found in {conftest_path}. The "
+        "`_invoke_sleep_in_sync_context` production-path branch has "
+        "been removed or restructured — re-read the function body + "
+        "audit Section 4.3 (WR-02 INDEPENDENT) before re-anchoring."
+    )
+
+    # Inspect the ~30 lines AFTER the anchor (the inline comment +
+    # the time.sleep call line) for the load-bearing tokens.
+    block = conftest_text[anchor_idx : anchor_idx + 2000]
+
+    required_tokens = [
+        "WR-02",
+        "PARA-02",
+        "Plan 1095-02",
+        "greenlet_spawn",
+        "time.sleep",
+    ]
+    # Audit cross-reference is satisfied by Section 4.3 OR 4.4
+    # citation (both correlate the WR-02 disposition).
+    audit_token_present = (
+        "Section 4.3" in block or "Section 4.4" in block
+    )
+
+    for token in required_tokens:
+        assert token in block, (
+            f"Required Shape Y2 load-bearing rationale token `{token}` "
+            f"missing from the production-path branch at "
+            f"{conftest_path}:_invoke_sleep_in_sync_context. The "
+            "WR-02 / PARA-02 traceability block has been silently "
+            "removed or weakened — re-read audit Section 4.3 + 4.4 "
+            "before re-running this pin (do NOT delete the comment "
+            "block to pass)."
+        )
+
+    assert audit_token_present, (
+        f"Required audit cross-reference (`Section 4.3` or "
+        f"`Section 4.4`) missing from the production-path branch at "
+        f"{conftest_path}:_invoke_sleep_in_sync_context. The Shape "
+        "Y2 rationale MUST cite the audit section that justifies the "
+        "INDEPENDENT disposition (WR-02 fix is forward-safety hygiene "
+        "on a different surface than the actual cascade source). The "
+        "structural mitigation lives at Plan 1095-01 (3 fixture-site "
+        "wraps via `_run_with_too_many_clients_retry`), not at this "
+        "helper."
+    )
