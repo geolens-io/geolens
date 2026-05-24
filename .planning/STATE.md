@@ -3,34 +3,34 @@ gsd_state_version: 1.0
 milestone: v1023
 milestone_name: CI Live-Verify + OOS Hygiene Tail
 status: executing
-stopped_at: Phase 1098 Plan 01 shipped — ready for Phase 1099
-last_updated: "2026-05-24T13:55:31.520Z"
-last_activity: 2026-05-24 -- Phase 1099 planning complete
+stopped_at: Phase 1099 Plan 01 shipped — ready for Phase 1100
+last_updated: "2026-05-24T15:55:21.335Z"
+last_activity: 2026-05-24 -- Phase 1099 OAUTH-01/02/03 shipped
 progress:
-  total_phases: 8
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 1
-  percent: 13
+  total_phases: 3
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 2
+  percent: 50
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1099 (OAuth Parallel-Mode Stabilization) — next
-Plan: 1099-01 — pending
-Status: Ready to execute
-Last activity: 2026-05-24 -- Phase 1099 planning complete
+Phase: 1100 (CI Live-Verify + Close Gate) — next
+Plan: 1100-01 — pending
+Status: Awaiting CI-01 operator action (billing resolution)
+Last activity: 2026-05-24 -- Phase 1099 OAUTH-01/02/03 shipped
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1098 — OOS Triad Closure
+**Current focus:** Phase 1100 — CI Live-Verify + Close Gate
 
 ## Last Shipped Milestone
 
@@ -68,6 +68,8 @@ See: .planning/PROJECT.md
 - **2026-05-24 (v1023 roadmap):** Phase 1099 sequenced AFTER Phase 1098 so the OAuth measurement gate runs against the already-zero OOS baseline. Avoids ambiguity about which failures are OOS vs OAuth when measuring `-n 4`.
 - **2026-05-24 (v1023 roadmap):** No spike phase required. CI-01 is operator-driven verification. OOS triad + OAuth flakes are tightly scoped per-test fixes (REQUIREMENTS.md explicit: "spike scope: None required"). Follows v1022 PARA-02/HYG-01/CI-01 framing — spike only for architectural items.
 - **2026-05-24 (v1023 roadmap):** v1019 TD-13 rules LIVE for v1023 from Day 1: REQ citation pinning (planner MUST validate `path::TestClass::test_name` node-IDs via `git grep -n "def <test_name>" <path>` BEFORE plans commit) + traceability flip (executor MUST flip REQUIREMENTS.md `[ ]` → `[x]` and `Pending` → `Complete` in SAME commit as SUMMARY.md).
+- **2026-05-24 (Phase 1099 close):** OAUTH-01/02/03 closed via D-04a fixture override (`client_session` shares `client`'s `dependency_overrides[get_db]` factory). Iter-2 Rule 1 inline iteration added `_ensure_public_app_url` monkeypatch fixture after T4 verify gate surfaced that the actual root cause was order-dependent `_PUBLIC_URL_CACHE` priming + `for_external_use=True` strict-config requirement (Phase 268 H-27 / SEC-13), NOT just the snapshot gap hypothesized in T2. Sequential 3062/0/38 preserved; -n 4 ×3 = 3062/0/38 literal-zero; -n auto ×3 within PARA-01 envelope (2 distinct unrelated failures in Run C). Two commits (`f57f1a76` iter-1 + `9922cce5` iter-2) mirror Phase 1098 OOS-03 two-iteration pattern.
+- **2026-05-24 (Phase 1099 close):** Leaker hunt deferred per D-07a — the actual originator of `_PUBLIC_URL_CACHE` priming was traced via bisect to `test_dataset_metadata_idor.py` family but the fix surface stays at `test_oauth.py` per D-10. Future v1024+ test-isolation audit could promote priming pattern to a fixture if appetite arises.
 
 ### Pending Todos
 
@@ -85,6 +87,6 @@ None at v1023 roadmap-create.
 
 ## Session Continuity
 
-Last session: 2026-05-24T16:00:00.000Z
-Stopped at: Phase 1098 Plan 01 shipped — ready for Phase 1099
-Resume file: .planning/phases/1098-oos-triad-closure/1098-01-SUMMARY.md
+Last session: 2026-05-24T15:55:06.260Z
+Stopped at: Phase 1099 Plan 01 shipped — ready for Phase 1100
+Resume file: .planning/phases/1099-oauth-parallel-mode-stabilization/1099-01-SUMMARY.md
