@@ -60,12 +60,66 @@ async def client_session(client):
 
     Per D-04a (Phase 1099 CONTEXT.md): smallest blast radius — only this
     file changes; sibling tests in test_oauth.py keep test_db_session.
+
+    Implementation note: httpx AsyncClient does not expose .app directly;
+    we import the FastAPI app from app.api.main (same import path used by
+    the `client` fixture in conftest.py:1312). The `client` parameter is
+    declared to enforce fixture ordering so dependency_overrides[get_db]
+    is installed before this fixture resolves the override.
     """
     from app.core.dependencies import get_db
+    from app.api.main import app
 
-    overridden_get_db = client.app.dependency_overrides[get_db]
+    overridden_get_db = app.dependency_overrides[get_db]
     async for session in overridden_get_db():
         yield session
+
+
+# ---------------------------------------------------------------------------
+# Phase 1099 T3-iter-2 / OAUTH-01/02/03: ensure public_app_url is configured
+#
+# The OAuth login + callback handlers call get_public_app_url(..., for_external_use=True)
+# which raises PublicUrlNotConfiguredError when settings.public_app_url is None
+# (the v13.12 SEC-13 / H-27 hardening — refuses to fall back to request-origin
+# for external-use URLs to prevent X-Forwarded-Host hijacking).
+#
+# In full sequential pytest, these 3 OAuth tests "accidentally" passed because
+# an earlier test (somewhere in test_dataset_metadata_idor.py family) primed
+# the _PUBLIC_URL_CACHE module-global. Under -n 4 / -n auto, the worker that
+# runs the OAuth tests may NOT be the same worker that ran the priming test,
+# so the cache is empty and OAuth callback returns 500.
+#
+# `_ensure_public_app_url` fixture pins settings.public_app_url for the duration
+# of the 3 OAuth callback/login tests, making them self-contained regardless
+# of test-order or worker scheduling. This is the Rule 1 inline iteration over
+# the initial D-04a-only fix (commit f57f1a76), since the T4 verify gate
+# surfaced that the snapshot gap was NOT the actual root cause — the actual
+# root cause is the order-dependent public_app_url priming.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _ensure_public_app_url(monkeypatch):
+    """Set settings.public_app_url so OAuth login/callback handlers don't 500.
+
+    OAuth's get_public_app_url(for_external_use=True) requires explicit
+    PUBLIC_APP_URL configuration per Phase 268 H-27 / SEC-13. This fixture
+    pins it to a test URL for the 3 OAuth callback/login tests so they are
+    deterministic across sequential, -n 4, and -n auto modes (Phase 1099
+    OAUTH-01/02/03).
+    """
+    import app.core.public_urls as public_urls
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "public_app_url", "http://test", raising=False)
+    monkeypatch.setattr(settings, "public_api_url", "http://test/api", raising=False)
+    # Reset the module-global URL cache so the next call re-reads from settings
+    # (the cache may have been populated by an earlier test in this process
+    # with whatever happened to be in settings at that moment).
+    saved = public_urls._PUBLIC_URL_CACHE
+    public_urls._PUBLIC_URL_CACHE = None
+    yield
+    public_urls._PUBLIC_URL_CACHE = saved
 
 
 # ---------------------------------------------------------------------------
@@ -864,12 +918,18 @@ class TestIdpRoleMappingGate:
 class TestOAuthLoginEndpoint:
     """Test the GET /auth/oauth/{slug}/login endpoint."""
 
-    async def test_oauth_login_redirect(self, client, client_session):
+    async def test_oauth_login_redirect(
+        self, client, client_session, _ensure_public_app_url
+    ):
         """OAUTH-04: Login endpoint returns redirect to IdP.
 
         Phase 1099 / OAUTH-03: uses client_session (shares client's
         override_get_db factory) so commit() is immediately visible to
-        the subsequent client.get(...) under -n 4 / -n auto.
+        the subsequent client.get(...) under -n 4 / -n auto. The
+        _ensure_public_app_url fixture pins settings.public_app_url so
+        the test is self-contained regardless of test order (the OAuth
+        for_external_use=True path refuses request-origin fallback per
+        SEC-13 / H-27).
         """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
@@ -912,12 +972,16 @@ class TestOAuthLoginEndpoint:
 class TestOAuthCallbackCSRF:
     """Test that OAuth callback rejects invalid state/code parameters."""
 
-    async def test_callback_missing_state_returns_error(self, client, client_session):
+    async def test_callback_missing_state_returns_error(
+        self, client, client_session, _ensure_public_app_url
+    ):
         """OAuth callback with no state/code params returns error redirect, not account takeover.
 
         Phase 1099 / OAUTH-01: uses client_session (shares client's
         override_get_db factory) so commit() is immediately visible to
-        the subsequent client.get(...) under -n 4 / -n auto.
+        the subsequent client.get(...) under -n 4 / -n auto. The
+        _ensure_public_app_url fixture pins settings.public_app_url so
+        the test is self-contained regardless of test order.
         """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
@@ -949,12 +1013,16 @@ class TestOAuthCallbackCSRF:
         location = resp.headers.get("location", "")
         assert "error" in location
 
-    async def test_callback_invalid_code_returns_error(self, client, client_session):
+    async def test_callback_invalid_code_returns_error(
+        self, client, client_session, _ensure_public_app_url
+    ):
         """OAuth callback with an invalid authorization code returns error redirect.
 
         Phase 1099 / OAUTH-02: uses client_session (shares client's
         override_get_db factory) so commit() is immediately visible to
-        the subsequent client.get(...) under -n 4 / -n auto.
+        the subsequent client.get(...) under -n 4 / -n auto. The
+        _ensure_public_app_url fixture pins settings.public_app_url so
+        the test is self-contained regardless of test order.
         """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
