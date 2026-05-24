@@ -163,6 +163,18 @@ None.
 - **Phase 1096 (HYG-01):** unblocked when Phase 1095 fully closes (after Plan 02). WR-01 / WR-03 / WR-04 hygiene sweep operates on conftest.py regions adjacent to Plan 02's WR-02 fix.
 - **Phase 1097 close-gate (CLOSE-01):** the 3-run `-n auto` baseline at this plan's close is one of the 3 baseline measurements the close-gate doc must quote (alongside sequential 3055/0/38 + `-n 4` 3054/0/38).
 
+## Self-Check: PASSED
+
+Verified post-commit (2026-05-23T01:33Z):
+
+- **All 6 atomic-commit files exist** at committed paths (test_tiles.py + test_embed_tokens.py + test_tile_signing.py + test_fixture_isolation_v1020.py + REQUIREMENTS.md + 1095-01-SUMMARY.md).
+- **All 6 measurement-gate artifacts exist** in `/tmp/` (3 .log + 3 .xml + 1 baseline.md).
+- **Commit `398dc53d` (atomic-6-file) exists** in `git log --oneline --all`.
+- **Commit `1eaf3f82` (metadata: STATE + ROADMAP)** exists in `git log --oneline --all`.
+- **New regression pin** `test_init_tile_pool_retries_on_transient_too_many_clients` confirmed at `backend/tests/test_fixture_isolation_v1020.py:1144` (cited as `:1144` in REQUIREMENTS.md; the in-text "added at line 1144" in this SUMMARY's `key-files.modified` block matches).
+- **All 3 fix sites wrapped** — `grep -B 2 "asyncpg.create_pool"` finds `_run_with_too_many_clients_retry` within 2 lines above each call site in all 3 fixture files.
+- **Gate metric** — Run 1=20, Run 2=8, Run 3=16; all ≤30 deterministic.
+
 ---
 *Phase: 1095-cascade-fix-wr-02-closure*
 *Plan: 01*
