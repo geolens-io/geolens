@@ -3,34 +3,34 @@ gsd_state_version: 1.0
 milestone: v1023
 milestone_name: CI Live-Verify + OOS Hygiene Tail
 status: executing
-stopped_at: Phase 1098 context gathered
-last_updated: "2026-05-24T12:26:58.794Z"
-last_activity: 2026-05-24 -- Phase 1098 planning complete
+stopped_at: Phase 1098 plan 01 complete
+last_updated: "2026-05-24T16:00:00.000Z"
+last_activity: 2026-05-24 -- Phase 1098 Plan 01 shipped (OOS-01/02/03 closed)
 progress:
-  total_phases: 8
-  completed_phases: 0
-  total_plans: 1
-  completed_plans: 0
-  percent: 0
+  total_phases: 3
+  completed_phases: 1
+  total_plans: 4
+  completed_plans: 1
+  percent: 33
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1098 of 3 (OOS Triad Closure) — ready to plan
-Plan: —
-Status: Ready to execute
-Last activity: 2026-05-24 -- Phase 1098 planning complete
+Phase: 1099 (OAuth Parallel-Mode Stabilization) — next
+Plan: 1099-01 — pending
+Status: Phase 1098 shipped; ready to plan Phase 1099
+Last activity: 2026-05-24 -- Phase 1098 Plan 01 shipped (OOS-01/02/03 closed)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1023 CI Live-Verify + OOS Hygiene Tail — retire 3 OOS sequential failures + 2 OAuth parallel flakes so `failed == 0` is literal, then close with live CI evidence.
+**Current focus:** Phase 1098 — OOS Triad Closure
 
 ## Last Shipped Milestone
 
@@ -59,6 +59,9 @@ See: .planning/PROJECT.md
 
 ### Decisions
 
+- **2026-05-24 (Phase 1098 close):** OOS-01 took TRIM path (not CAP-RAISE fallback) — `maps/router.py` 1807 → 1793 LOC via private-helper docstring compression on 2 helpers (`_build_frame_ancestors` + `_meta_to_kwargs`). Zero behavior change. Allowlist at `test_layering.py:865` unchanged; no Phase 999.x backlog entry promoted.
+- **2026-05-24 (Phase 1098 close):** OOS-03 required Rule 1 inline iteration. First defensive rewrite still called `make_safe_client()`, which constructs `httpx.AsyncClient(...)`. `tests/test_seed_natural_earth_reconciliation.py:328` patches the global `httpx.AsyncClient` to `_FakeAsyncClient` without teardown — contaminating subsequent tests. Second iteration: drop `make_safe_client()` call entirely, test `_revalidate_redirect` directly (mirroring the 6 sibling tests at lines 22-97 that already pass durably in full sequential). Leaker hunt deferred indefinitely per D-10.
+- **2026-05-24 (Phase 1098 close):** Phase 1099 OAuth carry-forward expanded to 3 tests (not 2): T5 verify gate's `-n auto` Run B surfaced `test_oauth_login_redirect` in addition to OAUTH-01/OAUTH-02. Likely a third member of the same OAuth-mock-state leakage family. Phase 1099 should address holistically rather than narrowly-pinned 2-test scope.
 - **2026-05-24 (v1023 roadmap):** Phase 1098 bundles OOS-01 + OOS-02 + OOS-03. Three coupling reasons: (a) all 3 share the measurement gate (sequential `failed == 0`); (b) all 3 are tightly scoped per-test fixes with low investigation cost (no spike required per REQUIREMENTS.md); (c) one re-measurement covers all 3 retirements atomically — splitting would double gate cost with no coverage gain.
 - **2026-05-24 (v1023 roadmap):** Phase 1099 bundles OAUTH-01 + OAUTH-02. Likely share root cause (parallel-worker shared-state leakage in OAuth mock/session fixtures); one fix may close both. Per REQUIREMENTS.md OAUTH-02 framing: "if one fix closes both, OAUTH-02 SUMMARY references the OAUTH-01 closure SHA + shared regression pin."
 - **2026-05-24 (v1023 roadmap):** Phase 1100 bundles CI-01 + CLOSE-01 per v1022 Phase 1097 precedent. CI live-verify IS the primary piece of close-gate evidence; CLOSE-01 acceptance criterion (f) explicitly requires the `gh run view --log` block embedded in the close-gate doc.
@@ -82,6 +85,6 @@ None at v1023 roadmap-create.
 
 ## Session Continuity
 
-Last session: 2026-05-24T12:10:10.053Z
-Stopped at: Phase 1098 context gathered
-Resume file: .planning/phases/1098-oos-triad-closure/1098-CONTEXT.md
+Last session: 2026-05-24T16:00:00.000Z
+Stopped at: Phase 1098 Plan 01 shipped — ready for Phase 1099
+Resume file: .planning/phases/1098-oos-triad-closure/1098-01-SUMMARY.md

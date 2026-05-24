@@ -25,11 +25,11 @@ Requirements for this milestone. All `CI-*` / `OOS-*` / `OAUTH-*` / `CLOSE-*` ID
 
 The 3 pre-existing sequential-mode failures carried by v1019/v1020/v1021/v1022's "0 NEW failures" invariant. v1023 retires them so the post-v1023 invariant becomes `sequential 0 failed` literal (not "0 NEW failed").
 
-- [ ] **OOS-01**: Close `test_layering` LOC-cap failure. Pin location to be confirmed by planner via `git grep -n "def test_layering" backend/tests/` (carried from v1019/v1020/v1021/v1022 OOS list). Acceptance criteria: (a) root-cause documented inline at the failing assertion site (e.g., comment block citing the offending module + line count + threshold); (b) fix EITHER decomposes the offending module to fit the cap OR raises the cap with documented rationale at the test source-of-record + corresponding `MAX_LOC` constant; (c) test passes in sequential, `-n 4`, and `-n auto` modes; (d) no regression on other layering invariants — if cap is raised, the rationale must explain why the new value is the load-bearing threshold (not arbitrary slack).
+- [x] **OOS-01**: Close `test_layering` LOC-cap failure. Pin location to be confirmed by planner via `git grep -n "def test_layering" backend/tests/` (carried from v1019/v1020/v1021/v1022 OOS list). Acceptance criteria: (a) root-cause documented inline at the failing assertion site (e.g., comment block citing the offending module + line count + threshold); (b) fix EITHER decomposes the offending module to fit the cap OR raises the cap with documented rationale at the test source-of-record + corresponding `MAX_LOC` constant; (c) test passes in sequential, `-n 4`, and `-n auto` modes; (d) no regression on other layering invariants — if cap is raised, the rationale must explain why the new value is the load-bearing threshold (not arbitrary slack).
 
-- [ ] **OOS-02**: Close `test_phase_275_readme_accuracy` failure. Pin location to be confirmed by planner via `git grep -n "def test_phase_275_readme_accuracy" backend/tests/`. Acceptance criteria: (a) root-cause documented (likely README drift from a post-Phase 275 surface change — `frontend/README.md` or `backend/README.md` or `README.md`); (b) fix EITHER updates README to match current state OR updates the test assertion if the README intent changed (rationale required); (c) test passes in sequential, `-n 4`, and `-n auto` modes; (d) if README content was updated, the change is human-reviewable (no auto-generation artifact).
+- [x] **OOS-02**: Close `test_phase_275_readme_accuracy` failure. Pin location to be confirmed by planner via `git grep -n "def test_phase_275_readme_accuracy" backend/tests/`. Acceptance criteria: (a) root-cause documented (likely README drift from a post-Phase 275 surface change — `frontend/README.md` or `backend/README.md` or `README.md`); (b) fix EITHER updates README to match current state OR updates the test assertion if the README intent changed (rationale required); (c) test passes in sequential, `-n 4`, and `-n auto` modes; (d) if README content was updated, the change is human-reviewable (no auto-generation artifact).
 
-- [ ] **OOS-03**: Close `test_ssrf_redirect` failure. Pin location to be confirmed by planner via `git grep -n "def test_ssrf_redirect" backend/tests/`. Acceptance criteria: (a) root-cause documented (likely SSRF redirect-following gate drift since the test was last validated — could be an `httpx` follow_redirects= default flip, a validator change, or a redirect-target allow-list change); (b) fix is at the production-code site (NOT the test assertion) unless the SSRF posture genuinely changed (in which case rationale + security review note required); (c) test passes in sequential, `-n 4`, and `-n auto` modes; (d) zero regression on the broader SSRF test family (`grep -rn "ssrf\|validate_url_for_ssrf" backend/tests/` — full pin family stays green).
+- [x] **OOS-03**: Close `test_ssrf_redirect` failure. Pin location to be confirmed by planner via `git grep -n "def test_ssrf_redirect" backend/tests/`. Acceptance criteria: (a) root-cause documented (likely SSRF redirect-following gate drift since the test was last validated — could be an `httpx` follow_redirects= default flip, a validator change, or a redirect-target allow-list change); (b) fix is at the production-code site (NOT the test assertion) unless the SSRF posture genuinely changed (in which case rationale + security review note required); (c) test passes in sequential, `-n 4`, and `-n auto` modes; (d) zero regression on the broader SSRF test family (`grep -rn "ssrf\|validate_url_for_ssrf" backend/tests/` — full pin family stays green).
 
 ### OAuth Parallel-Mode Stabilization
 
@@ -76,9 +76,9 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CI-01 | Phase 1100 | Pending |
-| OOS-01 | Phase 1098 | Pending |
-| OOS-02 | Phase 1098 | Pending |
-| OOS-03 | Phase 1098 | Pending |
+| OOS-01 | Phase 1098 | Complete |
+| OOS-02 | Phase 1098 | Complete |
+| OOS-03 | Phase 1098 | Complete |
 | OAUTH-01 | Phase 1099 | Pending |
 | OAUTH-02 | Phase 1099 | Pending |
 | CLOSE-01 | Phase 1100 | Pending |

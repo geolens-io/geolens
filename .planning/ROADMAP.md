@@ -90,7 +90,7 @@
 
 **Milestone Goal:** Retire the 3 pre-existing OOS sequential failures + 2 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` literal (not "0 NEW failed"), and provide external CI evidence for the `pytest-parallel-isolation` gate via live GH Actions run.
 
-- [ ] **Phase 1098: OOS Triad Closure** — Fix `test_layering`, `test_phase_275_readme_accuracy`, and `test_ssrf_redirect` so sequential `failed == 0` is literal
+- [x] **Phase 1098: OOS Triad Closure** — Fix `test_layering`, `test_phase_275_readme_accuracy`, and `test_ssrf_redirect` so sequential `failed == 0` is literal
 - [ ] **Phase 1099: OAuth Parallel-Mode Stabilization** — Fix `test_callback_missing_state_returns_error` and `test_callback_invalid_code_returns_error` so `-n 4` flakes are eliminated
 - [ ] **Phase 1100: CI Live-Verify + Close Gate** — Operator live-verify of `pytest-parallel-isolation` on real GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`
 
@@ -108,7 +108,7 @@
 **Plans**: TBD
 
 Plans:
-- [ ] 1098-01: Diagnose + fix OOS triad (test_layering / test_phase_275_readme_accuracy / test_ssrf_redirect)
+- [x] 1098-01: Diagnose + fix OOS triad (test_layering / test_phase_275_readme_accuracy / test_ssrf_redirect)
 
 ### Phase 1099: OAuth Parallel-Mode Stabilization
 **Goal**: `-n 4` pytest baseline achieves `failed == 0` literal by eliminating the 2 OAuth callback flakes
@@ -174,7 +174,7 @@ Plans:
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1098. OOS Triad Closure | v1023 | 0/1 | Not started | - |
+| 1098. OOS Triad Closure | v1023 | 1/1 | Shipped | 2026-05-24 |
 | 1099. OAuth Parallel-Mode Stabilization | v1023 | 0/1 | Not started | - |
 | 1100. CI Live-Verify + Close Gate | v1023 | 0/2 | Not started | - |
 
