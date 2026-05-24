@@ -4,8 +4,8 @@ milestone: v1023
 milestone_name: CI Live-Verify + OOS Hygiene Tail
 status: Awaiting next milestone
 stopped_at: "v1023 shipped (degraded — CI-01 deferred to v1024+); awaiting /gsd:audit-milestone v1023"
-last_updated: "2026-05-24T17:58:42.140Z"
-last_activity: 2026-05-24 — Milestone v1023 completed and archived
+last_updated: "2026-05-24T23:10:00.000Z"
+last_activity: 2026-05-24 — Quick task 260524-o57 (ADK High Peaks marketing data) delivered + 6 dogfooding findings filed
 progress:
   total_phases: 8
   completed_phases: 3
@@ -52,6 +52,12 @@ See: .planning/PROJECT.md
 **Public tag target:** `v1.5.8` (SemVer patch — test-infra hygiene only; no API/schema changes, no migrations).
 
 **HARD INVARIANT (v1019 TD-13):** Sequential pytest `failed == 0` non-negotiable. v1022 close-gate baselines (v1023 starting state): sequential **3060/3 OOS/38** + `-n 4` **3059/4 OOS+oauth/38**. Post-v1023 target: sequential **3063+/0/38** + `-n 4` **3063+/0/38** (literal zero — OOS rows retired, not bypassed).
+
+## Quick Tasks Completed
+
+| Date | Quick ID | Slug | Status | Notes |
+|------|----------|------|--------|-------|
+| 2026-05-24 | 260524-o57 | adk-high-peaks-data | Delivered + 6 findings | Marketing-data ingest for ADK High Peaks AOI (1m DEM + NY 2023 orthos + 4 vector layers + curated 46er peaks). Map `c39be324-6815-40e5-8143-00a2723827b2` shippable; 6 GeoLens dogfooding findings filed in [260524-o57-API-ISSUES.md](quick/260524-o57-adk-high-peaks-data/260524-o57-API-ISSUES.md) — CRITICAL builder-reorder bug, HIGH DEM-maxzoom + basemap-toast root cause, MEDIUM terrain-config + toast-position, LOW sprite-refs cosmetic. |
 
 ## Accumulated Context
 
