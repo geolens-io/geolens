@@ -39,9 +39,11 @@ The 2 oauth callback test flakes that surface specifically under `pytest -n 4` p
 
 - [ ] **OAUTH-02**: Close `test_callback_invalid_code_returns_error` `-n 4` flake. Pin location to be confirmed by planner via `git grep -n "def test_callback_invalid_code_returns_error" backend/tests/`. Acceptance criteria: (a)–(d) same shape as OAUTH-01 (paired flake — likely shares root cause; one fix may close both, in which case OAUTH-02 SUMMARY references the OAUTH-01 closure SHA + the shared regression pin).
 
+- [ ] **OAUTH-03**: Close `test_oauth_login_redirect` `-n auto` flake. Pin location: `backend/tests/test_oauth.py:826`. Surfaced 2026-05-24 during Phase 1098 verify-gate (`-n auto` Run B — Phase 1098 `1098-01-SUMMARY.md` carry-forward note). Same file + same fixtures (`client` + `test_db_session`) + same `create_provider → commit → GET /auth/oauth/.../login` pattern as OAUTH-01/02 — almost certainly shares root cause; one fix likely closes all 3. Acceptance criteria: (a)–(d) same shape as OAUTH-01; (e) if OAUTH-03 root cause turns out to be distinct from OAUTH-01/02 after diagnosis, EITHER fold the fix into Phase 1099 with rationale OR escalate to v1024+ at the planner's discretion (smallest-milestone charter preserved).
+
 ### Close Gate
 
-- [ ] **CLOSE-01**: Close gate for milestone v1023 — sequential pytest baseline now `failed == 0` (literal, not "0 NEW"), `-n 4` baseline `failed == 0` (literal), `-n auto` ≤30 distinct deterministic across 3 runs (PARA-01 invariant preserved), CHANGELOG `[1.5.8]` entry written with per-requirement evidence, tags `v1023` (local) + `v1.5.8` (public) cut at the close-gate commit SHA. Acceptance criteria: (a) sequential pytest result quoted verbatim in CLOSE-GATE.md showing `3063+ passed / 0 failed / 38 skipped` (NO OOS rows — the literal-zero state); (b) `-n 4` result quoted showing `3063+ passed / 0 failed / 38 skipped` (NO OOS rows — the literal-zero state); (c) `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (PARA-01 acceptance preservation); (d) live docker stack health spot-check (`docker compose ps` 5 services healthy + `curl http://localhost:8080/api/health` returns 200 — note no-trailing-slash per v1022 Phase 1097-01 [Rule 3]); (e) CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02 closures with the test pin names + line numbers; (f) CI-01's live-verify run-watch log embedded (the carried-over evidence requirement); (g) tags cut and recorded in `.planning/MILESTONES.md`.
+- [ ] **CLOSE-01**: Close gate for milestone v1023 — sequential pytest baseline now `failed == 0` (literal, not "0 NEW"), `-n 4` baseline `failed == 0` (literal), `-n auto` ≤30 distinct deterministic across 3 runs (PARA-01 invariant preserved), CHANGELOG `[1.5.8]` entry written with per-requirement evidence, tags `v1023` (local) + `v1.5.8` (public) cut at the close-gate commit SHA. Acceptance criteria: (a) sequential pytest result quoted verbatim in CLOSE-GATE.md showing `3062 passed / 0 failed / 38 skipped` (NO OOS rows — the literal-zero state; passed-count is 3062 not 3063+ because OOS-02 was deleted per Phase 1098 D-04); (b) `-n 4` result quoted showing `3062 passed / 0 failed / 38 skipped` (NO OOS/OAUTH rows — the literal-zero state); (c) `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (PARA-01 acceptance preservation); (d) live docker stack health spot-check (`docker compose ps` 5 services healthy + `curl http://localhost:8080/api/health` returns 200 — note no-trailing-slash per v1022 Phase 1097-01 [Rule 3]); (e) CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02, OAUTH-03 closures with the test pin names + line numbers; (f) CI-01's live-verify run-watch log embedded (the carried-over evidence requirement); (g) tags cut and recorded in `.planning/MILESTONES.md`.
 
 ---
 
@@ -81,11 +83,12 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | OOS-03 | Phase 1098 | Complete |
 | OAUTH-01 | Phase 1099 | Pending |
 | OAUTH-02 | Phase 1099 | Pending |
+| OAUTH-03 | Phase 1099 | Pending |
 | CLOSE-01 | Phase 1100 | Pending |
 
 **Coverage:**
-- v1023 requirements: 7 total
-- Mapped to phases: 7 ✓
+- v1023 requirements: 8 total
+- Mapped to phases: 8 ✓
 - Unmapped: 0 ✓
 
 ---
