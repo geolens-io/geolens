@@ -128,6 +128,35 @@ None encountered in this plan. The CI-01 deferral was a billing block (account-s
 
 **v1023 starting point:** CI-01-v1023 is the only inherited carry-forward. Resolve billing → re-run CI → document GREEN evidence in a v1023 closure phase.
 
-## Self-Check
+## Self-Check: PASSED
 
-(populated after self-check step below)
+Verified post-commit (closure commit `7383592a` on `origin/main`):
+
+**File existence (4/4):**
+- FOUND: `.planning/phases/1097-live-verify-close-gate/1097-01-CLOSE-GATE.md`
+- FOUND: `.planning/MILESTONES.md`
+- FOUND: `.planning/REQUIREMENTS.md`
+- FOUND: `.planning/phases/1097-live-verify-close-gate/1097-02-SUMMARY.md`
+
+**Commits exist (2/2):**
+- FOUND: `7383592a` (this Plan 02 closure commit)
+- FOUND: `48707fb1` (Plan 01 close-gate commit — tag-cut SHA)
+
+**Tags exist locally + on origin (2/2):**
+- `v1022` at `48707fb120271bc4d54f7e66871c513aa9458c53` (local + `refs/tags/v1022` on origin)
+- `v1.5.7` at `48707fb120271bc4d54f7e66871c513aa9458c53` (local + `refs/tags/v1.5.7` on origin)
+
+**Content assertions (9/9):**
+- FOUND: CLOSE-GATE.md `## CI-01 Live-Verify — DEFERRED to v1023` section
+- FOUND: CLOSE-GATE.md `## Tags cut` section
+- FOUND: MILESTONES.md `## v1022 Parallel-Test Cascade Closure + Hygiene Tail (Shipped: 2026-05-24)` heading
+- FOUND: REQUIREMENTS.md `- [x] **CLOSE-01**` (flipped from `[ ]`)
+- FOUND: REQUIREMENTS.md `- [ ] **CI-01** (DEFERRED to v1023)` (annotated; correctly NOT `[x]`)
+- FOUND: REQUIREMENTS.md `CI-01-v1023` carryover under Future Requirements
+- FOUND: REQUIREMENTS.md Traceability row `| CI-01 | DEFERRED | v1023 |`
+- FOUND: REQUIREMENTS.md Traceability row `| CLOSE-01 | Phase 1097 | Complete (degraded) |`
+- FOUND: SUMMARY.md frontmatter `requirements_completed: [CLOSE-01]` + `requirements_deferred: [CI-01]`
+
+**Atomic-4-file guard:** PASS — `git log -1 --stat` shows exactly 4 files (1097-01-CLOSE-GATE.md, MILESTONES.md, REQUIREMENTS.md, 1097-02-SUMMARY.md); zero deletions; zero other files.
+
+**Push:** PASS — `5344cd50..7383592a main -> main` (closure commit on origin); tag pushes already landed at Task 2 (`* [new tag] v1022` + `* [new tag] v1.5.7`).
