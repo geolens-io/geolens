@@ -88,7 +88,58 @@
 
 ### v1023 CI Live-Verify + OOS Hygiene Tail (Shipped 2026-05-24)
 
-✅ Complete (degraded — CI-01 v1024+ carry-forward) — see [archive](milestones/v1023-ROADMAP.md). 3 phases (1098-1100), 3 plans, 8 requirements (OOS-01/02/03 + OAUTH-01/02/03 + CLOSE-01 satisfied; CI-01 deferred-degraded due to persistent GH Actions billing block since v1022). Local tag `v1023` + public tag `v1.5.8` at `892fca01`. Retired the 3 pre-existing OOS sequential failures (Phase 1098: trim `maps/router.py` -14 LOC + delete stale README-signature test + behavioral SSRF rewrite immune to mock.patch contamination, renamed to `test_revalidate_redirect_blocks_rfc1918_10x_redirect`) + 3 OAuth parallel-mode flakes (Phase 1099: `client_session` fixture override + `_ensure_public_app_url` monkeypatch — OAUTH-03 `test_oauth_login_redirect` scope-expanded mid-milestone after surfacing in Phase 1098 verify-gate). Post-v1023 invariant: sequential `failed == 0` LITERAL (3062/0/38, strengthened from "0 NEW") + `-n 4` `failed == 0` LITERAL (3062/0/38 across 3 consecutive runs) + `-n auto` 3-run within v1022 PARA-01 ≤30 envelope. Audit verdict: `tech_debt` (CLEAR-TO-TAG degraded — mirrors v1022 precedent) — see [milestone audit](milestones/v1023-MILESTONE-AUDIT.md). **v1024+ carry-forward (1):** CI-01-v1024 — `pytest-parallel-isolation` CI gate live-verify post-billing-resolution at https://github.com/organizations/geolens-io/settings/billing (rolling chain: v1022 → v1023 → v1024+). **2 minor doc-debt items:** OOS-03 stale intermediate test name in 4 consumer artifacts (closure SHA chain `431e2b54`+`9546a961`+`77affeac` correctly recorded; test exists/runs at the final WR-02 rename — 4-file find-and-replace candidate for v1024+); Phase 1099 IN-01..IN-04 test-isolation ledger observations (per CONTEXT `<deferred>`, not code defects).
+**Milestone Goal:** Retire the 3 pre-existing OOS sequential failures + 2 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` literal (not "0 NEW failed"), and provide external CI evidence for the `pytest-parallel-isolation` gate via live GH Actions run.
+
+- [x] **Phase 1098: OOS Triad Closure** — Fix `test_layering`, `test_phase_275_readme_accuracy`, and `test_ssrf_redirect` so sequential `failed == 0` is literal
+- [x] **Phase 1099: OAuth Parallel-Mode Stabilization** — Fix `test_callback_missing_state_returns_error`, `test_callback_invalid_code_returns_error`, AND `test_oauth_login_redirect` (OAUTH-03 added 2026-05-24) so `-n 4` / `-n auto` flakes are eliminated
+- [x] **Phase 1100: CI Live-Verify + Close Gate** — Operator live-verify of `pytest-parallel-isolation` on real GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8` (degraded — billing block; v1024+ carry-forward)
+
+## Phase Details
+
+### Phase 1098: OOS Triad Closure
+**Goal**: Sequential pytest baseline achieves `failed == 0` literal by retiring the 3 long-carried OOS failures
+**Depends on**: Nothing (first phase of v1023; no architectural dependency)
+**Requirements**: OOS-01, OOS-02, OOS-03
+**Success Criteria** (what must be TRUE):
+  1. `pytest` (sequential, no `-n`) reports `3063+ passed / 0 failed / 38 skipped` — the OOS rows are gone, not bypassed
+  2. Each of the 3 fixed tests also passes under `-n 4` and `-n auto`
+  3. Root cause is documented inline at each failing assertion site (comment block or inline rationale)
+  4. No regression on sibling test families (LOC-cap invariants, README-accuracy pins, SSRF test family)
+**Plans**: TBD
+
+Plans:
+- [x] 1098-01: Diagnose + fix OOS triad (test_layering / test_phase_275_readme_accuracy / test_ssrf_redirect)
+
+### Phase 1099: OAuth Parallel-Mode Stabilization
+**Goal**: `-n 4` and `-n auto` pytest baselines achieve `failed == 0` literal by eliminating the 3 OAuth callback/login flakes (OAUTH-01/02 paired callback flakes + OAUTH-03 login redirect flake surfaced 2026-05-24)
+**Depends on**: Phase 1098
+**Requirements**: OAUTH-01, OAUTH-02, OAUTH-03
+**Success Criteria** (what must be TRUE):
+  1. `pytest -n 4` reports `3062 passed / 0 failed / 38 skipped` — no OAuth flakes present across 3 consecutive runs
+  2. All 3 tests also pass deterministically in sequential and `-n auto` modes
+  3. Root cause documented (likely shared-state leakage between parallel workers — same root cause likely closes all 3); fix is at the test-isolation layer unless a real production concurrency bug is found
+  4. Zero regression on the broader `test_callback_*` / `test_oauth_*` OAuth test family
+**Plans**: TBD
+
+Plans:
+- [x] 1099-01: Diagnose + fix OAuth parallel-mode flakes (test_callback_missing_state_returns_error / test_callback_invalid_code_returns_error / test_oauth_login_redirect)
+
+### Phase 1100: CI Live-Verify + Close Gate
+**Goal**: External CI evidence is captured for the `pytest-parallel-isolation` gate and v1023 is formally closed with tags
+**Depends on**: Phase 1099
+**Requirements**: CI-01, CLOSE-01
+**Success Criteria** (what must be TRUE):
+  1. `gh run watch <run_id>` confirms `pytest-parallel-isolation` job conclusion `success` on real GH Actions infrastructure (closes v1022 carry-forward) — degraded close authorized 2026-05-24 due to persistent GH Actions billing block; substitute evidence (docker health + `/api/health` 200 + local-stack baselines) captured per CONTEXT.md D-01b; v1024+ carry-forward
+  2. Sequential pytest result quoted verbatim in CLOSE-GATE.md: `3062 passed / 0 failed / 38 skipped` (literal zero — no OOS rows; passed-count is 3062 not 3063+ because OOS-02 was deleted per Phase 1098)
+  3. `-n 4` result quoted verbatim: `3062 passed / 0 failed / 38 skipped` (literal zero)
+  4. `-n auto` 3-run measurement table shows `≤30` distinct (failed+errors) per run, `0` ICN frames (PARA-01 invariant preserved)
+  5. CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02, OAUTH-03 closures with test pin names + line numbers; tags `v1023` (local) + `v1.5.8` (public) cut and pushed (push best-effort per D-06c)
+**Plans**: 1 plan (consolidated per CONTEXT.md D-03a — single plan / 5 tasks / 1 close gate)
+
+Plans:
+- [x] 1100-01-PLAN.md — CI Live-Verify (degraded — billing block) + Close Gate (baselines + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`)
+
+---
 
 ### v1022 Parallel-Test Cascade Closure + Hygiene Tail (Shipped 2026-05-24)
 

@@ -1,3 +1,12 @@
+# Requirements Archive: v1023 v1023
+
+**Archived:** 2026-05-24
+**Status:** SHIPPED
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: GeoLens — v1023 CI Live-Verify + OOS Hygiene Tail
 
 **Defined:** 2026-05-24

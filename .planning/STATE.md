@@ -2,28 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1023
 milestone_name: CI Live-Verify + OOS Hygiene Tail
-status: shipped
-stopped_at: v1023 shipped (degraded — CI-01 deferred to v1024+); tags v1023 + v1.5.8 cut at 892fca01
-last_updated: "2026-05-24T22:00:00.000Z"
-last_activity: 2026-05-24 -- Phase 1100 Plan 01 shipped; v1023 closed; awaiting /gsd:audit-milestone v1023
+status: Awaiting next milestone
+stopped_at: "v1023 shipped (degraded — CI-01 deferred to v1024+); awaiting /gsd:audit-milestone v1023"
+last_updated: "2026-05-24T17:58:42.140Z"
+last_activity: 2026-05-24 — Milestone v1023 completed and archived
 progress:
-  total_phases: 3
+  total_phases: 8
   completed_phases: 3
   total_plans: 3
   completed_plans: 3
-  percent: 100
+  percent: 38
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1100 (CI Live-Verify + Close Gate) — SHIPPED
-Plan: 1100-01 — Complete
-Status: v1023 milestone closed (degraded — CI-01 deferred to v1024+); awaiting /gsd:audit-milestone v1023
-Last activity: 2026-05-24 -- Phase 1100 Plan 01 shipped; v1023 closed
-
-Progress: [██████████] 100%
+Phase: Milestone v1023 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-24 — Milestone v1023 completed and archived
 
 ## Project Reference
 
@@ -91,3 +89,7 @@ None — v1023 closed.
 Last session: 2026-05-24T22:00:00.000Z
 Stopped at: v1023 shipped (degraded — CI-01 deferred to v1024+); awaiting /gsd:audit-milestone v1023
 Resume file: .planning/phases/1100-ci-live-verify-close-gate/1100-01-SUMMARY.md
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
