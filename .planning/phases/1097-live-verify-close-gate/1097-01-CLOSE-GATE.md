@@ -115,16 +115,44 @@ CI-01 status placeholder will be replaced by Plan 02.
 
 **CLOSE-01 (e) SATISFIED (partial — CI-01 status pending Plan 02).**
 
-## CLOSE-01 (f) — CI-01 live-verify
+## CI-01 Live-Verify — DEFERRED to v1023 (GitHub Actions billing block)
 
-**PENDING Plan 1097-02.** Plan 02 will:
-1. AskUserQuestion confirmation before `git push origin main` (this commit is the close-gate commit; Plan 02 push triggers CI).
-2. `gh run watch $RUN_ID` for the `pytest-parallel-isolation` job at `.github/workflows/ci.yml:499-590`.
-3. Embed the relevant log block in a new section appended to this file (CLOSE-01 (f) section).
+**Push:** SUCCESS — 76 commits pushed; HEAD `5344cd50` on `origin/main` at `8129af61..5344cd50`
+**CI Run dispatched:** `26359374410` at https://github.com/geolens-io/geolens/actions/runs/26359374410
+**Run conclusion:** `failure` (5 seconds — runner-allocation failure, no test execution)
 
-## CLOSE-01 (g) — Tags cut
+**Root cause (not a CI gate failure — infrastructure):**
 
-**PENDING Plan 1097-02.** Tags `v1022` (local) + `v1.5.7` (public) will be cut at the close-gate commit SHA (this commit) AFTER CI-01 is GREEN. Recorded in `.planning/MILESTONES.md`.
+> "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+
+Source: GitHub Actions check-run annotation `/tmp/v1022-1097-billing-annotation.json` (annotation persisted in repo-local /tmp; preserved for v1023 re-verify).
+
+**Job rollup:**
+
+| Job | Conclusion | Steps | Billable |
+|-----|------------|-------|----------|
+| Detect Changes | failure | 0 | 0ms |
+| License Check (frontend) | failure | 0 | 0ms |
+| Pytest Parallel Isolation | skipped | 0 | 0ms |
+| Other 10 jobs | skipped | 0 | 0ms |
+
+**Classification:** NOT a CI gate RED (no test failure shape exists). The `pytest-parallel-isolation` job was never reached because the upstream `Detect Changes` job could not allocate a runner.
+
+**Deferred to v1023:**
+
+Per user decision (AskUserQuestion 2026-05-24): "Defer CI-01 to v1023". The `pytest-parallel-isolation` gate-shape is verified locally via Plan 1097-01's 3-run `-n auto` 2/3/2 distinct deterministic baseline + 0 ICN frames + sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38. The remaining acceptance gap is external GH Actions live-verify, which requires:
+
+1. Operator resolves billing at https://github.com/organizations/geolens-io/settings/billing
+2. `gh run rerun 26359374410` (preserves SHA-of-record `5344cd50`) — or new dispatch on equivalent commit
+3. CI-01 closure phase in v1023 documents GREEN evidence
+
+**This degraded close ships v1.5.7 with PARA-01 / PARA-02 / HYG-01 / CLOSE-01 all GREEN.** Test-infra changes are verified locally to the same depth as v1021's TEST-01 close (which also relied on local 3-run measurement).
+
+## Tags cut
+
+- **`v1022`** (local) at SHA `48707fb1` (Plan 1097-01 atomic-3-file CLOSE-GATE commit)
+- **`v1.5.7`** (public) at SHA `48707fb1`
+- **MILESTONES.md entry:** v1022 added at top with degraded-close note (CI-01 → v1023)
 
 ---
 

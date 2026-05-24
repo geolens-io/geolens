@@ -1,5 +1,50 @@
 # Milestones
 
+## v1022 Parallel-Test Cascade Closure + Hygiene Tail (Shipped: 2026-05-24)
+
+**Phases completed:** 4 phases (1094-1097), 6 plans, ~22 tasks
+
+**Local tag:** `v1022` (commit `48707fb1`)
+**Public tag:** `v1.5.7` (at same commit `48707fb1`)
+**Audit verdict:** PENDING — DEGRADED CLOSE (CI-01 deferred to v1023; orchestrator runs /gsd:audit-milestone v1022 post-tag)
+
+**Degraded-close note:** v1022 ships with 4/5 requirements satisfied + CI-01 deferred to v1023. CI-01 (live-verify of the `pytest-parallel-isolation` gate on real GitHub Actions infrastructure) was BLOCKED at push time by a GitHub Actions billing failure on the geolens-io account (run `26359374410`: 0/13 jobs executed, all failed/skipped at runner-allocation — no test execution shape exists). The gate-shape itself is verified locally via Plan 1097-01's 3-run `-n auto` 2/3/2 distinct deterministic baseline + 0 ICN frames + sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38 — equivalent depth to v1021's TEST-01 close which also relied on local 3-run measurement. Operator action to close the gap: resolve billing at https://github.com/organizations/geolens-io/settings/billing → `gh run rerun 26359374410` → document GREEN evidence in a v1023 CI-01 follow-up phase.
+
+**Goal delivered:** Closed v1021's three test-infra carry-forwards in a single hygiene-shape milestone: (1) Category 4.1 per-worker DB lifecycle parallel-mode cascade [reclassified during Phase 1094 spike to `_init_tile_pool_for_tests` retry-envelope gap]; (2) WR-02 `_invoke_sleep_in_sync_context` loop-starvation footgun [Shape Y2 load-bearing rationale]; (3) WR-01/03/04 engine-retry envelope hygiene closure. CI-01 (`pytest-parallel-isolation` live-verify) DEFERRED to v1023.
+
+**Key accomplishments:**
+
+1. **PARA-01 (Phase 1094 spike + Phase 1095-01 fix)** — Per-worker DB lifecycle cascade closed. Phase 1094 audit (`.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md`, 5 sections / 314 lines) reclassified the dominant root cause from `_test_db_lifecycle` (CONTEXT.md hypothesis) to `_init_tile_pool_for_tests` (3 sibling fixtures at `test_tiles.py:151` + `test_embed_tokens.py:56` + `test_tile_signing.py:107` bypass conftest envelopes). Fix Shape A* wraps `asyncpg.create_pool` in existing `_run_with_too_many_clients_retry` envelope (`conftest.py:359`). Regression pin `test_init_tile_pool_retries_on_transient_too_many_clients` at `test_fixture_isolation_v1020.py:1144`. `pytest -n auto` 3-run distinct: pre-fix 126–383 → 20/8/16 (Plan 1095-01) → 3/2/3 (Plan 1095-02) → 5/2/2 (Phase 1096 close) → 2/3/2 (Phase 1097 close).
+
+2. **PARA-02 (Phase 1095-02)** — WR-02 loop-starvation footgun closed via Shape Y2 (load-bearing rationale + retained `time.sleep`) at `conftest.py:_invoke_sleep_in_sync_context`. Shape Y1 (`asyncio.run(asyncio.sleep(seconds))`) empirically tested at Task 5 Run 1 and produced 658 `RuntimeError: asyncio.run() cannot be called from a running event loop` cascade failures — production caller `_retry_do_connect` via SQLAlchemy `greenlet_spawn` has a running event loop in the calling thread. Inline rationale block documents WR-02/PARA-02/Plan-1095-02/greenlet_spawn/Section-4.3-or-4.4/time.sleep cross-references. Structural mitigation lives at PARA-01. Regression pin `test_engine_retry_yields_event_loop_during_backoff` at line 1253 (Shape Y2 token-assertion pin).
+
+3. **HYG-01 (Phase 1096-01)** — Engine-retry envelope hygiene closed. WR-03 narrowed `except Exception` at `conftest.py:842` to `except (TypeError, AttributeError, InvalidRequestError)` (tuple expanded from plan-spec by Rule 1 when MagicMock surfaced `InvalidRequestError` under SQLAlchemy 2.x event-API). WR-04 added `event.remove(...)` teardown in `_RetryingAsyncEngine.dispose()` override at `conftest.py:934-977` + idempotent repeat-dispose guard. `_install_dbapi_connect_retry` signature changed to return the registered handler. Three new pins at `test_fixture_isolation_v1020.py`: `test_engine_retry_do_connect_event_handler_retries_on_transient_error` (L1391, exercises load-bearing event-handler path via real `sqlalchemy.create_engine("sqlite:///:memory:")`); `test_init_tile_pool_catches_raw_asyncpg_too_many_connections` (L1557, fixture-layer parity); `test_init_tile_pool_propagates_non_transient_error` (L1666, non-transient propagation).
+
+4. **CI-01 (Phase 1097-02) — DEFERRED to v1023** — `pytest-parallel-isolation` CI gate first post-merge live-verify BLOCKED by GitHub Actions billing failure at push time (run `26359374410`: 0/13 jobs executed). Gate-shape verified locally via Plan 1097-01 baselines. Closure pending v1023 follow-up phase post-billing-resolution.
+
+5. **CLOSE-01 (Phase 1097)** — DEGRADED milestone close. Sequential 3 failed (OOS triad: `test_layering` + `test_phase_275_readme_accuracy` + `test_ssrf_redirect`) / 3060 passed / 38 skipped / 544s (HARD INVARIANT 0 NEW failures preserved). `-n 4` 4 failed (2 OOS + 2 oauth flake: `test_callback_missing_state_returns_error` + `test_callback_invalid_code_returns_error`) / 3059 passed / 38 skipped / 326s (HARD INVARIANT preserved). `-n auto` 3-run distinct 2/3/2 deterministic well under PARA-01 ≤30 gate (IMPROVED vs Phase 1096 floor 5/2/2) with 0 ICN frames across all 3 runs. CHANGELOG `[1.5.7]` block written with per-requirement test-pin + line-number citations. Tags `v1022` (local) + `v1.5.7` (public) cut at `48707fb1` and pushed to origin. All 6 of 7 acceptance criteria (a)+(b)+(c)+(d)+(e)+(g) GREEN; (f) deferred with CI-01.
+
+**Test invariants at close:**
+
+- Sequential: 3060 passed / 3 OOS / 38 skipped (HARD INVARIANT preserved)
+- `-n 4`: 3059 passed / 4 OOS+oauth-flake / 38 skipped (HARD INVARIANT preserved)
+- `-n auto` 3-run distinct: 2/3/2 deterministic ≤30 with 0 ICN frames (PARA-01 acceptance gate preserved)
+- Docker stack: 5 services healthy + `GET /api/health` 200 OK
+
+**Migrations:** None. All v1022 changes are test-infra hygiene (conftest + test fixtures + REQUIREMENTS.md + CHANGELOG + planning docs).
+
+**Carry-forward to v1023 (1 item):** CI-01-v1023 — `pytest-parallel-isolation` CI gate live-verify on real GitHub Actions infrastructure post-billing-resolution. See `.planning/REQUIREMENTS.md` Future Requirements section.
+
+**Patterns reinforced:**
+
+- **Inline-rationale Shape Y2 for footgun closures** — when the "structural fix" (Shape Y1: `asyncio.run(asyncio.sleep)`) empirically breaks the production caller path, document the load-bearing rationale at the source-of-record line + add a token-assertion regression pin so silent removal trips CI. Plan 1095-02's `test_engine_retry_yields_event_loop_during_backoff` proves the pattern.
+- **Audit-first reclassification** — Phase 1094 spike found the CONTEXT.md root-cause hypothesis (`_test_db_lifecycle` at conftest.py:~661-674) was wrong; the actual cascade source was `_init_tile_pool_for_tests` (3 fixture sites bypassing conftest envelopes). Spike-first sequencing prevented landing a fix at the wrong line.
+- **Degraded-close with carry-forward + tag** — when an external dependency (CI infrastructure, billing, third-party service) blocks an acceptance criterion, ship the milestone with explicit carry-forward documentation rather than holding the close indefinitely. Tags cut, CHANGELOG written, v1023 inherits CI-01-v1023.
+
+**Archive:** `.planning/phases/1094-cascade-spike/` + `.planning/phases/1095-cascade-fix-wr-02-closure/` + `.planning/phases/1096-hygiene-tail/` + `.planning/phases/1097-live-verify-close-gate/` (orchestrator's /gsd:cleanup-milestone moves these to `.planning/milestones/v1022-phases/` post-audit).
+
+---
+
 ## v1021 Docker Rebuild Sweep + Engine-level Retry (Shipped: 2026-05-23)
 
 **Phases completed:** 3 phases, 8 plans, 9 tasks
