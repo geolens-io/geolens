@@ -114,10 +114,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      # API-05 (Phase 275): host-port fallback. .env.example defaults to 5434 to
-      # avoid colliding with a local postgres on 5432; the bare compose fallback
-      # uses 5432 so `docker compose up` without copying .env still works on a
-      # clean host. Set DB_PORT in .env to override.
+      # Host-port fallback (5434 from .env, 5432 bare) — see
+      # docs/docker-compose-architecture.md#host-port-fallback
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -149,20 +147,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: api
-    # INFRA-01 (Phase 1092): explicit empty entrypoint so this service does NOT
-    # inherit backend/scripts/api-entrypoint.sh from the Dockerfile api target.
-    # The inherited entrypoint's safety-net (api-entrypoint.sh:62-68) ALSO runs
-    # `uv run --no-dev alembic upgrade head`, which doubled the alembic
-    # invocation on every startup. The api + worker services do NOT inherit
-    # the Dockerfile ENTRYPOINT either — they each have an explicit
-    # `entrypoint:` directive below (api at line ~198, worker at line ~296)
-    # that points at the same api-entrypoint.sh / worker-entrypoint.sh
-    # scripts. Their safety-net runs because their entrypoint scripts call
-    # it, not because of Dockerfile inheritance. Setting `entrypoint: []`
-    # here is correct ONLY because this migrate service didn't redeclare an
-    # entrypoint of its own — it was the one still picking up the
-    # Dockerfile inheritance. See backend/scripts/api-entrypoint.sh line
-    # 60-72 for the safety-net rationale.
+    # Empty entrypoint suppresses Dockerfile-inherited api-entrypoint.sh on this
+    # one-shot service — see docs/docker-compose-architecture.md#migrate-empty-entrypoint
     entrypoint: []
     command: sh -c "uv run --no-dev alembic upgrade head"
     # One-shot: alembic upgrade is idempotent (re-running is safe). Failure
@@ -224,10 +210,8 @@ services:
       - /var/run:size=8m
     entrypoint: ["/app/scripts/api-entrypoint.sh"]
     ports:
-      # API-05 (Phase 275): host-port fallback. .env.example defaults to 8001
-      # to avoid colliding with a local uvicorn or other API on 8000; the bare
-      # compose fallback uses 8000 so `docker compose up` without copying .env
-      # still works. Set API_PORT in .env to override.
+      # Host-port fallback (8001 from .env, 8000 bare) — see
+      # docs/docker-compose-architecture.md#host-port-fallback
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:
       - ./backend/app:/app/app
@@ -343,9 +327,8 @@ services:
           memory: 96M
 
   titiler:
-    # API-08 (Phase 275 / L-19): bumped from 2.0.0 to 2.0.2 — latest 2.x stable.
-    # Held back from 3.x without contract testing of the GeoLens-consumed surface
-    # (/cog/* tile + /healthz). 2.x line tip per developmentseed/titiler releases.
+    # Pinned to 2.x stable (held back from 3.x without contract testing) — see
+    # docs/docker-compose-architecture.md#titiler-image-version
     image: ghcr.io/developmentseed/titiler:2.0.2
     init: true
     restart: unless-stopped
@@ -495,15 +478,8 @@ services:
   # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
   # not for sharing on a LAN or exposing through Docker port forwarding.
   minio:
-    # Phase 279 ADMIN-10 + ADMIN-12 (M-19 / L-29): bumped from
-    # RELEASE.2025-04-22T22-12-26Z to RELEASE.2025-09-07T16-13-09Z (the latest
-    # standard, non-hotfix MinIO release on quay.io as of 2026-05) and pinned
-    # by sha256 digest for reproducible pulls. The tag is kept as documentation;
-    # the digest is what Docker resolves.
-    # Bump procedure:
-    #   docker pull quay.io/minio/minio:<NEW_TAG>
-    #   docker inspect quay.io/minio/minio:<NEW_TAG> \
-    #     --format '{{index .RepoDigests 0}}'
+    # Pinned by SHA256 digest (tag is documentation); bump procedure at
+    # docs/docker-compose-architecture.md#minio-image-version-bump
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
     command: server /data --console-address ":9001"
@@ -511,10 +487,8 @@ services:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      # Phase 1061 SEC-S07: fail-closed expansion. The CONF-12 var-default-minioadmin
-      # fallback leaked trivial credentials through any SSH-tunnel or port-forward
-      # on the cloud-dev profile. Require explicit env-var values now — set
-      # MINIO_ROOT_USER and MINIO_ROOT_PASSWORD in .env (see .env.example).
+      # Fail-closed creds (no var-default fallback) — see
+      # docs/docker-compose-architecture.md#minio-fail-closed-creds
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev (set in .env)}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
     volumes:
@@ -534,17 +508,16 @@ services:
           memory: 256M
 
   minio-setup:
-    # Phase 279 ADMIN-10 + ADMIN-12: bump + digest pin (paired with minio above).
-    # Latest standard mc release on quay.io as of 2026-05 is
-    # RELEASE.2025-08-13T08-35-41Z. Same bump procedure as minio above.
+    # Paired digest pin with the minio service above — see
+    # docs/docker-compose-architecture.md#minio-image-version-bump
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     profiles: ["cloud-dev"]
     depends_on:
       minio:
         condition: service_healthy
-    # Phase 1061 SEC-S07: source creds from env, not hardcoded literals.
-    # Use $$VAR (double-dollar) so docker-compose passes the literal $VAR to
-    # the shell inside the container, which then expands it against container env.
+    # Fail-closed creds; see docs/docker-compose-architecture.md#minio-fail-closed-creds
+    # The `$$VAR` (double-dollar) in entrypoint below is load-bearing — it passes
+    # the literal $VAR to the in-container shell, which then expands it.
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required for --profile cloud-dev}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required for --profile cloud-dev}"
@@ -576,8 +549,8 @@ services:
           memory: 64M
 
   valkey:
-    # API-08 (Phase 275 / L-20): bumped from 8.1.6-alpine to 8.1.7-alpine — current
-    # 8.x latest. Cloud-dev profile only; not part of the 2GB VPS budget.
+    # 8.x line tip; cloud-dev profile only — see
+    # docs/docker-compose-architecture.md#valkey-image-version
     image: valkey/valkey:8.1.7-alpine
     profiles: ["cloud-dev"]
     ports:
