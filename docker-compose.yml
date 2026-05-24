@@ -92,18 +92,6 @@ x-hardened-base: &hardened-base
 #   6379 -> valkey          cloud-dev profile only
 # All published ports bind 127.0.0.1 only. For QGIS / curl examples in the
 # README, use http://localhost:8080/api/... — that's the supported surface.
-#
-# Resource budget for local-dev steady-state (db + api + worker + titiler +
-# vite frontend): db(768M) + api(384M) + worker(384M) + titiler(256M) +
-# frontend(512M) = 2304M. Vite needs ~512 MB to bundle without OOM-kill;
-# substitute nginx in a production deploy to fit a 2 GB VPS.
-#
-# Transient peaks: migrate(384M) is one-shot and exits before api starts.
-# --profile backup adds 192M when active. --profile cloud-dev (minio + valkey)
-# is local-dev only.
-#
-# Limits are honored when deploying via `docker compose up` (Compose-native
-# limits don't require Swarm mode).
 services:
   db:
     build:
@@ -130,17 +118,6 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    # postgresql.conf shared_buffers=512MB sets the floor; 768M cap leaves headroom
-    # for work_mem * max_connections + autovacuum + temp tables. Reservation matches
-    # shared_buffers floor so postgres can always claim that much.
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 768M
-        reservations:
-          cpus: "0.5"
-          memory: 512M
 
   migrate:
     build:
@@ -173,18 +150,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # One-shot service; same envelope as api so the migration fits the
-    # 2GB VPS budget when run alongside the running stack. Exits before api
-    # starts (depends_on: service_completed_successfully), so the transient
-    # 384M peak doesn't compound with api's 384M cap.
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 384M
-        reservations:
-          cpus: "0.25"
-          memory: 96M
 
   api:
     build:
@@ -266,17 +231,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    # api fits uvicorn single-worker baseline (~150M) + GDAL ingest offloaded to
-    # worker. 384M cap matches worker reservation symmetry. Streaming upload
-    # (UPLOAD_MAX_SIZE_MB=500) uses 100M peak in-process via SpooledTemp.
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 384M
-        reservations:
-          cpus: "0.25"
-          memory: 96M
 
   worker:
     build:
@@ -316,15 +270,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    # Procrastinate worker; smaller than api because it has no tile pool.
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 384M
-        reservations:
-          cpus: "0.25"
-          memory: 96M
 
   titiler:
     # Pinned to 2.x stable (held back from 3.x without contract testing) — see
@@ -368,18 +313,6 @@ services:
       db:
         condition: service_healthy
     # No ports: section — internal only, reachable at http://titiler:8000
-    # GDAL_CACHEMAX=200 sets a 200M floor for raster block cache; 256M cap leaves
-    # ~56M for the titiler runtime + uvicorn worker. Tile concurrency at this cap
-    # is limited; bump to 384M if Prometheus shows tile_cache_misses spiking under
-    # concurrent load.
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.1"
-          memory: 64M
 
   frontend:
     # Note: image runs as USER node (uid 1000). On Linux dev hosts where the host
@@ -420,14 +353,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    # Vite dev server — 512M is the floor for vite + esbuild dep bundling on
-    # this graph; 128M OOM-kills vite during optimizer pass. A nginx production
-    # build fits in a much smaller footprint.
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
 
   backup:
     # Enable with: docker compose --profile backup up -d
@@ -466,13 +391,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Backup runs cron-driven; only active during the backup window. Conservative
-    # cap covers pg_dump streaming + curl multipart upload to S3.
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 192M
 
   # --- cloud-dev profile: local S3 + cache for testing ---
   # All cloud-dev services bind to 127.0.0.1 only — they're for local dev,
@@ -499,13 +417,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    # Cloud-dev profile only — local S3 emulation. Not part of 2GB VPS budget.
-    # 256M caps minio's internal disk-buffer cache for typical dev usage.
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
 
   minio-setup:
     # Paired digest pin with the minio service above — see
@@ -541,12 +452,6 @@ services:
       mc anonymous set-json /tmp/cors.json local/geolens || true;
       exit 0;
       "
-    # One-shot: creates bucket + sets CORS, exits.
-    deploy:
-      resources:
-        limits:
-          cpus: "0.1"
-          memory: 64M
 
   valkey:
     # 8.x line tip; cloud-dev profile only — see
@@ -563,12 +468,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    # Cloud-dev profile only — local cache emulation.
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 128M
 
 volumes:
   pgdata:
