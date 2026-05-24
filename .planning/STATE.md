@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1022
 milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
-status: completed
-stopped_at: Plan 1096-01 SUMMARY committed at c119f94c; HYG-01 traceability flipped [x]/Complete. Phase 1096 CLOSED. Next: Phase 1097 (CI-01 live-verify + CLOSE-01 tag cut).
-last_updated: "2026-05-24T04:10:00.000Z"
-last_activity: 2026-05-24 — Plan 1096-01 SUMMARY shipped; HYG-01 closed (WR-03 narrow-except + WR-04 listener teardown + 3 new pins); Phase 1096 CLOSED
+status: in-progress
+stopped_at: Plan 1097-01 SUMMARY committed at 48707fb1; CLOSE-01 close-gate baselines captured + CHANGELOG [1.5.7] block written; CLOSE-01 NOT flipped (lands Plan 02). Working tree clean. Ready for Plan 1097-02.
+last_updated: "2026-05-24T05:21:48.637Z"
+last_activity: 2026-05-24 — Plan 1097-01 SUMMARY shipped; CLOSE-01 close-gate baselines captured + CHANGELOG [1.5.7] block written; atomic-3-file commit 48707fb1; Plan 02 ready
 progress:
   total_phases: 9
-  completed_phases: 4
-  total_plans: 5
-  completed_plans: 6
-  percent: 44
+  completed_phases: 3
+  total_plans: 7
+  completed_plans: 7
+  percent: 33
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1096 Hygiene Tail (CLOSED — 1 of 1 plan complete; HYG-01 Complete)
-Plan: 1096-01-PLAN.md (complete — WR-03 narrow-except + WR-04 listener teardown + 3 new pins; HYG-01 closed)
-Status: Plan 1096-01 closed via commit `c119f94c` (atomic-4-file). HYG-01 complete; Phase 1096 CLOSED. HYG-01 = `[x]` + `Complete` in REQUIREMENTS.md. Phase 1096 rollup gates GREEN: 9 retry-pin family green; pool-sizing invariants 2/2; sequential 3060/3 pre-existing OOS/38 (+3 vs Phase 1095 close 3057); `-n 4` 3057/6 OOS-flake/38; `-n auto` 3-run distinct 5/2/2 deterministic ≤30, ZERO ICN frames in all 3 runs. [Rule 1 deviation] WR-03 narrow-tuple expanded from (TypeError, AttributeError) to (TypeError, AttributeError, InvalidRequestError) when MagicMock test doubles raised sqlalchemy.exc.InvalidRequestError under SQLAlchemy 2.x. [Rule 3 deviation] WR-01 pin dispatch lookup uses engine.dialect.dispatch.do_connect (DialectEvents lives on dialect.dispatch, not engine.dispatch). Next: Phase 1097 (CI-01 live-verify + CLOSE-01 tag cut).
-Last activity: 2026-05-24 — Plan 1096-01 SUMMARY shipped; HYG-01 closed (WR-03 narrow-except + WR-04 listener teardown + 3 new pins); Phase 1096 CLOSED
+Phase: 1097 Live-Verify + Close Gate (IN PROGRESS — 1 of 2 plans complete; CLOSE-01 baselines captured; CI-01 + CLOSE-01 flip pending Plan 02)
+Plan: 1097-01-PLAN.md (complete — close-gate baselines + CHANGELOG [1.5.7] block; atomic-3-file commit 48707fb1)
+Status: Plan 1097-01 closed via commit `48707fb1` (atomic-3-file: CHANGELOG.md + 1097-01-CLOSE-GATE.md + 1097-01-SUMMARY.md). CLOSE-01 baselines captured for acceptance criteria (a)-(e): sequential 3 failed (OOS triad) / 3060 passed / 38 skipped / 544s (HARD INVARIANT preserved); -n 4 4 failed (2 OOS + 2 oauth flake) / 3059 passed / 38 skipped / 326s (HARD INVARIANT preserved); -n auto 3-run distinct = 2/3/2 deterministic well under PARA-01 ≤30 gate (IMPROVED vs Phase 1096 floor 5/2/2); ICN frames 0/0/0 across all 3 runs (Category 4.1 cascade gate PRESERVED); 5 services healthy + GET /api/health → 200 OK. CHANGELOG [1.5.7] block lists PARA-01 + PARA-02 + HYG-01 with test pin names + line numbers; CI-01 placeholder will be replaced by Plan 02. CLOSE-01 NOT yet flipped in REQUIREMENTS.md (lands in Plan 02 atomic-4-file alongside CI-01 flip + tag-cut SHAs). [Rule 3 deviation] /api/health endpoint shape: PLAN cited trailing-slash + HEAD; actual surface no-slash + GET. Documented inline. Next: Plan 1097-02 (AskUserQuestion → push → gh run watch pytest-parallel-isolation → tag cut v1022 + v1.5.7 → flip CI-01 + CLOSE-01).
+Last activity: 2026-05-24 — Plan 1097-01 SUMMARY shipped; CLOSE-01 close-gate baselines captured + CHANGELOG [1.5.7] block written; atomic-3-file commit 48707fb1; Plan 02 ready
 
-Progress: [██████████] 100%
+Progress: [█████░░░░░] 50% (1 of 2 plans in Phase 1097 complete)
 
 ## Project Reference
 
@@ -78,6 +78,7 @@ See: .planning/PROJECT.md
 - [Phase 1095-01]: 2026-05-23: Optional xfail pre-fix regression pin (`test_init_tile_pool_no_retry_pre_fix_raises_too_many_clients`) DEFERRED to Plan 02 per CONTEXT.md `<specifics>` Plan 01 Step 6 — positive pin alone is load-bearing for the wrap-shape regression-detection contract.
 - [Phase ?]: [Phase 1095-02]: 2026-05-24: PARA-02 closed via Shape Y2 (load-bearing rationale + retained time.sleep) at conftest.py:_invoke_sleep_in_sync_context after Shape Y1 (asyncio.run(asyncio.sleep(seconds))) produced 658 RuntimeError cascade failures at Task 5 Run 1 — production caller _retry_do_connect via greenlet_spawn has a running event loop in calling thread. Audit Section 4.3 INDEPENDENT disposition empirically validated: post-Y2 3-run -n auto distinct = 3/2/3 (BETTER than Plan 01 floor 20/8/16). Pin test_engine_retry_yields_event_loop_during_backoff (Shape Y2 alternative) asserts WR-02/PARA-02/Plan-1095-02/greenlet_spawn/Section-4.3-or-4.4/time.sleep tokens at source-of-record. Atomic-4-file commit ca7a85fb. Phase 1095 CLOSED.
 - [Phase 1096-01]: 2026-05-24: HYG-01 closed via WR-03 narrow-except (TypeError, AttributeError, InvalidRequestError) at conftest.py:842 + WR-04 listener teardown via event.remove in _RetryingAsyncEngine.dispose() override at conftest.py:934-977 + _install_dbapi_connect_retry signature change at conftest.py:753 to return registered handler. 3 new pins added at test_fixture_isolation_v1020.py: WR-01 do_connect event-handler pin at line 1391 (uses real sqlalchemy.create_engine("sqlite:///:memory:") to exercise the load-bearing event-handler path on engine.dialect.dispatch.do_connect, not engine.dispatch.do_connect); WR-01-1095 carry-forward catches_raw_asyncpg at line 1557 + propagates_non_transient_error at line 1666 (fixture-layer parity with engine-layer pins at lines 978/1030). [Rule 1] narrow tuple expanded from plan-spec (TypeError, AttributeError) to (TypeError, AttributeError, InvalidRequestError) when MagicMock raised sqlalchemy.exc.InvalidRequestError under SQLAlchemy 2.x. [Rule 3] dispatch retrieval uses dialect.dispatch.do_connect (DialectEvents). Atomic-4-file commit c119f94c. Gates: 9 retry pins green; pool-sizing 2/2; sequential 3060/3 OOS/38 (+3 vs Phase 1095); -n 4 3057/6 OOS/38; -n auto 3-run distinct 5/2/2 deterministic ≤30, ZERO ICN frames. Phase 1096 CLOSED.
+- [Phase 1097-01]: 2026-05-24: CLOSE-01 close-gate baselines captured + CHANGELOG [1.5.7] block written. Sequential 3 failed (OOS triad: test_layering + test_phase_275_readme_accuracy + test_ssrf_redirect) / 3060 passed / 38 skipped / 544s. -n 4 4 failed (2 OOS + 2 oauth flake: test_callback_missing_state_returns_error + test_callback_invalid_code_returns_error) / 3059 passed / 38 skipped / 326s. -n auto 3-run distinct 2/3/2 deterministic well under PARA-01 ≤30 gate (IMPROVED vs Phase 1096 floor 5/2/2). Run 2's extra distinct is test_settings_router::test_put_settings_same_embedding_dims_does_not_delete (422 vs 200 parallel-validation flake — Section 2 PYTEST-XDIST-PERF-v1020.md taxonomy match). ICN frames 0/0/0 across all 3 runs (Category 4.1 cascade gate PRESERVED — confirms PARA-01 Shape A* wrap + PARA-02 Shape Y2 + HYG-01 WR-04 dispose teardown all holding). [Rule 3] /api/health endpoint shape PLAN drift (trailing-slash HEAD → no-slash GET; documented inline). Atomic-3-file commit 48707fb1 (CHANGELOG.md + 1097-01-CLOSE-GATE.md + 1097-01-SUMMARY.md). CLOSE-01 NOT flipped in REQUIREMENTS.md (lands Plan 02). Next: Plan 1097-02 (push + gh run watch + tag cut).
 
 ### Pending Todos
 
@@ -95,17 +96,15 @@ None at v1022 roadmap-create. Phase 1094 spike has no pre-requisites — `/gsd:p
 
 ## Session Continuity
 
-Last session: 2026-05-24T04:10:00.000Z
-Stopped at: Plan 1096-01 SUMMARY committed at c119f94c; HYG-01 traceability flipped [x]/Complete. Phase 1096 CLOSED. Phase 1097 (CI-01 + CLOSE-01) next.
+Last session: 2026-05-24T01:20:00.000Z
+Stopped at: Plan 1097-01 SUMMARY committed at 48707fb1; CLOSE-01 close-gate baselines captured + CHANGELOG [1.5.7] block written; CLOSE-01 NOT flipped (lands Plan 02). Working tree clean. Ready for Plan 1097-02.
 Resume file: None
 
 ## Operator Next Steps
 
-- Roadmap created (4 phases 1094-1097, 5/5 requirements mapped, 0 orphans).
-- Next: `/gsd:plan-phase 1094` to start the Cascade Spike (architectural audit deliverable).
-- After Phase 1094 ships: `/gsd:plan-phase 1095` (Cascade Fix + WR-02 Closure — bundled PARA-01 fix + PARA-02).
-- After Phase 1095 ships: `/gsd:plan-phase 1096` (Hygiene Tail — HYG-01).
-- After Phase 1096 merges to `main`: `/gsd:plan-phase 1097` (Live-Verify + Close Gate — CI-01 + CLOSE-01).
+- Plan 1097-01 SHIPPED (commit `48707fb1`). Atomic-3-file commit (CHANGELOG.md + 1097-01-CLOSE-GATE.md + 1097-01-SUMMARY.md). All 14 verification gates PASS. HARD INVARIANT preserved across sequential + -n 4 baselines (0 NEW failures). PARA-01 acceptance preserved across -n auto 3 runs (each ≤30 distinct + 0 ICN frames). CLOSE-01 baselines captured for acceptance (a)-(e).
+- Next: Plan 1097-02 (CI-01 live-verify + tag cut + CLOSE-01/CI-01 flip). Plan 02 will: AskUserQuestion before `git push origin main` → `gh run list --workflow=ci.yml --limit=1 --json databaseId,status` → `gh run watch $RUN_ID` for `pytest-parallel-isolation` job → append CI-01 section to CLOSE-GATE.md → `git tag v1022 48707fb1 && git tag v1.5.7 48707fb1 && git push origin v1022 v1.5.7` → record in MILESTONES.md → flip CI-01 + CLOSE-01 → atomic-4-file commit.
+- Close-gate commit SHA for Plan 02's tag-cut: **`48707fb1`**.
 
 ## Deferred Items
 
