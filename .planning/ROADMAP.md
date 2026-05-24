@@ -148,7 +148,9 @@
   3. CLOSE-GATE.md quotes the `-n 4` result verbatim showing `3054 passed / 0 NEW failed / 38 skipped` with an explicit OOS table + the `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (CLOSE-01 acceptance criteria (b)+(c))
   4. Live docker stack health spot-check passes: `docker compose ps` shows 5 services healthy + `curl http://localhost:8080/api/health/` returns 200 (CLOSE-01 acceptance criterion (d))
   5. `CHANGELOG.md` `[1.5.7]` block lists PARA-01, PARA-02, HYG-01, CI-01 closures with the test pin names + line numbers + the CI-01 live-verify run-watch log embedded; tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA and recorded in `.planning/MILESTONES.md` (CLOSE-01 acceptance criteria (e)+(f)+(g))
-**Plans**: TBD (likely 2 plans — Plan 01: post-merge CI live-verify capture; Plan 02: close-gate doc + CHANGELOG + tag cut)
+**Plans**: 2 plans
+- [ ] 1097-01-PLAN.md — CLOSE-01 close-gate baselines (sequential 3060/3 OOS/38 re-confirm + `-n 4` 3057/4-7/38 re-confirm + `-n auto` 3-run ≤30 distinct deterministic with 0 ICN frames + docker stack 5-services-healthy + `curl /api/health/` 200) + CHANGELOG `[1.5.7]` block listing PARA-01 + PARA-02 + HYG-01 + CI-01 (placeholder) closures with test pin names + line numbers + 1097-01-CLOSE-GATE.md draft with sections (a)-(e) populated; atomic-3-file commit `docs(1097-01): CLOSE-01 close-gate baselines + CHANGELOG [1.5.7]`; does NOT flip CLOSE-01 (lands in Plan 02 alongside CI-01 flip + tag refs per v1019 TD-13 traceability_flip rule)
+- [ ] 1097-02-PLAN.md — CI-01 live-verify on real GitHub Actions infrastructure (operator-confirmation gate before `git push origin main` per CONTEXT.md push-gate + global CLAUDE.md "Executing actions with care" rule; `gh run watch $RUN_ID` for the `pytest-parallel-isolation` job at `.github/workflows/ci.yml:499-590`; embed verbatim log block in 1097-01-CLOSE-GATE.md CI-01 (f) section per CI-01 (b)) + cut tags `v1022` (local) + `v1.5.7` (public) at Plan 01's close-gate SHA + push tags to origin (CLOSE-01 (g)) + write MILESTONES.md v1022 entry (mirror v1021 format) + flip REQUIREMENTS.md CI-01 + CLOSE-01 both `[ ]` → `[x]` + Pending → Complete in atomic-4-file commit `feat(1097-02): CI-01 live-verify green + tags v1022/v1.5.7 cut`; failure-branch (CI-01 RED): skip tag cut, produce atomic-2-file failure-shape commit, defer to Plan 1097-03 iteration
 
 ---
 
@@ -183,7 +185,7 @@
 | 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
 | 1095. Cascade Fix + WR-02 Closure | v1022 | 2/2 | Complete   | 2026-05-24 |
 | 1096. Hygiene Tail | v1022 | 1/1 | Complete   | 2026-05-24 |
-| 1097. Live-Verify + Close Gate | v1022 | 0/TBD | Not started | - |
+| 1097. Live-Verify + Close Gate | v1022 | 0/2 | Not started | - |
 
 ## Backlog
 
