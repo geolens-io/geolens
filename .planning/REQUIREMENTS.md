@@ -35,11 +35,11 @@ The 3 pre-existing sequential-mode failures carried by v1019/v1020/v1021/v1022's
 
 The 2 oauth callback test flakes that surface specifically under `pytest -n 4` parallel mode (sequential mode passes; classified as flake-class per `.planning/audits/PYTEST-XDIST-PERF-v1020.md` Section 2). v1023 stabilizes them at the test-isolation layer.
 
-- [ ] **OAUTH-01**: Close `test_callback_missing_state_returns_error` `-n 4` flake. Pin location to be confirmed by planner via `git grep -n "def test_callback_missing_state_returns_error" backend/tests/`. Acceptance criteria: (a) root-cause documented (likely shared-state leakage between parallel workers — session cookies, callback URLs, or oauth provider mocks bleeding across workers); (b) fix is at the test-isolation layer (fixture-scope adjustment, per-worker oauth mock, monkeypatch reset) NOT at the production callback handler unless a real concurrency bug is found (rationale + security review note required if production-code change); (c) test passes deterministically in sequential, `-n 4`, and `-n auto` modes across 3 consecutive runs; (d) zero regression on `test_callback_*` oauth test family.
+- [x] **OAUTH-01**: Close `test_callback_missing_state_returns_error` `-n 4` flake. Pin location to be confirmed by planner via `git grep -n "def test_callback_missing_state_returns_error" backend/tests/`. Acceptance criteria: (a) root-cause documented (likely shared-state leakage between parallel workers — session cookies, callback URLs, or oauth provider mocks bleeding across workers); (b) fix is at the test-isolation layer (fixture-scope adjustment, per-worker oauth mock, monkeypatch reset) NOT at the production callback handler unless a real concurrency bug is found (rationale + security review note required if production-code change); (c) test passes deterministically in sequential, `-n 4`, and `-n auto` modes across 3 consecutive runs; (d) zero regression on `test_callback_*` oauth test family.
 
-- [ ] **OAUTH-02**: Close `test_callback_invalid_code_returns_error` `-n 4` flake. Pin location to be confirmed by planner via `git grep -n "def test_callback_invalid_code_returns_error" backend/tests/`. Acceptance criteria: (a)–(d) same shape as OAUTH-01 (paired flake — likely shares root cause; one fix may close both, in which case OAUTH-02 SUMMARY references the OAUTH-01 closure SHA + the shared regression pin).
+- [x] **OAUTH-02**: Close `test_callback_invalid_code_returns_error` `-n 4` flake. Pin location to be confirmed by planner via `git grep -n "def test_callback_invalid_code_returns_error" backend/tests/`. Acceptance criteria: (a)–(d) same shape as OAUTH-01 (paired flake — likely shares root cause; one fix may close both, in which case OAUTH-02 SUMMARY references the OAUTH-01 closure SHA + the shared regression pin).
 
-- [ ] **OAUTH-03**: Close `test_oauth_login_redirect` `-n auto` flake. Pin location: `backend/tests/test_oauth.py:826`. Surfaced 2026-05-24 during Phase 1098 verify-gate (`-n auto` Run B — Phase 1098 `1098-01-SUMMARY.md` carry-forward note). Same file + same fixtures (`client` + `test_db_session`) + same `create_provider → commit → GET /auth/oauth/.../login` pattern as OAUTH-01/02 — almost certainly shares root cause; one fix likely closes all 3. Acceptance criteria: (a)–(d) same shape as OAUTH-01; (e) if OAUTH-03 root cause turns out to be distinct from OAUTH-01/02 after diagnosis, EITHER fold the fix into Phase 1099 with rationale OR escalate to v1024+ at the planner's discretion (smallest-milestone charter preserved).
+- [x] **OAUTH-03**: Close `test_oauth_login_redirect` `-n auto` flake. Pin location: `backend/tests/test_oauth.py:826`. Surfaced 2026-05-24 during Phase 1098 verify-gate (`-n auto` Run B — Phase 1098 `1098-01-SUMMARY.md` carry-forward note). Same file + same fixtures (`client` + `test_db_session`) + same `create_provider → commit → GET /auth/oauth/.../login` pattern as OAUTH-01/02 — almost certainly shares root cause; one fix likely closes all 3. Acceptance criteria: (a)–(d) same shape as OAUTH-01; (e) if OAUTH-03 root cause turns out to be distinct from OAUTH-01/02 after diagnosis, EITHER fold the fix into Phase 1099 with rationale OR escalate to v1024+ at the planner's discretion (smallest-milestone charter preserved).
 
 ### Close Gate
 
@@ -81,9 +81,9 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 | OOS-01 | Phase 1098 | Complete |
 | OOS-02 | Phase 1098 | Complete |
 | OOS-03 | Phase 1098 | Complete |
-| OAUTH-01 | Phase 1099 | Pending |
-| OAUTH-02 | Phase 1099 | Pending |
-| OAUTH-03 | Phase 1099 | Pending |
+| OAUTH-01 | Phase 1099 | Complete |
+| OAUTH-02 | Phase 1099 | Complete |
+| OAUTH-03 | Phase 1099 | Complete |
 | CLOSE-01 | Phase 1100 | Pending |
 
 **Coverage:**
@@ -93,4 +93,4 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 ---
 *Requirements defined: 2026-05-24*
-*Last updated: 2026-05-24 — traceability updated by roadmapper (v1023 ROADMAP.md creation)*
+*Last updated: 2026-05-24 — traceability updated by executor (Phase 1099 OAUTH-01/02/03 closure)*

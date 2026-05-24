@@ -91,7 +91,7 @@
 **Milestone Goal:** Retire the 3 pre-existing OOS sequential failures + 2 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` literal (not "0 NEW failed"), and provide external CI evidence for the `pytest-parallel-isolation` gate via live GH Actions run.
 
 - [x] **Phase 1098: OOS Triad Closure** — Fix `test_layering`, `test_phase_275_readme_accuracy`, and `test_ssrf_redirect` so sequential `failed == 0` is literal
-- [ ] **Phase 1099: OAuth Parallel-Mode Stabilization** — Fix `test_callback_missing_state_returns_error`, `test_callback_invalid_code_returns_error`, AND `test_oauth_login_redirect` (OAUTH-03 added 2026-05-24) so `-n 4` / `-n auto` flakes are eliminated
+- [x] **Phase 1099: OAuth Parallel-Mode Stabilization** — Fix `test_callback_missing_state_returns_error`, `test_callback_invalid_code_returns_error`, AND `test_oauth_login_redirect` (OAUTH-03 added 2026-05-24) so `-n 4` / `-n auto` flakes are eliminated
 - [ ] **Phase 1100: CI Live-Verify + Close Gate** — Operator live-verify of `pytest-parallel-isolation` on real GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`
 
 ## Phase Details
@@ -122,7 +122,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 1099-01: Diagnose + fix OAuth parallel-mode flakes (test_callback_missing_state_returns_error / test_callback_invalid_code_returns_error / test_oauth_login_redirect)
+- [x] 1099-01: Diagnose + fix OAuth parallel-mode flakes (test_callback_missing_state_returns_error / test_callback_invalid_code_returns_error / test_oauth_login_redirect)
 
 ### Phase 1100: CI Live-Verify + Close Gate
 **Goal**: External CI evidence is captured for the `pytest-parallel-isolation` gate and v1023 is formally closed with tags
@@ -175,7 +175,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1098. OOS Triad Closure | v1023 | 1/1 | Shipped | 2026-05-24 |
-| 1099. OAuth Parallel-Mode Stabilization | v1023 | 0/1 | Not started | - |
+| 1099. OAuth Parallel-Mode Stabilization | v1023 | 1/1 | Shipped | 2026-05-24 |
 | 1100. CI Live-Verify + Close Gate | v1023 | 0/2 | Not started | - |
 
 ## Backlog
