@@ -28,6 +28,47 @@ def _clean_edition():
 
 
 # ---------------------------------------------------------------------------
+# Phase 1099 / OAUTH-01/02/03: client_session fixture override (D-04a)
+#
+# test_db_session opens a SEPARATE asyncpg connection from client's
+# override_get_db (each NullPool session_factory() call yields a fresh
+# connection). Under -n 4 / -n auto, the client's connection may have an
+# in-progress READ COMMITTED snapshot taken BEFORE test_db_session.commit(),
+# so the new OAuth provider is invisible to the subsequent client.get(...)
+# → 404 instead of the expected 302.
+#
+# client_session resolves the SAME override_get_db factory client uses, so
+# commit() is immediately visible to the subsequent client.get(...). This is
+# the smallest-blast-radius fix per D-04a (test-isolation layer only; no
+# production-code change per D-02 + D-07c; no broader fixture refactor
+# per D-07b).
+#
+# See .planning/phases/1099-oauth-parallel-mode-stabilization/1099-01-SUMMARY.md
+# for the T2 diagnostic findings + verify-gate evidence.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def client_session(client):
+    """Yield an async session that shares client's override_get_db factory.
+
+    Forces single-factory writes-then-reads so commit() is immediately
+    visible to subsequent client.get() calls under -n 4 / -n auto. Replaces
+    test_db_session for OAUTH-01/02/03 (Phase 1099) where direct DB writes
+    and HTTP requests in the same test body race the connection-pool
+    snapshot under parallel mode.
+
+    Per D-04a (Phase 1099 CONTEXT.md): smallest blast radius — only this
+    file changes; sibling tests in test_oauth.py keep test_db_session.
+    """
+    from app.core.dependencies import get_db
+
+    overridden_get_db = client.app.dependency_overrides[get_db]
+    async for session in overridden_get_db():
+        yield session
+
+
+# ---------------------------------------------------------------------------
 # OAUTH-02: Encryption roundtrip
 # ---------------------------------------------------------------------------
 
@@ -823,8 +864,13 @@ class TestIdpRoleMappingGate:
 class TestOAuthLoginEndpoint:
     """Test the GET /auth/oauth/{slug}/login endpoint."""
 
-    async def test_oauth_login_redirect(self, client, test_db_session):
-        """OAUTH-04: Login endpoint returns redirect to IdP."""
+    async def test_oauth_login_redirect(self, client, client_session):
+        """OAUTH-04: Login endpoint returns redirect to IdP.
+
+        Phase 1099 / OAUTH-03: uses client_session (shares client's
+        override_get_db factory) so commit() is immediately visible to
+        the subsequent client.get(...) under -n 4 / -n auto.
+        """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
 
@@ -840,8 +886,8 @@ class TestOAuthLoginEndpoint:
             userinfo_url="https://idp.example.com/userinfo",
             enabled=True,
         )
-        await create_provider(test_db_session, data)
-        await test_db_session.commit()
+        await create_provider(client_session, data)
+        await client_session.commit()
 
         resp = await client.get(
             f"/auth/oauth/login-test-{suffix}/login",
@@ -866,14 +912,19 @@ class TestOAuthLoginEndpoint:
 class TestOAuthCallbackCSRF:
     """Test that OAuth callback rejects invalid state/code parameters."""
 
-    async def test_callback_missing_state_returns_error(self, client, test_db_session):
-        """OAuth callback with no state/code params returns error redirect, not account takeover."""
+    async def test_callback_missing_state_returns_error(self, client, client_session):
+        """OAuth callback with no state/code params returns error redirect, not account takeover.
+
+        Phase 1099 / OAUTH-01: uses client_session (shares client's
+        override_get_db factory) so commit() is immediately visible to
+        the subsequent client.get(...) under -n 4 / -n auto.
+        """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         await create_provider(
-            test_db_session,
+            client_session,
             OAuthProviderCreate(
                 slug=f"csrf-test-{suffix}",
                 display_name="CSRF Test",
@@ -886,7 +937,7 @@ class TestOAuthCallbackCSRF:
                 enabled=True,
             ),
         )
-        await test_db_session.commit()
+        await client_session.commit()
 
         # Call callback with no state/code — should error, not create a session
         resp = await client.get(
@@ -898,14 +949,19 @@ class TestOAuthCallbackCSRF:
         location = resp.headers.get("location", "")
         assert "error" in location
 
-    async def test_callback_invalid_code_returns_error(self, client, test_db_session):
-        """OAuth callback with an invalid authorization code returns error redirect."""
+    async def test_callback_invalid_code_returns_error(self, client, client_session):
+        """OAuth callback with an invalid authorization code returns error redirect.
+
+        Phase 1099 / OAUTH-02: uses client_session (shares client's
+        override_get_db factory) so commit() is immediately visible to
+        the subsequent client.get(...) under -n 4 / -n auto.
+        """
         from app.modules.auth.oauth.schemas import OAuthProviderCreate
         from app.modules.auth.oauth.service import create_provider
 
         suffix = uuid.uuid4().hex[:6]
         await create_provider(
-            test_db_session,
+            client_session,
             OAuthProviderCreate(
                 slug=f"badcode-test-{suffix}",
                 display_name="Bad Code Test",
@@ -918,7 +974,7 @@ class TestOAuthCallbackCSRF:
                 enabled=True,
             ),
         )
-        await test_db_session.commit()
+        await client_session.commit()
 
         # Call callback with bogus code and state — should error
         resp = await client.get(
