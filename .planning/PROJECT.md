@@ -12,21 +12,23 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1023 CI Live-Verify + OOS Hygiene Tail
+## Current Milestone: v1024 ADK High Peaks Marketing-Ready
 
-**Goal:** Close v1022's CI-01 carry-forward (`pytest-parallel-isolation` live-verify on real GH Actions) and retire the 5 pre-existing test failures surfaced during v1022's close gate (3 OOS triad + 2 oauth flake).
+**Goal:** Upgrade the Adirondack High Peaks marketing maps from dogfooding-shippable to screenshot/demo-ready: higher-fidelity source data, expanded map content, a bonus 3D relief variant, and a builder surface that can reorder layers and adjust terrain settings without browser-console noise.
 
-**Target features (smallest-milestone scope, 4 categories):**
-- CI-01-v1023: live-verify `pytest-parallel-isolation` gate on real GH Actions infrastructure (autonomous w/ operator checkpoint — resolve billing → `gh run rerun 26359374410` → document GREEN evidence)
-- OOS-01..03: close 3 pre-existing sequential failures (`test_layering` LOC-cap + `test_phase_275_readme_accuracy` + `test_ssrf_redirect`)
-- OAUTH-01..02: stabilize 2 `-n 4` parallel-mode oauth callback test flakes (`test_callback_missing_state_returns_error` + `test_callback_invalid_code_returns_error`)
-- CLOSE-01: close gate + CHANGELOG + tags (`v1023` local + `v1.5.8` public)
+**Target features:**
+- Swap the soft 3.5 MB ArcGIS REST aerial for a TNM/NAIP 0.6m aerial source where available, with an explicit documented fallback if the TNM API does not publish NAIP for this AOI.
+- Add NHD hydrography and the remaining ADK 46er peaks to the ADK High Peaks marketing catalog and saved-map composition.
+- Compose the deferred bonus 3D relief variant Map 2 for the ADK High Peaks map set.
+- Fix builder mixed raster/vector layer reorder so vectors can be dragged above DEM/aerial rasters and the visual MapLibre stack updates immediately and persists after reload.
+- Fix terrain DEM tile min/max zoom, preserve explicit `terrain_config.enabled=false`, and smoke-check terrain source/exaggeration controls in the builder.
+- Stop terrain/internal MapLibre errors from surfacing as basemap-connection toasts, move the toast away from map controls, and resolve or suppress the Positron `road_` / `us-state_` sprite warnings.
 
 **Key context:**
-- Phase numbering continues from 1098 (no `--reset-phase-numbers`)
-- Public tag target: `v1.5.8` (SemVer patch — test-infra hygiene only, no API/schema/migration changes)
-- HARD INVARIANT: sequential pytest `failed == 0` (currently 3 OOS — this milestone closes them)
-- Backlog sweep returned 0 new items (stale backlog files target shipped milestones — out of scope for smallest-milestone charter)
+- Phase numbering continues from 1101 (no `--reset-phase-numbers`)
+- Public tag target: `v1.5.9` (SemVer patch — data/script + UI/rendering bug fixes; avoid API/schema/migration changes unless a verified fix requires them)
+- Source context: `.planning/quick/260524-o57-adk-high-peaks-data/` (especially `NEXT-MILESTONE-DRAFT.md`, `260524-o57-SUMMARY.md`, and `260524-o57-API-ISSUES.md`)
+- HARD INVARIANT: a freshly composed ADK map at `localhost:8080/maps/{new_id}` opens in the builder with zero browser console errors/warnings, vectors above rasters after reorder, and working terrain settings/exaggeration controls verified through Playwright MCP.
 
 ## Recent Shipped Milestone: v1022 Parallel-Test Cascade Closure + Hygiene Tail
 
@@ -1411,4 +1413,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-24 — started milestone v1023 CI Live-Verify + OOS Hygiene Tail (smallest-milestone carry-forward close). Scope: CI-01-v1023 (live-verify `pytest-parallel-isolation` gate on real GH Actions post-billing-resolution) + OOS-01..03 (retire 3 pre-existing sequential failures: test_layering LOC-cap + test_phase_275_readme_accuracy + test_ssrf_redirect) + OAUTH-01..02 (stabilize 2 `-n 4` oauth callback flakes) + CLOSE-01 (close gate + CHANGELOG `[1.5.8]` + tags `v1023` + `v1.5.8`). Phase numbering continues from 1098. Backlog sweep returned 0 new items. Previously: archived milestone v1022 Parallel-Test Cascade Closure + Hygiene Tail (degraded close — 4/5 reqs satisfied + 1 deferred to v1023). PARA-01 cascade fix (Shape A* — `_init_tile_pool_for_tests` wrap) + PARA-02 WR-02 closure (Shape Y2 load-bearing rationale) + HYG-01 engine-retry envelope hygiene (WR-03 narrow + WR-04 teardown + 3 new pins) + CLOSE-01 close-gate. CI-01 (`pytest-parallel-isolation` live-verify) DEFERRED to v1023 — GitHub Actions billing block at push time (run 26359374410: 0/13 jobs executed); user-authorized degraded close; gate-shape verified locally to v1021 TEST-01 depth. Tags `v1022` (local) + `v1.5.7` (public) at `48707fb1`. Sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38 + `-n auto` 3-run 2/3/2 distinct deterministic + 0 ICN frames. One v1023 carry-forward (CI-01-v1023). Archives: `.planning/milestones/v1022-ROADMAP.md` + `.planning/milestones/v1022-REQUIREMENTS.md` + `.planning/milestones/v1022-MILESTONE-AUDIT.md`. Previous: v1021 Docker Rebuild Sweep + Engine-level Retry (6/6 reqs satisfied; tags `v1021` + `v1.5.6` at `35596a7a`).*
+*Last updated: 2026-05-24 — started milestone v1024 ADK High Peaks Marketing-Ready. Scope: TNM/NAIP aerial attempt or documented TNM no-data fallback, NHD hydrography, expanded 46er peak data, primary + bonus 3D relief ADK maps, builder mixed raster/vector reorder, terrain DEM zoom/config reliability, builder error hygiene, and Playwright MCP map-builder smoke. Phase numbering continues from 1101. Public tag target: `v1.5.9`. Source context: `.planning/quick/260524-o57-adk-high-peaks-data/`. Previously: v1023 CI Live-Verify + OOS Hygiene Tail shipped degraded on 2026-05-24 with local/public tags `v1023` + `v1.5.8` at `892fca01`; CI-01 live GitHub Actions verification remains an external billing-block carry-forward to v1024+ but is not part of this ADK marketing-ready hard invariant.*

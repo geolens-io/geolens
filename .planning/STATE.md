@@ -1,34 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1023
-milestone_name: CI Live-Verify + OOS Hygiene Tail
-status: Awaiting next milestone
-stopped_at: "v1023 shipped (degraded — CI-01 deferred to v1024+); awaiting /gsd:audit-milestone v1023"
-last_updated: "2026-05-24T23:10:00.000Z"
-last_activity: 2026-05-24 — Quick task 260524-o57 (ADK High Peaks marketing data) delivered + 6 dogfooding findings filed
+milestone: v1024
+milestone_name: ADK High Peaks Marketing-Ready
+status: planning
+last_updated: "2026-05-24T23:31:43.894Z"
+last_activity: 2026-05-24
 progress:
-  total_phases: 8
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 38
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1023 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-24 — Milestone v1023 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-24 — Milestone v1024 started
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1023 closed; orchestrator next runs /gsd:audit-milestone v1023
+**Current focus:** v1024 ADK High Peaks Marketing-Ready — upgraded ADK marketing data/maps, builder layer ordering, terrain controls, and Playwright MCP verification
 
 ## Last Shipped Milestone
 
@@ -39,19 +38,22 @@ See: .planning/PROJECT.md
 **Milestone audit:** PENDING — orchestrator runs /gsd:audit-milestone v1023 next
 **Archived phases:** (pending /gsd:cleanup-milestone — will move to `.planning/milestones/v1023-phases/`)
 
-## Phase Plan (v1023)
+## Phase Plan (v1024)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1098 OOS Triad Closure | Sequential `failed == 0` literal: fix test_layering + test_phase_275_readme_accuracy + test_ssrf_redirect | OOS-01, OOS-02, OOS-03 | — |
-| 1099 OAuth Parallel-Mode Stabilization | `-n 4` `failed == 0` literal: eliminate test_callback_missing_state_returns_error + test_callback_invalid_code_returns_error flakes | OAUTH-01, OAUTH-02 | Phase 1098 |
-| 1100 CI Live-Verify + Close Gate | `gh run watch` confirms `pytest-parallel-isolation` success on live GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8` | CI-01, CLOSE-01 | Phase 1099 |
+| 1101 ADK Source Data Upgrade | TNM/NAIP aerial path or documented no-data fallback; NHD hydrography; expanded 46er peak source data | ADK-DATA-01..05 | — |
+| 1102 ADK Saved Map Composition | Primary map refresh + bonus 3D relief variant Map 2 | ADK-MAP-01..03 | Phase 1101 |
+| 1103 Builder Mixed Layer Reorder | Mixed raster/vector reorder updates live MapLibre canvas and persists | BUILDER-01, BUILDER-02 | Phase 1102 |
+| 1104 Terrain Rendering and Config | DEM zoom metadata, explicit terrain disabled state, terrain/exaggeration controls | TERRAIN-01..04 | Phase 1102 |
+| 1105 Builder Error Hygiene | Specific map error routing, non-overlapping toast, Positron sprite warning cleanup | TOAST-01, TOAST-02, BASEMAP-01, SPRITE-01 | Phase 1104 |
+| 1106 Playwright Marketing Close Gate | Live Playwright MCP smoke + close evidence | VERIFY-01..03 | Phases 1103-1105 |
 
-**Coverage:** 7/7 v1023 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 21/21 v1024 requirements mapped, 0 orphans, 0 duplicates.
 
-**Public tag target:** `v1.5.8` (SemVer patch — test-infra hygiene only; no API/schema changes, no migrations).
+**Public tag target:** `v1.5.9` (SemVer patch — data/script + UI/rendering bug fixes; avoid API/schema/migration changes unless a verified fix requires them).
 
-**HARD INVARIANT (v1019 TD-13):** Sequential pytest `failed == 0` non-negotiable. v1022 close-gate baselines (v1023 starting state): sequential **3060/3 OOS/38** + `-n 4` **3059/4 OOS+oauth/38**. Post-v1023 target: sequential **3063+/0/38** + `-n 4` **3063+/0/38** (literal zero — OOS rows retired, not bypassed).
+**HARD INVARIANT:** A freshly composed ADK map at `localhost:8080/maps/{new_id}` opens in the builder with zero browser console errors/warnings, vectors above rasters after reorder, and working terrain settings/exaggeration controls verified through Playwright MCP.
 
 ## Quick Tasks Completed
 
@@ -92,10 +94,10 @@ None — v1023 closed.
 
 ## Session Continuity
 
-Last session: 2026-05-24T22:00:00.000Z
-Stopped at: v1023 shipped (degraded — CI-01 deferred to v1024+); awaiting /gsd:audit-milestone v1023
-Resume file: .planning/phases/1100-ci-live-verify-close-gate/1100-01-SUMMARY.md
+Last session: 2026-05-24T23:31:43.894Z
+Stopped at: v1024 initialized from ADK High Peaks marketing-ready scope; autonomous execution requested
+Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Run autonomous v1024 execution from Phase 1101
