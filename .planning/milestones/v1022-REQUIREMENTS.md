@@ -1,3 +1,12 @@
+# Requirements Archive: v1022 Parallel-Test Cascade Closure + Hygiene Tail
+
+**Archived:** 2026-05-24
+**Status:** SHIPPED (degraded — CI-01 deferred to v1023)
+
+For current requirements, see `.planning/REQUIREMENTS.md`.
+
+---
+
 # Requirements: GeoLens — v1022 Parallel-Test Cascade Closure + Hygiene Tail
 
 **Defined:** 2026-05-23

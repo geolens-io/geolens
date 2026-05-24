@@ -81,78 +81,13 @@
 - ✅ **v1019 Hygiene Tail — v1018 Frontend + xdist + Process** — Phases 1084-1086 (shipped 2026-05-22, local tag `v1019`, public tag `v1.5.4`) — see [archive](milestones/v1019-ROADMAP.md)
 - ✅ **v1020 Fixture Isolation** — Phases 1087-1090 (shipped 2026-05-22, local tag `v1020`, public tag `v1.5.5`) — see [archive](milestones/v1020-ROADMAP.md)
 - ✅ **v1021 Docker Rebuild Sweep + Engine-level Retry** — Phases 1091-1093 (shipped 2026-05-23, local tag `v1021`, public tag `v1.5.6`) — see [archive](milestones/v1021-ROADMAP.md)
-- 🚧 **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (planning, public tag target `v1.5.7`)
+- ✅ **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (shipped 2026-05-24, local tag `v1022`, public tag `v1.5.7`) — see [archive](milestones/v1022-ROADMAP.md)
 
 ## Phases
 
-### 🚧 v1022 Parallel-Test Cascade Closure + Hygiene Tail (In Progress)
+### v1022 Parallel-Test Cascade Closure + Hygiene Tail (Shipped 2026-05-24)
 
-**Milestone Goal:** Close v1021's three test-infra carry-forwards in a single hygiene-shape milestone — (1) Category 4.1 per-worker DB lifecycle parallel-mode cascade (`pytest -n auto` 709/1020 distinct `InvalidCatalogNameError` failures on Runs 3+4); (2) WR-02 blocking `time.sleep()` footgun in `_invoke_sleep_in_sync_context` (may compound Category 4.1 pressure by freezing the asyncio loop up to 7s); (3) WR-01/03/04 engine-retry envelope hygiene; plus the v1020-deferred operator action of `pytest-parallel-isolation` CI gate first post-merge live-verify. **Public tag target:** `v1.5.7` (SemVer patch — test-infra hygiene only; no API/schema/migrations).
-
-**HARD INVARIANT:** `failed == 0` in sequential mode is non-negotiable (v1019 TD-13 rule). Baselines: sequential **3055/0/38** + `-n 4` **3054/0/38** must be preserved across every phase.
-
-- [x] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable) (completed 2026-05-24)
-- [x] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate) (completed 2026-05-24)
-- [x] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook) (completed 2026-05-24)
-- [x] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut) (completed 2026-05-24)
-
-## Phase Details
-
-### Phase 1094: Cascade Spike
-**Goal**: Architectural audit produces `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` identifying the exact race surface in `_test_db_lifecycle:~661-674` and naming the chosen fix shape with line numbers BEFORE any code-fix lands. Also addresses whether WR-02 closure is a prerequisite for PARA-01's ≤30 threshold (the cascade-pressure hypothesis must be validated or ruled out, satisfying PARA-02 acceptance criterion (d) early).
-**Depends on**: Nothing (v1022's first phase — follows v1019/v1020/v1021 spike-first precedent)
-**Requirements**: PARA-01 (spike deliverable / acceptance criterion (e) only — the code-fix lands in Phase 1095)
-**Success Criteria** (what must be TRUE):
-  1. `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` (or equivalent) exists with frontmatter + 5 sections (root-cause hypothesis enumeration, reproduction recipe, line-numbered fix-shape proposal, WR-02-prerequisite analysis, regression-pin shape proposal)
-  2. Pre-fix `pytest -n auto` 3-run baseline measurement captured verbatim in the audit doc with stale-DB cleanup between runs (mirroring PYTEST-XDIST-PERF-v1020.md Section 1 Step 1b) — establishes the "before" number that Phase 1095's post-fix measurement compares against
-  3. The audit doc explicitly addresses the WR-02 cascade-pressure question: either (a) "WR-02 closure is a prerequisite for ≤30 threshold" with evidence, or (b) "WR-02 closure is independent and PARA-02 can sequence either before or alongside PARA-01" with evidence. Silent deferral is NOT acceptable.
-  4. The chosen fix shape is specified with exact `backend/tests/conftest.py` line numbers and a one-paragraph rationale rejecting at least 2 alternative shapes (matches v1021 Phase 1091 spike + Phase 1093 audit-doc rigor)
-  5. Sequential pytest baseline preserved at `3055 passed / 0 NEW failed / 38 skipped` (no code changes in this phase — audit-shape only; baseline preservation is a stay-green check)
-**Plans**: 1 plan
-- [x] 1094-01-PLAN.md — Spike: pre-fix `-n auto` 3-run baseline + hypothesis verdict matrix (H1..H5+) + WR-02 prerequisite analysis + Shape [A/B/C] fix-shape proposal + regression-pin shape proposal → `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` with `status: COMPLETE` (audit-only; no code edits; atomic-2-file commit with SUMMARY.md per CONTEXT.md rule #3)
-
-### Phase 1095: Cascade Fix + WR-02 Closure
-**Goal**: Land the PARA-01 fix at the line(s) named in Phase 1094's audit doc + close PARA-02's WR-02 footgun. Bundled because (a) both surfaces live in the same `backend/tests/conftest.py` block (`_test_db_lifecycle` + `_invoke_sleep_in_sync_context` + `_install_dbapi_connect_retry` are adjacent lines ~615-674); (b) the `-n auto` measurement gate (PARA-01 acceptance criterion (a)) must be re-run AFTER both changes land — splitting them across phases would double the gate cost and obscure which change moved the threshold; (c) PARA-02's cascade-pressure hypothesis (acceptance criterion (d)) is most cleanly validated/refuted by measuring with both fixes in place. **Rationale for departing from one-req-per-phase:** test-infra atomicity > requirement-per-phase granularity when the surfaces share a file and a measurement gate.
-**Depends on**: Phase 1094 (spike audit doc names the fix shape; PARA-02 hypothesis disposition informs whether PARA-02 can sequence first/concurrent or must wait for PARA-01)
-**Requirements**: PARA-01 (fix — acceptance criteria (a)/(b)/(c)/(d); the `[x]` flip happens at this phase's close because all 5 PARA-01 criteria are now satisfied) + PARA-02 (full closure — all 4 acceptance criteria including the regression pin for `_invoke_sleep_in_sync_context`)
-**Success Criteria** (what must be TRUE):
-  1. `cd backend && uv run pytest -n auto tests/` produces ≤30 distinct failures (`failed + errors`) per run across 3 consecutive runs with stale-DB cleanup between runs (PARA-01 acceptance criterion (a); satisfies the audit-grade "Run 3 BREACHED" failure from v1021 Phase 1093-02 findings doc)
-  2. Sequential pytest baseline preserved at `3055 passed / 0 NEW failed / 38 skipped` (HARD INVARIANT — v1019 TD-13); `-n 4` baseline preserved at `3054 passed / 0 NEW failed / 38 skipped` (PARA-01 acceptance criteria (b)+(c))
-  3. At least one regression pin in `backend/tests/test_fixture_isolation_v1020.py` (or new `test_per_worker_db_lifecycle_v1022.py`) covers the per-worker DB lifecycle retry shape under the same `InvalidCatalogNameError` injection model v1020 uses (PARA-01 acceptance criterion (d))
-  4. `_invoke_sleep_in_sync_context` either yields non-blockingly (via `asyncio.run_in_executor` / `anyio.sleep` / equivalent) OR carries a load-bearing inline-commented rationale + documented mitigation (PARA-02 acceptance criterion (a)); a new regression pin asserts the asyncio loop continues scheduling other tasks during retry-backoff window (PARA-02 acceptance criterion (b))
-  5. All 4 existing `test_engine_retry_*` pins continue passing (PARA-02 acceptance criterion (c)); REQUIREMENTS.md `[ ]` → `[x]` flip + `Pending` → `Complete` lands in the SAME commit as SUMMARY.md per v1019 TD-13 `requirements_traceability_flip` rule
-**Plans**: 2 plans
-- [x] 1095-01-PLAN.md — PARA-01 fix (Shape A*): wrap 3 sibling `_init_tile_pool_for_tests` fixtures' `asyncpg.create_pool` in `_run_with_too_many_clients_retry` envelope + `test_init_tile_pool_retries_on_transient_too_many_clients` regression pin + `pytest -n auto` 3-run post-fix baseline ≤30 distinct deterministic + atomic-6-file commit with REQUIREMENTS.md PARA-01 traceability flip — **closed commit `398dc53d` 2026-05-23 (distinct = 20/8/16 ≤30 deterministic, 0 ICN frames)**
-- [x] 1095-02-PLAN.md — PARA-02 closure (WR-02): Shape Y2 (load-bearing rationale + retained `time.sleep`) at `_invoke_sleep_in_sync_context` after Shape Y1 (`asyncio.run(asyncio.sleep(seconds))`) produced 658 RuntimeError cascade failures at Task 5 Run 1 (production caller path has running loop in calling thread via greenlet_spawn) + `test_engine_retry_yields_event_loop_during_backoff` regression pin (Shape Y2 alternative — static-text token assertion) + 4 existing `test_engine_retry_*` pins re-verified GREEN + sequential 3057 passed / 3 OOS / 38 + `-n 4` 3055 passed / 5 (OOS + documented flakes) / 38 + `-n auto` 3-run distinct = 3/2/3 deterministic (BETTER than Plan 01 floor 20/8/16) + atomic-4-file commit `ca7a85fb` with REQUIREMENTS.md PARA-02 traceability flip — **closed commit `ca7a85fb` 2026-05-24**
-
-### Phase 1096: Hygiene Tail
-**Goal**: Retire the three remaining Phase 1093 review findings (WR-01 pin coverage for the `do_connect` event handler retry path + WR-03 bare-except narrowing in `_install_dbapi_connect_retry` + WR-04 listener teardown removal hook). All three target the engine wrapper code that Phase 1095 stabilizes — landing AFTER Phase 1095 ensures the test pins target the post-fix engine state (not the pre-fix state) and avoids re-writing pins mid-milestone.
-**Depends on**: Phase 1095 (engine wrapper stabilized; new pins target the post-fix `_install_dbapi_connect_retry` shape, not the pre-fix shape)
-**Requirements**: HYG-01 (all 3 sub-items: WR-01 + WR-03 + WR-04)
-**Success Criteria** (what must be TRUE):
-  1. A new regression pin (suggested name `test_engine_retry_do_connect_event_handler_retries_on_transient_error`) in `backend/tests/test_fixture_isolation_v1020.py` exercises the load-bearing `do_connect` event handler retry path (WR-01 closure; the 4 existing `test_engine_retry_*` pins cover the wrapper-method path but NOT the event-handler path that the v1021 -91% measurement validates)
-  2. The `except Exception: pass` block in `_install_dbapi_connect_retry` is either narrowed to a specific SQLAlchemy event-API exception class OR replaced with loud-fail (raise) so future SQLAlchemy event-API changes are visible (WR-03 closure; matches v1020 audit Section 4.1 anti-pattern condemnation)
-  3. A teardown removal call for the `do_connect` listener exists (candidate: `event.remove(sync_engine, "do_connect", <handler>)` in `_RetryingAsyncEngine.dispose()` override or pytest fixture finalizer) so a future refactor wrapping a shared engine multiple times does not stack listeners (WR-04 closure)
-  4. The 4 existing `test_engine_retry_*` pins + `test_xdist_engine_uses_nullpool` + `test_sequential_engine_uses_queuepool` continue passing — the v1021 wrapper invariants (`.pool` accessor via `@property` delegation + `_TRANSIENT_CONTENTION_EXCEPTIONS` single-definition at line 352 + `_SETUP_PHASE_RETRY_BACKOFFS` single-definition at line 333) must hold (HYG-01 acceptance criterion (b))
-  5. Sequential / `-n 4` / `-n auto` baselines preserved vs Phase 1095 post-fix state — zero NEW failures attributable to HYG-01 (HYG-01 acceptance criterion (c))
-**Plans**: 1 plan
-- [x] 1096-01-PLAN.md — Close HYG-01: WR-03 narrow `except Exception:` → `(TypeError, AttributeError, InvalidRequestError)` [Rule 1 — narrow tuple expanded by 1 class when MagicMock surfaced sqlalchemy.exc.InvalidRequestError under SQLAlchemy 2.x] at `_RetryingAsyncEngine.__init__` (conftest.py:842) + WR-04 `event.remove(self._sync_engine, "do_connect", self._do_connect_handler)` in `_RetryingAsyncEngine.dispose()` override (conftest.py:934-977) + signature change to `_install_dbapi_connect_retry` at line 753 (returns registered handler) + 3 new pins in `test_fixture_isolation_v1020.py`: `test_engine_retry_do_connect_event_handler_retries_on_transient_error` at line 1391 (WR-01 — exercises engine.dialect.dispatch.do_connect, NOT engine.dispatch.do_connect [Rule 3 — DialectEvents lives on dialect.dispatch]) + `test_init_tile_pool_catches_raw_asyncpg_too_many_connections` at line 1557 + `test_init_tile_pool_propagates_non_transient_error` at line 1666 (WR-01-1095 carry-forward). Atomic-4-file commit `c119f94c`. Gates GREEN: 9 retry pins; pool-sizing 2/2; sequential 3060/3 OOS/38; -n 4 3057/6 OOS/38; -n auto 3-run 5/2/2 distinct deterministic ≤30 ZERO ICN — **closed commit `c119f94c` 2026-05-24**
-
-### Phase 1097: Live-Verify + Close Gate
-**Goal**: Operator runs `gh run watch` for the first post-v1022-merge `pytest-parallel-isolation` CI gate firing to verify it lands green on real GitHub Actions infrastructure (closes the v1020 Phase 1089 deferred operator action). Then close gate: sequential baseline re-confirmed + `-n 4` baseline re-confirmed + `-n auto` 3-run measurement table re-confirmed + CHANGELOG `[1.5.7]` written with per-requirement evidence + tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA. Must land LAST because CI-01 can only verify post-merge of PARA-01/PARA-02/HYG-01.
-**Depends on**: Phase 1096 (HYG-01 must be merged so the CI gate's first firing covers the complete post-v1022 engine-wrapper + per-worker-lifecycle code; verifying with HYG-01 still in flight would not validate the milestone-tip state)
-**Requirements**: CI-01 (post-merge live-verify of `pytest-parallel-isolation` gate) + CLOSE-01 (close-gate + tag cut)
-**Success Criteria** (what must be TRUE):
-  1. After v1022 merges to `main`, operator-captured `gh run list --workflow=ci.yml --limit=1 --json databaseId,status` + `gh run watch <run_id>` output is quoted verbatim in CLOSE-GATE.md showing the `pytest-parallel-isolation` job completing green (CI-01 acceptance criteria (a)+(b)); if the gate fails on first live run, the failure is fed back into a PARA-01 iteration commit BEFORE close (CI-01 acceptance criterion (c))
-  2. CLOSE-GATE.md quotes the sequential pytest result verbatim showing `3055 passed / 0 NEW failed / 38 skipped` with an explicit pre-existing-OOS table (`test_layering` + `test_phase_275` + `test_ssrf_redirect` may remain failing) (CLOSE-01 acceptance criterion (a))
-  3. CLOSE-GATE.md quotes the `-n 4` result verbatim showing `3054 passed / 0 NEW failed / 38 skipped` with an explicit OOS table + the `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (CLOSE-01 acceptance criteria (b)+(c))
-  4. Live docker stack health spot-check passes: `docker compose ps` shows 5 services healthy + `curl http://localhost:8080/api/health/` returns 200 (CLOSE-01 acceptance criterion (d))
-  5. `CHANGELOG.md` `[1.5.7]` block lists PARA-01, PARA-02, HYG-01, CI-01 closures with the test pin names + line numbers + the CI-01 live-verify run-watch log embedded; tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA and recorded in `.planning/MILESTONES.md` (CLOSE-01 acceptance criteria (e)+(f)+(g))
-**Plans**: 2 plans
-- [x] 1097-01-PLAN.md — CLOSE-01 close-gate baselines (sequential 3060/3 OOS/38 re-confirm + `-n 4` 3057/4-7/38 re-confirm + `-n auto` 3-run ≤30 distinct deterministic with 0 ICN frames + docker stack 5-services-healthy + `curl /api/health/` 200) + CHANGELOG `[1.5.7]` block listing PARA-01 + PARA-02 + HYG-01 + CI-01 (placeholder) closures with test pin names + line numbers + 1097-01-CLOSE-GATE.md draft with sections (a)-(e) populated; atomic-3-file commit `docs(1097-01): CLOSE-01 close-gate baselines + CHANGELOG [1.5.7]`; does NOT flip CLOSE-01 (lands in Plan 02 alongside CI-01 flip + tag refs per v1019 TD-13 traceability_flip rule)
-- [x] 1097-02-PLAN.md — CI-01 live-verify on real GitHub Actions infrastructure (operator-confirmation gate before `git push origin main` per CONTEXT.md push-gate + global CLAUDE.md "Executing actions with care" rule; `gh run watch $RUN_ID` for the `pytest-parallel-isolation` job at `.github/workflows/ci.yml:499-590`; embed verbatim log block in 1097-01-CLOSE-GATE.md CI-01 (f) section per CI-01 (b)) + cut tags `v1022` (local) + `v1.5.7` (public) at Plan 01's close-gate SHA + push tags to origin (CLOSE-01 (g)) + write MILESTONES.md v1022 entry (mirror v1021 format) + flip REQUIREMENTS.md CI-01 + CLOSE-01 both `[ ]` → `[x]` + Pending → Complete in atomic-4-file commit `feat(1097-02): CI-01 live-verify green + tags v1022/v1.5.7 cut`; failure-branch (CI-01 RED): skip tag cut, produce atomic-2-file failure-shape commit, defer to Plan 1097-03 iteration
-
----
+✅ Complete (degraded) — see [archive](milestones/v1022-ROADMAP.md). 4 phases (1094-1097), 6 plans, 5 requirements (PARA-01 / PARA-02 / HYG-01 / CLOSE-01 satisfied; CI-01 deferred to v1023). Local tag `v1022` + public tag `v1.5.7` at `48707fb1`. Closed v1021's three test-infra carry-forwards: PARA-01 (spike reclassified surface from per-worker DB lifecycle race to `_init_tile_pool_for_tests` retry-envelope gap — wrap 3 sibling `asyncpg.create_pool` sites in existing `_run_with_too_many_clients_retry` envelope); PARA-02 (WR-02 Shape Y2 load-bearing rationale after Y1 empirically failed); HYG-01 (WR-03 narrow except + WR-04 listener teardown + 3 new regression pins for symmetry with `test_engine_retry_*` family). Sequential pytest 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38 + `-n auto` 3-run 2/3/2 distinct deterministic + 0 ICN frames. **CI-01 deferred to v1023:** GitHub Actions billing block at push (run 26359374410: 0/13 jobs executed); user-authorized degraded close. Gate-shape verified locally to v1021 TEST-01 depth. Audit verdict: `tech_debt` (CLEAR-TO-TAG degraded) — see `.planning/milestones/v1022-MILESTONE-AUDIT.md`. **v1023 carry-forward (1):** CI-01-v1023 (operator-resolves-billing + `gh run rerun 26359374410` + document GREEN evidence).
 
 ### v1021 Docker Rebuild Sweep + Engine-level Retry (Shipped 2026-05-23)
 
@@ -182,10 +117,7 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
-| 1095. Cascade Fix + WR-02 Closure | v1022 | 2/2 | Complete   | 2026-05-24 |
-| 1096. Hygiene Tail | v1022 | 1/1 | Complete   | 2026-05-24 |
-| 1097. Live-Verify + Close Gate | v1022 | 2/2 | Complete   | 2026-05-24 |
+| _Awaiting next milestone_ | — | — | — | — |
 
 ## Backlog
 
