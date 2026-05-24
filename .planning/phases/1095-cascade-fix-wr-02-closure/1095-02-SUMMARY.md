@@ -226,9 +226,18 @@ All 5 ROADMAP Phase 1095 success criteria (per ROADMAP.md lines 119-123) verifie
 - **Phase 1097 close-gate (CLOSE-01):** the 3-run `-n auto` baseline at this plan's close (distinct = 3/2/3) is one of the 3 baseline measurements the close-gate doc must quote (alongside sequential 3057/0-NEW/38 + `-n 4` 3055/0-NEW/38). The close-gate's PARA-01+PARA-02 verification can cite the Plan 02 SUMMARY as the single source-of-record.
 - **v1022 carry-forward:** None from Phase 1095. WR-02 closed forward-safety hygiene; the cascade source closed at Plan 1095-01 was the actual problem.
 
-## Self-Check: PENDING
+## Self-Check: PASSED
 
-Will append PASSED block after the atomic-4-file commit verifies.
+Verified post-commit (2026-05-24T02:43Z):
+
+- **All 4 atomic-commit files exist** at committed paths (REQUIREMENTS.md + 1095-02-SUMMARY.md + conftest.py + test_fixture_isolation_v1020.py).
+- **All 7 measurement-gate artifacts exist** in `/tmp/` (3 `-n auto` .log + 3 .xml + 1 sequential .log + 1 n4 .log + 1 rollup-gates.md).
+- **Commit `ca7a85fb` (atomic-4-file) exists** in `git log --oneline`. Stat: 4 files changed, 396 insertions(+), 6 deletions(-).
+- **Zero file deletions** in the commit (`git diff --diff-filter=D --name-only HEAD~1 HEAD` returns empty).
+- **REQUIREMENTS.md PARA-02** confirmed `[x]` + `Complete` via grep.
+- **New regression pin** `test_engine_retry_yields_event_loop_during_backoff` confirmed at `backend/tests/test_fixture_isolation_v1020.py::test_engine_retry_yields_event_loop_during_backoff` — passes individually + co-passes with all 4 existing `test_engine_retry_*` pins (`5 passed in 1.53s`).
+- **WR-02 fix landed at conftest.py production-path branch** — `grep` confirms `WR-02 (PARA-02 / Plan 1095-02)` + `greenlet_spawn` + `time.sleep(seconds)` + `Section 4.3` + `Section 4.4` + structural-mitigation cross-reference all present at `if sleep_fn is asyncio.sleep:` block.
+- **Gate metrics:** `-n auto` Run 1=3, Run 2=2, Run 3=3; all ≤30 deterministic, all pre-existing OOS (ZERO cascade frames).
 
 ---
 *Phase: 1095-cascade-fix-wr-02-closure*

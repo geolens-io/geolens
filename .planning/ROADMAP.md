@@ -92,7 +92,7 @@
 **HARD INVARIANT:** `failed == 0` in sequential mode is non-negotiable (v1019 TD-13 rule). Baselines: sequential **3055/0/38** + `-n 4` **3054/0/38** must be preserved across every phase.
 
 - [x] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable) (completed 2026-05-24)
-- [ ] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate)
+- [x] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate) (completed 2026-05-24)
 - [ ] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook)
 - [ ] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut)
 
@@ -123,7 +123,7 @@
   5. All 4 existing `test_engine_retry_*` pins continue passing (PARA-02 acceptance criterion (c)); REQUIREMENTS.md `[ ]` → `[x]` flip + `Pending` → `Complete` lands in the SAME commit as SUMMARY.md per v1019 TD-13 `requirements_traceability_flip` rule
 **Plans**: 2 plans
 - [x] 1095-01-PLAN.md — PARA-01 fix (Shape A*): wrap 3 sibling `_init_tile_pool_for_tests` fixtures' `asyncpg.create_pool` in `_run_with_too_many_clients_retry` envelope + `test_init_tile_pool_retries_on_transient_too_many_clients` regression pin + `pytest -n auto` 3-run post-fix baseline ≤30 distinct deterministic + atomic-6-file commit with REQUIREMENTS.md PARA-01 traceability flip — **closed commit `398dc53d` 2026-05-23 (distinct = 20/8/16 ≤30 deterministic, 0 ICN frames)**
-- [ ] 1095-02-PLAN.md — PARA-02 closure (WR-02): `_invoke_sleep_in_sync_context` Shape Y1 non-blocking yield (default) OR Shape Y2 load-bearing rationale (fallback) + `test_engine_retry_yields_event_loop_during_backoff` regression pin + 4 existing `test_engine_retry_*` pins re-verified + sequential 3055/0/38 + `-n 4` 3054/0/38 + `-n auto` 3-run rollup gates + atomic-4-file commit with REQUIREMENTS.md PARA-02 traceability flip
+- [x] 1095-02-PLAN.md — PARA-02 closure (WR-02): Shape Y2 (load-bearing rationale + retained `time.sleep`) at `_invoke_sleep_in_sync_context` after Shape Y1 (`asyncio.run(asyncio.sleep(seconds))`) produced 658 RuntimeError cascade failures at Task 5 Run 1 (production caller path has running loop in calling thread via greenlet_spawn) + `test_engine_retry_yields_event_loop_during_backoff` regression pin (Shape Y2 alternative — static-text token assertion) + 4 existing `test_engine_retry_*` pins re-verified GREEN + sequential 3057 passed / 3 OOS / 38 + `-n 4` 3055 passed / 5 (OOS + documented flakes) / 38 + `-n auto` 3-run distinct = 3/2/3 deterministic (BETTER than Plan 01 floor 20/8/16) + atomic-4-file commit `ca7a85fb` with REQUIREMENTS.md PARA-02 traceability flip — **closed commit `ca7a85fb` 2026-05-24**
 
 ### Phase 1096: Hygiene Tail
 **Goal**: Retire the three remaining Phase 1093 review findings (WR-01 pin coverage for the `do_connect` event handler retry path + WR-03 bare-except narrowing in `_install_dbapi_connect_retry` + WR-04 listener teardown removal hook). All three target the engine wrapper code that Phase 1095 stabilizes — landing AFTER Phase 1095 ensures the test pins target the post-fix engine state (not the pre-fix state) and avoids re-writing pins mid-milestone.
@@ -180,7 +180,7 @@
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
-| 1095. Cascade Fix + WR-02 Closure | v1022 | 1/2 | In progress | 1095-01 closed `398dc53d` 2026-05-23 |
+| 1095. Cascade Fix + WR-02 Closure | v1022 | 2/2 | Complete   | 2026-05-24 |
 | 1096. Hygiene Tail | v1022 | 0/TBD | Not started | - |
 | 1097. Live-Verify + Close Gate | v1022 | 0/TBD | Not started | - |
 

@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1022
 milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
-status: "Phase 1095 Plan 01 closed via commit `398dc53d` (atomic-6-file). PARA-01 complete (distinct = 20/8/16 ≤30 deterministic, 0 ICN frames). Ready for Plan 1095-02 (PARA-02 / WR-02 closure)."
-stopped_at: "Plan 1095-01 SUMMARY committed at 398dc53d; PARA-01 traceability flipped [x]/Complete. Plan 1095-02 next."
-last_updated: "2026-05-24T01:33:00Z"
-last_activity: 2026-05-23 — Plan 1095-01 SUMMARY shipped; Shape A* wrap applied at 3 `_init_tile_pool_for_tests` fixture sites; PARA-01 closed
+status: completed
+stopped_at: Plan 1095-02 SUMMARY committed at ca7a85fb; PARA-02 traceability flipped [x]/Complete; Phase 1095 CLOSED. Next: Phase 1096 HYG-01.
+last_updated: "2026-05-24T02:44:00Z"
+last_activity: 2026-05-24 — Plan 1095-02 SUMMARY shipped; WR-02 Shape Y2 (load-bearing rationale) applied at conftest.py after Y1 produced 658 RuntimeError cascade; -n auto 3-run distinct = 3/2/3 deterministic (BETTER than Plan 01 floor 20/8/16); PARA-02 closed; Phase 1095 CLOSED.
 progress:
   total_phases: 9
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
-  completed_plans: 3
-  percent: 11
+  completed_plans: 4
+  percent: 22
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1095 Cascade Fix + WR-02 Closure (in progress — 1 of 2 plans complete)
-Plan: 1095-01-PLAN.md (complete — Shape A* wrap applied + PARA-01 closed); 1095-02-PLAN.md (next — PARA-02 / WR-02 closure)
-Status: Plan 1095-01 closed via commit `398dc53d` (atomic-6-file). PARA-01 complete (distinct = 20/8/16 ≤30 deterministic, 0 ICN frames). Plan 1095-02 next.
-Last activity: 2026-05-23 — Plan 1095-01 SUMMARY shipped; Shape A* wrap applied at 3 `_init_tile_pool_for_tests` fixture sites; PARA-01 closed
+Phase: 1095 Cascade Fix + WR-02 Closure (CLOSED — 2 of 2 plans complete; both PARA-01 + PARA-02 Complete)
+Plan: 1095-01-PLAN.md (complete — Shape A* wrap applied + PARA-01 closed); 1095-02-PLAN.md (complete — Shape Y2 load-bearing rationale + PARA-02 closed)
+Status: Plan 1095-02 closed via commit `ca7a85fb` (atomic-4-file). PARA-02 complete; Phase 1095 CLOSED. Both PARA-01 + PARA-02 = `[x]` + `Complete` in REQUIREMENTS.md. Phase 1095 rollup gates GREEN: `-n auto` 3-run = 3/2/3 distinct deterministic (all pre-existing OOS); sequential 3057/3 OOS/38 (0 NEW); `-n 4` 3055/5 (2 OOS + 2 oauth flake + 1 documented test_publish_blocked flake)/38 (0 NEW). Next: Phase 1096 HYG-01 (WR-01/03/04).
+Last activity: 2026-05-24 — Plan 1095-02 SUMMARY shipped; WR-02 Shape Y2 (load-bearing rationale) applied at conftest.py after Y1 produced 658 RuntimeError cascade; PARA-02 closed; Phase 1095 CLOSED
 
-Progress: [███░░░░░░░] 25% (1 of 4 phases complete; Phase 1095 in-progress at 50% — 1/2 plans)
+Progress: [██████████] 100%
 
 ## Project Reference
 
@@ -76,6 +76,7 @@ See: .planning/PROJECT.md
 - [Phase ?]: 2026-05-23 (Phase 1094 spike): CONTEXT.md line-number drift documented in audit Section 3.1 (8-row corrected table). _test_db_lifecycle is at line 906, NOT ~661-674. Phase 1095 planner uses corrected table.
 - [Phase 1095-01]: 2026-05-23: PARA-01 closed via Shape A* wrap at 3 `_init_tile_pool_for_tests` fixture sites (test_tiles.py:151 + test_embed_tokens.py:56 + test_tile_signing.py:107) routing raw `asyncpg.create_pool(...)` through the existing `_run_with_too_many_clients_retry` envelope at conftest.py:359. Regression pin `test_init_tile_pool_retries_on_transient_too_many_clients` at test_fixture_isolation_v1020.py:1144. Post-fix 3-run baseline = 20/8/16 distinct (all ≤30, 0 ICN frames). Mean shift 16.3 → 14.7 vs pre-fix 14/14/21. Sequential 3055/0/38 + `-n 4` 3054/0/38 baseline preservation re-measurement deferred to Plan 1095-02 close.
 - [Phase 1095-01]: 2026-05-23: Optional xfail pre-fix regression pin (`test_init_tile_pool_no_retry_pre_fix_raises_too_many_clients`) DEFERRED to Plan 02 per CONTEXT.md `<specifics>` Plan 01 Step 6 — positive pin alone is load-bearing for the wrap-shape regression-detection contract.
+- [Phase ?]: [Phase 1095-02]: 2026-05-24: PARA-02 closed via Shape Y2 (load-bearing rationale + retained time.sleep) at conftest.py:_invoke_sleep_in_sync_context after Shape Y1 (asyncio.run(asyncio.sleep(seconds))) produced 658 RuntimeError cascade failures at Task 5 Run 1 — production caller _retry_do_connect via greenlet_spawn has a running event loop in calling thread. Audit Section 4.3 INDEPENDENT disposition empirically validated: post-Y2 3-run -n auto distinct = 3/2/3 (BETTER than Plan 01 floor 20/8/16). Pin test_engine_retry_yields_event_loop_during_backoff (Shape Y2 alternative) asserts WR-02/PARA-02/Plan-1095-02/greenlet_spawn/Section-4.3-or-4.4/time.sleep tokens at source-of-record. Atomic-4-file commit ca7a85fb. Phase 1095 CLOSED.
 
 ### Pending Todos
 
@@ -93,9 +94,9 @@ None at v1022 roadmap-create. Phase 1094 spike has no pre-requisites — `/gsd:p
 
 ## Session Continuity
 
-Last session: 2026-05-24T01:33:00Z
+Last session: 2026-05-24T02:44:02.349Z
 Stopped at: Plan 1095-01 SUMMARY committed at 398dc53d; PARA-01 traceability flipped [x]/Complete. Plan 1095-02 next.
-Resume file: .planning/phases/1095-cascade-fix-wr-02-closure/1095-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
@@ -112,6 +113,6 @@ v1022 inherits the following from v1021 close-state (in scope for v1022):
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | test-infra | Category 4.1 per-worker DB lifecycle parallel-mode cascade (`-n auto` 709/1020 distinct) | Closed Plan 1095-01 (commit `398dc53d` — Shape A* wrap; distinct = 20/8/16 ≤30 deterministic, 0 ICN frames) | v1021 Phase 1093 |
-| test-infra | WR-02 blocking `time.sleep` in `_invoke_sleep_in_sync_context` footgun | Active — PARA-02 (Phase 1095) | v1021 Phase 1093 |
+| test-infra | WR-02 blocking `time.sleep` in `_invoke_sleep_in_sync_context` footgun | Closed Plan 1095-02 (commit `ca7a85fb` — Shape Y2 load-bearing rationale after Y1 produced 658 RuntimeError cascade; audit Section 4.3 INDEPENDENT disposition empirically validated) | v1021 Phase 1093 |
 | test-infra | Phase 1093 review findings WR-01..04 (engine-retry test pin coverage + edge cases) | Active — HYG-01 (Phase 1096) | v1021 Phase 1093 |
 | ci-live-verify | `pytest-parallel-isolation` gate first post-merge run | Active — CI-01 (Phase 1097) | v1020 Phase 1089 |
