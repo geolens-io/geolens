@@ -2,27 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1022
 milestone_name: Parallel-Test Cascade Closure + Hygiene Tail
-status: planning
-last_updated: "2026-05-23T23:50:00.000Z"
-last_activity: 2026-05-23
+status: "Phase 1094 closed via commit `36f54f8a` (atomic-2-file: audit doc + SUMMARY). Ready for `/gsd:plan-phase 1095`"
+stopped_at: "Phase 1094 closed via commit 36f54f8a (audit doc + SUMMARY.md atomic-2-file). Ready for `/gsd:plan-phase 1095`"
+last_updated: "2026-05-24T00:40:00.000Z"
+last_activity: 2026-05-23 — Phase 1094-01 SUMMARY shipped; cascade surface reclassified from per-worker DB CREATE (planner-anticipated) to `_init_tile_pool_for_tests` direct asyncpg.create_pool contention (observed)
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 25
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (roadmap created, ready for Phase 1094 planning)
-Plan: —
-Status: Roadmap created; ready for `/gsd:plan-phase 1094`
-Last activity: 2026-05-23 — Milestone v1022 roadmap created (4 phases 1094-1097, 5/5 requirements mapped)
+Phase: 1094 Cascade Spike (complete)
+Plan: 1094-01-PLAN.md (complete — spike audit doc shipped)
+Status: Phase 1094 closed via commit `36f54f8a` (atomic-2-file: audit doc + SUMMARY). Ready for `/gsd:plan-phase 1095`
+Last activity: 2026-05-23 — Phase 1094-01 SUMMARY shipped; cascade surface reclassified from per-worker DB CREATE (planner-anticipated) to `_init_tile_pool_for_tests` direct asyncpg.create_pool contention (observed)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 25% (1 of 4 phases complete)
 
 ## Project Reference
 
@@ -69,6 +70,10 @@ See: .planning/PROJECT.md
 - **2026-05-23 (v1022 roadmap):** Public tag target `v1.5.7` (SemVer patch) — test-infra hygiene only; no user-facing features, no API/schema/migrations, no production-code behavior change beyond conftest/test-fixture engine layer. CHANGELOG `[1.5.7]` block lists PARA-01/PARA-02/HYG-01/CI-01 closures with test pin names + line numbers.
 - **2026-05-23 (v1022 roadmap):** Sequential pytest baseline that MUST stay green throughout v1022: **3055 passed / 0 NEW failed / 38 skipped** (v1021 Phase 1093 close-gate). HARD INVARIANT — `failed == 0` non-negotiable per v1019 TD-13.
 - **2026-05-23 (v1022 roadmap):** v1019 TD-13 rules LIVE for v1022 from Day 1: REQ citation pinning (planner MUST validate `path::TestClass::test_name` node-IDs via `git grep -n "def <test_name>" <path>` BEFORE plans commit; applies to PARA-01's new per-worker DB lifecycle pin, PARA-02's loop-yield regression pin, HYG-01's `test_engine_retry_do_connect_event_handler_*` pin) + traceability flip (executor MUST flip REQUIREMENTS.md `[ ]` → `[x]` and `Pending` → `Complete` in the SAME commit as SUMMARY.md).
+- [Phase ?]: 2026-05-23 (Phase 1094 spike): Cascade surface reclassified to _init_tile_pool_for_tests asyncpg.create_pool contention; audit at .planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md
+- [Phase ?]: 2026-05-23 (Phase 1094 spike): Fix shape Shape A* — wrap asyncpg.create_pool in existing _run_with_too_many_clients_retry envelope (conftest.py:359). 6 alternative shapes rejected with rationale. Phase 1095 consumes Section 3.2 as fix action.
+- [Phase ?]: 2026-05-23 (Phase 1094 spike): WR-02 disposition INDEPENDENT — _invoke_sleep_in_sync_context called only from Category 4.3 engine-wrapper paths (conftest.py:706 + 843); observed cascade source bypasses those. PARA-02 sequencing in Phase 1095 is operator-discretion.
+- [Phase ?]: 2026-05-23 (Phase 1094 spike): CONTEXT.md line-number drift documented in audit Section 3.1 (8-row corrected table). _test_db_lifecycle is at line 906, NOT ~661-674. Phase 1095 planner uses corrected table.
 
 ### Pending Todos
 
@@ -86,7 +91,7 @@ None at v1022 roadmap-create. Phase 1094 spike has no pre-requisites — `/gsd:p
 
 ## Session Continuity
 
-Last session: 2026-05-23T23:50:00.000Z
+Last session: 2026-05-24T00:38:17.401Z
 Stopped at: v1022 ROADMAP.md + STATE.md + REQUIREMENTS.md traceability created; ready for `/gsd:plan-phase 1094`
 Resume file: None
 

@@ -91,7 +91,7 @@
 
 **HARD INVARIANT:** `failed == 0` in sequential mode is non-negotiable (v1019 TD-13 rule). Baselines: sequential **3055/0/38** + `-n 4` **3054/0/38** must be preserved across every phase.
 
-- [ ] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable)
+- [x] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable) (completed 2026-05-24)
 - [ ] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate)
 - [ ] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook)
 - [ ] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut)
@@ -109,7 +109,7 @@
   4. The chosen fix shape is specified with exact `backend/tests/conftest.py` line numbers and a one-paragraph rationale rejecting at least 2 alternative shapes (matches v1021 Phase 1091 spike + Phase 1093 audit-doc rigor)
   5. Sequential pytest baseline preserved at `3055 passed / 0 NEW failed / 38 skipped` (no code changes in this phase — audit-shape only; baseline preservation is a stay-green check)
 **Plans**: 1 plan
-- [ ] 1094-01-PLAN.md — Spike: pre-fix `-n auto` 3-run baseline + hypothesis verdict matrix (H1..H5+) + WR-02 prerequisite analysis + Shape [A/B/C] fix-shape proposal + regression-pin shape proposal → `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` with `status: COMPLETE` (audit-only; no code edits; atomic-2-file commit with SUMMARY.md per CONTEXT.md rule #3)
+- [x] 1094-01-PLAN.md — Spike: pre-fix `-n auto` 3-run baseline + hypothesis verdict matrix (H1..H5+) + WR-02 prerequisite analysis + Shape [A/B/C] fix-shape proposal + regression-pin shape proposal → `.planning/audits/PYTEST-NAUTO-CATEGORY-4-1-v1022.md` with `status: COMPLETE` (audit-only; no code edits; atomic-2-file commit with SUMMARY.md per CONTEXT.md rule #3)
 
 ### Phase 1095: Cascade Fix + WR-02 Closure
 **Goal**: Land the PARA-01 fix at the line(s) named in Phase 1094's audit doc + close PARA-02's WR-02 footgun. Bundled because (a) both surfaces live in the same `backend/tests/conftest.py` block (`_test_db_lifecycle` + `_invoke_sleep_in_sync_context` + `_install_dbapi_connect_retry` are adjacent lines ~615-674); (b) the `-n auto` measurement gate (PARA-01 acceptance criterion (a)) must be re-run AFTER both changes land — splitting them across phases would double the gate cost and obscure which change moved the threshold; (c) PARA-02's cascade-pressure hypothesis (acceptance criterion (d)) is most cleanly validated/refuted by measuring with both fixes in place. **Rationale for departing from one-req-per-phase:** test-infra atomicity > requirement-per-phase granularity when the surfaces share a file and a measurement gate.
@@ -177,7 +177,7 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1094. Cascade Spike | v1022 | 0/1 | Not started | - |
+| 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
 | 1095. Cascade Fix + WR-02 Closure | v1022 | 0/TBD | Not started | - |
 | 1096. Hygiene Tail | v1022 | 0/TBD | Not started | - |
 | 1097. Live-Verify + Close Gate | v1022 | 0/TBD | Not started | - |
