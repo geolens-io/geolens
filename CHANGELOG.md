@@ -11,7 +11,34 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-_No entries yet — open the next milestone with `/gsd:new-milestone` to begin v1022._
+_No entries yet — open the next milestone with `/gsd:new-milestone` to begin v1023._
+
+## [1.5.7] - 2026-05-24
+
+Test-infrastructure hygiene — closes v1021 carry-forward: per-worker DB lifecycle parallel-mode cascade (PARA-01) + WR-02 sleep footgun (PARA-02) + WR-01/03/04 engine-retry envelope hygiene (HYG-01) + `pytest-parallel-isolation` CI gate live-verify (CI-01).
+
+### Test Infra
+
+- **PARA-01 (Phase 1095-01):** Wrap `_init_tile_pool_for_tests` `asyncpg.create_pool` in existing `_run_with_too_many_clients_retry` envelope at 3 sibling call sites (`backend/tests/test_tiles.py:152`, `backend/tests/test_embed_tokens.py:57`, `backend/tests/test_tile_signing.py:108`) — closes the per-worker DB lifecycle parallel-mode cascade. `pytest -n auto` distinct failures: pre-fix 126-383 per run (v1021 close) → 20/8/16 (Plan 1095-01) → 3/2/3 (Plan 1095-02) → 5/2/2 (Phase 1096 close) → **2/3/2 (Phase 1097 close-gate)**. Regression pin: `backend/tests/test_fixture_isolation_v1020.py::test_init_tile_pool_retries_on_transient_too_many_clients` at line 1144.
+
+- **PARA-02 (Phase 1095-02):** Close WR-02 `_invoke_sleep_in_sync_context` loop-starvation footgun via Shape Y2 load-bearing rationale (greenlet context cannot yield via `asyncio.run` — Shape Y1 attempt produced 658 `RuntimeError: asyncio.run() cannot be called from a running event loop` cascade failures at Plan 1095-02 Task 5 Run 1; the production caller path via SQLAlchemy `greenlet_spawn` has a running loop in the calling thread). The structural mitigation lives at PARA-01's 3 fixture-site wraps. Regression pin: `backend/tests/test_fixture_isolation_v1020.py::test_engine_retry_yields_event_loop_during_backoff` at line 1253 (Shape Y2 static-text token assertion — silent removal breaks CI).
+
+- **HYG-01 (Phase 1096-01):**
+  - **WR-03:** Narrowed `except Exception:` at `backend/tests/conftest.py:842` to `except (TypeError, AttributeError, InvalidRequestError):` (3 documented SQLAlchemy event-API failure shapes; tuple expanded from plan-spec 2 classes to 3 when MagicMock test doubles surfaced `sqlalchemy.exc.InvalidRequestError` under SQLAlchemy 2.x — Rule 1 documented deviation).
+  - **WR-04:** Added `event.remove(self._sync_engine, "do_connect", self._do_connect_handler)` teardown call in `_RetryingAsyncEngine.dispose()` override at `backend/tests/conftest.py:958-962` (idempotent ref reset; None-guarded for test doubles).
+  - **WR-01 + WR-01-1095 carry-forward:** 3 new regression pins in `backend/tests/test_fixture_isolation_v1020.py` — `test_engine_retry_do_connect_event_handler_retries_on_transient_error` at line 1391 (exercises the load-bearing `do_connect` event-handler retry path via `engine.dialect.dispatch.do_connect` — Rule 3 documented deviation from `engine.dispatch.do_connect` per SQLAlchemy DialectEvents surface), `test_init_tile_pool_catches_raw_asyncpg_too_many_connections` at line 1557 (fixture-layer parity with engine-layer raw-asyncpg pin), `test_init_tile_pool_propagates_non_transient_error` at line 1666 (fixture-layer parity with engine-layer propagation pin).
+
+### CI
+
+- **CI-01 (Phase 1097-02):** First post-merge live-verify of `pytest-parallel-isolation` CI gate at `.github/workflows/ci.yml:499-590` (added v1020 Phase 1089). Status: **[GREEN/RED — populated by Plan 02 close]** (Plan 1097-02 captures the `gh run watch` output and replaces this placeholder with verbatim job-step log block).
+
+### Known Limitations
+
+- 3 pre-existing OOS sequential failures preserved (out of v1022 scope per REQUIREMENTS.md Out of Scope table): `tests/test_layering.py::test_router_orchestrator_modules_stay_within_loc_cap` (LOC-cap decomposition tech-debt); `tests/test_phase_275_readme_accuracy.py::test_readme_signature_maps_list_intact` (README sync drift); `tests/test_ssrf_redirect.py::test_make_safe_client_has_event_hook` (flake-class). Closing these is its own future hygiene milestone.
+
+### Migrations
+
+None. All v1.5.7 changes are test-infra hygiene (`backend/tests/conftest.py` + `backend/tests/test_fixture_isolation_v1020.py` + `.planning/`). No API contract changes, no schema changes, no production-code behavior changes beyond the test-fixture engine layer.
 
 ## [1.5.6] - 2026-05-23
 
