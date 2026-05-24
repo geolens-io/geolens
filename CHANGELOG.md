@@ -11,7 +11,45 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-_No entries yet — open the next milestone with `/gsd:new-milestone` to begin v1023._
+_No entries yet — open the next milestone with `/gsd:new-milestone`._
+
+## [1.5.8] - 2026-05-24
+
+Test-infrastructure hygiene — retires the 3 pre-existing OOS sequential failures + 3 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` **LITERAL** (not "0 NEW failed"). Strengthens `-n 4` invariant from "0 NEW oauth flake" to literal-zero. CI-01 live-verify ships degraded (GitHub Actions billing block persistent since v1022); v1024+ carry-forward.
+
+### Closed
+
+- **CI-01** (degraded, Phase 1100): GitHub Actions live-verify deferred — persistent billing block at https://github.com/organizations/geolens-io/settings/billing since v1022 (run `26359374410`; same annotation persists at v1023 close). User-authorized degraded close 2026-05-24 mirroring v1022 precedent. Substitute evidence: 5/5 docker services healthy + `GET /api/health` returns 200 + sequential/`-n 4`/`-n auto` local baselines below. Per CONTEXT.md D-01d, no fresh dispatch attempted — would just re-confirm the block. v1024+ carry-forward chain: v1022 → v1023 → v1024+.
+
+- **OOS-01** (Phase 1098): `test_router_orchestrator_modules_stay_within_loc_cap` (`backend/tests/test_layering.py:833`) — TRIM path landed `backend/app/modules/catalog/maps/router.py` at 1793 LOC (-14 lines via private-helper docstring compression on `_build_frame_ancestors` + `_meta_to_kwargs`; under existing 1800 cap; zero behavior change). Allowlist unchanged. No Phase 999.x decomposition backlog promotion. SHA `23336143`.
+
+- **OOS-02** (Phase 1098): `test_readme_signature_maps_list_intact` (was `backend/tests/test_phase_275_readme_accuracy.py:116`) — test DELETED 2026-05-24. The README signature-stories section it pinned was retired in commit `4a7d1a29` (2026-05-22 "chore: remove demo overlay apparatus") along with the themed-demo docker overlay, 9 themed map fixtures, and the `GEOLENS_DEMO_MODE` flag; restoring it would be a doc-lying regression. 8 sibling tests in the same file still pass. SHA `0068aa4f`.
+
+- **OOS-03** (Phase 1098): `test_make_safe_client_has_event_hook` → renamed to `test_make_safe_client_blocks_private_ip_redirect` (`backend/tests/test_ssrf_redirect.py:~100`) — behavioral SSRF-contract rewrite immune to module-level `mock.patch` contamination from sibling test. Two-iteration fix path (Rule 1 inline): first iter still called `make_safe_client()` and tripped on global `httpx.AsyncClient` patching from `tests/test_seed_natural_earth_reconciliation.py:328`; iter-2 dropped the factory call entirely and tests `_revalidate_redirect(response)` directly, matching the 6 sibling tests at lines 22-97 that pass durably in full sequential. SHAs `431e2b54` + `9546a961` + WR-01/WR-02 polish at `77affeac`.
+
+- **OAUTH-01** (Phase 1099): `test_callback_missing_state_returns_error` (`backend/tests/test_oauth.py:975` post-fix; was `:869` pre-fix) — fixed via `client_session` fixture override (shares client's `dependency_overrides[get_db]` factory for single-connection writes-then-reads visibility) + `_ensure_public_app_url` monkeypatch fixture (pins `settings.public_app_url` + resets `_PUBLIC_URL_CACHE` to address Phase 268 H-27 / SEC-13 strict-config requirement). Two-iteration: iter-1 had `client.app` attribute bug (httpx AsyncClient wraps app inside `ASGITransport(app=app)`); iter-2 fixed import to `from app.api.main import app`. SHAs `f57f1a76` + `9922cce5`.
+
+- **OAUTH-02** (Phase 1099): `test_callback_invalid_code_returns_error` (`backend/tests/test_oauth.py:1016` post-fix; was `:901` pre-fix) — same shared root-cause fix as OAUTH-01 (per REQUIREMENTS.md OAUTH-02 framing: "if one fix closes both, OAUTH-02 SUMMARY references the OAUTH-01 closure SHA"). SHAs `f57f1a76` + `9922cce5`.
+
+- **OAUTH-03** (Phase 1099): `test_oauth_login_redirect` (`backend/tests/test_oauth.py:921` post-fix; was `:826` pre-fix) — same shared root-cause fix as OAUTH-01/02. Surfaced 2026-05-24 during Phase 1098 verify-gate `-n auto` Run B; OAUTH-03 added to REQUIREMENTS.md mid-milestone. SHAs `f57f1a76` + `9922cce5`.
+
+- **CLOSE-01** (Phase 1100): Verify-gate baselines captured (sequential + `-n 4` literal-zero; `-n auto` 3-run within v1022 PARA-01 ≤30 envelope), CHANGELOG `[1.5.8]` written, atomic 5-file close commit landed (REQUIREMENTS.md + ROADMAP.md + 1100-01-SUMMARY.md + 1100-CLOSE-GATE.md + CHANGELOG.md), tags `v1023` (local) + `v1.5.8` (public) cut at the close-gate SHA. See `.planning/phases/1100-ci-live-verify-close-gate/1100-CLOSE-GATE.md` for evidence detail.
+
+### Baselines (post-v1023)
+
+- Sequential pytest: **3062 passed / 0 failed / 38 skipped** (LITERAL ZERO — `failed == 0` invariant strengthened from "0 NEW" to literal; OOS triad retired)
+- `-n 4` pytest: **3062 passed / 0 failed / 38 skipped** (LITERAL ZERO — OAuth parallel-mode flakes retired)
+- `-n auto` 3-run distinct (F+E): **1 / 0 / 0** deterministic within v1022 PARA-01 ≤30 envelope; 0 ICN frames; zero OOS/OAUTH pin names in any failure list. Run A's single distinct failure (`test_publish_blocked_when_hard_validation_fails`) is a known parallel-validation-timing flake class (PYTEST-XDIST-PERF-v1020.md §2), NOT an OOS/OAUTH regression.
+
+### Notes
+
+- **v1024+ carry-forward (1 item):** CI-01 live-verify on real GitHub Actions infrastructure (depends on org billing resolution at https://github.com/organizations/geolens-io/settings/billing). Per D-01c rolling carry-forward chain: v1022 → v1023 → v1024+.
+- **Test-isolation observations (no defects):** Phase 1099 REVIEW IN-01..IN-04 — quality observations for a possible v1024+ test-isolation hygiene ledger; not regressions.
+- **Gate-shape:** verified locally to v1021 TEST-01 + v1022 PARA-01 depth via Phase 1100 T1 evidence (sequential 3062/0/38 literal + `-n 4` 3062/0/38 literal + `-n auto` 3-run 1/0/0 distinct).
+
+### Migrations
+
+None. All v1.5.8 changes are test-infra hygiene (`backend/tests/test_layering.py` allowlist context unchanged + `backend/tests/test_phase_275_readme_accuracy.py` -21 LOC + `backend/tests/test_ssrf_redirect.py` behavioral rewrite + `backend/tests/test_oauth.py` fixture additions) + ONE production-code surface (`backend/app/modules/catalog/maps/router.py` -14 LOC docstring compression, zero behavior change). No API contract changes, no schema changes, no migrations.
 
 ## [1.5.7] - 2026-05-24
 

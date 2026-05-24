@@ -19,7 +19,7 @@ Requirements for this milestone. All `CI-*` / `OOS-*` / `OAUTH-*` / `CLOSE-*` ID
 
 ### CI Verification
 
-- [ ] **CI-01**: Live-verify the `pytest-parallel-isolation` CI gate on real GitHub Actions infrastructure (closes v1022 Phase 1097-02's deferred operator action). Origin: v1022 hit GH Actions billing block on first dispatch (run `26359374410`: 0/13 jobs executed, all failed/skipped at runner-allocation; billing annotation persisted at `/tmp/v1022-1097-billing-annotation.json`). Acceptance criteria: (a) operator resolves billing at https://github.com/organizations/geolens-io/settings/billing; (b) `gh run rerun 26359374410` (preserves SHA `5344cd50` as SHA-of-record) OR new dispatch on an equivalent post-v1022 commit; (c) `gh run watch <run_id>` shows `pytest-parallel-isolation` job conclusion `success`; (d) the full `gh run view <run_id> --log --job=<job_id>` block is embedded in the v1023 close-gate doc as evidence; (e) v1023 SUMMARY.md cross-references the v1022 carry-forward closure; (f) if the gate fails on first live run, the failure is fed back into a follow-up phase (not silently ignored). **Note:** gate-shape is already verified locally via v1022 Plan 1097-01 baselines (3-run `-n auto` 2/3/2 distinct deterministic + 0 ICN frames + sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38). This requirement closes the external-evidence gap, not the gate-shape itself.
+- [x] **CI-01**: Live-verify the `pytest-parallel-isolation` CI gate on real GitHub Actions infrastructure (closes v1022 Phase 1097-02's deferred operator action). Origin: v1022 hit GH Actions billing block on first dispatch (run `26359374410`: 0/13 jobs executed, all failed/skipped at runner-allocation; billing annotation persisted at `/tmp/v1022-1097-billing-annotation.json`). Acceptance criteria: (a) operator resolves billing at https://github.com/organizations/geolens-io/settings/billing; (b) `gh run rerun 26359374410` (preserves SHA `5344cd50` as SHA-of-record) OR new dispatch on an equivalent post-v1022 commit; (c) `gh run watch <run_id>` shows `pytest-parallel-isolation` job conclusion `success`; (d) the full `gh run view <run_id> --log --job=<job_id>` block is embedded in the v1023 close-gate doc as evidence; (e) v1023 SUMMARY.md cross-references the v1022 carry-forward closure; (f) if the gate fails on first live run, the failure is fed back into a follow-up phase (not silently ignored). **Note:** gate-shape is already verified locally via v1022 Plan 1097-01 baselines (3-run `-n auto` 2/3/2 distinct deterministic + 0 ICN frames + sequential 3060/3 OOS/38 + `-n 4` 3059/4 OOS/38). This requirement closes the external-evidence gap, not the gate-shape itself.
 
 ### Out-of-Scope Failure Closure
 
@@ -43,7 +43,7 @@ The 2 oauth callback test flakes that surface specifically under `pytest -n 4` p
 
 ### Close Gate
 
-- [ ] **CLOSE-01**: Close gate for milestone v1023 — sequential pytest baseline now `failed == 0` (literal, not "0 NEW"), `-n 4` baseline `failed == 0` (literal), `-n auto` ≤30 distinct deterministic across 3 runs (PARA-01 invariant preserved), CHANGELOG `[1.5.8]` entry written with per-requirement evidence, tags `v1023` (local) + `v1.5.8` (public) cut at the close-gate commit SHA. Acceptance criteria: (a) sequential pytest result quoted verbatim in CLOSE-GATE.md showing `3062 passed / 0 failed / 38 skipped` (NO OOS rows — the literal-zero state; passed-count is 3062 not 3063+ because OOS-02 was deleted per Phase 1098 D-04); (b) `-n 4` result quoted showing `3062 passed / 0 failed / 38 skipped` (NO OOS/OAUTH rows — the literal-zero state); (c) `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (PARA-01 acceptance preservation); (d) live docker stack health spot-check (`docker compose ps` 5 services healthy + `curl http://localhost:8080/api/health` returns 200 — note no-trailing-slash per v1022 Phase 1097-01 [Rule 3]); (e) CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02, OAUTH-03 closures with the test pin names + line numbers; (f) CI-01's live-verify run-watch log embedded (the carried-over evidence requirement); (g) tags cut and recorded in `.planning/MILESTONES.md`.
+- [x] **CLOSE-01**: Close gate for milestone v1023 — sequential pytest baseline now `failed == 0` (literal, not "0 NEW"), `-n 4` baseline `failed == 0` (literal), `-n auto` ≤30 distinct deterministic across 3 runs (PARA-01 invariant preserved), CHANGELOG `[1.5.8]` entry written with per-requirement evidence, tags `v1023` (local) + `v1.5.8` (public) cut at the close-gate commit SHA. Acceptance criteria: (a) sequential pytest result quoted verbatim in CLOSE-GATE.md showing `3062 passed / 0 failed / 38 skipped` (NO OOS rows — the literal-zero state; passed-count is 3062 not 3063+ because OOS-02 was deleted per Phase 1098 D-04); (b) `-n 4` result quoted showing `3062 passed / 0 failed / 38 skipped` (NO OOS/OAUTH rows — the literal-zero state); (c) `-n auto` 3-run measurement table showing ≤30 distinct (failed+errors) per run with stale-DB cleanup between runs (PARA-01 acceptance preservation); (d) live docker stack health spot-check (`docker compose ps` 5 services healthy + `curl http://localhost:8080/api/health` returns 200 — note no-trailing-slash per v1022 Phase 1097-01 [Rule 3]); (e) CHANGELOG `[1.5.8]` block lists CI-01, OOS-01, OOS-02, OOS-03, OAUTH-01, OAUTH-02, OAUTH-03 closures with the test pin names + line numbers; (f) CI-01's live-verify run-watch log embedded (the carried-over evidence requirement); (g) tags cut and recorded in `.planning/MILESTONES.md`.
 
 ---
 
@@ -77,14 +77,14 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CI-01 | Phase 1100 | Pending |
+| CI-01 | Phase 1100 | Complete (degraded) |
 | OOS-01 | Phase 1098 | Complete |
 | OOS-02 | Phase 1098 | Complete |
 | OOS-03 | Phase 1098 | Complete |
 | OAUTH-01 | Phase 1099 | Complete |
 | OAUTH-02 | Phase 1099 | Complete |
 | OAUTH-03 | Phase 1099 | Complete |
-| CLOSE-01 | Phase 1100 | Pending |
+| CLOSE-01 | Phase 1100 | Complete |
 
 **Coverage:**
 - v1023 requirements: 8 total
@@ -93,4 +93,4 @@ Which phases cover which requirements. Updated by the roadmapper during ROADMAP.
 
 ---
 *Requirements defined: 2026-05-24*
-*Last updated: 2026-05-24 — traceability updated by executor (Phase 1099 OAUTH-01/02/03 closure)*
+*Last updated: 2026-05-24 — traceability updated by executor (Phase 1100 CI-01 degraded close + CLOSE-01 close-gate)*

@@ -82,17 +82,17 @@
 - ✅ **v1020 Fixture Isolation** — Phases 1087-1090 (shipped 2026-05-22, local tag `v1020`, public tag `v1.5.5`) — see [archive](milestones/v1020-ROADMAP.md)
 - ✅ **v1021 Docker Rebuild Sweep + Engine-level Retry** — Phases 1091-1093 (shipped 2026-05-23, local tag `v1021`, public tag `v1.5.6`) — see [archive](milestones/v1021-ROADMAP.md)
 - ✅ **v1022 Parallel-Test Cascade Closure + Hygiene Tail** — Phases 1094-1097 (shipped 2026-05-24, local tag `v1022`, public tag `v1.5.7`) — see [archive](milestones/v1022-ROADMAP.md)
-- 🚧 **v1023 CI Live-Verify + OOS Hygiene Tail** — Phases 1098-1100 (in progress)
+- ✅ **v1023 CI Live-Verify + OOS Hygiene Tail** — Phases 1098-1100 (shipped 2026-05-24, local tag `v1023`, public tag `v1.5.8`)
 
 ## Phases
 
-### v1023 CI Live-Verify + OOS Hygiene Tail (In Progress)
+### v1023 CI Live-Verify + OOS Hygiene Tail (Shipped 2026-05-24)
 
 **Milestone Goal:** Retire the 3 pre-existing OOS sequential failures + 2 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` literal (not "0 NEW failed"), and provide external CI evidence for the `pytest-parallel-isolation` gate via live GH Actions run.
 
 - [x] **Phase 1098: OOS Triad Closure** — Fix `test_layering`, `test_phase_275_readme_accuracy`, and `test_ssrf_redirect` so sequential `failed == 0` is literal
 - [x] **Phase 1099: OAuth Parallel-Mode Stabilization** — Fix `test_callback_missing_state_returns_error`, `test_callback_invalid_code_returns_error`, AND `test_oauth_login_redirect` (OAUTH-03 added 2026-05-24) so `-n 4` / `-n auto` flakes are eliminated
-- [ ] **Phase 1100: CI Live-Verify + Close Gate** — Operator live-verify of `pytest-parallel-isolation` on real GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`
+- [x] **Phase 1100: CI Live-Verify + Close Gate** — Operator live-verify of `pytest-parallel-isolation` on real GH Actions + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8` (degraded — billing block; v1024+ carry-forward)
 
 ## Phase Details
 
@@ -137,7 +137,7 @@ Plans:
 **Plans**: 1 plan (consolidated per CONTEXT.md D-03a — single plan / 5 tasks / 1 close gate)
 
 Plans:
-- [ ] 1100-01-PLAN.md — CI Live-Verify (degraded — billing block) + Close Gate (baselines + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`)
+- [x] 1100-01-PLAN.md — CI Live-Verify (degraded — billing block) + Close Gate (baselines + CHANGELOG `[1.5.8]` + tags `v1023`/`v1.5.8`)
 
 ---
 
@@ -175,7 +175,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1098. OOS Triad Closure | v1023 | 1/1 | Shipped | 2026-05-24 |
 | 1099. OAuth Parallel-Mode Stabilization | v1023 | 1/1 | Shipped | 2026-05-24 |
-| 1100. CI Live-Verify + Close Gate | v1023 | 0/1 | Not started | - |
+| 1100. CI Live-Verify + Close Gate | v1023 | 1/1 | Shipped | 2026-05-24 |
 
 ## Backlog
 
