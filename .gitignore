@@ -88,3 +88,9 @@ vendor/
 coverage/
 .cache/
 tmp/
+
+# Marketing data working dir (raw downloads, mosaicked COGs)
+# Used by scripts/marketing-data/*/ — outputs land in .scratch/<topic>/.
+# Scripts + manifest YAML + curated GeoJSONs ARE committed; raw .tif/.zip/.geojson
+# downloads + mosaicked COGs are NOT.
+.scratch/
