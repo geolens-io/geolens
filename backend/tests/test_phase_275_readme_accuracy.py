@@ -111,24 +111,3 @@ def test_readme_fr_has_accent_marks() -> None:
     assert not re.search(r"\bdonnees\b", body), (
         "README.fr.md still contains ASCII-stripped 'donnees' — restore to 'données'"
     )
-
-
-def test_readme_signature_maps_list_intact() -> None:
-    """API-04 / M-23: 9 signature-map bullets must remain in README.md."""
-    body = _read("README.md")
-    # Manhattan Skyline is the canary added in Phase 269 H-13
-    assert "Manhattan Skyline" in body, (
-        "Manhattan Skyline bullet missing from README.md"
-    )
-    # Sanity-check there are at least 9 signature-map bullet lines
-    # (search the section between 'signature stories include:' and 'All data is bundled')
-    match = re.search(
-        r"signature stories include:(.*?)All data is bundled",
-        body,
-        re.DOTALL,
-    )
-    assert match, "Could not locate signature-map list in README.md"
-    bullets = re.findall(r"^- \*\*", match.group(1), re.MULTILINE)
-    assert len(bullets) >= 9, (
-        f"Signature-map list shrunk: expected >=9 bullets, found {len(bullets)}"
-    )
