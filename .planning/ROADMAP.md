@@ -94,7 +94,7 @@
 - [x] **Phase 1094: Cascade Spike** — Architectural audit identifying the exact Category 4.1 race surface (PARA-01 spike deliverable) (completed 2026-05-24)
 - [x] **Phase 1095: Cascade Fix + WR-02 Closure** — PARA-01 fix + PARA-02 (bundled — shared conftest.py block, atomic `-n auto` measurement gate) (completed 2026-05-24)
 - [x] **Phase 1096: Hygiene Tail** — HYG-01 closure (WR-01 pin coverage + WR-03 bare-except narrowing + WR-04 listener removal hook) (completed 2026-05-24)
-- [ ] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut)
+- [x] **Phase 1097: Live-Verify + Close Gate** — CI-01 (`pytest-parallel-isolation` post-merge live-verify) + CLOSE-01 (tag cut) (completed 2026-05-24)
 
 ## Phase Details
 
@@ -150,7 +150,7 @@
   5. `CHANGELOG.md` `[1.5.7]` block lists PARA-01, PARA-02, HYG-01, CI-01 closures with the test pin names + line numbers + the CI-01 live-verify run-watch log embedded; tags `v1022` (local) + `v1.5.7` (public) cut at the close-gate commit SHA and recorded in `.planning/MILESTONES.md` (CLOSE-01 acceptance criteria (e)+(f)+(g))
 **Plans**: 2 plans
 - [x] 1097-01-PLAN.md — CLOSE-01 close-gate baselines (sequential 3060/3 OOS/38 re-confirm + `-n 4` 3057/4-7/38 re-confirm + `-n auto` 3-run ≤30 distinct deterministic with 0 ICN frames + docker stack 5-services-healthy + `curl /api/health/` 200) + CHANGELOG `[1.5.7]` block listing PARA-01 + PARA-02 + HYG-01 + CI-01 (placeholder) closures with test pin names + line numbers + 1097-01-CLOSE-GATE.md draft with sections (a)-(e) populated; atomic-3-file commit `docs(1097-01): CLOSE-01 close-gate baselines + CHANGELOG [1.5.7]`; does NOT flip CLOSE-01 (lands in Plan 02 alongside CI-01 flip + tag refs per v1019 TD-13 traceability_flip rule)
-- [ ] 1097-02-PLAN.md — CI-01 live-verify on real GitHub Actions infrastructure (operator-confirmation gate before `git push origin main` per CONTEXT.md push-gate + global CLAUDE.md "Executing actions with care" rule; `gh run watch $RUN_ID` for the `pytest-parallel-isolation` job at `.github/workflows/ci.yml:499-590`; embed verbatim log block in 1097-01-CLOSE-GATE.md CI-01 (f) section per CI-01 (b)) + cut tags `v1022` (local) + `v1.5.7` (public) at Plan 01's close-gate SHA + push tags to origin (CLOSE-01 (g)) + write MILESTONES.md v1022 entry (mirror v1021 format) + flip REQUIREMENTS.md CI-01 + CLOSE-01 both `[ ]` → `[x]` + Pending → Complete in atomic-4-file commit `feat(1097-02): CI-01 live-verify green + tags v1022/v1.5.7 cut`; failure-branch (CI-01 RED): skip tag cut, produce atomic-2-file failure-shape commit, defer to Plan 1097-03 iteration
+- [x] 1097-02-PLAN.md — CI-01 live-verify on real GitHub Actions infrastructure (operator-confirmation gate before `git push origin main` per CONTEXT.md push-gate + global CLAUDE.md "Executing actions with care" rule; `gh run watch $RUN_ID` for the `pytest-parallel-isolation` job at `.github/workflows/ci.yml:499-590`; embed verbatim log block in 1097-01-CLOSE-GATE.md CI-01 (f) section per CI-01 (b)) + cut tags `v1022` (local) + `v1.5.7` (public) at Plan 01's close-gate SHA + push tags to origin (CLOSE-01 (g)) + write MILESTONES.md v1022 entry (mirror v1021 format) + flip REQUIREMENTS.md CI-01 + CLOSE-01 both `[ ]` → `[x]` + Pending → Complete in atomic-4-file commit `feat(1097-02): CI-01 live-verify green + tags v1022/v1.5.7 cut`; failure-branch (CI-01 RED): skip tag cut, produce atomic-2-file failure-shape commit, defer to Plan 1097-03 iteration
 
 ---
 
@@ -185,7 +185,7 @@
 | 1094. Cascade Spike | v1022 | 1/1 | Complete   | 2026-05-24 |
 | 1095. Cascade Fix + WR-02 Closure | v1022 | 2/2 | Complete   | 2026-05-24 |
 | 1096. Hygiene Tail | v1022 | 1/1 | Complete   | 2026-05-24 |
-| 1097. Live-Verify + Close Gate | v1022 | 1/2 | In Progress|  |
+| 1097. Live-Verify + Close Gate | v1022 | 2/2 | Complete   | 2026-05-24 |
 
 ## Backlog
 
