@@ -1,0 +1,146 @@
+manifest_version: "1"
+catalog:
+  title: Adirondack High Peaks — Marketing
+  description: |
+    Curated catalog of 6 datasets (1 DEM raster + 1 aerial raster + 4 vectors)
+    covering the Lake Placid / Mt. Marcy / Algonquin region of the Adirondacks.
+    Used as anchor content for GeoLens marketing screenshots, embeds, and demo
+    videos.
+
+    AOI bbox (WGS84): -74.05, 44.08, -73.85, 44.32 (~12 mi E-W x 16 mi N-S).
+  organization: GeoLens Marketing
+  contact:
+    name: GeoLens Marketing Data
+    url: https://github.com/geolens-io/geolens
+
+datasets:
+  - key: adk-high-peaks-dem-1m
+    title: ADK High Peaks — 1m DEM (USGS 3DEP)
+    description: |
+      USGS 3DEP 1-meter LiDAR-derived DEM for the Adirondack High Peaks AOI.
+      Source tiles are from the 2014 NY Clinton/Essex/Lake_Champlain QL2 LiDAR
+      project, mosaicked + reprojected to EPSG:3857 (web mercator) + COG-converted.
+    sources:
+      - type: raster_cog
+        # Local-relative URI under the upload_staging_dir is the manifest-apply
+        # convention. For this catalog the actual ingestion uses the HTTP-upload
+        # path (compose_marketing_maps.py); this manifest is the canonical record.
+        uri: staging/adk_high_peaks_dem_1m.tif
+        format: GTiff
+        title: DEM 1m mosaic
+    metadata:
+      tags: [adirondacks, high-peaks, dem, elevation, lidar, marketing, terrain]
+      organization: USGS / NY State
+      crs: EPSG:3857
+      license: Public Domain (USGS 3DEP)
+      attribution: USGS 3DEP / Clinton-Essex-Lake-Champlain QL2 LiDAR (2014)
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-high-peaks-ny-orthos
+    title: ADK High Peaks — NY State 2022-2025 Orthos (aerial)
+    description: |
+      Natural-color aerial imagery from NY State ITS Geospatial Services
+      (wms/Latest/MapServer, 2022-2025 mosaic, native 12-inch resolution).
+      Downsampled to 4096x4096 over the AOI (~6 m/px effective in the COG)
+      and reprojected to EPSG:3857.
+    sources:
+      - type: raster_cog
+        uri: staging/adk_high_peaks_ny_orthos_3857.tif
+        format: GTiff
+        title: NY State 2022-2025 orthos
+    metadata:
+      tags: [adirondacks, high-peaks, aerial, orthoimagery, naip-substitute, marketing]
+      organization: NY State ITS Geospatial Services
+      crs: EPSG:3857
+      license: Public — NY State (attribution requested)
+      attribution: NYS ITS Geospatial Services / wms/Latest/MapServer
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-blue-line
+    title: APA Adirondack Park Boundary (Blue Line)
+    description: |
+      The "Blue Line" polygon defining the Adirondack Park boundary, sourced
+      from the Adirondack Park Agency's authoritative BluelinePolygon FeatureServer.
+      Single feature; full park polygon (not AOI-clipped) for visual context.
+    sources:
+      - type: vector
+        uri: staging/apa_blue_line_aoi.geojson
+        format: GeoJSON
+        title: APA Blue Line polygon
+    metadata:
+      tags: [adirondacks, boundaries, park-boundary, apa, marketing]
+      organization: Adirondack Park Agency
+      crs: EPSG:4326
+      license: Public (NY State)
+      attribution: NY State / Adirondack Park Agency
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-hiking-trails
+    title: ADK High Peaks — NYSDEC Hiking Trails (AOI)
+    description: |
+      Hiking trails published by the NY Department of Environmental Conservation
+      (DEC_Trails/1 layer), AOI-clipped to the Lake Placid / Mt. Marcy area.
+      241 line features.
+    sources:
+      - type: vector
+        uri: staging/nysdec_hiking_trails_aoi.geojson
+        format: GeoJSON
+        title: NYSDEC hiking trails (AOI)
+    metadata:
+      tags: [adirondacks, high-peaks, trails, hiking, recreation, marketing]
+      organization: NYS DEC
+      crs: EPSG:4326
+      license: Public (NY State)
+      attribution: NY State DEC
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-land-classification
+    title: ADK High Peaks — APA Land Classification (AOI)
+    description: |
+      State-land classification polygons (Wilderness, Wild Forest, Primitive,
+      Canoe, etc.) from the APA's AdirondackParkLandClassification FeatureServer,
+      AOI-clipped to the Lake Placid / Mt. Marcy area. 9 polygon features.
+    sources:
+      - type: vector
+        uri: staging/apa_land_classification_aoi.geojson
+        format: GeoJSON
+        title: APA Land Classification (AOI)
+    metadata:
+      tags: [adirondacks, high-peaks, land-use, wilderness, apa, marketing]
+      organization: Adirondack Park Agency
+      crs: EPSG:4326
+      license: Public (NY State)
+      attribution: NY State / Adirondack Park Agency
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-46er-peaks
+    title: ADK 46er High Peaks (AOI subset)
+    description: |
+      Curated point dataset of 12 Adirondack 46ers (peaks above 4000 ft on
+      Bob Marshall's 1925 list) that fall within the AOI. Includes Mt. Marcy
+      (5344 ft), Algonquin Peak (5114 ft), and 10 others. Coordinates from
+      USGS GNIS cross-referenced with the APA Summits FeatureServer.
+    sources:
+      - type: vector
+        uri: staging/peaks_46.geojson
+        format: GeoJSON
+        title: ADK 46ers (AOI)
+    metadata:
+      tags: [adirondacks, high-peaks, peaks, 46ers, points-of-interest, marketing]
+      organization: GeoLens curated
+      crs: EPSG:4326
+      license: Public Domain
+      attribution: USGS GNIS / ADK 46ers list
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
