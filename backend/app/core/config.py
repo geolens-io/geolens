@@ -291,6 +291,12 @@ class Settings(BaseSettings):
 
     @property
     def database_url_sync(self) -> str:
+        """Sync DSN for psycopg consumers (Alembic offline, helper scripts).
+
+        Unlike the async sibling, this property does NOT strip ?sslmode= from
+        the override URL: psycopg parses sslmode natively, while asyncpg gets
+        SSL via connect_args["ssl"] and would conflict with a URL-borne flag.
+        """
         if self.database_url_override:
             url = self.database_url_override
             if url.startswith("postgresql+asyncpg://"):

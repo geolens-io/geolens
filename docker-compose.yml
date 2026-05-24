@@ -12,6 +12,16 @@ x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
   GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
+  # JWT tuning + password policy: defaults match Settings (HS256, 15min access /
+  # 7d refresh, 12-char min / 3 of 4 classes). Listed here so an operator who
+  # overrides them in .env actually sees the override reach the container —
+  # without these lines, Pydantic falls back to its compiled defaults inside
+  # the image (Settings reads $env, not the host .env file).
+  JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "${ACCESS_TOKEN_EXPIRE_MINUTES:-15}"
+  REFRESH_TOKEN_EXPIRE_DAYS: "${REFRESH_TOKEN_EXPIRE_DAYS:-7}"
+  PASSWORD_MIN_LENGTH: "${PASSWORD_MIN_LENGTH:-12}"
+  PASSWORD_REQUIRE_CLASSES: "${PASSWORD_REQUIRE_CLASSES:-3}"
 
 x-db-ssl-env: &db-ssl-env
   DATABASE_URL_OVERRIDE: "${DATABASE_URL_OVERRIDE:-}"
@@ -220,6 +230,12 @@ services:
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       # CORS: comma-separated allowed origins for cross-origin API access (empty = same-origin only)
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+      # Ingest tuning: GDAL_HTTP_TIMEOUT passed to ogr2ogr (SEED-02, raised
+      # from the 120s hardcoded default that timed out 50% of AGO layers).
+      INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      # Job-queue schema: PROCRASTINATE_SCHEMA selects which Postgres schema
+      # holds the procrastinate_jobs tables; default matches the bundled migration.
+      PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
     depends_on:
       db:
         condition: service_healthy
@@ -259,6 +275,10 @@ services:
       REDIS_URL: "${REDIS_URL:-}"
       UPLOAD_STAGING_DIR: "${UPLOAD_STAGING_DIR:-/app/staging}"
       WORKER_SHUTDOWN_TIMEOUT: "${WORKER_SHUTDOWN_TIMEOUT:-30}"
+      # Mirror the api service: ingest tuning + procrastinate schema reach
+      # the worker container so operator overrides take effect.
+      INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
     depends_on:
       db:
         condition: service_healthy
