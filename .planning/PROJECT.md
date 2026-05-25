@@ -12,23 +12,22 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1024 ADK High Peaks Marketing-Ready
+## Current Milestone: v1025 Mapbuilder Polishing
 
-**Goal:** Upgrade the Adirondack High Peaks marketing maps from dogfooding-shippable to screenshot/demo-ready: higher-fidelity source data, expanded map content, a bonus 3D relief variant, and a builder surface that can reorder layers and adjust terrain settings without browser-console noise.
+**Goal:** Deep-QA the existing ADK 3D Relief builder map and make it screenshot/demo-ready as a high-signal proof of GeoLens cartographic and layer-authoring functionality.
 
 **Target features:**
-- Swap the soft 3.5 MB ArcGIS REST aerial for a TNM/NAIP 0.6m aerial source where available, with an explicit documented fallback if the TNM API does not publish NAIP for this AOI.
-- Add NHD hydrography and the remaining ADK 46er peaks to the ADK High Peaks marketing catalog and saved-map composition.
-- Compose the deferred bonus 3D relief variant Map 2 for the ADK High Peaks map set.
-- Fix builder mixed raster/vector layer reorder so vectors can be dragged above DEM/aerial rasters and the visual MapLibre stack updates immediately and persists after reload.
-- Fix terrain DEM tile min/max zoom, preserve explicit `terrain_config.enabled=false`, and smoke-check terrain source/exaggeration controls in the builder.
-- Stop terrain/internal MapLibre errors from surfacing as basemap-connection toasts, move the toast away from map controls, and resolve or suppress the Positron `road_` / `us-state_` sprite warnings.
+- Use Playwright MCP against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` to exercise every layer row, layer options menu, visibility toggle, editor tab, and representative style controls.
+- Capture browser console warnings/errors, failed network requests, visual gaps, and layer-option regressions with phase evidence.
+- Fix all confirmed issues inline, including saved-map/script drift that prevents intended render modes, labels, or styling from appearing in the builder.
+- Optimize the target map for a marketing screenshot that still demonstrates the builder surface, layer stack, terrain, hydrography, trails, labels, raster/DEM composition, basemap controls, legend, and style/export affordances.
+- Re-run the Playwright MCP sweep after fixes and close with zero unexpected browser console errors/warnings on a fresh load.
 
 **Key context:**
-- Phase numbering continues from 1101 (no `--reset-phase-numbers`)
-- Public tag target: `v1.5.9` (SemVer patch — data/script + UI/rendering bug fixes; avoid API/schema/migration changes unless a verified fix requires them)
-- Source context: `.planning/quick/260524-o57-adk-high-peaks-data/` (especially `NEXT-MILESTONE-DRAFT.md`, `260524-o57-SUMMARY.md`, and `260524-o57-API-ISSUES.md`)
-- HARD INVARIANT: a freshly composed ADK map at `localhost:8080/maps/{new_id}` opens in the builder with zero browser console errors/warnings, vectors above rasters after reorder, and working terrain settings/exaggeration controls verified through Playwright MCP.
+- Phase numbering continues from 1107 (no `--reset-phase-numbers`).
+- Target map: `8dd6a129-8eb0-4ba9-b421-716c83b160dd` (`Adirondack High Peaks — 3D Relief`).
+- Starting QA finding: layer rows/options/visibility toggles work, but the saved/scripted ADK map uses legacy nested `style_config.builder.render_mode` and MapLibre-style `label_config` keys, causing the DEM editor to fall back to Image mode and peak labels to disappear.
+- Use `$gsd-autonomous` shape for the rest of the milestone: QA phase first, then add/fix phases as findings require, then close with Playwright evidence.
 
 ## Recent Shipped Milestone: v1022 Parallel-Test Cascade Closure + Hygiene Tail
 
@@ -1413,4 +1412,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-24 — started milestone v1024 ADK High Peaks Marketing-Ready. Scope: TNM/NAIP aerial attempt or documented TNM no-data fallback, NHD hydrography, expanded 46er peak data, primary + bonus 3D relief ADK maps, builder mixed raster/vector reorder, terrain DEM zoom/config reliability, builder error hygiene, and Playwright MCP map-builder smoke. Phase numbering continues from 1101. Public tag target: `v1.5.9`. Source context: `.planning/quick/260524-o57-adk-high-peaks-data/`. Previously: v1023 CI Live-Verify + OOS Hygiene Tail shipped degraded on 2026-05-24 with local/public tags `v1023` + `v1.5.8` at `892fca01`; CI-01 live GitHub Actions verification remains an external billing-block carry-forward to v1024+ but is not part of this ADK marketing-ready hard invariant.*
+*Last updated: 2026-05-25 — started milestone v1025 Mapbuilder Polishing. Scope: Playwright MCP deep QA of existing ADK 3D Relief map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`, all layer options and editor surfaces, marketing screenshot optimization, console/network issue capture, and inline fixes with new phases as findings require.*

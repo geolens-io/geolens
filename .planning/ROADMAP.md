@@ -1,106 +1,79 @@
 # Roadmap: GeoLens
 
-## v1024 ADK High Peaks Marketing-Ready (Active)
+## v1025 Mapbuilder Polishing (Active)
 
-**Goal:** Upgrade the ADK High Peaks marketing maps and builder rendering path so the data, saved maps, terrain controls, layer ordering, and browser-console signal are demo-ready.
+**Goal:** Deep-QA the existing ADK 3D Relief builder map and polish it into a screenshot/demo-ready showcase of GeoLens layer options, terrain, raster/DEM rendering, vector styling, labels, and cartographic authoring.
 
-**Public tag target:** `v1.5.9`
+**Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
 
-**Hard invariant:** A freshly composed ADK map at `localhost:8080/maps/{new_id}` opens in the builder with zero browser console errors/warnings, vectors above rasters after reorder, and working terrain settings/exaggeration controls verified through Playwright MCP.
+**Hard invariant:** A fresh Playwright MCP load of the target map has zero unexpected browser console errors/warnings, every layer options menu and representative editor surface works, DEM hillshade and peak labels render as intended, and the final screenshot demonstrates GeoLens cartographic functionality.
 
 ### Phase Plan
 
-- [x] **Phase 1101: ADK Source Data Upgrade** — TNM/NAIP aerial path or documented TNM no-data fallback, NHD hydrography, complete 46er peak source data, and idempotent manifest/script updates.
-- [x] **Phase 1102: ADK Saved Map Composition** — primary map refreshed and bonus 3D relief variant Map 2 composed with durable API state.
-- [x] **Phase 1103: Builder Mixed Layer Reorder** — vectors can move above rasters visually and persist through reload.
-- [x] **Phase 1104: Terrain Rendering and Config** — DEM tile min/max zoom, explicit terrain disabled state, and terrain/exaggeration controls are robust.
-- [x] **Phase 1105: Builder Error Hygiene** — terrain errors do not masquerade as basemap failures, toast placement avoids controls, and Positron sprite warnings are handled.
-- [x] **Phase 1106: Playwright Marketing Close Gate** — live browser smoke verifies ordering, terrain settings, console cleanliness, map IDs, and close artifacts.
+- [ ] **Phase 1107: Playwright Deep QA Sweep** — exercise every layer row/options/editor surface and capture browser console, network, screenshot, and visual/cartographic findings.
+- [ ] **Phase 1108: Layer Metadata and Option Fixes** — fix confirmed saved/scripted layer metadata defects and any layer-option regressions surfaced by QA.
+- [ ] **Phase 1109: Marketing Cartographic Polish** — tune the target map's layer styling, labels, legend/sidebar presentation, and screenshot composition.
+- [ ] **Phase 1110: Playwright Close Gate** — rerun the deep QA path after fixes, run focused tests, and record final evidence.
 
-### Phase 1101: ADK Source Data Upgrade
+### Phase 1107: Playwright Deep QA Sweep
 
-**Goal:** Replace or explicitly improve the ADK marketing source-data inputs before map composition.
+**Goal:** Build the evidence base for the target map before changing code or map data.
 
-**Requirements:** ADK-DATA-01, ADK-DATA-02, ADK-DATA-03, ADK-DATA-04, ADK-DATA-05
+**Requirements:** QA-01, QA-02, QA-03, QA-04
 
 **Depends on:** —
 
 **Success Criteria:**
-1. TNM API query evidence for NAIP 0.6m availability in the ADK AOI is captured in the phase summary.
-2. The pipeline no longer silently relies on the prior 3.5 MB ArcGIS REST aerial as if it were high fidelity.
-3. NHD hydrography and expanded 46er peak data are represented in source files and the ingest manifest.
-4. `compose_marketing_maps.py` remains idempotent for existing datasets and maps.
+1. Playwright MCP opens the target map and captures a baseline screenshot.
+2. Every data layer plus the basemap row is opened; every layer options menu is checked for source metadata and safe actions.
+3. Representative style/filter/popup/editor surfaces are checked across point, line, polygon, raster, DEM, and basemap layers.
+4. Findings are documented with severity, disposition, and whether they require a code fix, map-data fix, or future suggestion.
 
-### Phase 1102: ADK Saved Map Composition
+### Phase 1108: Layer Metadata and Option Fixes
 
-**Goal:** Compose the primary and 3D relief ADK saved maps from the upgraded source data.
+**Goal:** Fix confirmed layer metadata defects that keep the target map from rendering or editing as intended.
 
-**Requirements:** ADK-MAP-01, ADK-MAP-02, ADK-MAP-03
+**Requirements:** LAYER-01, LAYER-02, LAYER-03, LAYER-04
 
-**Depends on:** Phase 1101
-
-**Success Criteria:**
-1. The primary ADK map has rasters below vector overlays and includes aerial, DEM hillshade, hydrography, land classification, Blue Line, hiking trails, and 46er peaks.
-2. Bonus Map 2 is created or updated with terrain enabled and an intentional exaggeration value.
-3. Re-running the compose script produces stable map IDs or clear update/reuse output.
-4. No manual post-script terrain or layer-order API patch is required.
-
-### Phase 1103: Builder Mixed Layer Reorder
-
-**Goal:** Fix the builder reorder path so mixed raster/vector layer order changes are reflected in the live MapLibre canvas and persisted state.
-
-**Requirements:** BUILDER-01, BUILDER-02
-
-**Depends on:** Phase 1102
+**Depends on:** Phase 1107
 
 **Success Criteria:**
-1. Dragging vector overlays above raster aerial/DEM layers updates the map canvas immediately.
-2. The saved order survives `PATCH /api/maps/{id}/layers` and a browser reload.
-3. An automated regression test covers vector-above-raster ordering.
+1. Frontend style-config normalization preserves render-mode-only configs and legacy nested render modes needed by DEM hillshade.
+2. ADK composition writes canonical GeoLens label config for 46er peaks and canonical render/style metadata for DEM, aerial, and Blue Line layers.
+3. The existing target map is updated in the running catalog with the corrected metadata.
+4. Focused unit tests and Playwright checks prove the fixes survive reload.
 
-### Phase 1104: Terrain Rendering and Config
+### Phase 1109: Marketing Cartographic Polish
 
-**Goal:** Fix DEM terrain zoom metadata and terrain-state preservation so builder terrain controls are reliable.
+**Goal:** Improve the target map's visual clarity for a marketing screenshot without hiding the builder functionality.
 
-**Requirements:** TERRAIN-01, TERRAIN-02, TERRAIN-03, TERRAIN-04
+**Requirements:** CARTO-01, CARTO-02, CARTO-03, CARTO-04
 
-**Depends on:** Phase 1102
-
-**Success Criteria:**
-1. DEM tile token min/max zoom reflects dataset metadata rather than hardcoded zoom 18.
-2. Terrain-enabled ADK maps open without `dem dimension mismatch`, missing terrain source, or elevation maxzoom errors.
-3. Explicit `terrain_config.enabled=false` is preserved after a builder open.
-4. Terrain exaggeration changes update the live map without console errors.
-
-### Phase 1105: Builder Error Hygiene
-
-**Goal:** Keep builder error reporting specific, non-overlapping, and console-clean for the ADK map-builder smoke path.
-
-**Requirements:** TOAST-01, TOAST-02, BASEMAP-01, SPRITE-01
-
-**Depends on:** Phase 1104
+**Depends on:** Phase 1108
 
 **Success Criteria:**
-1. Terrain/DEM internal errors do not trigger the basemap-connection toast.
-2. Any basemap-error toast is positioned away from the NavigationControl.
-3. Positron basemap without terrain is verified clean or the actual fetch-path issue is fixed.
-4. Positron `road_` and `us-state_` sprite warnings no longer pollute the browser console.
+1. Terrain, aerial, hillshade, hydrography, trails, Blue Line, land classification, waterbodies, and peaks remain legible at the target view.
+2. Peak labels render with appropriate zoom gating, halo, color, and offset.
+3. The final builder view still communicates the layer stack, options affordances, legend, terrain, and style/export tools.
+4. Deferred cartographic or builder UX suggestions are documented without blocking the milestone.
 
-### Phase 1106: Playwright Marketing Close Gate
+### Phase 1110: Playwright Close Gate
 
-**Goal:** Verify the milestone through a live browser and record the evidence needed to ship the marketing-ready map set.
+**Goal:** Verify the polished target map and close the milestone with traceable evidence.
 
-**Requirements:** VERIFY-01, VERIFY-02, VERIFY-03
+**Requirements:** VERIFY-01, VERIFY-02, VERIFY-03, VERIFY-04
 
-**Depends on:** Phase 1103, Phase 1104, Phase 1105
+**Depends on:** Phase 1108, Phase 1109
 
 **Success Criteria:**
-1. Playwright MCP opens the freshly composed primary ADK map in the builder with zero browser console errors/warnings.
-2. Playwright MCP exercises layer reorder, terrain settings, and exaggeration controls.
-3. Close artifacts record map IDs, commands, test output, Playwright evidence, accepted third-party data limitations, CHANGELOG entry, and tags.
+1. Fresh Playwright MCP load has zero unexpected browser console errors/warnings.
+2. Playwright MCP verifies layer options, DEM hillshade state, peak labels, visibility toggles, and final screenshot framing.
+3. Focused frontend tests pass.
+4. Requirements, roadmap traceability, phase summaries, and verification artifacts are updated.
 
 ## ✅ Historical Milestones
 
+- ✅ **v1024 ADK High Peaks Marketing-Ready** — Phases 1101-1106 (completed locally 2026-05-24; ADK marketing data/maps, builder ordering, terrain controls, error hygiene, and Playwright close gate)
 - ✅ **v1.0 MVP** — Phases 1-8 (shipped 2026-02-13)
 - ✅ **v1.1 Machine Readability** — Phases 9-13 (shipped 2026-02-14)
 - ✅ **v1.2 QA & Polish** — Phases 14-16 (shipped 2026-02-14)

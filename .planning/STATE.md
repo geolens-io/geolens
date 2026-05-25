@@ -1,33 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1024
-milestone_name: ADK High Peaks Marketing-Ready
-status: complete
-last_updated: "2026-05-25T00:22:00.000Z"
-last_activity: 2026-05-24
+milestone: v1025
+milestone_name: Mapbuilder Polishing
+status: planning
+last_updated: "2026-05-25T01:02:50.153Z"
+last_activity: 2026-05-25
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_phases: 4
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1106 Playwright Marketing Close Gate
-Plan: 1106-01
-Status: v1024 complete; ADK marketing maps, builder ordering, terrain controls, and Playwright MCP smoke passed
-Last activity: 2026-05-24 — Completed phases 1103-1106, reran ADK compose, and verified primary/relief maps through Playwright MCP
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-25 — Milestone v1025 started
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1024 ADK High Peaks Marketing-Ready — upgraded ADK marketing data/maps, builder layer ordering, terrain controls, and Playwright MCP verification
+**Current focus:** v1025 Mapbuilder Polishing — Playwright MCP deep QA and inline fixes for the existing ADK 3D Relief builder map.
 
 ## Last Shipped Milestone
 
@@ -38,22 +38,20 @@ See: .planning/PROJECT.md
 **Milestone audit:** PENDING — orchestrator runs /gsd:audit-milestone v1023 next
 **Archived phases:** (pending /gsd:cleanup-milestone — will move to `.planning/milestones/v1023-phases/`)
 
-## Phase Plan (v1024)
+## Phase Plan (v1025)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1101 ADK Source Data Upgrade | TNM/NAIP aerial path or documented no-data fallback; NHD hydrography; expanded 46er peak source data | ADK-DATA-01..05 | — |
-| 1102 ADK Saved Map Composition | Primary map refresh + bonus 3D relief variant Map 2 | ADK-MAP-01..03 | Phase 1101 |
-| 1103 Builder Mixed Layer Reorder | Mixed raster/vector reorder updates live MapLibre canvas and persists | BUILDER-01, BUILDER-02 | Phase 1102 |
-| 1104 Terrain Rendering and Config | DEM zoom metadata, explicit terrain disabled state, terrain/exaggeration controls | TERRAIN-01..04 | Phase 1102 |
-| 1105 Builder Error Hygiene | Specific map error routing, non-overlapping toast, Positron sprite warning cleanup | TOAST-01, TOAST-02, BASEMAP-01, SPRITE-01 | Phase 1104 |
-| 1106 Playwright Marketing Close Gate | Live Playwright MCP smoke + close evidence | VERIFY-01..03 | Phases 1103-1105 |
+| 1107 Playwright Deep QA Sweep | Exercise every target-map layer row/options/editor surface and record findings | QA-01..04 | — |
+| 1108 Layer Metadata and Option Fixes | Fix confirmed saved/scripted layer metadata and layer-option regressions | LAYER-01..04 | Phase 1107 |
+| 1109 Marketing Cartographic Polish | Tune target-map styling, labels, legend/sidebar, and screenshot framing | CARTO-01..04 | Phase 1108 |
+| 1110 Playwright Close Gate | Fresh Playwright MCP verification + focused tests + close artifacts | VERIFY-01..04 | Phases 1108-1109 |
 
-**Coverage:** 21/21 v1024 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 16/16 v1025 requirements mapped, 0 orphans, 0 duplicates.
 
-**Public tag target:** `v1.5.9` (SemVer patch — data/script + UI/rendering bug fixes; avoid API/schema/migration changes unless a verified fix requires them).
+**Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
 
-**HARD INVARIANT:** A freshly composed ADK map at `localhost:8080/maps/{new_id}` opens in the builder with zero browser console errors/warnings, vectors above rasters after reorder, and working terrain settings/exaggeration controls verified through Playwright MCP.
+**HARD INVARIANT:** A fresh Playwright MCP load of the target map has zero unexpected browser console errors/warnings, every layer options menu and representative editor surface works, DEM hillshade and peak labels render as intended, and the final screenshot demonstrates GeoLens cartographic functionality.
 
 ## Quick Tasks Completed
 
@@ -80,24 +78,24 @@ See: .planning/PROJECT.md
 
 ### Pending Todos
 
-None — v1024 closed locally.
+None — v1025 started from a clean pending-todo slate.
 
 ### Blockers/Concerns
 
-- **CI-01-v1024 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1024+. Once resolved: `gh run rerun 26359374410` (preserves v1022 SHA-of-record `5344cd50`) OR new dispatch on a post-v1023 commit → `gh run watch <run_id>` → embed `gh run view <run_id> --log --job=<job_id>` block in v1024+ CI-01 closure phase doc.
+- **CI-01-v1025 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1025+. This remains outside the mapbuilder polishing invariant.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1024+ as CI-01-v1024 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
+| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1025+ as CI-01-v1025 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
 
 ## Session Continuity
 
-Last session: 2026-05-25T00:22:00.000Z
-Stopped at: v1024 complete after Playwright MCP close gate
+Last session: 2026-05-25T01:02:50.153Z
+Stopped at: v1025 initialized for Playwright MCP deep QA
 Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Review and publish the v1024 changes when ready.
+- Run Phase 1107 Playwright deep QA, then fix findings inline through the v1025 roadmap.

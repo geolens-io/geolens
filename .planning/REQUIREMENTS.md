@@ -1,94 +1,84 @@
-# Requirements: GeoLens v1024 ADK High Peaks Marketing-Ready
+# Requirements: GeoLens v1025 Mapbuilder Polishing
 
-**Defined:** 2026-05-24
+**Defined:** 2026-05-25
 **Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 
-## v1024 Requirements
+## v1025 Requirements
 
-### ADK Marketing Data
+### Playwright QA
 
-- [x] **ADK-DATA-01**: Operator can run the ADK pipeline with a TNM API aerial fetch path that attempts NAIP 0.6m imagery for the High Peaks AOI and replaces the prior soft 3.5 MB ArcGIS REST aerial when TNM publishes matching imagery.
-- [x] **ADK-DATA-02**: If TNM does not publish NAIP imagery for the AOI, the pipeline records that fact with the exact TNM query evidence and uses a documented high-fidelity fallback without silently keeping the prior low-resolution aerial.
-- [x] **ADK-DATA-03**: Operator can ingest NHD hydrography for the ADK High Peaks AOI and see it as a styled layer in the marketing map.
-- [x] **ADK-DATA-04**: Operator can ingest the remaining ADK 46er peaks relevant to the map set, replacing the prior 12-peak AOI subset limitation where the broader marketing map needs complete 46er context.
-- [x] **ADK-DATA-05**: `scripts/marketing-data/adk-high-peaks/compose_marketing_maps.py` remains idempotent and updates or reuses existing datasets/maps rather than duplicating them.
+- [ ] **QA-01**: Operator can run a Playwright MCP sweep against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` that opens every data layer and basemap row without unhandled UI errors.
+- [ ] **QA-02**: Operator can verify every layer options menu opens and exposes source metadata plus safe layer actions without trapping focus or breaking row interaction.
+- [ ] **QA-03**: Operator can verify representative editor tabs and controls for point, line, polygon, raster, DEM, and basemap layers.
+- [ ] **QA-04**: Browser console warnings/errors, failed requests, screenshot evidence, and visual/cartographic findings are captured in phase artifacts with dispositions.
 
-### ADK Saved Maps
+### Layer Option Fixes
 
-- [x] **ADK-MAP-01**: The primary ADK High Peaks marketing map contains high-fidelity aerial, DEM hillshade, NHD hydrography, land classification, Blue Line context, hiking trails, and complete 46er peak overlays with vectors above rasters.
-- [x] **ADK-MAP-02**: A bonus ADK High Peaks 3D relief variant Map 2 is composed with terrain enabled, an intentional exaggeration value, and a layer/style stack suitable for marketing screenshots.
-- [x] **ADK-MAP-03**: Re-running the ADK compose script end-to-end produces or updates both maps without a manual `PUT /api/maps/{id}` terrain fix or manual layer-order PATCH.
+- [ ] **LAYER-01**: DEM layers whose saved style config declares hillshade open in the builder as Hillshade, not Image, and retain that render mode through API normalization.
+- [ ] **LAYER-02**: ADK marketing composition uses GeoLens `label_config` keys so 46er peak labels render in the builder/viewer and remain editable.
+- [ ] **LAYER-03**: The ADK composition script writes canonical render/style metadata for DEM hillshade, aerial raster, Blue Line outline, and peak labels so reruns reproduce the polished map.
+- [ ] **LAYER-04**: The existing target map is updated in the running catalog with the same canonical layer metadata without duplicating datasets or maps.
 
-### Builder Ordering
+### Marketing Cartography
 
-- [x] **BUILDER-01**: User can drag a vector layer above raster aerial/DEM layers in the builder and see the MapLibre canvas order update immediately without page reload.
-- [x] **BUILDER-02**: User-set mixed raster/vector layer order survives `PATCH /api/maps/{id}/layers` plus browser reload, with an automated regression test covering vectors above rasters.
-
-### Terrain Rendering
-
-- [x] **TERRAIN-01**: Raster tile tokens for DEM terrain use per-dataset min/max zoom derived from COG metadata instead of hardcoded `maxzoom=18`.
-- [x] **TERRAIN-02**: A terrain-enabled ADK map opens without `dem dimension mismatch`, missing terrain source, or elevation maxzoom console errors at the intended screenshot zoom range.
-- [x] **TERRAIN-03**: `POST /api/maps/` with `terrain_config={enabled:false}` preserves the explicit disabled state after the first frontend builder open.
-- [x] **TERRAIN-04**: Builder terrain settings and exaggeration controls update terrain on the live map without throwing console errors.
-
-### Builder Error Hygiene
-
-- [x] **TOAST-01**: MapLibre internal terrain/DEM errors are not routed into the basemap-connection toast bucket.
-- [x] **TOAST-02**: The basemap-error toast no longer overlaps the top-left NavigationControl.
-- [x] **BASEMAP-01**: Positron basemap loads cleanly when no terrain layer is present; if it does not, the actual basemap fetch path is fixed or documented with evidence.
-- [x] **SPRITE-01**: OpenFreeMap Positron `road_` / `us-state_` sprite-missing warnings are resolved or suppressed without hiding unrelated image-loading errors.
+- [ ] **CARTO-01**: Target map styling makes terrain, aerial, hillshade, hydrography, trails, Blue Line, land classification, waterbodies, and 46er peaks legible at the screenshot view.
+- [ ] **CARTO-02**: Peak labels are readable without overwhelming the terrain and are gated to an appropriate zoom range.
+- [ ] **CARTO-03**: Legend and builder/sidebar presentation demonstrate GeoLens functionality without hiding key map content.
+- [ ] **CARTO-04**: Suggestions for future cartographic improvements are documented separately from fixes completed in this milestone.
 
 ### Verification
 
-- [x] **VERIFY-01**: Playwright MCP smoke opens the freshly composed primary ADK map in the builder and verifies zero browser console errors/warnings.
-- [x] **VERIFY-02**: Playwright MCP smoke exercises layer reorder, terrain settings, and exaggeration controls in the builder.
-- [x] **VERIFY-03**: Close gate documents test commands, Playwright MCP evidence, map IDs, screenshot targets, and any accepted third-party data-source limitations.
+- [ ] **VERIFY-01**: Fresh Playwright MCP load of the target map after fixes has zero unexpected console errors/warnings.
+- [ ] **VERIFY-02**: Playwright MCP verifies the fixed DEM hillshade editor state, peak label rendering, layer options menus, and visibility toggles after reload.
+- [ ] **VERIFY-03**: Frontend unit tests cover the style-config normalization regression that hid render-mode-only and legacy nested render modes.
+- [ ] **VERIFY-04**: Phase summaries include the final screenshot target, changed files, commands run, and any accepted external/noise limitations.
 
 ## Future Requirements
 
+### Builder UX Follow-ups
+
+- **UX-FU-01**: Consider a non-destructive "presentation mode" for builder screenshots that keeps layer/tool affordances visible while temporarily reducing chrome density.
+- **UX-FU-02**: Consider exposing companion label configuration for point mode directly instead of requiring labels to be inferred from saved metadata.
+
 ### CI Infrastructure
 
-- **CI-01-v1024**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This is a rolling external blocker from v1022 and v1023, not part of the ADK marketing-ready hard invariant.
+- **CI-01-v1025**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the mapbuilder polishing invariant.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Rebuilding the whole map-builder information architecture | v1024 is a targeted data/rendering/debuggability milestone anchored to 260524-o57 dogfooding findings. |
-| Cloud multi-tenant infrastructure | Unrelated backlog scope; keep this milestone focused on marketing maps and builder rendering. |
-| Vendor-hosted basemap replacement | Only fix GeoLens handling of Positron warnings/errors; do not replace the basemap provider unless required by verification. |
+| Rebuilding the whole map-builder information architecture | v1025 is a targeted QA/polish/fix milestone for one existing marketing map. |
+| Adding new external datasets | The target map already has the required ADK source stack; this milestone fixes presentation and builder behavior. |
+| Replacing OpenFreeMap Positron | Only fix GeoLens handling or document basemap-provider limitations if fresh Playwright evidence requires it. |
+| Deleting/duplicating target datasets during QA | QA should exercise destructive menu affordances only up to safe confirmation boundaries unless a fix explicitly requires data changes. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ADK-DATA-01 | Phase 1101 | Complete |
-| ADK-DATA-02 | Phase 1101 | Complete |
-| ADK-DATA-03 | Phase 1101 | Complete |
-| ADK-DATA-04 | Phase 1101 | Complete |
-| ADK-DATA-05 | Phase 1101 | Complete |
-| ADK-MAP-01 | Phase 1102 | Complete |
-| ADK-MAP-02 | Phase 1102 | Complete |
-| ADK-MAP-03 | Phase 1102 | Complete |
-| BUILDER-01 | Phase 1103 | Complete |
-| BUILDER-02 | Phase 1103 | Complete |
-| TERRAIN-01 | Phase 1104 | Complete |
-| TERRAIN-02 | Phase 1104 | Complete |
-| TERRAIN-03 | Phase 1104 | Complete |
-| TERRAIN-04 | Phase 1104 | Complete |
-| TOAST-01 | Phase 1105 | Complete |
-| TOAST-02 | Phase 1105 | Complete |
-| BASEMAP-01 | Phase 1105 | Complete |
-| SPRITE-01 | Phase 1105 | Complete |
-| VERIFY-01 | Phase 1106 | Complete |
-| VERIFY-02 | Phase 1106 | Complete |
-| VERIFY-03 | Phase 1106 | Complete |
+| QA-01 | Phase 1107 | Pending |
+| QA-02 | Phase 1107 | Pending |
+| QA-03 | Phase 1107 | Pending |
+| QA-04 | Phase 1107 | Pending |
+| LAYER-01 | Phase 1108 | Pending |
+| LAYER-02 | Phase 1108 | Pending |
+| LAYER-03 | Phase 1108 | Pending |
+| LAYER-04 | Phase 1108 | Pending |
+| CARTO-01 | Phase 1109 | Pending |
+| CARTO-02 | Phase 1109 | Pending |
+| CARTO-03 | Phase 1109 | Pending |
+| CARTO-04 | Phase 1109 | Pending |
+| VERIFY-01 | Phase 1110 | Pending |
+| VERIFY-02 | Phase 1110 | Pending |
+| VERIFY-03 | Phase 1110 | Pending |
+| VERIFY-04 | Phase 1110 | Pending |
 
 **Coverage:**
-- v1024 requirements: 21 total, 21 complete
-- Mapped to phases: 21
+- v1025 requirements: 16 total
+- Mapped to phases: 16
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-05-24*
-*Last updated: 2026-05-24 after v1024 milestone initialization*
+*Requirements defined: 2026-05-25*
+*Last updated: 2026-05-25 after v1025 milestone initialization*
