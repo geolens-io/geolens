@@ -1,0 +1,1936 @@
+{
+  "id": "8dd6a129-8eb0-4ba9-b421-716c83b160dd",
+  "name": "Adirondack High Peaks — 3D Relief",
+  "description": "Bonus 3D relief variant for screenshots: ADK terrain enabled over high-fidelity aerial, DEM hillshade, hydrography, trails, and complete 46er peak context.",
+  "notes": null,
+  "center_lng": -73.94,
+  "center_lat": 44.16,
+  "zoom": 13.2,
+  "bearing": -24,
+  "pitch": 62,
+  "basemap_style": "openfreemap-positron",
+  "show_basemap_labels": true,
+  "basemap_config": null,
+  "terrain_config": {
+    "enabled": true,
+    "source_dataset_id": "2931c262-0e86-4e23-b14d-55763854e004",
+    "exaggeration": 1.7
+  },
+  "visibility": "private",
+  "thumbnail_url": "/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd/thumbnail/",
+  "forked_from_id": null,
+  "forked_from_name": null,
+  "created_by": "64596954-984c-478c-9021-6fa5e8e4a5a3",
+  "created_by_username": "admin",
+  "created_at": "2026-05-24T23:57:22.702903Z",
+  "updated_at": "2026-05-25T00:14:49.755932Z",
+  "layers": [
+    {
+      "id": "b80608c1-ab56-444f-94a9-7dc8750806bd",
+      "dataset_id": "42ac6daa-3b5e-4e06-9cbc-5562191de787",
+      "dataset_name": "ADK 46er High Peaks (complete official list)",
+      "dataset_geometry_type": "MULTIPOINT",
+      "dataset_table_name": "adk_46er_high_peaks_complete_official_list",
+      "dataset_extent_bbox": [
+        -74.2140479871246,
+        44.0517299791209,
+        -73.7026361184653,
+        44.3870005355079
+      ],
+      "dataset_column_info": [
+        {
+          "name": "objectid",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 3
+        },
+        {
+          "name": "feature_id",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 4
+        },
+        {
+          "name": "feature_na",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 5
+        },
+        {
+          "name": "feature_cl",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 6
+        },
+        {
+          "name": "state_alph",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 7
+        },
+        {
+          "name": "county_nam",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 8
+        },
+        {
+          "name": "prim_lat_d",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 9
+        },
+        {
+          "name": "prim_long1",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 10
+        },
+        {
+          "name": "elev_in_m",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 11
+        },
+        {
+          "name": "elev_in_ft",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 12
+        },
+        {
+          "name": "map_name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 13
+        },
+        {
+          "name": "date_creat",
+          "type": "bigint",
+          "is_nullable": true,
+          "ordinal_position": 14
+        },
+        {
+          "name": "date_edite",
+          "type": "bigint",
+          "is_nullable": true,
+          "ordinal_position": 15
+        },
+        {
+          "name": "short_name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 16
+        },
+        {
+          "name": "globalid",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 17
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 18
+        },
+        {
+          "name": "elev_ft",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 19
+        },
+        {
+          "name": "rank",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 20
+        },
+        {
+          "name": "is_official_46er",
+          "type": "boolean",
+          "is_nullable": true,
+          "ordinal_position": 21
+        },
+        {
+          "name": "source_name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 22
+        },
+        {
+          "name": "source_elev_ft",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 23
+        }
+      ],
+      "dataset_feature_count": 46,
+      "dataset_sample_values": {
+        "name": [
+          "Nippletop",
+          "Seymour Mountain",
+          "Rocky Peak Ridge",
+          "Cascade Mountain",
+          "Street Mountain",
+          "Hough Peak",
+          "Blake Peak",
+          "Saddleback Mountain",
+          "Upper Wolfjaw Mountain",
+          "Gothics"
+        ],
+        "rank": [
+          "1",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16",
+          "17",
+          "18"
+        ],
+        "elev_ft": [
+          "3820",
+          "3895",
+          "3960",
+          "4012",
+          "4020",
+          "4040",
+          "4057",
+          "4059",
+          "4060",
+          "4098"
+        ],
+        "globalid": [
+          "fb1628ab-bd88-40bd-8597-18b90e427d58",
+          "5bc361a2-f6b6-49c4-938e-6f545365f872",
+          "fa68aad0-2fa8-43bc-bbc5-37404f2e87f4",
+          "4143c540-d4ce-4557-832a-a7ff4ba6e4d4",
+          "165a61d1-ea58-4d09-9e40-043372f71036",
+          "5868db85-54a5-4cb1-9a98-ae3eae3fbdd6",
+          "15ebab78-31bf-4c64-98e9-b28f44271305",
+          "e1540ad4-6a5e-4d78-92a0-47e9b072501a",
+          "b94c7e38-dd33-4d48-a0c2-bd9b424088e9",
+          "b21f2c98-2201-4332-8472-43753c719c51"
+        ],
+        "map_name": [
+          "Franklin Falls",
+          "Rocky Peak Ridge",
+          "Ampersand Lake",
+          "Street Mountain",
+          "Keene Valley",
+          "Dix Mountain",
+          "North Elba",
+          "Santanoni Peak",
+          "Lake Placid",
+          "Mount Marcy"
+        ],
+        "objectid": [
+          "1035",
+          "1072",
+          "1086",
+          "1122",
+          "1124",
+          "1142",
+          "1144",
+          "1192",
+          "12",
+          "1247"
+        ],
+        "elev_in_m": [
+          "1164",
+          "1187",
+          "1207",
+          "1223",
+          "1225",
+          "1231",
+          "1236",
+          "1237",
+          "1249",
+          "1250"
+        ],
+        "county_nam": [
+          "Essex",
+          "Franklin"
+        ],
+        "date_creat": [
+          "1270166400000",
+          "317433600000"
+        ],
+        "date_edite": [
+          "1226448000000",
+          "1228176000000",
+          "1243900800000",
+          "1246406400000",
+          "1402963200000"
+        ],
+        "elev_in_ft": [
+          "3820",
+          "3895",
+          "3960",
+          "4012",
+          "4020",
+          "4040",
+          "4057",
+          "4059",
+          "4060",
+          "4098"
+        ],
+        "feature_cl": [
+          "Ridge",
+          "Summit"
+        ],
+        "feature_id": [
+          "2611110",
+          "942362",
+          "942572",
+          "943955",
+          "944215",
+          "945952",
+          "946865",
+          "947091",
+          "947211",
+          "947539"
+        ],
+        "feature_na": [
+          "Nippletop",
+          "Seymour Mountain",
+          "Rocky Peak Ridge",
+          "Cascade Mountain",
+          "Street Mountain",
+          "Hough Peak",
+          "Blake Peak",
+          "Saddleback Mountain",
+          "Upper Wolfjaw Mountain",
+          "Gothics"
+        ],
+        "prim_lat_d": [
+          "44.051721",
+          "44.060054",
+          "44.065331",
+          "44.069498",
+          "44.070889",
+          "44.081443",
+          "44.082276",
+          "44.082281",
+          "44.08922",
+          "44.093942"
+        ],
+        "prim_long1": [
+          "-73.702635",
+          "-73.720279",
+          "-73.757356",
+          "-73.774301",
+          "-73.777635",
+          "-73.780135",
+          "-73.786247",
+          "-73.79597",
+          "-73.815971",
+          "-73.83264"
+        ],
+        "short_name": [
+          "Nippletop",
+          "Cascade Mtn",
+          "Rocky Peak Ridge",
+          "Big Slide Mtn",
+          "Seymour Mtn",
+          "Mt Redfield",
+          "Hough Peak",
+          "Mt Skylight",
+          "Mt Colden",
+          "Blake"
+        ],
+        "state_alph": [
+          "NY"
+        ],
+        "source_name": [
+          "Nippletop",
+          "Seymour Mountain",
+          "Rocky Peak Ridge",
+          "Cascade Mountain",
+          "Street Mountain",
+          "Hough Peak",
+          "Blake Peak",
+          "Saddleback Mountain",
+          "Upper Wolfjaw Mountain",
+          "Gothics"
+        ],
+        "source_elev_ft": [
+          "3820",
+          "3895",
+          "3960",
+          "4012",
+          "4020",
+          "4040",
+          "4057",
+          "4059",
+          "4060",
+          "4098"
+        ],
+        "is_official_46er": [
+          "true"
+        ]
+      },
+      "display_name": "ADK 46er peaks",
+      "sort_order": 0,
+      "visible": true,
+      "opacity": 1,
+      "paint": {
+        "circle-color": "#ffffff",
+        "circle-radius": 5,
+        "circle-stroke-color": "#111111",
+        "circle-stroke-width": 1.5
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "dataset_record_type": "vector_dataset",
+      "filter": null,
+      "label_config": {
+        "text-size": 12,
+        "text-field": [
+          "get",
+          "name"
+        ],
+        "text-offset": [
+          0,
+          1.2
+        ],
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.5
+      },
+      "popup_config": {
+        "enabled": true,
+        "expression": null,
+        "visible_fields": [
+          "name",
+          "elev_ft",
+          "rank",
+          "source_name"
+        ]
+      },
+      "style_config": null,
+      "show_in_legend": true,
+      "is_3d": false,
+      "is_dem": null,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "4ed7eddf-2345-4d8f-84a6-f0e47c1809e5",
+      "dataset_id": "075043fb-af1d-4d2b-935e-c3bb9287e299",
+      "dataset_name": "ADK High Peaks — NYSDEC Hiking Trails (AOI)",
+      "dataset_geometry_type": "MULTILINESTRING",
+      "dataset_table_name": "adk_high_peaks_nysdec_hiking_trails_aoi_2",
+      "dataset_extent_bbox": [
+        -74.05,
+        44.08,
+        -73.85,
+        44.32
+      ],
+      "dataset_column_info": [
+        {
+          "name": "objectid",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 3
+        },
+        {
+          "name": "facility",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 4
+        },
+        {
+          "name": "name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 5
+        },
+        {
+          "name": "asset",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 6
+        },
+        {
+          "name": "unit",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 7
+        },
+        {
+          "name": "atv",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 8
+        },
+        {
+          "name": "foot",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 9
+        },
+        {
+          "name": "horse",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 10
+        },
+        {
+          "name": "bike",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 11
+        },
+        {
+          "name": "xc",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 12
+        },
+        {
+          "name": "motorv",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 13
+        },
+        {
+          "name": "snowmb",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 14
+        },
+        {
+          "name": "admin",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 15
+        },
+        {
+          "name": "accessible",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 16
+        },
+        {
+          "name": "mappwd",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 17
+        },
+        {
+          "name": "descrip",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 18
+        },
+        {
+          "name": "notes",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 19
+        },
+        {
+          "name": "road_class",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 20
+        },
+        {
+          "name": "updated",
+          "type": "bigint",
+          "is_nullable": true,
+          "ordinal_position": 21
+        },
+        {
+          "name": "facility_no",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 22
+        },
+        {
+          "name": "publicuse",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 23
+        },
+        {
+          "name": "globalid",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 24
+        },
+        {
+          "name": "accu_methods",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 25
+        },
+        {
+          "name": "region",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 26
+        },
+        {
+          "name": "office",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 27
+        },
+        {
+          "name": "asset_num",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 28
+        },
+        {
+          "name": "photo_link",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 29
+        },
+        {
+          "name": "marker",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 30
+        },
+        {
+          "name": "trans_uid",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 31
+        },
+        {
+          "name": "miles",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 32
+        },
+        {
+          "name": "slt_id",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 33
+        },
+        {
+          "name": "slt_name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 34
+        },
+        {
+          "name": "shape__length",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 35
+        }
+      ],
+      "dataset_feature_count": 241,
+      "dataset_sample_values": {
+        "xc": [
+          "N",
+          "Y",
+          "M"
+        ],
+        "atv": [
+          "N"
+        ],
+        "bike": [
+          "N",
+          "Y",
+          "M"
+        ],
+        "foot": [
+          "Y",
+          "M"
+        ],
+        "name": [
+          "Adk Range Trail",
+          "Cold Brook Trail",
+          "Potato Field Loop Trail",
+          "Pitchoff Mountain Trail",
+          "A.E. Weld Trail",
+          "Beaver Meadow Falls Trail",
+          "Lake Arnold Crossover",
+          "Jack Rabitt Trail Access Trail",
+          "Orebed Brook Trail",
+          "Wall Face Ponds Trail"
+        ],
+        "unit": [
+          "AFP"
+        ],
+        "admin": [
+          "N",
+          "Y"
+        ],
+        "asset": [
+          "UNMARKED TRAIL",
+          "MULTIPURPOSE TRAIL",
+          "BIKE TRAIL",
+          "SKI TRAIL",
+          "FOOT TRAIL",
+          "UNPAVED ROAD"
+        ],
+        "horse": [
+          "N"
+        ],
+        "miles": [
+          "0.06",
+          "1.6",
+          "1.06",
+          "0.43",
+          "1.58",
+          "1.81",
+          "0.3",
+          "3.65",
+          "0.45",
+          "0.28"
+        ],
+        "notes": [
+          "Along River, Several Access Points To River, Goes To Possible Campsite",
+          "Decision And Ruling Of The Comminssioner 7/22/2015 Found That This Is An Abandonded Road",
+          "No Dogs, Camping And Hunting",
+          "Parking Along Road Side, No Sign At Start Of Trail",
+          " ",
+          "Need To Check Boundary Lines, May Be On Private",
+          "  ",
+          "Simplified Trimble Data Point Remove 1M",
+          "Digitized From Usgs Topo",
+          "Digitized From 1:24,000 National Geographic Trail Maps"
+        ],
+        "mappwd": [
+          "N"
+        ],
+        "marker": [
+          "Red",
+          "Yellow",
+          "Blue"
+        ],
+        "motorv": [
+          "N"
+        ],
+        "office": [
+          "RAY BROOK"
+        ],
+        "region": [
+          "5"
+        ],
+        "slt_id": [
+          "50854",
+          "50142",
+          "50141",
+          "50968",
+          "50143",
+          "50082",
+          "50112",
+          "50092",
+          "50105",
+          "50106"
+        ],
+        "snowmb": [
+          "N",
+          "Y"
+        ],
+        "descrip": [
+          "No Dogs, No Hunting, No Camping",
+          "Old Road, Minor Blowdown, Being Kept Clear",
+          "No Dogs, Camping And Hunting",
+          "Paths To River, Make Part Canoe Carry Around Dam",
+          " ",
+          "Pond Access",
+          "Scotts Cobble",
+          "Old Road, Not Marked Trail, Ski Trail",
+          "Central Trail, Part On Old Road",
+          "Part On Private Land, Part On Oprhp"
+        ],
+        "updated": [
+          "1159142400000",
+          "1474416000000",
+          "1281484800000",
+          "1156377600000",
+          "1397174400000",
+          "1276560000000",
+          "1304467200000",
+          "1392854400000",
+          "1336435200000",
+          "1442188800000"
+        ],
+        "facility": [
+          "Dix Mountain Wilderness",
+          "Mckenzie Mountain Wilderness",
+          "John Browns Farm Historic Site",
+          "Sentinel Range Wilderness Area",
+          "Saranac Lakes Wild Forest",
+          "Sentinel Range Wilderness",
+          "Adirondack Rail Trail",
+          "High Peaks Wilderness"
+        ],
+        "globalid": [
+          "17a9f00f-1452-41eb-a24f-d15dcc09b443",
+          "3ed2de72-0960-4a68-954d-bf9583b73319",
+          "2c2f5174-8ad2-4a7e-84ff-8d60108d2c6e",
+          "1554b5a5-bc02-4c97-b89f-218ecc02ba94",
+          "cfaeff0d-f875-4041-ab5a-1630b1a2a1ae",
+          "03439df7-d30d-4050-af29-e8c6698116bf",
+          "944b47fa-7410-46c2-8d16-738657df3888",
+          "a8405457-43a6-4e32-a845-9d1f378e5c6f",
+          "d5f0a3fc-c5ab-436c-8b9a-88bb68b74858",
+          "cebe71ab-fff8-4071-9a53-d5fd2bb2974f"
+        ],
+        "objectid": [
+          "3604485",
+          "3600276",
+          "3607192",
+          "3601557",
+          "3603405",
+          "3603847",
+          "3602486",
+          "3600567",
+          "3600455",
+          "3600781"
+        ],
+        "slt_name": [
+          "Phelps Trail Spur To Lean Tos",
+          "Cold Brook Trail",
+          "Potato Field Loop Trail",
+          "Van Hovenberg Trail",
+          "Porter Mountain Trail",
+          "Pitchoff Mountain Trail",
+          "Mt. Adams Trail",
+          "Iroquois Herd Path",
+          "Phelps Mountain Trail",
+          "A.E. Weld Trail"
+        ],
+        "asset_num": [
+          "1282-325",
+          "1282-327",
+          "1281-525",
+          "1281-578",
+          "1281-635",
+          " ",
+          "1281-577",
+          "1282-328",
+          "1281-524"
+        ],
+        "publicuse": [
+          "Y"
+        ],
+        "trans_uid": [
+          "575.3589145374",
+          "5540.9221111833",
+          "203.1769249946",
+          "261.0823799247",
+          "1367.4969727198",
+          "1200.9486894965",
+          "3654.084105808",
+          "1118.0521678124",
+          "644.6492996794",
+          "421.4228305756"
+        ],
+        "accessible": [
+          "N",
+          "Y"
+        ],
+        "road_class": [
+          "RT",
+          "FPR"
+        ],
+        "facility_no": [
+          "1277",
+          "1281",
+          "1282",
+          "1287",
+          "1321"
+        ],
+        "accu_methods": [
+          "3.4",
+          "7.3",
+          "7.4",
+          "2.3",
+          "3.1",
+          "3.7",
+          "1.3",
+          "6.4",
+          "4.2.1",
+          "7.1"
+        ],
+        "shape__length": [
+          "879.548906498842",
+          "74.4051320240372",
+          "2206.830109095",
+          "3092.95366039053",
+          "466.323482625794",
+          "1021.8833906108",
+          "2543.84488089573",
+          "5390.08793374605",
+          "245.954552907395",
+          "393.118192308276"
+        ]
+      },
+      "display_name": "Hiking trails",
+      "sort_order": 1,
+      "visible": true,
+      "opacity": 0.9,
+      "paint": {
+        "line-color": "#c44d00",
+        "line-width": 1.8
+      },
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "layer_type": "vector_geolens",
+      "dataset_record_type": "vector_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": null,
+      "show_in_legend": true,
+      "is_3d": false,
+      "is_dem": null,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "ae95dbe6-8b79-431a-a8e8-9dfaeb76ba7e",
+      "dataset_id": "4a66b4b6-a9cc-4a87-bb30-3b3ec409f9bd",
+      "dataset_name": "ADK High Peaks — NHD Flowlines (AOI)",
+      "dataset_geometry_type": "MULTILINESTRING",
+      "dataset_table_name": "adk_high_peaks_nhd_flowlines_aoi",
+      "dataset_extent_bbox": [
+        -74.05,
+        44.08,
+        -73.85,
+        44.32
+      ],
+      "dataset_column_info": [
+        {
+          "name": "objectid",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 3
+        },
+        {
+          "name": "permanent_identifier",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 4
+        },
+        {
+          "name": "fdate",
+          "type": "bigint",
+          "is_nullable": true,
+          "ordinal_position": 5
+        },
+        {
+          "name": "resolution",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 6
+        },
+        {
+          "name": "gnis_id",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 7
+        },
+        {
+          "name": "gnis_name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 8
+        },
+        {
+          "name": "lengthkm",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 9
+        },
+        {
+          "name": "reachcode",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 10
+        },
+        {
+          "name": "flowdir",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 11
+        },
+        {
+          "name": "wbarea_permanent_identifier",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 12
+        },
+        {
+          "name": "ftype",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 13
+        },
+        {
+          "name": "fcode",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 14
+        },
+        {
+          "name": "innetwork",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 15
+        },
+        {
+          "name": "mainpath",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 16
+        },
+        {
+          "name": "visibilityfilter",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 17
+        },
+        {
+          "name": "shape_length",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 18
+        },
+        {
+          "name": "globalid",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 19
+        }
+      ],
+      "dataset_feature_count": 579,
+      "dataset_sample_values": {
+        "fcode": [
+          "46006",
+          "33400",
+          "46003",
+          "55800"
+        ],
+        "fdate": [
+          "1331183566000",
+          "1331183643000",
+          "1572393600000",
+          "1331183698000",
+          "1581465600000",
+          "1331183477000",
+          "1488931200000",
+          "1331183546000",
+          "1331183656000",
+          "1331183518000"
+        ],
+        "ftype": [
+          "558",
+          "334",
+          "460"
+        ],
+        "flowdir": [
+          "1"
+        ],
+        "gnis_id": [
+          "00954749",
+          "00964939",
+          "00946659",
+          "00962634",
+          "00943130",
+          "00956499",
+          "00970755",
+          "00958853",
+          "00962238",
+          "00958557"
+        ],
+        "globalid": [
+          "{BCA44F14-4C82-11E1-BCF4-0021280458E6}",
+          "{83550B92-4C71-11E1-BCF4-0021280458E6}",
+          "{752DDD3A-4C98-11E1-BCF4-0021280458E6}",
+          "{3BD01406-4C98-11E1-BCF4-0021280458E6}",
+          "{E96B46A3-4C7A-11E1-BCF4-0021280458E6}",
+          "{3A6B1754-4C9B-11E1-BCF4-0021280458E6}",
+          "{D470EFF8-4C90-11E1-BCF4-0021280458E6}",
+          "{F4E851C5-4C76-11E1-BCF4-0021280458E6}",
+          "{8B5C1A36-4C77-11E1-BCF4-0021280458E6}",
+          "{1BBB0ACA-4C8C-11E1-BCF4-0021280458E6}"
+        ],
+        "lengthkm": [
+          "0.593",
+          "0.9713918",
+          "0.22185899",
+          "0.53038635",
+          "0.5418",
+          "0.74721628",
+          "0.53402694",
+          "2.711",
+          "1.29102614",
+          "0.403"
+        ],
+        "mainpath": [
+          "0"
+        ],
+        "objectid": [
+          "23961852",
+          "3329167",
+          "14530684",
+          "19694375",
+          "4777666",
+          "5788837",
+          "1988508",
+          "22613785",
+          "27331524",
+          "16776719"
+        ],
+        "gnis_name": [
+          "West Branch Ausable River",
+          "Skylight Brook",
+          "Nichols Brook",
+          "Opalescent River",
+          "Crystal Brook",
+          "Basin Brook",
+          "Shanty Brook",
+          "Ray Brook",
+          "Uphill Brook",
+          "Chubb River"
+        ],
+        "innetwork": [
+          "1"
+        ],
+        "reachcode": [
+          "04300104000150",
+          "02020001001064",
+          "04300104000186",
+          "02020001000635",
+          "02020001002019",
+          "04300104000204",
+          "04300104000293",
+          "04300104000498",
+          "04300104000255",
+          "02020001006412"
+        ],
+        "resolution": [
+          "2"
+        ],
+        "shape_length": [
+          "741.40920328706",
+          "3190.79906957543",
+          "754.864765893454",
+          "346.590597436335",
+          "560.688263958216",
+          "396.202656328008",
+          "232.552646489716",
+          "3268.68569617624",
+          "1838.33182681328",
+          "3774.00812271008"
+        ],
+        "visibilityfilter": [
+          "1000000",
+          "2000000",
+          "100000",
+          "250000",
+          "500000",
+          "24000",
+          "5000000"
+        ],
+        "permanent_identifier": [
+          "167100133",
+          "115351745",
+          "115351119",
+          "115351481",
+          "167102628",
+          "115351109",
+          "115352983",
+          "115351555",
+          "89343989",
+          "115351837"
+        ],
+        "wbarea_permanent_identifier": [
+          "89361869",
+          "115353989",
+          "120006501",
+          "115353829",
+          "115353821",
+          "115353805",
+          "167100134",
+          "115353791",
+          "115353879",
+          "115353807"
+        ]
+      },
+      "display_name": "NHD streams and rivers",
+      "sort_order": 2,
+      "visible": true,
+      "opacity": 0.85,
+      "paint": {
+        "line-color": "#2b8fb8",
+        "line-width": 1.2
+      },
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "layer_type": "vector_geolens",
+      "dataset_record_type": "vector_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": null,
+      "show_in_legend": true,
+      "is_3d": false,
+      "is_dem": null,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "2666f7cf-d7b6-4be4-85f5-7a2d90c3f5d3",
+      "dataset_id": "60a2531e-41b9-4325-ac35-a0348cb68e6a",
+      "dataset_name": "APA Adirondack Park Boundary (Blue Line)",
+      "dataset_geometry_type": "MULTIPOLYGON",
+      "dataset_table_name": "apa_adirondack_park_boundary_blue_line_2",
+      "dataset_extent_bbox": [
+        -75.3183083865366,
+        43.0523924516016,
+        -73.2934965598406,
+        44.8776850640698
+      ],
+      "dataset_column_info": [
+        {
+          "name": "objectid",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 3
+        },
+        {
+          "name": "acres_utm",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 4
+        },
+        {
+          "name": "park_pop_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 5
+        },
+        {
+          "name": "park_pop_2010",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 6
+        },
+        {
+          "name": "park_pop_2000",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 7
+        },
+        {
+          "name": "park_hu_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 8
+        },
+        {
+          "name": "p0030001_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 9
+        },
+        {
+          "name": "h0010002_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 10
+        },
+        {
+          "name": "h0010003_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 11
+        },
+        {
+          "name": "p0050001_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 12
+        },
+        {
+          "name": "p0050002_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 13
+        },
+        {
+          "name": "p0050007_2020",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 14
+        },
+        {
+          "name": "aland_sqmiles_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 15
+        },
+        {
+          "name": "popden_sqmile_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 16
+        },
+        {
+          "name": "pct_pop18up_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 17
+        },
+        {
+          "name": "pct_occhous_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 18
+        },
+        {
+          "name": "pct_grpquar_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 19
+        },
+        {
+          "name": "pct_institu_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 20
+        },
+        {
+          "name": "pct_noninstitu_2020",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 21
+        },
+        {
+          "name": "pctchg_2020_2010",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 22
+        },
+        {
+          "name": "shape__area",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 23
+        },
+        {
+          "name": "shape__length",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 24
+        }
+      ],
+      "dataset_feature_count": 1,
+      "dataset_sample_values": {
+        "objectid": [
+          "1"
+        ],
+        "acres_utm": [
+          "5820278.6870619"
+        ],
+        "shape__area": [
+          "45493998038.918"
+        ],
+        "park_hu_2020": [
+          "97707"
+        ],
+        "h0010002_2020": [
+          "53555"
+        ],
+        "h0010003_2020": [
+          "44152"
+        ],
+        "p0030001_2020": [
+          "102439"
+        ],
+        "p0050001_2020": [
+          "5172"
+        ],
+        "p0050002_2020": [
+          "3713"
+        ],
+        "p0050007_2020": [
+          "1459"
+        ],
+        "park_pop_2000": [
+          "131807"
+        ],
+        "park_pop_2010": [
+          "130137"
+        ],
+        "park_pop_2020": [
+          "123316"
+        ],
+        "shape__length": [
+          "1059377.35904085"
+        ],
+        "pct_grpquar_2020": [
+          "4.19410296"
+        ],
+        "pct_institu_2020": [
+          "3.0109637"
+        ],
+        "pct_occhous_2020": [
+          "54.81183539"
+        ],
+        "pct_pop18up_2020": [
+          "83.0703234"
+        ],
+        "pctchg_2020_2010": [
+          "-5.24139945"
+        ],
+        "aland_sqmiles_2020": [
+          "8583.024384"
+        ],
+        "popden_sqmile_2020": [
+          "14.36742976"
+        ],
+        "pct_noninstitu_2020": [
+          "1.18313925"
+        ]
+      },
+      "display_name": "Blue Line (APA boundary)",
+      "sort_order": 3,
+      "visible": true,
+      "opacity": 0.8,
+      "paint": {
+        "fill-color": "#1b6e3a",
+        "fill-opacity": 0.03,
+        "fill-outline-color": "#1b6e3a"
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "dataset_record_type": "vector_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": {
+        "builder": {
+          "outline_color": "#1d4ed8",
+          "outline_width": 1
+        }
+      },
+      "show_in_legend": true,
+      "is_3d": false,
+      "is_dem": null,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "643ac091-5965-4fd1-86e9-865e3cde1bb7",
+      "dataset_id": "c7200cc7-389e-4f39-b225-f7a491891b4f",
+      "dataset_name": "ADK High Peaks — NHD Waterbodies (AOI)",
+      "dataset_geometry_type": "MULTIPOLYGON",
+      "dataset_table_name": "adk_high_peaks_nhd_waterbodies_aoi",
+      "dataset_extent_bbox": [
+        -74.04734522083136,
+        44.08,
+        -73.85,
+        44.32
+      ],
+      "dataset_column_info": [
+        {
+          "name": "objectid",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 3
+        },
+        {
+          "name": "permanent_identifier",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 4
+        },
+        {
+          "name": "fdate",
+          "type": "bigint",
+          "is_nullable": true,
+          "ordinal_position": 5
+        },
+        {
+          "name": "resolution",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 6
+        },
+        {
+          "name": "gnis_id",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 7
+        },
+        {
+          "name": "gnis_name",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 8
+        },
+        {
+          "name": "areasqkm",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 9
+        },
+        {
+          "name": "elevation",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 10
+        },
+        {
+          "name": "reachcode",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 11
+        },
+        {
+          "name": "ftype",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 12
+        },
+        {
+          "name": "fcode",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 13
+        },
+        {
+          "name": "visibilityfilter",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 14
+        },
+        {
+          "name": "shape_length",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 15
+        },
+        {
+          "name": "shape_area",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 16
+        },
+        {
+          "name": "globalid",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 17
+        }
+      ],
+      "dataset_feature_count": 96,
+      "dataset_sample_values": {
+        "fcode": [
+          "39009",
+          "39004"
+        ],
+        "fdate": [
+          "1357948800000",
+          "1239354173000",
+          "1572393600000",
+          "1581465600000",
+          "1239354391000",
+          "1239354390000",
+          "1572307200000",
+          "1239353782000",
+          "1239354156000",
+          "1239354561000"
+        ],
+        "ftype": [
+          "390"
+        ],
+        "gnis_id": [
+          "00955920",
+          "00942723",
+          "00956029",
+          "00956073",
+          "00964682",
+          "00960658",
+          "00962979",
+          "00947307",
+          "00949345",
+          "00958092"
+        ],
+        "areasqkm": [
+          "0.00587006",
+          "0.003",
+          "0.008",
+          "0.58179982",
+          "0.00519242",
+          "0.007",
+          "0.15475552",
+          "0.03987934",
+          "0.00052827",
+          "0.01639223"
+        ],
+        "globalid": [
+          "{01AA84C0-4CB9-11E1-BCF4-0021280458E6}",
+          "{297C1008-4CB7-11E1-BCF4-0021280458E6}",
+          "{BF0955F7-4CB6-11E1-BCF4-0021280458E6}",
+          "{C672E04C-4CBE-11E1-BCF4-0021280458E6}",
+          "{4852FF8B-4CB5-11E1-BCF4-0021280458E6}",
+          "{C170ADF3-4CB7-11E1-BCF4-0021280458E6}",
+          "{CBDFE70A-4CB8-11E1-BCF4-0021280458E6}",
+          "{97484FF4-4CBF-11E1-BCF4-0021280458E6}",
+          "{88DD44C3-4CB6-11E1-BCF4-0021280458E6}",
+          "{F20AE9E9-4CBE-11E1-BCF4-0021280458E6}"
+        ],
+        "objectid": [
+          "6622555",
+          "6862910",
+          "4810146",
+          "5777944",
+          "3366582",
+          "712390",
+          "7709624",
+          "1435723",
+          "5895416",
+          "3483637"
+        ],
+        "elevation": [
+          "573",
+          "515",
+          "607",
+          "660",
+          "595",
+          "566",
+          "555",
+          "502",
+          "873",
+          "506"
+        ],
+        "gnis_name": [
+          "Scott Pond",
+          "Connery Pond",
+          "Tom Peck Pond",
+          "Long Pond",
+          "Alford Pond",
+          "Lower Asuable Lake",
+          "Lake Placid",
+          "Lost Pond",
+          "Echo Lake",
+          "Mirror Lake"
+        ],
+        "reachcode": [
+          "04300104001068",
+          "04300104001173",
+          "04290005003533",
+          "04300104001211",
+          "04300104001057",
+          "04300104001180",
+          "04300104001062",
+          "04300104001179",
+          "04300104001235",
+          "04300104001114"
+        ],
+        "resolution": [
+          "2"
+        ],
+        "shape_area": [
+          "35081.6599291347",
+          "9567.79951310109",
+          "3564.84944152668",
+          "5240.79725106687",
+          "73209.3171688888",
+          "1413.72723922393",
+          "59718.286746208",
+          "4004.63187575314",
+          "2394.3913267338",
+          "1030.65841861026"
+        ],
+        "shape_length": [
+          "2303.38640102973",
+          "512.68353265039",
+          "1137.26498267374",
+          "657.158416597148",
+          "1700.38015397014",
+          "491.565946648055",
+          "989.924153835996",
+          "11711.0259541481",
+          "593.594733050965",
+          "1789.11385451757"
+        ],
+        "visibilityfilter": [
+          "5000000"
+        ],
+        "permanent_identifier": [
+          "115353845",
+          "115353797",
+          "115353875",
+          "115353933",
+          "115353871",
+          "115353921",
+          "132434138",
+          "115353963",
+          "115353987",
+          "115353835"
+        ]
+      },
+      "display_name": "NHD lakes and ponds",
+      "sort_order": 4,
+      "visible": true,
+      "opacity": 0.55,
+      "paint": {
+        "fill-color": "#4aa3c7",
+        "fill-opacity": 0.45,
+        "fill-outline-color": "#1f6f8b"
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "dataset_record_type": "vector_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": {
+        "builder": {
+          "outline_color": "#1d4ed8",
+          "outline_width": 1
+        }
+      },
+      "show_in_legend": true,
+      "is_3d": false,
+      "is_dem": null,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "76ca9d76-1a93-4b09-a876-87e5cdcd140a",
+      "dataset_id": "ca2a5f58-5c41-4187-bdbb-a1fd3900778c",
+      "dataset_name": "ADK High Peaks — APA Land Classification (AOI)",
+      "dataset_geometry_type": "MULTIPOLYGON",
+      "dataset_table_name": "adk_high_peaks_apa_land_classification_aoi_2",
+      "dataset_extent_bbox": [
+        -74.05,
+        44.08,
+        -73.85,
+        44.32
+      ],
+      "dataset_column_info": [
+        {
+          "name": "objectid",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 3
+        },
+        {
+          "name": "swis",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 4
+        },
+        {
+          "name": "lccode",
+          "type": "integer",
+          "is_nullable": true,
+          "ordinal_position": 5
+        },
+        {
+          "name": "sum_acres_utm",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 6
+        },
+        {
+          "name": "shape__area",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 7
+        },
+        {
+          "name": "shape__length",
+          "type": "double precision",
+          "is_nullable": true,
+          "ordinal_position": 8
+        },
+        {
+          "name": "globalid",
+          "type": "character varying",
+          "is_nullable": true,
+          "ordinal_position": 9
+        }
+      ],
+      "dataset_feature_count": 9,
+      "dataset_sample_values": {
+        "swis": [
+          "153000",
+          "154089",
+          "154001"
+        ],
+        "lccode": [
+          "4",
+          "3",
+          "5",
+          "2",
+          "1"
+        ],
+        "globalid": [
+          "7ce86920-0e30-4bd2-b0ae-234314622189",
+          "4b74e5df-74d7-4d6c-9b63-67c408f0d267",
+          "fe030145-0c5a-43a3-b613-d6ed78eac442",
+          "2de3d3d5-452e-48cb-a04e-873802b034e6",
+          "97b797b0-3a89-40c8-ad99-c29bbf00eb0e",
+          "a64fd067-e7a6-48bb-bbd7-3d9e30134e0a",
+          "263a434c-e2f2-4573-85ac-8ead5b593514",
+          "d20adafd-df8a-486e-a8eb-0924eb836f5d",
+          "254286df-a75d-453d-ad8f-071200bffddd"
+        ],
+        "objectid": [
+          "101",
+          "100",
+          "99",
+          "94",
+          "95",
+          "98",
+          "69",
+          "97",
+          "68"
+        ],
+        "shape__area": [
+          "17754470.7070312",
+          "6650788.5078125",
+          "8228901.65234375",
+          "4730.9140625",
+          "28707956.390625",
+          "69269986.4921875",
+          "41044370.6015625",
+          "59713918.4726562",
+          "128061075.1875"
+        ],
+        "shape__length": [
+          "56170.5232364998",
+          "30843.7144763608",
+          "340.265223082986",
+          "123080.338290455",
+          "132317.824600805",
+          "67075.630242799",
+          "94039.7633420577",
+          "259431.492362025",
+          "126640.933217873"
+        ],
+        "sum_acres_utm": [
+          "1041.26456729",
+          "16259.77066914",
+          "2247.92661037",
+          "7573.68339889",
+          "8781.5201396",
+          "5200.27051014",
+          "3635.31370096",
+          "0.59909376",
+          "842.12298409"
+        ]
+      },
+      "display_name": "Land classification",
+      "sort_order": 5,
+      "visible": true,
+      "opacity": 0.18,
+      "paint": {
+        "fill-color": "#7a8b4f",
+        "fill-opacity": 0.28,
+        "fill-outline-color": "#3d4d2a"
+      },
+      "layout": {},
+      "layer_type": "vector_geolens",
+      "dataset_record_type": "vector_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": {
+        "builder": {
+          "outline_color": "#1d4ed8",
+          "outline_width": 1
+        }
+      },
+      "show_in_legend": true,
+      "is_3d": false,
+      "is_dem": null,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "49f83aa1-8b47-4e92-a18a-afc47e875752",
+      "dataset_id": "2931c262-0e86-4e23-b14d-55763854e004",
+      "dataset_name": "ADK High Peaks — 1m DEM (USGS 3DEP)",
+      "dataset_geometry_type": null,
+      "dataset_table_name": "raster_5ef1387b8bde45e3",
+      "dataset_extent_bbox": [
+        -74.05,
+        44.07999999999999,
+        -73.85,
+        44.32
+      ],
+      "dataset_column_info": null,
+      "dataset_feature_count": null,
+      "dataset_sample_values": null,
+      "display_name": "DEM hillshade (1m)",
+      "sort_order": 6,
+      "visible": true,
+      "opacity": 0.32,
+      "paint": {},
+      "layout": {},
+      "layer_type": "raster_geolens",
+      "dataset_record_type": "raster_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": {
+        "builder": {
+          "render_mode": "hillshade"
+        }
+      },
+      "show_in_legend": true,
+      "is_3d": null,
+      "is_dem": true,
+      "dem_vertical_units": null
+    },
+    {
+      "id": "be5b7a86-99db-404c-8b95-fad0443d3964",
+      "dataset_id": "4a90aa08-abfc-46f1-bccf-56e479453fb5",
+      "dataset_name": "ADK High Peaks — NY State Orthos (aerial)",
+      "dataset_geometry_type": null,
+      "dataset_table_name": "raster_88297cd6ffae4fae",
+      "dataset_extent_bbox": [
+        -74.05,
+        44.07999999999999,
+        -73.85,
+        44.32
+      ],
+      "dataset_column_info": null,
+      "dataset_feature_count": null,
+      "dataset_sample_values": null,
+      "display_name": "TNM/NY Orthos aerial",
+      "sort_order": 7,
+      "visible": true,
+      "opacity": 0.92,
+      "paint": {},
+      "layout": {},
+      "layer_type": "raster_geolens",
+      "dataset_record_type": "raster_dataset",
+      "filter": null,
+      "label_config": null,
+      "popup_config": null,
+      "style_config": {
+        "builder": {
+          "render_mode": "image"
+        }
+      },
+      "show_in_legend": true,
+      "is_3d": null,
+      "is_dem": false,
+      "dem_vertical_units": null
+    }
+  ],
+  "layer_count": 8,
+  "widgets": null
+}

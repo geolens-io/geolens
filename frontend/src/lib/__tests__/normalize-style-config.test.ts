@@ -74,6 +74,39 @@ describe('normalizeLayerStyleState', () => {
       },
     });
   });
+
+  it('preserves render-mode-only style configs for DEM/raster adapters', () => {
+    const normalized = normalizeLayerStyleState(
+      { render_mode: 'hillshade' },
+      {},
+      null,
+    );
+
+    expect(normalized.paint).toEqual({});
+    expect(normalized.style_config).toEqual({ render_mode: 'hillshade' });
+  });
+
+  it('promotes legacy nested builder render_mode and drops it from builder metadata', () => {
+    const normalized = normalizeLayerStyleState(
+      {
+        builder: {
+          render_mode: 'hillshade',
+          outline_color: '#1d4ed8',
+          outline_width: 2,
+        },
+      },
+      {},
+      null,
+    );
+
+    expect(normalized.style_config).toEqual({
+      render_mode: 'hillshade',
+      builder: {
+        outlineColor: '#1d4ed8',
+        outlineWidth: 2,
+      },
+    });
+  });
 });
 
 describe('normalizeStyleConfig', () => {

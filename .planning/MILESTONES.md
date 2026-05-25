@@ -1,5 +1,37 @@
 # Milestones
 
+## v1025 Mapbuilder Polishing (Shipped: 2026-05-25)
+
+**Phases completed:** 5 phases (1107-1111), 5 plans
+
+**Goal delivered:** Deep-QA'd the existing ADK 3D Relief builder map (`8dd6a129-8eb0-4ba9-b421-716c83b160dd`), fixed the confirmed style metadata defects, polished the map for marketing screenshots, and closed with a fresh Playwright MCP sweep.
+
+**Key accomplishments:**
+
+1. **Playwright deep QA (Phase 1107)** — swept all 8 data layers plus the basemap row; all layer options menus opened; representative point/line/polygon/raster/DEM/basemap editor surfaces worked. Findings: DEM hillshade render mode was hidden by style normalization; 46er labels used non-canonical MapLibre-shaped config; true hillshade needed cartographic tuning after fix.
+
+2. **Layer metadata fixes (Phase 1108)** — `normalize-style-config.ts` now preserves render-mode-only configs and promotes legacy nested `style_config.builder.render_mode`; regression tests added. ADK compose script now writes canonical peak labels, DEM hillshade render metadata, Blue Line outline styling, and water/land outlines. Rerunning the script skipped all existing datasets and updated both saved maps.
+
+3. **Marketing cartographic polish (Phase 1109)** — tuned peak marker/label styling, trail/stream widths, Blue Line outline, hillshade exaggeration (`0.38`), DEM opacity (`0.24`), and aerial opacity (`0.98`) for a clearer screenshot while preserving builder affordances.
+
+4. **Close gate (Phase 1110)** — focused frontend test passed (7/7), frontend typecheck passed, fresh Playwright MCP console captures showed 0 warnings/errors, final sweep verified all layer options, DEM editor `DEM · HILLSHADE`, style JSON hillshade layer, and 46er companion label layer.
+
+5. **Builder lint closeout (Phase 1111)** — fixed discovered mapbuilder lint/a11y/rules findings: composite stack rows retain their role-free accessibility model with qualified lint context, redundant native roles were removed, stale lint disables were cleaned up, hook dependencies were made explicit, and the target map was smoke-tested again after the changes.
+
+**Verification:**
+
+- `cd frontend && npm run test -- src/lib/__tests__/normalize-style-config.test.ts` → 7 passed.
+- `cd frontend && npm run test -- src/components/builder/__tests__/UnifiedStackPanel.render-perf.test.tsx src/lib/__tests__/normalize-style-config.test.ts src/lib/__tests__/normalize-saved-map.test.ts src/api/__tests__/maps.normalize.test.ts` → 45 passed.
+- `cd frontend && npm run lint` → passed with zero output.
+- `cd frontend && npm run typecheck` → passed.
+- Playwright MCP final screenshot: `.planning/phases/1110-playwright-close-gate/evidence/1110-final-builder-screenshot.png`.
+- Playwright MCP post-lint screenshot: `.planning/phases/1111-builder-lint-closeout/evidence/1111-playwright-post-lint-smoke.png`.
+- Playwright MCP console captures: 0 warnings/errors.
+
+**Migrations:** None. No API schema changes.
+
+---
+
 ## v1023 CI Live-Verify + OOS Hygiene Tail (Shipped: 2026-05-24)
 
 **Phases completed:** 3 phases (1098-1100), 3 plans, ~10 tasks

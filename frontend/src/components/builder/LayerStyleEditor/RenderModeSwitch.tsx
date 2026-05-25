@@ -49,7 +49,6 @@ export function RenderModeSwitch({ dispatchKey, ...rest }: RenderModeSwitchProps
 
   if (!Editor) {
     if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
       console.warn(`[RenderModeSwitch] Unrecognized dispatchKey: "${dispatchKey}". Returning null.`);
     }
     return null;

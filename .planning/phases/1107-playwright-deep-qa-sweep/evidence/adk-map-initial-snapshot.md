@@ -1,0 +1,9 @@
+- generic [ref=e2] [box=0,0,1440,1101]:
+  - generic [ref=e6] [box=0,0,1440,1101]:
+    - link "Skip to main content" [ref=e7] [cursor=pointer] [box=-1,-1,1,1]:
+      - /url: "#main-content"
+    - banner [ref=e8] [box=0,0,1440,57]:
+      - generic [ref=e9] [box=144,0,1152,56]
+    - main [ref=e33] [box=0,57,1440,1044]:
+      - generic [ref=e34] [box=0,57,1440,1044]
+  - region "Notifications alt+T" [box=0,1101,1440,0]

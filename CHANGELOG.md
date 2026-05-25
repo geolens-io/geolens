@@ -11,7 +11,16 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
-_No entries yet — open the next milestone with `/gsd:new-milestone`._
+### Fixed
+
+- Map builder style normalization now preserves render-mode-only and legacy nested render-mode configs, so DEM hillshade layers open and render as Hillshade instead of falling back to Image.
+- ADK High Peaks marketing composition now writes canonical peak label config, DEM hillshade metadata, and Blue Line outline styling; reruns update existing maps without duplicating datasets.
+- Mapbuilder lint hygiene now keeps composite stack rows role-free with documented a11y context, removes redundant native roles/stale lint disables, and fixes hook dependency warnings surfaced during closeout.
+
+### Verification
+
+- Playwright MCP deep-swept the ADK 3D Relief map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: all layer rows/options opened, DEM hillshade and peak label style JSON verified, and the fresh browser console had zero warnings/errors.
+- Frontend lint, typecheck, focused normalization tests, and a post-lint Playwright MCP smoke all pass.
 
 ## [1.5.9] - 2026-05-24
 

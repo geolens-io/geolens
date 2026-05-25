@@ -461,6 +461,7 @@ interface SublayerRowProps {
 // + 3 × 4px gaps without truncation. SublayerRow no longer consumes
 // onSublayerOpacityChange — the prop survives on UnifiedStackPanelProps for
 // the LayerEditorPanel flyout consumer (BasemapGroupEditorScene + MapBuilderPage).
+/* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: basemap sublayer rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
 const SublayerRow = memo(function SublayerRow({
   sublayer,
   selected,
@@ -561,6 +562,7 @@ const SublayerRow = memo(function SublayerRow({
     </div>
   );
 });
+/* eslint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 
 // ---------------------------------------------------------------------------
 // CatalogDragGhost — compact pill shown in DragOverlay during a catalog drag.

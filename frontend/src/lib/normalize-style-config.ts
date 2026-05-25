@@ -86,6 +86,8 @@ const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
   cluster_text_size: 'clusterTextSize',
 };
 
+const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster']);
+
 function compactRecord<T extends Record<string, unknown>>(record: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(record).filter(([, value]) => value !== undefined),
@@ -112,6 +114,7 @@ function normalizeBuilderStyleConfig(
     if (!aliasKey || acc[canonicalKey] === undefined) acc[canonicalKey] = value;
     return acc;
   }, {});
+  delete normalizedRawBuilder.render_mode;
 
   const fillDisabled = typeof paint?.['_fill-disabled'] === 'boolean'
     ? paint['_fill-disabled'] as boolean
@@ -165,6 +168,46 @@ function normalizeBuilderStyleConfig(
   return Object.keys(builder).length > 0 ? builder : undefined;
 }
 
+function normalizeRenderMode(raw: Record<string, unknown> | null | undefined): StyleConfig['render_mode'] | undefined {
+  const direct = raw?.render_mode;
+  if (typeof direct === 'string' && RENDER_MODES.has(direct)) {
+    return direct as StyleConfig['render_mode'];
+  }
+
+  const rawBuilder = raw?.builder;
+  const nested = rawBuilder && typeof rawBuilder === 'object' && !Array.isArray(rawBuilder)
+    ? (rawBuilder as Record<string, unknown>).render_mode
+    : undefined;
+  if (typeof nested === 'string' && RENDER_MODES.has(nested)) {
+    return nested as StyleConfig['render_mode'];
+  }
+
+  return undefined;
+}
+
+function normalizedRawStyleBase(
+  raw: Record<string, unknown>,
+  builder: StyleConfig['builder'] | undefined,
+): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...raw };
+  if (builder) {
+    base.builder = builder;
+    return base;
+  }
+
+  const rawBuilder = raw.builder;
+  if (rawBuilder && typeof rawBuilder === 'object' && !Array.isArray(rawBuilder)) {
+    const cleanedBuilder = { ...(rawBuilder as Record<string, unknown>) };
+    delete cleanedBuilder.render_mode;
+    if (Object.keys(cleanedBuilder).length > 0) {
+      base.builder = cleanedBuilder;
+    } else {
+      delete base.builder;
+    }
+  }
+  return base;
+}
+
 /**
  * Normalize a style_config that may use legacy field names (from demo fixtures,
  * AI-generated maps, or older API versions) into the canonical frontend schema.
@@ -179,6 +222,7 @@ export function normalizeStyleConfig(
   geometryType: string | null,
 ): StyleConfig | null {
   const builder = normalizeBuilderStyleConfig(raw, paint);
+  const renderMode = normalizeRenderMode(raw);
   if (!raw) return builder ? ({ builder } as StyleConfig) : null;
 
   // Heatmap configs use a different schema (render_mode/ramp/weight_column)
@@ -209,12 +253,18 @@ export function normalizeStyleConfig(
         ramp: (raw.ramp ?? raw.colormap ?? raw.color_scheme ?? 'YlOrRd') as string,
         classCount: (raw.classCount ?? raw.num_classes ?? raw.n_classes ?? 5) as number,
         method: (raw.method ?? raw.classification_method ?? raw.classification ?? 'quantile') as StyleConfig['method'],
-        ...(raw.render_mode ? { render_mode: raw.render_mode as StyleConfig['render_mode'] } : {}),
+        ...(renderMode ? { render_mode: renderMode } : {}),
       }
     : (typeof raw.mode === 'string' && typeof raw.column === 'string'
-        ? { ...(raw as unknown as StyleConfig) }
-        : builder
-          ? ({ ...(raw as unknown as StyleConfig), builder } as StyleConfig)
+        ? {
+            ...(normalizedRawStyleBase(raw, builder) as unknown as StyleConfig),
+            ...(renderMode ? { render_mode: renderMode } : {}),
+          }
+        : builder || renderMode
+          ? ({
+              ...(normalizedRawStyleBase(raw, builder) as unknown as StyleConfig),
+              ...(renderMode ? { render_mode: renderMode } : {}),
+            } as StyleConfig)
           : null);
   if (!normalized) return null;
   if (builder) normalized.builder = builder;

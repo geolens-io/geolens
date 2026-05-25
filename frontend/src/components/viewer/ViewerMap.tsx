@@ -711,7 +711,7 @@ export const ViewerMap = memo(function ViewerMap({
     return () => {
       map.off('style.load', onStyleLoad);
     };
-  }, [mapReady, runSync, reseedTerrainOnStyleLoad, applyViewerBasemapConfig]);
+  }, [mapReady, embedToken, runSync, reseedTerrainOnStyleLoad, applyViewerBasemapConfig]);
 
   useEffect(() => {
     const map = mapRef.current;

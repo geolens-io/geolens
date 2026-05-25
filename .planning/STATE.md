@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1025
 milestone_name: Mapbuilder Polishing
-status: planning
-last_updated: "2026-05-25T01:02:50.153Z"
+status: complete
+last_updated: "2026-05-25T01:24:00.000Z"
 last_activity: 2026-05-25
 progress:
-  total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-25 — Milestone v1025 started
+Phase: 1111 Builder Lint Closeout
+Plan: 1111-01
+Status: v1025 complete; target map QA, metadata fixes, cartographic polish, Playwright MCP close gate, and frontend lint closeout passed
+Last activity: 2026-05-25 — Completed phases 1107-1111 and verified target map with zero browser console warnings/errors
 
 ## Project Reference
 
@@ -46,8 +46,9 @@ See: .planning/PROJECT.md
 | 1108 Layer Metadata and Option Fixes | Fix confirmed saved/scripted layer metadata and layer-option regressions | LAYER-01..04 | Phase 1107 |
 | 1109 Marketing Cartographic Polish | Tune target-map styling, labels, legend/sidebar, and screenshot framing | CARTO-01..04 | Phase 1108 |
 | 1110 Playwright Close Gate | Fresh Playwright MCP verification + focused tests + close artifacts | VERIFY-01..04 | Phases 1108-1109 |
+| 1111 Builder Lint Closeout | Fix discovered frontend lint/a11y/rules findings and post-lint smoke the target map | HYGIENE-01..02 | Phase 1110 |
 
-**Coverage:** 16/16 v1025 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 18/18 v1025 requirements mapped, 0 orphans, 0 duplicates.
 
 **Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
 

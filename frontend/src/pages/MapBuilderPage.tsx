@@ -77,6 +77,16 @@ import { TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
 import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
+// Phase 1059 BSE-01 / Phase 1111 LINT-02: map UI routing IDs
+// (`basemap:roads`) to bare semantic override keys (`road`). Keeping this
+// static avoids render-time dependency churn in updateSublayerOverride.
+const SUBLAYER_ID_OVERRIDE_KEY: Record<string, string> = {
+  'basemap:roads': 'road',
+  'basemap:labels': 'label',
+  'basemap:buildings': 'building',
+  'basemap:boundaries': 'boundary',
+};
+
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation('builder');
@@ -163,6 +173,17 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
   );
+  const {
+    setHasUnsavedChanges,
+    handleBulkVisibility: applyBulkVisibility,
+    handleBulkOpacity: applyBulkOpacity,
+    handleBulkGroup: applyBulkGroup,
+    handleBulkUngroup: applyBulkUngroup,
+    handleBulkDelete: applyBulkDelete,
+    setShowBasemapLabels,
+    showBasemapLabels,
+    setBasemapConfig,
+  } = layers;
   // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
   // refetchOnMount / window-focus invalidations) produce shape-equivalent
@@ -260,8 +281,8 @@ export function MapBuilderPage() {
   }), [layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange, layers.handleFilterChange, layers.handleLabelChange, layers.handlePopupChange, layers.handleStyleConfigChange, layers.handleLayoutChange, layers.handleRenderModeChange, layers.handleRemove]);
 
   const handleMarkDirty = useCallback(
-    () => { layers.setHasUnsavedChanges(true); },
-    [layers.setHasUnsavedChanges],
+    () => { setHasUnsavedChanges(true); },
+    [setHasUnsavedChanges],
   );
 
   // Phase 1035: basemaps data for the BasemapGroupEditorScene preset grid
@@ -412,9 +433,9 @@ export function MapBuilderPage() {
   // Depending on `layers` defeats React.memo() on BulkActionBar / UnifiedStackPanel
   // on every opacity-slider move, which fires at ~60fps (WR-04).
   const handleBulkVisibility = useCallback((ids: Set<string>) => {
-    layers.handleBulkVisibility(ids);
+    applyBulkVisibility(ids);
     setSelectedIds(new Set());
-  }, [layers.handleBulkVisibility]);
+  }, [applyBulkVisibility]);
 
   const handleBulkOpacity = useCallback((ids: Set<string>, opacity: number) => {
     // NOTE: Opacity slider fires onValueChange continuously during drag.
@@ -422,21 +443,21 @@ export function MapBuilderPage() {
     // drag events (selection would be empty). Selection is preserved during
     // drag; user dismisses via Escape or by clicking another row. This is
     // documented in the Plan 03 SUMMARY as a deliberate UX decision.
-    layers.handleBulkOpacity(ids, opacity);
-  }, [layers.handleBulkOpacity]);
+    applyBulkOpacity(ids, opacity);
+  }, [applyBulkOpacity]);
 
   const handleBulkGroup = useCallback((ids: Set<string>) => {
-    layers.handleBulkGroup(ids);
+    applyBulkGroup(ids);
     setSelectedIds(new Set());
-  }, [layers.handleBulkGroup]);
+  }, [applyBulkGroup]);
 
   const handleBulkUngroup = useCallback((ids: Set<string>) => {
-    layers.handleBulkUngroup(ids);
+    applyBulkUngroup(ids);
     setSelectedIds(new Set());
-  }, [layers.handleBulkUngroup]);
+  }, [applyBulkUngroup]);
 
   const handleBulkDelete = useCallback((ids: Set<string>) => {
-    layers.handleBulkDelete(ids)
+    applyBulkDelete(ids)
       .then((ok) => {
         if (ok) setSelectedIds(new Set());
         // on failure: selection preserved so user can retry
@@ -445,7 +466,7 @@ export function MapBuilderPage() {
         // Error already toasted inside handleBulkDelete; swallow here to prevent
         // unhandled rejection if invalidateQueries throws after allSettled.
       });
-  }, [layers.handleBulkDelete]);
+  }, [applyBulkDelete]);
 
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
@@ -455,7 +476,7 @@ export function MapBuilderPage() {
     if (sublayerId === 'basemap:labels') {
       // Labels toggled via the persisted showBasemapLabels flag (BSR-06) — markDirty() fires
       // inside setShowBasemapLabels because this change IS saved.
-      layers.setShowBasemapLabels(!layers.showBasemapLabels);
+      setShowBasemapLabels(!showBasemapLabels);
       return;
     }
     setSublayerState((prev) => ({
@@ -469,7 +490,7 @@ export function MapBuilderPage() {
     // included in the save payload via basemap_config round-trip. Until then,
     // omitting markDirty() prevents the unsaved-changes badge from making a
     // false promise to the user.
-  }, [layers.setShowBasemapLabels, layers.showBasemapLabels]);
+  }, [setShowBasemapLabels, showBasemapLabels]);
 
   const handleSublayerOpacityChange = useCallback((sublayerId: string, opacity: number) => {
     setSublayerState((prev) => ({
@@ -479,26 +500,13 @@ export function MapBuilderPage() {
     // TODO(BUILDER-SUBLAYER-PERSIST): call markDirty() once sublayerState is persisted.
   }, []);
 
-  // Phase 1059 BSE-01: mapping from UI routing IDs (namespaced 'basemap:roads') to the
-  // bare semantic IDs that SUBLAYER_CLASSIFIERS and applySublayerOverrides expect.
-  // CR-01 (code review): the UI uses 'basemap:roads' etc. for expanded-layer routing, but
-  // basemap_config.sublayer_overrides must store bare keys ('road', 'label', etc.) so
-  // applySublayerOverrides can look them up in SUBLAYER_CLASSIFIERS. Without this mapping
-  // every override is stored under the wrong key and silently ignored at apply time.
-  const SUBLAYER_ID_OVERRIDE_KEY: Record<string, string> = {
-    'basemap:roads': 'road',
-    'basemap:labels': 'label',
-    'basemap:buildings': 'building',
-    'basemap:boundaries': 'boundary',
-  };
-
   // Phase 1059 BSE-01: helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
   // Trims the entry if every field becomes null/undefined (no-op state).
   // Uses setBasemapConfig which auto-marks dirty (WR-02 fix in use-builder-layers.ts).
   const updateSublayerOverride = useCallback(
     (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
       const overrideKey = SUBLAYER_ID_OVERRIDE_KEY[sublayerId] ?? sublayerId;
-      layers.setBasemapConfig((prev) => {
+      setBasemapConfig((prev) => {
         const currentBc = prev ?? DEFAULT_BASEMAP_CONFIG;
         const currentOverrides = currentBc.sublayer_overrides ?? {};
         const currentOverride: MapSublayerOverride = currentOverrides[overrideKey] ?? {};
@@ -517,14 +525,14 @@ export function MapBuilderPage() {
         };
       });
     },
-    [layers],
+    [setBasemapConfig],
   );
 
   const handleResetBasemapAppearance = useCallback(() => {
     // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
-    layers.setBasemapConfig(null);
+    setBasemapConfig(null);
     setSublayerState({});
-  }, [layers.setBasemapConfig]);
+  }, [setBasemapConfig]);
 
   // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
@@ -773,7 +781,6 @@ export function MapBuilderPage() {
     const index = layers.localLayers.findIndex((l) => l.id === overId);
     if (index < 0) return;
     announce(t('a11y.dragPosition', { n: index + 1, total: layers.localLayers.length }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers length read; announce is stable
   }, [layers.localLayers, announce, t]);
 
   const handleCloseEditor = useCallback(() => {

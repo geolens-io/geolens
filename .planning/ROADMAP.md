@@ -1,6 +1,6 @@
 # Roadmap: GeoLens
 
-## v1025 Mapbuilder Polishing (Active)
+## v1025 Mapbuilder Polishing (Shipped 2026-05-25)
 
 **Goal:** Deep-QA the existing ADK 3D Relief builder map and polish it into a screenshot/demo-ready showcase of GeoLens layer options, terrain, raster/DEM rendering, vector styling, labels, and cartographic authoring.
 
@@ -10,10 +10,11 @@
 
 ### Phase Plan
 
-- [ ] **Phase 1107: Playwright Deep QA Sweep** — exercise every layer row/options/editor surface and capture browser console, network, screenshot, and visual/cartographic findings.
-- [ ] **Phase 1108: Layer Metadata and Option Fixes** — fix confirmed saved/scripted layer metadata defects and any layer-option regressions surfaced by QA.
-- [ ] **Phase 1109: Marketing Cartographic Polish** — tune the target map's layer styling, labels, legend/sidebar presentation, and screenshot composition.
-- [ ] **Phase 1110: Playwright Close Gate** — rerun the deep QA path after fixes, run focused tests, and record final evidence.
+- [x] **Phase 1107: Playwright Deep QA Sweep** — exercise every layer row/options/editor surface and capture browser console, network, screenshot, and visual/cartographic findings.
+- [x] **Phase 1108: Layer Metadata and Option Fixes** — fix confirmed saved/scripted layer metadata defects and any layer-option regressions surfaced by QA.
+- [x] **Phase 1109: Marketing Cartographic Polish** — tune the target map's layer styling, labels, legend/sidebar presentation, and screenshot composition.
+- [x] **Phase 1110: Playwright Close Gate** — rerun the deep QA path after fixes, run focused tests, and record final evidence.
+- [x] **Phase 1111: Builder Lint Closeout** — close discovered frontend lint/a11y/rules warnings, rerun clean frontend gates, and smoke the target map after row/accessibility patches.
 
 ### Phase 1107: Playwright Deep QA Sweep
 
@@ -70,6 +71,20 @@
 2. Playwright MCP verifies layer options, DEM hillshade state, peak labels, visibility toggles, and final screenshot framing.
 3. Focused frontend tests pass.
 4. Requirements, roadmap traceability, phase summaries, and verification artifacts are updated.
+
+### Phase 1111: Builder Lint Closeout
+
+**Goal:** Fix the frontend lint/a11y/rules issues discovered during closeout and prove the target map still loads cleanly.
+
+**Requirements:** HYGIENE-01, HYGIENE-02
+
+**Depends on:** Phase 1110
+
+**Success Criteria:**
+1. `npm run lint` exits cleanly with zero errors and zero warnings.
+2. Mapbuilder composite row lint exceptions are documented with qualified phase context instead of weakening the row accessibility model.
+3. Redundant native roles, unused lint directives, and hook dependency warnings discovered by lint are fixed.
+4. Post-lint Playwright MCP smoke of the target map shows expected layer rows and zero console warnings/errors.
 
 ## ✅ Historical Milestones
 

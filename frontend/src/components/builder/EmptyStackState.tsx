@@ -79,7 +79,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
   const isRaster = isRasterType(suggestion.record_type);
 
   return (
-    <li role="listitem">
+    <li>
       <div
         className={cn(
           'grid gap-2 items-center p-2 px-3 rounded-md border',
@@ -92,7 +92,6 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
         {/* Type icon */}
         <button
           type="button"
-          role="button"
           aria-label={`Open ${suggestion.name} in Add Data modal`}
           onClick={() => onOpenAddData(suggestion.name)}
           className="flex items-center justify-center h-[32px] w-[32px] rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -111,7 +110,6 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
         {/* Name + meta — card body click area */}
         <button
           type="button"
-          role="button"
           aria-label={`Open ${suggestion.name} in Add Data modal`}
           onClick={() => onOpenAddData(suggestion.name)}
           className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
@@ -243,7 +241,7 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           >
             {t('unifiedStack.suggestedLabel', { defaultValue: 'SUGGESTED' })}
           </span>
-          <ul role="list" aria-label="Suggested datasets" className="flex flex-col gap-2">
+          <ul aria-label="Suggested datasets" className="flex flex-col gap-2">
             {SUGGESTED_DATASETS.map((suggestion) => (
               <SuggestCard
                 key={suggestion.id}

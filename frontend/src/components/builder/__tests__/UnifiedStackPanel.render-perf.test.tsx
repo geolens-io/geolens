@@ -26,7 +26,7 @@
  * builder-large-map.spec.ts (PERF-02 / PERF-03 test blocks).
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { render, act, fireEvent } from '@/test/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { BulkActionBar } from '../BulkActionBar';
@@ -125,7 +125,9 @@ describe('UnifiedStackPanel — render performance (PERF-02, PB-05, PB-08)', () 
     function Wrapper() {
       const [ids, setIds] = useState(new Set<string>(['a', 'b']));
       const handler = useCallback((_ids: Set<string>) => {}, []);
-      capturedHandlers = { onBulkDelete: handler };
+      useEffect(() => {
+        capturedHandlers = { onBulkDelete: handler };
+      }, [handler]);
 
       return (
         <div>

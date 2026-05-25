@@ -1,0 +1,101 @@
+- generic [box=0,0,1440,1101]:
+  - generic [box=0,0,1440,1101]:
+    - generic [box=0,0,1440,1101]:
+      - link [box=-1,-1,1,1]:
+        - /url: "#main-content"
+        - text: Skip to main content
+      - banner [box=0,0,1440,57]:
+        - generic [box=144,0,1152,56]:
+          - generic [box=168,12,357,32]:
+            - link [box=168,14,86,28]:
+              - /url: /
+              - generic [box=168,14,86,24]:
+                - img [box=168,16,20,20]
+                - generic [box=194,14,60,24]: GeoLens
+            - navigation [box=287,12,238,32]:
+              - link [box=287,12,68,32]:
+                - /url: /
+                - text: Search
+              - link [box=363,12,95,32]:
+                - /url: /collections
+                - text: Collections
+              - link [box=466,12,58,32]:
+                - /url: /maps
+                - text: Maps
+          - generic [box=1057,10,215,36]:
+            - generic [box=1057,12,90,32]:
+              - button [box=1057,12,90,32]:
+                - img [box=1068,20,16,16]
+                - text: Create
+            - button [box=1156,10,116,36]:
+              - generic [box=1166,14,28,28]: A
+              - generic [box=1200,18,40,20]: admin
+              - img [box=1246,20,16,16]
+              - generic [box=1213,28,1,1]: User menu
+      - main [box=0,57,1440,1044]:
+        - generic [box=0,57,1440,1044]:
+          - status [box=-1,56,1,1]
+          - generic [box=0,57,1440,40]:
+            - navigation [box=12,64,1221,25]:
+              - link [box=12,67,34,20]:
+                - /url: /maps
+                - text: Maps
+              - img [box=52,70,14,14]
+              - generic [box=72,64,177,25]:
+                - textbox [box=66,65,177,24]: Adirondack High Peaks — 3D Relief
+                - img [box=233,71,12,12]
+              - textbox [box=255,67,978,20]:
+                - /placeholder: Add a description...
+                - text: "Bonus 3D relief variant for screenshots: ADK terrain enabled over high-fidelity aerial, DEM hillshade, hydrography, trails, and complete 46er peak context."
+            - generic [box=1245,63,183,28]:
+              - button [box=1245,63,74,28]:
+                - img [box=1256,69,16,16]
+                - generic [box=1276,69,32,16]: Share
+              - button [box=1325,63,69,28]:
+                - generic [box=1348,69,33,16]: Saved
+                - generic [box=1359,76,1,1]: Saved
+              - button [box=1400,63,28,28]:
+                - img [box=1408,71,12,12]
+          - generic [box=0,97,1440,1004]:
+            - generic [box=0,97,1396,1004]:
+              - complementary [box=0,97,340,1004]:
+                - generic [box=0,97,339,1004]
+              - generic [box=340,97,1056,1004]:
+                - generic [box=340,97,1056,1004]
+                - generic [box=799,109,138,34]
+                - generic [box=356,787,198,258]
+            - complementary [box=1396,97,44,1004]:
+              - button [box=1403,107,32,32]:
+                - img [box=1411,115,16,16]
+              - button [box=1403,143,32,32]:
+                - img [box=1411,151,16,16]
+              - button [disabled] [box=1403,179,32,32]:
+                - img [box=1411,187,16,16]
+          - status [box=-1,-1,1,1]
+    - region "Notifications alt+T" [box=0,1101,1440,0]
+  - menu "Layer options for ADK 46er peaks" [active] [ref=e445] [box=107,187,224,320]:
+    - generic [ref=e446] [box=112,192,214,27]: Source
+    - generic [ref=e447] [box=112,219,214,104]:
+      - generic [ref=e448] [box=120,219,198,16]:
+        - generic [ref=e449] [box=120,219,42,16]: Dataset
+        - generic [ref=e450] [box=170,219,148,16]: ADK 46er High Peaks (complete official list)
+      - generic [ref=e451] [box=120,239,198,16]:
+        - generic [ref=e452] [box=120,239,47,16]: Features
+        - generic [ref=e453] [box=304,239,14,16]: "46"
+      - generic [ref=e454] [box=120,259,198,16]:
+        - generic [ref=e455] [box=120,259,26,16]: Type
+        - generic [ref=e456] [box=284,259,34,16]: vector
+      - generic [ref=e457] [box=120,279,198,16]:
+        - generic [ref=e458] [box=120,279,53,16]: Geometry
+        - generic [ref=e459] [box=246,279,72,16]: MULTIPOINT
+      - generic [ref=e460] [box=120,299,198,16]:
+        - generic [ref=e461] [box=120,299,47,16]: Columns
+        - generic [ref=e462] [box=304,299,14,16]: "21"
+    - separator [ref=e463] [box=108,327,222,1]
+    - menuitem "Rename layer" [ref=e464] [box=112,332,214,32]
+    - menuitem "Duplicate" [ref=e465] [box=112,364,214,32]
+    - separator [ref=e466] [box=108,400,222,1]
+    - menuitem "Delete layer" [ref=e467] [box=112,405,214,32]
+    - separator [ref=e468] [box=108,441,222,1]
+    - generic [ref=e469] [box=112,446,214,24]: Add to group…
+    - menuitem "＋ New group…" [ref=e470] [box=112,470,214,32]

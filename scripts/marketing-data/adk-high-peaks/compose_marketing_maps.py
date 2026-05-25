@@ -869,17 +869,24 @@ async def amain(args: argparse.Namespace) -> int:
                         "opacity": 1.0,
                         "layer_type": "vector_geolens",
                         "paint": {
-                            "circle-color": "#ffffff",
-                            "circle-radius": 5,
-                            "circle-stroke-color": "#111111",
-                            "circle-stroke-width": 1.5,
+                            "circle-color": "#fff7d6",
+                            "circle-radius": 5.5,
+                            "circle-stroke-color": "#111827",
+                            "circle-stroke-width": 1.75,
                         },
                         "label_config": {
-                            "text-field": ["get", "name"],
-                            "text-size": 12,
-                            "text-offset": [0, 1.2],
-                            "text-halo-color": "#ffffff",
-                            "text-halo-width": 1.5,
+                            "column": "name",
+                            "fontSize": 13,
+                            "textColor": "#102033",
+                            "haloColor": "#ffffff",
+                            "haloWidth": 2,
+                            "textOpacity": 0.96,
+                            "textAnchor": "top",
+                            "textOffset": [0, 0.9],
+                            "placement": "point",
+                            "allowOverlap": False,
+                            "minZoom": 12.2,
+                            "maxZoom": 22,
                         },
                         "display_name": "ADK 46er peaks",
                         "popup_config": {
@@ -894,8 +901,8 @@ async def amain(args: argparse.Namespace) -> int:
                         "opacity": 0.9,
                         "layer_type": "vector_geolens",
                         "paint": {
-                            "line-color": "#c44d00",
-                            "line-width": 1.8,
+                            "line-color": "#d95f02",
+                            "line-width": 2.2,
                         },
                         "display_name": "Hiking trails",
                     })
@@ -905,8 +912,8 @@ async def amain(args: argparse.Namespace) -> int:
                         "opacity": 0.85,
                         "layer_type": "vector_geolens",
                         "paint": {
-                            "line-color": "#2b8fb8",
-                            "line-width": 1.2,
+                            "line-color": "#1689b8",
+                            "line-width": 1.35,
                         },
                         "display_name": "NHD streams and rivers",
                     })
@@ -916,9 +923,17 @@ async def amain(args: argparse.Namespace) -> int:
                         "opacity": 0.8,
                         "layer_type": "vector_geolens",
                         "paint": {
-                            "fill-color": "#1b6e3a",
-                            "fill-opacity": 0.03,
-                            "fill-outline-color": "#1b6e3a",
+                            "fill-color": "#1d4ed8",
+                            "fill-opacity": 0,
+                            "fill-outline-color": "#1d4ed8",
+                        },
+                        "style_config": {
+                            "builder": {
+                                "fillDisabled": True,
+                                "strokeDisabled": False,
+                                "outlineColor": "#1d4ed8",
+                                "outlineWidth": 2.25,
+                            },
                         },
                         "display_name": "Blue Line (APA boundary)",
                     })
@@ -932,6 +947,12 @@ async def amain(args: argparse.Namespace) -> int:
                             "fill-opacity": 0.45,
                             "fill-outline-color": "#1f6f8b",
                         },
+                        "style_config": {
+                            "builder": {
+                                "outlineColor": "#1f6f8b",
+                                "outlineWidth": 1,
+                            },
+                        },
                         "display_name": "NHD lakes and ponds",
                     })
                 if "adk-land-classification" in dataset_ids:
@@ -944,6 +965,12 @@ async def amain(args: argparse.Namespace) -> int:
                             "fill-opacity": 0.28,
                             "fill-outline-color": "#3d4d2a",
                         },
+                        "style_config": {
+                            "builder": {
+                                "outlineColor": "#3d4d2a",
+                                "outlineWidth": 0.75,
+                            },
+                        },
                         "display_name": "Land classification",
                     })
                 if "adk-high-peaks-dem-1m" in dataset_ids:
@@ -951,7 +978,15 @@ async def amain(args: argparse.Namespace) -> int:
                         "dataset_id": dataset_ids["adk-high-peaks-dem-1m"],
                         "opacity": 0.45,
                         "layer_type": "raster_geolens",
-                        "style_config": {"builder": {"render_mode": "hillshade"}},
+                        "style_config": {"render_mode": "hillshade"},
+                        "paint": {
+                            "hillshade-illumination-direction": 335,
+                            "hillshade-illumination-anchor": "viewport",
+                            "hillshade-exaggeration": 0.38,
+                            "hillshade-shadow-color": "#1f2937",
+                            "hillshade-highlight-color": "#ffffff",
+                            "hillshade-accent-color": "#64748b",
+                        },
                         "display_name": "DEM hillshade (1m)",
                     })
                 if "adk-high-peaks-ny-orthos" in dataset_ids:
@@ -959,7 +994,6 @@ async def amain(args: argparse.Namespace) -> int:
                         "dataset_id": dataset_ids["adk-high-peaks-ny-orthos"],
                         "opacity": 1.0,
                         "layer_type": "raster_geolens",
-                        "style_config": {"builder": {"render_mode": "image"}},
                         "display_name": "TNM/NY Orthos aerial",
                     })
                 return layers_spec
@@ -968,9 +1002,9 @@ async def amain(args: argparse.Namespace) -> int:
                 layers = primary_layers()
                 for layer in layers:
                     if layer.get("display_name") == "DEM hillshade (1m)":
-                        layer["opacity"] = 0.32
+                        layer["opacity"] = 0.24
                     elif layer.get("display_name") == "TNM/NY Orthos aerial":
-                        layer["opacity"] = 0.92
+                        layer["opacity"] = 0.98
                     elif layer.get("display_name") == "Land classification":
                         layer["opacity"] = 0.18
                 return layers

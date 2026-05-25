@@ -1,0 +1,177 @@
+- generic [ref=e2] [box=0,0,1440,1101]:
+  - generic [ref=e6] [box=0,0,1440,1101]:
+    - link "Skip to main content" [ref=e7] [cursor=pointer] [box=-1,-1,1,1]:
+      - /url: "#main-content"
+    - banner [ref=e8] [box=0,0,1440,57]:
+      - generic [ref=e9] [box=144,0,1152,56]:
+        - generic [ref=e10] [box=168,12,357,32]:
+          - link "GeoLens" [ref=e11] [cursor=pointer] [box=168,14,86,28]:
+            - /url: /
+            - generic [ref=e12] [box=168,14,86,24]:
+              - img [ref=e13] [box=168,16,20,20]
+              - generic [ref=e21] [box=194,14,60,24]: GeoLens
+          - navigation "Main navigation" [ref=e22] [box=287,12,238,32]:
+            - link "Search" [ref=e23] [cursor=pointer] [box=287,12,68,32]:
+              - /url: /
+            - link "Collections" [ref=e24] [cursor=pointer] [box=363,12,95,32]:
+              - /url: /collections
+            - link "Maps" [ref=e25] [cursor=pointer] [box=466,12,58,32]:
+              - /url: /maps
+        - generic [ref=e26] [box=1057,10,215,36]:
+          - button "Create" [ref=e28] [cursor=pointer] [box=1057,12,90,32]:
+            - img [box=1068,20,16,16]
+            - text: Create
+          - button "A admin User menu" [ref=e29] [cursor=pointer] [box=1156,10,116,36]:
+            - generic [ref=e30] [box=1166,14,28,28]: A
+            - generic [ref=e31] [box=1200,18,40,20]: admin
+            - img [box=1246,20,16,16]
+            - generic [ref=e32] [box=1213,28,1,1]: User menu
+    - main [ref=e33] [box=0,57,1440,1044]:
+      - generic [ref=e34] [box=0,57,1440,1044]:
+        - status [ref=e35] [box=-1,56,1,1]
+        - generic [ref=e36] [box=0,57,1440,40]:
+          - navigation "breadcrumb" [ref=e37] [box=12,64,1221,25]:
+            - link "Maps" [ref=e38] [cursor=pointer] [box=12,67,34,20]:
+              - /url: /maps
+            - img [ref=e39] [box=52,70,14,14]
+            - generic [ref=e41] [box=72,64,177,25]:
+              - textbox "Map name" [ref=e42] [box=66,65,177,24]: Adirondack High Peaks — 3D Relief
+              - img [box=233,71,12,12]
+            - textbox "Description" [ref=e43] [box=255,67,978,20]:
+              - /placeholder: Add a description...
+              - text: "Bonus 3D relief variant for screenshots: ADK terrain enabled over high-fidelity aerial, DEM hillshade, hydrography, trails, and complete 46er peak context."
+          - generic [ref=e44] [box=1245,63,183,28]:
+            - button "Share" [ref=e45] [cursor=pointer] [box=1245,63,74,28]:
+              - img [box=1256,69,16,16]
+              - generic [ref=e46] [box=1276,69,32,16]: Share
+            - button "Save (⌘S)" [ref=e47] [cursor=pointer] [box=1325,63,69,28]:
+              - generic [ref=e49] [box=1348,69,33,16]: Saved
+              - generic [ref=e50] [box=1359,76,1,1]: Saved
+            - button "More actions" [ref=e51] [cursor=pointer] [box=1400,63,28,28]:
+              - img [box=1408,71,12,12]
+        - generic [ref=e52] [box=0,97,1440,1004]:
+          - generic [ref=e53] [box=0,97,1396,1004]:
+            - complementary [ref=e54] [box=0,97,340,1004]:
+              - generic [ref=e55] [box=0,97,339,1004]:
+                - generic [ref=e56] [box=0,97,339,56]:
+                  - generic [ref=e57] [box=16,118,76,22]:
+                    - heading "Layers" [level=2] [ref=e58] [box=16,119,43,20]
+                    - generic [ref=e59] [box=67,118,25,22]: "8"
+                  - generic [ref=e60] [box=197,113,126,32]:
+                    - button "Settings" [ref=e61] [box=197,113,32,32]
+                    - button "Add data" [ref=e65] [cursor=pointer] [box=233,113,90,32]
+                - generic "Map layers" [ref=e66] [box=0,153,339,948]:
+                  - generic [ref=e68] [cursor=pointer] [box=0,153,339,38]:
+                    - button "Drag to reorder ADK 46er peaks" [ref=e69] [box=32,165,14,14]
+                    - button "Toggle visibility for ADK 46er peaks" [pressed] [ref=e77] [box=54,161,22,22]
+                    - img [ref=e83] [box=88,165,14,14]
+                    - generic [ref=e86] [box=114,162,187,20]: ADK 46er peaks
+                    - button "Layer options for ADK 46er peaks" [active] [ref=e88] [box=309,161,22,22]
+                  - generic [ref=e94] [cursor=pointer] [box=0,191,339,38]:
+                    - button "Drag to reorder Hiking trails" [ref=e95] [box=32,203,14,14]
+                    - button "Toggle visibility for Hiking trails" [pressed] [ref=e103] [box=54,199,22,22]
+                    - img [ref=e109] [box=88,203,14,14]
+                    - generic [ref=e111] [box=114,200,187,20]: Hiking trails
+                    - button "Layer options for Hiking trails" [ref=e113] [box=309,199,22,22]
+                  - generic [ref=e119] [cursor=pointer] [box=0,229,339,38]:
+                    - button "Drag to reorder NHD streams and rivers" [ref=e120] [box=32,241,14,14]
+                    - button "Toggle visibility for NHD streams and rivers" [pressed] [ref=e128] [box=54,237,22,22]
+                    - img [ref=e134] [box=88,241,14,14]
+                    - generic [ref=e136] [box=114,238,187,20]: NHD streams and rivers
+                    - button "Layer options for NHD streams and rivers" [ref=e138] [box=309,237,22,22]
+                  - generic [ref=e144] [cursor=pointer] [box=0,267,339,38]:
+                    - button "Drag to reorder Blue Line (APA boundary)" [ref=e145] [box=32,279,14,14]
+                    - button "Toggle visibility for Blue Line (APA boundary)" [pressed] [ref=e153] [box=54,275,22,22]
+                    - img [ref=e159] [box=88,279,14,14]
+                    - generic [ref=e162] [box=114,276,187,20]: Blue Line (APA boundary)
+                    - button "Layer options for Blue Line (APA boundary)" [ref=e164] [box=309,275,22,22]
+                  - generic [ref=e170] [cursor=pointer] [box=0,305,339,38]:
+                    - button "Drag to reorder NHD lakes and ponds" [ref=e171] [box=32,317,14,14]
+                    - button "Toggle visibility for NHD lakes and ponds" [pressed] [ref=e179] [box=54,313,22,22]
+                    - img [ref=e185] [box=88,317,14,14]
+                    - generic [ref=e188] [box=114,314,187,20]: NHD lakes and ponds
+                    - button "Layer options for NHD lakes and ponds" [ref=e190] [box=309,313,22,22]
+                  - generic [ref=e196] [cursor=pointer] [box=0,343,339,38]:
+                    - button "Drag to reorder Land classification" [ref=e197] [box=32,355,14,14]
+                    - button "Toggle visibility for Land classification" [pressed] [ref=e205] [box=54,351,22,22]
+                    - img [ref=e211] [box=88,355,14,14]
+                    - generic [ref=e214] [box=114,352,187,20]: Land classification
+                    - button "Layer options for Land classification" [ref=e216] [box=309,351,22,22]
+                  - generic [ref=e222] [cursor=pointer] [box=0,381,339,38]:
+                    - button "Drag to reorder DEM hillshade (1m)" [ref=e223] [box=32,393,14,14]
+                    - button "Toggle visibility for DEM hillshade (1m)" [pressed] [ref=e231] [box=54,389,22,22]
+                    - generic [ref=e236] [box=84,389,22,22]: ▦
+                    - generic [ref=e238] [box=114,390,187,20]: DEM hillshade (1m)
+                    - button "Layer options for DEM hillshade (1m)" [ref=e240] [box=309,389,22,22]
+                  - generic [ref=e246] [cursor=pointer] [box=0,419,339,38]:
+                    - button "Drag to reorder TNM/NY Orthos aerial" [ref=e247] [box=32,431,14,14]
+                    - button "Toggle visibility for TNM/NY Orthos aerial" [pressed] [ref=e255] [box=54,427,22,22]
+                    - generic [ref=e260] [box=84,427,22,22]: ▦
+                    - generic [ref=e262] [box=114,428,187,20]: TNM/NY Orthos aerial
+                    - button "Layer options for TNM/NY Orthos aerial" [ref=e264] [box=309,427,22,22]
+                  - generic [ref=e271] [cursor=pointer] [box=0,457,339,40]:
+                    - button "Toggle basemap group" [ref=e272] [box=4,465,24,24]
+                    - button "Drag to reorder basemap" [ref=e275] [box=32,470,14,14]
+                    - img "Basemap is always visible — use Remove basemap to hide." [ref=e283] [box=54,466,22,22]
+                    - generic [ref=e288] [box=84,466,22,22]: ⊞
+                    - generic [ref=e290] [box=114,467,187,20]: Basemap · Positron
+                    - button "Layer options for Basemap · Positron" [ref=e292] [box=309,466,22,22]
+            - generic [ref=e297] [box=340,97,1056,1004]:
+              - generic [ref=e299] [box=340,97,1056,1004]:
+                - generic [ref=e301] [box=340,97,1056,1004]:
+                  - region "Map" [ref=e302] [cursor=pointer] [box=340,97,1056,1004]
+                  - generic [box=340,97,1056,0]:
+                    - generic [ref=e303] [box=350,139,29,87]
+                    - generic [ref=e310] [box=350,1075,84,16]: 500 m
+                    - group [ref=e311] [box=972,1067,414,24]
+                - generic [box=1091,105,250,18]:
+                  - generic [box=1091,105,250,18]: 44.16° N · 73.94° W · z 13.2 · 1:45.1k
+              - generic [ref=e320] [box=799,109,138,34]:
+                - button "Pan" [pressed] [ref=e321] [cursor=pointer] [box=802,112,28,28]:
+                  - img [ref=e322] [box=809,119,14,14]
+                - button "Measure" [ref=e327] [cursor=pointer] [box=832,112,28,28]:
+                  - img [ref=e328] [box=839,119,14,14]
+                - button "Legend" [pressed] [ref=e335] [cursor=pointer] [box=869,112,28,28]:
+                  - img [ref=e336] [box=876,119,14,14]
+                - button "Style JSON" [ref=e341] [cursor=pointer] [box=906,112,28,28]:
+                  - img [ref=e342] [box=913,119,14,14]
+              - generic [ref=e348] [box=356,787,198,258]:
+                - generic [ref=e349] [box=357,788,196,37]:
+                  - img [ref=e350] [box=367,799,14,14]
+                  - generic [ref=e354] [box=387,798,126,16]: Legend
+                  - button "Close widget" [ref=e355] [box=519,794,24,24]:
+                    - img [ref=e356] [box=525,800,12,12]
+                - generic [ref=e360] [box=367,835,176,199]:
+                  - generic [ref=e363] [box=371,839,168,16]:
+                    - img [ref=e365] [box=371,840,14,14]
+                    - generic [ref=e367] [box=391,839,88,16]: ADK 46er peaks
+                  - generic [ref=e371] [box=371,864,168,16]:
+                    - img [ref=e373] [box=371,865,14,14]
+                    - generic [ref=e374] [box=391,864,66,16]: Hiking trails
+                  - generic [ref=e378] [box=371,889,168,16]:
+                    - img [ref=e380] [box=371,890,14,14]
+                    - generic [ref=e381] [box=391,889,130,16]: NHD streams and rivers
+                  - generic [ref=e385] [box=371,914,168,16]:
+                    - img [ref=e387] [box=371,915,14,14]
+                    - generic [ref=e389] [box=391,914,139,16]: Blue Line (APA boundary)
+                  - generic [ref=e393] [box=371,939,168,16]:
+                    - img [ref=e395] [box=371,940,14,14]
+                    - generic [ref=e397] [box=391,939,117,16]: NHD lakes and ponds
+                  - generic [ref=e401] [box=371,964,168,16]:
+                    - img [ref=e403] [box=371,965,14,14]
+                    - generic [ref=e405] [box=391,964,102,16]: Land classification
+                  - generic [ref=e409] [box=371,989,168,16]:
+                    - img [ref=e411] [box=371,990,14,14]
+                    - generic [ref=e413] [box=391,989,107,16]: DEM hillshade (1m)
+                  - generic [ref=e417] [box=371,1014,168,16]:
+                    - img [ref=e419] [box=371,1015,14,14]
+                    - generic [ref=e421] [box=391,1014,120,16]: TNM/NY Orthos aerial
+          - complementary [ref=e422] [box=1396,97,44,1004]:
+            - button "Notes" [ref=e423] [cursor=pointer] [box=1403,107,32,32]:
+              - img [ref=e424] [box=1411,115,16,16]
+            - button "History" [ref=e427] [cursor=pointer] [box=1403,143,32,32]:
+              - img [ref=e428] [box=1411,151,16,16]
+            - button "AI disabled by admin" [disabled] [ref=e432] [box=1403,179,32,32]:
+              - img [ref=e433] [box=1411,187,16,16]
+        - status [ref=e436] [box=-1,-1,1,1]
+  - region "Notifications alt+T" [box=0,1101,1440,0]

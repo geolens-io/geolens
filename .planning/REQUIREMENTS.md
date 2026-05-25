@@ -7,31 +7,36 @@
 
 ### Playwright QA
 
-- [ ] **QA-01**: Operator can run a Playwright MCP sweep against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` that opens every data layer and basemap row without unhandled UI errors.
-- [ ] **QA-02**: Operator can verify every layer options menu opens and exposes source metadata plus safe layer actions without trapping focus or breaking row interaction.
-- [ ] **QA-03**: Operator can verify representative editor tabs and controls for point, line, polygon, raster, DEM, and basemap layers.
-- [ ] **QA-04**: Browser console warnings/errors, failed requests, screenshot evidence, and visual/cartographic findings are captured in phase artifacts with dispositions.
+- [x] **QA-01**: Operator can run a Playwright MCP sweep against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` that opens every data layer and basemap row without unhandled UI errors.
+- [x] **QA-02**: Operator can verify every layer options menu opens and exposes source metadata plus safe layer actions without trapping focus or breaking row interaction.
+- [x] **QA-03**: Operator can verify representative editor tabs and controls for point, line, polygon, raster, DEM, and basemap layers.
+- [x] **QA-04**: Browser console warnings/errors, failed requests, screenshot evidence, and visual/cartographic findings are captured in phase artifacts with dispositions.
 
 ### Layer Option Fixes
 
-- [ ] **LAYER-01**: DEM layers whose saved style config declares hillshade open in the builder as Hillshade, not Image, and retain that render mode through API normalization.
-- [ ] **LAYER-02**: ADK marketing composition uses GeoLens `label_config` keys so 46er peak labels render in the builder/viewer and remain editable.
-- [ ] **LAYER-03**: The ADK composition script writes canonical render/style metadata for DEM hillshade, aerial raster, Blue Line outline, and peak labels so reruns reproduce the polished map.
-- [ ] **LAYER-04**: The existing target map is updated in the running catalog with the same canonical layer metadata without duplicating datasets or maps.
+- [x] **LAYER-01**: DEM layers whose saved style config declares hillshade open in the builder as Hillshade, not Image, and retain that render mode through API normalization.
+- [x] **LAYER-02**: ADK marketing composition uses GeoLens `label_config` keys so 46er peak labels render in the builder/viewer and remain editable.
+- [x] **LAYER-03**: The ADK composition script writes canonical render/style metadata for DEM hillshade, aerial raster, Blue Line outline, and peak labels so reruns reproduce the polished map.
+- [x] **LAYER-04**: The existing target map is updated in the running catalog with the same canonical layer metadata without duplicating datasets or maps.
 
 ### Marketing Cartography
 
-- [ ] **CARTO-01**: Target map styling makes terrain, aerial, hillshade, hydrography, trails, Blue Line, land classification, waterbodies, and 46er peaks legible at the screenshot view.
-- [ ] **CARTO-02**: Peak labels are readable without overwhelming the terrain and are gated to an appropriate zoom range.
-- [ ] **CARTO-03**: Legend and builder/sidebar presentation demonstrate GeoLens functionality without hiding key map content.
-- [ ] **CARTO-04**: Suggestions for future cartographic improvements are documented separately from fixes completed in this milestone.
+- [x] **CARTO-01**: Target map styling makes terrain, aerial, hillshade, hydrography, trails, Blue Line, land classification, waterbodies, and 46er peaks legible at the screenshot view.
+- [x] **CARTO-02**: Peak labels are readable without overwhelming the terrain and are gated to an appropriate zoom range.
+- [x] **CARTO-03**: Legend and builder/sidebar presentation demonstrate GeoLens functionality without hiding key map content.
+- [x] **CARTO-04**: Suggestions for future cartographic improvements are documented separately from fixes completed in this milestone.
 
 ### Verification
 
-- [ ] **VERIFY-01**: Fresh Playwright MCP load of the target map after fixes has zero unexpected console errors/warnings.
-- [ ] **VERIFY-02**: Playwright MCP verifies the fixed DEM hillshade editor state, peak label rendering, layer options menus, and visibility toggles after reload.
-- [ ] **VERIFY-03**: Frontend unit tests cover the style-config normalization regression that hid render-mode-only and legacy nested render modes.
-- [ ] **VERIFY-04**: Phase summaries include the final screenshot target, changed files, commands run, and any accepted external/noise limitations.
+- [x] **VERIFY-01**: Fresh Playwright MCP load of the target map after fixes has zero unexpected console errors/warnings.
+- [x] **VERIFY-02**: Playwright MCP verifies the fixed DEM hillshade editor state, peak label rendering, layer options menus, and visibility toggles after reload.
+- [x] **VERIFY-03**: Frontend unit tests cover the style-config normalization regression that hid render-mode-only and legacy nested render modes.
+- [x] **VERIFY-04**: Phase summaries include the final screenshot target, changed files, commands run, and any accepted external/noise limitations.
+
+### Builder Hygiene Closeout
+
+- [x] **HYGIENE-01**: Frontend lint exits with zero errors and zero warnings after fixing discovered mapbuilder a11y/rules findings.
+- [x] **HYGIENE-02**: A post-lint Playwright MCP smoke confirms the target map still loads with expected stack rows and zero console warnings/errors.
 
 ## Future Requirements
 
@@ -57,28 +62,30 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QA-01 | Phase 1107 | Pending |
-| QA-02 | Phase 1107 | Pending |
-| QA-03 | Phase 1107 | Pending |
-| QA-04 | Phase 1107 | Pending |
-| LAYER-01 | Phase 1108 | Pending |
-| LAYER-02 | Phase 1108 | Pending |
-| LAYER-03 | Phase 1108 | Pending |
-| LAYER-04 | Phase 1108 | Pending |
-| CARTO-01 | Phase 1109 | Pending |
-| CARTO-02 | Phase 1109 | Pending |
-| CARTO-03 | Phase 1109 | Pending |
-| CARTO-04 | Phase 1109 | Pending |
-| VERIFY-01 | Phase 1110 | Pending |
-| VERIFY-02 | Phase 1110 | Pending |
-| VERIFY-03 | Phase 1110 | Pending |
-| VERIFY-04 | Phase 1110 | Pending |
+| QA-01 | Phase 1107 | Complete |
+| QA-02 | Phase 1107 | Complete |
+| QA-03 | Phase 1107 | Complete |
+| QA-04 | Phase 1107 | Complete |
+| LAYER-01 | Phase 1108 | Complete |
+| LAYER-02 | Phase 1108 | Complete |
+| LAYER-03 | Phase 1108 | Complete |
+| LAYER-04 | Phase 1108 | Complete |
+| CARTO-01 | Phase 1109 | Complete |
+| CARTO-02 | Phase 1109 | Complete |
+| CARTO-03 | Phase 1109 | Complete |
+| CARTO-04 | Phase 1109 | Complete |
+| VERIFY-01 | Phase 1110 | Complete |
+| VERIFY-02 | Phase 1110 | Complete |
+| VERIFY-03 | Phase 1110 | Complete |
+| VERIFY-04 | Phase 1110 | Complete |
+| HYGIENE-01 | Phase 1111 | Complete |
+| HYGIENE-02 | Phase 1111 | Complete |
 
 **Coverage:**
-- v1025 requirements: 16 total
-- Mapped to phases: 16
+- v1025 requirements: 18 total, 18 complete
+- Mapped to phases: 18
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after v1025 milestone initialization*
+*Last updated: 2026-05-25 after v1025 builder lint closeout*
