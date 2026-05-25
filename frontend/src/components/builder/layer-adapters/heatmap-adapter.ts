@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { CUSTOM_PAINT_PROPS, getBuilderStyleConfig, paintValueChanged, syncSingleLayerVisibility, syncLayerFilter } from './shared';
+import { getBuilderStyleConfig, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { getRampColors } from '@/lib/color-ramps';
 
 /** Build the default heatmap-color interpolation expression using a named ramp.
@@ -20,6 +20,13 @@ export function buildHeatmapColorExpression(rampName: string): unknown[] {
 }
 
 const DEFAULT_RAMP = 'YlOrRd';
+const HEATMAP_OWNED_PAINT_PROPERTIES = [
+  'heatmap-radius',
+  'heatmap-weight',
+  'heatmap-intensity',
+  'heatmap-color',
+  'heatmap-opacity',
+] as const;
 
 /** Default paint properties for a new heatmap layer. */
 export const DEFAULT_HEATMAP_PAINT: Record<string, unknown> = {
@@ -79,30 +86,16 @@ export const heatmapAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, filter } = input;
     if (!map.getLayer(layerId)) return;
+    const builder = getBuilderStyleConfig(input);
 
-    // Sync only heatmap-* properties, skip custom props.
-    // Phase 1051 WR-01 (iter-2): skip 'heatmap-opacity' inside the generic loop —
-    // the compounded write below owns this property. Previously, this loop wrote
-    // the *raw* stored value (e.g. 0.8) before the post-loop block immediately
-    // overrode it with the compounded value (e.g. 0.4 when master_opacity=0.5),
-    // producing a transient flash to full saturation on every paint sync. CR-04
-    // fixed the same defect at add-time; this is its sync-time twin.
-    for (const [prop, val] of Object.entries(rawPaint)) {
-      if (CUSTOM_PAINT_PROPS.has(prop)) continue;
-      if (!prop.startsWith('heatmap-')) continue;
-      if (prop === 'heatmap-opacity') continue;
-      try {
-        const current = map.getPaintProperty(layerId, prop);
-        if (paintValueChanged(current, val)) {
-          map.setPaintProperty(layerId, prop, val);
-        }
-      } catch (e) {
-        if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);
-      }
-    }
+    syncOwnedPaintProperties(map, layerId, {
+      'heatmap-radius': rawPaint['heatmap-radius'] ?? 30,
+      'heatmap-weight': rawPaint['heatmap-weight'] ?? 1,
+      'heatmap-intensity': rawPaint['heatmap-intensity'] ?? 1,
+      'heatmap-color': rawPaint['heatmap-color'] ?? buildHeatmapColorExpression(builder.heatmapRamp ?? DEFAULT_RAMP),
+    }, { ownedProperties: HEATMAP_OWNED_PAINT_PROPERTIES.filter((prop) => prop !== 'heatmap-opacity') });
 
-    // Compound stored heatmap-opacity with master opacity. Single source of
-    // truth — the loop above intentionally skips 'heatmap-opacity'.
+    // Compound stored heatmap-opacity with master opacity. Single source of truth.
     const storedOpacity = (rawPaint['heatmap-opacity'] as number) ?? 0.8;
     map.setPaintProperty(layerId, 'heatmap-opacity', storedOpacity * (input.opacity ?? 1));
 

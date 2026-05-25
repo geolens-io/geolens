@@ -1,9 +1,35 @@
 import type { FillExtrusionLayerSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, getBuilderStyleConfig, syncLayerFilter, setLayerProperty } from './shared';
+import {
+  simplifyPaint,
+  filterPaintForLayerType,
+  finalizeLayer,
+  getExpressionSafeOpacity,
+  getBuilderStyleConfig,
+  syncLayerFilter,
+  setLayerProperty,
+  syncOwnedPaintProperties,
+} from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
+const FILL_OWNED_PAINT_PROPERTIES = [
+  'fill-color',
+  'fill-opacity',
+  'fill-outline-color',
+  'fill-antialias',
+  'fill-pattern',
+  'fill-translate',
+  'fill-translate-anchor',
+] as const;
+const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-opacity'] as const;
+const EXTRUSION_OWNED_PAINT_PROPERTIES = [
+  'fill-extrusion-height',
+  'fill-extrusion-base',
+  'fill-extrusion-color',
+  'fill-extrusion-opacity',
+  'fill-extrusion-vertical-gradient',
+] as const;
 type FillExtrusionHeight = NonNullable<FillExtrusionLayerSpecification['paint']>['fill-extrusion-height'];
 
 function finiteNumber(value: unknown): number | null {
@@ -137,7 +163,10 @@ export const fillAdapter: LayerAdapter = {
     const builder = getBuilderStyleConfig(input);
     const outlineId = `${input.layerId}-outline`;
     if (map.getLayer(layerId)) {
-      syncVectorPaint(map, layerId, rawPaint, 'fill');
+      syncOwnedPaintProperties(map, layerId, rawPaint, {
+        geomType: 'fill',
+        ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
+      });
       map.setPaintProperty(layerId, 'fill-opacity', getExpressionSafeOpacity(rawPaint, 'fill', opacity ?? 1));
       syncLayerFilter(map, layerId, filter);
       const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
@@ -149,15 +178,14 @@ export const fillAdapter: LayerAdapter = {
       const outlineStrokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
       const outlineColor = builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color'];
       const outlineWidth = builder.outlineWidth ?? rawPaint['_outline-width'] ?? rawPaint['outline-width'];
-      if (typeof outlineColor === 'string') {
-        const cur = map.getPaintProperty(outlineId, 'line-color');
-        if (cur !== outlineColor) setLayerProperty(map, outlineId, 'line-color', outlineColor);
-      }
-      if (typeof outlineWidth === 'number') {
-        const cur = map.getPaintProperty(outlineId, 'line-width');
-        if (cur !== outlineWidth) setLayerProperty(map, outlineId, 'line-width', outlineWidth);
-      }
-      map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
+      syncOwnedPaintProperties(map, outlineId, {
+        'line-color': typeof outlineColor === 'string' ? outlineColor : MAP_COLORS.default.stroke,
+        'line-width': typeof outlineWidth === 'number' ? outlineWidth : 1,
+        'line-opacity': opacity ?? 1,
+      }, {
+        geomType: 'line',
+        ownedProperties: OUTLINE_OWNED_PAINT_PROPERTIES,
+      });
       map.setLayoutProperty(outlineId, 'visibility', outlineStrokeDisabled ? 'none' : 'visible');
       syncLayerFilter(map, outlineId, filter);
     }
@@ -165,22 +193,25 @@ export const fillAdapter: LayerAdapter = {
     const extrusionId = `${layerId}-extrusion`;
     if (map.getLayer(extrusionId)) {
       const heightColumn = builder.heightColumn ?? (rawPaint['_height_column'] as string | undefined);
-      if (heightColumn) {
-        const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
-        // Update height expression when column changes
-        setLayerProperty(map, extrusionId, 'fill-extrusion-height', buildHeightExpression(heightColumn, heightScale));
-        const fillColor = rawPaint['fill-color'] as string | undefined;
-        if (fillColor) {
-          setLayerProperty(map, extrusionId, 'fill-extrusion-color', fillColor);
-        }
-        map.setPaintProperty(extrusionId, 'fill-extrusion-opacity', extrusionOpacity);
-        try {
-          map.setLayerZoomRange(extrusionId, extrusionMinZoom, 22);
-        } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion zoom range:`, e); }
-        syncLayerFilter(map, extrusionId, filter);
-        // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
-        try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
+      if (!heightColumn) {
+        map.removeLayer(extrusionId);
+        return;
       }
+      const { heightScale, extrusionMinZoom, extrusionOpacity } = getExtrusionOptions(input);
+      const fillColor = (rawPaint['fill-color'] as string | undefined) ?? MAP_COLORS.default.fill;
+      syncOwnedPaintProperties(map, extrusionId, {
+        'fill-extrusion-height': buildHeightExpression(heightColumn, heightScale),
+        'fill-extrusion-base': 0,
+        'fill-extrusion-color': fillColor,
+        'fill-extrusion-opacity': extrusionOpacity,
+        'fill-extrusion-vertical-gradient': true,
+      }, { ownedProperties: EXTRUSION_OWNED_PAINT_PROPERTIES });
+      try {
+        map.setLayerZoomRange(extrusionId, extrusionMinZoom, 22);
+      } catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set extrusion zoom range:`, e); }
+      syncLayerFilter(map, extrusionId, filter);
+      // Workaround MapLibre v5 bug: setPaintProperty only applies every other call with terrain active
+      try { map.triggerRepaint(); } catch (e) { if (import.meta.env.DEV) console.debug('[map-sync] triggerRepaint not available:', e); }
     }
   },
 

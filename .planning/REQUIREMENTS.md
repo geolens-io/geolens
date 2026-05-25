@@ -21,10 +21,10 @@
 
 ### Adapter Migration
 
-- [ ] **ADAPT-01**: Line, fill, circle, and fill-extrusion style sync paths use the shared reconciler instead of one-off additive paint updates.
-- [ ] **ADAPT-02**: Heatmap, cluster, raster, and hillshade style sync paths use the shared reconciler or a documented adapter-specific equivalent where MapLibre requires source/layer rebuilds.
-- [ ] **ADAPT-03**: Label, outline, arrow, and cluster companion layers reconcile visibility, paint, layout, filters, and deletion atomically with their parent layer.
-- [ ] **ADAPT-04**: One-off stale-property cleanup paths are removed or reduced to adapter-owned-property declarations, with regression tests replacing bug-specific cleanup tests where practical.
+- [x] **ADAPT-01**: Line, fill, circle, and fill-extrusion style sync paths use the shared reconciler instead of one-off additive paint updates.
+- [x] **ADAPT-02**: Heatmap, cluster, raster, and hillshade style sync paths use the shared reconciler or a documented adapter-specific equivalent where MapLibre requires source/layer rebuilds.
+- [x] **ADAPT-03**: Label, outline, arrow, and cluster companion layers reconcile visibility, paint, layout, filters, and deletion atomically with their parent layer.
+- [x] **ADAPT-04**: One-off stale-property cleanup paths are removed or reduced to adapter-owned-property declarations, with regression tests replacing bug-specific cleanup tests where practical.
 
 ### UI and AI Style Actions
 
@@ -84,10 +84,10 @@
 | RECON-02 | Phase 1113 | Complete |
 | RECON-03 | Phase 1113 | Complete |
 | RECON-04 | Phase 1113 | Complete |
-| ADAPT-01 | Phase 1114 | Pending |
-| ADAPT-02 | Phase 1114 | Pending |
-| ADAPT-03 | Phase 1114 | Pending |
-| ADAPT-04 | Phase 1114 | Pending |
+| ADAPT-01 | Phase 1114 | Complete |
+| ADAPT-02 | Phase 1114 | Complete |
+| ADAPT-03 | Phase 1114 | Complete |
+| ADAPT-04 | Phase 1114 | Complete |
 | STYLE-01 | Phase 1115 | Pending |
 | STYLE-02 | Phase 1115 | Pending |
 | STYLE-03 | Phase 1115 | Pending |
@@ -106,10 +106,10 @@
 | VERIFY-05 | Phase 1117 | Pending |
 
 **Coverage:**
-- v1026 requirements: 28 total, 8 complete
+- v1026 requirements: 28 total, 12 complete
 - Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1113*
+*Last updated: 2026-05-25 after Phase 1114*

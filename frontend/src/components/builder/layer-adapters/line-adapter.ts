@@ -1,10 +1,44 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getBuilderStyleConfig, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility, syncLayerFilter } from './shared';
+import {
+  simplifyPaint,
+  filterPaintForLayerType,
+  finalizeLayer,
+  getBuilderStyleConfig,
+  getExpressionSafeOpacity,
+  syncOwnedLayoutProperties,
+  syncOwnedPaintProperties,
+  syncSingleLayerVisibility,
+  syncLayerFilter,
+} from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 const ARROW_IMAGE_ID = 'geolens-line-arrow';
 const ARROW_BASE_SIZE = 14;
+const LINE_OWNED_PAINT_PROPERTIES = [
+  'line-color',
+  'line-width',
+  'line-gap-width',
+  'line-offset',
+  'line-blur',
+  'line-opacity',
+  'line-gradient',
+  'line-dasharray',
+  'line-pattern',
+  'line-translate',
+  'line-translate-anchor',
+] as const;
+const ARROW_OWNED_PAINT_PROPERTIES = ['icon-color', 'icon-opacity'] as const;
+const ARROW_OWNED_LAYOUT_PROPERTIES = [
+  'symbol-placement',
+  'symbol-spacing',
+  'icon-image',
+  'icon-size',
+  'icon-allow-overlap',
+  'icon-ignore-placement',
+  'icon-rotation-alignment',
+  'visibility',
+] as const;
 
 function arrowLayerId(layerId: string) {
   return `${layerId}-arrow`;
@@ -100,23 +134,21 @@ function syncArrowLayer(map: MaplibreMap, input: AdapterLayerInput) {
   if (!map.getLayer(id)) return;
 
   const config = arrowConfig(input);
-  map.setLayoutProperty(id, 'symbol-spacing', config.spacing);
-  map.setLayoutProperty(id, 'icon-size', config.size / ARROW_BASE_SIZE);
-  map.setPaintProperty(id, 'icon-color', config.color);
-  map.setPaintProperty(id, 'icon-opacity', input.opacity ?? 1);
-  map.setLayoutProperty(id, 'visibility', input.visible ? 'visible' : 'none');
+  syncOwnedLayoutProperties(map, id, {
+    'symbol-placement': 'line',
+    'symbol-spacing': config.spacing,
+    'icon-image': ARROW_IMAGE_ID,
+    'icon-size': config.size / ARROW_BASE_SIZE,
+    'icon-allow-overlap': true,
+    'icon-ignore-placement': true,
+    'icon-rotation-alignment': 'map',
+    visibility: input.visible ? 'visible' : 'none',
+  }, { ownedProperties: ARROW_OWNED_LAYOUT_PROPERTIES });
+  syncOwnedPaintProperties(map, id, {
+    'icon-color': config.color,
+    'icon-opacity': input.opacity ?? 1,
+  }, { ownedProperties: ARROW_OWNED_PAINT_PROPERTIES });
   syncLayerFilter(map, id, input.filter);
-}
-
-function clearStaleLineGradient(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
-  if (rawPaint['line-gradient'] != null) return;
-  try {
-    if (map.getPaintProperty(layerId, 'line-gradient') != null) {
-      map.setPaintProperty(layerId, 'line-gradient', undefined);
-    }
-  } catch (e) {
-    if (import.meta.env.DEV) console.debug(`[map-sync] Failed to clear line-gradient on ${layerId}:`, e);
-  }
 }
 
 export const lineAdapter: LayerAdapter = {
@@ -171,13 +203,16 @@ export const lineAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
-    syncVectorPaint(map, layerId, rawPaint, 'line');
-    clearStaleLineGradient(map, layerId, rawPaint);
-    map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
     const dasharray = input.layout?.['line-dasharray'];
-    if (map.getLayer(layerId)) {
-      map.setPaintProperty(layerId, 'line-dasharray', dasharray ?? undefined);
-    }
+    const paintForSync = {
+      ...rawPaint,
+      ...(dasharray != null ? { 'line-dasharray': dasharray } : {}),
+    };
+    syncOwnedPaintProperties(map, layerId, paintForSync, {
+      geomType: 'line',
+      ownedProperties: LINE_OWNED_PAINT_PROPERTIES,
+    });
+    map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
     syncLayerFilter(map, layerId, filter);
     syncArrowLayer(map, input);
   },

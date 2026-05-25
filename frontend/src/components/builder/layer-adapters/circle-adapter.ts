@@ -1,7 +1,30 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { simplifyPaint, filterPaintForLayerType, finalizeLayer, getExpressionSafeOpacity, syncVectorPaint, syncSingleLayerVisibility, syncLayerFilter } from './shared';
+import {
+  simplifyPaint,
+  filterPaintForLayerType,
+  finalizeLayer,
+  getExpressionSafeOpacity,
+  syncOwnedPaintProperties,
+  syncSingleLayerVisibility,
+  syncLayerFilter,
+} from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
+
+const CIRCLE_OWNED_PAINT_PROPERTIES = [
+  'circle-radius',
+  'circle-color',
+  'circle-blur',
+  'circle-opacity',
+  'circle-translate',
+  'circle-translate-anchor',
+  'circle-pitch-scale',
+  'circle-pitch-alignment',
+  'circle-stroke-width',
+  'circle-stroke-color',
+  'circle-stroke-opacity',
+  'circle-stroke-blur',
+] as const;
 
 export const circleAdapter: LayerAdapter = {
   type: 'circle',
@@ -38,7 +61,10 @@ export const circleAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
-    syncVectorPaint(map, layerId, rawPaint, 'circle');
+    syncOwnedPaintProperties(map, layerId, rawPaint, {
+      geomType: 'circle',
+      ownedProperties: CIRCLE_OWNED_PAINT_PROPERTIES,
+    });
     map.setPaintProperty(layerId, 'circle-opacity', getExpressionSafeOpacity(rawPaint, 'circle', opacity ?? 1));
     syncLayerFilter(map, layerId, filter);
   },

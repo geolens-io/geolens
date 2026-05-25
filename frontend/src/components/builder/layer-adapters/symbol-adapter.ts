@@ -1,12 +1,35 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { syncSingleLayerVisibility } from './shared';
+import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { SymbolStyleConfig } from '@/types/api';
 
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
 const GEOLENS_SPRITE_URL = '/maps/sprites/geolens';
+const SYMBOL_OWNED_LAYOUT_PROPERTIES = [
+  'icon-image',
+  'icon-size',
+  'icon-rotate',
+  'icon-anchor',
+  'icon-offset',
+  'icon-allow-overlap',
+  'visibility',
+  'text-field',
+  'text-size',
+  'text-font',
+  'text-anchor',
+  'text-offset',
+  'text-allow-overlap',
+  'text-max-width',
+] as const;
+const SYMBOL_OWNED_PAINT_PROPERTIES = [
+  'icon-opacity',
+  'text-color',
+  'text-halo-color',
+  'text-halo-width',
+  'text-opacity',
+] as const;
 
 function getSymbolConfig(input: AdapterLayerInput): SymbolStyleConfig {
   const styleConfig = input.style_config ?? {};
@@ -110,13 +133,13 @@ export const symbolAdapter: LayerAdapter = {
     if (!map.getLayer(input.layerId)) return;
     ensureGeolensSprite(map);
     const layout = symbolLayout(input);
-    for (const [key, value] of Object.entries(layout)) {
-      map.setLayoutProperty(input.layerId, key, value);
-    }
+    syncOwnedLayoutProperties(map, input.layerId, layout, {
+      ownedProperties: SYMBOL_OWNED_LAYOUT_PROPERTIES,
+    });
     const paint = symbolPaint(input);
-    for (const [key, value] of Object.entries(paint)) {
-      map.setPaintProperty(input.layerId, key, value);
-    }
+    syncOwnedPaintProperties(map, input.layerId, paint, {
+      ownedProperties: SYMBOL_OWNED_PAINT_PROPERTIES,
+    });
     map.setFilter(input.layerId, input.filter ?? null);
   },
 
