@@ -6,7 +6,7 @@ import type { SymbolStyleConfig } from '@/types/api';
 
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
-const GEOLENS_SPRITE_URL = '/maps/sprites/geolens';
+const GEOLENS_SPRITE_PATH = '/api/maps/sprites/geolens';
 const SYMBOL_OWNED_LAYOUT_PROPERTIES = [
   'icon-image',
   'icon-size',
@@ -44,11 +44,18 @@ function spriteIconId(icon: string): string {
   return icon.includes(':') ? icon : `${GEOLENS_SPRITE_ID}:${icon}`;
 }
 
+function getGeolensSpriteUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return new URL(GEOLENS_SPRITE_PATH, window.location.origin).toString();
+  }
+  return GEOLENS_SPRITE_PATH;
+}
+
 function ensureGeolensSprite(map: MaplibreMap): void {
   try {
     const sprites = map.getSprite?.() ?? [];
     if (!sprites.some((sprite) => sprite.id === GEOLENS_SPRITE_ID)) {
-      map.addSprite(GEOLENS_SPRITE_ID, GEOLENS_SPRITE_URL);
+      map.addSprite(GEOLENS_SPRITE_ID, getGeolensSpriteUrl());
     }
   } catch (e) {
     if (import.meta.env.DEV) console.warn('[map-sync] GeoLens sprite registration failed:', e);

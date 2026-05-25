@@ -224,7 +224,10 @@ describe('symbolAdapter', () => {
       'icon-offset': [0, -1],
       'text-field': ['get', 'name'],
     }));
-    expect(map.addSprite).toHaveBeenCalledWith('geolens', '/maps/sprites/geolens');
+    expect(map.addSprite).toHaveBeenCalledWith(
+      'geolens',
+      new URL('/api/maps/sprites/geolens', window.location.origin).toString(),
+    );
   });
 
   it('does not re-add the GeoLens sprite when already registered', () => {

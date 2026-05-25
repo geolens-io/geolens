@@ -15,7 +15,7 @@
 - [x] **Phase 1114: Adapter Migration** — migrate vector, raster, hillshade, cluster, label, outline, arrow, and companion-layer sync paths onto the reconciler contract.
 - [x] **Phase 1115: UI and AI Style Actions** — route high-risk manual controls and AI chat style actions through consistent style mutation semantics, including explicit clear behavior.
 - [x] **Phase 1116: Persistence and Viewer Parity** — verify saved-map JSON, reload, public viewer, embed viewer, and style JSON export/import all preserve reconciled styles.
-- [ ] **Phase 1117: Reconciler Close Gate** — run focused tests, frontend gates, Playwright MCP flows, console/network capture, changelog, and phase summaries.
+- [x] **Phase 1117: Reconciler Close Gate** — run focused tests, frontend gates, Playwright MCP flows, console/network capture, changelog, and phase summaries.
 
 ### Phase 1112: Style Contract and Baseline Audit
 
@@ -104,6 +104,7 @@
 
 ## ✅ Historical Milestones
 
+- ✅ **v1026 Mapbuilder Style Reconciler** — Phases 1112-1117 (shipped 2026-05-25; canonical style reconciliation across adapters, manual controls, AI chat actions, persistence/viewer parity, high-DPI sprite routing, terrain activation retry, and Playwright MCP close gate)
 - ✅ **v1025 Mapbuilder Polishing** — Phases 1107-1111 (shipped 2026-05-25; ADK 3D Relief deep QA, layer metadata fixes, marketing cartography, Playwright close gate, lint closeout)
 - ✅ **v1024 ADK High Peaks Marketing-Ready** — Phases 1101-1106 (completed locally 2026-05-24; ADK marketing data/maps, builder ordering, terrain controls, error hygiene, and Playwright close gate)
 - ✅ **v1.0 MVP** — Phases 1-8 (shipped 2026-02-13)
@@ -226,12 +227,12 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1112. Style Contract and Baseline Audit | v1026 | 0/0 | Planned | — |
-| 1113. Shared Style Reconciler | v1026 | 0/0 | Planned | — |
-| 1114. Adapter Migration | v1026 | 0/0 | Planned | — |
-| 1115. UI and AI Style Actions | v1026 | 0/0 | Planned | — |
-| 1116. Persistence and Viewer Parity | v1026 | 0/0 | Planned | — |
-| 1117. Reconciler Close Gate | v1026 | 0/0 | Planned | — |
+| 1112. Style Contract and Baseline Audit | v1026 | 1/1 | Complete | 2026-05-25 |
+| 1113. Shared Style Reconciler | v1026 | 1/1 | Complete | 2026-05-25 |
+| 1114. Adapter Migration | v1026 | 1/1 | Complete | 2026-05-25 |
+| 1115. UI and AI Style Actions | v1026 | 1/1 | Complete | 2026-05-25 |
+| 1116. Persistence and Viewer Parity | v1026 | 1/1 | Complete | 2026-05-25 |
+| 1117. Reconciler Close Gate | v1026 | 1/1 | Complete | 2026-05-25 |
 
 ## Backlog
 

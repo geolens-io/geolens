@@ -454,7 +454,7 @@ describe('ViewerMap basemap config runtime', () => {
         filter: null,
         label_config: null,
         popup_config: null,
-        style_config: { builder: {} },
+        style_config: { mode: 'categorical', column: '', ramp: '', builder: {} },
         tile_url: '',
       },
     ];
@@ -486,7 +486,7 @@ describe('ViewerMap basemap config runtime', () => {
     expect(syncInput?.paint).toEqual({ 'line-color': '#f97316', 'line-width': 4 });
     expect(syncInput?.paint).not.toHaveProperty('line-gradient');
     expect(syncInput?.paint).not.toHaveProperty('clear_paint');
-    expect(syncInput?.style_config).toEqual({ builder: {} });
+    expect(syncInput?.style_config).toEqual({ mode: 'categorical', column: '', ramp: '', builder: {} });
   });
 
   it('syncs eligible shared cluster layers after bounded GeoJSON data arrives', async () => {

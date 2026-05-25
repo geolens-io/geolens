@@ -45,11 +45,11 @@
 
 ### Verification and Close Gate
 
-- [ ] **VERIFY-01**: Focused frontend tests cover adapter reconciliation, manual UI style transitions, AI chat style actions, save/reload normalization, and viewer rendering helpers.
-- [ ] **VERIFY-02**: Playwright MCP verifies the ADK 3D Relief map after migration, including Hiking trails gradient-to-solid, representative data-driven-to-flat, label toggle, and render-mode switch flows.
-- [ ] **VERIFY-03**: Frontend `npm run test`, `npm run typecheck`, and `npm run lint` pass for the touched builder/style areas.
-- [ ] **VERIFY-04**: Browser console and failed-network capture for the target map shows zero unexpected errors/warnings after the reconciler migration.
-- [ ] **VERIFY-05**: CHANGELOG and phase summaries document migration scope, AI-chat impact, accepted limitations, and any follow-up requirements.
+- [x] **VERIFY-01**: Focused frontend tests cover adapter reconciliation, manual UI style transitions, AI chat style actions, save/reload normalization, and viewer rendering helpers.
+- [x] **VERIFY-02**: Playwright MCP verifies the ADK 3D Relief map after migration, including Hiking trails gradient-to-solid, representative data-driven-to-flat, label toggle, and render-mode switch flows.
+- [x] **VERIFY-03**: Frontend `npm run test`, `npm run typecheck`, and `npm run lint` pass for the touched builder/style areas.
+- [x] **VERIFY-04**: Browser console and failed-network capture for the target map shows zero unexpected errors/warnings after the reconciler migration.
+- [x] **VERIFY-05**: CHANGELOG and phase summaries document migration scope, AI-chat impact, accepted limitations, and any follow-up requirements.
 
 ## Future Requirements
 
@@ -99,17 +99,17 @@
 | PERSIST-02 | Phase 1116 | Complete |
 | VIEW-01 | Phase 1116 | Complete |
 | VIEW-02 | Phase 1116 | Complete |
-| VERIFY-01 | Phase 1117 | Pending |
-| VERIFY-02 | Phase 1117 | Pending |
-| VERIFY-03 | Phase 1117 | Pending |
-| VERIFY-04 | Phase 1117 | Pending |
-| VERIFY-05 | Phase 1117 | Pending |
+| VERIFY-01 | Phase 1117 | Complete |
+| VERIFY-02 | Phase 1117 | Complete |
+| VERIFY-03 | Phase 1117 | Complete |
+| VERIFY-04 | Phase 1117 | Complete |
+| VERIFY-05 | Phase 1117 | Complete |
 
 **Coverage:**
-- v1026 requirements: 28 total, 23 complete
+- v1026 requirements: 28 total, 28 complete
 - Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1116*
+*Last updated: 2026-05-25 after Phase 1117*

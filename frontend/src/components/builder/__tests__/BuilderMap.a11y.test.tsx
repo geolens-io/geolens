@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
-import { render, screen, waitFor } from '@/test/test-utils';
+import { act, render, screen, waitFor } from '@/test/test-utils';
 import { toast } from 'sonner';
 import { BuilderMap } from '../BuilderMap';
+import { ensureRasterDemTerrainSource, TERRAIN_SOURCE_ID } from '../map-sync';
+import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: () => ({
@@ -25,8 +27,12 @@ vi.mock('@/hooks/use-settings', () => ({
   useEnabledWidgets: () => ({ data: [], isLoading: false }),
 }));
 
+const tileTokenState = vi.hoisted(() => ({
+  tokens: [] as unknown[],
+}));
+
 vi.mock('@/hooks/use-tile-token', () => ({
-  useTileTokens: () => [],
+  useTileTokens: () => tileTokenState.tokens,
 }));
 
 vi.mock('@/hooks/use-webgl-recovery', () => ({
@@ -181,6 +187,7 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
 
   beforeEach(() => {
     mapState.reset();
+    tileTokenState.tokens = [];
     toastErrorSpy.mockClear();
   });
 
@@ -366,6 +373,106 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('Basemap connection issue');
+    });
+  });
+});
+
+describe('BuilderMap terrain activation', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    mapState.reset();
+    tileTokenState.tokens = [];
+    vi.mocked(ensureRasterDemTerrainSource).mockClear();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('retries DEM terrain activation after the MapLibre style finishes loading', async () => {
+    const terrainToken = {
+      kind: 'raster',
+      tile_url: '/raster-tiles/dem-dataset/tiles/{z}/{x}/{y}.png',
+      bounds: [-74.05, 44.08, -73.85, 44.32],
+      minzoom: 0,
+      maxzoom: 17,
+      tile_size: 256,
+      format: 'png',
+    };
+    tileTokenState.tokens = [
+      { data: terrainToken, isLoading: false, isError: false, error: null },
+    ];
+    let styleLoaded = false;
+    mapState.fakeMap.isStyleLoaded.mockImplementation(() => styleLoaded);
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ version: 8, sources: {}, layers: [] }),
+      } as Response),
+    ) as typeof fetch;
+
+    const demLayer = {
+      id: 'dem-layer',
+      dataset_id: 'dem-dataset',
+      dataset_name: 'Demo DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'raster_demo',
+      dataset_extent_bbox: null,
+      dataset_column_info: null,
+      dataset_feature_count: null,
+      dataset_sample_values: null,
+      display_name: 'Demo DEM',
+      sort_order: 0,
+      visible: true,
+      opacity: 1,
+      paint: {},
+      layout: {},
+      layer_type: 'raster_geolens',
+      dataset_record_type: 'raster_dataset',
+      filter: null,
+      label_config: null,
+      popup_config: null,
+      style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+      show_in_legend: true,
+      is_3d: null,
+      is_dem: true,
+      dem_vertical_units: null,
+    } as MapLayerResponse;
+    const terrainConfig: MapTerrainConfig = {
+      enabled: true,
+      source_dataset_id: 'dem-dataset',
+      exaggeration: 2.4,
+    };
+
+    render(
+      <BuilderMap
+        layers={[demLayer]}
+        basemapStyle="openfreemap-positron"
+        terrainConfig={terrainConfig}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+    });
+    expect(ensureRasterDemTerrainSource).not.toHaveBeenCalled();
+
+    styleLoaded = true;
+    act(() => {
+      mapState.fakeMap.emit('idle');
+    });
+
+    expect(ensureRasterDemTerrainSource).toHaveBeenCalledWith(mapState.fakeMap, terrainToken.tile_url, {
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 17,
+      bounds: [-74.05, 44.08, -73.85, 44.32],
+    });
+    expect(mapState.fakeMap.setTerrain).toHaveBeenCalledWith({
+      source: TERRAIN_SOURCE_ID,
+      exaggeration: 2.4,
     });
   });
 });

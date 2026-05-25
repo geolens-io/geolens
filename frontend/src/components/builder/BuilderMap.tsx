@@ -821,6 +821,13 @@ export const BuilderMap = memo(function BuilderMap({
   }, [layers, mapReady, tileConfig?.cdn_base_url, tokenMap, showBasemapLabels, basemapConfig?.basemap_position, clusterGeoJsonVersion, runSync]);
 
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) {
+      const retry = () => applyTerrainConfig();
+      map.once('idle', retry);
+      return () => { map.off('idle', retry); };
+    }
     applyTerrainConfig();
   }, [
     applyTerrainConfig,

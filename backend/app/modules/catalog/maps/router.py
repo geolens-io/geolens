@@ -580,11 +580,31 @@ async def get_geolens_sprite_index_endpoint(
     return await build_sprite_index(db)
 
 
+@router.get("/sprites/geolens@2x.json", include_in_schema=False)
+async def get_geolens_sprite_index_2x_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, dict[str, int | float]]:
+    """Serve the GeoLens sprite index for high-DPI MapLibre sprite requests."""
+    return await build_sprite_index(db)
+
+
 @router.get("/sprites/geolens.png")
 async def get_geolens_sprite_png_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve the generated GeoLens sprite sheet for stable icon IDs."""
+    return Response(
+        content=await build_sprite_png(db),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get("/sprites/geolens@2x.png", include_in_schema=False)
+async def get_geolens_sprite_png_2x_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Serve the GeoLens sprite sheet for high-DPI MapLibre sprite requests."""
     return Response(
         content=await build_sprite_png(db),
         media_type="image/png",

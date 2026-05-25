@@ -13,6 +13,10 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Fixed
 
+- Map builder style mutations now reconcile adapter-owned paint/layout keys instead of replaying additive patches, so stale properties are removed across manual controls, render-mode swaps, labels, companion layers, AI chat style actions, save/reload, and viewer/embed rendering.
+- AI chat style actions now support explicit patch, clear, and replace semantics for `set_style`, keeping generated API types, backend validation, undo/history, and builder style state aligned.
+- GeoLens point-symbol sprites now register through the API sprite route with an absolute URL, and high-DPI MapLibre sprite requests resolve through hidden `@2x` API aliases instead of falling through to the Vite app shell.
+- Builder terrain activation now retries once MapLibre finishes loading its style, so saved or newly selected DEM terrain binds the shared `terrain-dem` source and applies bounded exaggeration reliably.
 - Map builder style normalization now preserves render-mode-only and legacy nested render-mode configs, so DEM hillshade layers open and render as Hillshade instead of falling back to Image.
 - ADK High Peaks marketing composition now writes canonical peak label config, DEM hillshade metadata, and Blue Line outline styling; reruns update existing maps without duplicating datasets.
 - Mapbuilder lint hygiene now keeps composite stack rows role-free with documented a11y context, removes redundant native roles/stale lint disables, and fixes hook dependency warnings surfaced during closeout.
@@ -21,6 +25,9 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Verification
 
+- Focused style-reconciler gates passed: adapter/shared/heatmap tests, ChatPanel AI style tests, save/viewer/style JSON tests, and BuilderMap terrain retry tests (198 Vitest assertions across 8 focused files).
+- Frontend `npm run typecheck` and `npm run lint`, backend style/sprite/AI pytest coverage, backend Ruff checks, `make openapi-check`, and `make sdks-check` pass.
+- Playwright MCP verified the ADK 3D Relief target map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: Hiking trails gradient-to-solid clears `line-gradient`, data-driven `facility` style clears back to scalar paint, labels switch to symbol and back to point, GeoLens sprites load without console noise, and terrain is active with `terrain-dem` at 2.4x exaggeration.
 - Playwright MCP deep-swept the ADK 3D Relief map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: all layer rows/options opened, DEM hillshade and peak label style JSON verified, and the fresh browser console had zero warnings/errors.
 - Frontend lint, typecheck, focused normalization tests, and a post-lint Playwright MCP smoke all pass.
 
