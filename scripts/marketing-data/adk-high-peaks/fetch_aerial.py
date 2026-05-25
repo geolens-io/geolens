@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Download NY State aerial orthoimagery for the Adirondack High Peaks AOI.
+"""Download aerial orthoimagery for the Adirondack High Peaks AOI.
 
-Background: USGS NAIP via TNM Access API is unavailable for this AOI as of
-2026-05-24 (TNM returns 0 items for any NAIP query in NY). The TNM "Imagery"
-catalog appears to have moved off the public TNM API. As a result this
-script bypasses TNM entirely and uses NY State's own ArcGIS MapServer
-(`https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer`),
-which serves a fused mosaic of 2022/2023/2024/2025 12-inch NY State
-orthoimagery as a dynamic image service. That's the "1ft orthos" target
-the plan called out as the high-quality option — and it turns out to be
-fully scriptable via the ArcGIS REST exportImage endpoint.
+The pipeline is TNM-first: it queries the TNM Access API for NAIP GeoTIFF
+products over the AOI and writes the exact response to
+`.scratch/adk-data/aerial/tnm_naip_query.json`. If TNM publishes matching
+NAIP, the script downloads those GeoTIFFs to `aerial/naip_tiles/` for the COG
+builder to mosaic.
 
-Resolution: NY's native imagery is 12in (~0.3m). This script fetches a
-4096x4096 tile (or 2x2 grid of them for higher fidelity) covering the AOI.
-At 4096x4096 over our 0.2°x0.24° bbox we get ~5-6 m/px, which is excellent
-for marketing maps at z13-z16 zoom levels.
-
-Output: a single mosaic JPEG written to .scratch/adk-data/aerial/ that the
-COG builder will reproject and convert to a proper COG.
+As of 2026-05-24, TNM returns 0 NAIP items for this NY AOI, so `--source auto`
+falls back to NY State's public 12-inch orthos MapServer. The fallback now
+fetches a tiled grid of 4096x4096 exports instead of the single soft 3.5 MB
+render used in the original 260524-o57 pass.
 
 Idempotent: skips download if output file already exists.
 """
@@ -27,6 +20,7 @@ import asyncio
 import json
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 try:
@@ -40,7 +34,10 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 AOI_W, AOI_S, AOI_E, AOI_N = -74.05, 44.08, -73.85, 44.32
+AOI_BBOX = f"{AOI_W},{AOI_S},{AOI_E},{AOI_N}"
 
+TNM_API = "https://tnmaccess.nationalmap.gov/api/v1/products"
+TNM_NAIP_DATASET = "USDA National Agriculture Imagery Program (NAIP)"
 # NY State 12in orthoimagery (2022-2025 mosaic). Dynamic MapServer (not cached).
 # /export endpoint takes bbox + size + format and returns a JSON pointer to a
 # temp image URL. Service detail at /MapServer?f=json (singleFusedMapCache=False).
@@ -49,6 +46,56 @@ NY_ORTHOS_BASE = "https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapS
 # 4096x4096 is the service's max image size per request. For higher fidelity
 # we fetch a 2x2 grid (effective 8192x8192 over the AOI ≈ 3 m/px) and stitch.
 DEFAULT_TILE_PIXELS = 4096
+
+
+async def query_tnm_naip(client: httpx.AsyncClient, evidence_path: Path) -> list[dict]:
+    """Query TNM for NAIP GeoTIFF products and persist exact evidence."""
+    params = {
+        "datasets": TNM_NAIP_DATASET,
+        "bbox": AOI_BBOX,
+        "prodFormats": "GeoTIFF",
+        "max": 100,
+        "outputFormat": "JSON",
+    }
+    resp = await client.get(TNM_API, params=params, timeout=60)
+    resp.raise_for_status()
+    body = resp.json()
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence_path.write_text(json.dumps({
+        "queried_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "endpoint": TNM_API,
+        "params": params,
+        "url": f"{TNM_API}?{urllib.parse.urlencode(params)}",
+        "response": body,
+    }, indent=2))
+    return body.get("items", [])
+
+
+async def download_tnm_products(client: httpx.AsyncClient, items: list[dict], output_dir: Path) -> int:
+    """Download TNM product GeoTIFFs to output_dir. Returns file count."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for index, item in enumerate(items, 1):
+        url = item.get("downloadURL")
+        if not url:
+            continue
+        filename = url.rsplit("/", 1)[-1] or f"tnm_naip_{index}.tif"
+        dest = output_dir / filename
+        if dest.exists() and dest.stat().st_size > 0:
+            print(f"  SKIP TNM NAIP (cached): {dest.name}")
+            count += 1
+            continue
+        print(f"  Downloading TNM NAIP {index}/{len(items)}: {filename}")
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        async with client.stream("GET", url, timeout=httpx.Timeout(connect=30.0, write=None, read=600.0, pool=30.0)) as resp:
+            resp.raise_for_status()
+            with open(tmp, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=1 << 20):
+                    f.write(chunk)
+        tmp.rename(dest)
+        count += 1
+    (output_dir / "tnm_naip_manifest.json").write_text(json.dumps(items, indent=2))
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +228,64 @@ async def fetch_aerial_world_file(
     return len(data)
 
 
+def tile_bbox(row: int, col: int, grid: int) -> tuple[float, float, float, float]:
+    lon_step = (AOI_E - AOI_W) / grid
+    lat_step = (AOI_N - AOI_S) / grid
+    minx = AOI_W + col * lon_step
+    maxx = minx + lon_step
+    maxy = AOI_N - row * lat_step
+    miny = maxy - lat_step
+    return (minx, miny, maxx, maxy)
+
+
+def write_world_files(output_path: Path, bbox: tuple[float, float, float, float], size_px: int, fmt: str) -> None:
+    minx, miny, maxx, maxy = bbox
+    pixel_size_x = (maxx - minx) / size_px
+    pixel_size_y = (miny - maxy) / size_px
+    ul_x = minx + pixel_size_x / 2
+    ul_y = maxy + pixel_size_y / 2
+    ext_map = {"tiff": ".tfw", "tif": ".tfw", "jpg": ".jgw", "png": ".pgw"}
+    wf_path = output_path.with_suffix(ext_map.get(fmt.lower(), ".wld"))
+    wf_path.write_text(f"{pixel_size_x}\n0\n0\n{pixel_size_y}\n{ul_x}\n{ul_y}\n")
+    output_path.with_suffix(".prj").write_text(
+        'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",'
+        'SPHEROID["WGS_1984",6378137.0,298.257223563]],'
+        'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+    )
+
+
+async def fetch_ny_orthos_grid(output_dir: Path, *, grid: int, size_px: int, fmt: str, force: bool = False) -> int:
+    """Fetch a grid of NY orthos tiles. Returns number of tile files present."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    ext = ".tif" if fmt in ("tiff", "tif") else ".jpg"
+    manifest = {
+        "source": NY_ORTHOS_BASE,
+        "grid": grid,
+        "tile_pixels": size_px,
+        "aoi_bbox": [AOI_W, AOI_S, AOI_E, AOI_N],
+        "tiles": [],
+    }
+    async with httpx.AsyncClient(
+        headers={"User-Agent": "geolens-marketing-data/1.0"},
+        follow_redirects=True,
+    ) as client:
+        for row in range(grid):
+            for col in range(grid):
+                bbox = tile_bbox(row, col, grid)
+                tile_path = output_dir / f"adk_high_peaks_ny_orthos_r{row:02d}_c{col:02d}{ext}"
+                manifest["tiles"].append({"row": row, "col": col, "bbox": bbox, "path": str(tile_path)})
+                if tile_path.exists() and tile_path.stat().st_size > 0 and not force:
+                    print(f"  SKIP NY orthos tile r{row} c{col}: {tile_path.name}")
+                    continue
+                print(f"  Fetching NY orthos tile r{row} c{col} bbox={bbox}")
+                data = await export_one_tile(client, bbox, size_px, fmt)
+                tile_path.write_bytes(data)
+                write_world_files(tile_path, bbox, size_px, fmt)
+                print(f"    wrote {tile_path.name} ({len(data) / (1024 * 1024):.2f} MB)")
+    (output_dir / "ny_orthos_grid_manifest.json").write_text(json.dumps(manifest, indent=2))
+    return len(list(output_dir.glob(f"*{ext}")))
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -195,28 +300,56 @@ async def amain(args: argparse.Namespace) -> int:
         print(f"Unsupported format {fmt}; choose tiff or jpg", file=sys.stderr)
         return 1
 
-    ext = ".tif" if fmt in ("tiff", "tif") else ".jpg"
-    output_path = output_dir / f"adk_high_peaks_ny_orthos_latest{ext}"
+    async with httpx.AsyncClient(
+        headers={"User-Agent": "geolens-marketing-data/1.0"},
+        follow_redirects=True,
+    ) as client:
+        if args.source in ("auto", "tnm-naip"):
+            print("Querying TNM Access API for NAIP GeoTIFF products...")
+            items = await query_tnm_naip(client, output_dir / "tnm_naip_query.json")
+            print(f"  TNM NAIP items: {len(items)}")
+            if items:
+                count = await download_tnm_products(client, items, output_dir / "naip_tiles")
+                print(f"=== Done (TNM NAIP) ===")
+                print(f"Output tiles: {output_dir / 'naip_tiles'} ({count} files)")
+                return 0
+            if args.source == "tnm-naip":
+                print("TNM returned no NAIP GeoTIFF products for this AOI. Evidence written to tnm_naip_query.json.", file=sys.stderr)
+                return 1
 
-    await fetch_aerial_world_file(output_path, size_px=args.size, fmt=fmt)
+    if args.source in ("auto", "ny-orthos"):
+        grid_dir = output_dir / "ny_orthos_tiles"
+        count = await fetch_ny_orthos_grid(
+            grid_dir,
+            grid=args.grid,
+            size_px=args.size,
+            fmt=fmt,
+            force=args.force,
+        )
+        print()
+        print(f"=== Done (NY State orthos tiled fallback) ===")
+        print(f"Output tiles: {grid_dir} ({count} files)")
+        print(f"TNM evidence: {output_dir / 'tnm_naip_query.json'}")
+        return 0
 
-    print()
-    print(f"=== Done (NY State orthos aerial) ===")
-    print(f"Output: {output_path}")
-    print(f"Sidecar files: {output_path.with_suffix('.tfw' if ext == '.tif' else '.jgw')}, {output_path.with_suffix('.prj')}")
-    return 0
+    return 1
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Fetch NY State 12in orthos for the ADK High Peaks AOI."
+        description="Fetch TNM NAIP or NY State orthos for the ADK High Peaks AOI."
     )
     p.add_argument("--output-dir", default=".scratch/adk-data",
                    help="Output root dir (default: .scratch/adk-data)")
+    p.add_argument("--source", choices=["auto", "tnm-naip", "ny-orthos"], default="auto",
+                   help="Aerial source strategy (default: TNM NAIP first, NY orthos fallback)")
+    p.add_argument("--grid", type=int, default=4,
+                   help="NY orthos fallback grid dimension (default: 4 -> 16 tiles)")
     p.add_argument("--size", type=int, default=DEFAULT_TILE_PIXELS,
                    help=f"Pixel size per side (default: {DEFAULT_TILE_PIXELS}; service max: 4096)")
     p.add_argument("--format", default="tiff", choices=["tiff", "jpg"],
                    help="Output format (default: tiff for proper georeferencing)")
+    p.add_argument("--force", action="store_true", help="Redownload existing NY orthos fallback tiles")
     return p.parse_args(argv)
 
 

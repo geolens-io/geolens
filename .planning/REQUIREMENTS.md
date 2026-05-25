@@ -7,17 +7,17 @@
 
 ### ADK Marketing Data
 
-- [ ] **ADK-DATA-01**: Operator can run the ADK pipeline with a TNM API aerial fetch path that attempts NAIP 0.6m imagery for the High Peaks AOI and replaces the prior soft 3.5 MB ArcGIS REST aerial when TNM publishes matching imagery.
-- [ ] **ADK-DATA-02**: If TNM does not publish NAIP imagery for the AOI, the pipeline records that fact with the exact TNM query evidence and uses a documented high-fidelity fallback without silently keeping the prior low-resolution aerial.
-- [ ] **ADK-DATA-03**: Operator can ingest NHD hydrography for the ADK High Peaks AOI and see it as a styled layer in the marketing map.
-- [ ] **ADK-DATA-04**: Operator can ingest the remaining ADK 46er peaks relevant to the map set, replacing the prior 12-peak AOI subset limitation where the broader marketing map needs complete 46er context.
-- [ ] **ADK-DATA-05**: `scripts/marketing-data/adk-high-peaks/compose_marketing_maps.py` remains idempotent and updates or reuses existing datasets/maps rather than duplicating them.
+- [x] **ADK-DATA-01**: Operator can run the ADK pipeline with a TNM API aerial fetch path that attempts NAIP 0.6m imagery for the High Peaks AOI and replaces the prior soft 3.5 MB ArcGIS REST aerial when TNM publishes matching imagery.
+- [x] **ADK-DATA-02**: If TNM does not publish NAIP imagery for the AOI, the pipeline records that fact with the exact TNM query evidence and uses a documented high-fidelity fallback without silently keeping the prior low-resolution aerial.
+- [x] **ADK-DATA-03**: Operator can ingest NHD hydrography for the ADK High Peaks AOI and see it as a styled layer in the marketing map.
+- [x] **ADK-DATA-04**: Operator can ingest the remaining ADK 46er peaks relevant to the map set, replacing the prior 12-peak AOI subset limitation where the broader marketing map needs complete 46er context.
+- [x] **ADK-DATA-05**: `scripts/marketing-data/adk-high-peaks/compose_marketing_maps.py` remains idempotent and updates or reuses existing datasets/maps rather than duplicating them.
 
 ### ADK Saved Maps
 
-- [ ] **ADK-MAP-01**: The primary ADK High Peaks marketing map contains high-fidelity aerial, DEM hillshade, NHD hydrography, land classification, Blue Line context, hiking trails, and complete 46er peak overlays with vectors above rasters.
-- [ ] **ADK-MAP-02**: A bonus ADK High Peaks 3D relief variant Map 2 is composed with terrain enabled, an intentional exaggeration value, and a layer/style stack suitable for marketing screenshots.
-- [ ] **ADK-MAP-03**: Re-running the ADK compose script end-to-end produces or updates both maps without a manual `PUT /api/maps/{id}` terrain fix or manual layer-order PATCH.
+- [x] **ADK-MAP-01**: The primary ADK High Peaks marketing map contains high-fidelity aerial, DEM hillshade, NHD hydrography, land classification, Blue Line context, hiking trails, and complete 46er peak overlays with vectors above rasters.
+- [x] **ADK-MAP-02**: A bonus ADK High Peaks 3D relief variant Map 2 is composed with terrain enabled, an intentional exaggeration value, and a layer/style stack suitable for marketing screenshots.
+- [x] **ADK-MAP-03**: Re-running the ADK compose script end-to-end produces or updates both maps without a manual `PUT /api/maps/{id}` terrain fix or manual layer-order PATCH.
 
 ### Builder Ordering
 
@@ -62,14 +62,14 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ADK-DATA-01 | Phase 1101 | Pending |
-| ADK-DATA-02 | Phase 1101 | Pending |
-| ADK-DATA-03 | Phase 1101 | Pending |
-| ADK-DATA-04 | Phase 1101 | Pending |
-| ADK-DATA-05 | Phase 1101 | Pending |
-| ADK-MAP-01 | Phase 1102 | Pending |
-| ADK-MAP-02 | Phase 1102 | Pending |
-| ADK-MAP-03 | Phase 1102 | Pending |
+| ADK-DATA-01 | Phase 1101 | Complete |
+| ADK-DATA-02 | Phase 1101 | Complete |
+| ADK-DATA-03 | Phase 1101 | Complete |
+| ADK-DATA-04 | Phase 1101 | Complete |
+| ADK-DATA-05 | Phase 1101 | Complete |
+| ADK-MAP-01 | Phase 1102 | Complete |
+| ADK-MAP-02 | Phase 1102 | Complete |
+| ADK-MAP-03 | Phase 1102 | Complete |
 | BUILDER-01 | Phase 1103 | Pending |
 | BUILDER-02 | Phase 1103 | Pending |
 | TERRAIN-01 | Phase 1104 | Pending |

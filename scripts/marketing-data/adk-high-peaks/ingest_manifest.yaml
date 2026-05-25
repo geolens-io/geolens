@@ -2,7 +2,7 @@ manifest_version: "1"
 catalog:
   title: Adirondack High Peaks — Marketing
   description: |
-    Curated catalog of 6 datasets (1 DEM raster + 1 aerial raster + 4 vectors)
+    Curated catalog of 8 datasets (1 DEM raster + 1 aerial raster + 6 vectors)
     covering the Lake Placid / Mt. Marcy / Algonquin region of the Adirondacks.
     Used as anchor content for GeoLens marketing screenshots, embeds, and demo
     videos.
@@ -39,23 +39,24 @@ datasets:
       intent: published
 
   - key: adk-high-peaks-ny-orthos
-    title: ADK High Peaks — NY State 2022-2025 Orthos (aerial)
+    title: ADK High Peaks — TNM/NY Orthos (aerial)
     description: |
-      Natural-color aerial imagery from NY State ITS Geospatial Services
-      (wms/Latest/MapServer, 2022-2025 mosaic, native 12-inch resolution).
-      Downsampled to 4096x4096 over the AOI (~6 m/px effective in the COG)
-      and reprojected to EPSG:3857.
+      Natural-color aerial imagery for the ADK High Peaks marketing maps.
+      The pipeline queries TNM for NAIP GeoTIFF products first and records the
+      exact response in tnm_naip_query.json. When TNM publishes no NAIP for
+      this AOI, the pipeline uses a tiled NY State ITS 12-inch orthos fallback
+      rather than the original single soft ArcGIS REST export.
     sources:
       - type: raster_cog
-        uri: staging/adk_high_peaks_ny_orthos_3857.tif
+        uri: staging/adk_high_peaks_ny_orthos_tiled_3857.tif
         format: GTiff
-        title: NY State 2022-2025 orthos
+        title: TNM/NY orthos COG
     metadata:
-      tags: [adirondacks, high-peaks, aerial, orthoimagery, naip-substitute, marketing]
-      organization: NY State ITS Geospatial Services
+      tags: [adirondacks, high-peaks, aerial, orthoimagery, tnm-naip-checked, marketing]
+      organization: TNM / NY State ITS Geospatial Services
       crs: EPSG:3857
-      license: Public — NY State (attribution requested)
-      attribution: NYS ITS Geospatial Services / wms/Latest/MapServer
+      license: Public
+      attribution: TNM NAIP if available; otherwise NYS ITS Geospatial Services / wms/Latest/MapServer
       bbox: [-74.05, 44.08, -73.85, 44.32]
     publication:
       intent: published
@@ -123,24 +124,63 @@ datasets:
     publication:
       intent: published
 
-  - key: adk-46er-peaks
-    title: ADK 46er High Peaks (AOI subset)
+  - key: adk-nhd-flowlines
+    title: ADK High Peaks — NHD Flowlines (AOI)
     description: |
-      Curated point dataset of 12 Adirondack 46ers (peaks above 4000 ft on
-      Bob Marshall's 1925 list) that fall within the AOI. Includes Mt. Marcy
-      (5344 ft), Algonquin Peak (5114 ft), and 10 others. Coordinates from
-      USGS GNIS cross-referenced with the APA Summits FeatureServer.
+      USGS National Hydrography Dataset large-scale flowlines for the High Peaks
+      AOI, including streams, rivers, canals, ditches, and artificial paths.
     sources:
       - type: vector
-        uri: staging/peaks_46.geojson
+        uri: staging/nhd_flowlines_aoi.geojson
         format: GeoJSON
-        title: ADK 46ers (AOI)
+        title: USGS NHD flowlines (AOI)
+    metadata:
+      tags: [adirondacks, high-peaks, hydrography, nhd, streams, marketing]
+      organization: USGS TNM
+      crs: EPSG:4326
+      license: Public Domain
+      attribution: USGS TNM National Hydrography Dataset
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-nhd-waterbodies
+    title: ADK High Peaks — NHD Waterbodies (AOI)
+    description: |
+      USGS National Hydrography Dataset large-scale waterbody polygons for the
+      High Peaks AOI, including lakes, ponds, and reservoirs.
+    sources:
+      - type: vector
+        uri: staging/nhd_waterbodies_aoi.geojson
+        format: GeoJSON
+        title: USGS NHD waterbodies (AOI)
+    metadata:
+      tags: [adirondacks, high-peaks, hydrography, nhd, lakes, marketing]
+      organization: USGS TNM
+      crs: EPSG:4326
+      license: Public Domain
+      attribution: USGS TNM National Hydrography Dataset
+      bbox: [-74.05, 44.08, -73.85, 44.32]
+    publication:
+      intent: published
+
+  - key: adk-46er-peaks
+    title: ADK 46er High Peaks (complete official list)
+    description: |
+      Complete official Adirondack 46er point dataset generated from the APA
+      Summits FeatureServer layers 0, 1, and 2, enriched with official rank and
+      elevation values.
+    sources:
+      - type: vector
+        uri: staging/adk_46er_peaks.geojson
+        format: GeoJSON
+        title: ADK 46ers (complete official list)
     metadata:
       tags: [adirondacks, high-peaks, peaks, 46ers, points-of-interest, marketing]
       organization: GeoLens curated
       crs: EPSG:4326
       license: Public Domain
-      attribution: USGS GNIS / ADK 46ers list
-      bbox: [-74.05, 44.08, -73.85, 44.32]
+      attribution: APA Summits FeatureServer / USGS GNIS / ADK 46ers list
+      bbox: [-74.22, 44.06, -73.70, 44.39]
     publication:
       intent: published

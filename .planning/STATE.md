@@ -7,20 +7,20 @@ last_updated: "2026-05-24T23:31:43.894Z"
 last_activity: 2026-05-24
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 33
 ---
 
 # State
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 1103 Builder Mixed Layer Reorder
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-24 — Milestone v1024 started
+Status: Phase 1101 and 1102 complete; ready for builder reorder fixes
+Last activity: 2026-05-24 — ADK source-data upgrade and saved-map composition complete
 
 ## Project Reference
 

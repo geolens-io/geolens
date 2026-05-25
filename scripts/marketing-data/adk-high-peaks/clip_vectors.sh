@@ -3,11 +3,11 @@
 # Generates *_aoi.geojson files alongside the raw downloads.
 #
 # Inputs: .scratch/adk-data/vectors/{apa_blue_line, nysdec_hiking_trails,
-#         apa_land_classification}.geojson
+#         apa_land_classification, nhd_flowlines, nhd_waterbodies}.geojson
 # Outputs: .scratch/adk-data/vectors/*_aoi.geojson (same shape, AOI-clipped)
 #
-# Note: 2 of the 3 vector downloads were already AOI-filtered server-side at
-# ArcGIS query time (NYSDEC Trails, APA Land Class). Re-clipping is a defense
+# Note: most vector downloads were already AOI-filtered server-side at
+# ArcGIS query time. Re-clipping is a defense
 # against features that crossed the bbox edge — keeps every feature fully inside.
 # The third (Blue Line) is the whole-park polygon which we INTENTIONALLY keep
 # whole; we still produce a *_aoi.geojson copy for downstream consistency.
@@ -26,7 +26,7 @@ if [[ ! -d "$VECTORS_HOST" ]]; then
   exit 1
 fi
 
-INPUTS=(apa_blue_line nysdec_hiking_trails apa_land_classification)
+INPUTS=(apa_blue_line nysdec_hiking_trails apa_land_classification nhd_flowlines nhd_waterbodies)
 
 echo "Staging vectors in container ($WORKDIR_CONTAINER)..."
 docker exec "$CONTAINER" rm -rf "$WORKDIR_CONTAINER"

@@ -7,17 +7,18 @@ API key -> ingest with X-Api-Key header -> delete the key on exit.
 Datasets ingested (6 total):
   raster:
     1. adk-high-peaks-dem-1m       (DEM 1m mosaic, ~1.4 GB)
-    2. adk-high-peaks-ny-orthos    (NY State 2022-2025 orthos, ~3.5 MB)
+    2. adk-high-peaks-ny-orthos    (TNM NAIP if available, otherwise NY State tiled orthos)
   vector:
     3. adk-blue-line               (APA Blue Line polygon)
     4. adk-hiking-trails           (NYSDEC Hiking Trails AOI subset)
     5. adk-land-classification     (APA Land Classification AOI subset)
-    6. adk-46er-peaks              (Curated 46ers point dataset)
+    6. adk-nhd-flowlines           (USGS NHD stream/river flowlines)
+    7. adk-nhd-waterbodies         (USGS NHD lakes/ponds/reservoirs)
+    8. adk-46er-peaks              (Complete official ADK 46ers point dataset)
 
 Saved maps composed:
   Map 1: "Adirondack High Peaks — Terrain & Trails"
-    bottom-to-top:
-      aerial -> DEM hillshade -> Blue Line -> trails -> peaks
+  Map 2: "Adirondack High Peaks — 3D Relief"
 
 DOGFOODING (load-bearing): every GeoLens HTTP call is wrapped in an
 instrumented logger that records method/path/status/elapsed/payload-shape/
@@ -79,18 +80,19 @@ DATASETS = [
     },
     {
         "key": "adk-high-peaks-ny-orthos",
-        "path": SCRATCH_DIR / "cogs" / "adk_high_peaks_ny_orthos_3857.tif",
+        "path": SCRATCH_DIR / "cogs" / "adk_high_peaks_ny_orthos_tiled_3857.tif",
         "file_type": "raster",
         "title": "ADK High Peaks — NY State Orthos (aerial)",
         "summary": (
-            "Natural-color aerial imagery from NY State ITS Geospatial Services "
-            "(wms/Latest/MapServer, 2022-2025 mosaic, native 12-inch resolution). "
-            "Downsampled to ~6 m/px over the AOI for the COG."
+            "Natural-color aerial imagery for the ADK High Peaks marketing maps. "
+            "The pipeline queries TNM NAIP first and records the exact no-data "
+            "evidence when unavailable, then falls back to tiled NY State ITS "
+            "12-inch orthos exports rather than the original single soft render."
         ),
-        "tags": ["adirondacks", "high-peaks", "aerial", "orthoimagery", "naip-substitute", "marketing"],
+        "tags": ["adirondacks", "high-peaks", "aerial", "orthoimagery", "tnm-naip-checked", "marketing"],
         "srid_override": 3857,
         "strict_cog": False,
-        "attribution": "NYS ITS Geospatial Services / wms/Latest/MapServer",
+        "attribution": "TNM NAIP if available; otherwise NYS ITS Geospatial Services / wms/Latest/MapServer",
     },
     {
         "key": "adk-blue-line",
@@ -135,18 +137,45 @@ DATASETS = [
         "attribution": "NY State / Adirondack Park Agency",
     },
     {
-        "key": "adk-46er-peaks",
-        "path": REPO_ROOT / "scripts" / "marketing-data" / "adk-high-peaks" / "peaks_46.geojson",
+        "key": "adk-nhd-flowlines",
+        "path": SCRATCH_DIR / "vectors" / "nhd_flowlines_aoi.geojson",
         "file_type": "vector",
-        "title": "ADK 46er High Peaks (AOI subset)",
+        "title": "ADK High Peaks — NHD Flowlines (AOI)",
         "summary": (
-            "Curated point dataset of 12 ADK 46ers (peaks above 4000 ft on Bob "
-            "Marshall's 1925 list) inside the AOI. Includes Marcy, Algonquin, "
-            "and 10 others. Coordinates from USGS GNIS via APA Summits."
+            "USGS National Hydrography Dataset large-scale flowlines for the "
+            "High Peaks AOI, including streams, rivers, canals, ditches, and "
+            "artificial paths."
+        ),
+        "tags": ["adirondacks", "high-peaks", "hydrography", "nhd", "streams", "marketing"],
+        "srid_override": 4326,
+        "attribution": "USGS TNM National Hydrography Dataset",
+    },
+    {
+        "key": "adk-nhd-waterbodies",
+        "path": SCRATCH_DIR / "vectors" / "nhd_waterbodies_aoi.geojson",
+        "file_type": "vector",
+        "title": "ADK High Peaks — NHD Waterbodies (AOI)",
+        "summary": (
+            "USGS National Hydrography Dataset large-scale waterbody polygons "
+            "for the High Peaks AOI, including lakes, ponds, and reservoirs."
+        ),
+        "tags": ["adirondacks", "high-peaks", "hydrography", "nhd", "lakes", "marketing"],
+        "srid_override": 4326,
+        "attribution": "USGS TNM National Hydrography Dataset",
+    },
+    {
+        "key": "adk-46er-peaks",
+        "path": SCRATCH_DIR / "vectors" / "adk_46er_peaks.geojson",
+        "file_type": "vector",
+        "title": "ADK 46er High Peaks (complete official list)",
+        "summary": (
+            "Complete official list of the Adirondack 46ers, generated from APA's "
+            "GNIS-derived Summits FeatureServer and enriched with official rank "
+            "and elevation values."
         ),
         "tags": ["adirondacks", "high-peaks", "peaks", "46ers", "points-of-interest", "marketing"],
         "srid_override": 4326,
-        "attribution": "USGS GNIS / ADK 46ers list",
+        "attribution": "APA Summits FeatureServer / USGS GNIS / ADK 46ers list",
     },
 ]
 
@@ -499,7 +528,7 @@ async def ingest_dataset(
     commit_friction = ""
     if resp.status_code == 422:
         commit_friction = f"commit 422 — body validation failed (likely srid_override or strict_cog field mismatch). body={resp.text[:200]}"
-    elif resp.status_code != 200:
+    elif resp.status_code not in (200, 202):
         commit_friction = f"commit unexpected status {resp.status_code}"
     logger.record(
         "POST", f"/api/ingest/commit/{job_id}",
@@ -508,7 +537,7 @@ async def ingest_dataset(
         resp_summary=resp.text[:300],
         friction=commit_friction,
     )
-    if resp.status_code != 200:
+    if resp.status_code not in (200, 202):
         return {"key": ds["key"], "status": "failed", "stage": "commit",
                 "job_id": str(job_id), "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
 
@@ -617,40 +646,18 @@ async def compose_map(
     layers_spec: list[dict],
     terrain_config: dict | None = None,
     browser_url: str | None = None,
+    existing_map_id: str | None = None,
+    view_state: dict | None = None,
 ) -> dict:
-    """Create a map + PATCH layers. Returns {id, url, error?}.
+    """Create or update a map and replace its layer stack.
 
     browser_url: browser-facing origin for the map URL (defaults to base_url).
     Use when base_url is the direct API port (8001) and the app is served elsewhere.
     """
     headers = {"X-Api-Key": api_key}
-
-    # 1. POST /api/maps/  (minimum viable body)
-    create_body: dict = {"name": name, "description": description}
-    if terrain_config is not None:
-        create_body["terrain_config"] = terrain_config
-
-    t0 = time.monotonic()
-    resp = await client.post(f"{base_url}/api/maps/", headers=headers, json=create_body, timeout=60)
-    elapsed = (time.monotonic() - t0) * 1000
-    create_friction = ""
-    if resp.status_code == 422:
-        create_friction = f"map create 422 — body validation failed. body={resp.text[:300]}"
-    elif resp.status_code not in (200, 201):
-        create_friction = f"map create unexpected status {resp.status_code}"
-    logger.record(
-        "POST", "/api/maps/", resp.status_code, elapsed,
-        req_summary=json.dumps({k: v for k, v in create_body.items() if k != "description"})[:300],
-        resp_summary=resp.text[:400],
-        friction=create_friction,
-    )
-    if resp.status_code not in (200, 201):
-        return {"name": name, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
-    map_id = resp.json()["id"]
-    print(f"  Map created: id={map_id}")
-
-    # 2. PATCH /api/maps/{id}/layers
-    added = []
+    map_id = existing_map_id
+    created_new = map_id is None
+    layer_inputs = []
     for spec in layers_spec:
         layer: dict = {
             "dataset_id": spec["dataset_id"],
@@ -669,32 +676,91 @@ async def compose_map(
             layer["popup_config"] = spec["popup_config"]
         if "display_name" in spec:
             layer["display_name"] = spec["display_name"]
-        added.append(layer)
+        layer_inputs.append(layer)
 
-    patch_body = {"added": added, "updated": [], "removed": []}
-    t0 = time.monotonic()
-    resp = await client.patch(
-        f"{base_url}/api/maps/{map_id}/layers",
-        headers=headers, json=patch_body, timeout=60,
-    )
+    if created_new:
+        create_body: dict = {"name": name, "description": description}
+        if terrain_config is not None:
+            create_body["terrain_config"] = terrain_config
+        t0 = time.monotonic()
+        resp = await client.post(f"{base_url}/api/maps/", headers=headers, json=create_body, timeout=60)
+        elapsed = (time.monotonic() - t0) * 1000
+        create_friction = ""
+        if resp.status_code == 422:
+            create_friction = f"map create 422 — body validation failed. body={resp.text[:300]}"
+        elif resp.status_code not in (200, 201):
+            create_friction = f"map create unexpected status {resp.status_code}"
+        logger.record(
+            "POST", "/api/maps/", resp.status_code, elapsed,
+            req_summary=json.dumps({k: v for k, v in create_body.items() if k != "description"})[:300],
+            resp_summary=resp.text[:400],
+            friction=create_friction,
+        )
+        if resp.status_code not in (200, 201):
+            return {"name": name, "error": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+        map_id = resp.json()["id"]
+        print(f"  Map created: id={map_id}")
+        patch_body = {"added": layer_inputs, "updated": [], "removed": []}
+        t0 = time.monotonic()
+        resp = await client.patch(
+            f"{base_url}/api/maps/{map_id}/layers",
+            headers=headers, json=patch_body, timeout=60,
+        )
+        method = "PATCH"
+        path = f"/api/maps/{map_id}/layers"
+        req_summary = f"added={len(layer_inputs)} updated=0 removed=0"
+    else:
+        update_body: dict = {"name": name, "description": description, "layers": layer_inputs}
+        if terrain_config is not None:
+            update_body["terrain_config"] = terrain_config
+        if view_state:
+            update_body.update(view_state)
+        t0 = time.monotonic()
+        resp = await client.put(
+            f"{base_url}/api/maps/{map_id}",
+            headers=headers,
+            json=update_body,
+            timeout=60,
+        )
+        method = "PUT"
+        path = f"/api/maps/{map_id}"
+        req_summary = f"replace_layers={len(layer_inputs)} terrain={terrain_config}"
+
     elapsed = (time.monotonic() - t0) * 1000
-    patch_friction = ""
+    layer_friction = ""
     if resp.status_code == 422:
-        patch_friction = f"PATCH /layers 422 — likely an invalid paint key, missing dataset, or bad popup_config. body={resp.text[:400]}"
+        layer_friction = f"{method} map layers 422 — likely an invalid paint key, missing dataset, or bad popup_config. body={resp.text[:400]}"
     elif resp.status_code not in (200, 201):
-        patch_friction = f"PATCH /layers unexpected status {resp.status_code}"
+        layer_friction = f"{method} map layers unexpected status {resp.status_code}"
     logger.record(
-        "PATCH", f"/api/maps/{map_id}/layers", resp.status_code, elapsed,
-        req_summary=f"added={len(added)} updated=0 removed=0",
+        method, path, resp.status_code, elapsed,
+        req_summary=req_summary,
         resp_summary=resp.text[:500],
-        friction=patch_friction,
+        friction=layer_friction,
     )
+    if created_new and view_state and resp.status_code in (200, 201):
+        update_body = dict(view_state)
+        if terrain_config is not None:
+            update_body["terrain_config"] = terrain_config
+        t2 = time.monotonic()
+        view_resp = await client.put(
+            f"{base_url}/api/maps/{map_id}",
+            headers=headers,
+            json=update_body,
+            timeout=60,
+        )
+        logger.record(
+            "PUT", f"/api/maps/{map_id}", view_resp.status_code, (time.monotonic() - t2) * 1000,
+            req_summary=f"view_state={view_state}",
+            resp_summary=view_resp.text[:500],
+            friction="" if view_resp.status_code in (200, 201) else "view-state update after map create failed",
+        )
 
     _browser = (browser_url or base_url).rstrip("/")
     return {
         "name": name, "id": map_id,
         "url": f"{_browser}/maps/{map_id}",
-        "layers_added": len(added),
+        "layers_added": len(layer_inputs),
         "patch_status": resp.status_code,
         "patch_error": resp.text[:300] if resp.status_code not in (200, 201) else None,
     }
@@ -784,21 +850,12 @@ async def amain(args: argparse.Namespace) -> int:
                 err = r.get("error", "")[:80]
                 print(f"  {s:<10}  {r['key']:<32}  ds_id={ds_id}  err={err}")
 
-            # Compose Map 1
+            # Compose maps
             print("\n=== Composing maps ===")
             map_results = []
-            map1_name = "Adirondack High Peaks — Terrain & Trails"
-            if map1_name in existing_maps:
-                m = existing_maps[map1_name]
-                print(f"  SKIP map {map1_name!r} — already exists as {m['id']}")
-                map_results.append({
-                    "name": map1_name, "id": m["id"],
-                    "url": f"{browser_url}/maps/{m['id']}",
-                    "skipped": True,
-                })
-            else:
+
+            def primary_layers() -> list[dict]:
                 layers_spec = []
-                # Bottom: aerial
                 if "adk-high-peaks-ny-orthos" in dataset_ids:
                     layers_spec.append({
                         "dataset_id": dataset_ids["adk-high-peaks-ny-orthos"],
@@ -806,51 +863,72 @@ async def amain(args: argparse.Namespace) -> int:
                         "opacity": 1.0,
                         "layer_type": "raster_geolens",
                         "style_config": {"builder": {"render_mode": "image"}},
-                        "display_name": "NY State Orthos (aerial)",
+                        "display_name": "TNM/NY Orthos aerial",
                     })
-                # DEM hillshade on top of aerial
                 if "adk-high-peaks-dem-1m" in dataset_ids:
                     layers_spec.append({
                         "dataset_id": dataset_ids["adk-high-peaks-dem-1m"],
                         "sort_order": 1,
-                        "opacity": 0.55,
+                        "opacity": 0.45,
                         "layer_type": "raster_geolens",
                         "style_config": {"builder": {"render_mode": "hillshade"}},
                         "display_name": "DEM hillshade (1m)",
                     })
-                # Blue Line as polygon outline
-                if "adk-blue-line" in dataset_ids:
+                if "adk-nhd-waterbodies" in dataset_ids:
                     layers_spec.append({
-                        "dataset_id": dataset_ids["adk-blue-line"],
+                        "dataset_id": dataset_ids["adk-nhd-waterbodies"],
                         "sort_order": 2,
-                        "opacity": 0.85,
+                        "opacity": 0.55,
                         "layer_type": "vector_geolens",
                         "paint": {
-                            "fill-color": "#1b6e3a",
-                            "fill-opacity": 0.05,
-                            "fill-outline-color": "#1b6e3a",
+                            "fill-color": "#4aa3c7",
+                            "fill-opacity": 0.45,
+                            "fill-outline-color": "#1f6f8b",
                         },
-                        "display_name": "Blue Line (APA boundary)",
+                        "display_name": "NHD lakes and ponds",
                     })
-                # Land Classification (state-land categories) under trails
                 if "adk-land-classification" in dataset_ids:
                     layers_spec.append({
                         "dataset_id": dataset_ids["adk-land-classification"],
                         "sort_order": 3,
-                        "opacity": 0.35,
+                        "opacity": 0.28,
                         "layer_type": "vector_geolens",
                         "paint": {
                             "fill-color": "#7a8b4f",
-                            "fill-opacity": 0.35,
+                            "fill-opacity": 0.28,
                             "fill-outline-color": "#3d4d2a",
                         },
                         "display_name": "Land classification",
                     })
-                # Hiking trails
+                if "adk-blue-line" in dataset_ids:
+                    layers_spec.append({
+                        "dataset_id": dataset_ids["adk-blue-line"],
+                        "sort_order": 4,
+                        "opacity": 0.8,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "fill-color": "#1b6e3a",
+                            "fill-opacity": 0.03,
+                            "fill-outline-color": "#1b6e3a",
+                        },
+                        "display_name": "Blue Line (APA boundary)",
+                    })
+                if "adk-nhd-flowlines" in dataset_ids:
+                    layers_spec.append({
+                        "dataset_id": dataset_ids["adk-nhd-flowlines"],
+                        "sort_order": 5,
+                        "opacity": 0.85,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "line-color": "#2b8fb8",
+                            "line-width": 1.2,
+                        },
+                        "display_name": "NHD streams and rivers",
+                    })
                 if "adk-hiking-trails" in dataset_ids:
                     layers_spec.append({
                         "dataset_id": dataset_ids["adk-hiking-trails"],
-                        "sort_order": 4,
+                        "sort_order": 6,
                         "opacity": 0.9,
                         "layer_type": "vector_geolens",
                         "paint": {
@@ -859,17 +937,16 @@ async def amain(args: argparse.Namespace) -> int:
                         },
                         "display_name": "Hiking trails",
                     })
-                # 46ers peaks on top
                 if "adk-46er-peaks" in dataset_ids:
                     layers_spec.append({
                         "dataset_id": dataset_ids["adk-46er-peaks"],
-                        "sort_order": 5,
+                        "sort_order": 7,
                         "opacity": 1.0,
                         "layer_type": "vector_geolens",
                         "paint": {
                             "circle-color": "#ffffff",
                             "circle-radius": 5,
-                            "circle-stroke-color": "#000000",
+                            "circle-stroke-color": "#111111",
                             "circle-stroke-width": 1.5,
                         },
                         "label_config": {
@@ -879,29 +956,67 @@ async def amain(args: argparse.Namespace) -> int:
                             "text-halo-color": "#ffffff",
                             "text-halo-width": 1.5,
                         },
-                        "display_name": "46er peaks",
+                        "display_name": "ADK 46er peaks",
                         "popup_config": {
                             "enabled": True,
                             "expression": None,
-                            "visible_fields": ["name", "elev_ft", "rank", "notes"],
+                            "visible_fields": ["name", "elev_ft", "rank", "source_name"],
                         },
                     })
+                return layers_spec
 
-                map1_result = await compose_map(
-                    client, logger, base_url, api_key,
-                    name=map1_name,
-                    description=(
-                        "Marketing demo composition: 1m DEM hillshade + NY State 2025 "
-                        "aerial + Blue Line polygon + APA land classification + NYSDEC "
-                        "hiking trails + 46er high-peak markers. AOI: Lake Placid through "
-                        "Mt. Marcy & Algonquin Peak."
-                    ),
-                    layers_spec=layers_spec,
-                    terrain_config={"enabled": False},
-                    browser_url=browser_url,
-                )
-                map_results.append(map1_result)
-                print(f"  Map 1 saved: {map1_result.get('url')}")
+            def relief_layers() -> list[dict]:
+                layers = primary_layers()
+                for layer in layers:
+                    if layer.get("display_name") == "DEM hillshade (1m)":
+                        layer["opacity"] = 0.32
+                    elif layer.get("display_name") == "TNM/NY Orthos aerial":
+                        layer["opacity"] = 0.92
+                    elif layer.get("display_name") == "Land classification":
+                        layer["opacity"] = 0.18
+                return layers
+
+            map1_name = "Adirondack High Peaks — Terrain & Trails"
+            map1_existing = existing_maps.get(map1_name)
+            map1_result = await compose_map(
+                client, logger, base_url, api_key,
+                name=map1_name,
+                description=(
+                    "Marketing demo composition: high-fidelity aerial + 1m DEM "
+                    "hillshade + NHD hydrography + Blue Line + APA land classification "
+                    "+ NYSDEC hiking trails + complete ADK 46er high-peak markers."
+                ),
+                layers_spec=primary_layers(),
+                terrain_config={"enabled": False, "source_dataset_id": None, "exaggeration": 1.0},
+                browser_url=browser_url,
+                existing_map_id=map1_existing["id"] if map1_existing else None,
+                view_state={"center_lng": -73.94, "center_lat": 44.19, "zoom": 12.5, "pitch": 35, "bearing": 0},
+            )
+            map_results.append(map1_result)
+            print(f"  Map 1 saved: {map1_result.get('url')}")
+
+            map2_name = "Adirondack High Peaks — 3D Relief"
+            map2_existing = existing_maps.get(map2_name)
+            map2_result = await compose_map(
+                client, logger, base_url, api_key,
+                name=map2_name,
+                description=(
+                    "Bonus 3D relief variant for screenshots: ADK terrain enabled "
+                    "over high-fidelity aerial, DEM hillshade, hydrography, trails, "
+                    "and complete 46er peak context."
+                ),
+                layers_spec=relief_layers(),
+                terrain_config={
+                    "enabled": True,
+                    "source_dataset_id": dataset_ids.get("adk-high-peaks-dem-1m"),
+                    "exaggeration": 1.7,
+                },
+                browser_url=browser_url,
+                existing_map_id=map2_existing["id"] if map2_existing else None,
+                view_state={"center_lng": -73.94, "center_lat": 44.16, "zoom": 13.2, "pitch": 62, "bearing": -24},
+            )
+            map_results.append(map2_result)
+            print(f"  Map 2 saved: {map2_result.get('url')}")
 
             # Final summary
             print()

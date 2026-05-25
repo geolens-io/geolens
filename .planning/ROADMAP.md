@@ -10,8 +10,8 @@
 
 ### Phase Plan
 
-- [ ] **Phase 1101: ADK Source Data Upgrade** — TNM/NAIP aerial path or documented TNM no-data fallback, NHD hydrography, complete 46er peak source data, and idempotent manifest/script updates.
-- [ ] **Phase 1102: ADK Saved Map Composition** — primary map refreshed and bonus 3D relief variant Map 2 composed with durable API state.
+- [x] **Phase 1101: ADK Source Data Upgrade** — TNM/NAIP aerial path or documented TNM no-data fallback, NHD hydrography, complete 46er peak source data, and idempotent manifest/script updates.
+- [x] **Phase 1102: ADK Saved Map Composition** — primary map refreshed and bonus 3D relief variant Map 2 composed with durable API state.
 - [ ] **Phase 1103: Builder Mixed Layer Reorder** — vectors can move above rasters visually and persist through reload.
 - [ ] **Phase 1104: Terrain Rendering and Config** — DEM tile min/max zoom, explicit terrain disabled state, and terrain/exaggeration controls are robust.
 - [ ] **Phase 1105: Builder Error Hygiene** — terrain errors do not masquerade as basemap failures, toast placement avoids controls, and Positron sprite warnings are handled.
