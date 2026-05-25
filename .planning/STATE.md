@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1026
 milestone_name: Mapbuilder Style Reconciler
 status: active
-last_updated: "2026-05-25T13:50:00.000Z"
+last_updated: "2026-05-25T14:00:00.000Z"
 last_activity: 2026-05-25
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1116 Persistence and Viewer Parity
-Plan: 1116-01
-Status: Phase 1115 complete; ready to verify persistence and viewer parity
-Last activity: 2026-05-25 — Phase 1115 UI and AI style actions completed
+Phase: 1117 Reconciler Close Gate
+Plan: 1117-01
+Status: Phase 1116 complete; ready for close-gate verification
+Last activity: 2026-05-25 — Phase 1116 persistence and viewer parity completed
 
 ## Project Reference
 
@@ -63,6 +63,7 @@ See: .planning/PROJECT.md
 | 1113 Shared Style Reconciler | Complete | `frontend/src/components/builder/layer-adapters/shared.ts` + `shared.test.ts`; focused Vitest 19/19 passed |
 | 1114 Adapter Migration | Complete | vector adapter migration + focused adapter Vitest 116/116 passed |
 | 1115 UI and AI Style Actions | Complete | Chat style patch/clear/replace semantics + OpenAPI/SDK refresh; focused tests passed |
+| 1116 Persistence and Viewer Parity | Complete | save diff + viewer sync-input parity + style JSON focused Vitest 59/59 passed |
 
 ## Quick Tasks Completed
 
@@ -112,4 +113,4 @@ Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Run Phase 1116 Persistence and Viewer Parity verification.
+- Run Phase 1117 Reconciler Close Gate verification, including Playwright MCP UAT on the target map.

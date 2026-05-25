@@ -204,6 +204,28 @@ describe('buildLayerDiff', () => {
     ]);
   });
 
+  it('persists canonical paint after a stale property is cleared', () => {
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const baseline = makeLayer({
+      id: 'layer-1',
+      dataset_geometry_type: 'LineString',
+      paint: { 'line-color': '#111827', 'line-width': 4, 'line-gradient': gradient },
+    });
+    const current = makeLayer({
+      id: 'layer-1',
+      dataset_geometry_type: 'LineString',
+      paint: { 'line-color': '#f97316', 'line-width': 4 },
+    });
+
+    const result = buildLayerDiff([baseline], [current]);
+
+    expect(result.diff.updated).toEqual([
+      { id: 'layer-1', paint: { 'line-color': '#f97316', 'line-width': 4 } },
+    ]);
+    expect(result.diff.updated?.[0].paint).not.toHaveProperty('line-gradient');
+    expect(result.diff.updated?.[0].paint).not.toHaveProperty('clear_paint');
+  });
+
   it('classifies removed layers by stable layer ID', () => {
     const baseline = makeLayer({ id: 'layer-1' });
 

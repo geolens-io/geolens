@@ -436,6 +436,59 @@ describe('ViewerMap basemap config runtime', () => {
     expect(syncInputs?.map((layer) => layer.id)).toEqual(['layer-a', 'layer-b']);
   });
 
+  it('passes reconciled saved paint to shared map sync without transient metadata', async () => {
+    const layers: SharedLayerResponse[] = [
+      {
+        id: 'trail-layer',
+        dataset_id: 'dataset-trails',
+        dataset_name: 'Trails',
+        display_name: 'Trails',
+        table_name: 'trails',
+        geometry_type: 'LineString',
+        column_info: null,
+        sort_order: 0,
+        visible: true,
+        opacity: 1,
+        paint: { 'line-color': '#f97316', 'line-width': 4 },
+        layout: {},
+        filter: null,
+        label_config: null,
+        popup_config: null,
+        style_config: { builder: {} },
+        tile_url: '',
+      },
+    ];
+
+    render(
+      <ViewerMap
+        layers={layers}
+        basemapStyle="openfreemap-positron"
+        basemapConfig={null}
+        showBasemapLabels={true}
+        terrainConfig={null}
+        initialViewState={{
+          center_lng: 0,
+          center_lat: 0,
+          zoom: 2,
+          bearing: 0,
+          pitch: 0,
+        }}
+        visibleLayers={new Set(['trail-layer'])}
+        embedToken="embed-token"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(syncLayersToMapMock).toHaveBeenCalled();
+    });
+
+    const syncInput = syncLayersToMapMock.mock.calls.at(-1)?.[1][0];
+    expect(syncInput?.paint).toEqual({ 'line-color': '#f97316', 'line-width': 4 });
+    expect(syncInput?.paint).not.toHaveProperty('line-gradient');
+    expect(syncInput?.paint).not.toHaveProperty('clear_paint');
+    expect(syncInput?.style_config).toEqual({ builder: {} });
+  });
+
   it('syncs eligible shared cluster layers after bounded GeoJSON data arrives', async () => {
     const clusterLayers: SharedLayerResponse[] = [
       {

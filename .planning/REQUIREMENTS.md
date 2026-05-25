@@ -38,10 +38,10 @@
 
 ### Persistence and Viewer Parity
 
-- [ ] **PERSIST-01**: Saved map JSON stores the canonical post-reconciliation `paint`, `layout`, `style_config`, `label_config`, and opacity state without persisting transient reconciler metadata.
-- [ ] **PERSIST-02**: Save/reload round trips preserve visual output for all migrated style modes and do not resurrect stale properties.
-- [ ] **VIEW-01**: Public viewer and embed viewer render reconciled saved styles consistently with the builder for migrated layer types.
-- [ ] **VIEW-02**: Style JSON export/import remains compatible with reconciled layer styles and rejects or sanitizes invalid stale properties consistently.
+- [x] **PERSIST-01**: Saved map JSON stores the canonical post-reconciliation `paint`, `layout`, `style_config`, `label_config`, and opacity state without persisting transient reconciler metadata.
+- [x] **PERSIST-02**: Save/reload round trips preserve visual output for all migrated style modes and do not resurrect stale properties.
+- [x] **VIEW-01**: Public viewer and embed viewer render reconciled saved styles consistently with the builder for migrated layer types.
+- [x] **VIEW-02**: Style JSON export/import remains compatible with reconciled layer styles and rejects or sanitizes invalid stale properties consistently.
 
 ### Verification and Close Gate
 
@@ -95,10 +95,10 @@
 | AI-02 | Phase 1115 | Complete |
 | AI-03 | Phase 1115 | Complete |
 | AI-04 | Phase 1115 | Complete |
-| PERSIST-01 | Phase 1116 | Pending |
-| PERSIST-02 | Phase 1116 | Pending |
-| VIEW-01 | Phase 1116 | Pending |
-| VIEW-02 | Phase 1116 | Pending |
+| PERSIST-01 | Phase 1116 | Complete |
+| PERSIST-02 | Phase 1116 | Complete |
+| VIEW-01 | Phase 1116 | Complete |
+| VIEW-02 | Phase 1116 | Complete |
 | VERIFY-01 | Phase 1117 | Pending |
 | VERIFY-02 | Phase 1117 | Pending |
 | VERIFY-03 | Phase 1117 | Pending |
@@ -106,10 +106,10 @@
 | VERIFY-05 | Phase 1117 | Pending |
 
 **Coverage:**
-- v1026 requirements: 28 total, 19 complete
+- v1026 requirements: 28 total, 23 complete
 - Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1115*
+*Last updated: 2026-05-25 after Phase 1116*
