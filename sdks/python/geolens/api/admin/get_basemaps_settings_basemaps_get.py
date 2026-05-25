@@ -93,6 +93,14 @@ def sync_detailed(
     configured.  When a key IS set the placeholder is resolved server-side.
     The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
 
+    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+    includes the substituted ``api_key`` value when configured. Client-side
+    tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
+    exposure and the frontend MUST receive them to load tiles. Do NOT put a
+    backend-only commercial-tier key in this field — rotate the key in the
+    provider dashboard if it is misused. Rate-limited via
+    ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -122,6 +130,14 @@ def sync(
     configured.  When a key IS set the placeholder is resolved server-side.
     The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
 
+    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+    includes the substituted ``api_key`` value when configured. Client-side
+    tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
+    exposure and the frontend MUST receive them to load tiles. Do NOT put a
+    backend-only commercial-tier key in this field — rotate the key in the
+    provider dashboard if it is misused. Rate-limited via
+    ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -146,6 +162,14 @@ async def asyncio_detailed(
     Basemaps with ``{api_key}`` in the URL are filtered out when no key is
     configured.  When a key IS set the placeholder is resolved server-side.
     The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
+
+    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+    includes the substituted ``api_key`` value when configured. Client-side
+    tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
+    exposure and the frontend MUST receive them to load tiles. Do NOT put a
+    backend-only commercial-tier key in this field — rotate the key in the
+    provider dashboard if it is misused. Rate-limited via
+    ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -173,6 +197,14 @@ async def asyncio(
     Basemaps with ``{api_key}`` in the URL are filtered out when no key is
     configured.  When a key IS set the placeholder is resolved server-side.
     The response uses ``BasemapPublicResponse`` which excludes ``api_key``.
+
+    SEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally
+    includes the substituted ``api_key`` value when configured. Client-side
+    tile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser
+    exposure and the frontend MUST receive them to load tiles. Do NOT put a
+    backend-only commercial-tier key in this field — rotate the key in the
+    provider dashboard if it is misused. Rate-limited via
+    ``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

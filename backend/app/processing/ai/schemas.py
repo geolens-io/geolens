@@ -166,6 +166,29 @@ def _validate_expression(expr: list) -> bool:
     return False
 
 
+def _paint_layer_type_for_geometry(geometry_type: str | None) -> str | None:
+    if not geometry_type:
+        return None
+    gt = geometry_type.lower()
+    if "polygon" in gt:
+        return "fill"
+    if "line" in gt:
+        return "line"
+    if "heatmap" in gt:
+        return "heatmap"
+    return "circle"
+
+
+def _valid_paint_props_for_geometry(geometry_type: str | None) -> tuple[str | None, set[str]]:
+    layer_type = _paint_layer_type_for_geometry(geometry_type)
+    if not layer_type:
+        return None, set()
+    valid_props = _VALID_PAINT_PROPS.get(layer_type, _VALID_PAINT_PROPS["circle"])
+    if layer_type == "fill":
+        valid_props = valid_props | _VALID_PAINT_PROPS["fill-extrusion"]
+    return layer_type, valid_props
+
+
 def validate_paint_for_geometry(
     paint: dict | None, geometry_type: str | None
 ) -> dict | None:
@@ -190,23 +213,9 @@ def validate_paint_with_feedback(
     if not paint or not geometry_type:
         return paint, []
 
-    gt = geometry_type.lower()
-    if "polygon" in gt:
-        layer_type = "fill"
-    elif "line" in gt:
-        layer_type = "line"
-    elif "heatmap" in gt:
-        layer_type = "heatmap"
-    else:
-        layer_type = "circle"
-
-    valid_props = _VALID_PAINT_PROPS.get(layer_type, _VALID_PAINT_PROPS["circle"])
-    # Polygon sources can render as either fill or fill-extrusion (3D). The
-    # 3D path is triggered downstream by `paint._height_column` (see project
-    # memory: paint._height_column 3D extrusion convention), so accept both
-    # property families on polygon layers and let the renderer pick.
-    if layer_type == "fill":
-        valid_props = valid_props | _VALID_PAINT_PROPS["fill-extrusion"]
+    layer_type, valid_props = _valid_paint_props_for_geometry(geometry_type)
+    if not layer_type:
+        return paint, []
     cleaned = {}
     warnings: list[str] = []
     for key, value in paint.items():
@@ -225,6 +234,31 @@ def validate_paint_with_feedback(
                 continue
         cleaned[key] = value
     return cleaned or None, warnings
+
+
+def validate_paint_property_names_with_feedback(
+    properties: list | None, geometry_type: str | None
+) -> tuple[list[str], list[str]]:
+    """Validate paint property names for explicit style-clear actions."""
+    if not properties or not geometry_type:
+        return [], []
+
+    layer_type, valid_props = _valid_paint_props_for_geometry(geometry_type)
+    if not layer_type:
+        return [], []
+
+    cleaned: list[str] = []
+    warnings: list[str] = []
+    for prop in properties:
+        if not isinstance(prop, str):
+            warnings.append("Removed non-string paint clear entry")
+            continue
+        if prop not in valid_props:
+            warnings.append(f"Removed '{prop}': not valid for {layer_type} layers")
+            continue
+        if prop not in cleaned:
+            cleaned.append(prop)
+    return cleaned, warnings
 
 
 class MapGenerateRequest(BaseModel):
@@ -341,6 +375,8 @@ class ChatAction(BaseModel):
     layer_id: str | None = None
     expression: list | None = None  # for set_filter
     paint: dict | None = None  # for set_style / set_data_driven_style
+    clear_paint: list[str] | None = None  # for set_style explicit property clears
+    replace_paint: bool | None = None  # for set_style full replacement
     style_config: dict | None = None  # for set_data_driven_style
     label_config: dict | None = None  # for set_label
     dataset_id: str | None = None  # for add_layer

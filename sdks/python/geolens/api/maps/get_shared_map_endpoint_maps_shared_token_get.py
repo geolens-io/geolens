@@ -95,6 +95,12 @@ def sync_detailed(
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
+    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    'self' [<allowed_origins>...]`` on the response, derived from the active
+    EmbedToken for this map. When no EmbedToken exists or allowed_origins is
+    empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
+    respects this route-level CSP and skips emitting X-Frame-Options: DENY.
+
     Args:
         token (str):
 
@@ -126,6 +132,12 @@ def sync(
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
+    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    'self' [<allowed_origins>...]`` on the response, derived from the active
+    EmbedToken for this map. When no EmbedToken exists or allowed_origins is
+    empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
+    respects this route-level CSP and skips emitting X-Frame-Options: DENY.
+
     Args:
         token (str):
 
@@ -151,6 +163,12 @@ async def asyncio_detailed(
     """Get Shared Map Endpoint
 
      Get a shared map by token. Optionally authenticated for non-public layers.
+
+    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    'self' [<allowed_origins>...]`` on the response, derived from the active
+    EmbedToken for this map. When no EmbedToken exists or allowed_origins is
+    empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
+    respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
     Args:
         token (str):
@@ -180,6 +198,12 @@ async def asyncio(
     """Get Shared Map Endpoint
 
      Get a shared map by token. Optionally authenticated for non-public layers.
+
+    SEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors
+    'self' [<allowed_origins>...]`` on the response, derived from the active
+    EmbedToken for this map. When no EmbedToken exists or allowed_origins is
+    empty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware
+    respects this route-level CSP and skips emitting X-Frame-Options: DENY.
 
     Args:
         token (str):

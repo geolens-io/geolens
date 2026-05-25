@@ -454,7 +454,8 @@
               "running",
               "complete",
               "failed",
-              "cancelled"
+              "cancelled",
+              "fanned_out"
             ],
             "title": "Status",
             "type": "string"
@@ -1910,6 +1911,20 @@
             ],
             "title": "Bbox"
           },
+          "clear_paint": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clear Paint"
+          },
           "dataset_id": {
             "anyOf": [
               {
@@ -1990,6 +2005,17 @@
               }
             ],
             "title": "Paint"
+          },
+          "replace_paint": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replace Paint"
           },
           "style_config": {
             "anyOf": [

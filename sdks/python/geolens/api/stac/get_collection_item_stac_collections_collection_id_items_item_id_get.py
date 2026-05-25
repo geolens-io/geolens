@@ -61,7 +61,7 @@ def sync_detailed(
     collection_id: UUID,
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Response[Any | HTTPValidationError]:
     """Get Collection Item
 
@@ -95,7 +95,7 @@ def sync(
     collection_id: UUID,
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Any | HTTPValidationError | None:
     """Get Collection Item
 
@@ -124,7 +124,7 @@ async def asyncio_detailed(
     collection_id: UUID,
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Response[Any | HTTPValidationError]:
     """Get Collection Item
 
@@ -156,7 +156,7 @@ async def asyncio(
     collection_id: UUID,
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Any | HTTPValidationError | None:
     """Get Collection Item
 

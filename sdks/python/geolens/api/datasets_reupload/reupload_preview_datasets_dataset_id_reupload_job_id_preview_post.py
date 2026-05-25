@@ -5,18 +5,23 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...models.reupload_preview_request import ReuploadPreviewRequest
 from ...models.reupload_preview_response import ReuploadPreviewResponse
+from ...types import Unset
 from uuid import UUID
 
 
 def _get_kwargs(
     dataset_id: UUID,
     job_id: UUID,
+    *,
+    body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -26,6 +31,14 @@ def _get_kwargs(
         ),
     }
 
+    if isinstance(body, ReuploadPreviewRequest):
+        _kwargs["json"] = body.to_dict()
+    else:
+        _kwargs["json"] = body
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -94,14 +107,22 @@ def sync_detailed(
     job_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | ReuploadPreviewResponse]:
     """Reupload Preview
 
      Preview the schema diff between old dataset and new upload.
 
+    When the uploaded file contains multiple layers, the response includes
+    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
+    (pre-selection hint from the most-recent completed IngestJob for this
+    dataset).  Pass ``layer_name`` in the request body to target a specific
+    layer; omit it to get the default first-layer metadata.
+
     Args:
         dataset_id (UUID):
         job_id (UUID):
+        body (None | ReuploadPreviewRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -114,6 +135,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         job_id=job_id,
+        body=body,
     )
 
     response = client.get_httpx_client().request(
@@ -128,14 +150,22 @@ def sync(
     job_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> ProblemDetail | ReuploadPreviewResponse | None:
     """Reupload Preview
 
      Preview the schema diff between old dataset and new upload.
 
+    When the uploaded file contains multiple layers, the response includes
+    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
+    (pre-selection hint from the most-recent completed IngestJob for this
+    dataset).  Pass ``layer_name`` in the request body to target a specific
+    layer; omit it to get the default first-layer metadata.
+
     Args:
         dataset_id (UUID):
         job_id (UUID):
+        body (None | ReuploadPreviewRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -149,6 +179,7 @@ def sync(
         dataset_id=dataset_id,
         job_id=job_id,
         client=client,
+        body=body,
     ).parsed
 
 
@@ -157,14 +188,22 @@ async def asyncio_detailed(
     job_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | ReuploadPreviewResponse]:
     """Reupload Preview
 
      Preview the schema diff between old dataset and new upload.
 
+    When the uploaded file contains multiple layers, the response includes
+    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
+    (pre-selection hint from the most-recent completed IngestJob for this
+    dataset).  Pass ``layer_name`` in the request body to target a specific
+    layer; omit it to get the default first-layer metadata.
+
     Args:
         dataset_id (UUID):
         job_id (UUID):
+        body (None | ReuploadPreviewRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -177,6 +216,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
         job_id=job_id,
+        body=body,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -189,14 +229,22 @@ async def asyncio(
     job_id: UUID,
     *,
     client: AuthenticatedClient,
+    body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> ProblemDetail | ReuploadPreviewResponse | None:
     """Reupload Preview
 
      Preview the schema diff between old dataset and new upload.
 
+    When the uploaded file contains multiple layers, the response includes
+    ``all_layers`` (for frontend layer-select UI) and ``previous_source_layer``
+    (pre-selection hint from the most-recent completed IngestJob for this
+    dataset).  Pass ``layer_name`` in the request body to target a specific
+    layer; omit it to get the default first-layer metadata.
+
     Args:
         dataset_id (UUID):
         job_id (UUID):
+        body (None | ReuploadPreviewRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -211,5 +259,6 @@ async def asyncio(
             dataset_id=dataset_id,
             job_id=job_id,
             client=client,
+            body=body,
         )
     ).parsed

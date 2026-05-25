@@ -21,6 +21,7 @@ def _get_kwargs(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -45,6 +46,13 @@ def _get_kwargs(
     else:
         json_scope = scope
     params["scope"] = json_scope
+
+    json_cols: None | str | Unset
+    if isinstance(cols, Unset):
+        json_cols = UNSET
+    else:
+        json_cols = cols
+    params["cols"] = json_cols
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -116,6 +124,7 @@ def sync_detailed(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Tile Endpoint
 
@@ -126,6 +135,15 @@ def sync_detailed(
     Non-public datasets require valid HMAC signature params (sig, exp, scope).
     Public datasets can be accessed without any signature.
 
+    `cols` is a runtime opt-in for additional attribute columns the client
+    needs at all zooms (e.g. data-driven styling columns referenced by
+    MapLibre paint expressions). Format: comma-separated column names.
+    Each name is validated against the dataset column list before it
+    flows into the MVT projection; invalid names are silently dropped.
+    Does not need to be signed — `sig` already authorizes dataset
+    access and `cols` can only project columns the caller already has
+    REST access to.
+
     Args:
         table_path (str):
         z (int):
@@ -134,6 +152,7 @@ def sync_detailed(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -151,6 +170,7 @@ def sync_detailed(
         sig=sig,
         exp=exp,
         scope=scope,
+        cols=cols,
     )
 
     response = client.get_httpx_client().request(
@@ -170,6 +190,7 @@ def sync(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Tile Endpoint
 
@@ -180,6 +201,15 @@ def sync(
     Non-public datasets require valid HMAC signature params (sig, exp, scope).
     Public datasets can be accessed without any signature.
 
+    `cols` is a runtime opt-in for additional attribute columns the client
+    needs at all zooms (e.g. data-driven styling columns referenced by
+    MapLibre paint expressions). Format: comma-separated column names.
+    Each name is validated against the dataset column list before it
+    flows into the MVT projection; invalid names are silently dropped.
+    Does not need to be signed — `sig` already authorizes dataset
+    access and `cols` can only project columns the caller already has
+    REST access to.
+
     Args:
         table_path (str):
         z (int):
@@ -188,6 +218,7 @@ def sync(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -206,6 +237,7 @@ def sync(
         sig=sig,
         exp=exp,
         scope=scope,
+        cols=cols,
     ).parsed
 
 
@@ -219,6 +251,7 @@ async def asyncio_detailed(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     """Tile Endpoint
 
@@ -229,6 +262,15 @@ async def asyncio_detailed(
     Non-public datasets require valid HMAC signature params (sig, exp, scope).
     Public datasets can be accessed without any signature.
 
+    `cols` is a runtime opt-in for additional attribute columns the client
+    needs at all zooms (e.g. data-driven styling columns referenced by
+    MapLibre paint expressions). Format: comma-separated column names.
+    Each name is validated against the dataset column list before it
+    flows into the MVT projection; invalid names are silently dropped.
+    Does not need to be signed — `sig` already authorizes dataset
+    access and `cols` can only project columns the caller already has
+    REST access to.
+
     Args:
         table_path (str):
         z (int):
@@ -237,6 +279,7 @@ async def asyncio_detailed(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -254,6 +297,7 @@ async def asyncio_detailed(
         sig=sig,
         exp=exp,
         scope=scope,
+        cols=cols,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -271,6 +315,7 @@ async def asyncio(
     sig: None | str | Unset = UNSET,
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
+    cols: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     """Tile Endpoint
 
@@ -281,6 +326,15 @@ async def asyncio(
     Non-public datasets require valid HMAC signature params (sig, exp, scope).
     Public datasets can be accessed without any signature.
 
+    `cols` is a runtime opt-in for additional attribute columns the client
+    needs at all zooms (e.g. data-driven styling columns referenced by
+    MapLibre paint expressions). Format: comma-separated column names.
+    Each name is validated against the dataset column list before it
+    flows into the MVT projection; invalid names are silently dropped.
+    Does not need to be signed — `sig` already authorizes dataset
+    access and `cols` can only project columns the caller already has
+    REST access to.
+
     Args:
         table_path (str):
         z (int):
@@ -289,6 +343,7 @@ async def asyncio(
         sig (None | str | Unset):
         exp (int | None | Unset):
         scope (None | str | Unset):
+        cols (None | str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -308,5 +363,6 @@ async def asyncio(
             sig=sig,
             exp=exp,
             scope=scope,
+            cols=cols,
         )
     ).parsed

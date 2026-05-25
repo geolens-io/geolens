@@ -58,7 +58,7 @@ def _build_response(
 def sync_detailed(
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Response[Any | HTTPValidationError]:
     """Get Item
 
@@ -89,7 +89,7 @@ def sync_detailed(
 def sync(
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Any | HTTPValidationError | None:
     """Get Item
 
@@ -115,7 +115,7 @@ def sync(
 async def asyncio_detailed(
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Response[Any | HTTPValidationError]:
     """Get Item
 
@@ -144,7 +144,7 @@ async def asyncio_detailed(
 async def asyncio(
     item_id: UUID,
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
 ) -> Any | HTTPValidationError | None:
     """Get Item
 

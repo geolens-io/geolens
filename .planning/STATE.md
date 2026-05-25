@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1026
 milestone_name: Mapbuilder Style Reconciler
 status: active
-last_updated: "2026-05-25T13:36:00.000Z"
+last_updated: "2026-05-25T13:50:00.000Z"
 last_activity: 2026-05-25
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 6
-  completed_plans: 3
-  percent: 50
+  completed_plans: 4
+  percent: 67
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1115 UI and AI Style Actions
-Plan: 1115-01
-Status: Phase 1114 complete; ready to align UI and AI style actions
-Last activity: 2026-05-25 — Phase 1114 adapter migration completed
+Phase: 1116 Persistence and Viewer Parity
+Plan: 1116-01
+Status: Phase 1115 complete; ready to verify persistence and viewer parity
+Last activity: 2026-05-25 — Phase 1115 UI and AI style actions completed
 
 ## Project Reference
 
@@ -62,6 +62,7 @@ See: .planning/PROJECT.md
 | 1112 Style Contract and Baseline Audit | Complete | `.planning/phases/1112-style-contract-and-baseline-audit/1112-STYLE-CONTRACT.md` and `1112-REGRESSION-MATRIX.md` |
 | 1113 Shared Style Reconciler | Complete | `frontend/src/components/builder/layer-adapters/shared.ts` + `shared.test.ts`; focused Vitest 19/19 passed |
 | 1114 Adapter Migration | Complete | vector adapter migration + focused adapter Vitest 116/116 passed |
+| 1115 UI and AI Style Actions | Complete | Chat style patch/clear/replace semantics + OpenAPI/SDK refresh; focused tests passed |
 
 ## Quick Tasks Completed
 
@@ -111,4 +112,4 @@ Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Run Phase 1115 UI and AI Style Actions implementation and focused tests.
+- Run Phase 1116 Persistence and Viewer Parity verification.

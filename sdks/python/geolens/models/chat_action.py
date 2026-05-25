@@ -28,6 +28,7 @@ class ChatAction:
     Attributes:
         type_ (ChatActionType):
         bbox (list[float] | None | Unset):
+        clear_paint (list[str] | None | Unset):
         dataset_id (None | str | Unset):
         expression (list[Any] | None | Unset):
         geojson (GeoJSONFeatureCollection | None | Unset):
@@ -35,12 +36,14 @@ class ChatAction:
         layer_id (None | str | Unset):
         opacity (float | None | Unset):
         paint (ChatActionPaintType0 | None | Unset):
+        replace_paint (bool | None | Unset):
         style_config (ChatActionStyleConfigType0 | None | Unset):
         visible (bool | None | Unset):
     """
 
     type_: ChatActionType
     bbox: list[float] | None | Unset = UNSET
+    clear_paint: list[str] | None | Unset = UNSET
     dataset_id: None | str | Unset = UNSET
     expression: list[Any] | None | Unset = UNSET
     geojson: GeoJSONFeatureCollection | None | Unset = UNSET
@@ -48,6 +51,7 @@ class ChatAction:
     layer_id: None | str | Unset = UNSET
     opacity: float | None | Unset = UNSET
     paint: ChatActionPaintType0 | None | Unset = UNSET
+    replace_paint: bool | None | Unset = UNSET
     style_config: ChatActionStyleConfigType0 | None | Unset = UNSET
     visible: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -68,6 +72,15 @@ class ChatAction:
 
         else:
             bbox = self.bbox
+
+        clear_paint: list[str] | None | Unset
+        if isinstance(self.clear_paint, Unset):
+            clear_paint = UNSET
+        elif isinstance(self.clear_paint, list):
+            clear_paint = self.clear_paint
+
+        else:
+            clear_paint = self.clear_paint
 
         dataset_id: None | str | Unset
         if isinstance(self.dataset_id, Unset):
@@ -120,6 +133,12 @@ class ChatAction:
         else:
             paint = self.paint
 
+        replace_paint: bool | None | Unset
+        if isinstance(self.replace_paint, Unset):
+            replace_paint = UNSET
+        else:
+            replace_paint = self.replace_paint
+
         style_config: dict[str, Any] | None | Unset
         if isinstance(self.style_config, Unset):
             style_config = UNSET
@@ -143,6 +162,8 @@ class ChatAction:
         )
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
+        if clear_paint is not UNSET:
+            field_dict["clear_paint"] = clear_paint
         if dataset_id is not UNSET:
             field_dict["dataset_id"] = dataset_id
         if expression is not UNSET:
@@ -157,6 +178,8 @@ class ChatAction:
             field_dict["opacity"] = opacity
         if paint is not UNSET:
             field_dict["paint"] = paint
+        if replace_paint is not UNSET:
+            field_dict["replace_paint"] = replace_paint
         if style_config is not UNSET:
             field_dict["style_config"] = style_config
         if visible is not UNSET:
@@ -190,6 +213,23 @@ class ChatAction:
             return cast(list[float] | None | Unset, data)
 
         bbox = _parse_bbox(d.pop("bbox", UNSET))
+
+        def _parse_clear_paint(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                clear_paint_type_0 = cast(list[str], data)
+
+                return clear_paint_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        clear_paint = _parse_clear_paint(d.pop("clear_paint", UNSET))
 
         def _parse_dataset_id(data: object) -> None | str | Unset:
             if data is None:
@@ -288,6 +328,15 @@ class ChatAction:
 
         paint = _parse_paint(d.pop("paint", UNSET))
 
+        def _parse_replace_paint(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        replace_paint = _parse_replace_paint(d.pop("replace_paint", UNSET))
+
         def _parse_style_config(
             data: object,
         ) -> ChatActionStyleConfigType0 | None | Unset:
@@ -319,6 +368,7 @@ class ChatAction:
         chat_action = cls(
             type_=type_,
             bbox=bbox,
+            clear_paint=clear_paint,
             dataset_id=dataset_id,
             expression=expression,
             geojson=geojson,
@@ -326,6 +376,7 @@ class ChatAction:
             layer_id=layer_id,
             opacity=opacity,
             paint=paint,
+            replace_paint=replace_paint,
             style_config=style_config,
             visible=visible,
         )

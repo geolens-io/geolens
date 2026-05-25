@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.job_status_response_current_step_type_0 import (
+    check_job_status_response_current_step_type_0,
+)
+from ..models.job_status_response_current_step_type_0 import (
+    JobStatusResponseCurrentStepType0,
+)
 from ..models.job_status_response_status import check_job_status_response_status
 from ..models.job_status_response_status import JobStatusResponseStatus
 from dateutil.parser import isoparse
@@ -39,6 +45,9 @@ class JobStatusResponse:
         started_at (datetime.datetime | None):
         status (JobStatusResponseStatus):
         archive_failed (bool | Unset):  Default: False.
+        current_step (JobStatusResponseCurrentStepType0 | None | Unset):
+        progress (float | None | Unset):
+        rows_processed (int | None | Unset):
         temporal_parse_errors (JobStatusResponseTemporalParseErrors | Unset):
         warning_message (None | str | Unset):
         warnings (list[DbfTruncationCollisionWarning | ReservedRenameWarning] | Unset):
@@ -53,6 +62,9 @@ class JobStatusResponse:
     started_at: datetime.datetime | None
     status: JobStatusResponseStatus
     archive_failed: bool | Unset = False
+    current_step: JobStatusResponseCurrentStepType0 | None | Unset = UNSET
+    progress: float | None | Unset = UNSET
+    rows_processed: int | None | Unset = UNSET
     temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset = UNSET
     warning_message: None | str | Unset = UNSET
     warnings: list[DbfTruncationCollisionWarning | ReservedRenameWarning] | Unset = (
@@ -95,6 +107,26 @@ class JobStatusResponse:
 
         archive_failed = self.archive_failed
 
+        current_step: None | str | Unset
+        if isinstance(self.current_step, Unset):
+            current_step = UNSET
+        elif isinstance(self.current_step, str):
+            current_step = self.current_step
+        else:
+            current_step = self.current_step
+
+        progress: float | None | Unset
+        if isinstance(self.progress, Unset):
+            progress = UNSET
+        else:
+            progress = self.progress
+
+        rows_processed: int | None | Unset
+        if isinstance(self.rows_processed, Unset):
+            rows_processed = UNSET
+        else:
+            rows_processed = self.rows_processed
+
         temporal_parse_errors: dict[str, Any] | Unset = UNSET
         if not isinstance(self.temporal_parse_errors, Unset):
             temporal_parse_errors = self.temporal_parse_errors.to_dict()
@@ -133,6 +165,12 @@ class JobStatusResponse:
         )
         if archive_failed is not UNSET:
             field_dict["archive_failed"] = archive_failed
+        if current_step is not UNSET:
+            field_dict["current_step"] = current_step
+        if progress is not UNSET:
+            field_dict["progress"] = progress
+        if rows_processed is not UNSET:
+            field_dict["rows_processed"] = rows_processed
         if temporal_parse_errors is not UNSET:
             field_dict["temporal_parse_errors"] = temporal_parse_errors
         if warning_message is not UNSET:
@@ -221,6 +259,45 @@ class JobStatusResponse:
 
         archive_failed = d.pop("archive_failed", UNSET)
 
+        def _parse_current_step(
+            data: object,
+        ) -> JobStatusResponseCurrentStepType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                current_step_type_0 = check_job_status_response_current_step_type_0(
+                    data
+                )
+
+                return current_step_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(JobStatusResponseCurrentStepType0 | None | Unset, data)
+
+        current_step = _parse_current_step(d.pop("current_step", UNSET))
+
+        def _parse_progress(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        progress = _parse_progress(d.pop("progress", UNSET))
+
+        def _parse_rows_processed(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        rows_processed = _parse_rows_processed(d.pop("rows_processed", UNSET))
+
         _temporal_parse_errors = d.pop("temporal_parse_errors", UNSET)
         temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset
         if isinstance(_temporal_parse_errors, Unset):
@@ -278,6 +355,9 @@ class JobStatusResponse:
             started_at=started_at,
             status=status,
             archive_failed=archive_failed,
+            current_step=current_step,
+            progress=progress,
+            rows_processed=rows_processed,
             temporal_parse_errors=temporal_parse_errors,
             warning_message=warning_message,
             warnings=warnings,

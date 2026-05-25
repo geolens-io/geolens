@@ -18,7 +18,7 @@ T = TypeVar("T", bound="UserCreate")
 class UserCreate:
     """
     Attributes:
-        password (str): Plaintext password (min 8 chars) Example: securePass123.
+        password (str): Plaintext password (policy: min 12 chars, 3+ character classes) Example: securePass123!.
         username (str): Unique login name Example: jdoe.
         email (None | str | Unset): Optional email address Example: jdoe@example.com.
     """

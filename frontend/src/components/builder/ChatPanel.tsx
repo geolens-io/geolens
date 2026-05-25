@@ -49,6 +49,24 @@ interface ChatMessage {
   retryMessage?: string;
 }
 
+export function buildChatActionPaint(
+  currentPaint: Record<string, unknown> | null | undefined,
+  action: Pick<ChatAction, 'paint' | 'clear_paint' | 'replace_paint'>,
+): Record<string, unknown> {
+  const nextPaint: Record<string, unknown> = action.replace_paint ? {} : { ...(currentPaint ?? {}) };
+  for (const [key, value] of Object.entries(action.paint ?? {})) {
+    if (value == null) {
+      delete nextPaint[key];
+    } else {
+      nextPaint[key] = value;
+    }
+  }
+  for (const key of action.clear_paint ?? []) {
+    delete nextPaint[key];
+  }
+  return nextPaint;
+}
+
 export interface LayerActions {
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
@@ -209,11 +227,16 @@ export function ChatPanel({
         if (action.layer_id) onFilterChange(action.layer_id, action.expression ?? null);
         break;
       case 'set_style':
-        if (action.layer_id && action.paint) onPaintChange(action.layer_id, action.paint);
+        if (action.layer_id && (action.paint || action.clear_paint?.length || action.replace_paint)) {
+          const layer = layersRef.current.find((candidate) => candidate.id === action.layer_id);
+          if (layer) onPaintChange(action.layer_id, buildChatActionPaint(layer.paint, action));
+        }
         break;
       case 'set_data_driven_style':
         if (action.layer_id && action.paint) {
-          onStyleConfigChange(action.layer_id, action.style_config ?? null, action.paint);
+          const layer = layersRef.current.find((candidate) => candidate.id === action.layer_id);
+          const nextPaint = buildChatActionPaint(layer?.paint, action);
+          onStyleConfigChange(action.layer_id, action.style_config ?? null, nextPaint);
         }
         break;
       case 'set_label':

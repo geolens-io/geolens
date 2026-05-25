@@ -76,7 +76,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     body: StacSearchBody,
 ) -> Response[Any | ProblemDetail]:
     """Search Post
@@ -107,7 +107,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     body: StacSearchBody,
 ) -> Any | ProblemDetail | None:
     """Search Post
@@ -133,7 +133,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     body: StacSearchBody,
 ) -> Response[Any | ProblemDetail]:
     """Search Post
@@ -162,7 +162,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     body: StacSearchBody,
 ) -> Any | ProblemDetail | None:
     """Search Post

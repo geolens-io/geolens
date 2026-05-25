@@ -1,13 +1,14 @@
 from typing import Literal, cast
 
 AdminJobResponseStatus = Literal[
-    "cancelled", "complete", "failed", "pending", "running"
+    "cancelled", "complete", "failed", "fanned_out", "pending", "running"
 ]
 
 ADMIN_JOB_RESPONSE_STATUS_VALUES: set[AdminJobResponseStatus] = {
     "cancelled",
     "complete",
     "failed",
+    "fanned_out",
     "pending",
     "running",
 }

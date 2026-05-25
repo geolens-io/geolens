@@ -21,8 +21,8 @@ class SamlToLocalConversion:
     folded into 'user.update'.
 
         Attributes:
-            password (str): Local-password for the converted account (minimum 8 characters). The user can change this after
-                first login.
+            password (str): Local-password for the converted account (policy: min 12 chars, 3+ character classes). The user
+                can change this after first login.
     """
 
     password: str

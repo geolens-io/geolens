@@ -300,7 +300,7 @@ export type AdminJobResponse = {
      *
      * Current job status: 'pending', 'running', 'complete', 'failed', or 'cancelled'.
      */
-    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled';
+    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out';
     /**
      * User Metadata
      *
@@ -386,7 +386,7 @@ export type AdminUserCreate = {
     /**
      * Password
      *
-     * Initial password (minimum 8 characters). The user can change this after first login.
+     * Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.
      */
     password: string;
     /**
@@ -754,6 +754,12 @@ export type BasemapConfig = {
      */
     land_water_tone?: BasemapLandWaterTone;
     /**
+     * Opacity
+     *
+     * Master basemap opacity 0.0-1.0
+     */
+    opacity?: number;
+    /**
      * Optional contrast hint for relief-oriented basemap styling.
      */
     relief_contrast?: BasemapReliefContrast | null;
@@ -761,6 +767,14 @@ export type BasemapConfig = {
      * Road and transit sublayer visibility where supported.
      */
     road_visibility?: BasemapSublayerVisibility;
+    /**
+     * Sublayer Overrides
+     *
+     * Per-sublayer style overrides keyed by semantic sublayer ID (e.g. 'road', 'boundary', 'building'). Key set is opaque — unknown future sublayer IDs are accepted without rejection. See CONTEXT.md D-01.
+     */
+    sublayer_overrides?: {
+        [key: string]: SublayerOverride;
+    } | null;
 };
 
 /**
@@ -828,7 +842,7 @@ export type BasemapReliefContrast = 'soft' | 'standard' | 'strong';
 export type BasemapSublayerVisibility = 'full' | 'subtle' | 'hidden';
 
 /**
- * Body_login_auth_login__post
+ * Body_login_auth_login_post
  */
 export type BodyLoginAuthLoginPost = {
     /**
@@ -913,6 +927,52 @@ export type BulkDeleteItem = {
      * Dataset Id
      */
     dataset_id: string;
+};
+
+/**
+ * BulkDeleteLayersFailure
+ *
+ * A single layer that could not be deleted.
+ */
+export type BulkDeleteLayersFailure = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * BulkDeleteLayersRequest
+ *
+ * Request body for POST /maps/{map_id}/layers/bulk-delete.
+ */
+export type BulkDeleteLayersRequest = {
+    /**
+     * Layer Ids
+     *
+     * UUIDs of layers to delete. Must be 1–200 elements (matches _MAX_LAYERS_PER_MAP).
+     */
+    layer_ids: Array<string>;
+};
+
+/**
+ * BulkDeleteLayersResponse
+ *
+ * Response body for POST /maps/{map_id}/layers/bulk-delete.
+ */
+export type BulkDeleteLayersResponse = {
+    /**
+     * Deleted
+     */
+    deleted: Array<string>;
+    /**
+     * Failed
+     */
+    failed: Array<BulkDeleteLayersFailure>;
 };
 
 /**
@@ -1137,6 +1197,8 @@ export type ChangePasswordRequest = {
     current_password: string;
     /**
      * New Password
+     *
+     * New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.
      */
     new_password: string;
 };
@@ -1149,6 +1211,10 @@ export type ChatAction = {
      * Bbox
      */
     bbox?: Array<number> | null;
+    /**
+     * Clear Paint
+     */
+    clear_paint?: Array<string> | null;
     /**
      * Dataset Id
      */
@@ -1178,6 +1244,10 @@ export type ChatAction = {
     paint?: {
         [key: string]: unknown;
     } | null;
+    /**
+     * Replace Paint
+     */
+    replace_paint?: boolean | null;
     /**
      * Style Config
      */
@@ -1486,6 +1556,63 @@ export type ColumnChange = {
      * Type
      */
     type: string;
+};
+
+/**
+ * ColumnDdlEntry
+ *
+ * A single column-DDL audit event for the owner-facing feed endpoint.
+ *
+ * Omits PII beyond the actor's username (no email or sensitive details).
+ * Mirrors AuditLogResponse shape, scoped to column-DDL events only.
+ */
+export type ColumnDdlEntry = {
+    /**
+     * Action
+     */
+    action: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Details
+     */
+    details: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * User Id
+     */
+    user_id: string | null;
+    /**
+     * Username
+     */
+    username?: string | null;
+};
+
+/**
+ * ColumnDdlFeedResponse
+ *
+ * Paginated response for GET /api/audit/datasets/{dataset_id}/column-ddl.
+ */
+export type ColumnDdlFeedResponse = {
+    /**
+     * Items
+     */
+    items: Array<ColumnDdlEntry>;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+    /**
+     * Total
+     */
+    total: number;
 };
 
 /**
@@ -2862,6 +2989,24 @@ export type DistributionUpdate = {
 };
 
 /**
+ * DownloadTokenResponse
+ */
+export type DownloadTokenResponse = {
+    /**
+     * Expires In
+     *
+     * Seconds until the download token expires
+     */
+    expires_in?: number;
+    /**
+     * Token
+     *
+     * Short-lived download-scoped JWT (typ='download', TTL ≤ 120s)
+     */
+    token: string;
+};
+
+/**
  * DryRunResponse
  *
  * Result of a dry-run import showing what would change.
@@ -3272,6 +3417,101 @@ export type FacetValueCount = {
 };
 
 /**
+ * FanOutCommitRequest
+ *
+ * Request body for POST /ingest/commit-fan-out/{job_id}.
+ *
+ * Converts one pending IngestJob (multi-layer file) into N independent
+ * ingest tasks — one per requested layer. Maximum 50 layers per request.
+ */
+export type FanOutCommitRequest = {
+    /**
+     * Layers
+     *
+     * Layers to ingest as separate datasets. Maximum 50 per request.
+     */
+    layers: Array<FanOutLayerRequest>;
+};
+
+/**
+ * FanOutCommitResponse
+ *
+ * Response from POST /ingest/commit-fan-out/{job_id}.
+ */
+export type FanOutCommitResponse = {
+    /**
+     * Fan Out Id
+     *
+     * The original job_id (parent). Use for client-side correlation.
+     */
+    fan_out_id: string;
+    /**
+     * Results
+     *
+     * Per-layer outcomes in the same order as the request layers.
+     */
+    results: Array<FanOutLayerResult>;
+};
+
+/**
+ * FanOutLayerRequest
+ *
+ * One layer to ingest as a separate dataset from a multi-layer source.
+ */
+export type FanOutLayerRequest = {
+    /**
+     * Layer Name
+     *
+     * Name of the layer within the source file (e.g. GeoPackage layer name).
+     */
+    layer_name: string;
+    /**
+     * Title
+     *
+     * Optional human-readable title override. Defaults to '{filename}: {layer_name}'.
+     */
+    title?: string | null;
+};
+
+/**
+ * FanOutLayerResult
+ *
+ * Per-layer outcome from the fan-out commit operation.
+ */
+export type FanOutLayerResult = {
+    /**
+     * Dataset Id
+     *
+     * ID of the new Dataset record created for this layer. Null on failure.
+     */
+    dataset_id?: string | null;
+    /**
+     * Error
+     *
+     * User-safe error description when status='failed'. Never contains internal file paths.
+     */
+    error?: string | null;
+    /**
+     * Layer Name
+     *
+     * Layer name from the request.
+     */
+    layer_name: string;
+    /**
+     * New Job Id
+     *
+     * ID of the cloned IngestJob queued for this layer. Null on failure.
+     */
+    new_job_id?: string | null;
+    /**
+     * Status
+     *
+     * 'queued' if the task was dispatched; 'failed' if an error occurred.
+     */
+    status: 'queued' | 'failed';
+};
+
+/**
  * FeatureCreate
  *
  * GeoJSON-style feature for insertion.
@@ -3586,6 +3826,10 @@ export type JobStatusResponse = {
      */
     created_at: string;
     /**
+     * Current Step
+     */
+    current_step?: 'validating' | 'ogr2ogr' | 'finalize' | 'complete' | 'cog_convert' | 'quicklook' | null;
+    /**
      * Dataset Id
      */
     dataset_id: string | null;
@@ -3598,6 +3842,14 @@ export type JobStatusResponse = {
      */
     id: string;
     /**
+     * Progress
+     */
+    progress?: number | null;
+    /**
+     * Rows Processed
+     */
+    rows_processed?: number | null;
+    /**
      * Source Filename
      */
     source_filename: string | null;
@@ -3608,7 +3860,7 @@ export type JobStatusResponse = {
     /**
      * Status
      */
-    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled';
+    status: 'pending' | 'running' | 'complete' | 'failed' | 'cancelled' | 'fanned_out';
     /**
      * Temporal Parse Errors
      */
@@ -3765,6 +4017,12 @@ export type LayerInfo = {
      * Detected geometry type for the layer.
      */
     geometry_type?: string | null;
+    /**
+     * Kind
+     *
+     * Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.
+     */
+    kind?: 'vector' | 'raster';
     /**
      * Layer Id
      *
@@ -6552,6 +6810,10 @@ export type ReservedRenameWarning = {
  */
 export type ReuploadCommitRequest = {
     /**
+     * Layer Name
+     */
+    layer_name?: string | null;
+    /**
      * Srid Override
      */
     srid_override?: number | null;
@@ -6580,9 +6842,25 @@ export type ReuploadCommitResponse = {
 };
 
 /**
+ * ReuploadPreviewRequest
+ */
+export type ReuploadPreviewRequest = {
+    /**
+     * Layer Name
+     */
+    layer_name?: string | null;
+};
+
+/**
  * ReuploadPreviewResponse
  */
 export type ReuploadPreviewResponse = {
+    /**
+     * All Layers
+     */
+    all_layers?: Array<{
+        [key: string]: unknown;
+    }> | null;
     /**
      * Columns
      */
@@ -6607,6 +6885,10 @@ export type ReuploadPreviewResponse = {
      * Layer Name
      */
     layer_name: string;
+    /**
+     * Previous Source Layer
+     */
+    previous_source_layer?: string | null;
     /**
      * Sample Rows
      */
@@ -6687,7 +6969,7 @@ export type SamlToLocalConversion = {
     /**
      * Password
      *
-     * Local-password for the converted account (minimum 8 characters). The user can change this after first login.
+     * Local-password for the converted account (policy: min 12 chars, 3+ character classes). The user can change this after first login.
      */
     password: string;
 };
@@ -7715,6 +7997,12 @@ export type StacItemSummary = {
      */
     data_asset_href?: string | null;
     /**
+     * Data Asset Size Bytes
+     *
+     * Size of the primary data asset in bytes (from STAC file:size). None when not in manifest.
+     */
+    data_asset_size_bytes?: number | null;
+    /**
      * Data Asset Type
      *
      * Media type of the data asset.
@@ -7832,10 +8120,14 @@ export type StacSearchBody = {
     } | null;
     /**
      * Limit
+     *
+     * Maximum number of items returned (1-200).
      */
     limit?: number;
     /**
      * Offset
+     *
+     * Number of items to skip for pagination.
      */
     offset?: number;
 };
@@ -7945,6 +8237,69 @@ export type StatusUpdateResponse = {
      * Record Status
      */
     record_status: string;
+};
+
+/**
+ * SublayerOverride
+ *
+ * Per-sublayer style override for a single basemap sublayer.
+ *
+ * All fields are nullable — a ``None`` value means "use the basemap default".
+ * Only ``#RRGGBB`` hex strings are accepted for color fields; ``None`` means
+ * the basemap default color is preserved.  Numeric ranges are clamped at
+ * validation time (Pydantic ``ge``/``le`` constraints).
+ *
+ * The key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque
+ * (forward-compatible with future sublayer IDs) — see CONTEXT.md D-01.
+ *
+ * Security:
+ * extra="forbid" locks the D-14 scope guardrail: unknown style axes such
+ * as dash patterns, line caps, halo blur, and text-font are rejected at
+ * validation time (T-1059A-03).
+ */
+export type SublayerOverride = {
+    /**
+     * Casing Color
+     *
+     * Casing color in #RRGGBB hex format, or null to use the basemap default.
+     */
+    casing_color?: string | null;
+    /**
+     * Casing Width
+     *
+     * Casing width in pixels (0-20), or null to use the basemap default.
+     */
+    casing_width?: number | null;
+    /**
+     * Max Zoom
+     *
+     * Maximum zoom level at which the sublayer is visible (0-24), or null for default.
+     */
+    max_zoom?: number | null;
+    /**
+     * Min Zoom
+     *
+     * Minimum zoom level at which the sublayer is visible (0-24), or null for default.
+     */
+    min_zoom?: number | null;
+    /**
+     * Opacity
+     *
+     * Per-sublayer opacity (0-1), or null to use the basemap default. Additive on top of BasemapConfig.opacity (the whole-basemap master opacity). IN-02 (Phase 1059 code review): this field is populated via API or a future Phase milestone. The current UI opacity slider in BasemapSublayerEditorScene routes through the legacy sublayerState path (MapBuilderPage.tsx handleSublayerOpacityChange) per D-09 ('OPACITY — existing slider untouched') and does not call updateSublayerOverride. See TODO(BUILDER-SUBLAYER-PERSIST) comment at MapBuilderPage.tsx for the deferral rationale.
+     */
+    opacity?: number | null;
+    /**
+     * Stroke Color
+     *
+     * Stroke color in #RRGGBB hex format, or null to use the basemap default.
+     */
+    stroke_color?: string | null;
+    /**
+     * Stroke Width
+     *
+     * Stroke width in pixels (0-20), or null to use the basemap default.
+     */
+    stroke_width?: number | null;
 };
 
 /**
@@ -8211,7 +8566,7 @@ export type UserCreate = {
     /**
      * Password
      *
-     * Plaintext password (min 8 chars)
+     * Plaintext password (policy: min 12 chars, 3+ character classes)
      */
     password: string;
     /**
@@ -10484,6 +10839,65 @@ export type GenerateMetadataSummaryAiMetadataSummaryPostResponses = {
 
 export type GenerateMetadataSummaryAiMetadataSummaryPostResponse = GenerateMetadataSummaryAiMetadataSummaryPostResponses[keyof GenerateMetadataSummaryAiMetadataSummaryPostResponses];
 
+export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/audit/datasets/{dataset_id}/column-ddl';
+};
+
+export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetError = GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetErrors[keyof GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetErrors];
+
+export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ColumnDdlFeedResponse;
+};
+
+export type GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetResponse = GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetResponses[keyof GetColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGetResponses];
+
 export type ListMyApiKeysAuthApiKeysGetData = {
     body?: never;
     path?: never;
@@ -10723,11 +11137,61 @@ export type ConfigAuthConfigGetResponses = {
 
 export type ConfigAuthConfigGetResponse = ConfigAuthConfigGetResponses[keyof ConfigAuthConfigGetResponses];
 
+export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/auth/download-token/{dataset_id}';
+};
+
+export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostError = CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostErrors[keyof CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostErrors];
+
+export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: DownloadTokenResponse;
+};
+
+export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostResponse = CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostResponses[keyof CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostResponses];
+
 export type LoginAuthLoginPostData = {
     body: BodyLoginAuthLoginPost;
     path?: never;
     query?: never;
-    url: '/auth/login/';
+    url: '/auth/login';
 };
 
 export type LoginAuthLoginPostErrors = {
@@ -14411,7 +14875,10 @@ export type ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostResponses = {
 export type ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostResponse = ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostResponses[keyof ReuploadCommitDatasetsDatasetIdReuploadJobIdCommitPostResponses];
 
 export type ReuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPostData = {
-    body?: never;
+    /**
+     * Request
+     */
+    body?: ReuploadPreviewRequest | null;
     path: {
         /**
          * Dataset Id
@@ -15003,6 +15470,60 @@ export type HealthHealthGetResponses = {
 };
 
 export type HealthHealthGetResponse = HealthHealthGetResponses[keyof HealthHealthGetResponses];
+
+export type CommitFanOutIngestCommitFanOutJobIdPostData = {
+    body: FanOutCommitRequest;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/ingest/commit-fan-out/{job_id}';
+};
+
+export type CommitFanOutIngestCommitFanOutJobIdPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type CommitFanOutIngestCommitFanOutJobIdPostError = CommitFanOutIngestCommitFanOutJobIdPostErrors[keyof CommitFanOutIngestCommitFanOutJobIdPostErrors];
+
+export type CommitFanOutIngestCommitFanOutJobIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    202: FanOutCommitResponse;
+};
+
+export type CommitFanOutIngestCommitFanOutJobIdPostResponse = CommitFanOutIngestCommitFanOutJobIdPostResponses[keyof CommitFanOutIngestCommitFanOutJobIdPostResponses];
 
 export type CommitImportIngestCommitJobIdPostData = {
     body: CommitRequest;
@@ -17126,6 +17647,60 @@ export type AddLayerEndpointMapsMapIdLayersPostResponses = {
 };
 
 export type AddLayerEndpointMapsMapIdLayersPostResponse = AddLayerEndpointMapsMapIdLayersPostResponses[keyof AddLayerEndpointMapsMapIdLayersPostResponses];
+
+export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostData = {
+    body: BulkDeleteLayersRequest;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/layers/bulk-delete';
+};
+
+export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostError = BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostErrors[keyof BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostErrors];
+
+export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BulkDeleteLayersResponse;
+};
+
+export type BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostResponse = BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostResponses[keyof BulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePostResponses];
 
 export type RemoveLayerEndpointMapsMapIdLayersLayerIdDeleteData = {
     body?: never;
@@ -19935,7 +20510,7 @@ export type SearchGetStacSearchGetData = {
         /**
          * Intersects
          *
-         * GeoJSON geometry for spatial intersection
+         * GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier — fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
          */
         intersects?: string | null;
         /**
@@ -20298,6 +20873,10 @@ export type TileEndpointTilesTablePathZxyPbfGetData = {
          * Scope
          */
         scope?: string | null;
+        /**
+         * Cols
+         */
+        cols?: string | null;
     };
     url: '/tiles/{table_path}/{z}/{x}/{y}.pbf';
 };

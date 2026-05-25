@@ -220,6 +220,101 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('patches set_style paint into the current layer paint', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'fill-color': '#ff0000' } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ paint: { 'fill-opacity': 0.45, 'fill-outline-color': '#111827' } })],
+    });
+    await typeAndSend(user, 'make it red');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'fill-opacity': 0.45,
+        'fill-outline-color': '#111827',
+        'fill-color': '#ff0000',
+      });
+    });
+  });
+
+  it('clears explicit set_style paint properties after patching', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_style',
+              layer_id: 'layer-1',
+              paint: { 'line-color': '#f97316' },
+              clear_paint: ['line-gradient'],
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Solid' } };
+    });
+
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({
+        dataset_geometry_type: 'LineString',
+        paint: { 'line-color': '#111827', 'line-width': 4, 'line-gradient': gradient },
+      })],
+    });
+    await typeAndSend(user, 'make the trail solid orange');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'line-color': '#f97316',
+        'line-width': 4,
+      });
+    });
+  });
+
+  it('honors replace_paint for set_style full replacement', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_style',
+              layer_id: 'layer-1',
+              paint: { 'fill-color': '#22c55e' },
+              replace_paint: true,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Replaced' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ paint: { 'fill-opacity': 0.45, 'fill-outline-color': '#111827' } })],
+    });
+    await typeAndSend(user, 'replace style');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'fill-color': '#22c55e',
+      });
+    });
+  });
+
   it('does not re-apply actions when streaming partially succeeds then fails', async () => {
     // Stream applies one action then throws
     mockStreamChat.mockImplementation(async function* () {
@@ -298,6 +393,46 @@ describe('ChatPanel', () => {
       );
     });
     expect(props.onPaintChange).not.toHaveBeenCalled();
+  });
+
+  it('merges set_data_driven_style paint into current layer paint', async () => {
+    const stepExpr = ['step', ['get', 'acres'], '#ffffcc', 100, '#41b6c4', 500, '#253494'];
+    const styleConfig = { mode: 'graduated', column: 'acres', ramp: 'YlGnBu', method: 'quantile', breaks: [] };
+
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            {
+              type: 'set_data_driven_style',
+              layer_id: 'layer-1',
+              paint: { 'fill-color': stepExpr },
+              style_config: styleConfig,
+            },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled by acres' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({
+      layers: [makeLayer({ paint: { 'fill-opacity': 0.45, 'fill-outline-color': '#111827' } })],
+    });
+    await typeAndSend(user, 'color by acres');
+
+    await waitFor(() => {
+      expect(props.onStyleConfigChange).toHaveBeenCalledWith(
+        'layer-1',
+        styleConfig,
+        {
+          'fill-opacity': 0.45,
+          'fill-outline-color': '#111827',
+          'fill-color': stepExpr,
+        },
+      );
+    });
   });
 
   it.each([

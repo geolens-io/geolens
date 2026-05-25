@@ -25,6 +25,8 @@ class StacItemSummary:
         cloud_cover (float | None | Unset): Cloud cover percentage (eo extension).
         collection (None | str | Unset): Parent collection ID.
         data_asset_href (None | str | Unset): URL of the primary data asset (COG).
+        data_asset_size_bytes (int | None | Unset): Size of the primary data asset in bytes (from STAC file:size). None
+            when not in manifest.
         data_asset_type (None | str | Unset): Media type of the data asset.
         datetime_ (None | str | Unset): Primary datetime (ISO 8601).
         datetime_end (None | str | Unset): End datetime for ranges.
@@ -41,6 +43,7 @@ class StacItemSummary:
     cloud_cover: float | None | Unset = UNSET
     collection: None | str | Unset = UNSET
     data_asset_href: None | str | Unset = UNSET
+    data_asset_size_bytes: int | None | Unset = UNSET
     data_asset_type: None | str | Unset = UNSET
     datetime_: None | str | Unset = UNSET
     datetime_end: None | str | Unset = UNSET
@@ -83,6 +86,12 @@ class StacItemSummary:
             data_asset_href = UNSET
         else:
             data_asset_href = self.data_asset_href
+
+        data_asset_size_bytes: int | None | Unset
+        if isinstance(self.data_asset_size_bytes, Unset):
+            data_asset_size_bytes = UNSET
+        else:
+            data_asset_size_bytes = self.data_asset_size_bytes
 
         data_asset_type: None | str | Unset
         if isinstance(self.data_asset_type, Unset):
@@ -143,6 +152,8 @@ class StacItemSummary:
             field_dict["collection"] = collection
         if data_asset_href is not UNSET:
             field_dict["data_asset_href"] = data_asset_href
+        if data_asset_size_bytes is not UNSET:
+            field_dict["data_asset_size_bytes"] = data_asset_size_bytes
         if data_asset_type is not UNSET:
             field_dict["data_asset_type"] = data_asset_type
         if datetime_ is not UNSET:
@@ -212,6 +223,17 @@ class StacItemSummary:
             return cast(None | str | Unset, data)
 
         data_asset_href = _parse_data_asset_href(d.pop("data_asset_href", UNSET))
+
+        def _parse_data_asset_size_bytes(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        data_asset_size_bytes = _parse_data_asset_size_bytes(
+            d.pop("data_asset_size_bytes", UNSET)
+        )
 
         def _parse_data_asset_type(data: object) -> None | str | Unset:
             if data is None:
@@ -284,6 +306,7 @@ class StacItemSummary:
             cloud_cover=cloud_cover,
             collection=collection,
             data_asset_href=data_asset_href,
+            data_asset_size_bytes=data_asset_size_bytes,
             data_asset_type=data_asset_type,
             datetime_=datetime_,
             datetime_end=datetime_end,

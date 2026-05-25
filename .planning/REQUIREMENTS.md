@@ -28,13 +28,13 @@
 
 ### UI and AI Style Actions
 
-- [ ] **STYLE-01**: High-risk manual style controls emit through central style mutation helpers or typed transactions rather than ad hoc raw paint/config object surgery.
-- [ ] **STYLE-02**: Data-driven style enable/disable and render-as mode switches preserve unrelated style fields while clearing stale owned properties from the previously active mode.
-- [ ] **STYLE-03**: Advanced JSON remains an intentional full paint/layout replace path, with validation and clear semantics documented separately from normal patch-style controls.
-- [ ] **AI-01**: Chat `set_style` applies patch semantics against the current layer style instead of replacing the full paint object unless the action explicitly requests replacement.
-- [ ] **AI-02**: AI chat has an explicit way to clear stale style properties, either through typed actions or clear lists, and the backend tool schema/prompt describes that contract.
-- [ ] **AI-03**: Backend chat validation and generated API types stay aligned with any `ChatAction` schema changes, including MapLibre paint validation and clear/replace semantics.
-- [ ] **AI-04**: Chat undo/history restores style changes through the same reconciler path as manual UI changes and preserves paint/style_config parity.
+- [x] **STYLE-01**: High-risk manual style controls emit through central style mutation helpers or typed transactions rather than ad hoc raw paint/config object surgery.
+- [x] **STYLE-02**: Data-driven style enable/disable and render-as mode switches preserve unrelated style fields while clearing stale owned properties from the previously active mode.
+- [x] **STYLE-03**: Advanced JSON remains an intentional full paint/layout replace path, with validation and clear semantics documented separately from normal patch-style controls.
+- [x] **AI-01**: Chat `set_style` applies patch semantics against the current layer style instead of replacing the full paint object unless the action explicitly requests replacement.
+- [x] **AI-02**: AI chat has an explicit way to clear stale style properties, either through typed actions or clear lists, and the backend tool schema/prompt describes that contract.
+- [x] **AI-03**: Backend chat validation and generated API types stay aligned with any `ChatAction` schema changes, including MapLibre paint validation and clear/replace semantics.
+- [x] **AI-04**: Chat undo/history restores style changes through the same reconciler path as manual UI changes and preserves paint/style_config parity.
 
 ### Persistence and Viewer Parity
 
@@ -88,13 +88,13 @@
 | ADAPT-02 | Phase 1114 | Complete |
 | ADAPT-03 | Phase 1114 | Complete |
 | ADAPT-04 | Phase 1114 | Complete |
-| STYLE-01 | Phase 1115 | Pending |
-| STYLE-02 | Phase 1115 | Pending |
-| STYLE-03 | Phase 1115 | Pending |
-| AI-01 | Phase 1115 | Pending |
-| AI-02 | Phase 1115 | Pending |
-| AI-03 | Phase 1115 | Pending |
-| AI-04 | Phase 1115 | Pending |
+| STYLE-01 | Phase 1115 | Complete |
+| STYLE-02 | Phase 1115 | Complete |
+| STYLE-03 | Phase 1115 | Complete |
+| AI-01 | Phase 1115 | Complete |
+| AI-02 | Phase 1115 | Complete |
+| AI-03 | Phase 1115 | Complete |
+| AI-04 | Phase 1115 | Complete |
 | PERSIST-01 | Phase 1116 | Pending |
 | PERSIST-02 | Phase 1116 | Pending |
 | VIEW-01 | Phase 1116 | Pending |
@@ -106,10 +106,10 @@
 | VERIFY-05 | Phase 1117 | Pending |
 
 **Coverage:**
-- v1026 requirements: 28 total, 12 complete
+- v1026 requirements: 28 total, 19 complete
 - Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1114*
+*Last updated: 2026-05-25 after Phase 1115*

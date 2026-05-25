@@ -102,7 +102,7 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Dataset Endpoint
 
-     Delete a dataset with cascade cleanup. Admin only, requires confirm_title.
+     Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
     Args:
         dataset_id (UUID):
@@ -136,7 +136,7 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Delete Dataset Endpoint
 
-     Delete a dataset with cascade cleanup. Admin only, requires confirm_title.
+     Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
     Args:
         dataset_id (UUID):
@@ -165,7 +165,7 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Delete Dataset Endpoint
 
-     Delete a dataset with cascade cleanup. Admin only, requires confirm_title.
+     Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
     Args:
         dataset_id (UUID):
@@ -197,7 +197,7 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Delete Dataset Endpoint
 
-     Delete a dataset with cascade cleanup. Admin only, requires confirm_title.
+     Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
     Args:
         dataset_id (UUID):

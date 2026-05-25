@@ -15,7 +15,8 @@ class ChangePasswordRequest:
     """
     Attributes:
         current_password (str):
-        new_password (str):
+        new_password (str): New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits,
+            symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.
     """
 
     current_password: str

@@ -118,11 +118,14 @@ CHAT_TOOLS_ANTHROPIC = [
     {
         "name": "set_style",
         "description": (
-            "Change the paint properties of a layer (e.g., color, opacity, "
-            "width). Use the correct paint property for the geometry type: "
-            "fill-color for polygons, line-color for lines, circle-color for "
-            "points. Do NOT use this for data-driven coloring -- use "
-            "set_data_driven_style instead."
+            "Patch paint properties of a layer (e.g., color, opacity, width). "
+            "Unspecified paint properties are preserved. Use clear_paint to "
+            "remove stale properties such as line-gradient or line-dasharray. "
+            "Set replace_paint=true only when paint contains the complete "
+            "desired paint object. Use the correct paint property for the "
+            "geometry type: fill-color for polygons, line-color for lines, "
+            "circle-color for points. Do NOT use this for data-driven coloring "
+            "-- use set_data_driven_style instead."
         ),
         "input_schema": {
             "type": "object",
@@ -133,10 +136,28 @@ CHAT_TOOLS_ANTHROPIC = [
                 },
                 "paint": {
                     "type": "object",
-                    "description": "MapLibre paint properties to set/override",
+                    "description": (
+                        "MapLibre paint properties to patch into the current "
+                        "layer style. Omitted properties are preserved."
+                    ),
+                },
+                "clear_paint": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "MapLibre paint property names to clear/unset. Use for "
+                        "transitions like gradient to solid color."
+                    ),
+                },
+                "replace_paint": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, replace the whole paint object with paint "
+                        "after applying clear_paint. Defaults to false."
+                    ),
                 },
             },
-            "required": ["layer_id", "paint"],
+            "required": ["layer_id"],
         },
     },
     {

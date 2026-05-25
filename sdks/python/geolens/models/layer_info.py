@@ -8,6 +8,8 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.layer_info_kind import check_layer_info_kind
+from ..models.layer_info_kind import LayerInfoKind
 from typing import cast
 
 
@@ -21,6 +23,10 @@ class LayerInfo:
         name (str): Internal layer identifier used by the source service.
         feature_count (int | None | Unset): Total feature count if reported by the service.
         geometry_type (None | str | Unset): Detected geometry type for the layer.
+        kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
+            'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type
+            contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else
+            (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'. Default: 'vector'.
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         layer_type (str | Unset): Layer kind: 'layer' (spatial) or 'table' (non-spatial attribute table). Default:
             'layer'.
@@ -31,6 +37,7 @@ class LayerInfo:
     name: str
     feature_count: int | None | Unset = UNSET
     geometry_type: None | str | Unset = UNSET
+    kind: LayerInfoKind | Unset = "vector"
     layer_id: int | None | str | Unset = UNSET
     layer_type: str | Unset = "layer"
     object_id_field: None | str | Unset = UNSET
@@ -51,6 +58,10 @@ class LayerInfo:
             geometry_type = UNSET
         else:
             geometry_type = self.geometry_type
+
+        kind: str | Unset = UNSET
+        if not isinstance(self.kind, Unset):
+            kind = self.kind
 
         layer_id: int | None | str | Unset
         if isinstance(self.layer_id, Unset):
@@ -83,6 +94,8 @@ class LayerInfo:
             field_dict["feature_count"] = feature_count
         if geometry_type is not UNSET:
             field_dict["geometry_type"] = geometry_type
+        if kind is not UNSET:
+            field_dict["kind"] = kind
         if layer_id is not UNSET:
             field_dict["layer_id"] = layer_id
         if layer_type is not UNSET:
@@ -117,6 +130,13 @@ class LayerInfo:
 
         geometry_type = _parse_geometry_type(d.pop("geometry_type", UNSET))
 
+        _kind = d.pop("kind", UNSET)
+        kind: LayerInfoKind | Unset
+        if isinstance(_kind, Unset):
+            kind = UNSET
+        else:
+            kind = check_layer_info_kind(_kind)
+
         def _parse_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
                 return data
@@ -150,6 +170,7 @@ class LayerInfo:
             name=name,
             feature_count=feature_count,
             geometry_type=geometry_type,
+            kind=kind,
             layer_id=layer_id,
             layer_type=layer_type,
             object_id_field=object_id_field,

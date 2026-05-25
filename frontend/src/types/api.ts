@@ -1217,6 +1217,8 @@ export interface ChatAction {
   layer_id?: string;
   expression?: FilterSpecification | null;
   paint?: Record<string, unknown>;
+  clear_paint?: string[];
+  replace_paint?: boolean;
   style_config?: StyleConfig;
   label_config?: LabelConfig;
   dataset_id?: string;

@@ -18,7 +18,8 @@ T = TypeVar("T", bound="AdminUserCreate")
 class AdminUserCreate:
     """
     Attributes:
-        password (str): Initial password (minimum 8 characters). The user can change this after first login.
+        password (str): Initial password (policy: min 12 chars, 3+ character classes). The user can change this after
+            first login.
         username (str): Login username (3-150 chars). Must be unique across the system.
         email (None | str | Unset): Optional email address. Used for OAuth account linking and notifications.
         role (str | Unset): User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'. Default: 'viewer'.

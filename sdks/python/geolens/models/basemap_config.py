@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 
@@ -17,6 +17,11 @@ from ..models.basemap_sublayer_visibility import BasemapSublayerVisibility
 from ..models.basemap_sublayer_visibility import check_basemap_sublayer_visibility
 from typing import cast
 
+if TYPE_CHECKING:
+    from ..models.basemap_config_sublayer_overrides_type_0 import (
+        BasemapConfigSublayerOverridesType0,
+    )
+
 
 T = TypeVar("T", bound="BasemapConfig")
 
@@ -30,19 +35,29 @@ class BasemapConfig:
             True.
         label_mode (BasemapLabelMode | Unset):
         land_water_tone (BasemapLandWaterTone | Unset):
+        opacity (float | Unset): Master basemap opacity 0.0-1.0 Default: 1.0.
         relief_contrast (BasemapReliefContrast | None | Unset): Optional contrast hint for relief-oriented basemap
             styling.
         road_visibility (BasemapSublayerVisibility | Unset):
+        sublayer_overrides (BasemapConfigSublayerOverridesType0 | None | Unset): Per-sublayer style overrides keyed by
+            semantic sublayer ID (e.g. 'road', 'boundary', 'building'). Key set is opaque — unknown future sublayer IDs are
+            accepted without rejection. See CONTEXT.md D-01.
     """
 
     boundary_visibility: BasemapSublayerVisibility | Unset = UNSET
     building_visibility: bool | Unset = True
     label_mode: BasemapLabelMode | Unset = UNSET
     land_water_tone: BasemapLandWaterTone | Unset = UNSET
+    opacity: float | Unset = 1.0
     relief_contrast: BasemapReliefContrast | None | Unset = UNSET
     road_visibility: BasemapSublayerVisibility | Unset = UNSET
+    sublayer_overrides: BasemapConfigSublayerOverridesType0 | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.basemap_config_sublayer_overrides_type_0 import (
+            BasemapConfigSublayerOverridesType0,
+        )
+
         boundary_visibility: str | Unset = UNSET
         if not isinstance(self.boundary_visibility, Unset):
             boundary_visibility = self.boundary_visibility
@@ -57,6 +72,8 @@ class BasemapConfig:
         if not isinstance(self.land_water_tone, Unset):
             land_water_tone = self.land_water_tone
 
+        opacity = self.opacity
+
         relief_contrast: None | str | Unset
         if isinstance(self.relief_contrast, Unset):
             relief_contrast = UNSET
@@ -69,6 +86,14 @@ class BasemapConfig:
         if not isinstance(self.road_visibility, Unset):
             road_visibility = self.road_visibility
 
+        sublayer_overrides: dict[str, Any] | None | Unset
+        if isinstance(self.sublayer_overrides, Unset):
+            sublayer_overrides = UNSET
+        elif isinstance(self.sublayer_overrides, BasemapConfigSublayerOverridesType0):
+            sublayer_overrides = self.sublayer_overrides.to_dict()
+        else:
+            sublayer_overrides = self.sublayer_overrides
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
@@ -80,15 +105,23 @@ class BasemapConfig:
             field_dict["label_mode"] = label_mode
         if land_water_tone is not UNSET:
             field_dict["land_water_tone"] = land_water_tone
+        if opacity is not UNSET:
+            field_dict["opacity"] = opacity
         if relief_contrast is not UNSET:
             field_dict["relief_contrast"] = relief_contrast
         if road_visibility is not UNSET:
             field_dict["road_visibility"] = road_visibility
+        if sublayer_overrides is not UNSET:
+            field_dict["sublayer_overrides"] = sublayer_overrides
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.basemap_config_sublayer_overrides_type_0 import (
+            BasemapConfigSublayerOverridesType0,
+        )
+
         d = dict(src_dict)
         _boundary_visibility = d.pop("boundary_visibility", UNSET)
         boundary_visibility: BasemapSublayerVisibility | Unset
@@ -114,6 +147,8 @@ class BasemapConfig:
             land_water_tone = UNSET
         else:
             land_water_tone = check_basemap_land_water_tone(_land_water_tone)
+
+        opacity = d.pop("opacity", UNSET)
 
         def _parse_relief_contrast(
             data: object,
@@ -141,13 +176,38 @@ class BasemapConfig:
         else:
             road_visibility = check_basemap_sublayer_visibility(_road_visibility)
 
+        def _parse_sublayer_overrides(
+            data: object,
+        ) -> BasemapConfigSublayerOverridesType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                sublayer_overrides_type_0 = (
+                    BasemapConfigSublayerOverridesType0.from_dict(data)
+                )
+
+                return sublayer_overrides_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(BasemapConfigSublayerOverridesType0 | None | Unset, data)
+
+        sublayer_overrides = _parse_sublayer_overrides(
+            d.pop("sublayer_overrides", UNSET)
+        )
+
         basemap_config = cls(
             boundary_visibility=boundary_visibility,
             building_visibility=building_visibility,
             label_mode=label_mode,
             land_water_tone=land_water_tone,
+            opacity=opacity,
             relief_contrast=relief_contrast,
             road_visibility=road_visibility,
+            sublayer_overrides=sublayer_overrides,
         )
 
         return basemap_config

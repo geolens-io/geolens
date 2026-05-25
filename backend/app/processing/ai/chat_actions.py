@@ -22,7 +22,11 @@ from app.platform.sandbox import SandboxError
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
 from app.processing.ai.chat_geojson import _extract_geojson
 from app.processing.ai.chat_styles import _build_data_driven_style
-from app.processing.ai.schemas import ChatMapLayer, validate_paint_with_feedback
+from app.processing.ai.schemas import (
+    ChatMapLayer,
+    validate_paint_property_names_with_feedback,
+    validate_paint_with_feedback,
+)
 from app.processing.ai.service import _execute_search_tool, _should_send_sample_values
 from app.processing.ai.sql_generator import build_sql_schema_context
 
@@ -193,16 +197,32 @@ async def _execute_chat_tool(
     if tool_name == "set_data_driven_style":
         return await _build_data_driven_style(tool_input, session, layers, port=port)
 
-    # Validate paint properties for set_style against geometry type
-    if tool_name == "set_style" and tool_input.get("paint"):
+    # Validate set_style paint and explicit clear lists against geometry type.
+    if tool_name == "set_style" and (
+        tool_input.get("paint") or tool_input.get("clear_paint")
+    ):
         target = next(
             (lyr for lyr in layers if lyr.id == tool_input.get("layer_id")), None
         )
         if target:
-            validated_paint, warnings = validate_paint_with_feedback(
-                tool_input["paint"], target.geometry_type
-            )
-            tool_input = {**tool_input, "paint": validated_paint or {}}
+            warnings: list[str] = []
+            next_input = {**tool_input}
+            if tool_input.get("paint"):
+                validated_paint, paint_warnings = validate_paint_with_feedback(
+                    tool_input["paint"], target.geometry_type
+                )
+                next_input["paint"] = validated_paint or {}
+                warnings.extend(paint_warnings)
+            if tool_input.get("clear_paint"):
+                validated_clear, clear_warnings = (
+                    validate_paint_property_names_with_feedback(
+                        tool_input.get("clear_paint"),
+                        target.geometry_type,
+                    )
+                )
+                next_input["clear_paint"] = validated_clear
+                warnings.extend(clear_warnings)
+            tool_input = next_input
             if warnings:
                 return {"status": "ok", "warnings": warnings, **tool_input}
 

@@ -37,6 +37,9 @@ from .audit_log_response import AuditLogResponse
 from .audit_log_response_details_type_0 import AuditLogResponseDetailsType0
 from .backfill_response import BackfillResponse
 from .basemap_config import BasemapConfig
+from .basemap_config_sublayer_overrides_type_0 import (
+    BasemapConfigSublayerOverridesType0,
+)
 from .basemap_label_mode import BasemapLabelMode
 from .basemap_land_water_tone import BasemapLandWaterTone
 from .basemap_public_response import BasemapPublicResponse
@@ -52,6 +55,9 @@ from .body_upload_map_icon_endpoint_maps_icons_post import (
 )
 from .branding_response import BrandingResponse
 from .bulk_delete_item import BulkDeleteItem
+from .bulk_delete_layers_failure import BulkDeleteLayersFailure
+from .bulk_delete_layers_request import BulkDeleteLayersRequest
+from .bulk_delete_layers_response import BulkDeleteLayersResponse
 from .bulk_delete_request import BulkDeleteRequest
 from .bulk_delete_response import BulkDeleteResponse
 from .bulk_delete_result_item import BulkDeleteResultItem
@@ -98,6 +104,9 @@ from .collection_ref import CollectionRef
 from .collection_response import CollectionResponse
 from .collection_update import CollectionUpdate
 from .column_change import ColumnChange
+from .column_ddl_entry import ColumnDdlEntry
+from .column_ddl_entry_details_type_0 import ColumnDdlEntryDetailsType0
+from .column_ddl_feed_response import ColumnDdlFeedResponse
 from .column_def import ColumnDef
 from .column_definition import ColumnDefinition
 from .column_definition_type import ColumnDefinitionType
@@ -158,6 +167,7 @@ from .distribution_create import DistributionCreate
 from .distribution_list_response import DistributionListResponse
 from .distribution_response import DistributionResponse
 from .distribution_update import DistributionUpdate
+from .download_token_response import DownloadTokenResponse
 from .dry_run_configuration_config_ops_dry_run_post_mode import (
     DryRunConfigurationConfigOpsDryRunPostMode,
 )
@@ -177,6 +187,11 @@ from .export_format import ExportFormat
 from .facet_count_response import FacetCountResponse
 from .facet_count_response_record_type import FacetCountResponseRecordType
 from .facet_value_count import FacetValueCount
+from .fan_out_commit_request import FanOutCommitRequest
+from .fan_out_commit_response import FanOutCommitResponse
+from .fan_out_layer_request import FanOutLayerRequest
+from .fan_out_layer_result import FanOutLayerResult
+from .fan_out_layer_result_status import FanOutLayerResultStatus
 from .feature_create import FeatureCreate
 from .feature_create_properties_type_0 import FeatureCreatePropertiesType0
 from .feature_flags_response import FeatureFlagsResponse
@@ -230,6 +245,7 @@ from .inline_def_geo_json_feature_afaebacb_properties import (
 )
 from .inline_def_link_900f1c94 import InlineDefLink900F1C94
 from .job_status_response import JobStatusResponse
+from .job_status_response_current_step_type_0 import JobStatusResponseCurrentStepType0
 from .job_status_response_status import JobStatusResponseStatus
 from .job_status_response_temporal_parse_errors import (
     JobStatusResponseTemporalParseErrors,
@@ -241,6 +257,7 @@ from .keyword_suggestion import KeywordSuggestion
 from .keyword_suggestions_response import KeywordSuggestionsResponse
 from .landing_page import LandingPage
 from .layer_info import LayerInfo
+from .layer_info_kind import LayerInfoKind
 from .layer_preview import LayerPreview
 from .lineage_draft_response import LineageDraftResponse
 from .list_features_datasets_dataset_id_features_get_geo_json_feature_collection import (
@@ -409,7 +426,11 @@ from .reserved_rename_detail import ReservedRenameDetail
 from .reserved_rename_warning import ReservedRenameWarning
 from .reupload_commit_request import ReuploadCommitRequest
 from .reupload_commit_response import ReuploadCommitResponse
+from .reupload_preview_request import ReuploadPreviewRequest
 from .reupload_preview_response import ReuploadPreviewResponse
+from .reupload_preview_response_all_layers_type_0_item import (
+    ReuploadPreviewResponseAllLayersType0Item,
+)
 from .reupload_preview_response_sample_rows_item import (
     ReuploadPreviewResponseSampleRowsItem,
 )
@@ -486,6 +507,7 @@ from .stac_search_response import StacSearchResponse
 from .stale_cleanup_response import StaleCleanupResponse
 from .status_update import StatusUpdate
 from .status_update_response import StatusUpdateResponse
+from .sublayer_override import SublayerOverride
 from .summary_draft_response import SummaryDraftResponse
 from .table_register_response import TableRegisterResponse
 from .terrain_config import TerrainConfig
@@ -568,6 +590,7 @@ __all__ = (
     "AuditLogResponseDetailsType0",
     "BackfillResponse",
     "BasemapConfig",
+    "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",
     "BasemapLandWaterTone",
     "BasemapPublicResponse",
@@ -579,6 +602,9 @@ __all__ = (
     "BodyUploadMapIconEndpointMapsIconsPost",
     "BrandingResponse",
     "BulkDeleteItem",
+    "BulkDeleteLayersFailure",
+    "BulkDeleteLayersRequest",
+    "BulkDeleteLayersResponse",
     "BulkDeleteRequest",
     "BulkDeleteResponse",
     "BulkDeleteResultItem",
@@ -619,6 +645,9 @@ __all__ = (
     "CollectionResponse",
     "CollectionUpdate",
     "ColumnChange",
+    "ColumnDdlEntry",
+    "ColumnDdlEntryDetailsType0",
+    "ColumnDdlFeedResponse",
     "ColumnDef",
     "ColumnDefinition",
     "ColumnDefinitionType",
@@ -673,6 +702,7 @@ __all__ = (
     "DistributionListResponse",
     "DistributionResponse",
     "DistributionUpdate",
+    "DownloadTokenResponse",
     "DryRunConfigurationConfigOpsDryRunPostMode",
     "DryRunResponse",
     "DryRunResponseOauthProviders",
@@ -690,6 +720,11 @@ __all__ = (
     "FacetCountResponse",
     "FacetCountResponseRecordType",
     "FacetValueCount",
+    "FanOutCommitRequest",
+    "FanOutCommitResponse",
+    "FanOutLayerRequest",
+    "FanOutLayerResult",
+    "FanOutLayerResultStatus",
     "FeatureCreate",
     "FeatureCreatePropertiesType0",
     "FeatureFlagsResponse",
@@ -723,6 +758,7 @@ __all__ = (
     "InlineDefGeoJSONFeatureAfaebacbProperties",
     "InlineDefLink900F1C94",
     "JobStatusResponse",
+    "JobStatusResponseCurrentStepType0",
     "JobStatusResponseStatus",
     "JobStatusResponseTemporalParseErrors",
     "KeywordCreate",
@@ -732,6 +768,7 @@ __all__ = (
     "KeywordSuggestionsResponse",
     "LandingPage",
     "LayerInfo",
+    "LayerInfoKind",
     "LayerPreview",
     "LineageDraftResponse",
     "ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection",
@@ -858,7 +895,9 @@ __all__ = (
     "ReservedRenameWarning",
     "ReuploadCommitRequest",
     "ReuploadCommitResponse",
+    "ReuploadPreviewRequest",
     "ReuploadPreviewResponse",
+    "ReuploadPreviewResponseAllLayersType0Item",
     "ReuploadPreviewResponseSampleRowsItem",
     "ReuploadResponse",
     "ReuploadServicePreviewRequest",
@@ -919,6 +958,7 @@ __all__ = (
     "StaleCleanupResponse",
     "StatusUpdate",
     "StatusUpdateResponse",
+    "SublayerOverride",
     "SummaryDraftResponse",
     "TableRegisterResponse",
     "TerrainConfig",

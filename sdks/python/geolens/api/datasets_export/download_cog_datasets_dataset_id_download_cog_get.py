@@ -83,6 +83,12 @@ def sync_detailed(
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
+    KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+    download token (issued by POST /auth/download-token/{id} for a public
+    dataset) is presented on ``?token=``. The function branches on
+    user-None to enforce public visibility and emit the audit row with
+    user_id=NULL.
+
     Args:
         dataset_id (UUID):
 
@@ -118,6 +124,12 @@ def sync(
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
+    KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+    download token (issued by POST /auth/download-token/{id} for a public
+    dataset) is presented on ``?token=``. The function branches on
+    user-None to enforce public visibility and emit the audit row with
+    user_id=NULL.
+
     Args:
         dataset_id (UUID):
 
@@ -147,6 +159,12 @@ async def asyncio_detailed(
     Local storage: streams the COG file with Content-Type image/tiff.
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
+
+    KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+    download token (issued by POST /auth/download-token/{id} for a public
+    dataset) is presented on ``?token=``. The function branches on
+    user-None to enforce public visibility and emit the audit row with
+    user_id=NULL.
 
     Args:
         dataset_id (UUID):
@@ -180,6 +198,12 @@ async def asyncio(
     Local storage: streams the COG file with Content-Type image/tiff.
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
+
+    KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+    download token (issued by POST /auth/download-token/{id} for a public
+    dataset) is presented on ``?token=``. The function branches on
+    user-None to enforce public visibility and emit the audit row with
+    user_id=NULL.
 
     Args:
         dataset_id (UUID):

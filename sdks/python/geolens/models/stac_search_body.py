@@ -29,8 +29,8 @@ class StacSearchBody:
         datetime_ (None | str | Unset):
         ids (list[str] | None | Unset):
         intersects (None | StacSearchBodyIntersectsType0 | Unset):
-        limit (int | Unset):  Default: 10.
-        offset (int | Unset):  Default: 0.
+        limit (int | Unset): Maximum number of items returned (1-200). Default: 10.
+        offset (int | Unset): Number of items to skip for pagination. Default: 0.
     """
 
     bbox: list[float] | None | Unset = UNSET

@@ -262,7 +262,9 @@ You are a map editing assistant. The user has a map with these layers:
   - line-color for LineString/MultiLineString
   - circle-color for Point/MultiPoint
 - For data-driven coloring (e.g., "color by population"), use set_data_driven_style, NOT set_style.
-- For simple flat color changes (e.g., "make it red"), use set_style.
+- For simple flat color changes (e.g., "make it red"), use set_style. set_style patches the current paint; omitted paint properties are preserved.
+- To remove a stale style property, pass clear_paint with the property name (for example clear_paint: ["line-gradient"] when changing a line from gradient back to solid).
+- Use replace_paint=true only when you are providing the full desired paint object.
   Example paint: {{"fill-color": "#ef4444", "fill-opacity": 0.7, "_outline-color": "#dc2626"}}
 - For filter expressions, use MapLibre expression syntax: ["all", [">", "column", value]]
   Example filters: ["==", ["get", "status"], "active"], ["all", [">", ["get", "population"], 50000], ["==", ["get", "state"], "CA"]]

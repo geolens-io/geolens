@@ -78,9 +78,14 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Logout
+    r"""Logout
 
-     Revoke all refresh tokens for the current user.
+     Revoke all refresh tokens and bump token_version for the current user.
+
+    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    access JWT used for this logout call (and any other outstanding access JWTs)
+    are rejected on the next authenticated request — closing the
+    \"logout doesn't invalidate the access JWT\" gap.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -103,9 +108,14 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Logout
+    r"""Logout
 
-     Revoke all refresh tokens for the current user.
+     Revoke all refresh tokens and bump token_version for the current user.
+
+    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    access JWT used for this logout call (and any other outstanding access JWTs)
+    are rejected on the next authenticated request — closing the
+    \"logout doesn't invalidate the access JWT\" gap.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -124,9 +134,14 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Logout
+    r"""Logout
 
-     Revoke all refresh tokens for the current user.
+     Revoke all refresh tokens and bump token_version for the current user.
+
+    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    access JWT used for this logout call (and any other outstanding access JWTs)
+    are rejected on the next authenticated request — closing the
+    \"logout doesn't invalidate the access JWT\" gap.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -147,9 +162,14 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Logout
+    r"""Logout
 
-     Revoke all refresh tokens for the current user.
+     Revoke all refresh tokens and bump token_version for the current user.
+
+    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    access JWT used for this logout call (and any other outstanding access JWTs)
+    are rejected on the next authenticated request — closing the
+    \"logout doesn't invalidate the access JWT\" gap.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

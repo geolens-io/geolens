@@ -120,7 +120,7 @@ def _build_response(
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     collections: None | str | Unset = UNSET,
@@ -138,7 +138,9 @@ def sync_detailed(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
+            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
+            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
         limit (int | Unset):  Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
@@ -170,7 +172,7 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     collections: None | str | Unset = UNSET,
@@ -188,7 +190,9 @@ def sync(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
+            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
+            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
         limit (int | Unset):  Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
@@ -215,7 +219,7 @@ def sync(
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     collections: None | str | Unset = UNSET,
@@ -233,7 +237,9 @@ async def asyncio_detailed(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
+            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
+            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
         limit (int | Unset):  Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.
@@ -263,7 +269,7 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient | Client,
+    client: AuthenticatedClient,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
     collections: None | str | Unset = UNSET,
@@ -281,7 +287,9 @@ async def asyncio(
         datetime_ (None | str | Unset): OGC datetime interval
         collections (None | str | Unset): Comma-separated collection IDs
         ids (None | str | Unset): Comma-separated item IDs
-        intersects (None | str | Unset): GeoJSON geometry for spatial intersection
+        intersects (None | str | Unset): GeoJSON geometry for spatial intersection. SEC-FU-05
+            (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier —
+            fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates.
         limit (int | Unset):  Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 from 1000 to bound deep-paging cost. Default: 0.

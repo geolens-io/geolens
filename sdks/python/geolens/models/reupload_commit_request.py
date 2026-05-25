@@ -18,15 +18,23 @@ T = TypeVar("T", bound="ReuploadCommitRequest")
 class ReuploadCommitRequest:
     """
     Attributes:
+        layer_name (None | str | Unset):
         srid_override (int | None | Unset):
         token (None | str | Unset):
     """
 
+    layer_name: None | str | Unset = UNSET
     srid_override: int | None | Unset = UNSET
     token: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        layer_name: None | str | Unset
+        if isinstance(self.layer_name, Unset):
+            layer_name = UNSET
+        else:
+            layer_name = self.layer_name
+
         srid_override: int | None | Unset
         if isinstance(self.srid_override, Unset):
             srid_override = UNSET
@@ -42,6 +50,8 @@ class ReuploadCommitRequest:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if layer_name is not UNSET:
+            field_dict["layer_name"] = layer_name
         if srid_override is not UNSET:
             field_dict["srid_override"] = srid_override
         if token is not UNSET:
@@ -52,6 +62,15 @@ class ReuploadCommitRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+
+        def _parse_layer_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        layer_name = _parse_layer_name(d.pop("layer_name", UNSET))
 
         def _parse_srid_override(data: object) -> int | None | Unset:
             if data is None:
@@ -72,6 +91,7 @@ class ReuploadCommitRequest:
         token = _parse_token(d.pop("token", UNSET))
 
         reupload_commit_request = cls(
+            layer_name=layer_name,
             srid_override=srid_override,
             token=token,
         )
