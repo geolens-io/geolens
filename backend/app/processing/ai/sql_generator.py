@@ -9,12 +9,14 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+import uuid as _uuid
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.schemas import ChatMapLayer
+from app.processing.ai.token_usage import record_token_usage
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -195,6 +197,27 @@ ST_Y(point) -> float                     -- Y coordinate (latitude) of a point
 
 similarity(text, text) -> float          -- Returns 0.0-1.0 similarity score
 word_similarity(text, text) -> float     -- Word-level similarity score
+text % text -> boolean                   -- True when similarity > pg_trgm.similarity_threshold (default 0.3)
+
+## Vector Similarity Operators (requires pgvector extension)
+
+Use these when a column has type vector(N) (commonly named `embedding` or
+`embedding_1536`). Lower values = more similar.
+
+  embedding <-> '[...]'::vector   -- L2 (Euclidean) distance
+  embedding <=> '[...]'::vector   -- cosine distance
+  embedding <#> '[...]'::vector   -- negative inner product
+
+To find the K most similar rows to a reference row's embedding:
+  SELECT name, embedding <=> (SELECT embedding FROM data.t WHERE id = '<id>') AS distance
+  FROM data.t
+  WHERE id <> '<id>'
+  ORDER BY distance
+  LIMIT 10;
+
+Vector NN scans are O(N) without an HNSW/IVFFlat index — always include LIMIT.
+Vector columns are queried with these operators, NOT with similarity() or ILIKE
+(those are for TEXT columns).
 
 ## IMPORTANT: Geography Casts for Meter-Based Results
 
@@ -219,6 +242,7 @@ Always convert to human-friendly units in the SQL. Default to acres for area and
 
 For case-insensitive matching: column ILIKE '%pattern%'
 For fuzzy matching: use the similarity() function listed above (requires pg_trgm)
+For threshold-based fuzzy matching: column % 'pattern' (returns true when similar enough)
 For pattern matching: column ~ 'regex_pattern' (case-sensitive), column ~* 'regex_pattern' (case-insensitive)
 
 ## NULL Handling
@@ -295,11 +319,37 @@ WHERE c.name ILIKE '%spring%'
 ORDER BY population DESC
 LIMIT 20;
 
+-- CTE (WITH clause) for multi-step analysis:
+WITH big_cities AS (
+  SELECT geom_4326, name, population
+  FROM data.cities
+  WHERE population > 500000
+),
+park_buffers AS (
+  SELECT name, ST_Buffer(geom_4326::geography, 10000)::geometry AS buf
+  FROM data.national_parks
+)
+SELECT pb.name AS park, COUNT(bc.name) AS nearby_big_city_count
+FROM park_buffers pb
+LEFT JOIN big_cities bc ON ST_Intersects(pb.buf, bc.geom_4326)
+GROUP BY pb.name
+ORDER BY nearby_big_city_count DESC
+LIMIT 20;
+
+-- Vector similarity (when an embedding column is available):
+SELECT name, embedding <=> (SELECT embedding FROM data.records WHERE id = '<id>') AS distance
+FROM data.records
+WHERE id <> '<id>'
+ORDER BY distance
+LIMIT 10;
+
 -- Common Mistakes to Avoid:
 -- WRONG: ST_Distance(a.geom_4326, b.geom_4326) → returns DEGREES, not meters
 -- CORRECT: ST_Distance(a.geom_4326::geography, b.geom_4326::geography) → meters
 -- WRONG: WHERE column = NULL → always false; use WHERE column IS NULL
 -- WRONG: SELECT name, COUNT(*) FROM data.t → missing GROUP BY name
+-- WRONG: WHERE similarity(embedding, '[...]') > 0.5 → similarity() is for text
+-- CORRECT: ORDER BY embedding <=> '[...]'::vector LIMIT 10 → vector NN
 
 ## Constraints
 
@@ -314,7 +364,8 @@ LIMIT 20;
 - For case-insensitive text matching, use ILIKE (e.g., WHERE name ILIKE 'california').
 - Always include LIMIT 1000 unless the query is an aggregation (GROUP BY, COUNT, SUM, etc.).
 - Use ONLY the tables and columns shown in the schema above. Do not invent names.
-- Use ONLY the functions listed in the PostGIS and Text Search sections above. Do not use functions not in this reference.
+- Use ONLY the functions and operators listed in the PostGIS, Text Search, and Vector Similarity sections above. Do not use functions not in this reference.
+- Vector columns (type vector(N)) are queried with the <->/<=>/<#> operators, NOT with similarity() or ILIKE.
 - Queries are limited to 30 seconds. Prefer indexed operations (ST_DWithin) over unindexed scans (ST_Distance < X).
 - You may use CTEs (WITH clauses) and subqueries. All referenced tables must be from the schema above.
 - If the question cannot be answered with the available schema, respond with: -- ERROR: Cannot answer this question with the available data.
@@ -333,6 +384,7 @@ async def generate_sql(
     schema_context: str,
     *,
     layer_descriptions: str | None = None,
+    user_id: _uuid.UUID | None = None,
 ) -> str:
     """Generate SQL from a natural language question using the configured LLM.
 
@@ -343,6 +395,12 @@ async def generate_sql(
         db: Database session for reading persistent config.
         question: The user's natural language question.
         schema_context: DDL schema context from build_sql_schema_context().
+        layer_descriptions: Optional one-line-per-layer summary appended to
+            the prompt for additional context.
+        user_id: Optional user UUID — when provided, the per-call input/output
+            token counts are persisted with subsystem="sql_gen" so SQL
+            generation cost can be attributed separately from the parent
+            chat loop's "chat" / "chat_stream" rows.
 
     Returns:
         Raw SQL string ready for sandbox validation and execution.
@@ -387,6 +445,19 @@ async def generate_sql(
         base_url=base_url,
     )
     sql = result.text
+
+    # Attribute SQL generation cost separately from the parent chat loop
+    # (which records "chat" / "chat_stream"). Best-effort — failures are
+    # logged inside record_token_usage and never break the caller.
+    if user_id is not None:
+        await record_token_usage(
+            db,
+            user_id=user_id,
+            subsystem="sql_gen",
+            model=model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
 
     # Strip markdown code fences if the LLM wrapped the SQL
     sql = _strip_code_fences(sql.strip())

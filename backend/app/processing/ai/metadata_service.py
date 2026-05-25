@@ -32,8 +32,11 @@ logger = structlog.stdlib.get_logger(__name__)
 # In-memory TTL caches for metadata AI (avoids redundant DB queries when
 # a user clicks Summary, Keywords, Lineage in quick succession).
 _CACHE_TTL = 60.0  # seconds
+_NEIGHBOR_KW_TTL = 300.0  # 5 min — vector NN is heavier, embeddings change rarely
+_NEIGHBOR_KW_MAX = 100
 _dataset_context_cache: dict[str, tuple[float, str]] = {}
 _vocabulary_cache: tuple[float, list[str]] | None = None
+_neighbor_kw_cache: dict[str, tuple[float, list[str]]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +119,40 @@ async def _build_dataset_context(
             col_strs.append(f"  - {col.get('name', '?')}: {col.get('type', '?')}")
         parts.append("Columns:\n" + "\n".join(col_strs))
 
+    # Column null + cardinality stats (cap at 20 non-geometry columns).
+    # Best-effort: missing/erroring tables degrade silently (the LLM just
+    # gets a less-grounded summary, not a request failure).
+    if dataset.column_info and dataset.table_name:
+        non_geom_cols = [
+            c.get("name", "")
+            for c in dataset.column_info[:30]
+            if c.get("name") and "geometry" not in c.get("type", "").lower()
+        ]
+        if non_geom_cols:
+            try:
+                stats = await port.get_column_null_cardinality(
+                    session,
+                    dataset.table_name,
+                    non_geom_cols,
+                    max_columns=20,
+                )
+            except Exception:  # broad: stats lookup is non-fatal context enrichment
+                logger.debug("Column null/cardinality lookup failed", exc_info=True)
+                stats = {}
+            if stats:
+                lines = []
+                for col_name, s in stats.items():
+                    total = s.get("total_count") or 0
+                    null_count = s.get("null_count") or 0
+                    distinct_count = s.get("distinct_count") or 0
+                    null_pct = (null_count / total * 100) if total else 0
+                    approx = " (approximate)" if s.get("approximate") else ""
+                    lines.append(
+                        f"  - {col_name}: {null_pct:.1f}% null, "
+                        f"{distinct_count} distinct{approx}"
+                    )
+                parts.append("Column statistics:\n" + "\n".join(lines))
+
     # Sample values (truncated at value level to avoid mid-JSON cuts)
     if dataset.sample_values:
         truncated_samples = {}
@@ -195,6 +232,8 @@ async def _get_related_keywords_from_embeddings(
     """Return keywords from the top-N nearest datasets by embedding similarity.
 
     Falls back to empty list if dataset has no embedding or on any error.
+    Results cached 5min by dataset_id (vector NN is heavier than the
+    dataset-context query and embeddings change rarely).
 
     Phase 225 review fix (B-02 / W-01): both the dataset lookup and the
     keyword aggregation route through the Port surface so processing/* keeps
@@ -202,6 +241,13 @@ async def _get_related_keywords_from_embeddings(
     Enterprise overlays (Phase 226) can intercept both calls.
     """
     import uuid as _uuid
+
+    # Check cache first (keyed on dataset_id; embedding model rebinds are
+    # rare and a 5min staleness window is acceptable for context enrichment).
+    now = time.monotonic()
+    cached = _neighbor_kw_cache.get(dataset_id)
+    if cached and (now - cached[0]) < _NEIGHBOR_KW_TTL:
+        return cached[1]
 
     try:
         dataset = await port.get_dataset(session, _uuid.UUID(dataset_id))
@@ -214,10 +260,17 @@ async def _get_related_keywords_from_embeddings(
         if not neighbor_ids:
             return []
 
-        return await port.get_keywords_for_records(session, neighbor_ids)
+        result = await port.get_keywords_for_records(session, neighbor_ids)
     except Exception:  # broad: embedding neighbor lookup is non-fatal context-builder; degrade to empty list
         logger.debug("Embedding neighbor keyword lookup failed", exc_info=True)
         return []
+
+    # Cache (LRU-style eviction)
+    if len(_neighbor_kw_cache) >= _NEIGHBOR_KW_MAX:
+        oldest_key = min(_neighbor_kw_cache, key=lambda k: _neighbor_kw_cache[k][0])
+        del _neighbor_kw_cache[oldest_key]
+    _neighbor_kw_cache[dataset_id] = (now, result)
+    return result
 
 
 async def _generate_structured(
@@ -280,12 +333,19 @@ KEYWORD_SYSTEM = (
     "You are a geospatial metadata specialist following FGDC CSDGM conventions. "
     "Suggest 5-10 descriptive keywords for this dataset. Classify each keyword as "
     "one of: theme (topical subject), place (geographic location), or temporal "
-    "(time period). Prefer ISO 19115 Topic Categories for theme keywords when "
-    "applicable (e.g., transportation, boundaries, elevation, environment, "
-    "inlandWaters, structure, planningCadastre, society, biota, climatologyMeteorologyAtmosphere). "
-    "Return lowercase keywords for free-text terms. Use the exact ISO 19115 "
-    "camelCase spelling for topic categories (e.g., planningCadastre, inlandWaters, "
-    "transportation).\n\n"
+    "(time period). For theme keywords, prefer ISO 19115 Topic Categories when "
+    "applicable. The full topic category list: farming, biota, boundaries, "
+    "climatologyMeteorologyAtmosphere, economy, elevation, environment, "
+    "geoscientificInformation, health, imageryBaseMapsEarthCover, "
+    "intelligenceMilitary, inlandWaters, location, oceans, planningCadastre, "
+    "society, structure, transportation, utilitiesCommunication.\n\n"
+    "## Case rules (these are NOT the same)\n"
+    "- ISO 19115 topic categories: return in exact camelCase as listed above "
+    "(e.g., 'planningCadastre', NOT 'planning_cadastre', 'planning cadastre', "
+    "or 'planningcadastre').\n"
+    "- All other free-text keywords (themes not in the ISO list, places, "
+    "temporal): return in lowercase (e.g., 'national parks', 'united states', "
+    "'2024').\n\n"
     "Example:\n"
     "Input: National Parks polygons, US extent, established dates, acreage.\n"
     'Output: [{"keyword": "environment", "keyword_type": "theme"}, '
@@ -322,12 +382,18 @@ QUALITY_STATEMENT_SYSTEM = (
     "consistency (if geometry validity data is provided), and coordinate "
     "reference system. Do NOT claim specific accuracy levels without evidence. "
     "Write 2-4 sentences.\n\n"
-    "Example:\n"
+    "Example 1 (with metrics):\n"
     "Input: 12,500 features, 98.2% geometry validity, CRS: EPSG:4326, "
     "attribute completeness: 94%.\n"
     "Output: Dataset contains 12,500 features with 98.2% valid geometries and 94% "
     "attribute completeness. Data is stored in WGS 84 (EPSG:4326). A small number "
-    "of geometries (1.8%) have validity issues that may affect spatial operations."
+    "of geometries (1.8%) have validity issues that may affect spatial operations.\n\n"
+    "Example 2 (no metrics available):\n"
+    "Input: 8,400 features, CRS: EPSG:4326, no computed quality metrics.\n"
+    "Output: Dataset contains 8,400 features stored in WGS 84 (EPSG:4326). "
+    "Quality has not been formally assessed; geometry validity, attribute "
+    "completeness, and positional accuracy are unknown. Users should validate "
+    "the data for their intended use before relying on it for analysis."
 )
 
 
@@ -342,6 +408,11 @@ async def generate_summary_draft(
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id, port=port)
+    # Strip existing summary so the LLM re-derives from data instead of
+    # paraphrasing what's already there (mirrors quality_statement strip).
+    context = "\n".join(
+        line for line in context.split("\n") if not line.startswith("Current summary:")
+    )
     system = SUMMARY_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."
@@ -392,6 +463,11 @@ async def generate_lineage_draft(
     from app.processing.ai.chat_service import lang_name
 
     context = await _build_dataset_context(session, dataset_id, port=port)
+    # Strip existing lineage so the LLM re-derives from SRID/format deltas
+    # instead of paraphrasing what's already there.
+    context = "\n".join(
+        line for line in context.split("\n") if not line.startswith("Current lineage:")
+    )
     system = LINEAGE_SYSTEM
     if language:
         system += f"\n\nRespond in {lang_name(language)}."

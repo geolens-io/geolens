@@ -58,9 +58,19 @@ _VALID_PAINT_PROPS: dict[str, set[str]] = {
         "heatmap-color",
         "heatmap-opacity",
     },
+    "fill-extrusion": {
+        "fill-extrusion-color",
+        "fill-extrusion-opacity",
+        "fill-extrusion-height",
+        "fill-extrusion-base",
+        "fill-extrusion-vertical-gradient",
+        "fill-extrusion-translate",
+        "fill-extrusion-translate-anchor",
+        "fill-extrusion-pattern",
+    },
 }
 
-# Color props including heatmap-color
+# Color props including heatmap-color and fill-extrusion-color
 _COLOR_PROPS = {
     "fill-color",
     "fill-outline-color",
@@ -69,6 +79,7 @@ _COLOR_PROPS = {
     "circle-color",
     "circle-stroke-color",
     "heatmap-color",
+    "fill-extrusion-color",
 }
 
 
@@ -101,6 +112,9 @@ _PAINT_BOUNDS: dict[str, tuple[float, float]] = {
     "heatmap-weight": (0.0, 10.0),
     "heatmap-intensity": (0.0, 10.0),
     "heatmap-opacity": (0.0, 1.0),
+    "fill-extrusion-opacity": (0.0, 1.0),
+    "fill-extrusion-height": (0.0, 10000.0),
+    "fill-extrusion-base": (0.0, 10000.0),
 }
 
 
@@ -187,6 +201,12 @@ def validate_paint_with_feedback(
         layer_type = "circle"
 
     valid_props = _VALID_PAINT_PROPS.get(layer_type, _VALID_PAINT_PROPS["circle"])
+    # Polygon sources can render as either fill or fill-extrusion (3D). The
+    # 3D path is triggered downstream by `paint._height_column` (see project
+    # memory: paint._height_column 3D extrusion convention), so accept both
+    # property families on polygon layers and let the renderer pick.
+    if layer_type == "fill":
+        valid_props = valid_props | _VALID_PAINT_PROPS["fill-extrusion"]
     cleaned = {}
     warnings: list[str] = []
     for key, value in paint.items():

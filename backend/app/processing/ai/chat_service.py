@@ -31,6 +31,7 @@ via this module — see chat_actions.py for the rationale).
 """
 
 import json
+import re as _re
 from typing import TYPE_CHECKING
 
 import structlog
@@ -135,6 +136,40 @@ _MAX_SYSTEM_PROMPT_LAYERS = 15
 _MAX_COLUMNS_PER_LAYER = 30
 _MAX_SAMPLE_COLS = 3
 
+# Layer-name sanitization for prompt-injection defense: layer names are
+# user-controlled and embedded verbatim in the chat system prompt. Strip
+# control chars, role markers, and obvious prompt-injection seeds before
+# inlining. 80-char cap is generous for human-readable names while bounding
+# token cost.
+_MAX_LAYER_NAME_LEN = 80
+
+_PROMPT_INJECTION_PATTERNS = _re.compile(
+    r"(?i)\b(system|assistant|user)\s*:\s*|"  # role markers
+    r"<\|[^|>]*\|>|"  # special tokens like <|im_start|>
+    r"```|"  # code-fence boundaries
+    r"\bignore\s+(all\s+)?previous\b|"  # classic injection seed
+    r"\bdisregard\s+(all\s+)?previous\b"
+)
+_CONTROL_CHARS = _re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _sanitize_layer_name(name: str | None) -> str:
+    """Sanitize a user-controlled layer name for embedding in a system prompt.
+
+    Strips control characters, neutralizes role markers and injection seeds,
+    and caps length. The result is wrapped in backticks at the call site so
+    even after sanitization the LLM treats it as quoted text rather than
+    instructions.
+    """
+    if not name:
+        return "unnamed"
+    s = _CONTROL_CHARS.sub("", name)
+    s = _PROMPT_INJECTION_PATTERNS.sub("[redacted] ", s)
+    s = s.strip()
+    if len(s) > _MAX_LAYER_NAME_LEN:
+        s = s[: _MAX_LAYER_NAME_LEN - 1] + "…"
+    return s or "unnamed"
+
 
 def build_chat_system_prompt(
     layers: list[ChatMapLayer],
@@ -167,8 +202,12 @@ def build_chat_system_prompt(
         if layer.paint:
             summary_parts.append(f"Paint: {json.dumps(layer.paint)}")
 
-        # Dataset metadata lines
-        title_str = f"\n  Title: {layer.dataset_title}" if layer.dataset_title else ""
+        # Dataset metadata lines — dataset_title is also user-controlled, sanitize it
+        title_str = (
+            f"\n  Title: {_sanitize_layer_name(layer.dataset_title)}"
+            if layer.dataset_title
+            else ""
+        )
         feat_count_str = (
             f"\n  Features: {layer.feature_count}" if layer.feature_count else ""
         )
@@ -189,8 +228,9 @@ def build_chat_system_prompt(
         raster_note = (
             " [raster layer - opacity only, no style/filter/label]" if is_raster else ""
         )
+        safe_name = _sanitize_layer_name(layer.name)
         layers_desc.append(
-            f'- Layer "{layer.name}" (id: {layer.id}, '
+            f'- Layer "{safe_name}" (id: {layer.id}, '
             f"geometry: {layer.geometry_type}, "
             f"dataset_id: {layer.dataset_id}, "
             f"table: {layer.dataset_table_name})"
@@ -334,8 +374,10 @@ async def chat_edit_map(
     # Parse actions into ChatAction models
     actions = [ChatAction(**a) for a in result.actions]
 
-    # Validate layer_id references
-    actions, dropped = _validate_actions(actions, layers)
+    # Validate layer_id references + add_layer dataset RBAC
+    actions, dropped = await _validate_actions(
+        actions, layers, session=session, user=user, port=port
+    )
 
     explanation = result.text
     if dropped:

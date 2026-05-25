@@ -1,30 +1,67 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Code } from 'lucide-react';
+import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { Button } from '@/components/ui/button';
 
-// Valid MapLibre paint properties per layer type for client-side validation.
-// line-gradient gets first-class authoring through LineGradientControls (Phase 256)
-// on top of the lineMetrics + adapter expression-preservation engine (Phase 255).
-// AdvancedJsonEditor remains available for power-user / paste-in workflows.
-const VALID_PAINT_KEYS: Record<string, Set<string>> = {
-  fill: new Set(['fill-color', 'fill-opacity', 'fill-outline-color', 'fill-antialias', 'fill-translate', 'fill-translate-anchor', 'fill-pattern']),
-  line: new Set(['line-color', 'line-opacity', 'line-width', 'line-gap-width', 'line-blur', 'line-dasharray', 'line-translate', 'line-translate-anchor', 'line-offset', 'line-gradient', 'line-pattern']),
-  circle: new Set(['circle-color', 'circle-opacity', 'circle-radius', 'circle-blur', 'circle-stroke-color', 'circle-stroke-opacity', 'circle-stroke-width', 'circle-translate', 'circle-translate-anchor', 'circle-pitch-scale', 'circle-pitch-alignment']),
-  heatmap: new Set(['heatmap-radius', 'heatmap-weight', 'heatmap-intensity', 'heatmap-color', 'heatmap-opacity']),
-};
-
-function validatePaintJson(paint: Record<string, unknown>, layerType?: string): string[] {
+// Use the real MapLibre style-spec validator to catch property names,
+// color values, numeric bounds, expression syntax, and type mismatches —
+// not just property names. Wrap the user's paint/layout in a minimal
+// single-layer style of the correct layer type and filter errors that
+// aren't about paint/layout (we synthesize the source, so source errors
+// would always fire here and are irrelevant to what the user is editing).
+function validatePropertyBlock(
+  value: Record<string, unknown>,
+  layerType: string | undefined,
+  block: 'paint' | 'layout',
+): string[] {
   if (!layerType) return [];
-  const validKeys = VALID_PAINT_KEYS[layerType];
-  if (!validKeys) return [];
-  const errors: string[] = [];
-  for (const key of Object.keys(paint)) {
-    if (!validKeys.has(key)) {
-      errors.push(`"${key}" is not a valid ${layerType} paint property`);
-    }
+  // Construct a layer object with the right shape for the requested type.
+  // Use a GeoJSON source stub (no source-layer needed) with lineMetrics
+  // enabled so line-gradient expressions using ["line-progress"] validate
+  // — line-gradient REQUIRES a GeoJSON source per MapLibre spec, and the
+  // project supports it via the Phase 255 lineMetrics + adapter engine.
+  const layer: Record<string, unknown> = {
+    id: '_validate_target',
+    type: layerType,
+    source: '_validate_src',
+    [block]: value,
+  };
+  const testStyle = {
+    version: 8,
+    sources: {
+      _validate_src: {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+        lineMetrics: true,
+      },
+    },
+    layers: [layer],
+  };
+  let errors: { message?: string }[] = [];
+  try {
+    // validateStyleMin is typed against StyleSpecification but tolerates
+    // any object shape; cast to satisfy the compiler.
+    errors = validateStyleMin(testStyle as unknown as Parameters<typeof validateStyleMin>[0]) ?? [];
+  } catch {
+    // If the validator itself throws, fall back to no errors rather than
+    // blocking the user — better to let MapLibre runtime catch real bugs
+    // than to falsely reject a paste that the validator can't parse.
+    return [];
   }
-  return errors;
+  return errors
+    .map((e) => e?.message ?? '')
+    .filter((m): m is string => Boolean(m))
+    .filter((m) => {
+      // Drop messages about the stub source/source-layer/sprite/glyphs —
+      // those aren't about what the user typed.
+      const lower = m.toLowerCase();
+      if (lower.includes('sprite') || lower.includes('glyphs')) return false;
+      if (lower.includes('"_validate_src"') || lower.includes('source-layer')) return false;
+      // Drop source-tile-url validation noise (we set a placeholder URL).
+      if (lower.includes('tiles')) return false;
+      return true;
+    });
 }
 
 interface JsonBlockProps {
@@ -32,9 +69,11 @@ interface JsonBlockProps {
   value: Record<string, unknown>;
   onApply: (v: Record<string, unknown>) => void;
   layerType?: string;
+  /** Which property block this editor edits — drives the validator shape. */
+  block: 'paint' | 'layout';
 }
 
-function JsonBlock({ label, value, onApply, layerType }: JsonBlockProps) {
+function JsonBlock({ label, value, onApply, layerType, block }: JsonBlockProps) {
   const { t } = useTranslation('builder');
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
@@ -53,9 +92,10 @@ function JsonBlock({ label, value, onApply, layerType }: JsonBlockProps) {
         setError(t('style.jsonError'));
         return;
       }
-      // Validate paint properties against MapLibre spec if layerType is available
+      // Validate against the real MapLibre style spec — catches property
+      // names, color values, numeric bounds, expression syntax, types.
       if (layerType) {
-        const validationErrors = validatePaintJson(parsed, layerType);
+        const validationErrors = validatePropertyBlock(parsed, layerType, block);
         if (validationErrors.length > 0) {
           setError(validationErrors.join('; '));
           return;
@@ -135,11 +175,14 @@ export function AdvancedJsonEditor({ paint, layout, onPaintChange, onLayoutChang
             value={paint}
             onApply={onPaintChange}
             layerType={layerType}
+            block="paint"
           />
           <JsonBlock
             label={t('style.layoutJson')}
             value={layout}
             onApply={onLayoutChange}
+            layerType={layerType}
+            block="layout"
           />
         </div>
       )}

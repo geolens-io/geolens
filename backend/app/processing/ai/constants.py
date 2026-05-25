@@ -1,6 +1,6 @@
 """Shared constants for AI modules."""
 
-MAX_TOOL_ROUNDS = 15
+MAX_TOOL_ROUNDS = 8
 MAX_STREAMING_WALL_CLOCK_SECONDS = 90
 
 TOOL_LABELS = {

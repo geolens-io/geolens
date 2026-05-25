@@ -354,7 +354,7 @@ services:
     # /app means the root filesystem is effectively writable already. A
     # production nginx frontend would be compatible with read_only.
     ports:
-      - "${FRONTEND_PORT:-8080}:5173"
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules

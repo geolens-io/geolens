@@ -14,8 +14,17 @@ if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
 
 
-def _get_color_property(geometry_type: str | None) -> str:
-    """Determine the correct MapLibre color paint property for a geometry type."""
+def _get_color_property(
+    geometry_type: str | None, layer_type: str | None = None
+) -> str:
+    """Determine the correct MapLibre color paint property for the layer.
+
+    Heatmap layers share the source's Point geometry but require the
+    heatmap-color paint property, not circle-color — check layer_type
+    first so a heatmap-typed layer with Point geometry routes correctly.
+    """
+    if layer_type and "heatmap" in layer_type.lower():
+        return "heatmap-color"
     if not geometry_type:
         return "circle-color"
     gt = geometry_type.lower()
@@ -23,6 +32,8 @@ def _get_color_property(geometry_type: str | None) -> str:
         return "fill-color"
     if "line" in gt:
         return "line-color"
+    if "heatmap" in gt:
+        return "heatmap-color"
     return "circle-color"
 
 
@@ -63,7 +74,9 @@ async def _build_data_driven_style(
                 "error": f"Column '{column}' not found in layer. Available columns: {', '.join(sorted(col_names)[:10])}"
             }
 
-    color_prop = _get_color_property(target_layer.geometry_type)
+    color_prop = _get_color_property(
+        target_layer.geometry_type, layer_type=target_layer.layer_type
+    )
 
     # Build allowed_tables from the validated layer set for defense-in-depth
     allowed_tables = {layer.dataset_table_name for layer in layers}

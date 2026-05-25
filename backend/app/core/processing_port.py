@@ -227,6 +227,17 @@ class ProcessingPort(Protocol):
         allowed_tables: set[str] | None = None,
     ) -> list: ...
 
+    async def get_column_null_cardinality(
+        self,
+        session: AsyncSession,
+        table_name: str,
+        columns: list[str],
+        *,
+        allowed_tables: set[str] | None = None,
+        max_columns: int = 20,
+        sample_size: int = 10000,
+    ) -> dict[str, dict]: ...
+
     def extract_bbox(self, dataset: DatasetProtocol) -> list[float] | None: ...
 
     # -------------------------------------------------------------------------

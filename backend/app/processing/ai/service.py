@@ -656,7 +656,7 @@ async def generate_map_from_prompt(
             tool_executor=tool_executor,
             base_url=runtime_config.get("base_url"),
             temperature=0.3,
-            max_tokens=1500,
+            max_tokens=1024,
             max_rounds=8,
         )
     except ToolLoopExhaustedError:
@@ -760,7 +760,7 @@ async def stream_generate_map(
                 tool_executor=tracking_executor,
                 base_url=runtime_config.get("base_url"),
                 temperature=0.3,
-                max_tokens=1500,
+                max_tokens=1024,
                 max_rounds=8,
             ),
             timeout=300.0,  # 5-minute hard cap on LLM tool loop

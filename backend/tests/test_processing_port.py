@@ -120,6 +120,27 @@ class FakeProcessingPort:
     ):
         return ["A", "B", "C"]
 
+    async def get_column_null_cardinality(
+        self,
+        session,
+        table_name,
+        columns,
+        *,
+        allowed_tables=None,
+        max_columns=20,
+        sample_size=10000,
+    ):
+        # Stable stub: one entry per requested column with plausible values.
+        return {
+            col: {
+                "null_count": 0,
+                "distinct_count": 10,
+                "total_count": 100,
+                "approximate": False,
+            }
+            for col in columns[:max_columns]
+        }
+
     def extract_bbox(self, dataset):
         return [-74.0, 40.7, -73.9, 40.8]
 

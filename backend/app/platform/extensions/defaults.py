@@ -352,6 +352,29 @@ class DefaultProcessingPort:
             allowed_tables=allowed_tables,
         )
 
+    async def get_column_null_cardinality(
+        self,
+        session,
+        table_name,
+        columns,
+        *,
+        allowed_tables=None,
+        max_columns=20,
+        sample_size=10000,
+    ):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.column_stats import (
+            get_column_null_cardinality,
+        )
+
+        return await get_column_null_cardinality(
+            session,
+            table_name,
+            columns,
+            allowed_tables=allowed_tables,
+            max_columns=max_columns,
+            sample_size=sample_size,
+        )
+
     def extract_bbox(self, dataset):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.utils import extract_bbox
 

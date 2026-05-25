@@ -94,7 +94,11 @@ async def _handle_query_data(
         stage_callback("Generating SQL...")
 
     sql = await chat_service.generate_sql(
-        session, question, schema_context, layer_descriptions=layer_descriptions
+        session,
+        question,
+        schema_context,
+        layer_descriptions=layer_descriptions,
+        user_id=user.id if user is not None else None,
     )
 
     # Surface LLM error messages directly instead of letting the sandbox reject them

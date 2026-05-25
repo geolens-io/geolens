@@ -255,7 +255,9 @@ async def _stream_anthropic_chat(
 
     # Validate actions before yielding (mirrors non-streaming path)
     actions = [ChatAction(**a) for a in collected_actions]
-    actions, dropped = _validate_actions(actions, layers)
+    actions, dropped = await _validate_actions(
+        actions, layers, session=session, user=user, port=port
+    )
     if dropped:
         explanation += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
 
@@ -287,6 +289,8 @@ async def _stream_openai_chat(
 
     collected_actions: list[dict] = []
     deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
+    total_input = 0
+    total_output = 0
 
     for round_num in range(MAX_TOOL_ROUNDS):
         if time.monotonic() > deadline:
@@ -315,6 +319,10 @@ async def _stream_openai_chat(
             tools=_tools_openai,
             messages=messages,
             stream=True,
+            # OpenAI streaming omits the usage block by default; opt in so
+            # per-round input/output token counts arrive on the FINAL chunk
+            # (the one with empty choices[]).
+            stream_options={"include_usage": True},
         )
 
         # Accumulate tool calls and content across chunks
@@ -326,6 +334,11 @@ async def _stream_openai_chat(
         buffered_tokens: list[str] = []
 
         async for chunk in response_stream:
+            # Usage-only chunks arrive after the last content chunk with
+            # empty choices[]; accumulate token counts and continue.
+            if getattr(chunk, "usage", None) is not None:
+                total_input += getattr(chunk.usage, "prompt_tokens", 0) or 0
+                total_output += getattr(chunk.usage, "completion_tokens", 0) or 0
             choice = chunk.choices[0] if chunk.choices else None
             if not choice:
                 continue
@@ -491,13 +504,15 @@ async def _stream_openai_chat(
         user_id=user.id,
         subsystem="chat_stream",
         model=model,
-        input_tokens=0,  # OpenAI streaming doesn't report usage by default
-        output_tokens=0,
+        input_tokens=total_input,
+        output_tokens=total_output,
     )
 
     # Validate actions before yielding (mirrors non-streaming path)
     actions = [ChatAction(**a) for a in collected_actions]
-    actions, dropped = _validate_actions(actions, layers)
+    actions, dropped = await _validate_actions(
+        actions, layers, session=session, user=user, port=port
+    )
     explanation_text = "".join(content_parts)
     if dropped:
         explanation_text += "\n\nNote: some actions were skipped: " + "; ".join(dropped)
