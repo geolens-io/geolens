@@ -1,58 +1,59 @@
 ---
 gsd_state_version: 1.0
-milestone: v1025
-milestone_name: Mapbuilder Polishing
-status: complete
-last_updated: "2026-05-25T01:24:00.000Z"
+milestone: v1026
+milestone_name: Mapbuilder Style Reconciler
+status: planning
+last_updated: "2026-05-25T13:04:52.630Z"
 last_activity: 2026-05-25
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 6
+  completed_phases: 0
+  total_plans: 6
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1111 Builder Lint Closeout
-Plan: 1111-01
-Status: v1025 complete; target map QA, metadata fixes, cartographic polish, Playwright MCP close gate, and frontend lint closeout passed
-Last activity: 2026-05-25 — Completed phases 1107-1111 and verified target map with zero browser console warnings/errors
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-25 — Milestone v1026 started
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1025 Mapbuilder Polishing — Playwright MCP deep QA and inline fixes for the existing ADK 3D Relief builder map.
+**Current focus:** v1026 Mapbuilder Style Reconciler — canonical style mutation semantics and live MapLibre owned-property reconciliation across manual UI, AI chat, persistence, and viewer paths.
 
 ## Last Shipped Milestone
 
-**Version:** v1023 CI Live-Verify + OOS Hygiene Tail
-**Shipped:** 2026-05-24 (degraded — CI-01 deferred to v1024+)
-**Phases:** 1098-1100 (3 phases, 3 plans, 7/8 reqs satisfied; CI-01 carry-forward to v1024+)
-**Tag:** `v1023` (local) + `v1.5.8` (public) at commit `892fca01`
-**Milestone audit:** PENDING — orchestrator runs /gsd:audit-milestone v1023 next
-**Archived phases:** (pending /gsd:cleanup-milestone — will move to `.planning/milestones/v1023-phases/`)
+**Version:** v1025 Mapbuilder Polishing
+**Shipped:** 2026-05-25
+**Phases:** 1107-1111 (5 phases, 5 plans, 18/18 reqs satisfied)
+**Commit:** `e55f982b` core polishing closeout + follow-up regression fixes `39cbdd54` and `291171ca`
+**Milestone audit:** Completed by Playwright MCP and frontend gates during closeout
+**Archived phases:** v1025/v1024 working phase directories cleared from `.planning/phases/` at v1026 milestone start; backlog `999.*` phase directories remain.
 
-## Phase Plan (v1025)
+## Phase Plan (v1026)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1107 Playwright Deep QA Sweep | Exercise every target-map layer row/options/editor surface and record findings | QA-01..04 | — |
-| 1108 Layer Metadata and Option Fixes | Fix confirmed saved/scripted layer metadata and layer-option regressions | LAYER-01..04 | Phase 1107 |
-| 1109 Marketing Cartographic Polish | Tune target-map styling, labels, legend/sidebar, and screenshot framing | CARTO-01..04 | Phase 1108 |
-| 1110 Playwright Close Gate | Fresh Playwright MCP verification + focused tests + close artifacts | VERIFY-01..04 | Phases 1108-1109 |
-| 1111 Builder Lint Closeout | Fix discovered frontend lint/a11y/rules findings and post-lint smoke the target map | HYGIENE-01..02 | Phase 1110 |
+| 1112 Style Contract and Baseline Audit | Inventory style mutation paths, define semantics, declare ownership, and document stale-style regression matrix | ARCH-01..04 | — |
+| 1113 Shared Style Reconciler | Implement owned-property paint/layout diff helpers with validation, clear, expression, and error-isolation tests | RECON-01..04 | Phase 1112 |
+| 1114 Adapter Migration | Move adapters and companion layers onto the reconciler contract | ADAPT-01..04 | Phase 1113 |
+| 1115 UI and AI Style Actions | Route high-risk manual controls and AI chat style actions through consistent mutation semantics | STYLE-01..03, AI-01..04 | Phase 1114 |
+| 1116 Persistence and Viewer Parity | Prove save/reload, public viewer, embed viewer, and style JSON parity | PERSIST-01..02, VIEW-01..02 | Phase 1115 |
+| 1117 Reconciler Close Gate | Run focused tests, Playwright MCP, frontend gates, console/network capture, changelog, and summaries | VERIFY-01..05 | Phases 1112-1116 |
 
-**Coverage:** 18/18 v1025 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 28/28 v1026 requirements mapped, 0 orphans, 0 duplicates.
 
 **Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
 
-**HARD INVARIANT:** A fresh Playwright MCP load of the target map has zero unexpected browser console errors/warnings, every layer options menu and representative editor surface works, DEM hillshade and peak labels render as intended, and the final screenshot demonstrates GeoLens cartographic functionality.
+**HARD INVARIANT:** For every migrated style path, the builder's canonical layer state and the live MapLibre layer state converge immediately, save/reload preserves that result, viewer/embed render the same result, and AI chat style actions cannot create stale live-vs-saved drift.
 
 ## Quick Tasks Completed
 
@@ -64,6 +65,9 @@ See: .planning/PROJECT.md
 
 ### Decisions
 
+- **2026-05-25 (v1026 start):** Scope Mapbuilder Style Reconciler as a GSD milestone rather than a quick patch. The immediate `line-gradient` stale-property bug is fixed, but the durable solution needs a shared style mutation/reconciliation contract across manual UI, adapters, AI chat, save/reload, and viewer/embed paths.
+- **2026-05-25 (v1026 start):** AI chat style actions are in scope because `ChatPanel` applies `set_style` and `set_data_driven_style` through the same builder style handlers as manual UI edits. `set_style` should be classified explicitly as patch/replace/clear to avoid live-vs-saved drift.
+- **2026-05-25 (v1026 start):** External research is skipped. This milestone is internal architecture hardening driven by observed GeoLens code paths, not discovery of a new domain feature.
 - **2026-05-24 (Phase 1098 close):** OOS-01 took TRIM path (not CAP-RAISE fallback) — `maps/router.py` 1807 → 1793 LOC via private-helper docstring compression on 2 helpers (`_build_frame_ancestors` + `_meta_to_kwargs`). Zero behavior change. Allowlist at `test_layering.py:865` unchanged; no Phase 999.x backlog entry promoted.
 - **2026-05-24 (Phase 1098 close):** OOS-03 required Rule 1 inline iteration. First defensive rewrite still called `make_safe_client()`, which constructs `httpx.AsyncClient(...)`. `tests/test_seed_natural_earth_reconciliation.py:328` patches the global `httpx.AsyncClient` to `_FakeAsyncClient` without teardown — contaminating subsequent tests. Second iteration: drop `make_safe_client()` call entirely, test `_revalidate_redirect` directly (mirroring the 6 sibling tests at lines 22-97 that already pass durably in full sequential). Leaker hunt deferred indefinitely per D-10.
 - **2026-05-24 (Phase 1098 close):** Phase 1099 OAuth carry-forward expanded to 3 tests (not 2): T5 verify gate's `-n auto` Run B surfaced `test_oauth_login_redirect` in addition to OAUTH-01/OAUTH-02. Likely a third member of the same OAuth-mock-state leakage family. Phase 1099 should address holistically rather than narrowly-pinned 2-test scope.
@@ -79,24 +83,24 @@ See: .planning/PROJECT.md
 
 ### Pending Todos
 
-None — v1025 started from a clean pending-todo slate.
+None — v1026 starts from a clean pending-todo slate.
 
 ### Blockers/Concerns
 
-- **CI-01-v1025 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1025+. This remains outside the mapbuilder polishing invariant.
+- **CI-01-v1026 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1026+. This remains outside the style reconciler invariant.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1025+ as CI-01-v1025 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
+| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1026+ as CI-01-v1026 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
 
 ## Session Continuity
 
-Last session: 2026-05-25T01:02:50.153Z
-Stopped at: v1025 initialized for Playwright MCP deep QA
+Last session: 2026-05-25T13:04:52.630Z
+Stopped at: v1026 initialized for style reconciler architecture work
 Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Run Phase 1107 Playwright deep QA, then fix findings inline through the v1025 roadmap.
+- Run Phase 1112 Style Contract and Baseline Audit before implementing the shared reconciler.

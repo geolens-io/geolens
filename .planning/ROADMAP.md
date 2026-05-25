@@ -1,93 +1,110 @@
 # Roadmap: GeoLens
 
-## v1025 Mapbuilder Polishing (Shipped 2026-05-25)
+## v1026 Mapbuilder Style Reconciler
 
-**Goal:** Deep-QA the existing ADK 3D Relief builder map and polish it into a screenshot/demo-ready showcase of GeoLens layer options, terrain, raster/DEM rendering, vector styling, labels, and cartographic authoring.
+**Goal:** Replace patch-prone builder style mutation with a canonical reconciliation contract so manual UI edits, AI chat style actions, save/reload, viewer/embed rendering, and MapLibre live state stay in sync.
 
-**Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
+**Trigger:** v1025 dogfooding found two related symptoms: terrain exaggeration needed shared clamping, and Hiking trails gradient-to-solid left a stale `line-gradient` on the live MapLibre layer. The immediate line fix is shipped, but the broader issue is that style updates are partial/additive without adapter-wide delete semantics.
 
-**Hard invariant:** A fresh Playwright MCP load of the target map has zero unexpected browser console errors/warnings, every layer options menu and representative editor surface works, DEM hillshade and peak labels render as intended, and the final screenshot demonstrates GeoLens cartographic functionality.
+**Hard invariant:** For every migrated style path, the builder's canonical layer state and the live MapLibre layer state converge immediately, save/reload preserves that result, viewer/embed render the same result, and AI chat style actions cannot create stale live-vs-saved drift.
 
 ### Phase Plan
 
-- [x] **Phase 1107: Playwright Deep QA Sweep** — exercise every layer row/options/editor surface and capture browser console, network, screenshot, and visual/cartographic findings.
-- [x] **Phase 1108: Layer Metadata and Option Fixes** — fix confirmed saved/scripted layer metadata defects and any layer-option regressions surfaced by QA.
-- [x] **Phase 1109: Marketing Cartographic Polish** — tune the target map's layer styling, labels, legend/sidebar presentation, and screenshot composition.
-- [x] **Phase 1110: Playwright Close Gate** — rerun the deep QA path after fixes, run focused tests, and record final evidence.
-- [x] **Phase 1111: Builder Lint Closeout** — close discovered frontend lint/a11y/rules warnings, rerun clean frontend gates, and smoke the target map after row/accessibility patches.
+- [ ] **Phase 1112: Style Contract and Baseline Audit** — inventory every style mutation entry point, define patch/replace/clear semantics, declare adapter-owned properties, and document the regression matrix.
+- [ ] **Phase 1113: Shared Style Reconciler** — implement shared owned-property diff helpers for paint/layout set, no-op, clear, validation, expression preservation, and MapLibre error isolation.
+- [ ] **Phase 1114: Adapter Migration** — migrate vector, raster, hillshade, cluster, label, outline, arrow, and companion-layer sync paths onto the reconciler contract.
+- [ ] **Phase 1115: UI and AI Style Actions** — route high-risk manual controls and AI chat style actions through consistent style mutation semantics, including explicit clear behavior.
+- [ ] **Phase 1116: Persistence and Viewer Parity** — verify saved-map JSON, reload, public viewer, embed viewer, and style JSON export/import all preserve reconciled styles.
+- [ ] **Phase 1117: Reconciler Close Gate** — run focused tests, frontend gates, Playwright MCP flows, console/network capture, changelog, and phase summaries.
 
-### Phase 1107: Playwright Deep QA Sweep
+### Phase 1112: Style Contract and Baseline Audit
 
-**Goal:** Build the evidence base for the target map before changing code or map data.
+**Goal:** Define the target style contract before refactoring the live sync pipeline.
 
-**Requirements:** QA-01, QA-02, QA-03, QA-04
+**Requirements:** ARCH-01, ARCH-02, ARCH-03, ARCH-04
 
 **Depends on:** —
 
 **Success Criteria:**
-1. Playwright MCP opens the target map and captures a baseline screenshot.
-2. Every data layer plus the basemap row is opened; every layer options menu is checked for source metadata and safe actions.
-3. Representative style/filter/popup/editor surfaces are checked across point, line, polygon, raster, DEM, and basemap layers.
-4. Findings are documented with severity, disposition, and whether they require a code fix, map-data fix, or future suggestion.
+1. Style mutation entry points are listed with file references for manual UI, advanced JSON, render-as, data-driven styles, AI chat, undo/history, save/reload, viewer/embed, labels, terrain, and basemap overrides.
+2. Patch, replace, clear, reset, and rebuild semantics are written down with AI `set_style` classified explicitly.
+3. Adapter-owned paint/layout/style properties are enumerated for parent and companion layers.
+4. A stale-style regression matrix is committed before implementation begins.
 
-### Phase 1108: Layer Metadata and Option Fixes
+### Phase 1113: Shared Style Reconciler
 
-**Goal:** Fix confirmed layer metadata defects that keep the target map from rendering or editing as intended.
+**Goal:** Build the shared reconciliation primitive that adapters can use instead of additive-only paint replay.
 
-**Requirements:** LAYER-01, LAYER-02, LAYER-03, LAYER-04
+**Requirements:** RECON-01, RECON-02, RECON-03, RECON-04
 
-**Depends on:** Phase 1107
-
-**Success Criteria:**
-1. Frontend style-config normalization preserves render-mode-only configs and legacy nested render modes needed by DEM hillshade.
-2. ADK composition writes canonical GeoLens label config for 46er peaks and canonical render/style metadata for DEM, aerial, and Blue Line layers.
-3. The existing target map is updated in the running catalog with the corrected metadata.
-4. Focused unit tests and Playwright checks prove the fixes survive reload.
-
-### Phase 1109: Marketing Cartographic Polish
-
-**Goal:** Improve the target map's visual clarity for a marketing screenshot without hiding the builder functionality.
-
-**Requirements:** CARTO-01, CARTO-02, CARTO-03, CARTO-04
-
-**Depends on:** Phase 1108
+**Depends on:** Phase 1112
 
 **Success Criteria:**
-1. Terrain, aerial, hillshade, hydrography, trails, Blue Line, land classification, waterbodies, and peaks remain legible at the target view.
-2. Peak labels render with appropriate zoom gating, halo, color, and offset.
-3. The final builder view still communicates the layer stack, options affordances, legend, terrain, and style/export tools.
-4. Deferred cartographic or builder UX suggestions are documented without blocking the milestone.
+1. Reconciler helpers set changed owned properties and clear removed owned properties.
+2. Custom builder metadata and invalid cross-geometry keys are kept out of MapLibre paint/layout calls.
+3. Expression-valued styles are preserved without flattening or unintended cloning where identity matters.
+4. Unit tests cover set/no-op/clear/error paths before adapter migration.
 
-### Phase 1110: Playwright Close Gate
+### Phase 1114: Adapter Migration
 
-**Goal:** Verify the polished target map and close the milestone with traceable evidence.
+**Goal:** Move layer adapters and companion-layer sync onto the reconciler contract.
 
-**Requirements:** VERIFY-01, VERIFY-02, VERIFY-03, VERIFY-04
+**Requirements:** ADAPT-01, ADAPT-02, ADAPT-03, ADAPT-04
 
-**Depends on:** Phase 1108, Phase 1109
-
-**Success Criteria:**
-1. Fresh Playwright MCP load has zero unexpected browser console errors/warnings.
-2. Playwright MCP verifies layer options, DEM hillshade state, peak labels, visibility toggles, and final screenshot framing.
-3. Focused frontend tests pass.
-4. Requirements, roadmap traceability, phase summaries, and verification artifacts are updated.
-
-### Phase 1111: Builder Lint Closeout
-
-**Goal:** Fix the frontend lint/a11y/rules issues discovered during closeout and prove the target map still loads cleanly.
-
-**Requirements:** HYGIENE-01, HYGIENE-02
-
-**Depends on:** Phase 1110
+**Depends on:** Phase 1113
 
 **Success Criteria:**
-1. `npm run lint` exits cleanly with zero errors and zero warnings.
-2. Mapbuilder composite row lint exceptions are documented with qualified phase context instead of weakening the row accessibility model.
-3. Redundant native roles, unused lint directives, and hook dependency warnings discovered by lint are fixed.
-4. Post-lint Playwright MCP smoke of the target map shows expected layer rows and zero console warnings/errors.
+1. Line, fill, circle, fill-extrusion, heatmap, cluster, raster, and hillshade sync paths reconcile owned properties deterministically.
+2. Label, outline, arrow, and cluster companion layers reconcile atomically with parent-layer visibility, filters, paint, layout, and deletion.
+3. Paint-only edits do not re-add sources or refetch tiles.
+4. Bug-specific stale-property cleanup is replaced by adapter-owned-property declarations where practical.
+
+### Phase 1115: UI and AI Style Actions
+
+**Goal:** Make all high-risk style edits feed the same mutation semantics.
+
+**Requirements:** STYLE-01, STYLE-02, STYLE-03, AI-01, AI-02, AI-03, AI-04
+
+**Depends on:** Phase 1114
+
+**Success Criteria:**
+1. High-risk controls stop relying on ad hoc raw paint/config object surgery where central mutation helpers are available.
+2. Data-driven and render-as transitions preserve unrelated style fields while clearing stale properties from inactive modes.
+3. Advanced JSON remains an intentional full-replace path with documented behavior.
+4. AI chat `set_style` patch/clear/replace behavior is aligned across backend tool schema, generated types if changed, frontend application, and undo/history.
+
+### Phase 1116: Persistence and Viewer Parity
+
+**Goal:** Prove reconciled styles persist and render consistently outside the live builder session.
+
+**Requirements:** PERSIST-01, PERSIST-02, VIEW-01, VIEW-02
+
+**Depends on:** Phase 1115
+
+**Success Criteria:**
+1. Saved map JSON contains canonical style state without transient reconciler metadata.
+2. Save/reload does not resurrect stale properties.
+3. Public viewer and embed viewer render migrated style modes consistently with the builder.
+4. Style JSON export/import remains compatible with reconciled styles.
+
+### Phase 1117: Reconciler Close Gate
+
+**Goal:** Close the milestone with focused automated coverage and live Playwright evidence.
+
+**Requirements:** VERIFY-01, VERIFY-02, VERIFY-03, VERIFY-04, VERIFY-05
+
+**Depends on:** Phases 1112-1116
+
+**Success Criteria:**
+1. Focused frontend tests cover adapter reconciliation, manual UI transitions, AI chat style actions, save/reload, and viewer helper paths.
+2. Playwright MCP verifies ADK 3D Relief style transitions, including Hiking trails gradient-to-solid and representative data-driven/render-mode/label flows.
+3. Frontend tests, typecheck, and lint pass for touched areas.
+4. Fresh browser console and failed-network capture has zero unexpected errors/warnings.
+5. CHANGELOG and phase summaries capture scope, AI-chat impact, accepted limitations, and follow-ups.
 
 ## ✅ Historical Milestones
 
+- ✅ **v1025 Mapbuilder Polishing** — Phases 1107-1111 (shipped 2026-05-25; ADK 3D Relief deep QA, layer metadata fixes, marketing cartography, Playwright close gate, lint closeout)
 - ✅ **v1024 ADK High Peaks Marketing-Ready** — Phases 1101-1106 (completed locally 2026-05-24; ADK marketing data/maps, builder ordering, terrain controls, error hygiene, and Playwright close gate)
 - ✅ **v1.0 MVP** — Phases 1-8 (shipped 2026-02-13)
 - ✅ **v1.1 Machine Readability** — Phases 9-13 (shipped 2026-02-14)
@@ -209,9 +226,12 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1098. OOS Triad Closure | v1023 | 1/1 | Shipped | 2026-05-24 |
-| 1099. OAuth Parallel-Mode Stabilization | v1023 | 1/1 | Shipped | 2026-05-24 |
-| 1100. CI Live-Verify + Close Gate | v1023 | 1/1 | Shipped | 2026-05-24 |
+| 1112. Style Contract and Baseline Audit | v1026 | 0/0 | Planned | — |
+| 1113. Shared Style Reconciler | v1026 | 0/0 | Planned | — |
+| 1114. Adapter Migration | v1026 | 0/0 | Planned | — |
+| 1115. UI and AI Style Actions | v1026 | 0/0 | Planned | — |
+| 1116. Persistence and Viewer Parity | v1026 | 0/0 | Planned | — |
+| 1117. Reconciler Close Gate | v1026 | 0/0 | Planned | — |
 
 ## Backlog
 

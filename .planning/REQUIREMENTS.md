@@ -1,91 +1,115 @@
-# Requirements: GeoLens v1025 Mapbuilder Polishing
+# Requirements: GeoLens v1026 Mapbuilder Style Reconciler
 
 **Defined:** 2026-05-25
 **Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
 
-## v1025 Requirements
+## v1026 Requirements
 
-### Playwright QA
+### Style Contract and Audit
 
-- [x] **QA-01**: Operator can run a Playwright MCP sweep against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` that opens every data layer and basemap row without unhandled UI errors.
-- [x] **QA-02**: Operator can verify every layer options menu opens and exposes source metadata plus safe layer actions without trapping focus or breaking row interaction.
-- [x] **QA-03**: Operator can verify representative editor tabs and controls for point, line, polygon, raster, DEM, and basemap layers.
-- [x] **QA-04**: Browser console warnings/errors, failed requests, screenshot evidence, and visual/cartographic findings are captured in phase artifacts with dispositions.
+- [ ] **ARCH-01**: Every map-builder style mutation entry point is inventoried with code references, including manual style controls, advanced JSON, render-as switches, data-driven styles, AI chat actions, undo/history, save/reload, public viewer, embed viewer, labels, terrain, and basemap overrides.
+- [ ] **ARCH-02**: The milestone defines canonical style mutation semantics for patch, replace, clear, reset, and layer rebuild operations, with AI `set_style` semantics explicitly classified.
+- [ ] **ARCH-03**: Each adapter declares the paint/layout/style properties it owns, including companion layers such as fill outlines, labels, cluster sublayers, arrow layers, hillshade/raster layers, and fill-extrusion surfaces.
+- [ ] **ARCH-04**: A regression matrix is documented for stale-style transitions, including gradient-to-solid, data-driven-to-flat, dashed-to-solid, outline-off/on, label-off/on, extrusion-off, heatmap/cluster/symbol render-mode swaps, and AI style edits.
 
-### Layer Option Fixes
+### Shared Reconciler
 
-- [x] **LAYER-01**: DEM layers whose saved style config declares hillshade open in the builder as Hillshade, not Image, and retain that render mode through API normalization.
-- [x] **LAYER-02**: ADK marketing composition uses GeoLens `label_config` keys so 46er peak labels render in the builder/viewer and remain editable.
-- [x] **LAYER-03**: The ADK composition script writes canonical render/style metadata for DEM hillshade, aerial raster, Blue Line outline, and peak labels so reruns reproduce the polished map.
-- [x] **LAYER-04**: The existing target map is updated in the running catalog with the same canonical layer metadata without duplicating datasets or maps.
+- [ ] **RECON-01**: A shared style reconciler applies changed owned paint/layout properties and clears removed owned properties from live MapLibre layers.
+- [ ] **RECON-02**: The reconciler filters invalid cross-geometry paint/layout keys, keeps custom builder metadata out of MapLibre paint/layout calls, and preserves expression values without flattening or cloning where identity matters.
+- [ ] **RECON-03**: Paint-only style changes do not re-add sources or refetch tiles; layer rebuilds are limited to render-mode/source-type transitions that require them.
+- [ ] **RECON-04**: Focused unit tests cover set, no-op, clear, invalid-key filtering, expression preservation, companion-layer ownership, and MapLibre error isolation.
 
-### Marketing Cartography
+### Adapter Migration
 
-- [x] **CARTO-01**: Target map styling makes terrain, aerial, hillshade, hydrography, trails, Blue Line, land classification, waterbodies, and 46er peaks legible at the screenshot view.
-- [x] **CARTO-02**: Peak labels are readable without overwhelming the terrain and are gated to an appropriate zoom range.
-- [x] **CARTO-03**: Legend and builder/sidebar presentation demonstrate GeoLens functionality without hiding key map content.
-- [x] **CARTO-04**: Suggestions for future cartographic improvements are documented separately from fixes completed in this milestone.
+- [ ] **ADAPT-01**: Line, fill, circle, and fill-extrusion style sync paths use the shared reconciler instead of one-off additive paint updates.
+- [ ] **ADAPT-02**: Heatmap, cluster, raster, and hillshade style sync paths use the shared reconciler or a documented adapter-specific equivalent where MapLibre requires source/layer rebuilds.
+- [ ] **ADAPT-03**: Label, outline, arrow, and cluster companion layers reconcile visibility, paint, layout, filters, and deletion atomically with their parent layer.
+- [ ] **ADAPT-04**: One-off stale-property cleanup paths are removed or reduced to adapter-owned-property declarations, with regression tests replacing bug-specific cleanup tests where practical.
 
-### Verification
+### UI and AI Style Actions
 
-- [x] **VERIFY-01**: Fresh Playwright MCP load of the target map after fixes has zero unexpected console errors/warnings.
-- [x] **VERIFY-02**: Playwright MCP verifies the fixed DEM hillshade editor state, peak label rendering, layer options menus, and visibility toggles after reload.
-- [x] **VERIFY-03**: Frontend unit tests cover the style-config normalization regression that hid render-mode-only and legacy nested render modes.
-- [x] **VERIFY-04**: Phase summaries include the final screenshot target, changed files, commands run, and any accepted external/noise limitations.
+- [ ] **STYLE-01**: High-risk manual style controls emit through central style mutation helpers or typed transactions rather than ad hoc raw paint/config object surgery.
+- [ ] **STYLE-02**: Data-driven style enable/disable and render-as mode switches preserve unrelated style fields while clearing stale owned properties from the previously active mode.
+- [ ] **STYLE-03**: Advanced JSON remains an intentional full paint/layout replace path, with validation and clear semantics documented separately from normal patch-style controls.
+- [ ] **AI-01**: Chat `set_style` applies patch semantics against the current layer style instead of replacing the full paint object unless the action explicitly requests replacement.
+- [ ] **AI-02**: AI chat has an explicit way to clear stale style properties, either through typed actions or clear lists, and the backend tool schema/prompt describes that contract.
+- [ ] **AI-03**: Backend chat validation and generated API types stay aligned with any `ChatAction` schema changes, including MapLibre paint validation and clear/replace semantics.
+- [ ] **AI-04**: Chat undo/history restores style changes through the same reconciler path as manual UI changes and preserves paint/style_config parity.
 
-### Builder Hygiene Closeout
+### Persistence and Viewer Parity
 
-- [x] **HYGIENE-01**: Frontend lint exits with zero errors and zero warnings after fixing discovered mapbuilder a11y/rules findings.
-- [x] **HYGIENE-02**: A post-lint Playwright MCP smoke confirms the target map still loads with expected stack rows and zero console warnings/errors.
+- [ ] **PERSIST-01**: Saved map JSON stores the canonical post-reconciliation `paint`, `layout`, `style_config`, `label_config`, and opacity state without persisting transient reconciler metadata.
+- [ ] **PERSIST-02**: Save/reload round trips preserve visual output for all migrated style modes and do not resurrect stale properties.
+- [ ] **VIEW-01**: Public viewer and embed viewer render reconciled saved styles consistently with the builder for migrated layer types.
+- [ ] **VIEW-02**: Style JSON export/import remains compatible with reconciled layer styles and rejects or sanitizes invalid stale properties consistently.
+
+### Verification and Close Gate
+
+- [ ] **VERIFY-01**: Focused frontend tests cover adapter reconciliation, manual UI style transitions, AI chat style actions, save/reload normalization, and viewer rendering helpers.
+- [ ] **VERIFY-02**: Playwright MCP verifies the ADK 3D Relief map after migration, including Hiking trails gradient-to-solid, representative data-driven-to-flat, label toggle, and render-mode switch flows.
+- [ ] **VERIFY-03**: Frontend `npm run test`, `npm run typecheck`, and `npm run lint` pass for the touched builder/style areas.
+- [ ] **VERIFY-04**: Browser console and failed-network capture for the target map shows zero unexpected errors/warnings after the reconciler migration.
+- [ ] **VERIFY-05**: CHANGELOG and phase summaries document migration scope, AI-chat impact, accepted limitations, and any follow-up requirements.
 
 ## Future Requirements
 
-### Builder UX Follow-ups
+### Follow-Up Architecture
 
-- **UX-FU-01**: Consider a non-destructive "presentation mode" for builder screenshots that keeps layer/tool affordances visible while temporarily reducing chrome density.
-- **UX-FU-02**: Consider exposing companion label configuration for point mode directly instead of requiring labels to be inferred from saved metadata.
+- **STYLE-FU-01**: Consider a fuller typed style transaction domain model after the reconciler milestone, if raw paint/config manipulation remains noisy in editor components.
+- **STYLE-FU-02**: Consider moving backend and frontend MapLibre paint-property allowlists to a generated shared source to avoid schema drift.
 
 ### CI Infrastructure
 
-- **CI-01-v1025**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the mapbuilder polishing invariant.
+- **CI-01-v1026**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the style reconciler invariant.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Rebuilding the whole map-builder information architecture | v1025 is a targeted QA/polish/fix milestone for one existing marketing map. |
-| Adding new external datasets | The target map already has the required ADK source stack; this milestone fixes presentation and builder behavior. |
-| Replacing OpenFreeMap Positron | Only fix GeoLens handling or document basemap-provider limitations if fresh Playwright evidence requires it. |
-| Deleting/duplicating target datasets during QA | QA should exercise destructive menu affordances only up to safe confirmation boundaries unless a fix explicitly requires data changes. |
+| Rebuilding the entire map builder UI | v1026 hardens style mutation semantics and live MapLibre reconciliation, not the editor information architecture. |
+| Redesigning AI chat UX | AI chat is in scope only where style actions mutate map styles or require schema/tool contract changes. |
+| New cartographic controls unrelated to reconciliation | New styling features should wait until the mutation pipeline is stable. |
+| Replacing MapLibre or the imperative layer sync model | Existing MapLibre imperative integration is intentional for vector tiles; this milestone makes that integration more deterministic. |
+| Closing the GitHub Actions billing blocker | CI live-verify remains an external operator prerequisite carried forward from v1023. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| QA-01 | Phase 1107 | Complete |
-| QA-02 | Phase 1107 | Complete |
-| QA-03 | Phase 1107 | Complete |
-| QA-04 | Phase 1107 | Complete |
-| LAYER-01 | Phase 1108 | Complete |
-| LAYER-02 | Phase 1108 | Complete |
-| LAYER-03 | Phase 1108 | Complete |
-| LAYER-04 | Phase 1108 | Complete |
-| CARTO-01 | Phase 1109 | Complete |
-| CARTO-02 | Phase 1109 | Complete |
-| CARTO-03 | Phase 1109 | Complete |
-| CARTO-04 | Phase 1109 | Complete |
-| VERIFY-01 | Phase 1110 | Complete |
-| VERIFY-02 | Phase 1110 | Complete |
-| VERIFY-03 | Phase 1110 | Complete |
-| VERIFY-04 | Phase 1110 | Complete |
-| HYGIENE-01 | Phase 1111 | Complete |
-| HYGIENE-02 | Phase 1111 | Complete |
+| ARCH-01 | Phase 1112 | Pending |
+| ARCH-02 | Phase 1112 | Pending |
+| ARCH-03 | Phase 1112 | Pending |
+| ARCH-04 | Phase 1112 | Pending |
+| RECON-01 | Phase 1113 | Pending |
+| RECON-02 | Phase 1113 | Pending |
+| RECON-03 | Phase 1113 | Pending |
+| RECON-04 | Phase 1113 | Pending |
+| ADAPT-01 | Phase 1114 | Pending |
+| ADAPT-02 | Phase 1114 | Pending |
+| ADAPT-03 | Phase 1114 | Pending |
+| ADAPT-04 | Phase 1114 | Pending |
+| STYLE-01 | Phase 1115 | Pending |
+| STYLE-02 | Phase 1115 | Pending |
+| STYLE-03 | Phase 1115 | Pending |
+| AI-01 | Phase 1115 | Pending |
+| AI-02 | Phase 1115 | Pending |
+| AI-03 | Phase 1115 | Pending |
+| AI-04 | Phase 1115 | Pending |
+| PERSIST-01 | Phase 1116 | Pending |
+| PERSIST-02 | Phase 1116 | Pending |
+| VIEW-01 | Phase 1116 | Pending |
+| VIEW-02 | Phase 1116 | Pending |
+| VERIFY-01 | Phase 1117 | Pending |
+| VERIFY-02 | Phase 1117 | Pending |
+| VERIFY-03 | Phase 1117 | Pending |
+| VERIFY-04 | Phase 1117 | Pending |
+| VERIFY-05 | Phase 1117 | Pending |
 
 **Coverage:**
-- v1025 requirements: 18 total, 18 complete
-- Mapped to phases: 18
+- v1026 requirements: 28 total, 0 complete
+- Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after v1025 builder lint closeout*
+*Last updated: 2026-05-25 at v1026 milestone creation*

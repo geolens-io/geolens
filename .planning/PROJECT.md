@@ -12,22 +12,24 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1025 Mapbuilder Polishing
+## Current Milestone: v1026 Mapbuilder Style Reconciler
 
-**Goal:** Deep-QA the existing ADK 3D Relief builder map and make it screenshot/demo-ready as a high-signal proof of GeoLens cartographic and layer-authoring functionality.
+**Goal:** Replace patch-prone builder style mutation with a canonical reconciliation contract so manual UI edits, AI chat style actions, save/reload, viewer/embed rendering, and MapLibre live state stay in sync.
 
 **Target features:**
-- Use Playwright MCP against `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd` to exercise every layer row, layer options menu, visibility toggle, editor tab, and representative style controls.
-- Capture browser console warnings/errors, failed network requests, visual gaps, and layer-option regressions with phase evidence.
-- Fix all confirmed issues inline, including saved-map/script drift that prevents intended render modes, labels, or styling from appearing in the builder.
-- Optimize the target map for a marketing screenshot that still demonstrates the builder surface, layer stack, terrain, hydrography, trails, labels, raster/DEM composition, basemap controls, legend, and style/export affordances.
-- Re-run the Playwright MCP sweep after fixes and close with zero unexpected browser console errors/warnings on a fresh load.
+- Audit every style mutation path that can alter builder layer `paint`, `layout`, `style_config`, `label_config`, opacity, render mode, or companion layers.
+- Define patch, replace, clear, reset, and rebuild semantics for style changes, including explicit AI chat `set_style` behavior.
+- Add a shared owned-property reconciler that sets changed MapLibre paint/layout values and clears removed owned values from live layers.
+- Migrate adapters and companion layers so line/fill/circle/heatmap/raster/hillshade/cluster/labels/arrow/outline paths do not retain stale live properties.
+- Route high-risk manual style controls and AI chat actions through consistent style mutation semantics.
+- Prove save/reload, public viewer, embed viewer, style JSON export/import, and Playwright MCP target-map flows preserve reconciled style state.
 
 **Key context:**
-- Phase numbering continues from 1107 (no `--reset-phase-numbers`).
-- Target map: `8dd6a129-8eb0-4ba9-b421-716c83b160dd` (`Adirondack High Peaks — 3D Relief`).
-- Starting QA finding: layer rows/options/visibility toggles work, but the saved/scripted ADK map uses legacy nested `style_config.builder.render_mode` and MapLibre-style `label_config` keys, causing the DEM editor to fall back to Image mode and peak labels to disappear.
-- Use `$gsd-autonomous` shape for the rest of the milestone: QA phase first, then add/fix phases as findings require, then close with Playwright evidence.
+- Phase numbering continues from 1112 (no `--reset-phase-numbers`).
+- Triggering bug family: v1025 dogfooding found that switching Hiking trails from gradient back to solid removed `line-gradient` from builder state but left the old MapLibre paint property live until explicit cleanup.
+- The immediate line-specific cleanup is shipped, but v1026 should replace that bug-specific pattern with adapter-owned-property reconciliation.
+- AI chat is in scope because `ChatPanel` applies `set_style` and `set_data_driven_style` through the same builder style handlers; leaving chat out would preserve a live-vs-saved drift path.
+- External research is intentionally skipped for this milestone; the work is internal architecture hardening based on observed GeoLens code paths.
 
 ## Recent Shipped Milestone: v1022 Parallel-Test Cascade Closure + Hygiene Tail
 
@@ -1412,4 +1414,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-25 — started milestone v1025 Mapbuilder Polishing. Scope: Playwright MCP deep QA of existing ADK 3D Relief map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`, all layer options and editor surfaces, marketing screenshot optimization, console/network issue capture, and inline fixes with new phases as findings require.*
+*Last updated: 2026-05-25 — started milestone v1026 Mapbuilder Style Reconciler. Scope: canonical style mutation semantics, owned-property MapLibre reconciliation, adapter migration, AI chat style action parity, save/reload/viewer/embed verification, and Playwright MCP regression evidence.*
