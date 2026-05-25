@@ -10,7 +10,7 @@
 
 ### Phase Plan
 
-- [ ] **Phase 1112: Style Contract and Baseline Audit** — inventory every style mutation entry point, define patch/replace/clear semantics, declare adapter-owned properties, and document the regression matrix.
+- [x] **Phase 1112: Style Contract and Baseline Audit** — inventory every style mutation entry point, define patch/replace/clear semantics, declare adapter-owned properties, and document the regression matrix.
 - [ ] **Phase 1113: Shared Style Reconciler** — implement shared owned-property diff helpers for paint/layout set, no-op, clear, validation, expression preservation, and MapLibre error isolation.
 - [ ] **Phase 1114: Adapter Migration** — migrate vector, raster, hillshade, cluster, label, outline, arrow, and companion-layer sync paths onto the reconciler contract.
 - [ ] **Phase 1115: UI and AI Style Actions** — route high-risk manual controls and AI chat style actions through consistent style mutation semantics, including explicit clear behavior.

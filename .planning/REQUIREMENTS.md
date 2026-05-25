@@ -7,10 +7,10 @@
 
 ### Style Contract and Audit
 
-- [ ] **ARCH-01**: Every map-builder style mutation entry point is inventoried with code references, including manual style controls, advanced JSON, render-as switches, data-driven styles, AI chat actions, undo/history, save/reload, public viewer, embed viewer, labels, terrain, and basemap overrides.
-- [ ] **ARCH-02**: The milestone defines canonical style mutation semantics for patch, replace, clear, reset, and layer rebuild operations, with AI `set_style` semantics explicitly classified.
-- [ ] **ARCH-03**: Each adapter declares the paint/layout/style properties it owns, including companion layers such as fill outlines, labels, cluster sublayers, arrow layers, hillshade/raster layers, and fill-extrusion surfaces.
-- [ ] **ARCH-04**: A regression matrix is documented for stale-style transitions, including gradient-to-solid, data-driven-to-flat, dashed-to-solid, outline-off/on, label-off/on, extrusion-off, heatmap/cluster/symbol render-mode swaps, and AI style edits.
+- [x] **ARCH-01**: Every map-builder style mutation entry point is inventoried with code references, including manual style controls, advanced JSON, render-as switches, data-driven styles, AI chat actions, undo/history, save/reload, public viewer, embed viewer, labels, terrain, and basemap overrides.
+- [x] **ARCH-02**: The milestone defines canonical style mutation semantics for patch, replace, clear, reset, and layer rebuild operations, with AI `set_style` semantics explicitly classified.
+- [x] **ARCH-03**: Each adapter declares the paint/layout/style properties it owns, including companion layers such as fill outlines, labels, cluster sublayers, arrow layers, hillshade/raster layers, and fill-extrusion surfaces.
+- [x] **ARCH-04**: A regression matrix is documented for stale-style transitions, including gradient-to-solid, data-driven-to-flat, dashed-to-solid, outline-off/on, label-off/on, extrusion-off, heatmap/cluster/symbol render-mode swaps, and AI style edits.
 
 ### Shared Reconciler
 
@@ -76,10 +76,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | Phase 1112 | Pending |
-| ARCH-02 | Phase 1112 | Pending |
-| ARCH-03 | Phase 1112 | Pending |
-| ARCH-04 | Phase 1112 | Pending |
+| ARCH-01 | Phase 1112 | Complete |
+| ARCH-02 | Phase 1112 | Complete |
+| ARCH-03 | Phase 1112 | Complete |
+| ARCH-04 | Phase 1112 | Complete |
 | RECON-01 | Phase 1113 | Pending |
 | RECON-02 | Phase 1113 | Pending |
 | RECON-03 | Phase 1113 | Pending |
@@ -106,10 +106,10 @@
 | VERIFY-05 | Phase 1117 | Pending |
 
 **Coverage:**
-- v1026 requirements: 28 total, 0 complete
+- v1026 requirements: 28 total, 4 complete
 - Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 at v1026 milestone creation*
+*Last updated: 2026-05-25 after Phase 1112*
