@@ -4,11 +4,13 @@ import { eyebrowClassName } from './EmptyStackState';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWidgets } from '@/components/map-widgets/registry';
 import { TERRAIN_EXAGGERATION_MAX } from '@/components/builder/map-sync';
+import { StyleColorPicker } from './StyleColorPicker';
 import type { MapTerrainConfig } from '@/types/api';
 
 /**
@@ -31,6 +33,10 @@ export interface SettingsEditorSceneProps {
   // Widgets
   activeWidgetIds: Set<string>;
   onToggleWidget: (widgetId: string) => void;
+  // Appearance
+  backgroundColor: string | null;
+  onBackgroundColorChange: (color: string) => void;
+  onBackgroundColorReset: () => void;
   // Projection (runtime-only, v1)
   projection: 'mercator' | 'globe';
   onSetProjection: (projection: 'mercator' | 'globe') => void;
@@ -80,10 +86,14 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   onExaggerationChange,
   activeWidgetIds,
   onToggleWidget,
+  backgroundColor,
+  onBackgroundColorChange,
+  onBackgroundColorReset,
   projection,
   onSetProjection,
 }: SettingsEditorSceneProps) {
   const { t } = useTranslation('builder');
+  const [appearanceOpen, setAppearanceOpen] = useState(true);
   const [terrainOpen, setTerrainOpen] = useState(true);
   const [widgetsOpen, setWidgetsOpen] = useState(true);
   const [projectionOpen, setProjectionOpen] = useState(true);
@@ -91,6 +101,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   const widgets = useMemo(() => getWidgets(), []);
 
   const exaggerationValue = terrainConfig?.exaggeration ?? 1.0;
+  const backgroundSwatch = backgroundColor ?? '#ffffff';
 
   const terrainCollapsedHint = isTerrainActive
     ? t('settings.terrainActiveHint', { defaultValue: '{{value}}× exaggeration', value: exaggerationValue })
@@ -104,7 +115,53 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
   return (
     <div className="flex flex-col h-full overflow-y-auto">
 
-      {/* Section 1: TERRAIN */}
+      {/* Section 1: APPEARANCE */}
+      <Collapsible open={appearanceOpen} onOpenChange={setAppearanceOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-4 py-2 hover:bg-[var(--surface-2,theme(colors.muted.DEFAULT))] border-b"
+          >
+            <ChevronRight
+              className={cn('h-4 w-4 shrink-0 transition-transform duration-[--motion-fast]', appearanceOpen && 'rotate-90')}
+              aria-hidden="true"
+            />
+            <span className={eyebrowClassName}>
+              {t('settings.appearanceLabel', { defaultValue: 'APPEARANCE' })}
+            </span>
+            {!appearanceOpen && (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {backgroundColor ?? t('settings.defaultBackgroundColor', { defaultValue: 'Default' })}
+              </span>
+            )}
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="px-4 py-2 border-b">
+            <div className="flex h-9 items-center justify-between gap-2">
+              <StyleColorPicker
+                label={t('settings.backgroundColor', { defaultValue: 'Background' })}
+                color={backgroundSwatch}
+                onChange={onBackgroundColorChange}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                disabled={!backgroundColor}
+                onClick={onBackgroundColorReset}
+                aria-label={t('settings.resetBackgroundColor', { defaultValue: 'Reset background color' })}
+                title={t('settings.resetBackgroundColor', { defaultValue: 'Reset background color' })}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Section 2: TERRAIN */}
       <Collapsible open={terrainOpen} onOpenChange={setTerrainOpen}>
         <CollapsibleTrigger asChild>
           <button
@@ -155,7 +212,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Section 2: WIDGETS */}
+      {/* Section 3: WIDGETS */}
       <Collapsible open={widgetsOpen} onOpenChange={setWidgetsOpen}>
         <CollapsibleTrigger asChild>
           <button
@@ -219,7 +276,7 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Section 3: PROJECTION */}
+      {/* Section 4: PROJECTION */}
       <Collapsible open={projectionOpen} onOpenChange={setProjectionOpen}>
         <CollapsibleTrigger asChild>
           <button

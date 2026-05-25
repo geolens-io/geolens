@@ -5,70 +5,26 @@ import {
   buildDuplicateRenderingInput,
   useBuilderLayers,
 } from '@/components/builder/hooks/use-builder-layers';
+import {
+  makeBuilderLayer,
+  makeBuilderMap,
+  makeMapLibreMock,
+} from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 
-function makeMockLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
-  return {
-    id: 'layer-1',
-    dataset_id: 'ds-1',
-    dataset_name: 'Test',
-    dataset_geometry_type: 'Polygon',
-    dataset_table_name: 'test_table',
-    visible: true,
-    opacity: 1,
-    paint: {},
-    layout: {},
-    sort_order: 0,
-    filter: null,
-    display_name: null,
-    layer_type: 'vector_geolens',
-    dataset_extent_bbox: null,
-    dataset_column_info: null,
-    dataset_feature_count: null,
-    dataset_sample_values: null,
-    dataset_record_type: undefined,
-    label_config: null,
-    style_config: null,
-    ...overrides,
-  };
-}
-
-function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
-  return {
-    id: 'map-1',
-    name: 'Test Map',
-    description: null,
-    notes: null,
-    center_lng: 0,
-    center_lat: 0,
-    zoom: 2,
-    bearing: 0,
-    pitch: 0,
-    basemap_style: 'positron',
-    show_basemap_labels: true,
-    basemap_config: null,
-    terrain_config: null,
-    visibility: 'private',
-    thumbnail_url: null,
-    created_by: null,
-    created_by_username: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    layers,
-    layer_count: layers.length,
-    forked_from_id: null,
-    forked_from_name: null,
-  };
-}
+const makeMockLayer = makeBuilderLayer;
+const makeMapData = makeBuilderMap;
 
 function renderBuilderLayers(
   mapData: MapResponse | undefined,
   mapRef: React.RefObject<MaplibreMap | null> = { current: null } as React.RefObject<MaplibreMap | null>,
 ) {
-  const addLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3];
-  const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  const addLayerMutate = vi.fn();
+  const removeLayerMutate = vi.fn();
+  const addLayerMutation = { mutate: addLayerMutate } as unknown as Parameters<typeof useBuilderLayers>[3];
+  const removeLayerMutation = { mutate: removeLayerMutate } as unknown as Parameters<typeof useBuilderLayers>[4];
 
-  return renderHook(() =>
+  const hook = renderHook(() =>
     useBuilderLayers(
       mapData,
       mapRef,
@@ -77,6 +33,8 @@ function renderBuilderLayers(
       removeLayerMutation,
     ),
   );
+
+  return { ...hook, addLayerMutate, removeLayerMutate };
 }
 
 type MaplibreMap = import('maplibre-gl').Map;
@@ -289,6 +247,97 @@ describe('useBuilderLayers', () => {
       }));
   });
 
+  it('handleDuplicateRendering selects and briefly highlights the new rendering', () => {
+    vi.useFakeTimers();
+    try {
+      const layer = makeMockLayer({
+        id: 'layer-1',
+        dataset_id: 'ds-1',
+        display_name: 'Population fill',
+        sort_order: 0,
+      });
+      const duplicate = makeMockLayer({
+        id: 'layer-duplicate',
+        dataset_id: 'ds-1',
+        display_name: 'Population fill rendering',
+        sort_order: 1,
+      });
+      const { result, addLayerMutate } = renderBuilderLayers(makeMapData([layer]));
+
+      act(() => {
+        result.current.handleDuplicateRendering('layer-1');
+      });
+
+      expect(addLayerMutate).toHaveBeenCalledOnce();
+      const [, { onSuccess }] = addLayerMutate.mock.calls[0];
+
+      act(() => {
+        onSuccess(duplicate);
+      });
+
+      expect(result.current.localLayers.map((candidate) => candidate.id)).toContain('layer-duplicate');
+      expect(result.current.expandedLayerId).toBe('layer-duplicate');
+      expect(result.current.activeEditorTab).toBe('style');
+      expect(result.current.freshLayerId).toBe('layer-duplicate');
+
+      act(() => {
+        vi.advanceTimersByTime(201);
+      });
+
+      expect(result.current.freshLayerId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('dispatchLayerAction routes persisted remove through the server mutation', () => {
+    const layer = makeMockLayer({ id: 'layer-1' });
+    const { result, removeLayerMutate } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.dispatchLayerAction({
+        type: 'remove_layer',
+        source: 'manual',
+        layerId: 'layer-1',
+        persistence: 'server',
+      });
+    });
+
+    expect(result.current.localLayers).toHaveLength(0);
+    expect(removeLayerMutate).toHaveBeenCalledWith(
+      { mapId: 'map-1', layerId: 'layer-1' },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
+  });
+
+  it('chatLayerActions remove uses the draft-only local remove path', () => {
+    const layer = makeMockLayer({ id: 'layer-1' });
+    const { result, removeLayerMutate } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.chatLayerActions.onRemove('layer-1');
+    });
+
+    expect(result.current.localLayers).toHaveLength(0);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+    expect(removeLayerMutate).not.toHaveBeenCalled();
+  });
+
+  it('chatLayerActions style updates dispatch through the layer action boundary', () => {
+    const layer = makeMockLayer({ id: 'layer-1', paint: { 'line-color': '#111111' } });
+    const { result } = renderBuilderLayers(makeMapData([layer]));
+
+    act(() => {
+      result.current.chatLayerActions.onPaintChange('layer-1', { 'line-color': '#14532d' });
+    });
+
+    expect(result.current.localLayers[0].paint).toEqual({ 'line-color': '#14532d' });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('handleToggleExpand sets expandedLayerId and defaults to style tab', () => {
     const layer = makeMockLayer();
     const mapData = makeMapData([layer]);
@@ -332,24 +381,7 @@ describe('useBuilderLayers', () => {
 
   describe('handleZoomToLayer', () => {
     function createMockMap() {
-      return {
-        fitBounds: vi.fn(),
-        getStyle: vi.fn(() => ({ layers: [] })),
-        getLayer: vi.fn(),
-        addLayer: vi.fn(),
-        removeLayer: vi.fn(),
-        addSource: vi.fn(),
-        removeSource: vi.fn(),
-        getSource: vi.fn(),
-        setPaintProperty: vi.fn(),
-        setLayoutProperty: vi.fn(),
-        setFilter: vi.fn(),
-        moveLayer: vi.fn(),
-        resize: vi.fn(),
-        setTransformRequest: vi.fn(),
-        on: vi.fn(),
-        off: vi.fn(),
-      } as unknown as MaplibreMap;
+      return makeMapLibreMock();
     }
 
     function setupZoom(bbox: number[] | null, layerId = 'layer-1') {
@@ -433,6 +465,7 @@ describe('useBuilderLayers', () => {
         handleRenderModeChange: result.current.handleRenderModeChange,
         handleRenderAsChange: result.current.handleRenderAsChange,
         handleDuplicateRendering: result.current.handleDuplicateRendering,
+        dispatchLayerAction: result.current.dispatchLayerAction,
       };
 
       // Trigger a state mutation that would invalidate non-memoized closures.

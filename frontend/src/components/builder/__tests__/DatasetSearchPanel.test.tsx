@@ -261,6 +261,7 @@ describe('DatasetSearchPanel', () => {
       land_water_tone: 'muted',
       relief_contrast: 'soft',
       opacity: 1,
+      background_color: null,
     });
   });
 

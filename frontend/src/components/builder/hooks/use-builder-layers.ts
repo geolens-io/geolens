@@ -9,16 +9,25 @@ import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
 import type { LayerActions } from '@/components/builder/ChatPanel';
+import {
+  dispatchBuilderLayerAction,
+  type BuilderLayerAction,
+} from '@/components/builder/builder-action-contract';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { buildLabelLayerSpec } from '@/components/builder/label-layer-utils';
 import { resolveBasemapId } from '@/lib/basemap-utils';
-import type { MapBasemapConfig, MapLayerInput, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
+import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 import { buildRenderAsPatch } from '@/components/builder/renderAs';
 import type { RenderAsId, RenderAsAdapterType } from '@/components/builder/renderAs';
 import { bulkDeleteLayersApi } from '@/api/maps';
+import {
+  buildDuplicateRenderingInput,
+  removePerLayerCompanions,
+} from '@/components/builder/hooks/builder-layer-mutations';
+export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
 /**
  * Frontend-only extension of MapLayerResponse with group-related fields.
@@ -30,60 +39,6 @@ type GroupedLayer = Omit<MapLayerResponse, 'layer_type'> & {
   layer_type?: string | null;
   parent_group_id?: string | null;
 };
-
-/**
- * WR-01 (Phase 1050-rev): imperatively remove per-layer companion MapLibre
- * layers (label / outline / extrusion / arrow / cluster-circle / cluster-count
- * + main `layer-${id}`) when a layer is removed. Required because
- * `removeStaleSourcesAndLayers` in map-sync.ts derives companion ids by
- * stripping the source prefix — that path no longer produces correct layer
- * ids under the SF-04 dedupe contract (the stripped value is
- * `data-${dataset_table_name}`, not the real layer id). Without this
- * imperative cleanup, every non-AI removal path (handleRemove,
- * handleBulkDelete) leaks the companion layers until basemap-switch or
- * page reload.
- *
- * Sources are intentionally NOT removed here — the next syncFromState
- * invocation's reference-count-aware `removeStaleSourcesAndLayers`
- * desired-set prune handles source teardown correctly (deduped sources
- * stay if siblings still reference them).
- */
-function removePerLayerCompanions(
-  map: MaplibreMap | null,
-  layerIds: Iterable<string>,
-): void {
-  if (!map || !map.isStyleLoaded()) return;
-  const suffixes = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'];
-  for (const id of layerIds) {
-    for (const suffix of suffixes) {
-      const lid = `layer-${id}${suffix}`;
-      if (map.getLayer(lid)) map.removeLayer(lid);
-    }
-  }
-}
-
-export function buildDuplicateRenderingInput(
-  layer: MapLayerResponse,
-  currentLayers: MapLayerResponse[],
-): MapLayerInput {
-  const nextSortOrder = currentLayers.reduce((max, candidate) => Math.max(max, candidate.sort_order), -1) + 1;
-  const baseName = layer.display_name || layer.dataset_name || layer.dataset_table_name || 'Layer';
-  return {
-    dataset_id: layer.dataset_id,
-    sort_order: nextSortOrder,
-    visible: true,
-    opacity: layer.opacity,
-    paint: { ...(layer.paint ?? {}) },
-    layout: { ...(layer.layout ?? {}) },
-    display_name: `${baseName} rendering`,
-    filter: layer.filter ?? null,
-    label_config: layer.label_config ?? null,
-    popup_config: layer.popup_config ?? null,
-    style_config: layer.style_config ? ({ ...layer.style_config } as StyleConfig) : null,
-    layer_type: layer.layer_type ?? null,
-    show_in_legend: layer.show_in_legend ?? true,
-  };
-}
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -1098,7 +1053,17 @@ export function useBuilderLayers(
             ...savedLayerBaselineRef.current.filter((candidate) => candidate.id !== createdLayer.id),
             createdLayer,
           ];
-          toast.success(t('toasts.layerAdded'));
+          if (createdLayer?.id) {
+            setExpandedLayerId(createdLayer.id);
+            setActiveEditorTab('style');
+            if (freshLayerTimeoutRef.current) clearTimeout(freshLayerTimeoutRef.current);
+            setFreshLayerId(createdLayer.id);
+            freshLayerTimeoutRef.current = setTimeout(() => {
+              setFreshLayerId(null);
+              freshLayerTimeoutRef.current = null;
+            }, 200);
+          }
+          toast.success(t('toasts.layerDuplicated'));
         },
         onError: () => {
           toast.error(t('toasts.layerAddFailed'));
@@ -1109,20 +1074,90 @@ export function useBuilderLayers(
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
-  const chatLayerActions: LayerActions = useMemo(() => ({
-    onFilterChange: handleFilterChange,
-    onPaintChange: handlePaintChange,
-    onStyleConfigChange: handleStyleConfigChange,
-    onLabelChange: handleLabelChange,
-    onToggleVisibility: handleToggleVisibility,
-    onAddDataset: handleAddDataset,
-    onRemove: handleAiRemoveLayer,
-    onOpacityChange: handleOpacityChange,
-  }), [
-    handleFilterChange, handlePaintChange, handleStyleConfigChange,
-    handleLabelChange, handleToggleVisibility, handleAddDataset,
-    handleAiRemoveLayer, handleOpacityChange,
+  const dispatchLayerAction = useCallback((action: BuilderLayerAction) => {
+    dispatchBuilderLayerAction(action, {
+      setFilter: handleFilterChange,
+      setPaint: handlePaintChange,
+      setStyleConfig: handleStyleConfigChange,
+      setLabel: handleLabelChange,
+      setPopup: handlePopupChange,
+      setLayout: handleLayoutChange,
+      setVisibility: handleToggleVisibility,
+      setOpacity: handleOpacityChange,
+      addDataset: (datasetId) => handleAddDataset(datasetId),
+      removePersistedLayer: handleRemove,
+      removeDraftLayer: handleAiRemoveLayer,
+      duplicateRendering: handleDuplicateRendering,
+      reorderLayers: handleReorder,
+      bindDemTerrain: handleDEMTerrainBind,
+    });
+  }, [
+    handleAddDataset,
+    handleAiRemoveLayer,
+    handleDEMTerrainBind,
+    handleDuplicateRendering,
+    handleFilterChange,
+    handleLabelChange,
+    handleLayoutChange,
+    handleOpacityChange,
+    handlePaintChange,
+    handlePopupChange,
+    handleRemove,
+    handleReorder,
+    handleStyleConfigChange,
+    handleToggleVisibility,
   ]);
+
+  const chatLayerActions: LayerActions = useMemo(() => ({
+    onFilterChange: (layerId, expression) => dispatchLayerAction({
+      type: 'set_filter',
+      source: 'ai',
+      layerId,
+      expression,
+    }),
+    onPaintChange: (layerId, paint) => dispatchLayerAction({
+      type: 'set_paint',
+      source: 'ai',
+      layerId,
+      paint,
+    }),
+    onStyleConfigChange: (layerId, config, paint) => dispatchLayerAction({
+      type: 'set_style_config',
+      source: 'ai',
+      layerId,
+      config,
+      paint,
+    }),
+    onLabelChange: (layerId, config) => dispatchLayerAction({
+      type: 'set_label',
+      source: 'ai',
+      layerId,
+      config,
+    }),
+    onToggleVisibility: (layerId, visible) => dispatchLayerAction({
+      type: 'set_visibility',
+      source: 'ai',
+      layerId,
+      visible,
+    }),
+    onAddDataset: (datasetId) => dispatchLayerAction({
+      type: 'add_dataset',
+      source: 'ai',
+      datasetId,
+    }),
+    onRemove: (layerId) => dispatchLayerAction({
+      type: 'remove_layer',
+      source: 'ai',
+      layerId,
+      persistence: 'draft',
+    }),
+    onOpacityChange: (layerId, opacity) => dispatchLayerAction({
+      type: 'set_opacity',
+      source: 'ai',
+      layerId,
+      opacity,
+    }),
+  }), [dispatchLayerAction]);
 
   return {
     localName, setLocalName,
@@ -1168,6 +1203,7 @@ export function useBuilderLayers(
     handleMoveLayerOutOfGroup,
     handleAddDataset,
     handleDuplicateRendering,
+    dispatchLayerAction,
     handleAiRemoveLayer,
     handleQueryResult,
     handleToggleLegend,

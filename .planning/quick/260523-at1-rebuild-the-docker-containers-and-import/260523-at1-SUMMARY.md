@@ -1,3 +1,8 @@
+---
+status: complete
+date: 2026-05-23
+---
+
 # Quick 260523-at1: Docker Rebuild + Seed Sweep
 
 **Date:** 2026-05-23

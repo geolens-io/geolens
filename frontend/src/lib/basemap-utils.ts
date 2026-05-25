@@ -3,6 +3,7 @@ import type { BasemapEntry } from '@/api/settings';
 import type {
   MapBasemapConfig,
   MapBasemapLandWaterTone,
+  MapBasemapPosition,
   MapBasemapReliefContrast,
   MapBasemapVisibilityMode,
 } from '@/types/api';
@@ -24,11 +25,14 @@ export const DEFAULT_BASEMAP_CONFIG: MapBasemapConfig = {
   land_water_tone: 'default',
   relief_contrast: null,
   opacity: 1,
+  background_color: null,
 };
 
 const VISIBILITY_MODES = new Set<MapBasemapVisibilityMode>(['full', 'subtle', 'hidden']);
 const LAND_WATER_TONES = new Set<MapBasemapLandWaterTone>(['default', 'muted', 'contrast', 'monochrome']);
 const RELIEF_CONTRASTS = new Set<MapBasemapReliefContrast>(['soft', 'standard', 'strong']);
+const BASEMAP_POSITIONS = new Set<MapBasemapPosition>(['top', 'bottom']);
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 export type StyleLayer = StyleSpecification['layers'][number] & {
   id: string;
@@ -118,6 +122,10 @@ export function basemapThumbnail(id: string): string {
   return BUILTIN_THUMBNAILS[id] ?? FALLBACK_THUMBNAIL;
 }
 
+export function hasVisibleBasemapStyle(id: string | null | undefined): id is string {
+  return Boolean(id && id !== BLANK_BASEMAP_ID);
+}
+
 const LEGACY_KEY_MAP: Record<string, string> = {
   positron: 'openfreemap-positron',
   'dark-matter': 'openfreemap-dark',
@@ -164,7 +172,14 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
         ...(attribution ? { attribution } : {}),
       },
     },
-    layers: [{ id: 'basemap-tiles', type: 'raster' as const, source: 'basemap' }],
+    layers: [
+      {
+        id: 'background',
+        type: 'background' as const,
+        paint: { 'background-color': 'rgba(0,0,0,0)' },
+      },
+      { id: 'basemap-tiles', type: 'raster' as const, source: 'basemap' },
+    ],
     glyphs: FALLBACK_GLYPHS,
   };
 }
@@ -188,12 +203,22 @@ function validReliefContrast(value: unknown) {
     : null;
 }
 
+function validBackgroundColor(value: unknown) {
+  return typeof value === 'string' && HEX_COLOR_RE.test(value) ? value : null;
+}
+
+function validBasemapPosition(value: unknown) {
+  return typeof value === 'string' && BASEMAP_POSITIONS.has(value as MapBasemapPosition)
+    ? value as MapBasemapPosition
+    : undefined;
+}
+
 export function normalizeBasemapConfig(
   value: Partial<MapBasemapConfig> | null | undefined,
   showBasemapLabels = true,
 ): MapBasemapConfig {
   const labelFallback = showBasemapLabels ? DEFAULT_BASEMAP_CONFIG.label_mode : 'hidden';
-  return {
+  const normalized: MapBasemapConfig = {
     label_mode: validVisibilityMode(value?.label_mode, labelFallback),
     road_visibility: validVisibilityMode(
       value?.road_visibility,
@@ -215,7 +240,16 @@ export function normalizeBasemapConfig(
       && value.opacity <= 1
         ? value.opacity
         : DEFAULT_BASEMAP_CONFIG.opacity,
+    background_color: validBackgroundColor(value?.background_color),
   };
+  const basemapPosition = validBasemapPosition(value?.basemap_position);
+  if (basemapPosition) {
+    normalized.basemap_position = basemapPosition;
+  }
+  if (value && Object.prototype.hasOwnProperty.call(value, 'sublayer_overrides')) {
+    normalized.sublayer_overrides = value.sublayer_overrides ?? null;
+  }
+  return normalized;
 }
 
 function layerTokens(layer: StyleLayer) {
@@ -307,6 +341,14 @@ function applyLandWaterTone(layer: StyleLayer, tone: MapBasemapLandWaterTone) {
   return layer;
 }
 
+function applyBackgroundColor(
+  layer: StyleLayer,
+  backgroundColor: string | null | undefined,
+) {
+  if (!backgroundColor || layer.type !== 'background') return layer;
+  return withPaint(layer, { 'background-color': backgroundColor });
+}
+
 function applyReliefContrast(
   layer: StyleLayer,
   reliefContrast: MapBasemapReliefContrast | null | undefined,
@@ -385,6 +427,7 @@ function applyBasemapLayerConfig(
   config: MapBasemapConfig,
 ): StyleLayer {
   let next = applyLandWaterTone(layer, config.land_water_tone);
+  next = applyBackgroundColor(next, config.background_color);
   next = applyReliefContrast(next, config.relief_contrast);
 
   if (isBuildingLayer(next)) {

@@ -11,6 +11,13 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Changed
+
+- Map builder basemap, background, terrain, sublayer, builder/viewer sync, editor-scene routing, duplicate-rendering, and AI/manual layer mutations now flow through focused controller/contract helpers instead of duplicated page-level object surgery.
+- Builder tests now share map/layer/basemap/terrain/MapLibre fixtures across the highest-duplication `use-builder-layers` suites and map stack coverage, reducing bespoke mock drift across add/remove/duplicate/group/bulk/order regressions.
+- The frontend production build now treats the isolated MapLibre vendor chunk as an explicit GIS engine budget, so expected map-engine weight no longer appears as a generic Vite warning.
+- The internal builder-audit playbook now includes the v1027 basemap controller, composition sync, editor scene controller, and typed layer action contract checks.
+
 ### Fixed
 
 - Map builder style mutations now reconcile adapter-owned paint/layout keys instead of replaying additive patches, so stale properties are removed across manual controls, render-mode swaps, labels, companion layers, AI chat style actions, save/reload, and viewer/embed rendering.
@@ -30,6 +37,9 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 - Playwright MCP verified the ADK 3D Relief target map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: Hiking trails gradient-to-solid clears `line-gradient`, data-driven `facility` style clears back to scalar paint, labels switch to symbol and back to point, GeoLens sprites load without console noise, and terrain is active with `terrain-dem` at 2.4x exaggeration.
 - Playwright MCP deep-swept the ADK 3D Relief map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: all layer rows/options opened, DEM hillshade and peak label style JSON verified, and the fresh browser console had zero warnings/errors.
 - Frontend lint, typecheck, focused normalization tests, and a post-lint Playwright MCP smoke all pass.
+- v1027 close gate passed focused builder/viewer regression tests, frontend typecheck/lint/build, and Playwright MCP target-map reload/editor/settings smoke with zero browser console warnings/errors.
+- Focused backend map/schema tests passed with `.env.test.example` exported: `tests/test_basemap_sublayer_overrides.py`, `tests/test_maps.py`, and `tests/test_maps_style_json.py` (198 tests).
+- v1027 follow-up UAT used a throwaway duplicate of the ADK target map to verify duplicate layer, remove basemap, background color save/reload, and tile readiness; the copy was deleted and the original target map was rechecked unchanged.
 
 ## [1.5.9] - 2026-05-24
 

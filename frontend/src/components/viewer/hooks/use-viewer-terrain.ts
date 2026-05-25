@@ -83,9 +83,9 @@ export function useViewerTerrain({
     const map = mapRef.current;
     applyTerrain();
     if (map && !map.isStyleLoaded()) {
-      map.once('style.load', applyTerrain);
+      map.once('idle', applyTerrain);
       return () => {
-        map.off('style.load', applyTerrain);
+        map.off('idle', applyTerrain);
       };
     }
   }, [
@@ -100,8 +100,13 @@ export function useViewerTerrain({
   ]);
 
   const reseedTerrainOnStyleLoad = useCallback(() => {
-    applyTerrain();
-  }, [applyTerrain]);
+    const map = mapRef.current;
+    if (!map) {
+      applyTerrain();
+      return;
+    }
+    map.once('idle', applyTerrain);
+  }, [applyTerrain, mapRef]);
 
   return { terrainReady, reseedTerrainOnStyleLoad };
 }

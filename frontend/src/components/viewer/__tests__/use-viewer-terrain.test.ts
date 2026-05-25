@@ -4,6 +4,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 
 function createMap() {
+  const handlers = new Map<string, Set<() => void>>();
   const sources = new Map<string, {
     type?: string;
     tiles?: string[];
@@ -29,6 +30,20 @@ function createMap() {
       sources.delete(id);
     }),
     setTerrain: vi.fn(),
+    once: vi.fn((event: string, handler: () => void) => {
+      const existing = handlers.get(event) ?? new Set();
+      existing.add(handler);
+      handlers.set(event, existing);
+    }),
+    off: vi.fn((event: string, handler: () => void) => {
+      handlers.get(event)?.delete(handler);
+    }),
+    emit: (event: string) => {
+      for (const handler of Array.from(handlers.get(event) ?? [])) {
+        handler();
+        handlers.get(event)?.delete(handler);
+      }
+    },
   };
 }
 
@@ -181,6 +196,11 @@ describe('useViewerTerrain', () => {
 
     act(() => {
       result.current.reseedTerrainOnStyleLoad();
+    });
+
+    expect(map.setTerrain).not.toHaveBeenCalled();
+    act(() => {
+      map.emit('idle');
     });
 
     expect(map.setTerrain).toHaveBeenCalledWith({ source: 'terrain-dem', exaggeration: 1.75 });

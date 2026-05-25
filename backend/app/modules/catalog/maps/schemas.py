@@ -99,6 +99,7 @@ def canonicalize_builder_style_config(
         return new_config
     return style_config
 
+
 # MapLayer style overrides are open dicts (paint, layout, label_config, style_config)
 # because MapLibre's property surface is large and dynamic. Bound the JSON-serialized
 # size to prevent a single PUT from storing a megabytes-sized JSONB blob per layer.
@@ -244,11 +245,11 @@ class BasemapReliefContrast(str, Enum):
     strong = "strong"
 
 
-# Regex for SublayerOverride color field validation.
+# Regex for #RRGGBB color field validation.
 # Accepts exactly #RRGGBB (6 hex digits, case-insensitive).
 # Rejects raw names ("red"), short hex ("#abc"), long hex ("#1234567"),
 # and URI schemes ("javascript:", "data:") — security: T-1059A-01.
-_SUBLAYER_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 class SublayerOverride(BaseModel):
@@ -323,7 +324,7 @@ class SublayerOverride(BaseModel):
     def _validate_hex_color(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        if not _SUBLAYER_HEX_RE.match(v):
+        if not _HEX_COLOR_RE.match(v):
             raise ValueError(
                 "Color must be in #RRGGBB hex format (e.g. #ff0000). "
                 "Raw color names, short hex, and URI schemes are not accepted."
@@ -378,6 +379,13 @@ class BasemapConfig(BaseModel):
         le=1.0,
         description="Master basemap opacity 0.0-1.0",
     )
+    background_color: str | None = Field(
+        default=None,
+        description=(
+            "Map canvas background color in #RRGGBB hex format, "
+            "or null to use the basemap default."
+        ),
+    )
     sublayer_overrides: dict[str, SublayerOverride] | None = Field(
         default=None,
         description=(
@@ -389,6 +397,18 @@ class BasemapConfig(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("background_color")
+    @classmethod
+    def _validate_background_color(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not _HEX_COLOR_RE.match(v):
+            raise ValueError(
+                "background_color must be in #RRGGBB hex format (e.g. #f8fafc). "
+                "Raw color names, short hex, and URI schemes are not accepted."
+            )
+        return v
 
 
 class MapLayerInput(BaseModel):

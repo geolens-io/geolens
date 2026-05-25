@@ -1208,6 +1208,18 @@
       "BasemapConfig": {
         "additionalProperties": false,
         "properties": {
+          "background_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map canvas background color in #RRGGBB hex format, or null to use the basemap default.",
+            "title": "Background Color"
+          },
           "boundary_visibility": {
             "$ref": "#/components/schemas/BasemapSublayerVisibility",
             "default": "full",

@@ -12,24 +12,33 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1026 Mapbuilder Style Reconciler
+## Current Milestone: v1027 Map Builder Architecture Simplification
 
-**Goal:** Replace patch-prone builder style mutation with a canonical reconciliation contract so manual UI edits, AI chat style actions, save/reload, viewer/embed rendering, and MapLibre live state stay in sync.
+**Goal:** Reduce map-builder orchestration complexity while preserving existing user behavior, the v1026 style reconciliation contract, AI chat action behavior, save/reload durability, viewer/embed parity, and the target ADK map's marketing screenshot quality.
 
 **Target features:**
-- Audit every style mutation path that can alter builder layer `paint`, `layout`, `style_config`, `label_config`, opacity, render mode, or companion layers.
-- Define patch, replace, clear, reset, and rebuild semantics for style changes, including explicit AI chat `set_style` behavior.
-- Add a shared owned-property reconciler that sets changed MapLibre paint/layout values and clears removed owned values from live layers.
-- Migrate adapters and companion layers so line/fill/circle/heatmap/raster/hillshade/cluster/labels/arrow/outline paths do not retain stale live properties.
-- Route high-risk manual style controls and AI chat actions through consistent style mutation semantics.
-- Prove save/reload, public viewer, embed viewer, style JSON export/import, and Playwright MCP target-map flows preserve reconciled style state.
+- Audit map-builder ownership across `MapBuilderPage`, `use-builder-layers`, `BuilderMap`, `ViewerMap`, `map-sync`, `basemap-utils`, layer adapters, editor scenes, and AI chat action paths.
+- Consolidate basemap/background/terrain/sublayer state so remove basemap, background color, terrain exaggeration, and reload normalization cannot drift.
+- Share builder/viewer source-layer-style-background-terrain sequencing without hiding layer-type-specific adapter behavior.
+- Extract editor scene, dialog, selection, persistence, and dirty-state responsibilities from oversized builder orchestration files.
+- Route manual layer actions, duplicate/remove flows, undo/history, persistence, and AI chat through typed command semantics where practical.
+- DRY builder test fixtures and verify the target map with Playwright MCP for layer options, remove basemap, duplicate layer, background color, terrain, save/reload, viewer parity, and marketing screenshot readiness.
 
 **Key context:**
-- Phase numbering continues from 1112 (no `--reset-phase-numbers`).
-- Triggering bug family: v1025 dogfooding found that switching Hiking trails from gradient back to solid removed `line-gradient` from builder state but left the old MapLibre paint property live until explicit cleanup.
-- The immediate line-specific cleanup is shipped, but v1026 should replace that bug-specific pattern with adapter-owned-property reconciliation.
-- AI chat is in scope because `ChatPanel` applies `set_style` and `set_data_driven_style` through the same builder style handlers; leaving chat out would preserve a live-vs-saved drift path.
-- External research is intentionally skipped for this milestone; the work is internal architecture hardening based on observed GeoLens code paths.
+- Phase numbering continues from 1118 (no `--reset-phase-numbers`).
+- This is a GSD milestone because the risk is architectural: simplifying the builder means touching shared state, live MapLibre sync, persistence, viewer parity, and AI action paths.
+- The milestone should stay conservative. It is not a visual redesign and should avoid broad rewrites that do not directly reduce duplication, clarify ownership, or close known builder defects.
+- AI chat remains in scope only where it calls the same map/layer/style action boundaries as the manual builder UI.
+- External research is intentionally skipped; the work is internal codebase architecture hardening based on observed GeoLens behavior.
+
+## Recent Shipped Milestone: v1026 Mapbuilder Style Reconciler
+
+**Shipped:** 2026-05-25
+**Tag:** local milestone at commit `83817fda`
+
+**Goal delivered:** Replaced patch-prone style mutation paths with a shared reconciliation contract across adapter-owned MapLibre paint/layout state, manual style controls, AI chat style actions, persistence, viewer/embed parity, style JSON import/export, and target-map Playwright MCP UAT.
+
+**Delivered:** 28/28 requirements across phases 1112-1117. Key outputs: style mutation contract and regression matrix, shared style reconciler, adapter migration, AI chat patch/clear/replace semantics, save/reload parity, viewer parity, OpenAPI/SDK refresh where required, and close-gate verification.
 
 ## Recent Shipped Milestone: v1022 Parallel-Test Cascade Closure + Hygiene Tail
 
@@ -1414,4 +1423,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-25 — started milestone v1026 Mapbuilder Style Reconciler. Scope: canonical style mutation semantics, owned-property MapLibre reconciliation, adapter migration, AI chat style action parity, save/reload/viewer/embed verification, and Playwright MCP regression evidence.*
+*Last updated: 2026-05-25 — started milestone v1027 Map Builder Architecture Simplification. Scope: map-builder ownership audit, basemap state consolidation, builder/viewer sync unification, scene/hook extraction, layer action and AI bridge cleanup, builder test fixture DRY-up, and Playwright MCP target-map verification.*

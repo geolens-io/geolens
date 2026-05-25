@@ -1,115 +1,120 @@
-# Requirements: GeoLens v1026 Mapbuilder Style Reconciler
+# Requirements: GeoLens v1027 Map Builder Architecture Simplification
 
 **Defined:** 2026-05-25
-**Core Value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
+**Core Value:** Users can find any dataset in the catalog in seconds - search, see it on a map, understand what it is, and get it out in the format they need.
 
-## v1026 Requirements
+## v1027 Requirements
 
-### Style Contract and Audit
+### Architecture Baseline
 
-- [x] **ARCH-01**: Every map-builder style mutation entry point is inventoried with code references, including manual style controls, advanced JSON, render-as switches, data-driven styles, AI chat actions, undo/history, save/reload, public viewer, embed viewer, labels, terrain, and basemap overrides.
-- [x] **ARCH-02**: The milestone defines canonical style mutation semantics for patch, replace, clear, reset, and layer rebuild operations, with AI `set_style` semantics explicitly classified.
-- [x] **ARCH-03**: Each adapter declares the paint/layout/style properties it owns, including companion layers such as fill outlines, labels, cluster sublayers, arrow layers, hillshade/raster layers, and fill-extrusion surfaces.
-- [x] **ARCH-04**: A regression matrix is documented for stale-style transitions, including gradient-to-solid, data-driven-to-flat, dashed-to-solid, outline-off/on, label-off/on, extrusion-off, heatmap/cluster/symbol render-mode swaps, and AI style edits.
+- [x] **ARCH-01**: The current map-builder architecture is audited with code references for `MapBuilderPage`, `use-builder-layers`, `BuilderMap`, `ViewerMap`, `map-sync`, `basemap-utils`, layer adapters, editor scenes, and AI chat style/layer entry points.
+- [x] **ARCH-02**: A concrete complexity budget is defined before refactoring, including target ownership boundaries, files that should shrink, and behaviors that must remain unchanged.
+- [x] **ARCH-03**: The milestone documents all user-visible regression surfaces from the v1025-v1026 dogfooding run, including terrain exaggeration, gradient-to-solid style changes, remove basemap, duplicate layer, background color, layer options, save/reload, viewer/embed, and AI chat actions.
+- [x] **ARCH-04**: The refactor plan explicitly preserves the v1026 style reconciliation contract and names any accepted limitations before implementation begins.
 
-### Shared Reconciler
+### Basemap State Consolidation
 
-- [x] **RECON-01**: A shared style reconciler applies changed owned paint/layout properties and clears removed owned properties from live MapLibre layers.
-- [x] **RECON-02**: The reconciler filters invalid cross-geometry paint/layout keys, keeps custom builder metadata out of MapLibre paint/layout calls, and preserves expression values without flattening or cloning where identity matters.
-- [x] **RECON-03**: Paint-only style changes do not re-add sources or refetch tiles; layer rebuilds are limited to render-mode/source-type transitions that require them.
-- [x] **RECON-04**: Focused unit tests cover set, no-op, clear, invalid-key filtering, expression preservation, companion-layer ownership, and MapLibre error isolation.
+- [x] **BASEMAP-01**: Basemap settings use one canonical state contract for provider/style selection, visibility, opacity, terrain, exaggeration, background color, sublayer overrides, and blank/removed-basemap modes.
+- [x] **BASEMAP-02**: Temporary split basemap state, including separate sublayer override state, is removed or wrapped behind one controller so persisted config and UI state cannot drift.
+- [x] **BASEMAP-03**: Remove basemap works reliably, persists correctly, preserves the configured map background color, and does not leave stale MapLibre sources/layers after save/reload.
+- [x] **BASEMAP-04**: Basemap state transitions are covered by focused unit tests for preset changes, remove/restore, background color, terrain exaggeration clamp, sublayer override changes, and reload normalization.
 
-### Adapter Migration
+### Builder and Viewer Sync
 
-- [x] **ADAPT-01**: Line, fill, circle, and fill-extrusion style sync paths use the shared reconciler instead of one-off additive paint updates.
-- [x] **ADAPT-02**: Heatmap, cluster, raster, and hillshade style sync paths use the shared reconciler or a documented adapter-specific equivalent where MapLibre requires source/layer rebuilds.
-- [x] **ADAPT-03**: Label, outline, arrow, and cluster companion layers reconcile visibility, paint, layout, filters, and deletion atomically with their parent layer.
-- [x] **ADAPT-04**: One-off stale-property cleanup paths are removed or reduced to adapter-owned-property declarations, with regression tests replacing bug-specific cleanup tests where practical.
+- [x] **SYNC-01**: Builder and viewer map synchronization share a small orchestrator or shared contract for source/layer/style/background/terrain ordering instead of duplicating sequencing logic.
+- [x] **SYNC-02**: Shared sync preserves source-before-layer ordering, companion-layer handling, style reconciler cleanup, terrain activation retries, basemap/background ordering, and MapLibre error isolation.
+- [x] **SYNC-03**: Public viewer, embed viewer, builder reload, and style JSON import/export remain visually consistent for the target ADK map and representative non-ADK maps.
+- [x] **SYNC-04**: Sync changes reduce duplication without creating a generic abstraction that hides layer-type-specific adapter behavior.
 
-### UI and AI Style Actions
+### Builder Scene and Hook Extraction
 
-- [x] **STYLE-01**: High-risk manual style controls emit through central style mutation helpers or typed transactions rather than ad hoc raw paint/config object surgery.
-- [x] **STYLE-02**: Data-driven style enable/disable and render-as mode switches preserve unrelated style fields while clearing stale owned properties from the previously active mode.
-- [x] **STYLE-03**: Advanced JSON remains an intentional full paint/layout replace path, with validation and clear semantics documented separately from normal patch-style controls.
-- [x] **AI-01**: Chat `set_style` applies patch semantics against the current layer style instead of replacing the full paint object unless the action explicitly requests replacement.
-- [x] **AI-02**: AI chat has an explicit way to clear stale style properties, either through typed actions or clear lists, and the backend tool schema/prompt describes that contract.
-- [x] **AI-03**: Backend chat validation and generated API types stay aligned with any `ChatAction` schema changes, including MapLibre paint validation and clear/replace semantics.
-- [x] **AI-04**: Chat undo/history restores style changes through the same reconciler path as manual UI changes and preserves paint/style_config parity.
+- [x] **SCENE-01**: `MapBuilderPage` delegates editor scene routing, settings wiring, dialog state, selection state, and screenshot/UAT affordances to focused controllers or hooks.
+- [x] **SCENE-02**: `use-builder-layers` is split along stable mutation boundaries so layer CRUD, style mutations, persistence, history, and AI-facing actions can be reasoned about independently.
+- [x] **SCENE-03**: Layer editor save semantics are made explicit in the UI and implementation, either by retaining immediate apply plus map-level save with clearer dirty state or by adding a local style apply/save control after a documented decision.
+- [x] **SCENE-04**: Extraction does not change existing keyboard, drag/drop, mobile sheet, selection, dirty-state, or unsaved-change behavior.
 
-### Persistence and Viewer Parity
+### Layer Action Contract and AI Bridge
 
-- [x] **PERSIST-01**: Saved map JSON stores the canonical post-reconciliation `paint`, `layout`, `style_config`, `label_config`, and opacity state without persisting transient reconciler metadata.
-- [x] **PERSIST-02**: Save/reload round trips preserve visual output for all migrated style modes and do not resurrect stale properties.
-- [x] **VIEW-01**: Public viewer and embed viewer render reconciled saved styles consistently with the builder for migrated layer types.
-- [x] **VIEW-02**: Style JSON export/import remains compatible with reconciled layer styles and rejects or sanitizes invalid stale properties consistently.
+- [x] **ACTION-01**: Layer actions use a typed command boundary for add, remove, duplicate, reorder, visibility, style, label, filter, basemap, terrain, and settings updates instead of ad hoc object surgery.
+- [x] **ACTION-02**: Duplicate layer works for supported layer types, creates collision-free layer/source identifiers, preserves intended style/config, and does not duplicate transient live-only state.
+- [x] **ACTION-03**: Manual UI actions, undo/history, dirty tracking, persistence, and AI chat style/layer actions route through the same command semantics where practical.
+- [x] **ACTION-04**: Any backend chat tool schema or generated API type changes required by the action contract are refreshed and verified; if no schema changes are needed, the decision is documented.
+
+### Test Fixture DRY-Up
+
+- [x] **TEST-01**: Builder tests use shared fixtures/factories for map state, basemap configs, layer descriptors, style reconciler mocks, and MapLibre test doubles.
+- [x] **TEST-02**: Regression tests cover remove basemap, duplicate layer, terrain exaggeration, gradient-to-solid, background color, layer option changes, save/reload, and viewer/embed parity.
+- [x] **TEST-03**: Tests avoid overfitting to implementation details introduced by the refactor and continue to assert durable user-visible behavior.
+- [x] **TEST-04**: The builder-audit command or skill guidance is updated with lessons from the architecture refactor if new recurring QA checks or failure modes are discovered.
 
 ### Verification and Close Gate
 
-- [x] **VERIFY-01**: Focused frontend tests cover adapter reconciliation, manual UI style transitions, AI chat style actions, save/reload normalization, and viewer rendering helpers.
-- [x] **VERIFY-02**: Playwright MCP verifies the ADK 3D Relief map after migration, including Hiking trails gradient-to-solid, representative data-driven-to-flat, label toggle, and render-mode switch flows.
-- [x] **VERIFY-03**: Frontend `npm run test`, `npm run typecheck`, and `npm run lint` pass for the touched builder/style areas.
-- [x] **VERIFY-04**: Browser console and failed-network capture for the target map shows zero unexpected errors/warnings after the reconciler migration.
-- [x] **VERIFY-05**: CHANGELOG and phase summaries document migration scope, AI-chat impact, accepted limitations, and any follow-up requirements.
+- [x] **VERIFY-01**: Focused frontend tests for touched builder areas pass, plus `npm run typecheck`, `npm run lint`, and `npm run build`.
+- [x] **VERIFY-02**: Backend tests, OpenAPI, and SDK checks run only if the milestone touches backend chat schemas or generated API surfaces; otherwise the no-backend-change decision is recorded.
+- [x] **VERIFY-03**: Playwright MCP verifies the target map at `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`, including all layer options, remove basemap, duplicate layer, background color, terrain exaggeration, gradient-to-solid, save/reload, and viewer parity.
+- [x] **VERIFY-04**: The target map remains optimized for a marketing screenshot that demonstrates GeoLens cartographic ability without console errors, unexpected warnings, failed network requests, or distorted terrain.
+- [x] **VERIFY-05**: Phase summaries, CHANGELOG, and the milestone audit document architecture impact, AI-chat impact, accepted limitations, and any follow-up requirements.
 
 ## Future Requirements
 
 ### Follow-Up Architecture
 
-- **STYLE-FU-01**: Consider a fuller typed style transaction domain model after the reconciler milestone, if raw paint/config manipulation remains noisy in editor components.
-- **STYLE-FU-02**: Consider moving backend and frontend MapLibre paint-property allowlists to a generated shared source to avoid schema drift.
+- **ARCH-FU-01**: Consider a fuller typed map-builder domain model only after v1027 proves the narrower command/controller extraction reduces complexity without slowing feature work.
+- **ARCH-FU-02**: Consider extracting a dedicated map-preview package if builder/viewer/embed sync remains duplicated after the shared orchestrator phase.
 
 ### CI Infrastructure
 
-- **CI-01-v1026**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the style reconciler invariant.
+- **CI-01-v1027**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the map-builder architecture invariant.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Rebuilding the entire map builder UI | v1026 hardens style mutation semantics and live MapLibre reconciliation, not the editor information architecture. |
-| Redesigning AI chat UX | AI chat is in scope only where style actions mutate map styles or require schema/tool contract changes. |
-| New cartographic controls unrelated to reconciliation | New styling features should wait until the mutation pipeline is stable. |
-| Replacing MapLibre or the imperative layer sync model | Existing MapLibre imperative integration is intentional for vector tiles; this milestone makes that integration more deterministic. |
-| Closing the GitHub Actions billing blocker | CI live-verify remains an external operator prerequisite carried forward from v1023. |
+| Rebuilding the entire builder UI | v1027 simplifies architecture and clarifies existing workflows; it is not a visual redesign milestone. |
+| Replacing MapLibre or the adapter model | Existing MapLibre imperative integration remains appropriate; the goal is clearer ownership and less duplication. |
+| New cartographic feature expansion | New controls should wait unless they are required to preserve or clarify existing behavior. |
+| Broad AI chat redesign | AI chat is in scope only where map/layer/style actions cross the builder action boundary. |
+| Closing the GitHub Actions billing blocker | CI live-verify remains an external operator prerequisite carried forward from earlier milestones. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | Phase 1112 | Complete |
-| ARCH-02 | Phase 1112 | Complete |
-| ARCH-03 | Phase 1112 | Complete |
-| ARCH-04 | Phase 1112 | Complete |
-| RECON-01 | Phase 1113 | Complete |
-| RECON-02 | Phase 1113 | Complete |
-| RECON-03 | Phase 1113 | Complete |
-| RECON-04 | Phase 1113 | Complete |
-| ADAPT-01 | Phase 1114 | Complete |
-| ADAPT-02 | Phase 1114 | Complete |
-| ADAPT-03 | Phase 1114 | Complete |
-| ADAPT-04 | Phase 1114 | Complete |
-| STYLE-01 | Phase 1115 | Complete |
-| STYLE-02 | Phase 1115 | Complete |
-| STYLE-03 | Phase 1115 | Complete |
-| AI-01 | Phase 1115 | Complete |
-| AI-02 | Phase 1115 | Complete |
-| AI-03 | Phase 1115 | Complete |
-| AI-04 | Phase 1115 | Complete |
-| PERSIST-01 | Phase 1116 | Complete |
-| PERSIST-02 | Phase 1116 | Complete |
-| VIEW-01 | Phase 1116 | Complete |
-| VIEW-02 | Phase 1116 | Complete |
-| VERIFY-01 | Phase 1117 | Complete |
-| VERIFY-02 | Phase 1117 | Complete |
-| VERIFY-03 | Phase 1117 | Complete |
-| VERIFY-04 | Phase 1117 | Complete |
-| VERIFY-05 | Phase 1117 | Complete |
+| ARCH-01 | Phase 1118 | Complete |
+| ARCH-02 | Phase 1118 | Complete |
+| ARCH-03 | Phase 1118 | Complete |
+| ARCH-04 | Phase 1118 | Complete |
+| BASEMAP-01 | Phase 1119 | Complete |
+| BASEMAP-02 | Phase 1119 | Complete |
+| BASEMAP-03 | Phase 1119 | Complete |
+| BASEMAP-04 | Phase 1119 | Complete |
+| SYNC-01 | Phase 1120 | Complete |
+| SYNC-02 | Phase 1120 | Complete |
+| SYNC-03 | Phase 1120 | Complete |
+| SYNC-04 | Phase 1120 | Complete |
+| SCENE-01 | Phase 1121 | Complete |
+| SCENE-02 | Phase 1121 | Complete |
+| SCENE-03 | Phase 1121 | Complete |
+| SCENE-04 | Phase 1121 | Complete |
+| ACTION-01 | Phase 1122 | Complete |
+| ACTION-02 | Phase 1122 | Complete |
+| ACTION-03 | Phase 1122 | Complete |
+| ACTION-04 | Phase 1122 | Complete |
+| TEST-01 | Phase 1123 | Complete |
+| TEST-02 | Phase 1123 | Complete |
+| TEST-03 | Phase 1123 | Complete |
+| TEST-04 | Phase 1123 | Complete |
+| VERIFY-01 | Phase 1123 | Complete |
+| VERIFY-02 | Phase 1123 | Complete |
+| VERIFY-03 | Phase 1123 | Complete |
+| VERIFY-04 | Phase 1123 | Complete |
+| VERIFY-05 | Phase 1123 | Complete |
 
 **Coverage:**
-- v1026 requirements: 28 total, 28 complete
-- Mapped to phases: 28
+- v1027 requirements: 29 total, 29 complete
+- Mapped to phases: 29
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1117*
+*Last updated: 2026-05-25 after Phase 1123 close*

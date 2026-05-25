@@ -14,10 +14,14 @@ type FakeMap = {
   setTransformRequest: ReturnType<typeof vi.fn>;
   getLayer: ReturnType<typeof vi.fn>;
   getSource: ReturnType<typeof vi.fn>;
+  getStyle: ReturnType<typeof vi.fn>;
   queryRenderedFeatures: ReturnType<typeof vi.fn>;
   getCanvas: ReturnType<typeof vi.fn>;
   getZoom: ReturnType<typeof vi.fn>;
   easeTo: ReturnType<typeof vi.fn>;
+  moveLayer: ReturnType<typeof vi.fn>;
+  removeSource: ReturnType<typeof vi.fn>;
+  setTerrain: ReturnType<typeof vi.fn>;
   setLayoutProperty: ReturnType<typeof vi.fn>;
   triggerRepaint: ReturnType<typeof vi.fn>;
   emit: (event: string, payload?: unknown) => void;
@@ -56,10 +60,14 @@ const mapState = vi.hoisted(() => {
     setTransformRequest: vi.fn(),
     getLayer: vi.fn(() => false),
     getSource: vi.fn(() => null),
+    getStyle: vi.fn(() => ({ version: 8, sources: {}, layers: [] })),
     queryRenderedFeatures: vi.fn(() => []),
     getCanvas: vi.fn(() => canvas),
     getZoom: vi.fn(() => 5),
     easeTo: vi.fn(),
+    moveLayer: vi.fn(),
+    removeSource: vi.fn(),
+    setTerrain: vi.fn(),
     setLayoutProperty: vi.fn(),
     triggerRepaint: vi.fn(),
     emit: (event: string, payload?: unknown) => {
@@ -80,10 +88,14 @@ const mapState = vi.hoisted(() => {
       fakeMap.setTransformRequest.mockClear();
       fakeMap.getLayer.mockClear();
       fakeMap.getSource.mockClear();
+      fakeMap.getStyle.mockClear();
       fakeMap.queryRenderedFeatures.mockClear();
       fakeMap.getCanvas.mockClear();
       fakeMap.getZoom.mockClear();
       fakeMap.easeTo.mockClear();
+      fakeMap.moveLayer.mockClear();
+      fakeMap.removeSource.mockClear();
+      fakeMap.setTerrain.mockClear();
       fakeMap.setLayoutProperty.mockClear();
       fakeMap.triggerRepaint.mockClear();
       canvas.style.cursor = '';
@@ -365,6 +377,20 @@ describe('ViewerMap basemap config runtime', () => {
     });
     const lastCall = applySublayerOverridesMock.mock.calls.at(-1);
     expect(lastCall?.[1]).toBeNull();
+  });
+
+  it('passes saved basemap position into shared viewer sync', async () => {
+    renderViewer({ ...BASEMAP_CONFIG, basemap_position: 'top' });
+
+    await waitFor(() => {
+      expect(syncLayersToMapMock).toHaveBeenCalled();
+    });
+
+    expect(syncLayersToMapMock.mock.calls.at(-1)?.[7]).toMatchObject({
+      idPrefix: 'viewer-',
+      showBasemapLabels: true,
+      basemapPosition: 'top',
+    });
   });
 
   it('syncs duplicate sort-order layers with stable viewer layer IDs', async () => {

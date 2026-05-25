@@ -1,5 +1,6 @@
 import {
   applyBasemapConfigToMap,
+  clearTerrainForStyleSwap,
   ensureRasterDemTerrainSource,
   getExpressionSafeOpacity,
   isTerrainCapableDemLayer,
@@ -121,6 +122,16 @@ describe('terrain helpers', () => {
     }));
   });
 
+  it('clears active terrain before basemap style swaps', () => {
+    const map = createTerrainMap();
+    ensureRasterDemTerrainSource(map as never, '/raster-tiles/dem/tiles/{z}/{x}/{y}.png');
+
+    clearTerrainForStyleSwap(map as never);
+
+    expect(map.setTerrain).toHaveBeenLastCalledWith(null);
+    expect(map.removeSource).toHaveBeenCalledWith(TERRAIN_SOURCE_ID);
+  });
+
   it('identifies terrain-capable DEM rasters and clamps exaggeration', () => {
     expect(isTerrainCapableDemLayer({ is_dem: true, dataset_record_type: 'raster_dataset' })).toBe(true);
     expect(isTerrainCapableDemLayer({ is_dem: true, dataset_record_type: 'vrt_dataset' })).toBe(true);
@@ -172,6 +183,7 @@ describe('basemap appearance helpers', () => {
       label_mode: 'hidden',
       road_visibility: 'full',
       building_visibility: true,
+      background_color: null,
     });
   });
 
@@ -183,9 +195,13 @@ describe('basemap appearance helpers', () => {
       building_visibility: false,
       land_water_tone: 'monochrome',
       relief_contrast: null,
+      background_color: '#f7f2e8',
     });
     const byId = new Map(next.layers.map((layer) => [layer.id, layer]));
 
+    expect(byId.get('background')).toMatchObject({
+      paint: expect.objectContaining({ 'background-color': '#f7f2e8' }),
+    });
     expect(byId.get('water-fill')).toMatchObject({
       paint: expect.objectContaining({ 'fill-color': '#d9dde0' }),
     });
@@ -229,8 +245,10 @@ describe('basemap appearance helpers', () => {
       building_visibility: true,
       land_water_tone: 'muted',
       relief_contrast: null,
+      background_color: '#101820',
     });
 
+    expect(map.setPaintProperty).toHaveBeenCalledWith('background', 'background-color', '#101820');
     expect(map.setLayoutProperty).toHaveBeenCalledWith('place-label', 'visibility', 'none');
     expect(map.setPaintProperty).toHaveBeenCalledWith('road-primary', 'line-opacity', 0.35);
     expect(map.setPaintProperty).not.toHaveBeenCalledWith('layer-user-roads', 'line-opacity', expect.anything());

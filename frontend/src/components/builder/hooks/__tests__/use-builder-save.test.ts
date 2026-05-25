@@ -439,7 +439,7 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
-  it('persists basemap_config.opacity when set via masterOpacity', async () => {
+  it('persists basemap_config opacity, background color, and sublayer opacity', async () => {
     const layer = makeLayer();
     let state = makeSaveState({ localLayers: [layer] });
     const { result, rerender } = renderHook(() => useBuilderSave(state));
@@ -454,6 +454,10 @@ describe('useBuilderSave', () => {
         land_water_tone: 'default',
         relief_contrast: null,
         opacity: 0.55,
+        background_color: '#123456',
+        sublayer_overrides: {
+          road: { opacity: 0.45 },
+        },
       },
       hasUnsavedChanges: true,
     });
@@ -466,7 +470,13 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          basemap_config: expect.objectContaining({ opacity: 0.55 }),
+          basemap_config: expect.objectContaining({
+            opacity: 0.55,
+            background_color: '#123456',
+            sublayer_overrides: {
+              road: { opacity: 0.45 },
+            },
+          }),
         }),
       }),
     );

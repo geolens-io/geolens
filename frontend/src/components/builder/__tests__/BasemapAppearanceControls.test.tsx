@@ -53,6 +53,7 @@ const VALUE: MapBasemapConfig = {
   land_water_tone: 'default',
   relief_contrast: null,
   opacity: 1,
+  background_color: null,
 };
 
 describe('BasemapAppearanceControls', () => {

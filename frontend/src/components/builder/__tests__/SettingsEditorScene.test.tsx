@@ -84,6 +84,25 @@ vi.mock('@/components/map-widgets/registry', () => ({
   ],
 }));
 
+vi.mock('../StyleColorPicker', () => ({
+  StyleColorPicker: ({
+    label,
+    color,
+    onChange,
+  }: {
+    label: string;
+    color: string;
+    onChange: (hex: string) => void;
+  }) => (
+    <button
+      type="button"
+      aria-label={label}
+      title={color}
+      onClick={() => onChange('#123456')}
+    />
+  ),
+}));
+
 function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): SettingsEditorSceneProps {
   return {
     terrainConfig: null,
@@ -92,6 +111,9 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     onExaggerationChange: vi.fn(),
     activeWidgetIds: new Set<string>(),
     onToggleWidget: vi.fn(),
+    backgroundColor: null,
+    onBackgroundColorChange: vi.fn(),
+    onBackgroundColorReset: vi.fn(),
     projection: 'mercator',
     onSetProjection: vi.fn(),
     ...overrides,
@@ -99,13 +121,16 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
 }
 
 describe('SettingsEditorScene', () => {
-  // Test 1: Renders all three sections expanded by default
-  it('renders all three sections expanded by default', () => {
+  // Test 1: Renders all four sections expanded by default
+  it('renders all four sections expanded by default', () => {
     render(<SettingsEditorScene {...defaultProps()} />);
 
+    expect(screen.getByText('APPEARANCE')).toBeInTheDocument();
     expect(screen.getByText('TERRAIN')).toBeInTheDocument();
     expect(screen.getByText('WIDGETS')).toBeInTheDocument();
     expect(screen.getByText('PROJECTION')).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: 'Background' })).toHaveAttribute('title', '#ffffff');
 
     // Widget rows visible (all sections expanded)
     // The t() mock resolves labelKey with defaultValue=widget.id, so labels render as the widget id
@@ -244,7 +269,28 @@ describe('SettingsEditorScene', () => {
     expect(onSetProjection).not.toHaveBeenCalled();
   });
 
-  // Test 10: No footer Delete button
+  // Test 10: Background color picker and reset actions
+  it('background color controls call their handlers', () => {
+    const onBackgroundColorChange = vi.fn();
+    const onBackgroundColorReset = vi.fn();
+    render(
+      <SettingsEditorScene
+        {...defaultProps({
+          backgroundColor: '#abcdef',
+          onBackgroundColorChange,
+          onBackgroundColorReset,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Background' }));
+    expect(onBackgroundColorChange).toHaveBeenCalledWith('#123456');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset background color' }));
+    expect(onBackgroundColorReset).toHaveBeenCalledOnce();
+  });
+
+  // Test 11: No footer Delete button
   it('has no footer delete button', () => {
     render(<SettingsEditorScene {...defaultProps()} />);
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull();

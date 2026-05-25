@@ -51,6 +51,8 @@ export interface MapBasemapConfig {
   land_water_tone: MapBasemapLandWaterTone;
   relief_contrast?: MapBasemapReliefContrast | null;
   opacity?: number;
+  /** Map canvas background color in #RRGGBB hex format. null/undefined uses the basemap default. */
+  background_color?: string | null;
   /** Phase 1051 UX-03: 'top' renders basemap above data; 'bottom' (default)
    *  renders below. See `MapBasemapPosition` above. */
   basemap_position?: MapBasemapPosition;

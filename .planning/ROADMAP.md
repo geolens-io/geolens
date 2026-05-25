@@ -1,106 +1,106 @@
 # Roadmap: GeoLens
 
-## v1026 Mapbuilder Style Reconciler
+## v1027 Map Builder Architecture Simplification
 
-**Goal:** Replace patch-prone builder style mutation with a canonical reconciliation contract so manual UI edits, AI chat style actions, save/reload, viewer/embed rendering, and MapLibre live state stay in sync.
+**Goal:** Reduce map-builder orchestration complexity while preserving the v1026 style reconciliation contract, AI chat action behavior, save/reload durability, viewer/embed parity, and the target ADK map's marketing screenshot quality.
 
-**Trigger:** v1025 dogfooding found two related symptoms: terrain exaggeration needed shared clamping, and Hiking trails gradient-to-solid left a stale `line-gradient` on the live MapLibre layer. The immediate line fix is shipped, but the broader issue is that style updates are partial/additive without adapter-wide delete semantics.
+**Trigger:** The v1025-v1026 polishing work fixed several user-visible defects, but it also exposed a broader maintainability problem: `MapBuilderPage`, `use-builder-layers`, `BuilderMap`, `ViewerMap`, `map-sync`, and `basemap-utils` still carry overlapping responsibilities for state, live MapLibre mutation, persistence, editor wiring, and AI-facing actions. The architecture now needs a staged simplification pass before more map-builder features are added.
 
-**Hard invariant:** For every migrated style path, the builder's canonical layer state and the live MapLibre layer state converge immediately, save/reload preserves that result, viewer/embed render the same result, and AI chat style actions cannot create stale live-vs-saved drift.
+**Hard invariant:** Refactoring must reduce duplication and clarify ownership without changing existing builder behavior. Manual UI actions, AI chat actions, basemap/background settings, layer options, style reconciliation, undo/history, save/reload, public viewer, embed viewer, and the target map UAT flows must remain functionally equivalent or explicitly improved by a documented bug fix.
 
 ### Phase Plan
 
-- [x] **Phase 1112: Style Contract and Baseline Audit** — inventory every style mutation entry point, define patch/replace/clear semantics, declare adapter-owned properties, and document the regression matrix.
-- [x] **Phase 1113: Shared Style Reconciler** — implement shared owned-property diff helpers for paint/layout set, no-op, clear, validation, expression preservation, and MapLibre error isolation.
-- [x] **Phase 1114: Adapter Migration** — migrate vector, raster, hillshade, cluster, label, outline, arrow, and companion-layer sync paths onto the reconciler contract.
-- [x] **Phase 1115: UI and AI Style Actions** — route high-risk manual controls and AI chat style actions through consistent style mutation semantics, including explicit clear behavior.
-- [x] **Phase 1116: Persistence and Viewer Parity** — verify saved-map JSON, reload, public viewer, embed viewer, and style JSON export/import all preserve reconciled styles.
-- [x] **Phase 1117: Reconciler Close Gate** — run focused tests, frontend gates, Playwright MCP flows, console/network capture, changelog, and phase summaries.
+- [x] **Phase 1118: Architecture Baseline and Complexity Budget** — audit current ownership, define the target boundaries, document regression surfaces, and pin the no-regression contract.
+- [x] **Phase 1119: Basemap State Controller** — consolidate basemap/background/terrain/sublayer state and close remove-basemap drift paths.
+- [x] **Phase 1120: Builder/Viewer Sync Orchestrator** — share source/layer/style/background/terrain ordering between builder and viewer without hiding adapter-specific behavior.
+- [x] **Phase 1121: Editor Scene Controller Extraction** — slim `MapBuilderPage` and `use-builder-layers` by extracting editor scene, dialog, selection, persistence, and dirty-state controllers.
+- [x] **Phase 1122: Layer Action Contract and AI Bridge Cleanup** — route manual actions, duplicate/remove flows, undo/history, persistence, and AI chat through a typed command boundary.
+- [x] **Phase 1123: Test Fixture DRY-Up and Close Gate** — consolidate builder test fixtures, run focused gates, complete Playwright MCP UAT, and update audit guidance.
 
-### Phase 1112: Style Contract and Baseline Audit
+### Phase 1118: Architecture Baseline and Complexity Budget
 
-**Goal:** Define the target style contract before refactoring the live sync pipeline.
+**Goal:** Establish the exact ownership and regression map before changing architecture.
 
 **Requirements:** ARCH-01, ARCH-02, ARCH-03, ARCH-04
 
 **Depends on:** —
 
 **Success Criteria:**
-1. Style mutation entry points are listed with file references for manual UI, advanced JSON, render-as, data-driven styles, AI chat, undo/history, save/reload, viewer/embed, labels, terrain, and basemap overrides.
-2. Patch, replace, clear, reset, and rebuild semantics are written down with AI `set_style` classified explicitly.
-3. Adapter-owned paint/layout/style properties are enumerated for parent and companion layers.
-4. A stale-style regression matrix is committed before implementation begins.
+1. Current responsibilities are documented with code references for the main builder files and AI chat action paths.
+2. Complexity budgets and ownership targets are written down before implementation starts.
+3. Regression surfaces from the recent dogfooding run are listed, including remove basemap and duplicate layer.
+4. The v1026 style reconciler contract is preserved as an explicit implementation constraint.
 
-### Phase 1113: Shared Style Reconciler
+### Phase 1119: Basemap State Controller
 
-**Goal:** Build the shared reconciliation primitive that adapters can use instead of additive-only paint replay.
+**Goal:** Make basemap, background, terrain, and sublayer state flow through one canonical controller.
 
-**Requirements:** RECON-01, RECON-02, RECON-03, RECON-04
+**Requirements:** BASEMAP-01, BASEMAP-02, BASEMAP-03, BASEMAP-04
 
-**Depends on:** Phase 1112
-
-**Success Criteria:**
-1. Reconciler helpers set changed owned properties and clear removed owned properties.
-2. Custom builder metadata and invalid cross-geometry keys are kept out of MapLibre paint/layout calls.
-3. Expression-valued styles are preserved without flattening or unintended cloning where identity matters.
-4. Unit tests cover set/no-op/clear/error paths before adapter migration.
-
-### Phase 1114: Adapter Migration
-
-**Goal:** Move layer adapters and companion-layer sync onto the reconciler contract.
-
-**Requirements:** ADAPT-01, ADAPT-02, ADAPT-03, ADAPT-04
-
-**Depends on:** Phase 1113
+**Depends on:** Phase 1118
 
 **Success Criteria:**
-1. Line, fill, circle, fill-extrusion, heatmap, cluster, raster, and hillshade sync paths reconcile owned properties deterministically.
-2. Label, outline, arrow, and cluster companion layers reconcile atomically with parent-layer visibility, filters, paint, layout, and deletion.
-3. Paint-only edits do not re-add sources or refetch tiles.
-4. Bug-specific stale-property cleanup is replaced by adapter-owned-property declarations where practical.
+1. Basemap config has one canonical state path for style, visibility, opacity, terrain, background, and sublayer overrides.
+2. Temporary split state is removed or contained behind the controller.
+3. Remove basemap persists and reloads without stale MapLibre layers or sources.
+4. Focused tests cover basemap transitions and reload normalization.
 
-### Phase 1115: UI and AI Style Actions
+### Phase 1120: Builder/Viewer Sync Orchestrator
 
-**Goal:** Make all high-risk style edits feed the same mutation semantics.
+**Goal:** Remove duplicated sync sequencing between builder and viewer while keeping adapters explicit.
 
-**Requirements:** STYLE-01, STYLE-02, STYLE-03, AI-01, AI-02, AI-03, AI-04
+**Requirements:** SYNC-01, SYNC-02, SYNC-03, SYNC-04
 
-**Depends on:** Phase 1114
-
-**Success Criteria:**
-1. High-risk controls stop relying on ad hoc raw paint/config object surgery where central mutation helpers are available.
-2. Data-driven and render-as transitions preserve unrelated style fields while clearing stale properties from inactive modes.
-3. Advanced JSON remains an intentional full-replace path with documented behavior.
-4. AI chat `set_style` patch/clear/replace behavior is aligned across backend tool schema, generated types if changed, frontend application, and undo/history.
-
-### Phase 1116: Persistence and Viewer Parity
-
-**Goal:** Prove reconciled styles persist and render consistently outside the live builder session.
-
-**Requirements:** PERSIST-01, PERSIST-02, VIEW-01, VIEW-02
-
-**Depends on:** Phase 1115
+**Depends on:** Phase 1119
 
 **Success Criteria:**
-1. Saved map JSON contains canonical style state without transient reconciler metadata.
-2. Save/reload does not resurrect stale properties.
-3. Public viewer and embed viewer render migrated style modes consistently with the builder.
-4. Style JSON export/import remains compatible with reconciled styles.
+1. Builder and viewer share a source/layer/style/background/terrain sequencing contract.
+2. Companion layers, style reconciler cleanup, terrain retries, and error isolation keep existing behavior.
+3. Builder reload, public viewer, embed viewer, and style JSON paths remain visually consistent.
+4. The abstraction stays small and does not erase layer-type-specific adapter logic.
 
-### Phase 1117: Reconciler Close Gate
+### Phase 1121: Editor Scene Controller Extraction
 
-**Goal:** Close the milestone with focused automated coverage and live Playwright evidence.
+**Goal:** Shrink top-level builder orchestration by extracting editor scene and hook responsibilities.
 
-**Requirements:** VERIFY-01, VERIFY-02, VERIFY-03, VERIFY-04, VERIFY-05
+**Requirements:** SCENE-01, SCENE-02, SCENE-03, SCENE-04
 
-**Depends on:** Phases 1112-1116
+**Depends on:** Phase 1120
 
 **Success Criteria:**
-1. Focused frontend tests cover adapter reconciliation, manual UI transitions, AI chat style actions, save/reload, and viewer helper paths.
-2. Playwright MCP verifies ADK 3D Relief style transitions, including Hiking trails gradient-to-solid and representative data-driven/render-mode/label flows.
-3. Frontend tests, typecheck, and lint pass for touched areas.
-4. Fresh browser console and failed-network capture has zero unexpected errors/warnings.
-5. CHANGELOG and phase summaries capture scope, AI-chat impact, accepted limitations, and follow-ups.
+1. `MapBuilderPage` delegates editor scene routing, settings wiring, dialogs, selection, and screenshot/UAT affordances.
+2. `use-builder-layers` is split along durable mutation and persistence boundaries.
+3. Layer editor save semantics are explicit and verified.
+4. Drag/drop, keyboard, mobile sheet, dirty-state, and unsaved-change behavior do not regress.
+
+### Phase 1122: Layer Action Contract and AI Bridge Cleanup
+
+**Goal:** Route layer mutations through a typed command boundary that manual UI and AI chat can share.
+
+**Requirements:** ACTION-01, ACTION-02, ACTION-03, ACTION-04
+
+**Depends on:** Phase 1121
+
+**Success Criteria:**
+1. Add, remove, duplicate, reorder, visibility, style, label, filter, basemap, terrain, and settings actions have typed command semantics.
+2. Duplicate layer works for supported layer types without ID/source collisions or transient-state leaks.
+3. Manual UI, undo/history, dirty tracking, persistence, and AI chat use the same semantics where practical.
+4. Backend chat schema/API artifact impact is either refreshed and verified or explicitly ruled out.
+
+### Phase 1123: Test Fixture DRY-Up and Close Gate
+
+**Goal:** Consolidate builder test fixtures and prove the refactor against automated and browser UAT gates.
+
+**Requirements:** TEST-01, TEST-02, TEST-03, TEST-04, VERIFY-01, VERIFY-02, VERIFY-03, VERIFY-04, VERIFY-05
+
+**Depends on:** Phases 1118-1122
+
+**Success Criteria:**
+1. Builder tests share map/layer/basemap/style fixtures instead of bespoke mocks per component.
+2. Regression tests cover remove basemap, duplicate layer, terrain exaggeration, gradient-to-solid, background color, layer options, save/reload, and viewer/embed parity.
+3. Playwright MCP verifies the target map and captures console/network results.
+4. Frontend gates pass; backend/OpenAPI/SDK gates run if touched.
+5. CHANGELOG, summaries, milestone audit, and builder-audit guidance capture the architecture lessons.
 
 ## ✅ Historical Milestones
 
@@ -227,12 +227,12 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1112. Style Contract and Baseline Audit | v1026 | 1/1 | Complete | 2026-05-25 |
-| 1113. Shared Style Reconciler | v1026 | 1/1 | Complete | 2026-05-25 |
-| 1114. Adapter Migration | v1026 | 1/1 | Complete | 2026-05-25 |
-| 1115. UI and AI Style Actions | v1026 | 1/1 | Complete | 2026-05-25 |
-| 1116. Persistence and Viewer Parity | v1026 | 1/1 | Complete | 2026-05-25 |
-| 1117. Reconciler Close Gate | v1026 | 1/1 | Complete | 2026-05-25 |
+| 1118. Architecture Baseline and Complexity Budget | v1027 | 1/1 | Complete | 2026-05-25 |
+| 1119. Basemap State Controller | v1027 | 1/1 | Complete | 2026-05-25 |
+| 1120. Builder/Viewer Sync Orchestrator | v1027 | 1/1 | Complete | 2026-05-25 |
+| 1121. Editor Scene Controller Extraction | v1027 | 1/1 | Complete | 2026-05-25 |
+| 1122. Layer Action Contract and AI Bridge Cleanup | v1027 | 1/1 | Complete | 2026-05-25 |
+| 1123. Test Fixture DRY-Up and Close Gate | v1027 | 1/1 | Complete | 2026-05-25 |
 
 ## Backlog
 

@@ -14,89 +14,32 @@ import { describe, it, expect, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
+import {
+  makeBuilderLayer,
+  makeBuilderMap,
+  makeMapLibreMock,
+} from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
 function makeMockLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
-  return {
+  return makeBuilderLayer({
     id: 'layer-a',
-    dataset_id: 'ds-1',
-    dataset_name: 'Test',
     dataset_geometry_type: 'Point',
     dataset_table_name: 'shared_points',
-    visible: true,
-    opacity: 1,
     paint: { 'circle-color': '#2255aa' },
-    layout: {},
-    sort_order: 0,
-    filter: null,
-    display_name: null,
-    layer_type: 'vector_geolens',
-    dataset_extent_bbox: null,
-    dataset_column_info: null,
     dataset_feature_count: 100,
-    dataset_sample_values: null,
-    dataset_record_type: undefined,
-    label_config: null,
-    style_config: null,
     ...overrides,
-  };
+  });
 }
 
 function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
-  return {
-    id: 'map-1',
-    name: 'Test Map',
-    description: null,
-    notes: null,
-    center_lng: 0,
-    center_lat: 0,
-    zoom: 2,
-    bearing: 0,
-    pitch: 0,
-    basemap_style: 'positron',
-    show_basemap_labels: true,
-    basemap_config: null,
-    terrain_config: null,
-    visibility: 'private',
-    thumbnail_url: null,
-    created_by: null,
-    created_by_username: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    layers,
-    layer_count: layers.length,
-    forked_from_id: null,
-    forked_from_name: null,
-  };
+  return makeBuilderMap(layers);
 }
 
 function createMockMap(initial?: { sources?: string[]; layers?: string[] }) {
-  const sources = new Set<string>(initial?.sources ?? []);
-  const layers = new Set<string>(initial?.layers ?? []);
-  return {
-    getSource: vi.fn((id: string) =>
-      sources.has(id) ? { tiles: ['/tiles/mock/{z}/{x}/{y}.pbf'] } : null,
-    ),
-    addSource: vi.fn((id: string) => { sources.add(id); }),
-    removeSource: vi.fn((id: string) => { sources.delete(id); }),
-    getLayer: vi.fn((id: string) => (layers.has(id) ? { id } : null)),
-    addLayer: vi.fn((layer: { id: string }) => { layers.add(layer.id); }),
-    removeLayer: vi.fn((id: string) => { layers.delete(id); }),
-    setLayoutProperty: vi.fn(),
-    setPaintProperty: vi.fn(),
-    setFilter: vi.fn(),
-    isStyleLoaded: vi.fn(() => true),
-    getStyle: vi.fn(() => ({ layers: [] })),
-    moveLayer: vi.fn(),
-    setLayerZoomRange: vi.fn(),
-    fitBounds: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-    setTransformRequest: vi.fn(),
-    resize: vi.fn(),
-  } as unknown as MaplibreMap;
+  return makeMapLibreMock(initial);
 }
 
 function renderBuilder(mapData: MapResponse, mapRef: React.RefObject<MaplibreMap | null>) {

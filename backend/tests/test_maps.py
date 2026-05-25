@@ -38,6 +38,7 @@ BASEMAP_CONFIG_PAYLOAD = {
     "land_water_tone": "muted",
     "relief_contrast": "strong",
     "opacity": 0.55,
+    "background_color": None,
     # Phase 1059 BSE-01: sublayer_overrides field added to BasemapConfig
     # (jsonb-additive, defaults to None). Existing tests must include the
     # field in their expected payload so equality assertions match the
@@ -81,6 +82,25 @@ def test_basemap_config_still_rejects_unknown_fields_with_opacity_set():
 
     with pytest.raises(ValidationError):
         BasemapConfig(opacity=0.5, unknown_field=1)
+
+
+def test_basemap_config_background_color_accepts_hex_or_null():
+    from app.modules.catalog.maps.schemas import BasemapConfig
+
+    assert BasemapConfig(background_color=None).background_color is None
+    assert BasemapConfig(background_color="#f8fafc").background_color == "#f8fafc"
+    assert BasemapConfig(background_color="#F8FAFC").background_color == "#F8FAFC"
+
+
+def test_basemap_config_background_color_rejects_invalid_colors():
+    import pytest
+    from pydantic import ValidationError
+
+    from app.modules.catalog.maps.schemas import BasemapConfig
+
+    for value in ("red", "#abc", "#1234567", "javascript:alert(1)"):
+        with pytest.raises(ValidationError):
+            BasemapConfig(background_color=value)
 
 
 def test_maps_service_facade_exports_public_api() -> None:

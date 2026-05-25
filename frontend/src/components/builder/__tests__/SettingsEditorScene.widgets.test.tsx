@@ -95,6 +95,12 @@ vi.mock('@/components/map-widgets/registry', () => ({
   ],
 }));
 
+vi.mock('../StyleColorPicker', () => ({
+  StyleColorPicker: ({ label, color }: { label: string; color: string }) => (
+    <button type="button" aria-label={label} title={color} />
+  ),
+}));
+
 function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): SettingsEditorSceneProps {
   return {
     terrainConfig: null,
@@ -103,6 +109,9 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     onExaggerationChange: vi.fn(),
     activeWidgetIds: new Set<string>(),
     onToggleWidget: vi.fn(),
+    backgroundColor: null,
+    onBackgroundColorChange: vi.fn(),
+    onBackgroundColorReset: vi.fn(),
     projection: 'mercator',
     onSetProjection: vi.fn(),
     ...overrides,

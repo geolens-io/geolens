@@ -22,6 +22,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, cleanup } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
+import {
+  makeBuilderLayer,
+  makeBuilderMap,
+} from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 import { toast } from 'sonner';
 
@@ -62,63 +66,17 @@ type GroupedLayer = Omit<MapLayerResponse, 'layer_type'> & {
 
 function makeMockLayer(overrides: Omit<Partial<MapLayerResponse>, 'layer_type'> & { layer_type?: string; parent_group_id?: string | null } = {}): MapLayerResponse {
   const { layer_type, parent_group_id, ...rest } = overrides;
-  return {
-    id: rest.id ?? 'layer-1',
-    dataset_id: rest.dataset_id ?? 'ds-1',
-    dataset_name: rest.dataset_name ?? 'Test',
-    dataset_geometry_type: rest.dataset_geometry_type ?? 'Polygon',
-    dataset_table_name: rest.dataset_table_name ?? 'test_table',
-    visible: rest.visible ?? true,
-    opacity: rest.opacity ?? 1,
-    paint: rest.paint ?? {},
-    layout: rest.layout ?? {},
-    sort_order: rest.sort_order ?? 0,
-    filter: null,
-    display_name: null,
+  return makeBuilderLayer({
     layer_type: (layer_type ?? 'vector_geolens') as MapLayerResponse['layer_type'],
-    dataset_extent_bbox: null,
-    dataset_column_info: null,
-    dataset_feature_count: null,
-    dataset_sample_values: null,
-    dataset_record_type: rest.dataset_record_type ?? 'vector_dataset',
-    label_config: null,
-    popup_config: null,
-    style_config: null,
-    show_in_legend: true,
-    is_dem: false,
-    dem_vertical_units: null,
+    dataset_record_type: 'vector_dataset',
     // spread parent_group_id separately so it lands in the result
     ...(parent_group_id !== undefined ? { parent_group_id } : {}),
     ...rest,
-  } as MapLayerResponse;
+  } as Partial<MapLayerResponse>) as MapLayerResponse;
 }
 
 function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
-  return {
-    id: 'map-1',
-    name: 'Test Map',
-    description: null,
-    notes: null,
-    center_lng: 0,
-    center_lat: 0,
-    zoom: 2,
-    bearing: 0,
-    pitch: 0,
-    basemap_style: 'positron',
-    show_basemap_labels: true,
-    basemap_config: null,
-    terrain_config: null,
-    visibility: 'private',
-    thumbnail_url: null,
-    created_by: null,
-    created_by_username: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    layers,
-    layer_count: layers.length,
-    forked_from_id: null,
-    forked_from_name: null,
-  };
+  return makeBuilderMap(layers);
 }
 
 // Minimal map instance mock — isStyleLoaded returns false so live-map sync is skipped

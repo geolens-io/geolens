@@ -736,6 +736,12 @@ export type BackfillResponse = {
  */
 export type BasemapConfig = {
     /**
+     * Background Color
+     *
+     * Map canvas background color in #RRGGBB hex format, or null to use the basemap default.
+     */
+    background_color?: string | null;
+    /**
      * Administrative boundary sublayer visibility where supported.
      */
     boundary_visibility?: BasemapSublayerVisibility;

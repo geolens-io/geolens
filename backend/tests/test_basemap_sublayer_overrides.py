@@ -162,6 +162,7 @@ def test_sublayer_override_rejects_unknown_extra_field():
 # ---------------------------------------------------------------------------
 def test_basemap_config_legacy_payload_deserializes_with_no_overrides():
     cfg = BasemapConfig.model_validate(LEGACY_BASEMAP_PAYLOAD)
+    assert cfg.background_color is None
     assert cfg.sublayer_overrides is None
 
 

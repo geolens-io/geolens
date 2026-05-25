@@ -30,6 +30,8 @@ T = TypeVar("T", bound="BasemapConfig")
 class BasemapConfig:
     """
     Attributes:
+        background_color (None | str | Unset): Map canvas background color in #RRGGBB hex format, or null to use the
+            basemap default.
         boundary_visibility (BasemapSublayerVisibility | Unset):
         building_visibility (bool | Unset): Whether supported building/3D building basemap layers are shown. Default:
             True.
@@ -44,6 +46,7 @@ class BasemapConfig:
             accepted without rejection. See CONTEXT.md D-01.
     """
 
+    background_color: None | str | Unset = UNSET
     boundary_visibility: BasemapSublayerVisibility | Unset = UNSET
     building_visibility: bool | Unset = True
     label_mode: BasemapLabelMode | Unset = UNSET
@@ -57,6 +60,12 @@ class BasemapConfig:
         from ..models.basemap_config_sublayer_overrides_type_0 import (
             BasemapConfigSublayerOverridesType0,
         )
+
+        background_color: None | str | Unset
+        if isinstance(self.background_color, Unset):
+            background_color = UNSET
+        else:
+            background_color = self.background_color
 
         boundary_visibility: str | Unset = UNSET
         if not isinstance(self.boundary_visibility, Unset):
@@ -97,6 +106,8 @@ class BasemapConfig:
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
+        if background_color is not UNSET:
+            field_dict["background_color"] = background_color
         if boundary_visibility is not UNSET:
             field_dict["boundary_visibility"] = boundary_visibility
         if building_visibility is not UNSET:
@@ -123,6 +134,16 @@ class BasemapConfig:
         )
 
         d = dict(src_dict)
+
+        def _parse_background_color(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        background_color = _parse_background_color(d.pop("background_color", UNSET))
+
         _boundary_visibility = d.pop("boundary_visibility", UNSET)
         boundary_visibility: BasemapSublayerVisibility | Unset
         if isinstance(_boundary_visibility, Unset):
@@ -200,6 +221,7 @@ class BasemapConfig:
         )
 
         basemap_config = cls(
+            background_color=background_color,
             boundary_visibility=boundary_visibility,
             building_visibility=building_visibility,
             label_mode=label_mode,

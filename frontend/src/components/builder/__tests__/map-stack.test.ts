@@ -6,49 +6,31 @@ import {
   type MapStackGroup,
   type MapStackMapInput,
 } from '../map-stack';
-import type { MapLayerResponse, StyleConfig } from '@/types/api';
+import {
+  makeBuilderLayer,
+  makeBuilderMap,
+} from './fixtures/map-builder-fixtures';
+import type { MapLayerResponse, MapResponse, StyleConfig } from '@/types/api';
 
 function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
-  return {
-    id: overrides.id ?? 'layer-1',
-    dataset_id: overrides.dataset_id ?? 'dataset-1',
-    dataset_name: overrides.dataset_name ?? 'Dataset',
-    dataset_geometry_type: overrides.dataset_geometry_type ?? 'POLYGON',
-    dataset_table_name: overrides.dataset_table_name ?? 'dataset',
-    dataset_extent_bbox: null,
-    dataset_column_info: null,
-    dataset_feature_count: null,
-    dataset_sample_values: null,
-    display_name: overrides.display_name ?? null,
-    sort_order: overrides.sort_order ?? 0,
-    visible: overrides.visible ?? true,
-    opacity: overrides.opacity ?? 1,
-    paint: overrides.paint ?? {},
-    layout: overrides.layout ?? {},
-    filter: overrides.filter ?? null,
-    label_config: overrides.label_config ?? null,
-    popup_config: overrides.popup_config ?? null,
-    style_config: overrides.style_config ?? null,
-    layer_type: overrides.layer_type ?? 'vector_geolens',
-    dataset_record_type: overrides.dataset_record_type ?? 'vector_dataset',
-    show_in_legend: overrides.show_in_legend ?? true,
-    is_3d: overrides.is_3d ?? false,
-    is_dem: overrides.is_dem ?? false,
-    dem_vertical_units: overrides.dem_vertical_units ?? null,
+  return makeBuilderLayer({
+    dataset_name: 'Dataset',
+    dataset_geometry_type: 'POLYGON',
+    dataset_table_name: 'dataset',
+    dataset_record_type: 'vector_dataset',
     ...overrides,
-  };
+  });
 }
 
 function makeMap(overrides: Partial<MapStackMapInput> = {}): MapStackMapInput {
-  return {
-    basemap_style: overrides.basemap_style ?? 'positron',
-    basemap_label: overrides.basemap_label ?? 'Positron',
-    show_basemap_labels: overrides.show_basemap_labels ?? true,
-    basemap_config: overrides.basemap_config ?? null,
-    terrain_config: overrides.terrain_config ?? null,
-    layers: overrides.layers ?? [],
-    widgets: overrides.widgets ?? null,
-  };
+  const { layers = [], ...mapOverrides } = overrides;
+  return makeBuilderMap(
+    layers,
+    {
+      basemap_label: 'Positron',
+      ...mapOverrides,
+    } as Partial<MapResponse>,
+  );
 }
 
 function group(groups: MapStackGroup[], id: MapStackGroup['id']) {

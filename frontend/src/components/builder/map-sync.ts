@@ -125,6 +125,24 @@ export function ensureRasterDemTerrainSource(
   return sourceId;
 }
 
+export function clearTerrainForStyleSwap(
+  map: Pick<MaplibreMap, 'setTerrain' | 'getSource' | 'removeSource'>,
+  sourceId = TERRAIN_SOURCE_ID,
+) {
+  try {
+    map.setTerrain(null);
+  } catch {
+    // Style swaps can run while MapLibre is between style states.
+  }
+
+  try {
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+  } catch {
+    // If MapLibre still considers the source in use, the incoming style swap
+    // will drop it and the terrain sync path will recreate it after load.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Normalized layer input — allows both Builder and Viewer to call syncLayersToMap
 // ---------------------------------------------------------------------------

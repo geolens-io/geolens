@@ -7,6 +7,7 @@ import {
   getThemeBasemap,
   findBasemapById,
   basemapThumbnail,
+  hasVisibleBasemapStyle,
   applyBasemapConfigToStyle,
   isKnownMissingRemoteStyleImage,
   LIGHT_PRESET_ID,
@@ -50,8 +51,13 @@ describe('toMaplibreStyle', () => {
       tiles: [url],
       tileSize: 256,
     });
-    expect(result.layers).toHaveLength(1);
+    expect(result.layers).toHaveLength(2);
     expect(result.layers[0]).toMatchObject({
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': 'rgba(0,0,0,0)' },
+    });
+    expect(result.layers[1]).toMatchObject({
       id: 'basemap-tiles',
       type: 'raster',
       source: 'basemap',
@@ -279,6 +285,13 @@ describe('BLANK_BASEMAP_ID', () => {
     expect(basemapThumbnail(BLANK_BASEMAP_ID)).toBeDefined();
     expect(typeof basemapThumbnail(BLANK_BASEMAP_ID)).toBe('string');
     expect(basemapThumbnail(BLANK_BASEMAP_ID).length).toBeGreaterThan(0);
+  });
+
+  it('hasVisibleBasemapStyle treats blank and missing basemaps as hidden', () => {
+    expect(hasVisibleBasemapStyle(BLANK_BASEMAP_ID)).toBe(false);
+    expect(hasVisibleBasemapStyle(null)).toBe(false);
+    expect(hasVisibleBasemapStyle(undefined)).toBe(false);
+    expect(hasVisibleBasemapStyle('openfreemap-positron')).toBe(true);
   });
 });
 

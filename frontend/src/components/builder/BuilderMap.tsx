@@ -11,7 +11,6 @@ import {
   toMaplibreStyle,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
-import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
 import { getEnvConfig } from '@/lib/env';
@@ -33,20 +32,17 @@ import { MapCoordReadout } from '@/components/map/MapCoordReadout';
 import { clusterFallbackMessage, getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from './cluster-source';
 import type { StyleSpecification, VectorTileSource } from 'maplibre-gl';
 import {
-  syncLayersToMap,
   toSyncInput,
-  reorderBasemapLabels,
-  reorderBasemapAboveData,
-  reorderDataLayers,
-  applyBasemapConfigToMap,
   getSourceIdForLayer,
   getDataDrivenColumnsForSource,
   getLayerId,
   ensureRasterDemTerrainSource,
+  clearTerrainForStyleSwap,
   isTerrainCapableDemLayer,
   normalizeTerrainExaggeration,
   TERRAIN_SOURCE_ID,
 } from './map-sync';
+import { applyMapBasemapAppearance, syncMapComposition } from './map-composition-sync';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
@@ -163,6 +159,11 @@ export const BuilderMap = memo(function BuilderMap({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    const map = mapRef.current;
+
+    if (map) {
+      clearTerrainForStyleSwap(map);
+    }
 
     if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
       setMapStyle(styleValue);
@@ -495,12 +496,24 @@ export const BuilderMap = memo(function BuilderMap({
       // tokenMap dep — no separate retry needed.
       if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
-      syncLayersToMap(map, l.map(toSyncInput), t, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position });
-      applyBasemapConfigToMap(map, bc, sbl);
-      applySublayerOverrides(map, bc?.sublayer_overrides ?? null);
-      reorderBasemapAboveData(map, bc?.basemap_position);
-      applyTerrainConfig();
-      refreshQueryLayerIds();
+      const syncInputs = l.map(toSyncInput);
+      syncMapComposition({
+        map,
+        layers: syncInputs,
+        tokenMap: t,
+        tileBaseUrl,
+        managedSourcesRef,
+        orderKeyRef: lastOrderKeyRef,
+        geojsonDataMap: clusterGeoJsonDataRef.current,
+        syncOptions: { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position },
+        basemapConfig: bc,
+        showBasemapLabels: sbl,
+        reorderDataLayerIds: syncInputs,
+        afterSync: () => {
+          map.once('idle', applyTerrainConfig);
+          refreshQueryLayerIds();
+        },
+      });
     };
 
     map.on('style.load', onStyleLoad);
@@ -538,9 +551,23 @@ export const BuilderMap = memo(function BuilderMap({
     const { layers: ls, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
     const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tc?.cdn_base_url || undefined;
     const syncInputs = ls.map(toSyncInput);
-    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, lastOrderKeyRef, clusterGeoJsonDataRef.current, { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position });
-    applyTerrainConfig();
-    refreshQueryLayerIds();
+    syncMapComposition({
+      map,
+      layers: syncInputs,
+      tokenMap: tm,
+      tileBaseUrl,
+      managedSourcesRef,
+      orderKeyRef: lastOrderKeyRef,
+      geojsonDataMap: clusterGeoJsonDataRef.current,
+      syncOptions: { showBasemapLabels: sbl, basemapPosition: bc?.basemap_position },
+      basemapConfig: bc,
+      showBasemapLabels: sbl,
+      reorderDataLayerIds: syncInputs,
+      afterSync: () => {
+        applyTerrainConfig();
+        refreshQueryLayerIds();
+      },
+    });
   }, [applyTerrainConfig, refreshQueryLayerIds]);
 
   // O(1) lookup map: feature.layer.id (with `layer-` prefix) → layer/source metadata.
@@ -850,19 +877,12 @@ export const BuilderMap = memo(function BuilderMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    // Phase 1060 close-gate G-09 fix: applySublayerOverrides has its own
-    // idle-retry recovery (see basemap-style-mutation.ts:61) — call it even
-    // when the style isn't loaded yet so the override sticks once the style
-    // finishes loading. Previously the early-return on !isStyleLoaded() would
-    // drop the apply, and because basemapConfig didn't change reference on
-    // subsequent re-renders the effect never fired again to retry — leaving
-    // saved sublayer overrides invisible after a reload.
-    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null);
-    if (!map.isStyleLoaded()) return;
-    reorderBasemapLabels(map, showBasemapLabels);
-    applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels);
-    reorderDataLayers(map, layersRef.current.map((l) => ({ id: l.id })));
-    reorderBasemapAboveData(map, basemapConfig?.basemap_position);
+    applyMapBasemapAppearance({
+      map,
+      basemapConfig,
+      showBasemapLabels,
+      reorderDataLayerIds: layersRef.current.map((l) => ({ id: l.id })),
+    });
   }, [basemapConfig, showBasemapLabels, mapReady]);
 
   // Update tile URLs in-place when tokens refresh (vector only)

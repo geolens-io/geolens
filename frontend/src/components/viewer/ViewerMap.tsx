@@ -30,9 +30,9 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { applyBasemapConfigToMap, resolveAdapterType, syncLayersToMap, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
-import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
-import type { SyncLayerInput, SyncOptions } from '@/components/builder/map-sync';
+import { clearTerrainForStyleSwap, resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
+import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
+import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
@@ -71,7 +71,6 @@ interface ViewerMapProps {
 
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
 const VIEWER_PREFIX = 'viewer-';
-const VIEWER_SOURCE_PREFIX = `${VIEWER_PREFIX}source-`;
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput. */
 function toViewerSyncInput(
@@ -192,6 +191,11 @@ export const ViewerMap = memo(function ViewerMap({
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    const map = mapRef.current;
+
+    if (map) {
+      clearTerrainForStyleSwap(map);
+    }
 
     if (typeof styleValue !== 'string' || !styleValue.includes('/styles/')) {
       setMapStyle(styleValue);
@@ -563,26 +567,39 @@ export const ViewerMap = memo(function ViewerMap({
   syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, showBasemapLabels, basemapConfig };
 
   const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
-    // Phase 1060 close-gate G-09/G-10 fix: applySublayerOverrides has its
-    // own idle-retry recovery (see basemap-style-mutation.ts:61) — call it
-    // unconditionally so saved overrides apply even when the style isn't
-    // loaded yet on initial paint of viewer/shared/embed contexts.
-    applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, VIEWER_SOURCE_PREFIX);
-    if (!map.isStyleLoaded()) return;
-    applyBasemapConfigToMap(map, basemapConfig, showBasemapLabels, VIEWER_SOURCE_PREFIX);
+    applyMapBasemapAppearance({
+      map,
+      basemapConfig,
+      showBasemapLabels,
+      idPrefix: VIEWER_PREFIX,
+    });
   }, [basemapConfig, showBasemapLabels]);
 
-  /** Wrapper: convert viewer state to normalized inputs and call unified syncLayersToMap */
+  /** Wrapper: convert viewer state to normalized inputs and run shared composition sync. */
   const runSync = useCallback((map: MaplibreMap) => {
-    const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl } = syncInputsRef.current;
+    const { layers: ls, visibleLayers: vl, tokenMap: tm, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = createViewerLayerEntries(ls).map(({ layer, key }) => (
       toViewerSyncInput(layer, key, vl)
     ));
-    const syncOpts: SyncOptions = { idPrefix: VIEWER_PREFIX, showBasemapLabels: sbl };
-    syncLayersToMap(map, syncInputs, tm, tileBaseUrl, managedSourcesRef, prevOrderKeyRef, geojsonDataRef.current, syncOpts);
-    applyViewerBasemapConfig(map);
-  }, [applyViewerBasemapConfig]);
+    syncMapComposition({
+      map,
+      layers: syncInputs,
+      tokenMap: tm,
+      tileBaseUrl,
+      managedSourcesRef,
+      orderKeyRef: prevOrderKeyRef,
+      geojsonDataMap: geojsonDataRef.current,
+      syncOptions: {
+        idPrefix: VIEWER_PREFIX,
+        showBasemapLabels: sbl,
+        basemapPosition: bc?.basemap_position,
+      },
+      basemapConfig: bc,
+      showBasemapLabels: sbl,
+      reorderDataLayerIds: syncInputs,
+    });
+  }, []);
 
   // Sync layers to map (on data/visibility changes)
   useEffect(() => {
@@ -699,12 +716,13 @@ export const ViewerMap = memo(function ViewerMap({
       // sources are never created with transient unsigned tile URLs.
       const hasLayers = syncInputsRef.current.layers.length > 0;
       const hasTokens = syncInputsRef.current.tokenMap.size > 0;
-      if (hasLayers && (embedToken || hasTokens)) {
+      if (!hasLayers || embedToken || hasTokens) {
         runSync(map);
+      } else {
+        applyViewerBasemapConfig(map);
       }
       // style.load wipes all custom sources; re-seed terrain source if a DEM is present.
       reseedTerrainOnStyleLoad();
-      applyViewerBasemapConfig(map);
     };
 
     map.on('style.load', onStyleLoad);

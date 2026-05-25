@@ -43,7 +43,9 @@ const BasemapSublayerEditorFooter = lazy(() =>
   import('@/components/builder/BasemapSublayerEditorScene').then((m) => ({ default: m.BasemapSublayerEditorFooter }))
 );
 import { useBasemaps } from '@/hooks/use-settings';
-import { basemapThumbnail, normalizeBasemapConfig, DEFAULT_BASEMAP_CONFIG } from '@/lib/basemap-utils';
+import {
+  basemapThumbnail,
+} from '@/lib/basemap-utils';
 import type { MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { SidebarRail } from '@/components/builder/SidebarRail';
@@ -71,21 +73,29 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useEnabledWidgets } from '@/hooks/use-settings';
 import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout';
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
+import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { normalizeTerrainExaggeration, TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
+import {
+  createBuilderBasemapState,
+  removeBasemap as removeBasemapFromState,
+  resetBasemapAppearance,
+  resetBasemapSublayer,
+  setBasemapBackgroundColor,
+  setBasemapLabelsVisible,
+  setBasemapMasterOpacity,
+  setBasemapPosition,
+  setBasemapSublayerOpacity,
+  setTerrainExaggeration as setBasemapTerrainExaggeration,
+  SUBLAYER_ID_OVERRIDE_KEY,
+  swapBasemapPreset,
+  toggleBasemapSublayerVisibility,
+  updateBasemapSublayerOverride,
+  type BuilderBasemapPatch,
+} from '@/components/builder/basemap-state-controller';
 import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
-
-// Phase 1059 BSE-01 / Phase 1111 LINT-02: map UI routing IDs
-// (`basemap:roads`) to bare semantic override keys (`road`). Keeping this
-// static avoids render-time dependency churn in updateSublayerOverride.
-const SUBLAYER_ID_OVERRIDE_KEY: Record<string, string> = {
-  'basemap:roads': 'road',
-  'basemap:labels': 'label',
-  'basemap:buildings': 'building',
-  'basemap:boundaries': 'boundary',
-};
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -180,10 +190,32 @@ export function MapBuilderPage() {
     handleBulkGroup: applyBulkGroup,
     handleBulkUngroup: applyBulkUngroup,
     handleBulkDelete: applyBulkDelete,
+    setLocalBasemap,
     setShowBasemapLabels,
-    showBasemapLabels,
     setBasemapConfig,
+    setLocalTerrainConfig,
+    dispatchLayerAction,
+    handleTabChange,
+    handleRenderModeChange,
   } = layers;
+  const basemapState = useMemo(
+    () => createBuilderBasemapState({
+      basemapStyle: layers.localBasemap,
+      showBasemapLabels: layers.showBasemapLabels,
+      basemapConfig: layers.basemapConfig,
+      terrainConfig: layers.localTerrainConfig,
+    }),
+    [layers.localBasemap, layers.showBasemapLabels, layers.basemapConfig, layers.localTerrainConfig],
+  );
+  const applyBasemapPatch = useCallback(
+    (patch: BuilderBasemapPatch) => {
+      if (patch.basemapStyle !== undefined) setLocalBasemap(patch.basemapStyle);
+      if (patch.showBasemapLabels !== undefined) setShowBasemapLabels(patch.showBasemapLabels);
+      if (patch.basemapConfig !== undefined) setBasemapConfig(patch.basemapConfig);
+      if (patch.terrainConfig !== undefined) setLocalTerrainConfig(patch.terrainConfig);
+    },
+    [setBasemapConfig, setLocalBasemap, setLocalTerrainConfig, setShowBasemapLabels],
+  );
   // Phase 276 CODE-12: hand-rolled string keys are intentional value-equality
   // dependencies. mapData refetches (TanStack Query refetchOnReconnect /
   // refetchOnMount / window-focus invalidations) produce shape-equivalent
@@ -217,10 +249,10 @@ export function MapBuilderPage() {
   const save = useBuilderSave({
     mapId: id,
     localLayers: layers.localLayers,
-    localBasemap: layers.localBasemap,
-    showBasemapLabels: layers.showBasemapLabels,
-    basemapConfig: layers.basemapConfig,
-    terrainConfig: layers.localTerrainConfig,
+    localBasemap: basemapState.basemapStyle,
+    showBasemapLabels: basemapState.showBasemapLabels,
+    basemapConfig: basemapState.config,
+    terrainConfig: basemapState.terrainConfig,
     localName: layers.localName,
     localDescription: layers.localDescription,
     dockNotes,
@@ -247,38 +279,59 @@ export function MapBuilderPage() {
   const activeWidgets = useWidgetStore((state) => state.activeWidgets);
   const toggleWidget = useWidgetStore((state) => state.toggle);
 
-  // selectedLayerId: the layer currently open in the flyout editor
-  // Maps to existing expandedLayerId in use-builder-layers (same field, new semantic name)
-  const editingLayer = useMemo(
-    () => layers.expandedLayerId ? layers.localLayers.find((l) => l.id === layers.expandedLayerId) ?? null : null,
-    [layers.expandedLayerId, layers.localLayers],
-  );
-
-  // SP-05 (Phase 1045): server-state baseline for the layer in the editor.
-  // Used by LayerStyleEditor to gate the "Pending style preview" banner on a
-  // real diff against persisted state instead of showing it unconditionally.
-  // Looked up by id from savedLayerBaseline which use-builder-layers refreshes
-  // after every successful save / fresh load (see savedLayerBaselineRef).
-  const editingSavedLayer = useMemo(
-    () => layers.expandedLayerId
-      ? layers.savedLayerBaseline.find((l) => l.id === layers.expandedLayerId)
-      : undefined,
-    [layers.expandedLayerId, layers.savedLayerBaseline],
-  );
-
   const layerEditorHandlers = useMemo((): LayerEditorHandlers => ({
-    onTabChange: layers.handleTabChange,
-    onPaintChange: layers.handlePaintChange,
-    onOpacityChange: layers.handleOpacityChange,
-    onFilterChange: layers.handleFilterChange,
-    onLabelChange: layers.handleLabelChange,
-    onPopupChange: layers.handlePopupChange,
-    onStyleConfigChange: layers.handleStyleConfigChange,
-    onLayoutChange: layers.handleLayoutChange,
-    onRenderModeChange: layers.handleRenderModeChange,
-    // onRemove wired to handleRemove; Plan 03 will use this for the footer Delete button
-    onRemove: layers.handleRemove,
-  }), [layers.handleTabChange, layers.handlePaintChange, layers.handleOpacityChange, layers.handleFilterChange, layers.handleLabelChange, layers.handlePopupChange, layers.handleStyleConfigChange, layers.handleLayoutChange, layers.handleRenderModeChange, layers.handleRemove]);
+    onTabChange: handleTabChange,
+    onPaintChange: (layerId, paint) => dispatchLayerAction({
+      type: 'set_paint',
+      source: 'manual',
+      layerId,
+      paint,
+    }),
+    onOpacityChange: (layerId, opacity) => dispatchLayerAction({
+      type: 'set_opacity',
+      source: 'manual',
+      layerId,
+      opacity,
+    }),
+    onFilterChange: (layerId, expression) => dispatchLayerAction({
+      type: 'set_filter',
+      source: 'manual',
+      layerId,
+      expression,
+    }),
+    onLabelChange: (layerId, config) => dispatchLayerAction({
+      type: 'set_label',
+      source: 'manual',
+      layerId,
+      config,
+    }),
+    onPopupChange: (layerId, config) => dispatchLayerAction({
+      type: 'set_popup',
+      source: 'manual',
+      layerId,
+      config,
+    }),
+    onStyleConfigChange: (layerId, config, paint) => dispatchLayerAction({
+      type: 'set_style_config',
+      source: 'manual',
+      layerId,
+      config,
+      paint,
+    }),
+    onLayoutChange: (layerId, layout) => dispatchLayerAction({
+      type: 'set_layout',
+      source: 'manual',
+      layerId,
+      layout,
+    }),
+    onRenderModeChange: handleRenderModeChange,
+    onRemove: (layerId) => dispatchLayerAction({
+      type: 'remove_layer',
+      source: 'manual',
+      layerId,
+      persistence: 'server',
+    }),
+  }), [dispatchLayerAction, handleRenderModeChange, handleTabChange]);
 
   const handleMarkDirty = useCallback(
     () => { setHasUnsavedChanges(true); },
@@ -289,15 +342,12 @@ export function MapBuilderPage() {
   // (placed early for useMemo/useState hooks — actual wiring happens after handleSelectLayer)
   const { data: basemaps = [] } = useBasemaps();
 
-  // Phase 1035: in-memory sublayer state (persistence is open per follow-up tracker).
-  // TODO(BUILDER-SUBLAYER-PERSIST): include sublayerState in the save payload via basemap_config round-trip.
-  const [sublayerState, setSublayerState] = useState<Record<string, { visible: boolean; opacity: number }>>({});
-
-  // Phase 1035: basemap group display object derived from localBasemap + showBasemapLabels
+  // Phase 1119: basemap group display object derived from the canonical
+  // controller state, not runtime-only sublayer state.
   const basemapGroup = useMemo(() => {
-    if (!layers.localBasemap) return null;
+    if (!basemapState.hasVisibleBasemap) return null;
     // Derive preset name from the basemap id (label portion after last dash, capitalized)
-    const presetId = layers.localBasemap;
+    const presetId = basemapState.basemapStyle;
     const presetName = presetId
       .replace(/^(openfreemap-|carto-|mapbox-|maptiler-|esri-|stamen-|stadia-)/, '')
       .replace(/-/g, ' ')
@@ -308,49 +358,25 @@ export function MapBuilderPage() {
       presetName,
       providerLabel: undefined,
       visible: true,
-      opacity: layers.basemapConfig?.opacity ?? 1,
-      sublayers: [
-        {
-          id: 'basemap:roads',
-          name: 'Roads',
-          visible: sublayerState['basemap:roads']?.visible ?? true,
-          opacity: sublayerState['basemap:roads']?.opacity ?? 1,
-          kind: 'vector' as const,
-        },
-        {
-          id: 'basemap:labels',
-          name: 'Labels',
-          // Labels sublayer wired to the persisted showBasemapLabels flag (BSR-06)
-          visible: layers.showBasemapLabels,
-          opacity: sublayerState['basemap:labels']?.opacity ?? 1,
-          kind: 'vector' as const,
-        },
-        {
-          id: 'basemap:buildings',
-          name: 'Buildings',
-          visible: sublayerState['basemap:buildings']?.visible ?? true,
-          opacity: sublayerState['basemap:buildings']?.opacity ?? 1,
-          kind: 'vector' as const,
-        },
-        {
-          id: 'basemap:boundaries',
-          name: 'Boundaries',
-          visible: sublayerState['basemap:boundaries']?.visible ?? true,
-          opacity: sublayerState['basemap:boundaries']?.opacity ?? 1,
-          kind: 'vector' as const,
-        },
-        {
-          id: 'basemap:land-water',
-          name: 'Land-Water',
-          visible: sublayerState['basemap:land-water']?.visible ?? true,
-          opacity: sublayerState['basemap:land-water']?.opacity ?? 1,
-          kind: 'vector' as const,
-        },
-      ],
+      opacity: basemapState.config.opacity ?? 1,
+      sublayers: basemapState.sublayers,
     };
-  }, [layers.localBasemap, layers.showBasemapLabels, sublayerState, layers.basemapConfig]);
+  }, [basemapState]);
 
   const isBasemapExpanded = layers.groupMeta?.['basemap-group']?.expanded ?? false;
+
+  const {
+    editingLayer,
+    editingSavedLayer,
+    editorLayer,
+    editorScene,
+    isEditorOpen,
+  } = useBuilderEditorScene({
+    expandedLayerId: layers.expandedLayerId,
+    localLayers: layers.localLayers,
+    savedLayerBaseline: layers.savedLayerBaseline,
+    basemapGroup,
+  });
 
   // Phase 1041: Boundary guard — true when id belongs to basemap group or its sublayers
   const isBasemapBoundaryId = useCallback((id: string): boolean => {
@@ -471,68 +497,29 @@ export function MapBuilderPage() {
   // Derived: any row in selectedIds
   const isMultiSelectionActive = selectedIds.size > 0;
 
-  // Phase 1035: sublayer visibility/opacity handlers
+  // Phase 1119: sublayer visibility/opacity handlers route through the
+  // controller-backed persisted basemap_config fields.
   const handleToggleSublayerVisibility = useCallback((sublayerId: string) => {
-    if (sublayerId === 'basemap:labels') {
-      // Labels toggled via the persisted showBasemapLabels flag (BSR-06) — markDirty() fires
-      // inside setShowBasemapLabels because this change IS saved.
-      setShowBasemapLabels(!showBasemapLabels);
-      return;
-    }
-    setSublayerState((prev) => ({
-      ...prev,
-      [sublayerId]: {
-        visible: !(prev[sublayerId]?.visible ?? true),
-        opacity: prev[sublayerId]?.opacity ?? 1,
-      },
-    }));
-    // TODO(BUILDER-SUBLAYER-PERSIST): call markDirty() here once sublayerState is
-    // included in the save payload via basemap_config round-trip. Until then,
-    // omitting markDirty() prevents the unsaved-changes badge from making a
-    // false promise to the user.
-  }, [setShowBasemapLabels, showBasemapLabels]);
+    applyBasemapPatch(toggleBasemapSublayerVisibility(basemapState, sublayerId));
+  }, [applyBasemapPatch, basemapState]);
 
   const handleSublayerOpacityChange = useCallback((sublayerId: string, opacity: number) => {
-    setSublayerState((prev) => ({
-      ...prev,
-      [sublayerId]: { visible: prev[sublayerId]?.visible ?? true, opacity },
-    }));
-    // TODO(BUILDER-SUBLAYER-PERSIST): call markDirty() once sublayerState is persisted.
-  }, []);
+    applyBasemapPatch(setBasemapSublayerOpacity(basemapState, sublayerId, opacity));
+  }, [applyBasemapPatch, basemapState]);
 
   // Phase 1059 BSE-01: helper that merges a single field into basemap_config.sublayer_overrides[sublayerId].
   // Trims the entry if every field becomes null/undefined (no-op state).
   // Uses setBasemapConfig which auto-marks dirty (WR-02 fix in use-builder-layers.ts).
   const updateSublayerOverride = useCallback(
     (sublayerId: string, field: keyof MapSublayerOverride, value: string | number | null) => {
-      const overrideKey = SUBLAYER_ID_OVERRIDE_KEY[sublayerId] ?? sublayerId;
-      setBasemapConfig((prev) => {
-        const currentBc = prev ?? DEFAULT_BASEMAP_CONFIG;
-        const currentOverrides = currentBc.sublayer_overrides ?? {};
-        const currentOverride: MapSublayerOverride = currentOverrides[overrideKey] ?? {};
-        const nextOverride: MapSublayerOverride = { ...currentOverride, [field]: value };
-        // Trim entry if every field is null/undefined (back to default — keep dict clean)
-        const allNull = Object.values(nextOverride).every((v) => v == null);
-        const nextOverrides = { ...currentOverrides };
-        if (allNull) {
-          delete nextOverrides[overrideKey];
-        } else {
-          nextOverrides[overrideKey] = nextOverride;
-        }
-        return {
-          ...currentBc,
-          sublayer_overrides: Object.keys(nextOverrides).length > 0 ? nextOverrides : null,
-        };
-      });
+      applyBasemapPatch(updateBasemapSublayerOverride(basemapState, sublayerId, field, value));
     },
-    [setBasemapConfig],
+    [applyBasemapPatch, basemapState],
   );
 
   const handleResetBasemapAppearance = useCallback(() => {
-    // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
-    setBasemapConfig(null);
-    setSublayerState({});
-  }, [setBasemapConfig]);
+    applyBasemapPatch(resetBasemapAppearance());
+  }, [applyBasemapPatch]);
 
   // Phase 1035: existing folder groups list for StackRow "Add to group…" sub-flow
   const existingFolderGroups = useMemo(() => {
@@ -540,18 +527,6 @@ export function MapBuilderPage() {
       .filter(isFolderGroupLayer)
       .map((l) => ({ id: l.id, name: l.display_name ?? l.dataset_name ?? 'Group' }));
   }, [layers.localLayers]);
-
-  // Phase 1035+1036: editor scene selection based on current selection
-  type EditorScene = 'default' | 'dem' | 'basemap-group' | 'basemap-sublayer' | 'settings';
-  const editorScene = useMemo<EditorScene>(() => {
-    const sel = layers.expandedLayerId;
-    if (!sel) return 'default';
-    if (sel === 'settings') return 'settings';
-    if (sel === 'basemap-group') return 'basemap-group';
-    if (sel.startsWith('basemap:')) return 'basemap-sublayer';
-    if (editingLayer?.is_dem === true) return 'dem';
-    return 'default';
-  }, [layers.expandedLayerId, editingLayer]);
 
   const railProps = useMemo(() => ({
     activePanel: railPanel,
@@ -610,9 +585,13 @@ export function MapBuilderPage() {
   );
 
   const handleClearFilter = useCallback(
-    (layerId: string) => layers.handleFilterChange(layerId, null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable handler from useLayerMapSync
-    [layers.handleFilterChange],
+    (layerId: string) => dispatchLayerAction({
+      type: 'set_filter',
+      source: 'manual',
+      layerId,
+      expression: null,
+    }),
+    [dispatchLayerAction],
   );
 
   // Adapter: UnifiedStackPanel/SidebarRail pass `string | null` (null = deselect);
@@ -673,12 +652,7 @@ export function MapBuilderPage() {
       // Case 1: basemap row dropped onto the basemap group row → swap basemap (POL-04).
       // Mirrors DatasetSearchPanel.handleBasemapSwap: four-step normalization.
       if (recordType === 'basemap' && basemapGroup && overId === basemapGroup.id) {
-        const nextConfig = normalizeBasemapConfig(layers.basemapConfig, layers.showBasemapLabels);
-        layers.setLocalBasemap(datasetId);
-        layers.setShowBasemapLabels(nextConfig.label_mode !== 'hidden');
-        // setBasemapConfig auto-marks dirty (WR-02). Keep markDirty for the
-        // setLocalBasemap + setShowBasemapLabels writes which don't auto-track.
-        layers.setBasemapConfig(nextConfig);
+        applyBasemapPatch(swapBasemapPreset(basemapState, datasetId));
         layers.markDirty();
         toast.success(t('toasts.basemapChanged', { name: datasetName }), {
           id: `swap-basemap-${datasetId}`,
@@ -734,19 +708,9 @@ export function MapBuilderPage() {
       // Sliding the basemap onto itself is a no-op (early-returned by the
       // active.id === over.id check above), so here we know `over.id` is some
       // other row id.
-      const currentPosition = layers.basemapConfig?.basemap_position ?? 'bottom';
+      const currentPosition = basemapState.config.basemap_position ?? 'bottom';
       const nextPosition = currentPosition === 'top' ? 'bottom' : 'top';
-      layers.setBasemapConfig((prev) => ({
-        // setBasemapConfig auto-marks dirty (WR-02 in use-builder-layers.ts).
-        // Preserve all other curated controls (label_mode, road_visibility, …)
-        // and only update basemap_position.
-        // Phase 1051 CR-03: reuse normalizeBasemapConfig instead of an inline
-        // default literal so future MapBasemapConfig fields (opacity, relief_contrast,
-        // …) cannot silently drift between this drag handler and the canonical
-        // normalizer at lines 624 and 810.
-        ...(prev ?? normalizeBasemapConfig(null, layers.showBasemapLabels)),
-        basemap_position: nextPosition,
-      }));
+      applyBasemapPatch(setBasemapPosition(basemapState, nextPosition));
       announce(t('a11y.basemapPositionChanged', {
         defaultValue: 'Basemap moved to {{position}}',
         position: nextPosition,
@@ -758,9 +722,13 @@ export function MapBuilderPage() {
     const oldIndex = currentLayers.findIndex((layer) => layer.id === active.id);
     const newIndex = currentLayers.findIndex((layer) => layer.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    layers.handleReorder(arrayMove(currentLayers, oldIndex, newIndex));
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + handleReorder + handleAddDataset captured; basemapGroup is stable derived value; announce is stable
-  }, [layers.localLayers, layers.handleReorder, layers.handleAddDataset, layers.basemapConfig, layers.showBasemapLabels, layers.setLocalBasemap, layers.setShowBasemapLabels, layers.setBasemapConfig, layers.markDirty, basemapGroup, t, announce]);
+    dispatchLayerAction({
+      type: 'reorder_layers',
+      source: 'manual',
+      layers: arrayMove(currentLayers, oldIndex, newIndex),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- layers.localLayers + dispatchLayerAction + handleAddDataset captured; basemapGroup is stable derived value; announce is stable
+  }, [layers.localLayers, dispatchLayerAction, layers.handleAddDataset, layers.markDirty, basemapGroup, t, announce, applyBasemapPatch, basemapState]);
 
   const handleDragCancel = useCallback(() => {
     setDragActiveId(null);
@@ -846,19 +814,19 @@ export function MapBuilderPage() {
       <LazyLoadErrorBoundary>
         <Suspense fallback={<SceneSpinnerFallback />}>
           <BasemapGroupEditorScene
-            activePresetId={layers.localBasemap}
+            activePresetId={basemapState.basemapStyle}
             presets={presets}
             sublayers={basemapGroup.sublayers}
             masterOpacity={basemapGroup.opacity}
-            onSwapBasemap={(presetId) => { layers.setLocalBasemap(presetId); layers.markDirty(); }}
+            onSwapBasemap={(presetId) => {
+              applyBasemapPatch(swapBasemapPreset(basemapState, presetId));
+              layers.markDirty();
+            }}
             onAddCustomBasemap={() => { /* Plan 1037 follow-up */ }}
             onSublayerVisibilityChange={handleToggleSublayerVisibility}
             onSublayerOpacityChange={handleSublayerOpacityChange}
             onMasterOpacityChange={(opacity) => {
-              const current = layers.basemapConfig
-                ?? normalizeBasemapConfig(null, layers.showBasemapLabels);
-              // setBasemapConfig auto-marks dirty (WR-02 fix in use-builder-layers.ts).
-              layers.setBasemapConfig({ ...current, opacity });
+              applyBasemapPatch(setBasemapMasterOpacity(basemapState, opacity));
             }}
           />
         </Suspense>
@@ -869,7 +837,11 @@ export function MapBuilderPage() {
         <Suspense fallback={<SceneSpinnerFallback />}>
           <BasemapGroupEditorFooter
             onResetAppearance={handleResetBasemapAppearance}
-            onRemoveBasemap={() => { layers.setLocalBasemap('openfreemap-positron'); layers.markDirty(); }}
+            onRemoveBasemap={() => {
+              applyBasemapPatch(removeBasemapFromState(basemapState));
+              layers.markDirty();
+              handleSelectLayer(null);
+            }}
           />
         </Suspense>
       </LazyLoadErrorBoundary>
@@ -889,12 +861,12 @@ export function MapBuilderPage() {
               sublayerId={sublayer.id}
               sublayerName={sublayer.name}
               opacity={sublayer.opacity}
-              strokeColor={layers.basemapConfig?.sublayer_overrides?.[overrideKey]?.stroke_color ?? '#888888'}
-              strokeWidth={layers.basemapConfig?.sublayer_overrides?.[overrideKey]?.stroke_width ?? 1}
-              casingColor={layers.basemapConfig?.sublayer_overrides?.[overrideKey]?.casing_color ?? '#cccccc'}
-              casingWidth={layers.basemapConfig?.sublayer_overrides?.[overrideKey]?.casing_width ?? 0.5}
-              minZoom={layers.basemapConfig?.sublayer_overrides?.[overrideKey]?.min_zoom ?? 0}
-              maxZoom={layers.basemapConfig?.sublayer_overrides?.[overrideKey]?.max_zoom ?? 22}
+              strokeColor={basemapState.config.sublayer_overrides?.[overrideKey]?.stroke_color ?? '#888888'}
+              strokeWidth={basemapState.config.sublayer_overrides?.[overrideKey]?.stroke_width ?? 1}
+              casingColor={basemapState.config.sublayer_overrides?.[overrideKey]?.casing_color ?? '#cccccc'}
+              casingWidth={basemapState.config.sublayer_overrides?.[overrideKey]?.casing_width ?? 0.5}
+              minZoom={basemapState.config.sublayer_overrides?.[overrideKey]?.min_zoom ?? 0}
+              maxZoom={basemapState.config.sublayer_overrides?.[overrideKey]?.max_zoom ?? 22}
               onOpacityChange={(o) => handleSublayerOpacityChange(sublayer.id, o)}
               onStrokeColorChange={(hex) => updateSublayerOverride(sublayer.id, 'stroke_color', hex)}
               onStrokeWidthChange={(w) => updateSublayerOverride(sublayer.id, 'stroke_width', w)}
@@ -903,26 +875,7 @@ export function MapBuilderPage() {
               onMinZoomChange={(z) => updateSublayerOverride(sublayer.id, 'min_zoom', z)}
               onMaxZoomChange={(z) => updateSublayerOverride(sublayer.id, 'max_zoom', z)}
               onResetSublayer={() => {
-                // Clear in-memory sublayer visibility/opacity state
-                setSublayerState((prev) => {
-                  const next = { ...prev };
-                  delete next[sublayer.id];
-                  return next;
-                });
-                // Phase 1059 BSE-01 (D-11): also clear sublayer_overrides[overrideKey]
-                // from basemap_config — does not affect other sublayers or top-level settings.
-                // CR-01: use the bare semantic key, not the namespaced UI routing ID.
-                layers.setBasemapConfig((prev) => {
-                  if (!prev?.sublayer_overrides || !(overrideKey in prev.sublayer_overrides)) {
-                    return prev;
-                  }
-                  const nextOverrides = { ...prev.sublayer_overrides };
-                  delete nextOverrides[overrideKey];
-                  return {
-                    ...prev,
-                    sublayer_overrides: Object.keys(nextOverrides).length > 0 ? nextOverrides : null,
-                  };
-                });
+                applyBasemapPatch(resetBasemapSublayer(basemapState, sublayer.id));
               }}
             />
           </Suspense>
@@ -944,12 +897,42 @@ export function MapBuilderPage() {
         <Suspense fallback={<SceneSpinnerFallback />}>
           <DEMEditorScene
             layer={editingLayer}
-            onPaintChange={(p) => layers.handlePaintChange(editingLayer.id, p)}
-            onStyleConfigChange={(cfg, paint) => layers.handleStyleConfigChange(editingLayer.id, cfg, paint)}
-            onOpacityChange={(o) => layers.handleOpacityChange(editingLayer.id, o)}
-            onZoomChange={(min, max) => layers.handleLayoutChange(editingLayer.id, { ...editingLayer.layout, _minzoom: min, _maxzoom: max })}
-            onTerrainBind={layers.handleDEMTerrainBind}
-            onRemove={(id) => layers.handleRemove(id)}
+            onPaintChange={(paint) => layers.dispatchLayerAction({
+              type: 'set_paint',
+              source: 'manual',
+              layerId: editingLayer.id,
+              paint,
+            })}
+            onStyleConfigChange={(config, paint) => layers.dispatchLayerAction({
+              type: 'set_style_config',
+              source: 'manual',
+              layerId: editingLayer.id,
+              config,
+              paint,
+            })}
+            onOpacityChange={(opacity) => layers.dispatchLayerAction({
+              type: 'set_opacity',
+              source: 'manual',
+              layerId: editingLayer.id,
+              opacity,
+            })}
+            onZoomChange={(min, max) => layers.dispatchLayerAction({
+              type: 'set_layout',
+              source: 'manual',
+              layerId: editingLayer.id,
+              layout: { ...editingLayer.layout, _minzoom: min, _maxzoom: max },
+            })}
+            onTerrainBind={(layerId) => layers.dispatchLayerAction({
+              type: 'bind_dem_terrain',
+              source: 'manual',
+              layerId,
+            })}
+            onRemove={(layerId) => layers.dispatchLayerAction({
+              type: 'remove_layer',
+              source: 'manual',
+              layerId,
+              persistence: 'server',
+            })}
           />
         </Suspense>
       </LazyLoadErrorBoundary>
@@ -964,10 +947,9 @@ export function MapBuilderPage() {
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
             onExaggerationChange={(v) => {
-              const exaggeration = normalizeTerrainExaggeration(v);
-              layers.setLocalTerrainConfig((prev) =>
-                prev ? { ...prev, exaggeration } : { enabled: false, source_dataset_id: null, exaggeration },
-              );
+              const patch = setBasemapTerrainExaggeration(layers.localTerrainConfig, v);
+              const exaggeration = patch.terrainConfig?.exaggeration ?? 0;
+              applyBasemapPatch(patch);
               layers.setHasUnsavedChanges(true);
               if (
                 mapInstanceRef.current &&
@@ -989,6 +971,13 @@ export function MapBuilderPage() {
             }}
             activeWidgetIds={activeWidgets}
             onToggleWidget={toggleWidget}
+            backgroundColor={basemapState.config.background_color ?? null}
+            onBackgroundColorChange={(color) => {
+              applyBasemapPatch(setBasemapBackgroundColor(basemapState, color));
+            }}
+            onBackgroundColorReset={() => {
+              applyBasemapPatch(setBasemapBackgroundColor(basemapState, null));
+            }}
             projection={localProjection}
             onSetProjection={(proj) => {
               setLocalProjection(proj);
@@ -1043,7 +1032,7 @@ export function MapBuilderPage() {
     // Base: no editor open
     isRail ? 'grid-cols-[64px_1fr]' : 'grid-cols-[340px_1fr]',
     // Editor open and not hidden (also for basemap group/sublayer/settings scenes which have no editingLayer)
-    (editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer' || editorScene === 'settings') && !isEditorHidden && (
+    isEditorOpen && !isEditorHidden && (
       isRail ? 'grid-cols-[64px_380px_1fr]' : 'grid-cols-[340px_380px_1fr]'
     ),
   );
@@ -1104,7 +1093,7 @@ export function MapBuilderPage() {
       {/* Three-column builder body grid */}
       <div
         className={builderBodyGridClass}
-        data-builder-editor-open={!!editingLayer}
+        data-builder-editor-open={isEditorOpen}
       >
         {/* Column 1: sidebar (340px full or 64px rail at <1100px) */}
         <aside
@@ -1123,19 +1112,41 @@ export function MapBuilderPage() {
                 );
               }}
               isSettingsOpen={editorScene === 'settings'}
-              basemapGroup={layers.localBasemap ? { id: 'basemap-group' } : null}
+              basemapGroup={basemapGroup ? { id: 'basemap-group' } : null}
             />
           ) : (
             <UnifiedStackPanel
               layers={layers.localLayers}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
-              onToggleVisibility={layers.handleToggleVisibility}
-              onReorder={layers.handleReorder}
-              onOpacityChange={layers.handleOpacityChange}
-              onRemove={layers.handleRemove}
+              onToggleVisibility={(layerId) => layers.dispatchLayerAction({
+                type: 'set_visibility',
+                source: 'manual',
+                layerId,
+              })}
+              onReorder={(reorderedLayers) => layers.dispatchLayerAction({
+                type: 'reorder_layers',
+                source: 'manual',
+                layers: reorderedLayers,
+              })}
+              onOpacityChange={(layerId, opacity) => layers.dispatchLayerAction({
+                type: 'set_opacity',
+                source: 'manual',
+                layerId,
+                opacity,
+              })}
+              onRemove={(layerId) => layers.dispatchLayerAction({
+                type: 'remove_layer',
+                source: 'manual',
+                layerId,
+                persistence: 'server',
+              })}
               onRename={layers.handleDisplayNameChange}
-              onDuplicate={layers.handleDuplicateRendering}
+              onDuplicate={(layerId) => layers.dispatchLayerAction({
+                type: 'duplicate_rendering',
+                source: 'manual',
+                layerId,
+              })}
               onAddDataClick={handleAddDataClick}
               onAddDataset={(datasetId: string) => {
                 layers.handleAddDataset(datasetId, (newLayerId) => {
@@ -1179,13 +1190,13 @@ export function MapBuilderPage() {
               onBulkDelete={handleBulkDelete}
               isDeleting={layers.isDeleting}
               freshLayerId={layers.freshLayerId}
-              basemapPosition={layers.basemapConfig?.basemap_position ?? 'bottom'}
+              basemapPosition={basemapState.config.basemap_position ?? 'bottom'}
             />
           )}
         </aside>
 
         {/* Column 2: LayerEditorPanel flyout (380px) — when layer selected or basemap/settings scene active; viewport >= 800px */}
-        {(editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer' || editorScene === 'settings') && !isEditorHidden && (
+        {isEditorOpen && !isEditorHidden && (
           <aside
             data-testid="builder-layer-editor"
             className="border-e bg-background flex flex-col overflow-hidden"
@@ -1194,41 +1205,7 @@ export function MapBuilderPage() {
               <Suspense fallback={<SceneSpinnerFallback />}>
               <LayerEditorPanel
                 key={layers.expandedLayerId ?? 'no-layer'}
-                layer={editingLayer ?? {
-                  // Synthetic placeholder for basemap group/sublayer/settings scenes (no real MapLayerResponse)
-                  id: editorScene === 'settings' ? 'settings' : (layers.expandedLayerId ?? 'basemap-group'),
-                  dataset_id: editorScene === 'settings' ? 'settings' : 'basemap',
-                  dataset_name: editorScene === 'settings'
-                    ? 'Settings'
-                    : editorScene === 'basemap-sublayer'
-                      ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
-                      : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
-                  dataset_geometry_type: null,
-                  dataset_table_name: editorScene === 'settings' ? 'settings' : 'basemap',
-                  dataset_extent_bbox: null,
-                  dataset_column_info: null,
-                  dataset_feature_count: null,
-                  dataset_sample_values: null,
-                  display_name: editorScene === 'settings'
-                    ? 'Settings'
-                    : editorScene === 'basemap-sublayer'
-                      ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
-                      : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
-                  sort_order: -1, // synthetic placeholder — not a real layer; not persisted
-                  visible: true,
-                  opacity: 1,
-                  paint: {},
-                  layout: {},
-                  filter: null,
-                  label_config: null,
-                  popup_config: null,
-                  style_config: null,
-                  layer_type: null,
-                  dataset_record_type: 'vector_dataset',
-                  show_in_legend: false,
-                  is_dem: false,
-                  dem_vertical_units: null,
-                }}
+                layer={editorLayer!}
                 savedLayer={editingSavedLayer}
                 onClose={handleCloseEditor}
                 isDrillDown={false}
@@ -1246,7 +1223,7 @@ export function MapBuilderPage() {
         )}
 
         {/* BSR-13: <800px drill-down — Sheet overlay when editor is hidden but a layer/scene is active */}
-        {isEditorHidden && (editingLayer || editorScene === 'basemap-group' || editorScene === 'basemap-sublayer' || editorScene === 'settings') && (
+        {isEditorHidden && isEditorOpen && (
           <Sheet
             open={true}
             onOpenChange={(open) => { if (!open) handleCloseEditor(); }}
@@ -1265,7 +1242,7 @@ export function MapBuilderPage() {
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>
-                  {editingLayer?.display_name ?? editingLayer?.dataset_name ?? t('layerEditor.close', { defaultValue: 'Close layer editor' })}
+                  {editorLayer?.display_name ?? editorLayer?.dataset_name ?? t('layerEditor.close', { defaultValue: 'Close layer editor' })}
                 </SheetTitle>
                 <SheetDescription>
                   {t('layerEditor.section.appearance', { defaultValue: 'Appearance' })}
@@ -1275,46 +1252,13 @@ export function MapBuilderPage() {
                 <Suspense fallback={<SceneSpinnerFallback />}>
                 <LayerEditorPanel
                   key={layers.expandedLayerId ?? 'no-layer'}
-                  layer={editingLayer ?? {
-                    id: editorScene === 'settings' ? 'settings' : (layers.expandedLayerId ?? 'basemap-group'),
-                    dataset_id: editorScene === 'settings' ? 'settings' : 'basemap',
-                    dataset_name: editorScene === 'settings'
-                      ? 'Settings'
-                      : editorScene === 'basemap-sublayer'
-                        ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
-                        : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
-                    dataset_geometry_type: null,
-                    dataset_table_name: editorScene === 'settings' ? 'settings' : 'basemap',
-                    dataset_extent_bbox: null,
-                    dataset_column_info: null,
-                    dataset_feature_count: null,
-                    dataset_sample_values: null,
-                    display_name: editorScene === 'settings'
-                      ? 'Settings'
-                      : editorScene === 'basemap-sublayer'
-                        ? (basemapGroup?.sublayers.find((s) => s.id === layers.expandedLayerId)?.name ?? 'Sublayer')
-                        : `Basemap · ${basemapGroup?.presetName ?? 'Untitled'}`,
-                    sort_order: -1,
-                    visible: true,
-                    opacity: 1,
-                    paint: {},
-                    layout: {},
-                    filter: null,
-                    label_config: null,
-                    popup_config: null,
-                    style_config: null,
-                    layer_type: null,
-                    dataset_record_type: 'vector_dataset',
-                    show_in_legend: false,
-                    is_dem: false,
-                    dem_vertical_units: null,
-                  }}
+                  layer={editorLayer!}
                   savedLayer={editingSavedLayer}
                   onClose={handleCloseEditor}
                   isDrillDown={true}
                   handlers={layerEditorHandlers}
                   activeTab={layers.activeEditorTab}
-                    editorScene={editorScene}
+                  editorScene={editorScene}
                   sceneContent={sceneContent ?? undefined}
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
@@ -1332,12 +1276,12 @@ export function MapBuilderPage() {
             <Suspense fallback={<LoadingState />}>
               <BuilderMap
                 layers={layers.localLayers}
-                basemapStyle={layers.localBasemap}
+                basemapStyle={basemapState.basemapStyle}
                 initialViewState={layers.initialViewState}
-                terrainConfig={layers.localTerrainConfig}
+                terrainConfig={basemapState.terrainConfig}
                 onMapRef={handleMapRef}
-                showBasemapLabels={layers.showBasemapLabels}
-                basemapConfig={layers.basemapConfig}
+                showBasemapLabels={basemapState.showBasemapLabels}
+                basemapConfig={basemapState.config}
               />
             </Suspense>
           </MapErrorBoundary>
@@ -1433,19 +1377,29 @@ export function MapBuilderPage() {
             handleSelectLayer(newLayerId);
           });
         }}
-        onDuplicateRendering={layers.handleDuplicateRendering}
+        onDuplicateRendering={(layerId) => layers.dispatchLayerAction({
+          type: 'duplicate_rendering',
+          source: 'manual',
+          layerId,
+        })}
         layers={layers.localLayers}
         isAdding={addLayer.isPending}
-        basemapStyle={layers.localBasemap}
-        showBasemapLabels={layers.showBasemapLabels}
-        basemapConfig={layers.basemapConfig}
-        onBasemapChange={(key) => { layers.setLocalBasemap(key); layers.markDirty(); }}
-        onBasemapLabelsChange={(show) => { layers.setShowBasemapLabels(show); layers.setHasUnsavedChanges(true); }}
+        basemapStyle={basemapState.basemapStyle}
+        showBasemapLabels={basemapState.showBasemapLabels}
+        basemapConfig={basemapState.config}
+        onBasemapChange={(key) => {
+          applyBasemapPatch(swapBasemapPreset(basemapState, key));
+          layers.markDirty();
+        }}
+        onBasemapLabelsChange={(show) => {
+          applyBasemapPatch(setBasemapLabelsVisible(basemapState, show));
+          layers.setHasUnsavedChanges(true);
+        }}
         onBasemapConfigChange={(next) => {
-          // setBasemapConfig auto-marks dirty (WR-02). markDirty kept for
-          // setShowBasemapLabels which doesn't auto-track.
-          layers.setBasemapConfig(next);
-          layers.setShowBasemapLabels(next.label_mode !== 'hidden');
+          applyBasemapPatch({
+            basemapConfig: next,
+            showBasemapLabels: next.label_mode !== 'hidden',
+          });
           layers.markDirty();
         }}
         showShare={dialogs.showShare}

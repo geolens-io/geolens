@@ -19,6 +19,10 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, cleanup } from '@testing-library/react';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
+import {
+  makeBuilderLayer,
+  makeBuilderMap,
+} from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import type { MapLayerResponse, MapResponse } from '@/types/api';
 
 // ---------------------------------------------------------------------------
@@ -44,61 +48,14 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function makeMockLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
-  return {
-    id: overrides.id ?? 'layer-1',
-    dataset_id: overrides.dataset_id ?? 'ds-1',
-    dataset_name: overrides.dataset_name ?? 'Test',
-    dataset_geometry_type: overrides.dataset_geometry_type ?? 'Polygon',
-    dataset_table_name: overrides.dataset_table_name ?? 'test_table',
-    visible: overrides.visible ?? true,
-    opacity: overrides.opacity ?? 1,
-    paint: overrides.paint ?? {},
-    layout: overrides.layout ?? {},
-    sort_order: overrides.sort_order ?? 0,
-    filter: null,
-    display_name: null,
-    layer_type: overrides.layer_type ?? 'vector_geolens',
-    dataset_extent_bbox: null,
-    dataset_column_info: null,
-    dataset_feature_count: null,
-    dataset_sample_values: null,
-    dataset_record_type: overrides.dataset_record_type ?? 'vector_dataset',
-    label_config: null,
-    popup_config: null,
-    style_config: null,
-    show_in_legend: true,
-    is_dem: false,
-    dem_vertical_units: null,
+  return makeBuilderLayer({
+    dataset_record_type: 'vector_dataset',
     ...overrides,
-  } as MapLayerResponse;
+  });
 }
 
 function makeMapData(layers: MapLayerResponse[] = []): MapResponse {
-  return {
-    id: 'map-1',
-    name: 'Test Map',
-    description: null,
-    notes: null,
-    center_lng: 0,
-    center_lat: 0,
-    zoom: 2,
-    bearing: 0,
-    pitch: 0,
-    basemap_style: 'positron',
-    show_basemap_labels: true,
-    basemap_config: null,
-    terrain_config: null,
-    visibility: 'private',
-    thumbnail_url: null,
-    created_by: null,
-    created_by_username: null,
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z',
-    layers,
-    layer_count: layers.length,
-    forked_from_id: null,
-    forked_from_name: null,
-  };
+  return makeBuilderMap(layers);
 }
 
 // Minimal map instance mock — isStyleLoaded returns true so removePerLayerCompanions
