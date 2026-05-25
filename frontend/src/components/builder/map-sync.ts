@@ -28,6 +28,8 @@ export {
 } from './layer-adapters/shared';
 
 export const TERRAIN_SOURCE_ID = 'terrain-dem';
+export const TERRAIN_EXAGGERATION_MIN = 0;
+export const TERRAIN_EXAGGERATION_MAX = 3;
 export const MAP_STACK_Z_ORDER_POLICY = [
   'surface terrain',
   'basemap relief and detail',
@@ -46,7 +48,7 @@ export function isTerrainCapableDemLayer(layer: {
 
 export function normalizeTerrainExaggeration(value: number | null | undefined) {
   if (!Number.isFinite(value)) return 1;
-  return Math.min(Math.max(value as number, 0), 10);
+  return Math.min(Math.max(value as number, TERRAIN_EXAGGERATION_MIN), TERRAIN_EXAGGERATION_MAX);
 }
 
 type RasterBounds = [number, number, number, number];

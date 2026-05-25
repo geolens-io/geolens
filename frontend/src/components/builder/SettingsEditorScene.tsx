@@ -8,19 +8,17 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWidgets } from '@/components/map-widgets/registry';
+import { TERRAIN_EXAGGERATION_MAX } from '@/components/builder/map-sync';
 import type { MapTerrainConfig } from '@/types/api';
 
 /**
  * Phase 1051 IN-03: named cap for the UI exaggeration slider so the magic
  * number isn't repeated inline.
  *
- * NOTE: this is INTENTIONALLY narrower than the backend clamp in
- * `normalizeTerrainExaggeration` (map-sync.ts), which accepts 0–10. The UI
- * caps at 3.0 because terrain exaggeration past 3× tends to look surreal and
- * cause artifacts on most DEM data; values 3.1–10 are still accepted from
- * the API/AI but are intentionally unreachable from the slider UI.
+ * Terrain exaggeration past 3x tends to look surreal and cause artifacts on
+ * most DEM data, so the UI and render-time clamp share the same cap.
  */
-export const TERRAIN_EXAGGERATION_UI_MAX = 3.0;
+export const TERRAIN_EXAGGERATION_UI_MAX = TERRAIN_EXAGGERATION_MAX;
 
 export interface SettingsEditorSceneProps {
   // Terrain

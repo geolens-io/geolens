@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useQueryClient } from '@tanstack/react-query';
-import { getLayerType, getSourceIdForLayer, reorderDataLayers } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -171,7 +171,12 @@ export function useBuilderLayers(
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       _setBasemapConfigRaw(mapData.basemap_config ?? null);
-      setLocalTerrainConfig(mapData.terrain_config ?? null);
+      setLocalTerrainConfig(mapData.terrain_config
+        ? {
+            ...mapData.terrain_config,
+            exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
+          }
+        : null);
       setGroupMeta((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {});
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
@@ -1062,7 +1067,7 @@ export function useBuilderLayers(
     setLocalTerrainConfig((prev) => ({
       enabled: true,
       source_dataset_id: layer.dataset_id,
-      exaggeration: prev?.exaggeration ?? 1,
+      exaggeration: normalizeTerrainExaggeration(prev?.exaggeration),
     }));
     setHasUnsavedChanges(true);
   }, []);

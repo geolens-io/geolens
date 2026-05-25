@@ -155,7 +155,7 @@ describe('TerrainControls', () => {
     expect(onChange).toHaveBeenCalledWith({
       enabled: true,
       source_dataset_id: 'dem-1',
-      exaggeration: 3.5,
+      exaggeration: 3,
     });
   });
 

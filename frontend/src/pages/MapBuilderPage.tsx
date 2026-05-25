@@ -73,7 +73,7 @@ import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout'
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
+import { normalizeTerrainExaggeration, TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
 import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
@@ -964,8 +964,9 @@ export function MapBuilderPage() {
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
             onExaggerationChange={(v) => {
+              const exaggeration = normalizeTerrainExaggeration(v);
               layers.setLocalTerrainConfig((prev) =>
-                prev ? { ...prev, exaggeration: v } : { enabled: false, source_dataset_id: null, exaggeration: v },
+                prev ? { ...prev, exaggeration } : { enabled: false, source_dataset_id: null, exaggeration },
               );
               layers.setHasUnsavedChanges(true);
               if (
@@ -977,7 +978,7 @@ export function MapBuilderPage() {
                   if (mapInstanceRef.current.getSource(TERRAIN_SOURCE_ID)) {
                     mapInstanceRef.current.setTerrain({
                       source: TERRAIN_SOURCE_ID,
-                      exaggeration: v,
+                      exaggeration,
                     });
                   }
                 } catch {

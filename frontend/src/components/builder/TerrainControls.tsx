@@ -5,7 +5,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
-import { isTerrainCapableDemLayer, normalizeTerrainExaggeration } from '@/components/builder/map-sync';
+import {
+  isTerrainCapableDemLayer,
+  normalizeTerrainExaggeration,
+  TERRAIN_EXAGGERATION_MAX,
+  TERRAIN_EXAGGERATION_MIN,
+} from '@/components/builder/map-sync';
 import { formatNumber } from '@/lib/format';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
@@ -173,8 +178,8 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
             <Slider
               id="terrain-exaggeration"
               value={[exaggeration]}
-              min={0}
-              max={10}
+              min={TERRAIN_EXAGGERATION_MIN}
+              max={TERRAIN_EXAGGERATION_MAX}
               step={0.1}
               aria-label={t('terrain.exaggeration', { defaultValue: 'Exaggeration' })}
               onValueChange={handleExaggerationChange}

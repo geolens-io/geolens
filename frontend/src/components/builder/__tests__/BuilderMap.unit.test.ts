@@ -128,7 +128,8 @@ describe('terrain helpers', () => {
 
     expect(normalizeTerrainExaggeration(undefined)).toBe(1);
     expect(normalizeTerrainExaggeration(-2)).toBe(0);
-    expect(normalizeTerrainExaggeration(12)).toBe(10);
+    expect(normalizeTerrainExaggeration(2.5)).toBe(2.5);
+    expect(normalizeTerrainExaggeration(12)).toBe(3);
   });
 });
 

@@ -16,6 +16,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 - Map builder style normalization now preserves render-mode-only and legacy nested render-mode configs, so DEM hillshade layers open and render as Hillshade instead of falling back to Image.
 - ADK High Peaks marketing composition now writes canonical peak label config, DEM hillshade metadata, and Blue Line outline styling; reruns update existing maps without duplicating datasets.
 - Mapbuilder lint hygiene now keeps composite stack rows role-free with documented a11y context, removes redundant native roles/stale lint disables, and fixes hook dependency warnings surfaced during closeout.
+- Terrain exaggeration is now clamped consistently at 3x across saved-map load, live settings changes, and alternate terrain controls to avoid distorted DEM surfaces.
 
 ### Verification
 
