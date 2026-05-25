@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1024
 milestone_name: ADK High Peaks Marketing-Ready
-status: planning
-last_updated: "2026-05-24T23:31:43.894Z"
+status: complete
+last_updated: "2026-05-25T00:22:00.000Z"
 last_activity: 2026-05-24
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
-  percent: 33
+  completed_phases: 6
+  total_plans: 6
+  completed_plans: 6
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1103 Builder Mixed Layer Reorder
-Plan: —
-Status: Phase 1101 and 1102 complete; ready for builder reorder fixes
-Last activity: 2026-05-24 — ADK source-data upgrade and saved-map composition complete
+Phase: 1106 Playwright Marketing Close Gate
+Plan: 1106-01
+Status: v1024 complete; ADK marketing maps, builder ordering, terrain controls, and Playwright MCP smoke passed
+Last activity: 2026-05-24 — Completed phases 1103-1106, reran ADK compose, and verified primary/relief maps through Playwright MCP
 
 ## Project Reference
 
@@ -80,7 +80,7 @@ See: .planning/PROJECT.md
 
 ### Pending Todos
 
-None — v1023 closed.
+None — v1024 closed locally.
 
 ### Blockers/Concerns
 
@@ -94,10 +94,10 @@ None — v1023 closed.
 
 ## Session Continuity
 
-Last session: 2026-05-24T23:31:43.894Z
-Stopped at: v1024 initialized from ADK High Peaks marketing-ready scope; autonomous execution requested
+Last session: 2026-05-25T00:22:00.000Z
+Stopped at: v1024 complete after Playwright MCP close gate
 Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Run autonomous v1024 execution from Phase 1101
+- Review and publish the v1024 changes when ready.

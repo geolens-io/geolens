@@ -559,10 +559,23 @@ function syncRasterLayer(
   const expectedSourceType = useHillshade ? 'raster-dem' : 'raster';
   const currentLayer = map.getLayer(adapterInput.layerId) as { type?: string } | undefined;
   const currentSource = map.getSource(adapterInput.sourceId) as { type?: string } | undefined;
+  const currentSourceSpec = currentSource ? sourceSpec(currentSource) : {};
+  const desiredBounds = normalizeRasterBounds(token.bounds);
+  const desiredTileUrl = absolutizeTileUrl(token.tile_url);
+  const desiredTileSize = token.tile_size ?? 256;
+  const desiredMinzoom = token.minzoom ?? 0;
+  const desiredMaxzoom = token.maxzoom ?? 18;
 
   if (
     (currentLayer && currentLayer.type !== expectedLayerType) ||
-    (currentSource && currentSource.type !== expectedSourceType)
+    (currentSource && (
+      currentSource.type !== expectedSourceType ||
+      currentSourceSpec.tiles?.[0] !== desiredTileUrl ||
+      currentSourceSpec.tileSize !== desiredTileSize ||
+      currentSourceSpec.minzoom !== desiredMinzoom ||
+      currentSourceSpec.maxzoom !== desiredMaxzoom ||
+      !sameNumberArray(currentSourceSpec.bounds, desiredBounds)
+    ))
   ) {
     if (map.getLayer(adapterInput.layerId)) map.removeLayer(adapterInput.layerId);
     if (map.getSource(adapterInput.sourceId)) map.removeSource(adapterInput.sourceId);

@@ -2,6 +2,7 @@
 
 import asyncio
 import gzip
+import math
 import re
 import threading
 import time
@@ -24,6 +25,7 @@ from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.cache.provider import get_tile_cache
 from app.platform.extensions import get_processing_port
 from app.platform.storage.titiler_url import build_titiler_cog_url
+from app.processing.raster.models import RasterAsset
 from app.processing.tiles.pool import get_tile_pool
 from app.processing.tiles.service import get_cluster_tile, get_tile
 from app.modules.auth.router import limiter
@@ -102,6 +104,85 @@ _DTYPE_MAX = {
     "float32": 1.0,
     "float64": 1.0,
 }
+
+_WEB_MERCATOR_EQUATOR_RESOLUTION_M = 156543.03392804097
+_DEFAULT_RASTER_MAXZOOM = 18
+_MAX_RASTER_MAXZOOM = 22
+
+
+def _positive_number(value: Any) -> float | None:
+    try:
+        number = abs(float(value))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return number
+
+
+def _degrees_resolution_to_meters(
+    x_degrees: float | None,
+    y_degrees: float | None,
+    bounds: list[float] | None,
+) -> list[float]:
+    """Approximate WGS84 pixel resolution in meters at the raster's latitude."""
+    center_lat = 0.0
+    if bounds and len(bounds) == 4:
+        center_lat = (bounds[1] + bounds[3]) / 2
+    lat_factor = 111_320.0
+    lon_factor = lat_factor * max(math.cos(math.radians(center_lat)), 0.01)
+
+    values: list[float] = []
+    if x_degrees is not None:
+        values.append(x_degrees * lon_factor)
+    if y_degrees is not None:
+        values.append(y_degrees * lat_factor)
+    return values
+
+
+def _native_resolution_meters(
+    asset: RasterAsset | None,
+    bounds: list[float] | None,
+) -> float | None:
+    """Estimate native raster resolution in meters from stored COG metadata."""
+    if asset is None:
+        return None
+
+    res_x = _positive_number(asset.res_x)
+    res_y = _positive_number(asset.res_y)
+    values: list[float] = []
+
+    if res_x is not None or res_y is not None:
+        if asset.epsg == 4326:
+            values.extend(_degrees_resolution_to_meters(res_x, res_y, bounds))
+        else:
+            # GeoLens raster ingest normally stores COGs in meter-based CRSs
+            # (often EPSG:3857). For unsupported projected CRSs this still
+            # produces a safer source maxzoom than the old universal z18.
+            values.extend(v for v in (res_x, res_y) if v is not None)
+
+    if not values and bounds and len(bounds) == 4 and asset.width and asset.height:
+        minx, miny, maxx, maxy = bounds
+        span_x = _positive_number(maxx - minx)
+        span_y = _positive_number(maxy - miny)
+        x_deg = span_x / asset.width if span_x else None
+        y_deg = span_y / asset.height if span_y else None
+        values.extend(_degrees_resolution_to_meters(x_deg, y_deg, bounds))
+
+    return min(values) if values else None
+
+
+def _raster_maxzoom_from_metadata(
+    asset: RasterAsset | None,
+    bounds: list[float] | None,
+) -> int:
+    """Choose raster source maxzoom from native resolution, with legacy fallback."""
+    resolution_m = _native_resolution_meters(asset, bounds)
+    if resolution_m is None:
+        return _DEFAULT_RASTER_MAXZOOM
+
+    zoom = math.ceil(math.log2(_WEB_MERCATOR_EQUATOR_RESOLUTION_M / resolution_m))
+    return max(0, min(_MAX_RASTER_MAXZOOM, zoom))
 
 
 def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
@@ -441,6 +522,7 @@ async def raster_tile_proxy(
 
 def _build_tile_token_for_dataset(
     dataset: "Any",
+    raster_asset: RasterAsset | None = None,
 ) -> VectorTileToken | RasterTileToken:
     """Build a tile token response for a single already-authorized dataset.
 
@@ -466,7 +548,7 @@ def _build_tile_token_for_dataset(
             tile_url=f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png",
             bounds=bounds,
             minzoom=0,
-            maxzoom=18,
+            maxzoom=_raster_maxzoom_from_metadata(raster_asset, bounds),
             tile_size=256,
             format="png",
         )
@@ -527,7 +609,14 @@ async def get_tile_token(
             )
         await port.check_dataset_access(db, dataset, dataset_id, user)
 
-    return _build_tile_token_for_dataset(dataset)
+    raster_asset = None
+    if dataset.record.record_type in ("raster_dataset", "vrt_dataset"):
+        raster_asset_result = await db.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id == dataset.id)
+        )
+        raster_asset = raster_asset_result.scalar_one_or_none()
+
+    return _build_tile_token_for_dataset(dataset, raster_asset)
 
 
 @router.post("/tokens/", response_model=TileTokenBatchResponse)
@@ -561,6 +650,19 @@ async def get_tile_tokens_batch(
         .where(DatasetORM.id.in_(unique_ids))
     )
     datasets_by_id = {ds.id: ds for ds in result.scalars().all()}
+    raster_dataset_ids = [
+        ds.id
+        for ds in datasets_by_id.values()
+        if ds.record.record_type in ("raster_dataset", "vrt_dataset")
+    ]
+    raster_assets_by_dataset_id: dict[uuid.UUID, RasterAsset] = {}
+    if raster_dataset_ids:
+        raster_asset_result = await db.execute(
+            select(RasterAsset).where(RasterAsset.dataset_id.in_(raster_dataset_ids))
+        )
+        raster_assets_by_dataset_id = {
+            asset.dataset_id: asset for asset in raster_asset_result.scalars().all()
+        }
 
     tokens: dict[str, VectorTileToken | RasterTileToken | dict] = {}
     for dataset_id in unique_ids:
@@ -581,7 +683,10 @@ async def get_tile_tokens_batch(
                 tokens[key] = {"error": exc.detail}
                 continue
 
-        tokens[key] = _build_tile_token_for_dataset(dataset)
+        tokens[key] = _build_tile_token_for_dataset(
+            dataset,
+            raster_assets_by_dataset_id.get(dataset.id),
+        )
 
     return TileTokenBatchResponse(tokens=tokens)
 

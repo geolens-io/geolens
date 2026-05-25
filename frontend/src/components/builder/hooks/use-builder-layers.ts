@@ -255,12 +255,13 @@ export function useBuilderLayers(
   const handleMoveDown = useCallback((layerId: string) => handleMove(layerId, 'down'), [handleMove]);
 
   const handleReorder = useCallback((reorderedLayers: MapLayerResponse[]) => {
-    setLocalLayers(reorderedLayers.map((l, i) => ({ ...l, sort_order: i })));
+    const nextLayers = reorderedLayers.map((l, i) => ({ ...l, sort_order: i }));
+    setLocalLayers(nextLayers);
 
     // Imperatively reorder MapLibre layers so the visual change is immediate
     const map = mapInstanceRef.current;
     if (map && map.isStyleLoaded()) {
-      reorderDataLayers(map, reorderedLayers);
+      reorderDataLayers(map, nextLayers);
     }
 
     setHasUnsavedChanges(true);

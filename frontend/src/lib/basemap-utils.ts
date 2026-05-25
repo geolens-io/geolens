@@ -107,7 +107,11 @@ const FALLBACK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
   '</svg>'
 )}`;
 
-const MISSING_REMOTE_STYLE_IMAGES = new Set(['circle-11', 'wood-pattern']);
+const MISSING_REMOTE_STYLE_IMAGES = new Set(['circle-11', 'wood-pattern', 'road_', 'us-state_']);
+
+export function isKnownMissingRemoteStyleImage(id: string): boolean {
+  return MISSING_REMOTE_STYLE_IMAGES.has(id);
+}
 
 /** Get the thumbnail URL for a basemap, with a fallback globe icon for custom basemaps */
 export function basemapThumbnail(id: string): string {
@@ -445,13 +449,27 @@ export function applyBasemapConfigToStyle(
   };
 }
 
-function stripMissingStyleImage(value: unknown): unknown {
+function expressionReadsColumn(value: unknown, column: string): boolean {
+  if (!Array.isArray(value)) return false;
+  if (value[0] === 'get' && value[1] === column) return true;
+  return value.some((entry) => expressionReadsColumn(entry, column));
+}
+
+function hasMissingStyleImageReference(value: unknown): boolean {
   if (typeof value === 'string') {
-    return MISSING_REMOTE_STYLE_IMAGES.has(value) ? '' : value;
+    return isKnownMissingRemoteStyleImage(value);
   }
   if (Array.isArray(value)) {
-    return value.map(stripMissingStyleImage);
+    if (value.some((entry) => hasMissingStyleImageReference(entry))) return true;
+    return value[0] === 'concat'
+      && value.includes('_')
+      && expressionReadsColumn(value, 'network');
   }
+  return false;
+}
+
+function stripMissingStyleImage(value: unknown): unknown {
+  if (hasMissingStyleImageReference(value)) return '';
   return value;
 }
 

@@ -18,6 +18,7 @@ from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
+from app.processing.tiles.router import _raster_maxzoom_from_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +112,37 @@ async def _create_vector_dataset(
     await session.commit()
     await session.refresh(dataset)
     return record, dataset
+
+
+class TestRasterTokenZoomMetadata:
+    """Pure unit tests for raster token zoom-range derivation."""
+
+    def test_derives_maxzoom_from_meter_resolution(self):
+        asset = RasterAsset(
+            dataset_id=uuid.uuid4(),
+            asset_uri="rasters/test/dem.tif",
+            storage_backend="local",
+            epsg=3857,
+            res_x=1.39,
+            res_y=1.39,
+        )
+
+        assert _raster_maxzoom_from_metadata(asset, None) == 17
+
+    def test_derives_maxzoom_from_naip_resolution(self):
+        asset = RasterAsset(
+            dataset_id=uuid.uuid4(),
+            asset_uri="rasters/test/naip.tif",
+            storage_backend="local",
+            epsg=3857,
+            res_x=0.6,
+            res_y=0.6,
+        )
+
+        assert _raster_maxzoom_from_metadata(asset, None) == 18
+
+    def test_falls_back_to_legacy_maxzoom_without_metadata(self):
+        assert _raster_maxzoom_from_metadata(None, None) == 18
 
 
 async def _get_auth_header(client: AsyncClient, username: str, password: str) -> dict:
@@ -392,6 +424,49 @@ class TestRasterTokenEndpoint:
         assert "format" in data
         assert data["tile_size"] == 256
         assert data["format"] == "png"
+
+    async def test_raster_token_derives_maxzoom_from_raster_metadata(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Raster token source maxzoom follows native COG resolution."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        assert asset is not None
+        asset.epsg = 3857
+        asset.res_x = 1.39
+        asset.res_y = 1.39
+        await test_db_session.commit()
+
+        resp = await client.get(f"/tiles/token/{dataset.id}/")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["maxzoom"] == 17
+
+    async def test_raster_batch_token_derives_maxzoom_from_raster_metadata(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Batch token endpoint uses the same raster metadata zoom path."""
+        admin_id = await _get_admin_id(test_db_session)
+        _record, dataset, asset = await _create_raster_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        assert asset is not None
+        asset.epsg = 3857
+        asset.res_x = 0.6
+        asset.res_y = 0.6
+        await test_db_session.commit()
+
+        resp = await client.post(
+            "/tiles/tokens/", json={"dataset_ids": [str(dataset.id)]}
+        )
+        assert resp.status_code == 200
+        data = resp.json()["tokens"][str(dataset.id)]
+
+        assert data["kind"] == "raster"
+        assert data["maxzoom"] == 18
 
     async def test_raster_token_no_credentials_in_response(
         self, client: AsyncClient, test_db_session

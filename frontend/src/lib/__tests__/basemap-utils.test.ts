@@ -8,6 +8,7 @@ import {
   findBasemapById,
   basemapThumbnail,
   applyBasemapConfigToStyle,
+  isKnownMissingRemoteStyleImage,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
@@ -78,6 +79,12 @@ describe('toMaplibreStyle', () => {
 });
 
 describe('sanitizeMaplibreStyle', () => {
+  it('identifies only known missing remote style images', () => {
+    expect(isKnownMissingRemoteStyleImage('road_')).toBe(true);
+    expect(isKnownMissingRemoteStyleImage('us-state_')).toBe(true);
+    expect(isKnownMissingRemoteStyleImage('custom-marker')).toBe(false);
+  });
+
   it('removes unsupported fill-pattern references from remote styles', () => {
     const style = {
       version: 8,
@@ -141,8 +148,76 @@ describe('sanitizeMaplibreStyle', () => {
     expect(result.layers[0]).toMatchObject({
       id: 'place_city',
       layout: {
-        'icon-image': ['step', ['zoom'], '', 9, ''],
+        'icon-image': '',
         'text-field': ['get', 'name'],
+      },
+    });
+  });
+
+  it('removes Positron road shield icon expressions before MapLibre loads the style', () => {
+    const style = {
+      version: 8,
+      sources: {
+        openmaptiles: {
+          type: 'vector',
+          tiles: ['https://example.com/{z}/{x}/{y}.pbf'],
+        },
+      },
+      layers: [
+        {
+          id: 'road_shield',
+          type: 'symbol',
+          source: 'openmaptiles',
+          'source-layer': 'transportation_name',
+          layout: {
+            'icon-image': ['concat', 'road_', ['get', 'network']],
+            'text-field': ['get', 'ref'],
+          },
+        },
+      ],
+    } as StyleSpecification;
+
+    const result = sanitizeMaplibreStyle(style);
+
+    expect(result.layers[0]).toMatchObject({
+      id: 'road_shield',
+      layout: {
+        'icon-image': '',
+        'text-field': ['get', 'ref'],
+      },
+    });
+  });
+
+  it('removes Positron network-derived highway shield expressions', () => {
+    const style = {
+      version: 8,
+      sources: {
+        openmaptiles: {
+          type: 'vector',
+          tiles: ['https://example.com/{z}/{x}/{y}.pbf'],
+        },
+      },
+      layers: [
+        {
+          id: 'road_shield_us',
+          type: 'symbol',
+          source: 'openmaptiles',
+          'source-layer': 'transportation_name',
+          layout: {
+            'icon-image': ['concat', ['get', 'network'], '_', ['get', 'ref_length']],
+            'text-field': ['get', 'ref'],
+          },
+        },
+      ],
+    } as StyleSpecification;
+
+    const result = sanitizeMaplibreStyle(style);
+
+    expect(result.layers[0]).toMatchObject({
+      id: 'road_shield_us',
+      layout: {
+        'icon-image': '',
+        'text-field': ['get', 'ref'],
       },
     });
   });

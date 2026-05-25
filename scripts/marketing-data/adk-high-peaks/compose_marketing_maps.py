@@ -856,91 +856,16 @@ async def amain(args: argparse.Namespace) -> int:
 
             def primary_layers() -> list[dict]:
                 layers_spec = []
-                if "adk-high-peaks-ny-orthos" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-high-peaks-ny-orthos"],
-                        "sort_order": 0,
-                        "opacity": 1.0,
-                        "layer_type": "raster_geolens",
-                        "style_config": {"builder": {"render_mode": "image"}},
-                        "display_name": "TNM/NY Orthos aerial",
-                    })
-                if "adk-high-peaks-dem-1m" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-high-peaks-dem-1m"],
-                        "sort_order": 1,
-                        "opacity": 0.45,
-                        "layer_type": "raster_geolens",
-                        "style_config": {"builder": {"render_mode": "hillshade"}},
-                        "display_name": "DEM hillshade (1m)",
-                    })
-                if "adk-nhd-waterbodies" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-nhd-waterbodies"],
-                        "sort_order": 2,
-                        "opacity": 0.55,
-                        "layer_type": "vector_geolens",
-                        "paint": {
-                            "fill-color": "#4aa3c7",
-                            "fill-opacity": 0.45,
-                            "fill-outline-color": "#1f6f8b",
-                        },
-                        "display_name": "NHD lakes and ponds",
-                    })
-                if "adk-land-classification" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-land-classification"],
-                        "sort_order": 3,
-                        "opacity": 0.28,
-                        "layer_type": "vector_geolens",
-                        "paint": {
-                            "fill-color": "#7a8b4f",
-                            "fill-opacity": 0.28,
-                            "fill-outline-color": "#3d4d2a",
-                        },
-                        "display_name": "Land classification",
-                    })
-                if "adk-blue-line" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-blue-line"],
-                        "sort_order": 4,
-                        "opacity": 0.8,
-                        "layer_type": "vector_geolens",
-                        "paint": {
-                            "fill-color": "#1b6e3a",
-                            "fill-opacity": 0.03,
-                            "fill-outline-color": "#1b6e3a",
-                        },
-                        "display_name": "Blue Line (APA boundary)",
-                    })
-                if "adk-nhd-flowlines" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-nhd-flowlines"],
-                        "sort_order": 5,
-                        "opacity": 0.85,
-                        "layer_type": "vector_geolens",
-                        "paint": {
-                            "line-color": "#2b8fb8",
-                            "line-width": 1.2,
-                        },
-                        "display_name": "NHD streams and rivers",
-                    })
-                if "adk-hiking-trails" in dataset_ids:
-                    layers_spec.append({
-                        "dataset_id": dataset_ids["adk-hiking-trails"],
-                        "sort_order": 6,
-                        "opacity": 0.9,
-                        "layer_type": "vector_geolens",
-                        "paint": {
-                            "line-color": "#c44d00",
-                            "line-width": 1.8,
-                        },
-                        "display_name": "Hiking trails",
-                    })
+
+                def append_layer(layer: dict) -> None:
+                    # Builder stack order is top-to-bottom: smaller sort_order
+                    # renders above later rows after map-sync reorders MapLibre.
+                    layer["sort_order"] = len(layers_spec)
+                    layers_spec.append(layer)
+
                 if "adk-46er-peaks" in dataset_ids:
-                    layers_spec.append({
+                    append_layer({
                         "dataset_id": dataset_ids["adk-46er-peaks"],
-                        "sort_order": 7,
                         "opacity": 1.0,
                         "layer_type": "vector_geolens",
                         "paint": {
@@ -962,6 +887,80 @@ async def amain(args: argparse.Namespace) -> int:
                             "expression": None,
                             "visible_fields": ["name", "elev_ft", "rank", "source_name"],
                         },
+                    })
+                if "adk-hiking-trails" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-hiking-trails"],
+                        "opacity": 0.9,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "line-color": "#c44d00",
+                            "line-width": 1.8,
+                        },
+                        "display_name": "Hiking trails",
+                    })
+                if "adk-nhd-flowlines" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-nhd-flowlines"],
+                        "opacity": 0.85,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "line-color": "#2b8fb8",
+                            "line-width": 1.2,
+                        },
+                        "display_name": "NHD streams and rivers",
+                    })
+                if "adk-blue-line" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-blue-line"],
+                        "opacity": 0.8,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "fill-color": "#1b6e3a",
+                            "fill-opacity": 0.03,
+                            "fill-outline-color": "#1b6e3a",
+                        },
+                        "display_name": "Blue Line (APA boundary)",
+                    })
+                if "adk-nhd-waterbodies" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-nhd-waterbodies"],
+                        "opacity": 0.55,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "fill-color": "#4aa3c7",
+                            "fill-opacity": 0.45,
+                            "fill-outline-color": "#1f6f8b",
+                        },
+                        "display_name": "NHD lakes and ponds",
+                    })
+                if "adk-land-classification" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-land-classification"],
+                        "opacity": 0.28,
+                        "layer_type": "vector_geolens",
+                        "paint": {
+                            "fill-color": "#7a8b4f",
+                            "fill-opacity": 0.28,
+                            "fill-outline-color": "#3d4d2a",
+                        },
+                        "display_name": "Land classification",
+                    })
+                if "adk-high-peaks-dem-1m" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-high-peaks-dem-1m"],
+                        "opacity": 0.45,
+                        "layer_type": "raster_geolens",
+                        "style_config": {"builder": {"render_mode": "hillshade"}},
+                        "display_name": "DEM hillshade (1m)",
+                    })
+                if "adk-high-peaks-ny-orthos" in dataset_ids:
+                    append_layer({
+                        "dataset_id": dataset_ids["adk-high-peaks-ny-orthos"],
+                        "opacity": 1.0,
+                        "layer_type": "raster_geolens",
+                        "style_config": {"builder": {"render_mode": "image"}},
+                        "display_name": "TNM/NY Orthos aerial",
                     })
                 return layers_spec
 

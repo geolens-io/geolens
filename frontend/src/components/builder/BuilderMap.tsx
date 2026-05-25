@@ -4,7 +4,13 @@ import { isWidgetIdAvailable } from '@/components/map-widgets';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-maplibre';
 import { useBasemaps, useEnabledWidgets, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { findBasemapById, sanitizeMaplibreStyle, toMaplibreStyle, BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
+import {
+  findBasemapById,
+  isKnownMissingRemoteStyleImage,
+  sanitizeMaplibreStyle,
+  toMaplibreStyle,
+  BLANK_BASEMAP_ID,
+} from '@/lib/basemap-utils';
 import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { useTileTokens } from '@/hooks/use-tile-token';
@@ -77,6 +83,26 @@ interface BuilderMapProps {
   onFeatureSelect?: (feature: FeatureInfo | null) => void;
 }
 
+export function shouldSuppressBuilderMapError(error: { message?: string; status?: number } | null | undefined) {
+  if (error?.status) return false;
+  const message = String(error?.message ?? '').toLowerCase();
+  if (!message) return false;
+
+  return (
+    message.includes('dem dimension mismatch') ||
+    (message.includes(TERRAIN_SOURCE_ID) && (
+      message.includes('not found') ||
+      message.includes('source') ||
+      message.includes('terrain')
+    )) ||
+    (message.includes('raster-dem') && (
+      message.includes('maxzoom') ||
+      message.includes('dimension') ||
+      message.includes('terrain')
+    ))
+  );
+}
+
 export const BuilderMap = memo(function BuilderMap({
   layers,
   basemapStyle,
@@ -91,6 +117,7 @@ export const BuilderMap = memo(function BuilderMap({
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number } }) => void) | null>(null);
+  const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
   // SF-08: latch first-load success so transient 5xx during save don't surface as outage
   const basemapLoadedAtRef = useRef<number | null>(null);
   const lastOrderKeyRef = useRef('');
@@ -416,6 +443,7 @@ export const BuilderMap = memo(function BuilderMap({
           }
           return;
         }
+        if (shouldSuppressBuilderMapError(e.error)) return;
         // Surface server errors (5xx) and unknown errors
         if (import.meta.env.DEV) console.warn('[BuilderMap] Map error:', e.error);
         if (!status || status >= 500) {
@@ -437,6 +465,13 @@ export const BuilderMap = memo(function BuilderMap({
         }
       };
       map.on('error', errorHandlerRef.current);
+
+      styleImageMissingHandlerRef.current = ({ id }: { id: string }) => {
+        if (isKnownMissingRemoteStyleImage(id) && !map.hasImage(id)) {
+          map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });
+        }
+      };
+      map.on('styleimagemissing', styleImageMissingHandlerRef.current);
 
       onMapRef?.(map);
     },
@@ -926,6 +961,9 @@ export const BuilderMap = memo(function BuilderMap({
       if (mapRef.current && errorHandlerRef.current) {
         mapRef.current.off('error', errorHandlerRef.current);
       }
+      if (mapRef.current && styleImageMissingHandlerRef.current) {
+        mapRef.current.off('styleimagemissing', styleImageMissingHandlerRef.current);
+      }
       // Phase 1051 WR-04: keep state mirror in sync on teardown.
       setMapInstance(null);
       onMapRef?.(null);
@@ -962,7 +1000,7 @@ export const BuilderMap = memo(function BuilderMap({
         <div
           role="status"
           aria-live="polite"
-          className="absolute left-3 top-3 z-20 max-w-sm rounded-md border bg-background/95 p-3 text-sm shadow-md backdrop-blur"
+          className="absolute right-3 top-3 z-20 max-w-sm rounded-md border bg-background/95 p-3 text-sm shadow-md backdrop-blur"
         >
           <p className="font-medium text-foreground">
             {t('builderMap.basemapIssueTitle', { defaultValue: 'Basemap connection issue' })}

@@ -13,6 +13,28 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 _No entries yet — open the next milestone with `/gsd:new-milestone`._
 
+## [1.5.9] - 2026-05-24
+
+ADK High Peaks marketing-ready map refresh — upgrades the source-data pipeline, composes the primary and 3D relief maps, and hardens builder ordering/terrain/error handling for a clean Playwright MCP smoke path.
+
+### Added
+
+- **ADK data pipeline:** TNM-first NAIP fetch path with recorded no-data evidence and documented high-fidelity NY orthos fallback; NHD flowlines/waterbodies; complete official ADK 46er peaks.
+- **ADK saved maps:** primary map `c39be324-6815-40e5-8143-00a2723827b2` and relief Map 2 `8dd6a129-8eb0-4ba9-b421-716c83b160dd`.
+
+### Fixed
+
+- Builder mixed raster/vector reordering now updates the live MapLibre stack and persists through save/reload.
+- Raster tile tokens derive source `maxzoom` from COG metadata; the ADK DEM now serves as terrain at `maxzoom: 17`.
+- Terrain exaggeration controls use the shared `terrain-dem` source safely during style reloads.
+- Builder map error hygiene no longer routes known terrain/DEM internals into basemap toasts; Positron `road_`/`us-state_` sprite warnings are sanitized before style load; basemap notices no longer overlap the top-left controls.
+
+### Verification
+
+- Playwright MCP opened the freshly composed primary and relief maps with zero browser console errors/warnings.
+- Playwright MCP exercised drag reorder, save/reload persistence, Settings terrain controls, and terrain exaggeration.
+- Focused tests: frontend basemap/map-sync/BuilderMap unit tests, frontend typecheck, backend raster zoom unit tests, and focused Ruff checks.
+
 ## [1.5.8] - 2026-05-24
 
 Test-infrastructure hygiene — retires the 3 pre-existing OOS sequential failures + 3 OAuth parallel-mode flakes so the post-milestone invariant becomes `sequential failed == 0` **LITERAL** (not "0 NEW failed"). Strengthens `-n 4` invariant from "0 NEW oauth flake" to literal-zero. CI-01 live-verify ships degraded (GitHub Actions billing block persistent since v1022); v1024+ carry-forward.

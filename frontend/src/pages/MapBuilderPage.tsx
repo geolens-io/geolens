@@ -73,6 +73,7 @@ import { useBuilderLayout } from '@/components/builder/hooks/use-builder-layout'
 import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialogs';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
+import { TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
 import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
 
@@ -965,10 +966,17 @@ export function MapBuilderPage() {
                 layers.localTerrainConfig?.enabled &&
                 layers.localTerrainConfig.source_dataset_id
               ) {
-                mapInstanceRef.current.setTerrain({
-                  source: `dem-${layers.localTerrainConfig.source_dataset_id}`,
-                  exaggeration: v,
-                });
+                try {
+                  if (mapInstanceRef.current.getSource(TERRAIN_SOURCE_ID)) {
+                    mapInstanceRef.current.setTerrain({
+                      source: TERRAIN_SOURCE_ID,
+                      exaggeration: v,
+                    });
+                  }
+                } catch {
+                  // Terrain source can be absent during a style reload; BuilderMap
+                  // reapplies the saved config once the DEM token/source is ready.
+                }
               }
             }}
             activeWidgetIds={activeWidgets}

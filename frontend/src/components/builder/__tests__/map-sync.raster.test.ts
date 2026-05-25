@@ -183,6 +183,41 @@ describe('syncLayersToMap', () => {
     expect(addLayerCall.paint['raster-opacity']).toBe(1);
   });
 
+  it('reorders vector layers above raster layers when the vector is first in stack order', () => {
+    const vectorLayer = makeLayer({
+      id: 'peaks',
+      dataset_id: 'vector-ds',
+      dataset_geometry_type: 'Point',
+      dataset_table_name: 'peaks_table',
+      dataset_record_type: 'vector_dataset',
+      layer_type: 'vector_geolens',
+    });
+    const rasterLayer = makeLayer({
+      id: 'aerial',
+      dataset_id: 'raster-ds',
+      dataset_geometry_type: null,
+      dataset_table_name: 'aerial_table',
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+    });
+    const tokenMap = new Map<string, TileToken>([
+      ['vector-ds', makeVectorToken()],
+      ['raster-ds', makeRasterToken()],
+    ]);
+
+    syncLayersToMap(
+      map,
+      [vectorLayer, rasterLayer],
+      tokenMap,
+      undefined,
+      managedSourcesRef,
+      { current: '' },
+    );
+
+    const movedLayerIds = (map.moveLayer as ReturnType<typeof vi.fn>).mock.calls.map(([id]) => id);
+    expect(movedLayerIds.indexOf('layer-aerial')).toBeLessThan(movedLayerIds.indexOf('layer-peaks'));
+  });
+
   it('raster layer respects opacity', () => {
     const layer = makeLayer({
       id: 'r2',
@@ -355,7 +390,17 @@ describe('syncLayersToMap', () => {
 
     // Source already exists
     (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
-      if (id === 'source-r4') return { type: 'raster' };
+      if (id === 'source-r4') {
+        return {
+          type: 'raster',
+          serialize: () => ({
+            tiles: ['http://localhost:8080/tiles/raster/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            minzoom: 0,
+            maxzoom: 18,
+          }),
+        };
+      }
       return null;
     });
     (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
@@ -390,7 +435,17 @@ describe('syncLayersToMap', () => {
     const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
 
     (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
-      if (id === 'source-r4b') return { type: 'raster' };
+      if (id === 'source-r4b') {
+        return {
+          type: 'raster',
+          serialize: () => ({
+            tiles: ['http://localhost:8080/tiles/raster/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            minzoom: 0,
+            maxzoom: 18,
+          }),
+        };
+      }
       return null;
     });
     (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
@@ -411,6 +466,46 @@ describe('syncLayersToMap', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-resampling', 'nearest');
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-fade-duration', 125);
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-r4b', 'raster-opacity', 0.8);
+  });
+
+  it('rebuilds an existing raster source when tile zoom metadata changes', () => {
+    const layer = makeLayer({
+      id: 'r5',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken({ maxzoom: 17 })]]);
+    let sourceExists = true;
+
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'source-r5' && sourceExists) {
+        return {
+          type: 'raster',
+          serialize: () => ({
+            tiles: ['http://localhost:8080/tiles/raster/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            minzoom: 0,
+            maxzoom: 18,
+          }),
+        };
+      }
+      return null;
+    });
+    (map.removeSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'source-r5') sourceExists = false;
+    });
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-r5') return { id, type: 'raster' };
+      return null;
+    });
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-r5');
+    expect(map.removeSource).toHaveBeenCalledWith('source-r5');
+    expect(map.addSource).toHaveBeenCalledWith('source-r5', expect.objectContaining({
+      maxzoom: 17,
+    }));
   });
 
   it('vector point layer with opacity 1.0 still sets circle-opacity paint property', () => {

@@ -8,6 +8,7 @@ import {
   simplifyPaint,
   TERRAIN_SOURCE_ID,
 } from '../map-sync';
+import { shouldSuppressBuilderMapError } from '../BuilderMap';
 import { applyBasemapConfigToStyle, normalizeBasemapConfig } from '@/lib/basemap-utils';
 import type { StyleSpecification } from 'maplibre-gl';
 
@@ -128,6 +129,24 @@ describe('terrain helpers', () => {
     expect(normalizeTerrainExaggeration(undefined)).toBe(1);
     expect(normalizeTerrainExaggeration(-2)).toBe(0);
     expect(normalizeTerrainExaggeration(12)).toBe(10);
+  });
+});
+
+describe('builder map error hygiene', () => {
+  it('suppresses transient internal terrain source errors', () => {
+    expect(shouldSuppressBuilderMapError({
+      message: `Source "${TERRAIN_SOURCE_ID}" not found for terrain`,
+    })).toBe(true);
+    expect(shouldSuppressBuilderMapError({
+      message: 'DEM dimension mismatch while decoding raster-dem tile',
+    })).toBe(true);
+  });
+
+  it('does not suppress HTTP tile errors', () => {
+    expect(shouldSuppressBuilderMapError({
+      message: 'Tile server unavailable',
+      status: 503,
+    })).toBe(false);
   });
 });
 
