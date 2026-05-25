@@ -791,6 +791,25 @@ describe('lineAdapter', () => {
     }
   });
 
+  it('syncPaint clears stale line-gradient when switching back to solid color', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-solid' });
+    const gradient = ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0'];
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockImplementation((_layerId, prop) =>
+      prop === 'line-gradient' ? gradient : undefined,
+    );
+    const input = makeInput({
+      id: 'solid',
+      layerId: 'layer-solid',
+      dataset_geometry_type: 'LINESTRING',
+      paint: { 'line-color': '#f97316', 'line-width': 2 },
+    });
+
+    lineAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-solid', 'line-gradient', undefined);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-solid', 'line-color', '#f97316');
+  });
+
   it('syncPaint preserves line width, line opacity, and saved gradient expressions', () => {
     (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-l7' });
     (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);

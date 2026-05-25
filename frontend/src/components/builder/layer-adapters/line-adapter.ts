@@ -108,6 +108,17 @@ function syncArrowLayer(map: MaplibreMap, input: AdapterLayerInput) {
   syncLayerFilter(map, id, input.filter);
 }
 
+function clearStaleLineGradient(map: MaplibreMap, layerId: string, rawPaint: Record<string, unknown>) {
+  if (rawPaint['line-gradient'] != null) return;
+  try {
+    if (map.getPaintProperty(layerId, 'line-gradient') != null) {
+      map.setPaintProperty(layerId, 'line-gradient', undefined);
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) console.debug(`[map-sync] Failed to clear line-gradient on ${layerId}:`, e);
+  }
+}
+
 export const lineAdapter: LayerAdapter = {
   type: 'line',
 
@@ -161,6 +172,7 @@ export const lineAdapter: LayerAdapter = {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
     syncVectorPaint(map, layerId, rawPaint, 'line');
+    clearStaleLineGradient(map, layerId, rawPaint);
     map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
     const dasharray = input.layout?.['line-dasharray'];
     if (map.getLayer(layerId)) {
