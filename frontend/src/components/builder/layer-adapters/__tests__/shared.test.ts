@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { syncLayerFilter, setLayerProperty } from '../shared';
+import { syncLayerFilter, setLayerProperty, syncOwnedLayoutProperties, syncOwnedPaintProperties } from '../shared';
 import type { FilterSpecification } from 'maplibre-gl';
 
 function createMockMap(layerExists = true) {
@@ -91,5 +91,174 @@ describe('setLayerProperty', () => {
     setLayerProperty(map as unknown as import('maplibre-gl').Map, 'L', 'line-width', 2);
     expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-width', 2);
     expect(map.setLayoutProperty).not.toHaveBeenCalled();
+  });
+});
+
+function createMockMapForReconciler() {
+  const paintState = new Map<string, unknown>();
+  const layoutState = new Map<string, unknown>();
+  return {
+    getLayer: vi.fn().mockReturnValue({ id: 'L' }),
+    getPaintProperty: vi.fn((_layerId: string, prop: string) => paintState.get(prop)),
+    setPaintProperty: vi.fn((_layerId: string, prop: string, value: unknown) => {
+      paintState.set(prop, value);
+    }),
+    getLayoutProperty: vi.fn((_layerId: string, prop: string) => layoutState.get(prop)),
+    setLayoutProperty: vi.fn((_layerId: string, prop: string, value: unknown) => {
+      layoutState.set(prop, value);
+    }),
+    paintState,
+    layoutState,
+  };
+}
+
+describe('syncOwnedPaintProperties', () => {
+  it('sets changed owned paint properties', () => {
+    const map = createMockMapForReconciler();
+    map.paintState.set('line-color', '#111111');
+
+    syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { 'line-color': '#ff0000' },
+      { geomType: 'line', ownedProperties: ['line-color'] },
+    );
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-color', '#ff0000');
+  });
+
+  it('does not rewrite unchanged owned paint properties', () => {
+    const map = createMockMapForReconciler();
+    map.paintState.set('circle-radius', 8);
+
+    syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { 'circle-radius': 8 },
+      { geomType: 'circle', ownedProperties: ['circle-radius'] },
+    );
+
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+
+  it('clears missing owned paint properties', () => {
+    const map = createMockMapForReconciler();
+    map.paintState.set('line-gradient', ['interpolate', ['linear'], ['line-progress'], 0, '#00f', 1, '#0f0']);
+
+    syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { 'line-color': '#f97316' },
+      { geomType: 'line', ownedProperties: ['line-color', 'line-gradient'] },
+    );
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-gradient', undefined);
+  });
+
+  it('filters custom metadata and cross-geometry paint properties', () => {
+    const map = createMockMapForReconciler();
+
+    syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      {
+        'line-color': '#ff0000',
+        'circle-radius': 8,
+        '_outline-width': 4,
+      },
+      { geomType: 'line', ownedProperties: ['line-color', 'circle-radius', '_outline-width'] },
+    );
+
+    expect(map.setPaintProperty).toHaveBeenCalledTimes(1);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-color', '#ff0000');
+  });
+
+  it('preserves expression value identity when setting paint', () => {
+    const map = createMockMapForReconciler();
+    const expression = ['interpolate', ['linear'], ['zoom'], 5, 1, 12, 8];
+
+    syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { 'line-width': expression },
+      { geomType: 'line', ownedProperties: ['line-width'] },
+    );
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-width', expression);
+    expect(map.setPaintProperty.mock.calls[0][2]).toBe(expression);
+  });
+
+  it('isolates MapLibre paint errors per property', () => {
+    const map = createMockMapForReconciler();
+    map.setPaintProperty.mockImplementation((_layerId: string, prop: string, value: unknown) => {
+      if (prop === 'line-color') throw new Error('bad color');
+      map.paintState.set(prop, value);
+    });
+
+    expect(() => syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { 'line-color': '#ff0000', 'line-width': 4 },
+      { geomType: 'line', ownedProperties: ['line-color', 'line-width'] },
+    )).not.toThrow();
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-width', 4);
+  });
+
+  it('is a no-op when the target layer is missing', () => {
+    const map = createMockMapForReconciler();
+    map.getLayer.mockReturnValue(undefined);
+
+    syncOwnedPaintProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'missing',
+      { 'line-color': '#ff0000' },
+      { geomType: 'line', ownedProperties: ['line-color'] },
+    );
+
+    expect(map.setPaintProperty).not.toHaveBeenCalled();
+  });
+});
+
+describe('syncOwnedLayoutProperties', () => {
+  it('sets changed owned layout properties', () => {
+    const map = createMockMapForReconciler();
+
+    syncOwnedLayoutProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { 'line-cap': 'square' },
+      { ownedProperties: ['line-cap'] },
+    );
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('L', 'line-cap', 'square');
+  });
+
+  it('clears missing owned layout properties', () => {
+    const map = createMockMapForReconciler();
+    map.layoutState.set('line-cap', 'round');
+
+    syncOwnedLayoutProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      {},
+      { ownedProperties: ['line-cap'] },
+    );
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('L', 'line-cap', undefined);
+  });
+
+  it('filters builder-only layout metadata', () => {
+    const map = createMockMapForReconciler();
+
+    syncOwnedLayoutProperties(
+      map as unknown as import('maplibre-gl').Map,
+      'L',
+      { '_minzoom': 5, visibility: 'none' },
+      { ownedProperties: ['_minzoom', 'visibility'] },
+    );
+
+    expect(map.setLayoutProperty).toHaveBeenCalledTimes(1);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('L', 'visibility', 'none');
   });
 });

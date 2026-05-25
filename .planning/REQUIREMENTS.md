@@ -14,10 +14,10 @@
 
 ### Shared Reconciler
 
-- [ ] **RECON-01**: A shared style reconciler applies changed owned paint/layout properties and clears removed owned properties from live MapLibre layers.
-- [ ] **RECON-02**: The reconciler filters invalid cross-geometry paint/layout keys, keeps custom builder metadata out of MapLibre paint/layout calls, and preserves expression values without flattening or cloning where identity matters.
-- [ ] **RECON-03**: Paint-only style changes do not re-add sources or refetch tiles; layer rebuilds are limited to render-mode/source-type transitions that require them.
-- [ ] **RECON-04**: Focused unit tests cover set, no-op, clear, invalid-key filtering, expression preservation, companion-layer ownership, and MapLibre error isolation.
+- [x] **RECON-01**: A shared style reconciler applies changed owned paint/layout properties and clears removed owned properties from live MapLibre layers.
+- [x] **RECON-02**: The reconciler filters invalid cross-geometry paint/layout keys, keeps custom builder metadata out of MapLibre paint/layout calls, and preserves expression values without flattening or cloning where identity matters.
+- [x] **RECON-03**: Paint-only style changes do not re-add sources or refetch tiles; layer rebuilds are limited to render-mode/source-type transitions that require them.
+- [x] **RECON-04**: Focused unit tests cover set, no-op, clear, invalid-key filtering, expression preservation, companion-layer ownership, and MapLibre error isolation.
 
 ### Adapter Migration
 
@@ -80,10 +80,10 @@
 | ARCH-02 | Phase 1112 | Complete |
 | ARCH-03 | Phase 1112 | Complete |
 | ARCH-04 | Phase 1112 | Complete |
-| RECON-01 | Phase 1113 | Pending |
-| RECON-02 | Phase 1113 | Pending |
-| RECON-03 | Phase 1113 | Pending |
-| RECON-04 | Phase 1113 | Pending |
+| RECON-01 | Phase 1113 | Complete |
+| RECON-02 | Phase 1113 | Complete |
+| RECON-03 | Phase 1113 | Complete |
+| RECON-04 | Phase 1113 | Complete |
 | ADAPT-01 | Phase 1114 | Pending |
 | ADAPT-02 | Phase 1114 | Pending |
 | ADAPT-03 | Phase 1114 | Pending |
@@ -106,10 +106,10 @@
 | VERIFY-05 | Phase 1117 | Pending |
 
 **Coverage:**
-- v1026 requirements: 28 total, 4 complete
+- v1026 requirements: 28 total, 8 complete
 - Mapped to phases: 28
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1112*
+*Last updated: 2026-05-25 after Phase 1113*

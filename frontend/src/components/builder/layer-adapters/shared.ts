@@ -108,6 +108,10 @@ function isPaintPropertyForLayerType(prop: string, geomType: 'fill' | 'line' | '
   return !prop.endsWith('-sort-key');
 }
 
+function isOwnedLayoutProperty(prop: string) {
+  return !prop.startsWith('_') && !CUSTOM_PAINT_PROPS.has(prop);
+}
+
 /** Keep only MapLibre paint properties supported by the target vector layer type. */
 export function filterPaintForLayerType(
   paint: Record<string, unknown>,
@@ -253,6 +257,127 @@ export function paintValueChanged(current: unknown, incoming: unknown): boolean 
   if (current === incoming) return false;
   if (typeof incoming !== 'object' || incoming === null) return current !== incoming;
   return JSON.stringify(current) !== JSON.stringify(incoming);
+}
+
+type VectorGeomType = 'fill' | 'line' | 'circle';
+
+export interface OwnedPaintSyncOptions {
+  ownedProperties: readonly string[];
+  geomType?: VectorGeomType;
+  clearMissing?: boolean;
+}
+
+export interface OwnedLayoutSyncOptions {
+  ownedProperties: readonly string[];
+  clearMissing?: boolean;
+}
+
+function shouldSyncOwnedPaintProperty(prop: string, geomType?: VectorGeomType) {
+  if (geomType) return isPaintPropertyForLayerType(prop, geomType);
+  return !CUSTOM_PAINT_PROPS.has(prop);
+}
+
+function debugPropertySyncFailure(
+  layerId: string,
+  property: string,
+  kind: 'paint' | 'layout',
+  action: 'get' | 'set',
+  error: unknown,
+) {
+  if (import.meta.env.DEV) {
+    console.debug(`[map-sync] Failed to ${action} ${kind} property ${property} on ${layerId}:`, error);
+  }
+}
+
+/** Reconcile an explicit paint ownership set against the live MapLibre layer. */
+export function syncOwnedPaintProperties(
+  map: MaplibreMap,
+  layerId: string,
+  rawPaint: Record<string, unknown>,
+  options: OwnedPaintSyncOptions,
+) {
+  if (!map.getLayer(layerId)) return;
+  const { ownedProperties, geomType, clearMissing = true } = options;
+  const filteredPaint = geomType ? filterPaintForLayerType(rawPaint, geomType) : stripCustomProps(rawPaint);
+
+  for (const prop of ownedProperties) {
+    if (!shouldSyncOwnedPaintProperty(prop, geomType)) continue;
+
+    const hasDesired = Object.prototype.hasOwnProperty.call(filteredPaint, prop);
+    if (!hasDesired && !clearMissing) continue;
+
+    let current: unknown;
+    let currentKnown = false;
+    try {
+      current = map.getPaintProperty(layerId, prop);
+      currentKnown = true;
+    } catch (e) {
+      debugPropertySyncFailure(layerId, prop, 'paint', 'get', e);
+    }
+
+    if (!hasDesired) {
+      if (!currentKnown || current === undefined) continue;
+      try {
+        map.setPaintProperty(layerId, prop, undefined);
+      } catch (e) {
+        debugPropertySyncFailure(layerId, prop, 'paint', 'set', e);
+      }
+      continue;
+    }
+
+    const desired = filteredPaint[prop];
+    if (currentKnown && !paintValueChanged(current, desired)) continue;
+    try {
+      map.setPaintProperty(layerId, prop, desired);
+    } catch (e) {
+      debugPropertySyncFailure(layerId, prop, 'paint', 'set', e);
+    }
+  }
+}
+
+/** Reconcile an explicit layout ownership set against the live MapLibre layer. */
+export function syncOwnedLayoutProperties(
+  map: MaplibreMap,
+  layerId: string,
+  layout: Record<string, unknown>,
+  options: OwnedLayoutSyncOptions,
+) {
+  if (!map.getLayer(layerId)) return;
+  const { ownedProperties, clearMissing = true } = options;
+
+  for (const prop of ownedProperties) {
+    if (!isOwnedLayoutProperty(prop)) continue;
+
+    const hasDesired = Object.prototype.hasOwnProperty.call(layout, prop) && layout[prop] != null;
+    if (!hasDesired && !clearMissing) continue;
+
+    let current: unknown;
+    let currentKnown = false;
+    try {
+      current = map.getLayoutProperty(layerId, prop);
+      currentKnown = true;
+    } catch (e) {
+      debugPropertySyncFailure(layerId, prop, 'layout', 'get', e);
+    }
+
+    if (!hasDesired) {
+      if (!currentKnown || current === undefined) continue;
+      try {
+        map.setLayoutProperty(layerId, prop, undefined);
+      } catch (e) {
+        debugPropertySyncFailure(layerId, prop, 'layout', 'set', e);
+      }
+      continue;
+    }
+
+    const desired = layout[prop];
+    if (currentKnown && !paintValueChanged(current, desired)) continue;
+    try {
+      map.setLayoutProperty(layerId, prop, desired);
+    } catch (e) {
+      debugPropertySyncFailure(layerId, prop, 'layout', 'set', e);
+    }
+  }
 }
 
 /** Sync paint properties for a vector layer, skipping custom and cross-geometry props. */

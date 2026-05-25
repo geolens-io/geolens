@@ -3,24 +3,24 @@ gsd_state_version: 1.0
 milestone: v1026
 milestone_name: Mapbuilder Style Reconciler
 status: active
-last_updated: "2026-05-25T13:20:00.000Z"
+last_updated: "2026-05-25T13:28:00.000Z"
 last_activity: 2026-05-25
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 1
-  percent: 17
+  completed_plans: 2
+  percent: 33
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1113 Shared Style Reconciler
-Plan: 1113-01
-Status: Phase 1112 complete; ready to implement shared reconciler
-Last activity: 2026-05-25 — Phase 1112 style contract and baseline audit completed
+Phase: 1114 Adapter Migration
+Plan: 1114-01
+Status: Phase 1113 complete; ready to migrate adapters to owned-property reconciliation
+Last activity: 2026-05-25 — Phase 1113 shared style reconciler completed
 
 ## Project Reference
 
@@ -60,6 +60,7 @@ See: .planning/PROJECT.md
 | Phase | Status | Evidence |
 |-------|--------|----------|
 | 1112 Style Contract and Baseline Audit | Complete | `.planning/phases/1112-style-contract-and-baseline-audit/1112-STYLE-CONTRACT.md` and `1112-REGRESSION-MATRIX.md` |
+| 1113 Shared Style Reconciler | Complete | `frontend/src/components/builder/layer-adapters/shared.ts` + `shared.test.ts`; focused Vitest 19/19 passed |
 
 ## Quick Tasks Completed
 
@@ -109,4 +110,4 @@ Resume file: .planning/ROADMAP.md
 
 ## Operator Next Steps
 
-- Run Phase 1113 Shared Style Reconciler implementation and focused unit tests.
+- Run Phase 1114 Adapter Migration and focused adapter tests.
