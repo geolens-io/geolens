@@ -380,6 +380,93 @@ describe('BuilderMap basemap connection toast (SF-08)', () => {
   });
 });
 
+describe('BuilderMap layer auto-fit behavior', () => {
+  const originalFetch = globalThis.fetch;
+  const bounds = [-75.15, 40.63, -74.14, 41.14] as const;
+  const validStyle = {
+    version: 8,
+    sources: {},
+    layers: [],
+  };
+
+  function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse {
+    return {
+      id: 'layer-1',
+      dataset_id: 'ds-1',
+      dataset_name: 'Dataset',
+      dataset_geometry_type: 'Polygon',
+      dataset_table_name: 'dataset',
+      dataset_extent_bbox: [...bounds],
+      dataset_column_info: null,
+      dataset_feature_count: null,
+      dataset_sample_values: null,
+      display_name: 'Dataset',
+      sort_order: 0,
+      visible: true,
+      opacity: 1,
+      paint: {},
+      layout: {},
+      layer_type: 'vector_geolens',
+      dataset_record_type: 'vector_dataset',
+      filter: null,
+      label_config: null,
+      popup_config: null,
+      style_config: null,
+      show_in_legend: true,
+      is_3d: null,
+      is_dem: false,
+      dem_vertical_units: null,
+      ...overrides,
+    } as MapLayerResponse;
+  }
+
+  beforeEach(() => {
+    mapState.reset();
+    tileTokenState.tokens = [];
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(validStyle),
+      } as Response),
+    ) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('does not refit the map when a duplicate layer keeps the visible bounds unchanged', async () => {
+    const originalLayer = makeLayer();
+    const { rerender } = render(
+      <BuilderMap
+        layers={[originalLayer]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: -74.6, center_lat: 40.9, zoom: 9 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+    mapState.fakeMap.fitBounds.mockClear();
+
+    rerender(
+      <BuilderMap
+        layers={[
+          originalLayer,
+          makeLayer({ id: 'layer-duplicate', display_name: 'Dataset rendering', sort_order: 1 }),
+        ]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: -74.6, center_lat: 40.9, zoom: 9 }}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mapState.fakeMap.fitBounds).not.toHaveBeenCalled();
+  });
+});
+
 describe('BuilderMap terrain activation', () => {
   const originalFetch = globalThis.fetch;
 

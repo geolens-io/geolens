@@ -79,6 +79,43 @@ interface BuilderMapProps {
   onFeatureSelect?: (feature: FeatureInfo | null) => void;
 }
 
+type VisibleLayerBounds = [[number, number], [number, number]];
+
+function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let hasBounds = false;
+
+  for (const layer of layers) {
+    const bbox = layer.visible ? layer.dataset_extent_bbox : null;
+    if (
+      !Array.isArray(bbox) ||
+      bbox.length !== 4 ||
+      bbox.some((value) => !Number.isFinite(value)) ||
+      bbox[0] > bbox[2] ||
+      bbox[1] > bbox[3]
+    ) {
+      continue;
+    }
+
+    hasBounds = true;
+    if (bbox[0] < minX) minX = bbox[0];
+    if (bbox[1] < minY) minY = bbox[1];
+    if (bbox[2] > maxX) maxX = bbox[2];
+    if (bbox[3] > maxY) maxY = bbox[3];
+  }
+
+  return hasBounds ? [[minX, minY], [maxX, maxY]] : null;
+}
+
+function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string {
+  return bounds
+    ? `${bounds[0][0]},${bounds[0][1]},${bounds[1][0]},${bounds[1][1]}`
+    : '';
+}
+
 export function shouldSuppressBuilderMapError(error: { message?: string; status?: number } | null | undefined) {
   if (error?.status) return false;
   const message = String(error?.message ?? '').toLowerCase();
@@ -934,6 +971,7 @@ export const BuilderMap = memo(function BuilderMap({
   const hasSavedView = !!(initialViewState?.center_lng != null && initialViewState?.center_lat != null);
   const initialFitDoneRef = useRef(false);
   const prevLayerCountRef = useRef(layers.length);
+  const prevVisibleBoundsKeyRef = useRef(visibleLayerBoundsKey(getVisibleLayerBounds(layers)));
 
   // Auto-fit to visible layers (skip on initial load if saved view exists)
   useEffect(() => {
@@ -942,6 +980,10 @@ export const BuilderMap = memo(function BuilderMap({
 
     const layerCountChanged = layers.length !== prevLayerCountRef.current;
     prevLayerCountRef.current = layers.length;
+    const visibleBounds = getVisibleLayerBounds(layers);
+    const visibleBoundsKey = visibleLayerBoundsKey(visibleBounds);
+    const visibleBoundsChanged = visibleBoundsKey !== prevVisibleBoundsKeyRef.current;
+    prevVisibleBoundsKeyRef.current = visibleBoundsKey;
 
     // First auto-fit trigger: skip if we have a saved view to restore
     if (!initialFitDoneRef.current) {
@@ -949,30 +991,14 @@ export const BuilderMap = memo(function BuilderMap({
       if (hasSavedView) return; // MapGL already positioned via initialViewState
     }
 
-    // Only fit when layer count actually changed (add/remove/toggle)
+    // Only fit when the visible extent genuinely changed. Duplicate renderings
+    // add a layer row but keep the same dataset bounds, so they must not move
+    // the user's current map view.
     if (!layerCountChanged) return;
-
-    const visibleLayers = layers.filter((l): l is MapLayerResponse & { dataset_extent_bbox: number[] } => l.visible && !!l.dataset_extent_bbox);
-    if (visibleLayers.length === 0) return;
-
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-
-    for (const l of visibleLayers) {
-      const bbox = l.dataset_extent_bbox;
-      if (bbox[0] < minX) minX = bbox[0];
-      if (bbox[1] < minY) minY = bbox[1];
-      if (bbox[2] > maxX) maxX = bbox[2];
-      if (bbox[3] > maxY) maxY = bbox[3];
-    }
+    if (!visibleBounds || !visibleBoundsChanged) return;
 
     map.fitBounds(
-      [
-        [minX, minY],
-        [maxX, maxY],
-      ],
+      visibleBounds,
       { padding: 40, maxZoom: 18, duration: 0 },
     );
 
@@ -981,10 +1007,10 @@ export const BuilderMap = memo(function BuilderMap({
       map.setZoom(2);
     }
   // Phase 1051 IN-01 (iter-2): no longer reads popupInvalidationKey — the
-  // effect short-circuits on `!layerCountChanged`, so it only needs
-  // `layers.length` to detect add/remove. Including the full invalidation
-  // key here previously caused harmless but misleading extra effect runs
-  // on heatmap-ramp / height-column edits.
+  // effect short-circuits on unchanged layer count and unchanged visible
+  // bounds, so it only needs `layers.length` to detect add/remove. Including
+  // the full invalidation key here previously caused harmless but misleading
+  // extra effect runs on heatmap-ramp / height-column edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hasSavedView/layers read from refs, not reactive deps
   }, [layers.length, mapReady]);
 

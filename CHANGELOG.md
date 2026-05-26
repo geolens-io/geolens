@@ -31,6 +31,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 - Map builder style mutations now reconcile adapter-owned paint/layout keys instead of replaying additive patches, so stale properties are removed across manual controls, render-mode swaps, labels, companion layers, AI chat style actions, save/reload, and viewer/embed rendering.
 - Map builder point symbol rendering is now labeled as Symbols, and feature label controls are available for all label-capable vector layers instead of being tied to symbol render mode.
 - Layer folder groups now save and reload as child-layer builder metadata instead of sending virtual `group:folder` rows to the map API, and keyboard row reordering now moves the actual persisted layer order.
+- Duplicating a layer no longer refits the map when the visible data bounds are unchanged, preserving the user's current viewport while adding the sibling rendering.
 - AI chat style actions now support explicit patch, clear, and replace semantics for `set_style`, keeping generated API types, backend validation, undo/history, and builder style state aligned.
 - Builder AI action handling now clamps opacity actions and ignores malformed streamed action payloads instead of applying invalid layer mutations.
 - Builder AI suggestion chips now deduplicate repeated prompts for duplicated or repeated-name layers, avoiding React duplicate-key errors in large stacks.
