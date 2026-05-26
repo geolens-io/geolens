@@ -14,6 +14,11 @@ type AnyTFunction = (key: string, options?: Record<string, unknown>) => string;
 
 export function getSmartSuggestions(layers: MapLayerResponse[], t: AnyTFunction): string[] {
   const suggestions: string[] = [];
+  const pushSuggestion = (suggestion: string) => {
+    if (suggestions.length < 4 && !suggestions.includes(suggestion)) {
+      suggestions.push(suggestion);
+    }
+  };
 
   for (const layer of layers) {
     if (suggestions.length >= 4) break;
@@ -22,24 +27,21 @@ export function getSmartSuggestions(layers: MapLayerResponse[], t: AnyTFunction)
     const geom = (layer.dataset_geometry_type ?? '').toLowerCase();
 
     if (geom.includes('point')) {
-      if (suggestions.length < 4)
-        suggestions.push(t('chat.suggestions.colorByAttribute', { name: mention }));
+      pushSuggestion(t('chat.suggestions.colorByAttribute', { name: mention }));
     } else if (geom.includes('polygon') || geom.includes('multipolygon')) {
-      if (!layer.style_config && suggestions.length < 4)
-        suggestions.push(t('chat.suggestions.colorByAttribute', { name: mention }));
-      if (suggestions.length < 4)
-        suggestions.push(t('chat.suggestions.areaLabels', { name: mention }));
+      if (!layer.style_config) {
+        pushSuggestion(t('chat.suggestions.colorByAttribute', { name: mention }));
+      }
+      pushSuggestion(t('chat.suggestions.areaLabels', { name: mention }));
     } else if (geom.includes('line')) {
-      if (suggestions.length < 4)
-        suggestions.push(t('chat.suggestions.colorByAttribute', { name: mention }));
+      pushSuggestion(t('chat.suggestions.colorByAttribute', { name: mention }));
     } else if (layer.layer_type === 'raster_geolens' || !geom) {
-      if (suggestions.length < 4)
-        suggestions.push(t('chat.suggestions.adjustOpacity', { name: mention }));
+      pushSuggestion(t('chat.suggestions.adjustOpacity', { name: mention }));
     }
   }
 
   if (suggestions.length < 4) {
-    suggestions.push(t('chat.suggestions.addDataset'));
+    pushSuggestion(t('chat.suggestions.addDataset'));
   }
 
   return suggestions.slice(0, 4);

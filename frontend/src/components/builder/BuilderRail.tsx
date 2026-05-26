@@ -55,20 +55,23 @@ export function BuilderRail({
       icon: FileText,
       label: t('dock.notes', { defaultValue: 'Notes' }),
       disabled: false,
+      unavailable: false,
     },
     {
       id: 'history' as const,
       icon: History,
       label: t('dock.history', { defaultValue: 'History' }),
       disabled: false,
+      unavailable: false,
     },
     {
       id: 'ai' as const,
       icon: Sparkles,
       label: aiAvailable
         ? t('dock.askAi', { defaultValue: 'Ask AI' })
-        : t('rail.aiDisabled', { defaultValue: 'AI disabled by admin' }),
-      disabled: !aiAvailable,
+        : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' }),
+      disabled: false,
+      unavailable: !aiAvailable,
     },
   ], [aiAvailable, t]);
 
@@ -82,9 +85,10 @@ export function BuilderRail({
               key={btn.id}
               onClick={btn.disabled ? undefined : () => togglePanel(btn.id)}
               disabled={btn.disabled}
+              data-unavailable={btn.unavailable || undefined}
               title={btn.label}
               aria-label={btn.label}
-              aria-pressed={!btn.disabled && activePanel === btn.id}
+              aria-pressed={activePanel === btn.id}
               className={cn(
                 'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
                 btn.disabled
@@ -104,7 +108,7 @@ export function BuilderRail({
       {activePanel && (
         <aside
           className={cn(
-            'bg-background border-s flex flex-col shrink-0 overflow-hidden',
+            'bg-background border-s flex h-full min-h-0 flex-col shrink-0 overflow-hidden',
             showRail ? 'w-80' : 'w-full border-s-0',
           )}
         >
@@ -114,9 +118,11 @@ export function BuilderRail({
               <span className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
                 {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
-                {activePanel === 'ai' && t('dock.askAi', { defaultValue: 'Ask AI' })}
+                {activePanel === 'ai' && (aiAvailable
+                  ? t('dock.askAi', { defaultValue: 'Ask AI' })
+                  : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' }))}
               </span>
-              {activePanel === 'ai' && (
+              {activePanel === 'ai' && aiAvailable && (
                 <Badge variant="outline" className={`text-2xs px-1.5 py-0 ${experimentalBadgeColor}`}>
                   {t('chat.experimental', { defaultValue: 'Experimental' })}
                 </Badge>
@@ -133,11 +139,11 @@ export function BuilderRail({
           </div>
 
           {/* Panel body */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {activePanel === 'notes' && (
-              <div className="p-3 h-full">
+              <div className="flex h-full min-h-0 p-3">
                 <textarea
-                  className="w-full h-full resize-none rounded-md border border-input bg-transparent p-3 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="min-h-[18rem] w-full flex-1 resize-none rounded-md border border-input bg-transparent p-3 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   placeholder={t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map\u2026' })}
                   value={notes}
                   onChange={(e) => {
@@ -152,7 +158,20 @@ export function BuilderRail({
               <HistoryPanel mapId={mapId} />
             )}
 
-            {activePanel === 'ai' && mapId && layers && layerActions && (
+            {activePanel === 'ai' && !aiAvailable && (
+              <div className="flex h-full flex-col justify-center gap-2 p-4 text-sm" role="status" aria-live="polite">
+                <p className="font-medium text-foreground">
+                  {t('rail.aiUnavailableTitle', { defaultValue: 'AI is unavailable' })}
+                </p>
+                <p className="text-muted-foreground">
+                  {t('rail.aiUnavailableDescription', {
+                    defaultValue: 'An administrator needs to enable an AI provider before Ask AI can be used in this builder.',
+                  })}
+                </p>
+              </div>
+            )}
+
+            {activePanel === 'ai' && aiAvailable && mapId && layers && layerActions && (
               <LazyLoadErrorBoundary>
                 <Suspense fallback={
                   <div className="flex-1 flex items-center justify-center p-4">

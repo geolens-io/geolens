@@ -204,7 +204,7 @@
     "maxZoom": "Max. Zoom",
     "renderAs": "Darstellung",
     "renderPoints": "Punkte",
-    "renderSymbol": "Beschriftungen",
+    "renderSymbol": "Symbole",
     "renderHeatmap": "Heatmap",
     "renderCluster": "Cluster",
     "none": "Keine",
@@ -534,8 +534,8 @@
     "sourcePlaceholder": "DEM auswählen",
     "exaggeration": "Überhöhung",
     "noDem": "Einen DEM-Raster-Layer hinzufügen, um Terrain zu aktivieren.",
-    "unitsUnknown": "Vertikale Einheiten nicht verfügbar; Überhöhung ist näherungsweise.",
-    "unitsNonMeter": "Vertikale Einheiten sind {{unit}}, nicht Meter; Überhöhung ist näherungsweise."
+    "unitsUnknown": "Vertikale Einheiten nicht verfügbar; die Terrainskalierung ist näherungsweise.",
+    "unitsNonMeter": "Vertikale Einheiten sind {{unit}}, nicht Meter; die Terrainskalierung ist näherungsweise."
   },
   "featurePopup": {
     "noAttributes": "Keine Attribute",
@@ -825,7 +825,10 @@
     "listboxLabel": "Karten-Layer"
   },
   "rail": {
-    "aiDisabled": "KI durch Administrator deaktiviert"
+    "aiDisabled": "KI durch Administrator deaktiviert",
+    "aiUnavailable": "KI nicht verfügbar",
+    "aiUnavailableTitle": "KI ist nicht verfügbar",
+    "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann."
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -883,13 +886,13 @@
     "renderAsTerrain": "◬ Terrain",
     "sunPositionLabel": "SONNENPOSITION",
     "azimuth": "Azimut",
-    "altitude": "Höhe",
     "exaggeration": "Überhöhung",
     "shadingColorsLabel": "SCHATTENFARBEN",
     "highlight": "Glanzlicht",
     "shadow": "Schatten",
     "accent": "Akzent",
-    "terrainHint": "Terrain verwendet Höhendaten, um die Kartenoberfläche zu extrudieren. Terrain-Überhöhung unter Einstellungen → Terrain anpassen.",
+    "terrainHint": "Terrain verwendet Höhendaten, um die Kartenoberfläche zu extrudieren.",
+    "terrainExaggeration": "Terrain-Überhöhung",
     "imageHint": "Keine weiteren Darstellungssteuerungen für den Bildmodus",
     "compassAriaLabel": "Sonnenazimut: {{azimuth}}°"
   },
@@ -958,12 +961,10 @@
     "terrainLabel": "TERRAIN",
     "widgetsLabel": "WIDGETS",
     "projectionLabel": "PROJEKTION",
-    "terrainActiveHint": "{{value}}× Überhöhung",
+    "terrainActiveHint": "Terrain aktiv",
     "terrainInactiveCollapsedHint": "Kein aktives Terrain",
-    "exaggeration": "Überhöhung",
-    "terrainExaggerationAria": "Terrain-Überhöhung",
     "boundTo": "Gebunden an: {{name}}",
-    "terrainInactiveHint": "Kein Terrain-Layer ist aktiv. Einen DEM-Layer in den Terrain-Modus wechseln, um die globale Terrain-Überhöhung zu aktivieren.",
+    "terrainInactiveHint": "Kein Terrain-Layer ist aktiv.",
     "widgetsEnabledCount": "{{count}} aktiviert",
     "noWidgets": "Keine Widgets verfügbar.",
     "widgetsGroupAria": "Widgets",

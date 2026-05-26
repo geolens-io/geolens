@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
-const DEMO_MAP_NAMES = [
+const SHOWCASE_MAP_NAMES = [
   'Grand Canyon: Land in 3D',
   'NYC Zoning: Manhattan in 3D',
   'Density Bars: Los Angeles',
@@ -8,7 +8,7 @@ const DEMO_MAP_NAMES = [
   'Western US Wildfires 2020-2024',
 ];
 
-const OPTIONAL_DEMO_MAPS: string[] = [];
+const OPTIONAL_SHOWCASE_MAPS: string[] = [];
 
 const CONSOLE_NOISE_PATTERNS = [
   /ResizeObserver loop/i,
@@ -19,13 +19,13 @@ const CONSOLE_NOISE_PATTERNS = [
   /React DevTools/i,
 ];
 
-const isDemoSeeded = process.env.E2E_DEMO_SEEDED === '1';
+const isShowcaseSeeded = process.env.E2E_SHOWCASE_SEEDED === '1';
 const isConsoleNoise = (text: string) =>
   CONSOLE_NOISE_PATTERNS.some((re) => re.test(text));
 
 type PlaywrightTest = typeof import('@playwright/test').test;
 
-async function discoverDemoMapIds(request: APIRequestContext): Promise<Record<string, string>> {
+async function discoverShowcaseMapIds(request: APIRequestContext): Promise<Record<string, string>> {
   const resp = await request.get('/api/maps/?limit=100');
   expect(
     resp.ok(),
@@ -43,14 +43,14 @@ async function discoverDemoMapIds(request: APIRequestContext): Promise<Record<st
 
   expect(
     Object.keys(mapIdByName).length,
-    `No demo maps parsed from /api/maps/ (HTTP ${resp.status()}, ${items.length} items in body). ` +
-      'Either the seeder has not run OR the response shape has changed (expected items[] with {id,name}).',
+    `No showcase maps parsed from /api/maps/ (HTTP ${resp.status()}, ${items.length} items in body). ` +
+      'Either sample data has not been seeded OR the response shape has changed (expected items[] with {id,name}).',
   ).toBeGreaterThan(0);
 
   return mapIdByName;
 }
 
-async function expectDemoMapRenders(page: Page, name: string, id: string) {
+async function expectShowcaseMapRenders(page: Page, name: string, id: string) {
   const consoleErrors: string[] = [];
   const failedRequests: Array<{ url: string; status: number }> = [];
 
@@ -105,33 +105,33 @@ async function expectDemoMapRenders(page: Page, name: string, id: string) {
   ).toEqual([]);
 }
 
-export function registerDemoSmokeSuite(test: PlaywrightTest, title: string) {
+export function registerShowcaseSmokeSuite(test: PlaywrightTest, title: string) {
   const mapIdByName: Record<string, string> = {};
 
   test.describe(title, () => {
     test.skip(
-      !isDemoSeeded,
-      'Demo data not seeded — set E2E_DEMO_SEEDED=1 to enable',
+      !isShowcaseSeeded,
+      'Showcase sample data not seeded — set E2E_SHOWCASE_SEEDED=1 to enable',
     );
 
     test.beforeAll(async ({ request }) => {
-      Object.assign(mapIdByName, await discoverDemoMapIds(request));
+      Object.assign(mapIdByName, await discoverShowcaseMapIds(request));
     });
 
-    for (const name of DEMO_MAP_NAMES) {
+    for (const name of SHOWCASE_MAP_NAMES) {
       test(`required map renders: ${name}`, async ({ page }) => {
         const id = mapIdByName[name];
         expect(
           id,
-          `Map "${name}" not found in /api/maps/ — seeder may have failed`,
+          `Map "${name}" not found in /api/maps/ — sample-data seeding may have failed`,
         ).toBeTruthy();
         if (!id) throw new Error(`unreachable: id for ${name} is undefined`);
 
-        await expectDemoMapRenders(page, name, id);
+        await expectShowcaseMapRenders(page, name, id);
       });
     }
 
-    for (const name of OPTIONAL_DEMO_MAPS) {
+    for (const name of OPTIONAL_SHOWCASE_MAPS) {
       test(`optional map renders: ${name}`, async ({ page }) => {
         const id = mapIdByName[name];
         test.skip(

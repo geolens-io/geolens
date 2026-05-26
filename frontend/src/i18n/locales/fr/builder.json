@@ -204,7 +204,7 @@
     "maxZoom": "Zoom max",
     "renderAs": "Afficher comme",
     "renderPoints": "Points",
-    "renderSymbol": "Étiquettes",
+    "renderSymbol": "Symboles",
     "renderHeatmap": "Carte de chaleur",
     "renderCluster": "Agrégat",
     "none": "Aucun",
@@ -534,8 +534,8 @@
     "sourcePlaceholder": "Sélectionner DEM",
     "exaggeration": "Exagération",
     "noDem": "Ajoutez une couche raster DEM pour activer le terrain.",
-    "unitsUnknown": "Les unités verticales sont indisponibles ; l'exagération est approximative.",
-    "unitsNonMeter": "Les unités verticales sont {{unit}}, pas des mètres ; l'exagération est approximative."
+    "unitsUnknown": "Les unités verticales sont indisponibles ; l'échelle du terrain est approximative.",
+    "unitsNonMeter": "Les unités verticales sont {{unit}}, pas des mètres ; l'échelle du terrain est approximative."
   },
   "featurePopup": {
     "noAttributes": "Aucun attribut",
@@ -825,7 +825,10 @@
     "listboxLabel": "Couches de la carte"
   },
   "rail": {
-    "aiDisabled": "IA désactivée par l'administrateur"
+    "aiDisabled": "IA désactivée par l'administrateur",
+    "aiUnavailable": "IA indisponible",
+    "aiUnavailableTitle": "L'IA est indisponible",
+    "aiUnavailableDescription": "Un administrateur doit activer un fournisseur d'IA avant d'utiliser Demander à l'IA dans ce builder."
   },
   "stackRow": {
     "dragHandle": "Glisser pour réorganiser {{name}}",
@@ -883,13 +886,13 @@
     "renderAsTerrain": "◬ Terrain",
     "sunPositionLabel": "POSITION DU SOLEIL",
     "azimuth": "Azimut",
-    "altitude": "Altitude",
     "exaggeration": "Exagération",
     "shadingColorsLabel": "COULEURS D'OMBRAGE",
     "highlight": "Lumière",
     "shadow": "Ombre",
     "accent": "Accentuation",
-    "terrainHint": "Le terrain utilise des données d'élévation pour extruder la surface de la carte. Ajustez l'exagération du terrain dans Paramètres → Terrain.",
+    "terrainHint": "Le terrain utilise des données d'élévation pour extruder la surface de la carte.",
+    "terrainExaggeration": "Exagération du terrain",
     "imageHint": "Aucun contrôle d'apparence supplémentaire pour le mode image",
     "compassAriaLabel": "Azimut solaire : {{azimuth}}°"
   },
@@ -958,12 +961,10 @@
     "terrainLabel": "TERRAIN",
     "widgetsLabel": "WIDGETS",
     "projectionLabel": "PROJECTION",
-    "terrainActiveHint": "{{value}}× d'exagération",
+    "terrainActiveHint": "Terrain actif",
     "terrainInactiveCollapsedHint": "Aucun terrain actif",
-    "exaggeration": "Exagération",
-    "terrainExaggerationAria": "Exagération du terrain",
     "boundTo": "Lié à : {{name}}",
-    "terrainInactiveHint": "Aucune couche de terrain n'est active. Basculez une couche DEM en mode Terrain pour activer l'exagération globale du terrain.",
+    "terrainInactiveHint": "Aucune couche de terrain n'est active.",
     "widgetsEnabledCount": "{{count}} activés",
     "noWidgets": "Aucun widget disponible.",
     "widgetsGroupAria": "Widgets",

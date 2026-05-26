@@ -125,7 +125,7 @@ describe('TerrainControls', () => {
     });
   });
 
-  it('filters source options to DEM rasters and writes source/exaggeration changes', () => {
+  it('filters source options to DEM rasters and writes source changes', () => {
     const onChange = vi.fn();
     render(
       <TerrainControls
@@ -139,23 +139,15 @@ describe('TerrainControls', () => {
       />,
     );
 
-    expect(screen.getByText('Surface exaggeration')).toBeInTheDocument();
-    expect(screen.getAllByText('2x').length).toBeGreaterThan(0);
     expect(screen.getByText('2 visible DEM layers')).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Roads' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Exaggeration' })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'DEM source' }), { target: { value: 'dem-2' } });
     expect(onChange).toHaveBeenCalledWith({
       enabled: true,
       source_dataset_id: 'dem-2',
       exaggeration: 2,
-    });
-
-    fireEvent.change(screen.getByRole('slider', { name: 'Exaggeration' }), { target: { value: '3.5' } });
-    expect(onChange).toHaveBeenCalledWith({
-      enabled: true,
-      source_dataset_id: 'dem-1',
-      exaggeration: 3,
     });
   });
 
@@ -168,7 +160,7 @@ describe('TerrainControls', () => {
       />,
     );
 
-    expect(screen.getByText('Vertical units are unavailable; exaggeration is approximate.')).toBeInTheDocument();
+    expect(screen.getByText('Vertical units are unavailable; terrain scale is approximate.')).toBeInTheDocument();
 
     rerender(
       <TerrainControls
@@ -177,7 +169,7 @@ describe('TerrainControls', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText('Vertical units are feet, not meters; exaggeration is approximate.')).toBeInTheDocument();
+    expect(screen.getByText('Vertical units are feet, not meters; terrain scale is approximate.')).toBeInTheDocument();
 
     rerender(
       <TerrainControls
@@ -186,6 +178,6 @@ describe('TerrainControls', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.queryByText(/exaggeration is approximate/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/terrain scale is approximate/i)).not.toBeInTheDocument();
   });
 });

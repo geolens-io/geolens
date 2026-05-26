@@ -85,12 +85,16 @@ function makeMapRef(overrides: Partial<{
   isStyleLoaded: () => boolean;
   setLayoutProperty: ReturnType<typeof vi.fn>;
   setPaintProperty: ReturnType<typeof vi.fn>;
+  getPaintProperty: ReturnType<typeof vi.fn>;
+  getLayoutProperty: ReturnType<typeof vi.fn>;
   getLayer: ReturnType<typeof vi.fn>;
 }> = {}) {
   const mapInstance = {
     isStyleLoaded: overrides.isStyleLoaded ?? (() => false),
     setLayoutProperty: overrides.setLayoutProperty ?? vi.fn(),
     setPaintProperty: overrides.setPaintProperty ?? vi.fn(),
+    getPaintProperty: overrides.getPaintProperty ?? vi.fn(),
+    getLayoutProperty: overrides.getLayoutProperty ?? vi.fn(),
     getLayer: overrides.getLayer ?? vi.fn().mockReturnValue(null),
   };
   return { current: mapInstance } as React.RefObject<typeof mapInstance>;
@@ -280,6 +284,43 @@ describe('useBuilderLayers — handleBulkOpacity (POL-09)', () => {
       expect.any(String),
       0.7,
     );
+  });
+
+  it('routes DEM hillshade bulk opacity through hillshade color paint, not raster-opacity', async () => {
+    const setPaintProperty = vi.fn();
+    const getLayer = vi.fn().mockReturnValue({ id: 'mock-layer', type: 'hillshade' });
+    const getPaintProperty = vi.fn().mockReturnValue(undefined);
+    const getLayoutProperty = vi.fn().mockReturnValue('visible');
+    const mapRef = makeMapRef({
+      isStyleLoaded: () => true,
+      setPaintProperty,
+      getLayer,
+      getPaintProperty,
+      getLayoutProperty,
+    });
+    const layer = makeMockLayer({
+      id: 'dem',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+      paint: {
+        'hillshade-shadow-color': '#1f2937',
+        'hillshade-highlight-color': '#ffffff',
+        'hillshade-accent-color': '#64748b',
+      },
+      sort_order: 0,
+    });
+    const { result } = renderBuilderLayers(makeMapData([layer]), mapRef);
+    await waitForInit();
+
+    act(() => {
+      result.current.handleBulkOpacity(new Set(['dem']), 0.5);
+    });
+
+    expect(setPaintProperty).toHaveBeenCalledWith('layer-dem', 'hillshade-shadow-color', 'rgba(31, 41, 55, 0.5)');
+    expect(setPaintProperty).not.toHaveBeenCalledWith('layer-dem', 'raster-opacity', expect.anything());
   });
 });
 

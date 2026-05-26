@@ -84,6 +84,16 @@ describe('getSmartSuggestions', () => {
     expect(result.some((s) => s.includes('@[My Layer]'))).toBe(true);
   });
 
+  it('deduplicates repeated suggestions for duplicated layers', () => {
+    const layers = [
+      makeLayer({ id: 'l1', dataset_name: 'Duplicate Name', dataset_geometry_type: 'Point' }),
+      makeLayer({ id: 'l2', dataset_name: 'Duplicate Name', dataset_geometry_type: 'Point' }),
+    ];
+    const result = getSmartSuggestions(layers, mockT as never);
+
+    expect(result).toHaveLength(new Set(result).size);
+  });
+
   it('skips heatmap for already-styled point layers', () => {
     const layer = makeLayer({
       dataset_geometry_type: 'Point',

@@ -127,7 +127,7 @@ export const BuilderMap = memo(function BuilderMap({
   const [basemapNotice, setBasemapNotice] = useState<'style' | 'tiles' | null>(null);
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
   // container. Mirrors the ViewerMap hook from 6a5f0181 so the Playwright
-  // demo-smoke spec can poll a deterministic signal regardless of whether
+  // showcase-smoke spec can poll a deterministic signal regardless of whether
   // /maps/:id resolved to BuilderMap (authenticated editor) or ViewerMap
   // (anonymous viewer) via MapViewerGate.
   const [tilesIdle, setTilesIdle] = useState(false);
@@ -350,7 +350,9 @@ export const BuilderMap = memo(function BuilderMap({
     }
 
     const demLayer = currentLayers.find(
-      (layer) => layer.dataset_id === currentTerrainConfig.source_dataset_id && isTerrainCapableDemLayer(layer),
+      (layer) => layer.dataset_id === currentTerrainConfig.source_dataset_id
+        && isTerrainCapableDemLayer(layer)
+        && (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
     );
     const token = demLayer ? currentTokenMap.get(demLayer.dataset_id) : null;
     if (!demLayer || token?.kind !== 'raster') {
@@ -368,10 +370,14 @@ export const BuilderMap = memo(function BuilderMap({
       source: TERRAIN_SOURCE_ID,
       exaggeration: normalizeTerrainExaggeration(currentTerrainConfig.exaggeration),
     });
+    map.triggerRepaint();
   }, []);
 
   const terrainLayerKey = layers
-    .map((layer) => `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}`)
+    .map((layer) => {
+      const renderMode = (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode;
+      return `${layer.dataset_id}:${String(layer.is_dem)}:${layer.dataset_record_type ?? ''}:${String(renderMode ?? '')}`;
+    })
     .join(',');
 
   // Keep a ref to the latest sync inputs so style.load handler can access them
@@ -409,7 +415,7 @@ export const BuilderMap = memo(function BuilderMap({
 
       // `idle` fires when no tiles are loading, no transitions are in
       // progress, and no animations are running. Flip the outer container's
-      // data-tiles-loaded attribute on first idle so the demo-smoke spec can
+      // data-tiles-loaded attribute on first idle so the showcase-smoke spec can
       // replace its 2 s arbitrary wait with a deterministic signal. Matches
       // the ViewerMap hook from 6a5f0181.
       map.once('idle', () => setTilesIdle(true));

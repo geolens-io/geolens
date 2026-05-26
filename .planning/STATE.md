@@ -1,16 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v1027
-milestone_name: Map Builder Architecture Simplification
+milestone: v1028
+milestone_name: Map Builder Product Polish
 status: complete
-stopped_at: v1027 complete
-last_updated: "2026-05-25T16:31:30Z"
-last_activity: 2026-05-25 -- v1027 complete
+last_updated: "2026-05-26T00:03:04Z"
+last_activity: 2026-05-25 -- ERROR-FU-01 complete
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 5
+  completed_plans: 5
   percent: 100
 ---
 
@@ -18,55 +17,53 @@ progress:
 
 ## Current Position
 
-Phase: v1027 complete
-Plan: All planned phases complete
-Status: Milestone complete
-Last activity: 2026-05-25 -- v1027 complete
+Phase: v1028 complete
+Plan: Complete
+Status: Milestone v1028 complete; post-v1028 React error reporting follow-up closed
+Last activity: 2026-05-25 — ERROR-FU-01 complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1027 Map Builder Architecture Simplification — reduce map-builder orchestration complexity while preserving style reconciliation, AI action behavior, basemap/background settings, save/reload, viewer/embed parity, and target-map UAT behavior.
+**Current focus:** v1028 Map Builder Product Polish is complete. Next active work is unset; follow-ups are tracked below.
 
 ## Last Shipped Milestone
 
-**Version:** v1027 Map Builder Architecture Simplification
+**Version:** v1028 Map Builder Product Polish
 **Shipped:** 2026-05-25
-**Phases:** 1118-1123 (6 phases, 6 plans, 29/29 reqs satisfied)
-**Commit:** local `v1027` tag target
-**Tag:** `v1027`
-**Milestone audit:** Completed by focused frontend/backend tests, frontend gates, Playwright MCP target-map smoke, destructive throwaway-copy UAT, and GSD open-item scan
-**Archived phases:** v1027 local archive copies exist under ignored `.planning/milestones/`; backlog `999.*` phase directories remain.
+**Phases:** 1124-1128 (5 phases, 5 plans, 25/25 reqs satisfied)
+**Commit:** not tagged in this session
+**Tag:** not tagged in this session
+**Milestone audit:** `.planning/milestones/v1028-MILESTONE-AUDIT.md`
+**Archived phases:** v1028 phase artifacts remain in `.planning/phases/1124-*` through `.planning/phases/1128-*`; backlog `999.*` phase directories remain.
 
-## Phase Plan (v1027)
+## Phase Plan (v1028)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1118 Architecture Baseline and Complexity Budget | Audit ownership, define target boundaries, document regression surfaces, and pin no-regression constraints | ARCH-01..04 | — |
-| 1119 Basemap State Controller | Consolidate basemap/background/terrain/sublayer state and close remove-basemap drift paths | BASEMAP-01..04 | Phase 1118 |
-| 1120 Builder/Viewer Sync Orchestrator | Share source/layer/style/background/terrain sequencing between builder and viewer | SYNC-01..04 | Phase 1119 |
-| 1121 Editor Scene Controller Extraction | Extract scene routing, settings/dialog/selection state, persistence, dirty-state, and save-semantics wiring | SCENE-01..04 | Phase 1120 |
-| 1122 Layer Action Contract and AI Bridge Cleanup | Route manual actions, duplicate/remove flows, undo/history, persistence, and AI chat through typed command semantics | ACTION-01..04 | Phase 1121 |
-| 1123 Test Fixture DRY-Up and Close Gate | DRY builder fixtures, run focused gates, complete Playwright MCP UAT, and update audit guidance | TEST-01..04, VERIFY-01..05 | Phases 1118-1122 |
+| 1124 Builder Workflow and Notes/AI Audit | Sweep builder workflows, Notes, AI, target map, console/network hygiene, and no-demo-instance assumptions with Playwright MCP | AUDIT-01..04 | — |
+| 1125 Builder Workflow Polish | Close high-value layer authoring, save/dirty, undo/history, responsive editor, empty/error-state, and options-menu polish gaps | WORKFLOW-01..04 | Phase 1124 |
+| 1126 Notes and AI Authoring Polish | Harden Builder Notes and AI-assisted authoring flows with persistence, disabled/error states, command semantics, and regression coverage | NOTES-01..04, AI-01..04 | Phase 1125 |
+| 1127 Showcase Map and Capture Polish | Polish the ADK target map and screenshot/capture path in-product while verifying builder/viewer/embed parity | SHOWCASE-01..04 | Phase 1126 |
+| 1128 Quality Sweep and Close Gate | Run focused tests, frontend gates, Playwright MCP close gate, docs/reference cleanup, milestone audit, and lifecycle close | QUALITY-01..05 | Phases 1124-1127 |
 
-**Coverage:** 29/29 v1027 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 25/25 v1028 requirements mapped, 0 orphans, 0 duplicates.
 
 **Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
 
-**HARD INVARIANT:** Refactoring must reduce duplication and clarify ownership without changing existing builder behavior. Manual UI actions, AI chat actions, basemap/background settings, layer options, style reconciliation, undo/history, save/reload, public viewer, embed viewer, and target-map UAT flows must remain functionally equivalent or explicitly improved by a documented bug fix.
+**HARD INVARIANT:** v1028 validates the standard GeoLens app/local stack. Do not introduce, preserve, or plan around a separate demo instance, demo deployment, or demo compose validation path. Manual builder workflows, Notes, AI actions, undo/history, save/reload, public viewer, embed viewer, and target-map UAT flows must remain functionally coherent or explicitly improve via documented bug fixes.
 
 ## Phase Progress
 
 | Phase | Status | Evidence |
 |-------|--------|----------|
-| 1118 Architecture Baseline and Complexity Budget | Complete | `.planning/phases/1118-architecture-baseline-and-complexity-budget/1118-01-SUMMARY.md`; `.planning/phases/1118-architecture-baseline-and-complexity-budget/1118-ARCHITECTURE-BASELINE.md`; `.planning/phases/1118-architecture-baseline-and-complexity-budget/1118-COMPLEXITY-BUDGET.md`; `.planning/phases/1118-architecture-baseline-and-complexity-budget/1118-REGRESSION-SURFACES.md`; `.planning/phases/1118-architecture-baseline-and-complexity-budget/1118-STYLE-CONTRACT-PRESERVATION.md` |
-| 1119 Basemap State Controller | Complete | `.planning/phases/1119-basemap-state-controller/1119-01-SUMMARY.md`; `.planning/phases/1119-basemap-state-controller/1119-VERIFICATION.md` |
-| 1120 Builder/Viewer Sync Orchestrator | Complete | `.planning/phases/1120-builder-viewer-sync-orchestrator/1120-01-SUMMARY.md`; `.planning/phases/1120-builder-viewer-sync-orchestrator/1120-VERIFICATION.md` |
-| 1121 Editor Scene Controller Extraction | Complete | `.planning/phases/1121-editor-scene-controller-extraction/1121-01-SUMMARY.md`; `.planning/phases/1121-editor-scene-controller-extraction/1121-VERIFICATION.md` |
-| 1122 Layer Action Contract and AI Bridge Cleanup | Complete | `.planning/phases/1122-layer-action-contract-and-ai-bridge-cleanup/1122-01-SUMMARY.md`; `.planning/phases/1122-layer-action-contract-and-ai-bridge-cleanup/1122-VERIFICATION.md` |
-| 1123 Test Fixture DRY-Up and Close Gate | Complete | `.planning/phases/1123-test-fixture-dry-up-and-close-gate/1123-01-SUMMARY.md`; `.planning/phases/1123-test-fixture-dry-up-and-close-gate/1123-VERIFICATION.md`; `.planning/milestones/v1027-MILESTONE-AUDIT.md` |
+| 1124 Builder Workflow and Notes/AI Audit | Complete | `.planning/phases/1124-builder-workflow-and-notes-ai-audit/1124-01-SUMMARY.md`; `.planning/phases/1124-builder-workflow-and-notes-ai-audit/BUILDER-WORKFLOW-AUDIT.md`; `.planning/phases/1124-builder-workflow-and-notes-ai-audit/1124-VERIFICATION.md` |
+| 1125 Builder Workflow Polish | Complete | `.planning/phases/1125-builder-workflow-polish/1125-01-SUMMARY.md`; `.planning/phases/1125-builder-workflow-polish/1125-VERIFICATION.md` |
+| 1126 Notes and AI Authoring Polish | Complete | `.planning/phases/1126-notes-and-ai-authoring-polish/1126-01-SUMMARY.md`; `.planning/phases/1126-notes-and-ai-authoring-polish/1126-VERIFICATION.md` |
+| 1127 Showcase Map and Capture Polish | Complete | `.planning/phases/1127-showcase-map-and-capture-polish/1127-01-SUMMARY.md`; `.planning/phases/1127-showcase-map-and-capture-polish/1127-VERIFICATION.md` |
+| 1128 Quality Sweep and Close Gate | Complete | `.planning/phases/1128-quality-sweep-and-close-gate/1128-01-SUMMARY.md`; `.planning/phases/1128-quality-sweep-and-close-gate/1128-VERIFICATION.md`; `.planning/milestones/v1028-MILESTONE-AUDIT.md` |
 
 ## Quick Tasks Completed
 
@@ -78,6 +75,22 @@ See: .planning/PROJECT.md
 
 ### Decisions
 
+- **2026-05-25 (v1028 start):** Scope Map Builder Product Polish as a combined workflow, showcase-map, Notes, AI, and quality-sweep milestone. The user explicitly selected all three explored shapes: workflow polish, showcase-map polish, and quality sweep.
+- **2026-05-25 (v1028 start):** There is no separate demo instance, demo deployment, or demo compose validation path to maintain or consider. v1028 validates the standard GeoLens app/local stack and the in-product ADK target map.
+- **2026-05-25 (v1028 start):** Builder Notes and AI are explicit product workflows for this milestone. They must be exercised with Playwright MCP, fixed where practical, and documented with reproduction steps if deferred.
+- **2026-05-25 (v1028 start):** External research is skipped. This milestone is internal UX/product hardening driven by live builder behavior and recent v1027 architecture contracts.
+- **2026-05-25 (Phase 1124 close):** Playwright MCP evidence confirmed the canonical builder loads with 9 layers, clean console, Notes rail, History rail, and disabled AI rail on the standard local stack. Findings were routed to Phases 1125-1127.
+- **2026-05-25 (Phase 1124 close):** Notes persistence is real, but clearing a persisted note is broken: the frontend sends `notes: null` while backend `update_map()` skips `None` scalar updates. The localStorage migration fallback can also resurrect stale notes when server notes are null.
+- **2026-05-25 (Phase 1124 close):** AI is enabled but unconfigured on the local stack (`provider=null`, `configured=false`). The builder shows an inert disabled AI icon, so Phase 1126 should improve disabled/error-state affordance and decide how to verify configured-provider prompts.
+- **2026-05-25 (Phase 1125 close):** Manual builder workflow polish stays on the v1027 action contract. Focused workflow tests passed across save feedback, stack row actions, save hooks, layer mutation hooks, and action routing.
+- **2026-05-25 (Phase 1126 close):** Notes update semantics now distinguish omitted notes from explicit `notes:null`; omitted preserves existing notes, explicit null clears persisted notes.
+- **2026-05-25 (Phase 1126 close):** Builder page initialization now trusts explicit server `notes:null` and only uses localStorage as a legacy fallback when the API response lacks a notes field.
+- **2026-05-25 (Phase 1126 close):** AI unavailable is an actionable rail panel, not a disabled dead-end button. Provider-backed prompt/action UAT was initially deferred to AI-FU-01 because the local stack had no configured AI provider key.
+- **2026-05-25 (Phase 1127 close):** Shared and embed viewer verification used a throwaway published copy. The canonical ADK target map remained private, note-free, and unchanged with 9 layers.
+- **2026-05-25 (Phase 1128 close):** Active smoke paths were renamed from demo-smoke to showcase-smoke. v1028 explicitly validates the standard GeoLens local stack and does not maintain or plan around a separate demo instance.
+- **2026-05-25 (Phase 1128 close):** React error-page bug-reporting via GitHub issue template is recorded as ERROR-FU-01 for post-v1028 work.
+- **2026-05-25 (AI-FU-01 close):** Provider-backed AI UAT passed on a throwaway ADK copy using Anthropic runtime config (`anthropic` / `claude-sonnet-4-20250514`) after the Anthropic key was refreshed. The builder applied a `set_style` action to Hiking trails, marked the map dirty, saved, reloaded with `line-color: #00AEEF`, and the throwaway copy was deleted. An interim OpenAI-compatible / `gpt-4o` run also passed after removing accidental literal backtick wrappers from ignored local `.env`, while the first Anthropic key was rejected by the provider as `invalid x-api-key`.
+- **2026-05-25 (ERROR-FU-01 close):** The global React app error page and route error page now include a GitHub bug-report action that opens the repository's `bug_report.yml` issue template. Focused error-boundary coverage verifies the template link; Playwright MCP rendered the real global error fallback with an injected throwing child and verified the `File a bug` link target.
 - **2026-05-25 (v1027 start):** Scope Map Builder Architecture Simplification as a GSD milestone, not a quick cleanup. The files involved are central to builder state, live MapLibre sync, persistence, viewer/embed parity, and AI action paths.
 - **2026-05-25 (v1027 start):** Keep the milestone behavior-preserving by default. Any user-visible change must be a documented bug fix, with remove basemap, duplicate layer, layer editor save semantics, background color, terrain exaggeration, and gradient-to-solid treated as explicit regression surfaces.
 - **2026-05-25 (v1027 start):** AI chat is in scope only where it shares the same map/layer/style command boundary as manual UI actions; broad chat UX redesign is out of scope.
@@ -116,25 +129,25 @@ See: .planning/PROJECT.md
 
 ### Pending Todos
 
-None — v1027 starts from a clean pending-todo slate.
+None.
 
 ### Blockers/Concerns
 
-- **CI-01-v1027 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1027+. This remains outside the map-builder architecture invariant.
+- **CI-01-v1028 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1028+. This remains outside the map-builder product-polish invariant.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1027+ as CI-01-v1027 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
+| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1028+ as CI-01-v1028 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
+| ux-error-reporting | React error page should file a bug via the GitHub issue template | Completed as ERROR-FU-01 | post-v1028 follow-up |
 
 ## Session Continuity
 
-Last session: 2026-05-25T16:31:30Z
-Stopped at: v1027 complete
-Resume file: .planning/ROADMAP.md
+Last session: 2026-05-26T00:03:04Z
+Stopped at: v1028 complete
+Resume file: .planning/milestones/v1028-MILESTONE-AUDIT.md
 
 ## Operator Next Steps
 
-- v1027 is complete and tagged locally as `v1027`.
-- Start the next milestone with `$gsd-new-milestone` when ready.
+- Pick the next milestone or quick task.

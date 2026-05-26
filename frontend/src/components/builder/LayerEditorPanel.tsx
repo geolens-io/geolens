@@ -181,17 +181,16 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   const availableTabs = useMemo<LayerEditorTab[]>(() => {
     const tabs: LayerEditorTab[] = ['style'];
     if (caps.supportsFilterEditor) tabs.push('filter');
-    // Labels tab is only meaningful when the layer is rendered as a Labels-mode
-    // (symbol render_mode). Per the v3 design, Labels is no longer a peer
-    // section — it's a render-as choice that surfaces its own tab.
-    const showLabelsTab = caps.supportsLabelEditor && !isHeatmap && currentRenderAs === 'symbol';
+    // Labels are independent layer decoration. Symbol render mode controls icon
+    // rendering for points; it is not the only path for feature labels.
+    const showLabelsTab = caps.supportsLabelEditor && !isHeatmap;
     if (showLabelsTab) tabs.push('labels');
     if (caps.supportsFilterEditor || caps.supportsLabelEditor) tabs.push('popup');
     return tabs;
-  }, [caps.supportsFilterEditor, caps.supportsLabelEditor, isHeatmap, currentRenderAs]);
+  }, [caps.supportsFilterEditor, caps.supportsLabelEditor, isHeatmap]);
 
   // Resolve the active tab against availability — fall back to 'style' if the
-  // requested tab vanished (e.g. layer changed render mode and Labels tab went away).
+  // requested tab vanished (e.g. layer changed to a non-labelable render mode).
   const resolvedActiveTab: LayerEditorTab = useMemo(() => {
     if (activeTab && availableTabs.includes(activeTab)) return activeTab;
     return 'style';
@@ -243,7 +242,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   // Pip data per tab — see commentary above availableTabs.
   const filterCount = countFilterConditions(layer.filter);
   const popupOn = layer.popup_config?.enabled === true;
-  const labelsOn = layer.label_config != null;
+  const labelsOn = Boolean(layer.label_config?.column);
 
   function handleRenderAsClick(target: RenderAsId) {
     if (target === currentRenderAs) return;
@@ -355,7 +354,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
       >
         {isDefaultScene && (
           <>
-            {/* Tab strip — Style / Filter / [Labels] / Popup */}
+            {/* Tab strip — Style / Filter / Labels / Popup */}
             <div
               role="tablist"
               aria-label={t('layerEditor.tabsLabel', { defaultValue: 'Layer editor tabs' })}

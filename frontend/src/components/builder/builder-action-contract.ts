@@ -20,13 +20,14 @@ export type BuilderLayerAction =
   | (BuilderActionBase & { type: 'remove_layer'; layerId: string; persistence: 'server' | 'draft' })
   | (BuilderActionBase & { type: 'duplicate_rendering'; layerId: string })
   | (BuilderActionBase & { type: 'reorder_layers'; layers: MapLayerResponse[] })
-  | (BuilderActionBase & { type: 'bind_dem_terrain'; layerId: string });
+  | (BuilderActionBase & { type: 'bind_dem_terrain'; layerId: string })
+  | (BuilderActionBase & { type: 'unbind_dem_terrain'; layerId: string })
+  | (BuilderActionBase & { type: 'set_dem_terrain_exaggeration'; layerId: string; exaggeration: number });
 
 export type BuilderBasemapAction =
   | (BuilderActionBase & { type: 'set_basemap_labels'; visible: boolean })
   | (BuilderActionBase & { type: 'set_basemap_background'; color: string | null })
-  | (BuilderActionBase & { type: 'set_basemap_position'; position: 'top' | 'bottom' })
-  | (BuilderActionBase & { type: 'set_terrain_exaggeration'; exaggeration: number });
+  | (BuilderActionBase & { type: 'set_basemap_position'; position: 'top' | 'bottom' });
 
 export type BuilderSettingsAction =
   | (BuilderActionBase & { type: 'toggle_widget'; widgetId: string })
@@ -49,6 +50,13 @@ export interface BuilderLayerActionHandlers {
   duplicateRendering: (layerId: string) => void;
   reorderLayers: (layers: MapLayerResponse[]) => void;
   bindDemTerrain: (layerId: string) => void;
+  unbindDemTerrain: (layerId: string) => void;
+  setDemTerrainExaggeration: (layerId: string, exaggeration: number) => void;
+}
+
+export function normalizeLayerOpacity(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.min(1, Math.max(0, value));
 }
 
 export function dispatchBuilderLayerAction(
@@ -77,9 +85,11 @@ export function dispatchBuilderLayerAction(
     case 'set_visibility':
       handlers.setVisibility(action.layerId, action.visible);
       break;
-    case 'set_opacity':
-      handlers.setOpacity(action.layerId, action.opacity);
+    case 'set_opacity': {
+      const opacity = normalizeLayerOpacity(action.opacity);
+      if (opacity !== null) handlers.setOpacity(action.layerId, opacity);
       break;
+    }
     case 'add_dataset':
       handlers.addDataset(action.datasetId);
       break;
@@ -98,6 +108,12 @@ export function dispatchBuilderLayerAction(
       break;
     case 'bind_dem_terrain':
       handlers.bindDemTerrain(action.layerId);
+      break;
+    case 'unbind_dem_terrain':
+      handlers.unbindDemTerrain(action.layerId);
+      break;
+    case 'set_dem_terrain_exaggeration':
+      handlers.setDemTerrainExaggeration(action.layerId, action.exaggeration);
       break;
   }
 }

@@ -1,5 +1,5 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex -- Phase 1111 LINT-01: stack rows are composite focus targets with nested controls, so role="button"/listbox roles are intentionally avoided. */
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 import { Eye, EyeOff, GripVertical, MoreVertical } from 'lucide-react';
@@ -42,6 +42,7 @@ interface StackRowProps {
   onCreateGroupWithLayer?: (layerId: string) => void;
   /** Called when user selects "Move out of group" (layer is already in a group) */
   onMoveLayerOutOfGroup?: (layerId: string) => void;
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
   /** When non-null, the layer is inside a group — "Move out of group" replaces the sub-flow */
   parentGroupId?: string | null;
   // Phase 1041: multi-selection props (POL-06, POL-07)
@@ -110,6 +111,7 @@ export const StackRow = memo(function StackRow({
   onAddToGroup,
   onCreateGroupWithLayer,
   onMoveLayerOutOfGroup,
+  onKeyboardReorder,
   parentGroupId = null,
   isMultiSelected = false,
   isMultiSelectionActive = false,
@@ -122,6 +124,7 @@ export const StackRow = memo(function StackRow({
   const [editing, setEditing] = useState(false);
   const [nameValue, setNameValue] = useState<string>('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [keyboardReorderActive, setKeyboardReorderActive] = useState(false);
   const escapeRef = useRef(false);
   const committingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -136,6 +139,28 @@ export const StackRow = memo(function StackRow({
   function handleStartRename() {
     setNameValue(displayName);
     setEditing(true);
+  }
+
+  function handleDragHandleKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    const isToggleKey = e.key === ' ' || e.key === 'Spacebar' || e.key === 'Enter';
+    if (isToggleKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      setKeyboardReorderActive((active) => !active);
+      return;
+    }
+
+    if (e.key === 'Escape' && keyboardReorderActive) {
+      e.preventDefault();
+      e.stopPropagation();
+      setKeyboardReorderActive(false);
+      return;
+    }
+
+    if (!keyboardReorderActive || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onKeyboardReorder?.(layer.id, e.key === 'ArrowUp' ? 'up' : 'down');
   }
 
   // Focus + select the rename input when entering edit mode. rAF defers the
@@ -250,6 +275,8 @@ export const StackRow = memo(function StackRow({
         // drag. onClick stopPropagation alone suppresses row selection on grip
         // click; pointer events don't trigger onClick handlers.
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleDragHandleKeyDown}
+        onBlur={() => setKeyboardReorderActive(false)}
       >
         <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
       </button>

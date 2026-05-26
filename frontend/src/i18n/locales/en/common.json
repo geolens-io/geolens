@@ -380,6 +380,7 @@
     "routeMessage": "This page encountered an error. You can go back or try again.",
     "routeGoBack": "Go back",
     "routeGoHome": "Go to home",
+    "reportBug": "File a bug",
     "builderUnsavedWarning": "You may have unsaved changes. Reloading will discard them.",
     "lazyTitle": "Failed to load",
     "lazyMessage": "A part of the application failed to load. This is usually a network issue.",

@@ -12,7 +12,7 @@ export type LayerKind = 'vector' | 'raster' | 'vrt';
  * predicate and document the intentional split with a comment at each call site.
  */
 export function isFolderGroupLayer(
-  layer: Pick<MapLayerResponse, 'layer_type'>,
+  layer: { layer_type?: string | null },
 ): boolean {
   return ((layer.layer_type as string | null | undefined) ?? '').startsWith('group:folder');
 }

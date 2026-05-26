@@ -1633,4 +1633,71 @@ describe('hillshadeAdapter', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h2', 'hillshade-illumination-anchor', 'map');
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h2', 'hillshade-exaggeration', 0.65);
   });
+
+  it('clamps hillshade exaggeration to MapLibre range before syncing paint', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-h2b', type: 'hillshade' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
+    const input = makeInput({
+      id: 'h2b',
+      layerId: 'layer-h2b',
+      paint: {
+        'hillshade-exaggeration': 2.1,
+      },
+    });
+
+    hillshadeAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h2b', 'hillshade-exaggeration', 1);
+  });
+
+  it('compounds master opacity into hillshade color alpha instead of using raster-opacity', () => {
+    const input = makeInput({
+      id: 'h3',
+      layerId: 'layer-h3',
+      sourceId: 'source-h3',
+      tileUrl: '/tiles/dem/{z}/{x}/{y}.png',
+      opacity: 0.25,
+      paint: {
+        'hillshade-shadow-color': '#1f2937',
+        'hillshade-highlight-color': 'rgba(255,255,255,0.8)',
+        'hillshade-accent-color': '#64748b80',
+      },
+    });
+
+    hillshadeAdapter.addLayers(map, input);
+
+    expect(map.addLayer).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'layer-h3',
+      type: 'hillshade',
+      paint: expect.objectContaining({
+        'hillshade-shadow-color': 'rgba(31, 41, 55, 0.25)',
+        'hillshade-highlight-color': 'rgba(255, 255, 255, 0.2)',
+        'hillshade-accent-color': 'rgba(100, 116, 139, 0.1255)',
+      }),
+    }));
+  });
+
+  it('syncPaint reapplies hillshade color alpha when only master opacity changes', () => {
+    (map.getLayer as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'layer-h4', type: 'hillshade' });
+    (map.getPaintProperty as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (map.getLayoutProperty as ReturnType<typeof vi.fn>).mockReturnValue('visible');
+    const input = makeInput({
+      id: 'h4',
+      layerId: 'layer-h4',
+      opacity: 0.4,
+      paint: {
+        'hillshade-shadow-color': '#1f2937',
+        'hillshade-highlight-color': 'rgba(255,255,255,0.75)',
+        'hillshade-accent-color': 'rgba(100,116,139,0.3333)',
+      },
+    });
+
+    hillshadeAdapter.syncPaint(map, input);
+
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h4', 'hillshade-shadow-color', 'rgba(31, 41, 55, 0.4)');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h4', 'hillshade-highlight-color', 'rgba(255, 255, 255, 0.3)');
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-h4', 'hillshade-accent-color', 'rgba(100, 116, 139, 0.1333)');
+    expect(map.setPaintProperty).not.toHaveBeenCalledWith('layer-h4', 'raster-opacity', expect.anything());
+  });
 });

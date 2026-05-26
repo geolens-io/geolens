@@ -1,120 +1,114 @@
-# Requirements: GeoLens v1027 Map Builder Architecture Simplification
+# Requirements: GeoLens v1028 Map Builder Product Polish
 
 **Defined:** 2026-05-25
 **Core Value:** Users can find any dataset in the catalog in seconds - search, see it on a map, understand what it is, and get it out in the format they need.
 
-## v1027 Requirements
+## v1028 Requirements
 
-### Architecture Baseline
+### Workflow Audit
 
-- [x] **ARCH-01**: The current map-builder architecture is audited with code references for `MapBuilderPage`, `use-builder-layers`, `BuilderMap`, `ViewerMap`, `map-sync`, `basemap-utils`, layer adapters, editor scenes, and AI chat style/layer entry points.
-- [x] **ARCH-02**: A concrete complexity budget is defined before refactoring, including target ownership boundaries, files that should shrink, and behaviors that must remain unchanged.
-- [x] **ARCH-03**: The milestone documents all user-visible regression surfaces from the v1025-v1026 dogfooding run, including terrain exaggeration, gradient-to-solid style changes, remove basemap, duplicate layer, background color, layer options, save/reload, viewer/embed, and AI chat actions.
-- [x] **ARCH-04**: The refactor plan explicitly preserves the v1026 style reconciliation contract and names any accepted limitations before implementation begins.
+- [x] **AUDIT-01**: Builder workflow exploration covers add/edit layer flows, layer options menus, save feedback, undo/history, empty/error states, responsive editor behavior, and viewer parity with Playwright MCP evidence.
+- [x] **AUDIT-02**: The audit explicitly exercises Builder Notes and AI-assisted builder flows before implementation work is scoped.
+- [x] **AUDIT-03**: Console errors, warning noise, failed network requests, and confusing user-visible states found during the sweep are triaged into fix-now, defer, or accepted-with-rationale buckets.
+- [x] **AUDIT-04**: The milestone confirms that validation targets the standard GeoLens app/local stack and does not depend on a separate demo instance, demo deployment, or demo compose path.
 
-### Basemap State Consolidation
+### Builder Workflow Polish
 
-- [x] **BASEMAP-01**: Basemap settings use one canonical state contract for provider/style selection, visibility, opacity, terrain, exaggeration, background color, sublayer overrides, and blank/removed-basemap modes.
-- [x] **BASEMAP-02**: Temporary split basemap state, including separate sublayer override state, is removed or wrapped behind one controller so persisted config and UI state cannot drift.
-- [x] **BASEMAP-03**: Remove basemap works reliably, persists correctly, preserves the configured map background color, and does not leave stale MapLibre sources/layers after save/reload.
-- [x] **BASEMAP-04**: Basemap state transitions are covered by focused unit tests for preset changes, remove/restore, background color, terrain exaggeration clamp, sublayer override changes, and reload normalization.
+- [x] **WORKFLOW-01**: High-frequency layer authoring flows have clear save/dirty feedback and no ambiguous intermediate state after layer edits, reorders, duplicate/remove actions, or settings changes.
+- [x] **WORKFLOW-02**: Layer options, editor panels, empty states, and error states remain usable and visually stable on desktop and mobile-sized builder viewports.
+- [x] **WORKFLOW-03**: Undo/history behavior remains coherent after manual actions, duplicate/remove flows, style edits, Notes interactions where applicable, AI-assisted edits, and map-level saves.
+- [x] **WORKFLOW-04**: Focused frontend tests pin any fixed workflow defects without overfitting to v1027 implementation internals.
 
-### Builder and Viewer Sync
+### Builder Notes
 
-- [x] **SYNC-01**: Builder and viewer map synchronization share a small orchestrator or shared contract for source/layer/style/background/terrain ordering instead of duplicating sequencing logic.
-- [x] **SYNC-02**: Shared sync preserves source-before-layer ordering, companion-layer handling, style reconciler cleanup, terrain activation retries, basemap/background ordering, and MapLibre error isolation.
-- [x] **SYNC-03**: Public viewer, embed viewer, builder reload, and style JSON import/export remain visually consistent for the target ADK map and representative non-ADK maps.
-- [x] **SYNC-04**: Sync changes reduce duplication without creating a generic abstraction that hides layer-type-specific adapter behavior.
+- [x] **NOTES-01**: User can create, edit, and remove builder Notes through the UI without layout overlap, focus traps, or inaccessible controls.
+- [x] **NOTES-02**: Notes persist through save/reload when designed to persist, and any intentionally draft-only Notes behavior is documented in the phase summary.
+- [x] **NOTES-03**: Notes behavior is verified alongside layer selection, map interaction, and viewer expectations so Notes do not corrupt saved map composition or public viewer rendering.
+- [x] **NOTES-04**: Notes empty/error/loading states are clear and do not rely on visible instructional text that duplicates control labels.
 
-### Builder Scene and Hook Extraction
+### Builder AI
 
-- [x] **SCENE-01**: `MapBuilderPage` delegates editor scene routing, settings wiring, dialog state, selection state, and screenshot/UAT affordances to focused controllers or hooks.
-- [x] **SCENE-02**: `use-builder-layers` is split along stable mutation boundaries so layer CRUD, style mutations, persistence, history, and AI-facing actions can be reasoned about independently.
-- [x] **SCENE-03**: Layer editor save semantics are made explicit in the UI and implementation, either by retaining immediate apply plus map-level save with clearer dirty state or by adding a local style apply/save control after a documented decision.
-- [x] **SCENE-04**: Extraction does not change existing keyboard, drag/drop, mobile sheet, selection, dirty-state, or unsaved-change behavior.
+- [x] **AI-01**: AI builder entry points are exercised with realistic prompts for style changes, layer edits, and map-authoring assistance against the target map or a throwaway copy.
+- [x] **AI-02**: AI-generated builder actions preserve v1027 command semantics, undo/history expectations, dirty tracking, and save/reload durability.
+- [x] **AI-03**: AI disabled, unauthenticated, missing-provider, or request-failure states degrade clearly without console errors or broken builder controls.
+- [x] **AI-04**: Any AI prompt/action gap found during Playwright MCP testing is either fixed with regression coverage or logged as a future requirement with concrete reproduction steps.
 
-### Layer Action Contract and AI Bridge
+### Showcase Map Polish
 
-- [x] **ACTION-01**: Layer actions use a typed command boundary for add, remove, duplicate, reorder, visibility, style, label, filter, basemap, terrain, and settings updates instead of ad hoc object surgery.
-- [x] **ACTION-02**: Duplicate layer works for supported layer types, creates collision-free layer/source identifiers, preserves intended style/config, and does not duplicate transient live-only state.
-- [x] **ACTION-03**: Manual UI actions, undo/history, dirty tracking, persistence, and AI chat style/layer actions route through the same command semantics where practical.
-- [x] **ACTION-04**: Any backend chat tool schema or generated API type changes required by the action contract are refreshed and verified; if no schema changes are needed, the decision is documented.
+- [x] **SHOWCASE-01**: The target ADK map remains cartographically polished for marketing screenshots: terrain, imagery, DEM/hillshade, labels, lines, points, polygons, and layer ordering look intentional.
+- [x] **SHOWCASE-02**: Screenshot capture path is reliable from the product map itself and does not require a separate demo instance or special demo deployment.
+- [x] **SHOWCASE-03**: Public viewer and embed viewer remain visually aligned with the builder for the target map after any polish changes.
+- [x] **SHOWCASE-04**: Any destructive showcase-map UAT uses a throwaway copy and leaves the canonical target map unchanged unless the change is explicitly intended.
 
-### Test Fixture DRY-Up
+### Quality Sweep and Close Gate
 
-- [x] **TEST-01**: Builder tests use shared fixtures/factories for map state, basemap configs, layer descriptors, style reconciler mocks, and MapLibre test doubles.
-- [x] **TEST-02**: Regression tests cover remove basemap, duplicate layer, terrain exaggeration, gradient-to-solid, background color, layer option changes, save/reload, and viewer/embed parity.
-- [x] **TEST-03**: Tests avoid overfitting to implementation details introduced by the refactor and continue to assert durable user-visible behavior.
-- [x] **TEST-04**: The builder-audit command or skill guidance is updated with lessons from the architecture refactor if new recurring QA checks or failure modes are discovered.
-
-### Verification and Close Gate
-
-- [x] **VERIFY-01**: Focused frontend tests for touched builder areas pass, plus `npm run typecheck`, `npm run lint`, and `npm run build`.
-- [x] **VERIFY-02**: Backend tests, OpenAPI, and SDK checks run only if the milestone touches backend chat schemas or generated API surfaces; otherwise the no-backend-change decision is recorded.
-- [x] **VERIFY-03**: Playwright MCP verifies the target map at `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`, including all layer options, remove basemap, duplicate layer, background color, terrain exaggeration, gradient-to-solid, save/reload, and viewer parity.
-- [x] **VERIFY-04**: The target map remains optimized for a marketing screenshot that demonstrates GeoLens cartographic ability without console errors, unexpected warnings, failed network requests, or distorted terrain.
-- [x] **VERIFY-05**: Phase summaries, CHANGELOG, and the milestone audit document architecture impact, AI-chat impact, accepted limitations, and any follow-up requirements.
+- [x] **QUALITY-01**: Playwright MCP close gate covers the target map, a throwaway editable copy, Builder Notes, Builder AI, layer options, save/reload, viewer parity, and console/network hygiene.
+- [x] **QUALITY-02**: Frontend gates pass for touched areas, including focused Vitest coverage plus `npm run typecheck`, `npm run lint`, and `npm run build`.
+- [x] **QUALITY-03**: Backend, OpenAPI, SDK, or CLI gates run if the milestone touches those surfaces; otherwise the no-backend/API-change decision is recorded.
+- [x] **QUALITY-04**: Active planning/docs references created or touched by this milestone consistently state that GeoLens no longer maintains a separate demo instance.
+- [x] **QUALITY-05**: Phase summaries, CHANGELOG entry, and milestone audit document workflow impact, Notes impact, AI impact, showcase-map evidence, accepted limitations, and follow-up requirements.
 
 ## Future Requirements
 
-### Follow-Up Architecture
+### Builder Follow-Ups
 
-- **ARCH-FU-01**: Consider a fuller typed map-builder domain model only after v1027 proves the narrower command/controller extraction reduces complexity without slowing feature work.
-- **ARCH-FU-02**: Consider extracting a dedicated map-preview package if builder/viewer/embed sync remains duplicated after the shared orchestrator phase.
+- **BUILDER-FU-01**: Consider a fuller user-facing builder onboarding pass only after this milestone identifies which polish gaps remain after Notes, AI, and workflow sweep fixes.
+- **BUILDER-FU-02**: Consider broader AI chat UX redesign separately if AI action reliability is healthy but prompt composition or conversational affordances remain weak.
+
+### Completed Follow-Ups
+
+- **AI-FU-01**: Completed 2026-05-25 after provider keys were added and the Anthropic key was refreshed. Anthropic runtime AI (`anthropic` / `claude-sonnet-4-20250514`) returned a `set_style` action for the throwaway ADK copy, the builder applied it, dirty state appeared, Save completed, reload preserved `line-color: #00AEEF`, and the copy was deleted. An interim OpenAI-compatible check also passed while the first Anthropic key was invalid.
+- **ERROR-FU-01**: Completed 2026-05-25. The global React app error page and route error page now include a GitHub bug-report action that opens the repository's `bug_report.yml` issue template.
 
 ### CI Infrastructure
 
-- **CI-01-v1027**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the map-builder architecture invariant.
+- **CI-01-v1028**: Live-verify `pytest-parallel-isolation` on real GitHub Actions infrastructure after geolens-io billing is resolved. This rolling external blocker remains outside the map-builder product-polish invariant.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Rebuilding the entire builder UI | v1027 simplifies architecture and clarifies existing workflows; it is not a visual redesign milestone. |
-| Replacing MapLibre or the adapter model | Existing MapLibre imperative integration remains appropriate; the goal is clearer ownership and less duplication. |
-| New cartographic feature expansion | New controls should wait unless they are required to preserve or clarify existing behavior. |
-| Broad AI chat redesign | AI chat is in scope only where map/layer/style actions cross the builder action boundary. |
+| Separate demo instance, demo deployment, or demo compose maintenance | The standard GeoLens app/local stack is the validation target; showcase-map work happens in-product. |
+| Broad map-builder architecture rewrite | v1027 already established the architecture boundaries; v1028 should polish product workflows using those boundaries. |
+| New LLM provider or AI backend redesign | AI is in scope as builder workflow validation and bug fixing, not platform expansion. |
+| New cartographic feature family | Polish existing target-map and builder controls before adding new renderer capabilities. |
 | Closing the GitHub Actions billing blocker | CI live-verify remains an external operator prerequisite carried forward from earlier milestones. |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ARCH-01 | Phase 1118 | Complete |
-| ARCH-02 | Phase 1118 | Complete |
-| ARCH-03 | Phase 1118 | Complete |
-| ARCH-04 | Phase 1118 | Complete |
-| BASEMAP-01 | Phase 1119 | Complete |
-| BASEMAP-02 | Phase 1119 | Complete |
-| BASEMAP-03 | Phase 1119 | Complete |
-| BASEMAP-04 | Phase 1119 | Complete |
-| SYNC-01 | Phase 1120 | Complete |
-| SYNC-02 | Phase 1120 | Complete |
-| SYNC-03 | Phase 1120 | Complete |
-| SYNC-04 | Phase 1120 | Complete |
-| SCENE-01 | Phase 1121 | Complete |
-| SCENE-02 | Phase 1121 | Complete |
-| SCENE-03 | Phase 1121 | Complete |
-| SCENE-04 | Phase 1121 | Complete |
-| ACTION-01 | Phase 1122 | Complete |
-| ACTION-02 | Phase 1122 | Complete |
-| ACTION-03 | Phase 1122 | Complete |
-| ACTION-04 | Phase 1122 | Complete |
-| TEST-01 | Phase 1123 | Complete |
-| TEST-02 | Phase 1123 | Complete |
-| TEST-03 | Phase 1123 | Complete |
-| TEST-04 | Phase 1123 | Complete |
-| VERIFY-01 | Phase 1123 | Complete |
-| VERIFY-02 | Phase 1123 | Complete |
-| VERIFY-03 | Phase 1123 | Complete |
-| VERIFY-04 | Phase 1123 | Complete |
-| VERIFY-05 | Phase 1123 | Complete |
+| AUDIT-01 | Phase 1124 | Complete |
+| AUDIT-02 | Phase 1124 | Complete |
+| AUDIT-03 | Phase 1124 | Complete |
+| AUDIT-04 | Phase 1124 | Complete |
+| WORKFLOW-01 | Phase 1125 | Complete |
+| WORKFLOW-02 | Phase 1125 | Complete |
+| WORKFLOW-03 | Phase 1125 | Complete |
+| WORKFLOW-04 | Phase 1125 | Complete |
+| NOTES-01 | Phase 1126 | Complete |
+| NOTES-02 | Phase 1126 | Complete |
+| NOTES-03 | Phase 1126 | Complete |
+| NOTES-04 | Phase 1126 | Complete |
+| AI-01 | Phase 1126 + AI-FU-01 | Complete |
+| AI-02 | Phase 1126 + AI-FU-01 | Complete |
+| AI-03 | Phase 1126 | Complete |
+| AI-04 | Phase 1126 | Complete |
+| SHOWCASE-01 | Phase 1127 | Complete |
+| SHOWCASE-02 | Phase 1127 | Complete |
+| SHOWCASE-03 | Phase 1127 | Complete |
+| SHOWCASE-04 | Phase 1127 | Complete |
+| QUALITY-01 | Phase 1128 | Complete |
+| QUALITY-02 | Phase 1128 | Complete |
+| QUALITY-03 | Phase 1128 | Complete |
+| QUALITY-04 | Phase 1128 | Complete |
+| QUALITY-05 | Phase 1128 | Complete |
 
 **Coverage:**
-- v1027 requirements: 29 total, 29 complete
-- Mapped to phases: 29
+- v1028 requirements: 25 total
+- Mapped to phases: 25
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-25*
-*Last updated: 2026-05-25 after Phase 1123 close*
+*Last updated: 2026-05-25 after v1028 close*

@@ -13,7 +13,20 @@ export const HILLSHADE_PAINT_DEFAULTS = {
 
 type HillshadePaintProperty = keyof typeof HILLSHADE_PAINT_DEFAULTS;
 
+export const HILLSHADE_EXAGGERATION_MIN = 0;
+export const HILLSHADE_EXAGGERATION_MAX = 1;
+
 const HILLSHADE_PAINT_PROPERTIES = Object.keys(HILLSHADE_PAINT_DEFAULTS) as HillshadePaintProperty[];
+const HILLSHADE_COLOR_PROPERTIES = [
+  'hillshade-shadow-color',
+  'hillshade-highlight-color',
+  'hillshade-accent-color',
+] as const;
+
+export function normalizeHillshadeExaggeration(value: number | null | undefined): number {
+  if (!Number.isFinite(value)) return HILLSHADE_PAINT_DEFAULTS['hillshade-exaggeration'];
+  return Math.min(Math.max(value as number, HILLSHADE_EXAGGERATION_MIN), HILLSHADE_EXAGGERATION_MAX);
+}
 
 function normalizeRasterBounds(bounds: number[] | null | undefined) {
   if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
@@ -39,8 +52,10 @@ function getSupportedHillshadePaint(
       }
       continue;
     }
-    if (typeof value === 'number') {
-      nextPaint[property] = value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      nextPaint[property] = property === 'hillshade-exaggeration'
+        ? normalizeHillshadeExaggeration(value)
+        : value;
     }
   }
   return nextPaint;
@@ -53,11 +68,61 @@ function hasHillshadePaintValue(
   return Object.prototype.hasOwnProperty.call(paint, property);
 }
 
+function normalizeOpacity(value: number | null | undefined): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value as number)) : 1;
+}
+
+function formatAlpha(value: number): string {
+  return Number(value.toFixed(4)).toString();
+}
+
+function compoundHexColorAlpha(color: string, opacity: number): string | null {
+  const hex = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)?.[1];
+  if (!hex) return null;
+
+  const expand = (value: string) => value.length === 1 ? `${value}${value}` : value;
+  const hasShortChannels = hex.length === 3 || hex.length === 4;
+  const red = parseInt(expand(hasShortChannels ? hex[0] : hex.slice(0, 2)), 16);
+  const green = parseInt(expand(hasShortChannels ? hex[1] : hex.slice(2, 4)), 16);
+  const blue = parseInt(expand(hasShortChannels ? hex[2] : hex.slice(4, 6)), 16);
+  const alphaHex = hasShortChannels ? hex[3] : hex.slice(6, 8);
+  const baseAlpha = alphaHex ? parseInt(expand(alphaHex), 16) / 255 : 1;
+  return `rgba(${red}, ${green}, ${blue}, ${formatAlpha(baseAlpha * opacity)})`;
+}
+
+function compoundRgbColorAlpha(color: string, opacity: number): string | null {
+  const match = color.trim().match(/^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+)\s*)?\)$/i);
+  if (!match) return null;
+  const red = Number(match[1]);
+  const green = Number(match[2]);
+  const blue = Number(match[3]);
+  if (![red, green, blue].every(Number.isFinite)) return null;
+  const baseAlpha = match[4] === undefined ? 1 : Number(match[4]);
+  if (!Number.isFinite(baseAlpha)) return null;
+  return `rgba(${red}, ${green}, ${blue}, ${formatAlpha(Math.min(1, Math.max(0, baseAlpha)) * opacity)})`;
+}
+
+function compoundColorAlpha(color: string, opacity: number): string {
+  if (opacity === 1) return color;
+  if (color.trim().toLowerCase() === 'transparent') return 'rgba(0, 0, 0, 0)';
+  return compoundHexColorAlpha(color, opacity)
+    ?? compoundRgbColorAlpha(color, opacity)
+    ?? color;
+}
+
 function buildHillshadePaint(input: AdapterLayerInput): Record<string, number | string> {
-  return {
+  const opacity = normalizeOpacity(input.opacity);
+  const paint = {
     ...HILLSHADE_PAINT_DEFAULTS,
     ...getSupportedHillshadePaint(input.paint),
   };
+  for (const property of HILLSHADE_COLOR_PROPERTIES) {
+    const color = paint[property];
+    if (typeof color === 'string') {
+      paint[property] = compoundColorAlpha(color, opacity);
+    }
+  }
+  return paint;
 }
 
 export const hillshadeAdapter: LayerAdapter = {
@@ -94,12 +159,15 @@ export const hillshadeAdapter: LayerAdapter = {
     if (!map.getLayer(layerId)) return;
 
     const supportedPaint = getSupportedHillshadePaint(input.paint);
+    const desiredPaint = buildHillshadePaint(input);
+    const hasOpacityOverride = normalizeOpacity(input.opacity) !== 1;
     for (const property of HILLSHADE_PAINT_PROPERTIES) {
       const current = map.getPaintProperty(layerId, property);
-      const desired = hasHillshadePaintValue(supportedPaint, property)
-        ? supportedPaint[property]
-        : HILLSHADE_PAINT_DEFAULTS[property];
-      if ((hasHillshadePaintValue(supportedPaint, property) || current !== undefined) && paintValueChanged(current, desired)) {
+      const desired = desiredPaint[property];
+      const shouldSync = hasHillshadePaintValue(supportedPaint, property)
+        || current !== undefined
+        || (hasOpacityOverride && HILLSHADE_COLOR_PROPERTIES.includes(property as typeof HILLSHADE_COLOR_PROPERTIES[number]));
+      if (shouldSync && paintValueChanged(current, desired)) {
         map.setPaintProperty(layerId, property, desired);
       }
     }

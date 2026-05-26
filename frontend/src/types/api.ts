@@ -823,6 +823,10 @@ export interface BuilderStyleConfig {
      *  inside LineGradientControls. */
     stops: Array<{ position: number; color: string; id?: string }>;
   };
+  /** Virtual builder folder-group membership. Stored on real layers; folder rows are reconstructed client-side. */
+  folderGroupId?: string;
+  folderGroupName?: string;
+  folderGroupExpanded?: boolean;
 }
 
 export interface SymbolStyleConfig {

@@ -81,7 +81,7 @@ npm run e2e:smoke           # All smoke groups (core + builder + fixtures)
 npm run e2e:smoke:core      # admin / auth / search / dataset-detail / collections / permissions
 npm run e2e:smoke:builder   # builder + builder-styling
 npm run e2e:smoke:fixtures  # upload + non-spatial
-npm run e2e:smoke:audit     # accessibility / post-impl-validation / record-detail-ux-audit / demo-smoke
+npm run e2e:smoke:audit     # accessibility / post-impl-validation / record-detail-ux-audit / showcase-smoke
 npm run e2e                 # Catch-all (everything in e2e/)
 ```
 

@@ -21,9 +21,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-map-builder.png" alt="GeoLens Map Builder erstellt interaktive Karten mit mehreren Layern" width="900" />
+  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="GeoLens Map Builder beim Bearbeiten eines DEM-Hillshade-Layers der Adirondack High Peaks über einer 3D-Geländekarte" width="900" />
   <br />
-  <em>Laden Sie ein Shapefile hoch und erhalten Sie in Minuten einen durchsuchbaren, voranschaubaren und exportierbaren Datensatz</em>
+  <em>Passen Sie DEM-, Bild- und Vektor-Layer im Map Builder an und teilen Sie interaktive 3D-Karten</em>
 </p>
 
 ## Dokumentation

@@ -129,6 +129,23 @@ describe('StackRow', () => {
     expect(kebab).toBeInTheDocument();
   });
 
+  it('keyboard drag handle reorders after Space + Arrow key', () => {
+    const onKeyboardReorder = vi.fn();
+    const layer = makeLayer({ id: 'keyboard-layer' });
+    render(<StackRow {...defaultProps({ layer, onKeyboardReorder })} />);
+
+    const grip = screen.getByRole('button', { name: /Drag to reorder/i });
+    fireEvent.keyDown(grip, { key: ' ' });
+    fireEvent.keyDown(grip, { key: 'ArrowUp' });
+    fireEvent.keyDown(grip, { key: 'ArrowDown' });
+    fireEvent.keyDown(grip, { key: ' ' });
+    fireEvent.keyDown(grip, { key: 'ArrowUp' });
+
+    expect(onKeyboardReorder).toHaveBeenNthCalledWith(1, 'keyboard-layer', 'up');
+    expect(onKeyboardReorder).toHaveBeenNthCalledWith(2, 'keyboard-layer', 'down');
+    expect(onKeyboardReorder).toHaveBeenCalledTimes(2);
+  });
+
   it('reflects selection via aria-current + data-selected (Phase 1052: dropped role=option)', () => {
     const layer = makeLayer({ id: 'test-layer' });
     const { rerender } = render(<StackRow {...defaultProps({ layer, selected: false })} />);

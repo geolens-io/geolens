@@ -380,6 +380,7 @@
     "routeMessage": "Cette page a rencontré une erreur. Vous pouvez revenir en arrière ou réessayer.",
     "routeGoBack": "Retour",
     "routeGoHome": "Aller à l'accueil",
+    "reportBug": "Signaler un bug",
     "builderUnsavedWarning": "Vous avez peut-être des modifications non enregistrées. Le rechargement les supprimera.",
     "lazyTitle": "Échec du chargement",
     "lazyMessage": "Une partie de l'application n'a pas pu se charger. C'est généralement un problème de réseau.",

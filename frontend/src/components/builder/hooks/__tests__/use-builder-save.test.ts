@@ -245,6 +245,38 @@ describe('buildLayerDiff', () => {
     expect(result.diff.order).toEqual(['layer-2', 'layer-1']);
   });
 
+  it('serializes virtual folder groups as child layer metadata, not added API layers', () => {
+    const baseline = makeLayer({ id: 'layer-1' });
+    const group = {
+      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const groupedChild = {
+      ...baseline,
+      parent_group_id: 'group-1',
+    } as MapLayerResponse & { parent_group_id: string };
+
+    const result = buildLayerDiff(
+      [baseline],
+      [group, groupedChild],
+      { 'group-1': { expanded: true } },
+    );
+
+    expect(result.diff.added).toBeUndefined();
+    expect(result.diff.updated).toEqual([
+      {
+        id: 'layer-1',
+        style_config: {
+          builder: {
+            folderGroupId: 'group-1',
+            folderGroupName: 'Field layers',
+            folderGroupExpanded: true,
+          },
+        },
+      },
+    ]);
+  });
+
   it('returns an empty diff for no-op layers', () => {
     const baseline = makeLayer({ id: 'layer-1' });
     const current = makeLayer({ id: 'layer-1' });
@@ -525,6 +557,47 @@ describe('useBuilderSave', () => {
       }),
     );
     expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
+  });
+
+  it('omits virtual folder rows from full replacement fallback payloads', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError('Layer order references unknown or removed layers', 400, 'Layer order references unknown or removed layers'),
+    );
+    const baseline = makeLayer({ id: 'layer-1' });
+    const group = {
+      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
+      layer_type: 'group:folder',
+    } as unknown as MapLayerResponse;
+    const child = {
+      ...baseline,
+      parent_group_id: 'group-1',
+    } as MapLayerResponse & { parent_group_id: string };
+    let state = makeSaveState({ localLayers: [baseline] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [group, child],
+      groupMeta: { 'group-1': { expanded: true } },
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const fallbackPayload = mockUpdateMapMutateAsync.mock.calls[0][0].data;
+    expect(fallbackPayload.layers).toHaveLength(1);
+    expect(fallbackPayload.layers[0]).toMatchObject({
+      dataset_id: 'dataset-1',
+      layer_type: 'vector_geolens',
+      style_config: {
+        builder: {
+          folderGroupId: 'group-1',
+          folderGroupName: 'Field layers',
+          folderGroupExpanded: true,
+        },
+      },
+    });
   });
 
   it('does not clear unsaved changes when save fails', async () => {

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useQueryClient } from '@tanstack/react-query';
-import { getLayerType, getSourceIdForLayer, normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, isDemTerrainVisualSuppressed, normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { DEFAULT_HEATMAP_PAINT } from '@/components/builder/layer-adapters/heatmap-adapter';
@@ -27,18 +27,11 @@ import {
   buildDuplicateRenderingInput,
   removePerLayerCompanions,
 } from '@/components/builder/hooks/builder-layer-mutations';
+import {
+  hydrateFolderGroupLayers,
+  type GroupedLayer,
+} from '@/components/builder/folder-groups';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
-
-/**
- * Frontend-only extension of MapLayerResponse with group-related fields.
- * parent_group_id is an in-memory-only field used to track group membership
- * during the builder session. It is not persisted to the API.
- * layer_type is widened to string to support 'group:folder' and 'group:basemap' variants.
- */
-type GroupedLayer = Omit<MapLayerResponse, 'layer_type'> & {
-  layer_type?: string | null;
-  parent_group_id?: string | null;
-};
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -121,8 +114,9 @@ export function useBuilderLayers(
   // field default to 'bottom' (the historical behaviour).
   useEffect(() => {
     if (mapData && !initializedRef.current) {
-      setLocalLayers(mapData.layers ?? []);
-      savedLayerBaselineRef.current = mapData.layers ?? [];
+      const hydrated = hydrateFolderGroupLayers(mapData.layers ?? []);
+      setLocalLayers(hydrated.layers);
+      savedLayerBaselineRef.current = hydrated.layers;
       setLocalBasemap(resolveBasemapId(mapData.basemap_style || 'positron'));
       setShowBasemapLabels(mapData.show_basemap_labels ?? true);
       _setBasemapConfigRaw(mapData.basemap_config ?? null);
@@ -132,7 +126,10 @@ export function useBuilderLayers(
             exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
           }
         : null);
-      setGroupMeta((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {});
+      setGroupMeta({
+        ...hydrated.groupMeta,
+        ...((mapData as { group_meta?: Record<string, { expanded: boolean }> }).group_meta ?? {}),
+      });
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
       initializedRef.current = true;
@@ -148,10 +145,15 @@ export function useBuilderLayers(
   const apiLayers = mapData?.layers;
   useEffect(() => {
     if (apiLayers && initializedRef.current && !hasUnsavedChanges) {
-      setLocalLayers(apiLayers);
-      savedLayerBaselineRef.current = apiLayers;
+      const hydrated = hydrateFolderGroupLayers(apiLayers);
+      setLocalLayers(hydrated.layers);
+      savedLayerBaselineRef.current = hydrated.layers;
+      setGroupMeta({
+        ...hydrated.groupMeta,
+        ...((mapData as { group_meta?: Record<string, { expanded: boolean }> } | undefined)?.group_meta ?? {}),
+      });
     }
-  }, [apiLayers, hasUnsavedChanges]);
+  }, [apiLayers, hasUnsavedChanges, mapData]);
 
   // Handle ?add_dataset URL param: auto-add a dataset as a layer on map load.
   // Depends on mapData so the effect re-evaluates once initializedRef is set.
@@ -254,8 +256,8 @@ export function useBuilderLayers(
       ...prev,
       [groupId]: { expanded: !(prev[groupId]?.expanded ?? false) },
     }));
-    // Not marking dirty — group_meta is not in MapUpdateRequest and is never persisted.
-    // Add setHasUnsavedChanges(true) here once group_meta is added to the backend schema.
+    // Expansion is a local presentation preference; group membership/name are
+    // persisted when actual grouping changes.
   }, []);
 
   const handleZoomToLayer = useCallback((layerId: string) => {
@@ -473,7 +475,29 @@ export function useBuilderLayers(
         const id = l.id;
         const mapLayerId = `layer-${id}`;
         const outlineId = `layer-${id}-outline`;
-        if (l.layer_type === 'raster_geolens') {
+        if (isDemTerrainVisualSuppressed(l)) {
+          continue;
+        }
+
+        if (l.layer_type === 'raster_geolens' && l.is_dem === true && l.style_config?.render_mode === 'hillshade') {
+          const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+            id: l.id,
+            dataset_table_name: l.dataset_table_name,
+            dataset_geometry_type: l.dataset_geometry_type,
+            opacity,
+            visible: l.visible,
+            paint: l.paint ?? {},
+            layout: l.layout ?? {},
+            filter: l.filter ?? null,
+            sourceId: getSourceIdForLayer(l),
+            layerId: mapLayerId,
+            sourceLayer: `data.${l.dataset_table_name}`,
+            tileUrl: '',
+            style_config: l.style_config ?? null,
+            is_dem: l.is_dem,
+          };
+          getAdapter('hillshade').syncPaint(map, input);
+        } else if (l.layer_type === 'raster_geolens') {
           if (map.getLayer(mapLayerId)) {
             map.setPaintProperty(mapLayerId, 'raster-opacity', opacity);
           }
@@ -1027,6 +1051,29 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
   }, []);
 
+  const handleDEMTerrainUnbind = useCallback((layerId: string) => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
+    if (!layer) return;
+    if (!localTerrainConfig || localTerrainConfig.source_dataset_id !== layer.dataset_id) return;
+    setLocalTerrainConfig({
+      enabled: false,
+      source_dataset_id: null,
+      exaggeration: normalizeTerrainExaggeration(localTerrainConfig.exaggeration),
+    });
+    setHasUnsavedChanges(true);
+  }, [localTerrainConfig]);
+
+  const handleDEMTerrainExaggerationChange = useCallback((layerId: string, value: number) => {
+    const layer = layersRef.current.find((l) => l.id === layerId);
+    if (!layer) return;
+    setLocalTerrainConfig(() => ({
+      enabled: true,
+      source_dataset_id: layer.dataset_id,
+      exaggeration: normalizeTerrainExaggeration(value),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
   const handleDuplicateRendering = useCallback((layerId: string) => {
     if (!mapId) return;
     const layer = layersRef.current.find((candidate) => candidate.id === layerId);
@@ -1090,11 +1137,15 @@ export function useBuilderLayers(
       duplicateRendering: handleDuplicateRendering,
       reorderLayers: handleReorder,
       bindDemTerrain: handleDEMTerrainBind,
+      unbindDemTerrain: handleDEMTerrainUnbind,
+      setDemTerrainExaggeration: handleDEMTerrainExaggerationChange,
     });
   }, [
     handleAddDataset,
     handleAiRemoveLayer,
     handleDEMTerrainBind,
+    handleDEMTerrainExaggerationChange,
+    handleDEMTerrainUnbind,
     handleDuplicateRendering,
     handleFilterChange,
     handleLabelChange,
@@ -1195,6 +1246,8 @@ export function useBuilderLayers(
     handleZoomToLayer,
     handleRemove,
     handleDEMTerrainBind,
+    handleDEMTerrainUnbind,
+    handleDEMTerrainExaggerationChange,
     handleCreateGroupWithLayer,
     handleRenameGroup,
     handleUngroup,

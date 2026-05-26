@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import { ChatInput } from './ChatInput';
@@ -49,22 +50,58 @@ interface ChatMessage {
   retryMessage?: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getActionLayerId(action: ChatAction): string | null {
+  return typeof action.layer_id === 'string' && action.layer_id ? action.layer_id : null;
+}
+
+function getActionDatasetId(action: ChatAction): string | null {
+  return typeof action.dataset_id === 'string' && action.dataset_id ? action.dataset_id : null;
+}
+
+function getActionPaint(action: Pick<ChatAction, 'paint'>): Record<string, unknown> | null {
+  return isRecord(action.paint) ? action.paint : null;
+}
+
+function getActionClearPaint(action: Pick<ChatAction, 'clear_paint'>): string[] {
+  return Array.isArray(action.clear_paint)
+    ? action.clear_paint.filter((key): key is string => typeof key === 'string' && key.length > 0)
+    : [];
+}
+
+function getChatActions(value: unknown): ChatAction[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is ChatAction => isRecord(item) && typeof item.type === 'string');
+}
+
 export function buildChatActionPaint(
   currentPaint: Record<string, unknown> | null | undefined,
   action: Pick<ChatAction, 'paint' | 'clear_paint' | 'replace_paint'>,
 ): Record<string, unknown> {
   const nextPaint: Record<string, unknown> = action.replace_paint ? {} : { ...(currentPaint ?? {}) };
-  for (const [key, value] of Object.entries(action.paint ?? {})) {
+  for (const [key, value] of Object.entries(getActionPaint(action) ?? {})) {
     if (value == null) {
       delete nextPaint[key];
     } else {
       nextPaint[key] = value;
     }
   }
-  for (const key of action.clear_paint ?? []) {
+  for (const key of getActionClearPaint(action)) {
     delete nextPaint[key];
   }
   return nextPaint;
+}
+
+function hasPaintMutation(action: ChatAction): boolean {
+  const paint = getActionPaint(action);
+  return Boolean(
+    (paint && Object.keys(paint).length > 0) ||
+    getActionClearPaint(action).length > 0 ||
+    (action.replace_paint === true && paint),
+  );
 }
 
 export interface LayerActions {
@@ -222,49 +259,58 @@ export function ChatPanel({
   }, [onPaintChange, onFilterChange, onLabelChange, onToggleVisibility, onStyleConfigChange, onOpacityChange, onRemove, onAddDataset, t]);
 
   function handleChatAction(action: ChatAction) {
+    const layerId = getActionLayerId(action);
     switch (action.type) {
       case 'set_filter':
-        if (action.layer_id) onFilterChange(action.layer_id, action.expression ?? null);
+        if (layerId) onFilterChange(layerId, Array.isArray(action.expression) ? action.expression : null);
         break;
       case 'set_style':
-        if (action.layer_id && (action.paint || action.clear_paint?.length || action.replace_paint)) {
-          const layer = layersRef.current.find((candidate) => candidate.id === action.layer_id);
-          if (layer) onPaintChange(action.layer_id, buildChatActionPaint(layer.paint, action));
+        if (layerId && hasPaintMutation(action)) {
+          const layer = layersRef.current.find((candidate) => candidate.id === layerId);
+          if (layer) onPaintChange(layerId, buildChatActionPaint(layer.paint, action));
         }
         break;
       case 'set_data_driven_style':
-        if (action.layer_id && action.paint) {
-          const layer = layersRef.current.find((candidate) => candidate.id === action.layer_id);
+        if (layerId && getActionPaint(action)) {
+          const layer = layersRef.current.find((candidate) => candidate.id === layerId);
           const nextPaint = buildChatActionPaint(layer?.paint, action);
-          onStyleConfigChange(action.layer_id, action.style_config ?? null, nextPaint);
+          onStyleConfigChange(
+            layerId,
+            isRecord(action.style_config) ? action.style_config as StyleConfig : null,
+            nextPaint,
+          );
         }
         break;
       case 'set_label':
-        if (action.layer_id) {
-          if (action.label_config) {
-            onLabelChange(action.layer_id, action.label_config);
+        if (layerId) {
+          if (isRecord(action.label_config)) {
+            onLabelChange(layerId, action.label_config as LabelConfig);
           } else {
-            onLabelChange(action.layer_id, null);
+            onLabelChange(layerId, null);
           }
         }
         break;
       case 'toggle_visibility':
-        if (action.layer_id) onToggleVisibility(action.layer_id, action.visible ?? undefined);
+        if (layerId) onToggleVisibility(layerId, typeof action.visible === 'boolean' ? action.visible : undefined);
         break;
       case 'show_query_result':
         dispatchQueryResult(action);
         break;
-      case 'add_layer':
-        if (action.dataset_id) onAddDataset(action.dataset_id);
+      case 'add_layer': {
+        const datasetId = getActionDatasetId(action);
+        if (datasetId) onAddDataset(datasetId);
         break;
+      }
       case 'remove_layer':
-        if (action.layer_id) onRemove(action.layer_id);
+        if (layerId) onRemove(layerId);
         break;
-      case 'set_opacity':
-        if (action.layer_id && action.opacity !== undefined && action.opacity !== null) {
-          onOpacityChange?.(action.layer_id, action.opacity);
+      case 'set_opacity': {
+        const opacity = normalizeLayerOpacity(action.opacity);
+        if (layerId && opacity !== null) {
+          onOpacityChange?.(layerId, opacity);
         }
         break;
+      }
     }
   }
 
@@ -316,12 +362,14 @@ export function ChatPanel({
           case 'tool_result':
             setToolProgress(null);
             break;
-          case 'actions':
+          case 'actions': {
+            const actions = getChatActions(data.actions);
+            if (actions.length === 0) break;
             // B-011: Snapshot layers before first mutation
             if (pendingActions.length === 0) {
               lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
             }
-            for (const action of data.actions as ChatAction[]) {
+            for (const action of actions) {
               if (action.type === 'show_query_result') {
                 dispatchQueryResult(action);
                 continue;
@@ -329,11 +377,13 @@ export function ChatPanel({
               handleChatAction(action);
               pendingActions.push(action);
               // B-023: Clean stale layer refs from session history after remove_layer
-              if (action.type === 'remove_layer' && action.layer_id) {
-                cleanStaleLayerRefs(mapId, action.layer_id);
+              const layerId = getActionLayerId(action);
+              if (action.type === 'remove_layer' && layerId) {
+                cleanStaleLayerRefs(mapId, layerId);
               }
             }
             break;
+          }
           case 'done': {
             const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || text;
             setMessages((prev) => [
@@ -401,14 +451,16 @@ export function ChatPanel({
         try {
           const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
           // B-011: Snapshot layers before non-streaming fallback mutations
-          if (response.actions.length > 0) {
+          const responseActions = getChatActions(response.actions);
+          if (responseActions.length > 0) {
             lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
           }
-          for (const action of response.actions) {
+          for (const action of responseActions) {
             handleChatAction(action);
             // B-023: Clean stale layer refs after remove_layer
-            if (action.type === 'remove_layer' && action.layer_id) {
-              cleanStaleLayerRefs(mapId, action.layer_id);
+            const layerId = getActionLayerId(action);
+            if (action.type === 'remove_layer' && layerId) {
+              cleanStaleLayerRefs(mapId, layerId);
             }
           }
           setMessages((prev) => [
@@ -417,7 +469,7 @@ export function ChatPanel({
               id: crypto.randomUUID(),
               role: 'assistant',
               content: response.explanation,
-              actions: response.actions,
+              actions: responseActions.length > 0 ? responseActions : undefined,
             },
           ]);
         } catch (fallbackErr) {

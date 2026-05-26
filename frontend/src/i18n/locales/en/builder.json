@@ -204,7 +204,7 @@
     "maxZoom": "Max zoom",
     "renderAs": "Render as",
     "renderPoints": "Points",
-    "renderSymbol": "Labels",
+    "renderSymbol": "Symbols",
     "renderHeatmap": "Heatmap",
     "renderCluster": "Cluster",
     "none": "None",
@@ -534,8 +534,8 @@
     "sourcePlaceholder": "Select DEM",
     "exaggeration": "Exaggeration",
     "noDem": "Add a DEM raster layer to enable terrain.",
-    "unitsUnknown": "Vertical units are unavailable; exaggeration is approximate.",
-    "unitsNonMeter": "Vertical units are {{unit}}, not meters; exaggeration is approximate."
+    "unitsUnknown": "Vertical units are unavailable; terrain scale is approximate.",
+    "unitsNonMeter": "Vertical units are {{unit}}, not meters; terrain scale is approximate."
   },
   "featurePopup": {
     "noAttributes": "No attributes",
@@ -825,7 +825,10 @@
     "listboxLabel": "Map layers"
   },
   "rail": {
-    "aiDisabled": "AI disabled by admin"
+    "aiDisabled": "AI disabled by admin",
+    "aiUnavailable": "AI unavailable",
+    "aiUnavailableTitle": "AI is unavailable",
+    "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder."
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
@@ -883,13 +886,13 @@
     "renderAsTerrain": "◬ Terrain",
     "sunPositionLabel": "SUN POSITION",
     "azimuth": "Azimuth",
-    "altitude": "Altitude",
     "exaggeration": "Exaggeration",
     "shadingColorsLabel": "SHADING COLORS",
     "highlight": "Highlight",
     "shadow": "Shadow",
     "accent": "Accent",
-    "terrainHint": "Terrain uses elevation data to extrude the map surface. Adjust terrain exaggeration in Settings → Terrain.",
+    "terrainHint": "Terrain uses elevation data to extrude the map surface.",
+    "terrainExaggeration": "Terrain exaggeration",
     "imageHint": "No additional appearance controls for image mode",
     "compassAriaLabel": "Sun azimuth: {{azimuth}}°"
   },
@@ -958,12 +961,10 @@
     "terrainLabel": "TERRAIN",
     "widgetsLabel": "WIDGETS",
     "projectionLabel": "PROJECTION",
-    "terrainActiveHint": "{{value}}× exaggeration",
+    "terrainActiveHint": "Terrain active",
     "terrainInactiveCollapsedHint": "No terrain active",
-    "exaggeration": "Exaggeration",
-    "terrainExaggerationAria": "Terrain exaggeration",
     "boundTo": "Bound to: {{name}}",
-    "terrainInactiveHint": "No terrain layer is active. Switch a DEM layer to Terrain mode to enable global terrain exaggeration.",
+    "terrainInactiveHint": "No terrain layer is active.",
     "widgetsEnabledCount": "{{count}} enabled",
     "noWidgets": "No widgets available.",
     "widgetsGroupAria": "Widgets",

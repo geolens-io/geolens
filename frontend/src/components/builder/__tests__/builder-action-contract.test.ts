@@ -22,6 +22,8 @@ function makeHandlers(): BuilderLayerActionHandlers {
     duplicateRendering: vi.fn(),
     reorderLayers: vi.fn(),
     bindDemTerrain: vi.fn(),
+    unbindDemTerrain: vi.fn(),
+    setDemTerrainExaggeration: vi.fn(),
   };
 }
 
@@ -107,6 +109,16 @@ describe('builder action contract', () => {
         handler: 'bindDemTerrain',
         args: ['dem-layer'],
       },
+      {
+        action: { type: 'unbind_dem_terrain', layerId: 'dem-layer' },
+        handler: 'unbindDemTerrain',
+        args: ['dem-layer'],
+      },
+      {
+        action: { type: 'set_dem_terrain_exaggeration', layerId: 'dem-layer', exaggeration: 2.1 },
+        handler: 'setDemTerrainExaggeration',
+        args: ['dem-layer', 2.1],
+      },
     ];
 
     for (const { action, handler, args } of cases) {
@@ -144,5 +156,35 @@ describe('builder action contract', () => {
 
     expect(handlers.removeDraftLayer).toHaveBeenCalledWith('layer-1');
     expect(handlers.removePersistedLayer).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { input: 1.7, expected: 1 },
+    { input: -0.3, expected: 0 },
+    { input: 0.65, expected: 0.65 },
+  ])('clamps opacity action payload $input to $expected', ({ input, expected }) => {
+    const handlers = makeHandlers();
+
+    dispatchBuilderLayerAction({
+      type: 'set_opacity',
+      source: 'ai',
+      layerId: 'layer-1',
+      opacity: input,
+    }, handlers);
+
+    expect(handlers.setOpacity).toHaveBeenCalledWith('layer-1', expected);
+  });
+
+  it('ignores non-finite opacity action payloads', () => {
+    const handlers = makeHandlers();
+
+    dispatchBuilderLayerAction({
+      type: 'set_opacity',
+      source: 'ai',
+      layerId: 'layer-1',
+      opacity: Number.NaN,
+    }, handlers);
+
+    expect(handlers.setOpacity).not.toHaveBeenCalled();
   });
 });

@@ -204,7 +204,7 @@
     "maxZoom": "Zoom máximo",
     "renderAs": "Renderizar como",
     "renderPoints": "Puntos",
-    "renderSymbol": "Etiquetas",
+    "renderSymbol": "Símbolos",
     "renderHeatmap": "Mapa de calor",
     "renderCluster": "Agrupación",
     "none": "Ninguno",
@@ -534,8 +534,8 @@
     "sourcePlaceholder": "Seleccionar DEM",
     "exaggeration": "Exageración",
     "noDem": "Agregue una capa ráster DEM para activar el terreno.",
-    "unitsUnknown": "Las unidades verticales no están disponibles; la exageración es aproximada.",
-    "unitsNonMeter": "Las unidades verticales son {{unit}}, no metros; la exageración es aproximada."
+    "unitsUnknown": "Las unidades verticales no están disponibles; la escala del terreno es aproximada.",
+    "unitsNonMeter": "Las unidades verticales son {{unit}}, no metros; la escala del terreno es aproximada."
   },
   "featurePopup": {
     "noAttributes": "Sin atributos",
@@ -825,7 +825,10 @@
     "listboxLabel": "Capas del mapa"
   },
   "rail": {
-    "aiDisabled": "IA desactivada por el administrador"
+    "aiDisabled": "IA desactivada por el administrador",
+    "aiUnavailable": "IA no disponible",
+    "aiUnavailableTitle": "La IA no está disponible",
+    "aiUnavailableDescription": "Un administrador debe habilitar un proveedor de IA antes de usar Preguntar a la IA en este builder."
   },
   "stackRow": {
     "dragHandle": "Arrastrar para reordenar {{name}}",
@@ -883,13 +886,13 @@
     "renderAsTerrain": "◬ Terreno",
     "sunPositionLabel": "POSICIÓN DEL SOL",
     "azimuth": "Azimut",
-    "altitude": "Altitud",
     "exaggeration": "Exageración",
     "shadingColorsLabel": "COLORES DE SOMBREADO",
     "highlight": "Luz",
     "shadow": "Sombra",
     "accent": "Acento",
-    "terrainHint": "El terreno usa datos de elevación para extruir la superficie del mapa. Ajuste la exageración del terreno en Configuración → Terreno.",
+    "terrainHint": "El terreno usa datos de elevación para extruir la superficie del mapa.",
+    "terrainExaggeration": "Exageración del terreno",
     "imageHint": "No hay controles de apariencia adicionales para el modo imagen",
     "compassAriaLabel": "Azimut solar: {{azimuth}}°"
   },
@@ -958,12 +961,10 @@
     "terrainLabel": "TERRENO",
     "widgetsLabel": "WIDGETS",
     "projectionLabel": "PROYECCIÓN",
-    "terrainActiveHint": "{{value}}× de exageración",
+    "terrainActiveHint": "Terreno activo",
     "terrainInactiveCollapsedHint": "Sin terreno activo",
-    "exaggeration": "Exageración",
-    "terrainExaggerationAria": "Exageración del terreno",
     "boundTo": "Vinculado a: {{name}}",
-    "terrainInactiveHint": "No hay ninguna capa de terreno activa. Cambie una capa DEM al modo Terreno para habilitar la exageración global del terreno.",
+    "terrainInactiveHint": "No hay ninguna capa de terreno activa.",
     "widgetsEnabledCount": "{{count}} activados",
     "noWidgets": "No hay widgets disponibles.",
     "widgetsGroupAria": "Widgets",

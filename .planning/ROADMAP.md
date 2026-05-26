@@ -1,109 +1,96 @@
 # Roadmap: GeoLens
 
-## v1027 Map Builder Architecture Simplification
+## v1028 Map Builder Product Polish (Shipped 2026-05-25)
 
-**Goal:** Reduce map-builder orchestration complexity while preserving the v1026 style reconciliation contract, AI chat action behavior, save/reload durability, viewer/embed parity, and the target ADK map's marketing screenshot quality.
+**Goal:** Polish the map builder's highest-value authoring workflows, showcase-map output, Notes experience, and AI-assisted edits while proving the product on the standard GeoLens stack with Playwright MCP.
 
-**Trigger:** The v1025-v1026 polishing work fixed several user-visible defects, but it also exposed a broader maintainability problem: `MapBuilderPage`, `use-builder-layers`, `BuilderMap`, `ViewerMap`, `map-sync`, and `basemap-utils` still carry overlapping responsibilities for state, live MapLibre mutation, persistence, editor wiring, and AI-facing actions. The architecture now needs a staged simplification pass before more map-builder features are added.
+**Trigger:** v1025-v1027 hardened the ADK target map, style reconciliation, builder architecture, and action boundaries. The next value step is user-facing polish: run the product like a real map author, validate Notes and AI in the builder, improve the showcase map and screenshot path, and close visible quality gaps without maintaining a separate demo instance.
 
-**Hard invariant:** Refactoring must reduce duplication and clarify ownership without changing existing builder behavior. Manual UI actions, AI chat actions, basemap/background settings, layer options, style reconciliation, undo/history, save/reload, public viewer, embed viewer, and the target map UAT flows must remain functionally equivalent or explicitly improved by a documented bug fix.
+**Hard invariant:** v1028 is product polish on the standard GeoLens app/local stack. Do not introduce, preserve, or plan around a separate demo instance, demo deployment, or demo compose validation path. Manual builder workflows, Notes, AI actions, undo/history, save/reload, public viewer, embed viewer, and the target map UAT flows must remain functionally coherent or explicitly improve via documented bug fixes.
 
 ### Phase Plan
 
-- [x] **Phase 1118: Architecture Baseline and Complexity Budget** — audit current ownership, define the target boundaries, document regression surfaces, and pin the no-regression contract.
-- [x] **Phase 1119: Basemap State Controller** — consolidate basemap/background/terrain/sublayer state and close remove-basemap drift paths.
-- [x] **Phase 1120: Builder/Viewer Sync Orchestrator** — share source/layer/style/background/terrain ordering between builder and viewer without hiding adapter-specific behavior.
-- [x] **Phase 1121: Editor Scene Controller Extraction** — slim `MapBuilderPage` and `use-builder-layers` by extracting editor scene, dialog, selection, persistence, and dirty-state controllers.
-- [x] **Phase 1122: Layer Action Contract and AI Bridge Cleanup** — route manual actions, duplicate/remove flows, undo/history, persistence, and AI chat through a typed command boundary.
-- [x] **Phase 1123: Test Fixture DRY-Up and Close Gate** — consolidate builder test fixtures, run focused gates, complete Playwright MCP UAT, and update audit guidance.
+- [x] **Phase 1124: Builder Workflow and Notes/AI Audit** — use Playwright MCP to sweep builder workflows, Notes, AI, target map, console/network hygiene, and no-demo-instance assumptions before fixes.
+- [x] **Phase 1125: Builder Workflow Polish** — fix the highest-value layer authoring, save/dirty, undo/history, responsive editor, empty/error-state, and options-menu polish gaps found in the audit.
+- [x] **Phase 1126: Notes and AI Authoring Polish** — harden Builder Notes and AI-assisted authoring flows with persistence, disabled/error states, command semantics, and regression coverage.
+- [x] **Phase 1127: Showcase Map and Capture Polish** — polish the ADK target map and screenshot/capture path in-product, verifying builder/viewer/embed parity without a separate demo instance.
+- [x] **Phase 1128: Quality Sweep and Close Gate** — run focused tests, frontend gates, Playwright MCP close gate, docs/reference cleanup, milestone audit, and lifecycle close.
 
-### Phase 1118: Architecture Baseline and Complexity Budget
+### Phase 1124: Builder Workflow and Notes/AI Audit
 
-**Goal:** Establish the exact ownership and regression map before changing architecture.
+**Goal:** Establish the concrete product-polish target list from live builder use before implementation starts.
 
-**Requirements:** ARCH-01, ARCH-02, ARCH-03, ARCH-04
+**Requirements:** AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
 
 **Depends on:** —
 
 **Success Criteria:**
-1. Current responsibilities are documented with code references for the main builder files and AI chat action paths.
-2. Complexity budgets and ownership targets are written down before implementation starts.
-3. Regression surfaces from the recent dogfooding run are listed, including remove basemap and duplicate layer.
-4. The v1026 style reconciler contract is preserved as an explicit implementation constraint.
+1. Playwright MCP evidence covers add/edit layers, options menus, save feedback, undo/history, empty/error states, responsive editor behavior, Notes, AI, and viewer parity.
+2. Findings are triaged into fix-now, defer, or accepted-with-rationale buckets.
+3. The audit uses the standard GeoLens app/local stack and explicitly rejects separate-demo-instance assumptions.
+4. The next phases have concrete, user-visible fixes or verification targets.
 
-### Phase 1119: Basemap State Controller
+### Phase 1125: Builder Workflow Polish
 
-**Goal:** Make basemap, background, terrain, and sublayer state flow through one canonical controller.
+**Goal:** Close the highest-value manual authoring friction found in the audit.
 
-**Requirements:** BASEMAP-01, BASEMAP-02, BASEMAP-03, BASEMAP-04
+**Requirements:** WORKFLOW-01, WORKFLOW-02, WORKFLOW-03, WORKFLOW-04
 
-**Depends on:** Phase 1118
-
-**Success Criteria:**
-1. Basemap config has one canonical state path for style, visibility, opacity, terrain, background, and sublayer overrides.
-2. Temporary split state is removed or contained behind the controller.
-3. Remove basemap persists and reloads without stale MapLibre layers or sources.
-4. Focused tests cover basemap transitions and reload normalization.
-
-### Phase 1120: Builder/Viewer Sync Orchestrator
-
-**Goal:** Remove duplicated sync sequencing between builder and viewer while keeping adapters explicit.
-
-**Requirements:** SYNC-01, SYNC-02, SYNC-03, SYNC-04
-
-**Depends on:** Phase 1119
+**Depends on:** Phase 1124
 
 **Success Criteria:**
-1. Builder and viewer share a source/layer/style/background/terrain sequencing contract.
-2. Companion layers, style reconciler cleanup, terrain retries, and error isolation keep existing behavior.
-3. Builder reload, public viewer, embed viewer, and style JSON paths remain visually consistent.
-4. The abstraction stays small and does not erase layer-type-specific adapter logic.
+1. Save/dirty feedback is clear after layer edits, reorders, duplicate/remove actions, and settings changes.
+2. Layer options, editor panels, empty states, and error states remain stable on desktop and mobile-sized viewports.
+3. Undo/history behavior stays coherent after manual authoring actions and map-level saves.
+4. Focused tests pin fixed behavior without overfitting to v1027 internals.
 
-### Phase 1121: Editor Scene Controller Extraction
+### Phase 1126: Notes and AI Authoring Polish
 
-**Goal:** Shrink top-level builder orchestration by extracting editor scene and hook responsibilities.
+**Goal:** Make Builder Notes and AI-assisted authoring reliable enough for real map-authoring use.
 
-**Requirements:** SCENE-01, SCENE-02, SCENE-03, SCENE-04
+**Requirements:** NOTES-01, NOTES-02, NOTES-03, NOTES-04, AI-01, AI-02, AI-03, AI-04
 
-**Depends on:** Phase 1120
-
-**Success Criteria:**
-1. `MapBuilderPage` delegates editor scene routing, settings wiring, dialogs, selection, and screenshot/UAT affordances.
-2. `use-builder-layers` is split along durable mutation and persistence boundaries.
-3. Layer editor save semantics are explicit and verified.
-4. Drag/drop, keyboard, mobile sheet, dirty-state, and unsaved-change behavior do not regress.
-
-### Phase 1122: Layer Action Contract and AI Bridge Cleanup
-
-**Goal:** Route layer mutations through a typed command boundary that manual UI and AI chat can share.
-
-**Requirements:** ACTION-01, ACTION-02, ACTION-03, ACTION-04
-
-**Depends on:** Phase 1121
+**Depends on:** Phase 1125
 
 **Success Criteria:**
-1. Add, remove, duplicate, reorder, visibility, style, label, filter, basemap, terrain, and settings actions have typed command semantics.
-2. Duplicate layer works for supported layer types without ID/source collisions or transient-state leaks.
-3. Manual UI, undo/history, dirty tracking, persistence, and AI chat use the same semantics where practical.
-4. Backend chat schema/API artifact impact is either refreshed and verified or explicitly ruled out.
+1. Notes can be created, edited, removed, saved/reloaded, and exercised alongside map interaction without layout, focus, accessibility, or persistence defects.
+2. AI builder prompts for style changes, layer edits, and map-authoring assistance preserve command semantics, dirty tracking, undo/history, and save/reload expectations.
+3. Disabled, missing-provider, unauthenticated, and request-failure AI states degrade clearly.
+4. Notes and AI defects found by Playwright MCP are either fixed with regression coverage or logged with reproduction steps.
 
-### Phase 1123: Test Fixture DRY-Up and Close Gate
+### Phase 1127: Showcase Map and Capture Polish
 
-**Goal:** Consolidate builder test fixtures and prove the refactor against automated and browser UAT gates.
+**Goal:** Keep the ADK target map marketing-ready from the product itself.
 
-**Requirements:** TEST-01, TEST-02, TEST-03, TEST-04, VERIFY-01, VERIFY-02, VERIFY-03, VERIFY-04, VERIFY-05
+**Requirements:** SHOWCASE-01, SHOWCASE-02, SHOWCASE-03, SHOWCASE-04
 
-**Depends on:** Phases 1118-1122
+**Depends on:** Phase 1126
 
 **Success Criteria:**
-1. Builder tests share map/layer/basemap/style fixtures instead of bespoke mocks per component.
-2. Regression tests cover remove basemap, duplicate layer, terrain exaggeration, gradient-to-solid, background color, layer options, save/reload, and viewer/embed parity.
-3. Playwright MCP verifies the target map and captures console/network results.
-4. Frontend gates pass; backend/OpenAPI/SDK gates run if touched.
-5. CHANGELOG, summaries, milestone audit, and builder-audit guidance capture the architecture lessons.
+1. Terrain, imagery, DEM/hillshade, labels, lines, points, polygons, and layer ordering look intentional on the target ADK map.
+2. Screenshot capture is reliable from the product map itself.
+3. Builder, public viewer, and embed viewer remain visually aligned for the target map.
+4. Destructive UAT uses a throwaway copy and leaves the canonical target map unchanged unless explicitly intended.
+
+### Phase 1128: Quality Sweep and Close Gate
+
+**Goal:** Prove the polish work with automated gates, Playwright MCP, and clean milestone lifecycle artifacts.
+
+**Requirements:** QUALITY-01, QUALITY-02, QUALITY-03, QUALITY-04, QUALITY-05
+
+**Depends on:** Phases 1124-1127
+
+**Success Criteria:**
+1. Playwright MCP close gate covers the target map, throwaway editable copy, Notes, AI, layer options, save/reload, viewer parity, and console/network hygiene.
+2. Focused Vitest coverage plus `npm run typecheck`, `npm run lint`, and `npm run build` pass.
+3. Backend/OpenAPI/SDK/CLI gates run only if those surfaces are touched; otherwise the no-change decision is recorded.
+4. Active planning/docs touched by the milestone consistently state that there is no separate demo instance to maintain.
+5. CHANGELOG, summaries, and milestone audit capture workflow, Notes, AI, showcase-map, and accepted-limitation evidence.
 
 ## ✅ Historical Milestones
 
+- ✅ **v1028 Map Builder Product Polish** — Phases 1124-1128 (shipped 2026-05-25; Builder Notes clear/persistence fixes, AI unavailable-state polish, workflow regression gates, ADK showcase/shared/embed verification, active smoke path renamed from demo to showcase, no separate demo-instance release gate)
+- ✅ **v1027 Map Builder Architecture Simplification** — Phases 1118-1123 (shipped 2026-05-25; builder architecture baseline, basemap controller, shared composition sync, editor scene extraction, typed layer actions, fixture DRY-up, and Playwright MCP target-map verification)
 - ✅ **v1026 Mapbuilder Style Reconciler** — Phases 1112-1117 (shipped 2026-05-25; canonical style reconciliation across adapters, manual controls, AI chat actions, persistence/viewer parity, high-DPI sprite routing, terrain activation retry, and Playwright MCP close gate)
 - ✅ **v1025 Mapbuilder Polishing** — Phases 1107-1111 (shipped 2026-05-25; ADK 3D Relief deep QA, layer metadata fixes, marketing cartography, Playwright close gate, lint closeout)
 - ✅ **v1024 ADK High Peaks Marketing-Ready** — Phases 1101-1106 (completed locally 2026-05-24; ADK marketing data/maps, builder ordering, terrain controls, error hygiene, and Playwright close gate)
@@ -227,12 +214,11 @@
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1118. Architecture Baseline and Complexity Budget | v1027 | 1/1 | Complete | 2026-05-25 |
-| 1119. Basemap State Controller | v1027 | 1/1 | Complete | 2026-05-25 |
-| 1120. Builder/Viewer Sync Orchestrator | v1027 | 1/1 | Complete | 2026-05-25 |
-| 1121. Editor Scene Controller Extraction | v1027 | 1/1 | Complete | 2026-05-25 |
-| 1122. Layer Action Contract and AI Bridge Cleanup | v1027 | 1/1 | Complete | 2026-05-25 |
-| 1123. Test Fixture DRY-Up and Close Gate | v1027 | 1/1 | Complete | 2026-05-25 |
+| 1124. Builder Workflow and Notes/AI Audit | v1028 | 1/1 | Complete | 2026-05-25 |
+| 1125. Builder Workflow Polish | v1028 | 1/1 | Complete | 2026-05-25 |
+| 1126. Notes and AI Authoring Polish | v1028 | 1/1 | Complete | 2026-05-25 |
+| 1127. Showcase Map and Capture Polish | v1028 | 1/1 | Complete | 2026-05-25 |
+| 1128. Quality Sweep and Close Gate | v1028 | 1/1 | Complete | 2026-05-25 |
 
 ## Backlog
 

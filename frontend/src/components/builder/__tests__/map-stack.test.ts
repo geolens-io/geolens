@@ -39,6 +39,19 @@ function group(groups: MapStackGroup[], id: MapStackGroup['id']) {
 
 describe('buildMapStack', () => {
   it('returns all stack groups and separates DEM terrain from visual relief', () => {
+    const terrainLayer = makeLayer({
+      id: 'dem-terrain',
+      dataset_id: 'dem-1',
+      dataset_name: 'Canyon DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'canyon_dem',
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+      dem_vertical_units: 'meters',
+      sort_order: 0,
+      style_config: { render_mode: 'terrain' } as unknown as StyleConfig,
+    });
     const demLayer = makeLayer({
       id: 'dem-hillshade',
       dataset_id: 'dem-1',
@@ -49,7 +62,7 @@ describe('buildMapStack', () => {
       layer_type: 'raster_geolens',
       is_dem: true,
       dem_vertical_units: 'meters',
-      sort_order: 0,
+      sort_order: 1,
       style_config: { render_mode: 'hillshade' } as StyleConfig,
     });
     const dataLayer = makeLayer({
@@ -58,12 +71,12 @@ describe('buildMapStack', () => {
       dataset_name: 'Trails',
       dataset_geometry_type: 'LINESTRING',
       dataset_table_name: 'trails',
-      sort_order: 1,
+      sort_order: 2,
     });
 
     const groups = buildMapStack(makeMap({
       terrain_config: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2.5 },
-      layers: [demLayer, dataLayer],
+      layers: [terrainLayer, demLayer, dataLayer],
     }));
     const entries = flattenMapStack(groups);
 
@@ -80,7 +93,7 @@ describe('buildMapStack', () => {
       enabled: true,
       exaggeration: 2.5,
       sourceDatasetId: 'dem-1',
-      sourceLayerId: 'dem-hillshade',
+      sourceLayerId: 'dem-terrain',
       sourceStatus: 'active',
       verticalUnits: 'meters',
     });
@@ -98,6 +111,30 @@ describe('buildMapStack', () => {
     expect(terrain!.order).toBeLessThan(relief!.order);
     expect(relief!.order).toBeLessThan(entries.find((entry) => entry.id === 'basemap:preset:positron')!.order);
     expect(entries.find((entry) => entry.id === 'data:trails')!.order).toBeGreaterThan(relief!.order);
+  });
+
+  it('does not mark stale terrain config active when the source DEM is not in Terrain mode', () => {
+    const demLayer = makeLayer({
+      id: 'dem-hillshade',
+      dataset_id: 'dem-1',
+      dataset_name: 'Canyon DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'canyon_dem',
+      dataset_record_type: 'raster_dataset',
+      layer_type: 'raster_geolens',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as StyleConfig,
+    });
+
+    const entries = flattenMapStack(buildMapStack(makeMap({
+      terrain_config: { enabled: true, source_dataset_id: 'dem-1', exaggeration: 2 },
+      layers: [demLayer],
+    })));
+
+    const terrain = entries.find((entry) => entry.id === 'relief:terrain');
+    expect(terrain?.visible).toBe(false);
+    expect(terrain?.metadata.terrain?.enabled).toBe(false);
+    expect(terrain?.metadata.terrain?.sourceStatus).toBe('disabled');
   });
 
   it('computes stable order labels and metadata for duplicates, hidden layers, legend state, and labels', () => {
@@ -169,6 +206,22 @@ describe('buildMapStack', () => {
         labelColumn: 'name',
       },
     });
+  });
+
+  it('badges point symbol render mode separately from feature labels', () => {
+    const layer = makeLayer({
+      id: 'places',
+      dataset_geometry_type: 'POINT',
+      style_config: { render_mode: 'symbol' } as StyleConfig,
+      label_config: { column: 'name' },
+    });
+
+    const entries = flattenMapStack(buildMapStack(makeMap({ layers: [layer] })));
+    const data = entries.find((entry) => entry.id === 'data:places');
+
+    expect(data?.badges.map((badge) => badge.label)).toEqual(
+      expect.arrayContaining(['Symbols', 'Labels']),
+    );
   });
 
   it('marks unsupported vector layers and missing terrain sources for stack row state', () => {

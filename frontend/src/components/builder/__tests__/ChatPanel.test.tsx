@@ -220,6 +220,66 @@ describe('ChatPanel', () => {
     });
   });
 
+  it('clamps AI opacity actions before dispatching them to layer controls', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [{ type: 'set_opacity', layer_id: 'layer-1', opacity: 1.8 }],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Set opacity' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel({ onOpacityChange: vi.fn() });
+    await typeAndSend(user, 'make it too opaque');
+
+    await waitFor(() => {
+      expect(props.onOpacityChange).toHaveBeenCalledWith('layer-1', 1);
+    });
+  });
+
+  it('ignores malformed streamed actions payloads without falling back or mutating layers', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: null },
+      };
+      yield { event: 'done', data: { explanation: 'No valid actions' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'send malformed actions');
+
+    expect(await screen.findByText('No valid actions')).toBeInTheDocument();
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+    expect(props.onFilterChange).not.toHaveBeenCalled();
+    expect(mockSendChat).not.toHaveBeenCalled();
+  });
+
+  it('ignores malformed style paint payloads instead of applying indexed string keys', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: 'red' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Ignored malformed paint' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'style malformed');
+
+    expect(await screen.findByText('Ignored malformed paint')).toBeInTheDocument();
+    expect(props.onPaintChange).not.toHaveBeenCalled();
+  });
+
   it('patches set_style paint into the current layer paint', async () => {
     mockStreamChat.mockImplementation(async function* () {
       yield {
@@ -313,6 +373,52 @@ describe('ChatPanel', () => {
         'fill-color': '#22c55e',
       });
     });
+  });
+
+  it('undo restores the last AI mutation snapshot for existing layers', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'set_style', layer_id: 'layer-1', paint: { 'fill-color': '#ff0000' } },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+
+    const user = userEvent.setup();
+    const originalLayer = makeLayer({
+      paint: { 'fill-color': '#111827', 'fill-opacity': 0.4 },
+      filter: ['==', ['get', 'type'], 'park'],
+      label_config: { column: 'name' },
+      style_config: { mode: 'categorical', column: 'type', ramp: 'Viridis' },
+      visible: false,
+      opacity: 0.35,
+    });
+    const props = renderPanel({
+      layers: [originalLayer],
+      onOpacityChange: vi.fn(),
+    });
+
+    await typeAndSend(user, 'make it red');
+
+    await waitFor(() => {
+      expect(props.onPaintChange).toHaveBeenCalledWith('layer-1', {
+        'fill-color': '#ff0000',
+        'fill-opacity': 0.4,
+      });
+    });
+
+    await user.click(await screen.findByRole('button', { name: /undo/i }));
+
+    expect(props.onPaintChange).toHaveBeenLastCalledWith('layer-1', originalLayer.paint);
+    expect(props.onFilterChange).toHaveBeenCalledWith('layer-1', originalLayer.filter);
+    expect(props.onLabelChange).toHaveBeenCalledWith('layer-1', originalLayer.label_config);
+    expect(props.onToggleVisibility).toHaveBeenCalledWith('layer-1', false);
+    expect(props.onStyleConfigChange).toHaveBeenCalledWith('layer-1', originalLayer.style_config, originalLayer.paint);
+    expect(props.onOpacityChange).toHaveBeenCalledWith('layer-1', 0.35);
   });
 
   it('does not re-apply actions when streaming partially succeeds then fails', async () => {

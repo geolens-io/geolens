@@ -21,9 +21,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-map-builder.png" alt="Constructeur de cartes GeoLens composant des cartes interactives multicouches" width="900" />
+  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="Constructeur de cartes GeoLens modifiant une couche DEM hillshade des Adirondack High Peaks sur une carte de terrain 3D" width="900" />
   <br />
-  <em>Importez un shapefile et obtenez un jeu de données consultable, prévisualisable et exportable en quelques minutes</em>
+  <em>Ajustez les couches DEM, l'imagerie et les vecteurs dans le constructeur de cartes, puis partagez des cartes 3D interactives</em>
 </p>
 
 ## Documentation

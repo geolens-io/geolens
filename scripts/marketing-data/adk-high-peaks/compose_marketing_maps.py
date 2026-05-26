@@ -994,6 +994,10 @@ async def amain(args: argparse.Namespace) -> int:
                         "dataset_id": dataset_ids["adk-high-peaks-ny-orthos"],
                         "opacity": 1.0,
                         "layer_type": "raster_geolens",
+                        "paint": {
+                            "raster-resampling": "linear",
+                            "raster-fade-duration": 250,
+                        },
                         "display_name": "TNM/NY Orthos aerial",
                     })
                 return layers_spec
@@ -1003,10 +1007,25 @@ async def amain(args: argparse.Namespace) -> int:
                 for layer in layers:
                     if layer.get("display_name") == "DEM hillshade (1m)":
                         layer["opacity"] = 0.24
+                        layer["paint"] = {
+                            "hillshade-illumination-direction": 335,
+                            "hillshade-illumination-anchor": "viewport",
+                            "hillshade-exaggeration": 0.22,
+                            "hillshade-shadow-color": "#1f2937",
+                            "hillshade-highlight-color": "rgba(255,255,255,0.75)",
+                            "hillshade-accent-color": "rgba(100,116,139,0.3333)",
+                        }
                     elif layer.get("display_name") == "TNM/NY Orthos aerial":
-                        layer["opacity"] = 0.98
+                        layer["opacity"] = 0.88
+                        layer["paint"] = {
+                            "raster-resampling": "linear",
+                            "raster-fade-duration": 250,
+                            "raster-saturation": 0.08,
+                            "raster-contrast": 0.04,
+                        }
                     elif layer.get("display_name") == "Land classification":
-                        layer["opacity"] = 0.18
+                        layer["opacity"] = 0.08
+                        layer["paint"]["fill-opacity"] = 0.18
                 return layers
 
             map1_name = "Adirondack High Peaks — Terrain & Trails"
@@ -1046,7 +1065,13 @@ async def amain(args: argparse.Namespace) -> int:
                 },
                 browser_url=browser_url,
                 existing_map_id=map2_existing["id"] if map2_existing else None,
-                view_state={"center_lng": -73.94, "center_lat": 44.16, "zoom": 13.2, "pitch": 62, "bearing": -24},
+                view_state={
+                    "center_lng": -73.89976069334946,
+                    "center_lat": 44.148930090263434,
+                    "zoom": 13.925927254295274,
+                    "pitch": 58.49999999999999,
+                    "bearing": -42.3999999999997,
+                },
             )
             map_results.append(map2_result)
             print(f"  Map 2 saved: {map2_result.get('url')}")

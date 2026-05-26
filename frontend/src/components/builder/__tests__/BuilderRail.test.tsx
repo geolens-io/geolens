@@ -14,13 +14,17 @@ vi.mock('@/components/builder/HistoryPanel', () => ({
   ),
 }));
 
-function RailHarness({ showRail = true }: { showRail?: boolean }) {
+vi.mock('@/components/builder/ChatPanel', () => ({
+  ChatPanel: () => <div data-testid="chat-panel" />,
+}));
+
+function RailHarness({ showRail = true, aiAvailable = true }: { showRail?: boolean; aiAvailable?: boolean }) {
   const [activePanel, setActivePanel] = useState<RailPanel>(null);
   return (
     <BuilderRail
       activePanel={activePanel}
       onPanelChange={setActivePanel}
-      aiAvailable
+      aiAvailable={aiAvailable}
       showRail={showRail}
       notes=""
       onNotesChange={vi.fn()}
@@ -47,7 +51,7 @@ describe('BuilderRail', () => {
   });
 
   it('renders an active panel without the icon rail for mobile sheets', () => {
-    render(
+    const { container } = render(
       <BuilderRail
         activePanel="history"
         onPanelChange={vi.fn()}
@@ -62,6 +66,8 @@ describe('BuilderRail', () => {
 
     expect(screen.queryByRole('button', { name: 'History' })).toBeNull();
     expect(screen.getByTestId('history-panel')).toBeInTheDocument();
+    expect(container.querySelector('aside')?.className).toContain('h-full');
+    expect(container.querySelector('aside')?.className).toContain('min-h-0');
   });
 
   it('marks the map dirty when notes change', () => {
@@ -85,5 +91,38 @@ describe('BuilderRail', () => {
 
     expect(onNotesChange).toHaveBeenCalledWith('New note');
     expect(onMarkDirty).toHaveBeenCalled();
+  });
+
+  it('opens an AI unavailable panel without mounting ChatPanel', () => {
+    render(<RailHarness aiAvailable={false} />);
+
+    const aiButton = screen.getByRole('button', { name: 'AI unavailable' });
+    expect(aiButton).toHaveAttribute('data-unavailable', 'true');
+    expect(aiButton).not.toBeDisabled();
+    fireEvent.click(aiButton);
+
+    expect(screen.getByRole('status')).toHaveTextContent('AI is unavailable');
+    expect(screen.queryByTestId('chat-panel')).toBeNull();
+  });
+
+  it('gives notes a flexible editor area in sheet mode', () => {
+    const { container } = render(
+      <BuilderRail
+        activePanel="notes"
+        onPanelChange={vi.fn()}
+        aiAvailable
+        showRail={false}
+        notes=""
+        onNotesChange={vi.fn()}
+      />,
+    );
+
+    const panel = container.querySelector('aside');
+    const textarea = screen.getByRole('textbox');
+
+    expect(panel?.className).toContain('h-full');
+    expect(panel?.className).toContain('min-h-0');
+    expect(textarea.className).toContain('flex-1');
+    expect(textarea.className).toContain('min-h-[18rem]');
   });
 });

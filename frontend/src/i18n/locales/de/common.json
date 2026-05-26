@@ -380,6 +380,7 @@
     "routeMessage": "Diese Seite hat einen Fehler festgestellt. Sie können zurückgehen oder es erneut versuchen.",
     "routeGoBack": "Zurück",
     "routeGoHome": "Zur Startseite",
+    "reportBug": "Fehler melden",
     "builderUnsavedWarning": "Möglicherweise haben Sie ungespeicherte Änderungen. Beim Neuladen gehen diese verloren.",
     "lazyTitle": "Laden fehlgeschlagen",
     "lazyMessage": "Ein Teil der Anwendung konnte nicht geladen werden. Dies ist normalerweise ein Netzwerkproblem.",

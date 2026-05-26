@@ -413,6 +413,83 @@ class TestUpdateMap:
         assert data["name"] == "Updated Name"
         assert data["description"] == "Updated desc"
 
+    async def test_update_map_notes_sets_notes(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """PUT /maps/{id} with notes string stores private builder notes."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"notes": "Builder review notes"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["notes"] == "Builder review notes"
+
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        assert fetched.json()["notes"] == "Builder review notes"
+
+    async def test_update_map_notes_null_clears_notes(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """PUT /maps/{id} with notes=null clears existing private builder notes."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"notes": "Notes to clear"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["notes"] == "Notes to clear"
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"notes": None},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["notes"] is None
+
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        assert fetched.json()["notes"] is None
+
+    async def test_update_map_omitted_notes_preserves_existing_notes(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """PUT /maps/{id} without notes does not clear existing builder notes."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"notes": "Keep these notes"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["notes"] == "Keep these notes"
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"name": "Renamed map"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Renamed map"
+        assert resp.json()["notes"] == "Keep these notes"
+
+        fetched = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert fetched.status_code == 200
+        assert fetched.json()["notes"] == "Keep these notes"
+
     async def test_update_map_viewport(
         self, client: AsyncClient, admin_auth_header: dict
     ):

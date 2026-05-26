@@ -48,12 +48,17 @@ function optionIds(input: MapLayerResponse) {
   return getRenderAsOptions(input).map((option) => option.id);
 }
 
+function optionLabels(input: MapLayerResponse) {
+  return getRenderAsOptions(input).map((option) => option.label);
+}
+
 describe('renderAs view model', () => {
   it('offers point, symbol, and heatmap for point vector layers', () => {
     const point = layer({ dataset_geometry_type: 'MULTIPOINT' });
 
     expect(getRenderAsSource(point)).toBe('vector-point');
     expect(optionIds(point)).toEqual(['point', 'symbol', 'heatmap']);
+    expect(optionLabels(point)).toEqual(['Point', 'Symbols', 'Heatmap']);
     expect(getCurrentRenderAs(point)).toBe('point');
   });
 

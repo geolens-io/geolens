@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/lib/logger';
+import { ErrorReportButton } from './ErrorReportButton';
 
 interface AppErrorBoundaryState {
   hasError: boolean;
@@ -31,13 +32,16 @@ function AppErrorFallback({ error }: { error: Error | null }) {
             {error.message}
           </p>
         )}
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => window.location.reload()}
-        >
-          {reload}
-        </Button>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => window.location.reload()}
+          >
+            {reload}
+          </Button>
+          <ErrorReportButton />
+        </div>
       </div>
     </div>
   );

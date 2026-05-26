@@ -36,6 +36,8 @@ vi.mock('@/components/builder/map-sync', () => ({
   resolveAdapterType: vi.fn(() => 'fill'),
   getCompoundOpacity: vi.fn((_paint: Record<string, unknown>, _type: string, opacity: number) => opacity),
   getSourceIdForLayer: vi.fn((layer: { id: string }) => `source-${layer.id}`),
+  isDemTerrainVisualSuppressed: vi.fn((layer: { is_dem?: boolean | null; style_config?: { render_mode?: unknown } | null }) =>
+    layer.is_dem === true && layer.style_config?.render_mode === 'terrain'),
 }));
 
 vi.mock('@/lib/maplibre-filter-utils', () => ({
@@ -303,6 +305,109 @@ describe('useLayerMapSync — handleToggleVisibility (BUG-01 regression)', () =>
     expect(rafSpy).not.toHaveBeenCalled();
 
     rafSpy.mockRestore();
+  });
+
+  it('Test 9: DEM Terrain mode removes the visual DEM layer instead of drawing raw elevation tiles', () => {
+    const layer = makeLayer({
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+    });
+    const mapStub = makeMapStub([`layer-${LAYER_ID}`]);
+    (mapStub.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
+      id === `source-${LAYER_ID}`
+        ? { type: 'raster-dem', tiles: ['http://localhost:8080/raster-tiles/dem/{z}/{x}/{y}.png'] }
+        : undefined
+    ));
+    const mapRef = { current: mapStub };
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        layer.id,
+        { render_mode: 'terrain' } as unknown as NonNullable<MapLayerResponse['style_config']>,
+        layer.paint,
+      );
+    });
+
+    expect(mapStub.removeLayer).toHaveBeenCalledWith(`layer-${LAYER_ID}`);
+    expect(mapStub.removeSource).toHaveBeenCalledWith(`source-${LAYER_ID}`);
+    expect(mockAdapter.addLayers).not.toHaveBeenCalled();
+  });
+
+  it('Test 10: DEM Terrain mode removes a stale visual source even when the layer is already gone', () => {
+    const layer = makeLayer({
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+    });
+    const mapStub = makeMapStub([]);
+    (mapStub.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
+      id === `source-${LAYER_ID}`
+        ? { type: 'raster-dem', tiles: ['http://localhost:8080/raster-tiles/dem/{z}/{x}/{y}.png'] }
+        : undefined
+    ));
+    const mapRef = { current: mapStub };
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleStyleConfigChange(
+        layer.id,
+        { render_mode: 'terrain' } as unknown as NonNullable<MapLayerResponse['style_config']>,
+        layer.paint,
+      );
+    });
+
+    expect(mapStub.removeLayer).not.toHaveBeenCalled();
+    expect(mapStub.removeSource).toHaveBeenCalledWith(`source-${LAYER_ID}`);
+    expect(mockAdapter.addLayers).not.toHaveBeenCalled();
+  });
+
+  it('Test 11: DEM Hillshade opacity sync uses hillshade adapter instead of raster-opacity', () => {
+    const layer = makeLayer({
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      dataset_record_type: 'raster_dataset',
+      is_dem: true,
+      style_config: { render_mode: 'hillshade' } as MapLayerResponse['style_config'],
+      paint: {
+        'hillshade-shadow-color': '#1f2937',
+        'hillshade-highlight-color': '#ffffff',
+        'hillshade-accent-color': '#64748b',
+      },
+    });
+    const mapStub = makeMapStub([`layer-${LAYER_ID}`]);
+    const mapRef = { current: mapStub };
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleOpacityChange(layer.id, 0.5);
+    });
+
+    expect(mockAdapter.syncPaint).toHaveBeenCalledWith(
+      mapStub,
+      expect.objectContaining({
+        layerId: `layer-${LAYER_ID}`,
+        opacity: 0.5,
+        style_config: expect.objectContaining({ render_mode: 'hillshade' }),
+        is_dem: true,
+      }),
+    );
+    expect(mapStub.setPaintProperty).not.toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`,
+      'raster-opacity',
+      expect.anything(),
+    );
   });
 });
 

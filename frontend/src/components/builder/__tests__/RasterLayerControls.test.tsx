@@ -198,6 +198,11 @@ describe('RasterLayerControls', () => {
     expect(onPaintChange).toHaveBeenCalledWith(expect.objectContaining({
       'hillshade-illumination-direction': 315,
     }));
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Relief' }), { target: { value: '2.1' } });
+    expect(onPaintChange).toHaveBeenCalledWith(expect.objectContaining({
+      'hillshade-exaggeration': 1,
+    }));
   });
 
   it('writes DEM render mode changes to style config', () => {

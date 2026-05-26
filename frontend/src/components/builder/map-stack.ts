@@ -218,8 +218,12 @@ function isTerrainCapableDemLayer(layer: MapLayerResponse) {
   return layer.is_dem === true && DEM_RECORD_TYPES.has(String(layer.dataset_record_type ?? ''));
 }
 
+function isTerrainRenderLayer(layer: MapLayerResponse) {
+  return isTerrainCapableDemLayer(layer) && renderMode(layer.style_config) === 'terrain';
+}
+
 function isDemVisualLayer(layer: MapLayerResponse) {
-  return layer.is_dem === true;
+  return layer.is_dem === true && renderMode(layer.style_config) !== 'terrain';
 }
 
 function reliefRole(layer: MapLayerResponse): Extract<MapStackRole, `relief-${string}`> {
@@ -234,7 +238,7 @@ function typeBadge(layer: MapLayerResponse): MapStackBadge {
   if (mode === 'hillshade') return { label: 'Hillshade', tone: 'info' };
   if (mode === 'heatmap') return { label: 'Heatmap', tone: 'info' };
   if (mode === 'cluster') return { label: 'Cluster', tone: 'info' };
-  if (mode === 'symbol') return { label: 'Labels', tone: 'info' };
+  if (mode === 'symbol') return { label: 'Symbols', tone: 'info' };
   if (mode === 'arrow') return { label: 'Arrow', tone: 'info' };
   if (layer.is_dem) return { label: 'DEM', tone: 'info' };
   if (layer.layer_type !== 'raster_geolens' && !layer.dataset_geometry_type) {
@@ -392,26 +396,34 @@ function makeTerrainReliefEntry(
   const demLayers = orderedLayers
     .map(({ layer }) => layer)
     .filter(isTerrainCapableDemLayer);
+  const terrainLayers = demLayers.filter(isTerrainRenderLayer);
   if (demLayers.length === 0 && !terrainConfig?.source_dataset_id) return;
 
   const configuredSourceId = terrainConfig?.source_dataset_id ?? null;
-  const selectedLayer = configuredSourceId
+  const selectedDemLayer = configuredSourceId
     ? demLayers.find((layer) => layer.dataset_id === configuredSourceId) ?? null
     : demLayers[0] ?? null;
-  const fallbackLayer = !selectedLayer && demLayers.length > 0 ? demLayers[0] : null;
-  const sourceLayer = selectedLayer ?? fallbackLayer;
+  const selectedTerrainLayer = selectedDemLayer && isTerrainRenderLayer(selectedDemLayer)
+    ? selectedDemLayer
+    : null;
+  const fallbackLayer = !selectedTerrainLayer && terrainLayers.length > 0 ? terrainLayers[0] : null;
+  const sourceLayer = selectedTerrainLayer ?? selectedDemLayer ?? fallbackLayer;
   const sourceStatus: MapStackTerrainSourceStatus = terrainConfig?.enabled
-    ? selectedLayer
+    ? selectedTerrainLayer
       ? 'active'
-      : fallbackLayer
-        ? 'fallback'
-        : 'missing'
+      : selectedDemLayer
+        ? 'disabled'
+        : fallbackLayer
+          ? 'fallback'
+          : 'missing'
     : configuredSourceId
-      ? selectedLayer
+      ? selectedDemLayer
         ? 'disabled'
         : 'missing'
-      : 'available';
-  const enabled = terrainConfig?.enabled === true && sourceStatus !== 'missing';
+      : terrainLayers.length > 0
+        ? 'available'
+        : 'disabled';
+  const enabled = terrainConfig?.enabled === true && sourceStatus === 'active';
   const title = sourceLayer ? displayLayerName(sourceLayer) : 'Terrain source missing';
   const subtitle = sourceLayer
     ? `Elevation source${enabled ? `, ${terrainConfig?.exaggeration ?? 1}x exaggeration` : ''}`
@@ -530,7 +542,7 @@ function makeDataEntries(
 ) {
   const dataLayers = orderedLayers
     .map(({ layer }) => layer)
-    .filter((layer) => !isDemVisualLayer(layer));
+    .filter((layer) => !isDemVisualLayer(layer) && !isTerrainRenderLayer(layer));
   const data = groupFor(groups, 'data');
   [...dataLayers].reverse().forEach((layer, indexFromBottom) => {
     const indexFromTop = dataLayers.length - indexFromBottom - 1;
@@ -595,7 +607,7 @@ function makeLabelEntries(
 
   const labelLayers = orderedLayers
     .map(({ layer }) => layer)
-    .filter((layer) => !isDemVisualLayer(layer) && labelColumn(layer.label_config));
+    .filter((layer) => !isDemVisualLayer(layer) && !isTerrainRenderLayer(layer) && labelColumn(layer.label_config));
   [...labelLayers].reverse().forEach((layer, indexFromBottom) => {
     const drawOrder = GROUP_ORDER_BASE.labels + 100 + indexFromBottom;
     const duplicate = duplicates.byLayerId.get(layer.id);
@@ -625,7 +637,7 @@ function makeInteractionEntries(groups: MapStackGroup[], orderedLayers: IndexedL
   const interactions = groupFor(groups, 'interactions');
   const popupLayers = orderedLayers
     .map(({ layer }) => layer)
-    .filter((layer) => popupEnabled(layer.popup_config));
+    .filter((layer) => !isTerrainRenderLayer(layer) && popupEnabled(layer.popup_config));
 
   popupLayers.forEach((layer, index) => {
     const drawOrder = GROUP_ORDER_BASE.interactions + index;

@@ -107,6 +107,42 @@ describe('useBuilderLayers — group_meta / groupMeta', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('handleDEMTerrainUnbind clears terrain config for the bound DEM layer', () => {
+    const layer = makeMockLayer({ id: 'dem-layer-1', dataset_id: 'dem-ds-1', is_dem: true });
+    const { result } = renderBuilderLayers(makeMapData([layer], {
+      terrain_config: { enabled: true, source_dataset_id: 'dem-ds-1', exaggeration: 2.5 },
+    }));
+
+    act(() => {
+      result.current.handleDEMTerrainUnbind('dem-layer-1');
+    });
+
+    expect(result.current.localTerrainConfig).toEqual({
+      enabled: false,
+      source_dataset_id: null,
+      exaggeration: 2.5,
+    });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('handleDEMTerrainExaggerationChange binds the DEM source and clamps terrain exaggeration', () => {
+    const layer = makeMockLayer({ id: 'dem-layer-1', dataset_id: 'dem-ds-1', is_dem: true });
+    const { result } = renderBuilderLayers(makeMapData([layer], {
+      terrain_config: { enabled: false, source_dataset_id: null, exaggeration: 1 },
+    }));
+
+    act(() => {
+      result.current.handleDEMTerrainExaggerationChange('dem-layer-1', 5);
+    });
+
+    expect(result.current.localTerrainConfig).toEqual({
+      enabled: true,
+      source_dataset_id: 'dem-ds-1',
+      exaggeration: 3,
+    });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   // Test 5: groupMeta initializes from mapData.group_meta
   it('hook initializes groupMeta from mapData.group_meta when present', () => {
     const mapData = makeMapData([], {

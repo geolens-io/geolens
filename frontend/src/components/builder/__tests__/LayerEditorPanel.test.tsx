@@ -178,7 +178,7 @@ describe('LayerEditorPanel', () => {
   });
 
   describe('tab body (default scene)', () => {
-    it('renders a tablist with Style/Filter/Popup for a vector layer (no Labels tab unless render_mode=symbol)', () => {
+    it('renders a tablist with Style/Filter/Labels/Popup for a label-capable vector layer', () => {
       render(
         <LayerEditorPanel
           layer={makeLayer()}
@@ -190,12 +190,11 @@ describe('LayerEditorPanel', () => {
       const tablist = screen.getByRole('tablist');
       expect(within(tablist).getByRole('tab', { name: 'Style' })).toBeInTheDocument();
       expect(within(tablist).getByRole('tab', { name: 'Filter' })).toBeInTheDocument();
+      expect(within(tablist).getByRole('tab', { name: 'Labels' })).toBeInTheDocument();
       expect(within(tablist).getByRole('tab', { name: 'Popup' })).toBeInTheDocument();
-      expect(within(tablist).queryByRole('tab', { name: 'Labels' })).not.toBeInTheDocument();
     });
 
-    it('renders a Labels tab only when style_config.render_mode === "symbol"', () => {
-      // Point layer with symbol render mode → Labels tab appears
+    it('keeps the Labels tab available for point symbol render mode', () => {
       const layer = makeLayer({
         dataset_geometry_type: 'POINT',
         style_config: {
@@ -213,6 +212,36 @@ describe('LayerEditorPanel', () => {
       );
       const tablist = screen.getByRole('tablist');
       expect(within(tablist).getByRole('tab', { name: 'Labels' })).toBeInTheDocument();
+    });
+
+    it('hides the Labels tab for heatmap render mode', () => {
+      const layer = makeLayer({
+        dataset_geometry_type: 'POINT',
+        style_config: { render_mode: 'heatmap' } as import('@/types/api').StyleConfig,
+      });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+        />
+      );
+      const tablist = screen.getByRole('tablist');
+      expect(within(tablist).queryByRole('tab', { name: 'Labels' })).not.toBeInTheDocument();
+      expect(within(tablist).getByRole('tab', { name: 'Popup' })).toBeInTheDocument();
+    });
+
+    it('renders the Labels editor for normal vector render modes', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer()}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="labels"
+        />
+      );
+      expect(screen.getByTestId('label-editor')).toBeInTheDocument();
     });
 
     it('Style tab is the default active tab when activeTab is null', () => {

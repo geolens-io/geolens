@@ -18,6 +18,7 @@ import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatc
 import { useWidgetStore } from '@/stores/map-widget-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultWidgetIds, resolveAvailableWidgetIds, sameWidgetIds } from '@/components/map-widgets';
+import { prepareLayersForPersistence, type FolderGroupMeta } from '@/components/builder/folder-groups';
 
 /** Crop and resize the map canvas to a 400x250 JPEG, then upload it.
  *  PERF-08 (Phase 274): we no longer keep preserveDrawingBuffer permanently
@@ -316,19 +317,22 @@ export type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 export function buildLayerDiff(
   baselineLayers: MapLayerResponse[],
   currentLayers: MapLayerResponse[],
+  groupMeta: Record<string, FolderGroupMeta> = {},
 ): LayerDiffResult {
-  const baselineById = new Map(baselineLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
-  const currentById = new Map(currentLayers.map((layer) => [layer.id, layer]));
+  const baselinePersistedLayers = prepareLayersForPersistence(baselineLayers);
+  const currentPersistedLayers = prepareLayersForPersistence(currentLayers, groupMeta);
+  const baselineById = new Map(baselinePersistedLayers.map((layer) => [layer.id, toLayerSnapshot(layer)]));
+  const currentById = new Map(currentPersistedLayers.map((layer) => [layer.id, layer]));
 
-  const added = currentLayers
+  const added = currentPersistedLayers
     .filter((layer) => !baselineById.has(layer.id))
     .map(toLayerInput);
-  const removed = baselineLayers
+  const removed = baselinePersistedLayers
     .filter((layer) => !currentById.has(layer.id))
     .map((layer) => layer.id);
   const updated: MapLayerPatch[] = [];
 
-  for (const layer of currentLayers) {
+  for (const layer of currentPersistedLayers) {
     const baseline = baselineById.get(layer.id);
     if (!baseline) continue;
 
@@ -343,13 +347,13 @@ export function buildLayerDiff(
     if (Object.keys(patch).length > 1) updated.push(patch);
   }
 
-  const baselineExistingOrder = baselineLayers
+  const baselineExistingOrder = baselinePersistedLayers
     .filter((layer) => currentById.has(layer.id))
     .map((layer) => layer.id);
-  const currentExistingOrder = currentLayers
+  const currentExistingOrder = currentPersistedLayers
     .filter((layer) => baselineById.has(layer.id))
     .map((layer) => layer.id);
-  const sortOrderChanged = currentLayers.some((layer) => {
+  const sortOrderChanged = currentPersistedLayers.some((layer) => {
     const baseline = baselineById.get(layer.id);
     return baseline ? baseline.sort_order !== layer.sort_order : false;
   });
@@ -368,6 +372,7 @@ export function buildLayerDiff(
 interface SaveState {
   mapId: string | undefined;
   localLayers: MapLayerResponse[];
+  groupMeta?: Record<string, FolderGroupMeta>;
   localBasemap: string;
   showBasemapLabels: boolean;
   basemapConfig: MapBasemapConfig | null;
@@ -412,6 +417,7 @@ export function useBuilderSave(state: SaveState) {
       dockNotes,
       localBasemap,
       localLayers,
+      groupMeta = {},
       showBasemapLabels,
       basemapConfig,
       terrainConfig,
@@ -463,13 +469,14 @@ export function useBuilderSave(state: SaveState) {
       pitch: pitch ?? 0,
       widgets: resolveWidgetsPayload(id, queryClient, enabledWidgetIds),
     };
+    const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
     const fullReplacementPayload: MapUpdateRequest = {
       ...metadataPayload,
-      layers: localLayers.map(toLayerInput),
+      layers: persistableLayers.map(toLayerInput),
     };
 
     try {
-      const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers);
+      const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
       if (unsupported) {
         await updateMap.mutateAsync({ id, data: fullReplacementPayload });
       } else {

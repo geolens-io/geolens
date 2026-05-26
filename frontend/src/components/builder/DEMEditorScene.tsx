@@ -5,6 +5,16 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { StyleColorPicker } from './StyleColorPicker';
+import {
+  HILLSHADE_EXAGGERATION_MAX,
+  HILLSHADE_EXAGGERATION_MIN,
+  normalizeHillshadeExaggeration,
+} from './layer-adapters/hillshade-adapter';
+import {
+  TERRAIN_EXAGGERATION_MAX,
+  TERRAIN_EXAGGERATION_MIN,
+  normalizeTerrainExaggeration,
+} from './map-sync';
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 /**
@@ -27,6 +37,11 @@ export interface DEMEditorSceneProps {
   /** Called when the user switches to Terrain mode. Wires map-level terrain_config
    * via use-builder-layers handleDEMTerrainBind. */
   onTerrainBind: (layerId: string) => void;
+  /** Called when the user switches this DEM away from Terrain mode. */
+  onTerrainUnbind: (layerId: string) => void;
+  /** Terrain surface exaggeration belongs to the bound DEM layer editor. */
+  terrainExaggeration: number;
+  onTerrainExaggerationChange: (layerId: string, exaggeration: number) => void;
   /** Called after the user confirms deletion. Matches the onRemove pattern in
    * LayerEditorHandlers — same wiring used by the default layer editor. */
   onRemove: (layerId: string) => void;
@@ -60,24 +75,60 @@ interface SliderRowProps {
   suffix: string;
   onChange: (v: number) => void;
   ariaLabel: string;
+  showInput?: boolean;
 }
 
-function SliderRow({ label, value, min, max, step, suffix, onChange, ariaLabel }: SliderRowProps) {
+function formatSliderValue(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function clampToStep(value: number, min: number, max: number, step: number) {
+  const clamped = Math.min(Math.max(value, min), max);
+  if (!Number.isFinite(step) || step <= 0) return clamped;
+  const decimals = String(step).split('.')[1]?.length ?? 0;
+  return Number((Math.round((clamped - min) / step) * step + min).toFixed(decimals));
+}
+
+function SliderRow({ label, value, min, max, step, suffix, onChange, ariaLabel, showInput = false }: SliderRowProps) {
+  const displayValue = formatSliderValue(value);
+  const handleInputChange = (nextValue: string) => {
+    const parsed = Number.parseFloat(nextValue);
+    if (!Number.isFinite(parsed)) return;
+    onChange(clampToStep(parsed, min, max, step));
+  };
+
   return (
     <div className="grid grid-cols-[110px_1fr_auto] gap-2 items-center">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <Slider
         aria-label={ariaLabel}
-        aria-valuetext={`${value}${suffix}`}
+        aria-valuetext={`${displayValue}${suffix}`}
         value={[value]}
         min={min}
         max={max}
         step={step}
         onValueChange={([v]) => onChange(v)}
       />
-      <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-        {value}{suffix}
-      </span>
+      {showInput ? (
+        <div className="flex w-[72px] shrink-0 items-center gap-1">
+          <Input
+            aria-label={`${ariaLabel} value`}
+            type="number"
+            inputMode="decimal"
+            min={min}
+            max={max}
+            step={step}
+            value={displayValue}
+            onChange={(event) => handleInputChange(event.target.value)}
+            className="h-7 px-2 text-right text-xs tabular-nums"
+          />
+          <span className="text-xs text-muted-foreground">{suffix}</span>
+        </div>
+      ) : (
+        <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
+          {displayValue}{suffix}
+        </span>
+      )}
     </div>
   );
 }
@@ -89,6 +140,9 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   onOpacityChange,
   onZoomChange,
   onTerrainBind,
+  onTerrainUnbind,
+  terrainExaggeration,
+  onTerrainExaggerationChange,
   onRemove,
 }: DEMEditorSceneProps) {
   const { t } = useTranslation('builder');
@@ -125,11 +179,16 @@ export const DEMEditorScene = memo(function DEMEditorScene({
 
     if (nextMode === 'terrain') {
       onTerrainBind(layer.id);
+    } else if (current === 'terrain') {
+      onTerrainUnbind(layer.id);
     }
-  }, [layer, onStyleConfigChange, onTerrainBind]);
+  }, [layer, onStyleConfigChange, onTerrainBind, onTerrainUnbind]);
 
   const handlePaintValue = useCallback((key: string, value: unknown) => {
-    onPaintChange({ ...paint, [key]: value });
+    const nextValue = key === 'hillshade-exaggeration' && typeof value === 'number'
+      ? normalizeHillshadeExaggeration(value)
+      : value;
+    onPaintChange({ ...paint, [key]: nextValue });
   }, [paint, onPaintChange]);
 
   const pills: { id: DemRenderMode; label: string }[] = [
@@ -139,11 +198,8 @@ export const DEMEditorScene = memo(function DEMEditorScene({
   ];
 
   const azimuth = getNumber(paint, 'hillshade-illumination-direction', 335);
-  // "_dem-sun-altitude" is a builder-side custom key with no MapLibre effect.
-  // It persists user intent via the existing paint dict round-trip.
-  // If a future MapLibre release adds altitude support, swap this key.
-  const altitude = getNumber(paint, '_dem-sun-altitude', 45);
-  const exaggeration = getNumber(paint, 'hillshade-exaggeration', 0.5);
+  const exaggeration = normalizeHillshadeExaggeration(getNumber(paint, 'hillshade-exaggeration', 0.5));
+  const terrainSurfaceExaggeration = normalizeTerrainExaggeration(terrainExaggeration);
 
   const highlightColor = getString(paint, 'hillshade-highlight-color', '#FFFFFF');
   const shadowColor = getString(paint, 'hillshade-shadow-color', '#000000');
@@ -292,24 +348,14 @@ export const DEMEditorScene = memo(function DEMEditorScene({
                     onChange={(v) => handlePaintValue('hillshade-illumination-direction', v)}
                   />
                   <SliderRow
-                    label={t('demEditor.altitude', { defaultValue: 'Altitude' })}
-                    value={altitude}
-                    min={0}
-                    max={90}
-                    step={1}
-                    suffix="°"
-                    ariaLabel={t('demEditor.altitude', { defaultValue: 'Altitude' })}
-                    onChange={(v) => handlePaintValue('_dem-sun-altitude', v)}
-                  />
-                  <SliderRow
                     label={t('demEditor.exaggeration', { defaultValue: 'Exaggeration' })}
                     value={exaggeration}
-                    min={0}
-                    max={5}
+                    min={HILLSHADE_EXAGGERATION_MIN}
+                    max={HILLSHADE_EXAGGERATION_MAX}
                     step={0.1}
                     suffix="×"
                     ariaLabel={t('demEditor.exaggeration', { defaultValue: 'Exaggeration' })}
-                    onChange={(v) => handlePaintValue('hillshade-exaggeration', v)}
+                    onChange={(v) => handlePaintValue('hillshade-exaggeration', normalizeHillshadeExaggeration(v))}
                   />
                 </div>
               </div>
@@ -341,12 +387,25 @@ export const DEMEditorScene = memo(function DEMEditorScene({
           )}
 
           {mode === 'terrain' && (
-            <p className="text-xs text-muted-foreground">
-              {t('demEditor.terrainHint', {
-                defaultValue:
-                  'Terrain uses elevation data to extrude the map surface. Adjust terrain exaggeration in Settings → Terrain.',
-              })}
-            </p>
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                {t('demEditor.terrainHint', {
+                  defaultValue:
+                    'Terrain uses elevation data to extrude the map surface.',
+                })}
+              </p>
+              <SliderRow
+                label={t('demEditor.terrainExaggeration', { defaultValue: 'Exaggeration' })}
+                value={terrainSurfaceExaggeration}
+                min={TERRAIN_EXAGGERATION_MIN}
+                max={TERRAIN_EXAGGERATION_MAX}
+                step={0.1}
+                suffix="×"
+                ariaLabel={t('demEditor.terrainExaggeration', { defaultValue: 'Terrain exaggeration' })}
+                onChange={(v) => onTerrainExaggerationChange(layer.id, normalizeTerrainExaggeration(v))}
+                showInput
+              />
+            </div>
           )}
         </div>
       </section>

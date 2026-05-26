@@ -21,9 +21,9 @@ bash scripts/install.sh
 ```
 
 <p align="center">
-  <img src=".github/assets/geolens-map-builder.png" alt="Constructor de mapas de GeoLens componiendo mapas interactivos con varias capas" width="900" />
+  <img src=".github/assets/geolens-adk-3d-relief-hero.jpg" alt="Constructor de mapas de GeoLens editando una capa DEM hillshade de Adirondack High Peaks sobre un mapa de terreno 3D" width="900" />
   <br />
-  <em>Sube un shapefile y obtén un dataset buscable, previsualizable y exportable en minutos</em>
+  <em>Ajusta capas DEM, imágenes y vectores en el constructor de mapas y comparte mapas 3D interactivos</em>
 </p>
 
 ## Documentación

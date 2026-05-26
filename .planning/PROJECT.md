@@ -12,24 +12,41 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone: v1027 Map Builder Architecture Simplification
+## Current Milestone
 
-**Goal:** Reduce map-builder orchestration complexity while preserving existing user behavior, the v1026 style reconciliation contract, AI chat action behavior, save/reload durability, viewer/embed parity, and the target ADK map's marketing screenshot quality.
+No active milestone is open after v1028 close. Post-v1028 follow-ups completed in this session include provider-backed Anthropic AI prompt/action UAT and React error-page bug reporting through the GitHub issue template; remaining external carry-forward is the GitHub Actions billing prerequisite for CI live-verify.
+
+## Recent Shipped Milestone: v1028 Map Builder Product Polish
+
+**Shipped:** 2026-05-25
+
+**Goal:** Polish the map builder's highest-value authoring workflows, showcase-map output, Notes experience, and AI-assisted edits while proving the product on the standard GeoLens stack with Playwright MCP.
 
 **Target features:**
-- Audit map-builder ownership across `MapBuilderPage`, `use-builder-layers`, `BuilderMap`, `ViewerMap`, `map-sync`, `basemap-utils`, layer adapters, editor scenes, and AI chat action paths.
-- Consolidate basemap/background/terrain/sublayer state so remove basemap, background color, terrain exaggeration, and reload normalization cannot drift.
-- Share builder/viewer source-layer-style-background-terrain sequencing without hiding layer-type-specific adapter behavior.
-- Extract editor scene, dialog, selection, persistence, and dirty-state responsibilities from oversized builder orchestration files.
-- Route manual layer actions, duplicate/remove flows, undo/history, persistence, and AI chat through typed command semantics where practical.
-- DRY builder test fixtures and verify the target map with Playwright MCP for layer options, remove basemap, duplicate layer, background color, terrain, save/reload, viewer parity, and marketing screenshot readiness.
+- Sweep day-to-day builder workflows with Playwright MCP: add/edit layers, options menus, save feedback, undo/history, empty/error states, responsive editor behavior, and viewer parity.
+- Polish the target ADK showcase map and capture path for marketing-ready screenshots without depending on any separate demo instance.
+- Exercise and harden Builder Notes: creation, editing, persistence, reload behavior, viewer expectations, keyboard/accessibility, and error/empty states.
+- Exercise and harden the Builder AI feature: prompt-to-action flows, style/layer updates, Notes-adjacent behavior where present, undo/history/save semantics, and graceful disabled/error states.
+- Run a quality sweep covering console/network hygiene, focused tests, a11y/lint/typecheck/build gates, and explicit no-regression evidence for the v1027 builder architecture contracts.
 
 **Key context:**
-- Phase numbering continues from 1118 (no `--reset-phase-numbers`).
-- This is a GSD milestone because the risk is architectural: simplifying the builder means touching shared state, live MapLibre sync, persistence, viewer parity, and AI action paths.
-- The milestone should stay conservative. It is not a visual redesign and should avoid broad rewrites that do not directly reduce duplication, clarify ownership, or close known builder defects.
-- AI chat remains in scope only where it calls the same map/layer/style action boundaries as the manual builder UI.
-- External research is intentionally skipped; the work is internal codebase architecture hardening based on observed GeoLens behavior.
+- Phase numbering continues from 1124 (no `--reset-phase-numbers`).
+- This milestone is product polish, not another architecture rewrite. Use the v1027 controller/action/sync boundaries as the implementation substrate.
+- The standard GeoLens app/local stack is the validation target. There is no separate demo instance, demo deployment, or demo compose path to maintain, plan around, or use as a release gate.
+- "Showcase" means the in-product target map and capture workflow, not a parallel demo environment.
+- AI and Notes are in scope as real builder user workflows; broad AI-chat redesign, new LLM provider work, and unrelated platform changes are out of scope.
+- External research is intentionally skipped; the work is internal UX and QA hardening based on observed GeoLens behavior.
+
+**Delivered:** 25/25 requirements across phases 1124-1128. Key outputs: builder workflow audit and focused regression gates, Notes clear/persistence fixes, mobile Notes sheet sizing, actionable AI unavailable state, ADK showcase/shared/embed verification, active smoke path renamed from demo to showcase, and milestone audit with accepted provider-backed AI UAT follow-up.
+
+## Recent Shipped Milestone: v1027 Map Builder Architecture Simplification
+
+**Shipped:** 2026-05-25
+**Tag:** local `v1027`
+
+**Goal delivered:** Reduced map-builder orchestration complexity while preserving style reconciliation, AI action behavior, basemap/background settings, save/reload durability, viewer/embed parity, and target-map UAT behavior.
+
+**Delivered:** 29/29 requirements across phases 1118-1123. Key outputs: architecture baseline, basemap state controller, shared builder/viewer composition sync, editor scene controller extraction, typed layer action boundary, builder fixture DRY-up, focused frontend gates, backend map/schema checks, and Playwright MCP target-map verification.
 
 ## Recent Shipped Milestone: v1026 Mapbuilder Style Reconciler
 
@@ -1423,4 +1440,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-25 — started milestone v1027 Map Builder Architecture Simplification. Scope: map-builder ownership audit, basemap state consolidation, builder/viewer sync unification, scene/hook extraction, layer action and AI bridge cleanup, builder test fixture DRY-up, and Playwright MCP target-map verification.*
+*Last updated: 2026-05-25 — completed milestone v1028 Map Builder Product Polish. Closed builder workflow polish, ADK showcase-map verification, Notes and AI builder validation, quality sweep, Playwright MCP verification, and removal of any active planning assumption that a separate demo instance must be maintained.*

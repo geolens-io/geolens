@@ -832,10 +832,8 @@ describe('LayerStyleEditor - render mode (heatmap)', () => {
       />,
     );
 
-    // 'Symbol' was renamed to 'Labels' in the Render-as dropdown to match the
-    // v3 design language (cartographers say "labels"). The symbol style_config
-    // shape is unchanged — only the UI string.
-    expect(screen.getAllByText('Labels').length).toBeGreaterThan(0);
+    // Symbol rendering is separate from label_config-backed feature labels.
+    expect(screen.getAllByText('Symbols').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('Icon')).toHaveValue('marker');
     expect(screen.getByRole('slider', { name: 'Size' })).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Rotation' })).toBeInTheDocument();

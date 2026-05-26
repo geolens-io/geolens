@@ -296,6 +296,49 @@ describe('syncLayersToMap', () => {
     }));
   });
 
+  it('DEM terrain mode does not draw raw elevation tiles as a visual raster layer', () => {
+    const layer = makeLayer({
+      id: 'dem-terrain',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      is_dem: true,
+      style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.addLayer).not.toHaveBeenCalled();
+    expect(managedSourcesRef.current).toEqual(new Set());
+  });
+
+  it('DEM terrain mode cleans up a stale raster or hillshade visual layer from a previous mode', () => {
+    const layer = makeLayer({
+      id: 'dem-terrain',
+      layer_type: 'raster_geolens',
+      dataset_geometry_type: null,
+      is_dem: true,
+      style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+    });
+    const tokenMap = new Map<string, TileToken>([['ds-1', makeRasterToken()]]);
+    managedSourcesRef.current = new Set(['source-dem-terrain']);
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
+      id === 'layer-dem-terrain' ? { id } : null
+    ));
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => (
+      id === 'source-dem-terrain' ? { type: 'raster' } : null
+    ));
+
+    syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.addLayer).not.toHaveBeenCalled();
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-dem-terrain');
+    expect(map.removeSource).toHaveBeenCalledWith('source-dem-terrain');
+    expect(managedSourcesRef.current).toEqual(new Set());
+  });
+
   it('hidden raster layer sets visibility none', () => {
     const layer = makeLayer({
       id: 'r3',

@@ -13,30 +13,66 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Changed
 
+- Builder Notes and AI rail behavior now treat Notes, History, and AI as product authoring surfaces in the standard builder, with no separate demo instance or demo deployment assumed for validation.
+- Active map showcase smoke coverage has been renamed from `demo-smoke*` to `showcase-smoke*`, including the package script and active comments that reference the smoke path.
 - Map builder basemap, background, terrain, sublayer, builder/viewer sync, editor-scene routing, duplicate-rendering, and AI/manual layer mutations now flow through focused controller/contract helpers instead of duplicated page-level object surgery.
 - Builder tests now share map/layer/basemap/terrain/MapLibre fixtures across the highest-duplication `use-builder-layers` suites and map stack coverage, reducing bespoke mock drift across add/remove/duplicate/group/bulk/order regressions.
+- The builder hardening Playwright config now runs the standard auth setup project first, so the smoke command refreshes expired local storage tokens before API-backed setup work.
 - The frontend production build now treats the isolated MapLibre vendor chunk as an explicit GIS engine budget, so expected map-engine weight no longer appears as a generic Vite warning.
-- The internal builder-audit playbook now includes the v1027 basemap controller, composition sync, editor scene controller, and typed layer action contract checks.
+- The internal builder-audit playbook now includes the v1027 basemap controller, composition sync, editor scene controller, typed layer action contract checks, and DEM Hillshade/Terrain checks for supported MapLibre properties, layer-order masking, and pixel-delta verification.
 
 ### Fixed
 
+- Builder Notes can now be explicitly cleared: map updates distinguish omitted `notes` from `notes: null`, so omitted updates preserve existing notes and explicit null removes persisted notes.
+- Map builder no longer resurrects stale localStorage Notes when the API returns explicit `notes: null`.
+- Mobile Builder Notes and AI sheets now keep usable full-height panel sizing at narrow viewports.
+- Builder AI unavailable state now opens an explanatory panel instead of rendering as an inert disabled rail icon when no AI provider is configured.
+- React app and route error pages now include a bug-report action that opens the repository's GitHub issue template.
 - Map builder style mutations now reconcile adapter-owned paint/layout keys instead of replaying additive patches, so stale properties are removed across manual controls, render-mode swaps, labels, companion layers, AI chat style actions, save/reload, and viewer/embed rendering.
+- Map builder point symbol rendering is now labeled as Symbols, and feature label controls are available for all label-capable vector layers instead of being tied to symbol render mode.
+- Layer folder groups now save and reload as child-layer builder metadata instead of sending virtual `group:folder` rows to the map API, and keyboard row reordering now moves the actual persisted layer order.
 - AI chat style actions now support explicit patch, clear, and replace semantics for `set_style`, keeping generated API types, backend validation, undo/history, and builder style state aligned.
+- Builder AI action handling now clamps opacity actions and ignores malformed streamed action payloads instead of applying invalid layer mutations.
+- Builder AI suggestion chips now deduplicate repeated prompts for duplicated or repeated-name layers, avoiding React duplicate-key errors in large stacks.
 - GeoLens point-symbol sprites now register through the API sprite route with an absolute URL, and high-DPI MapLibre sprite requests resolve through hidden `@2x` API aliases instead of falling through to the Vite app shell.
 - Builder terrain activation now retries once MapLibre finishes loading its style, so saved or newly selected DEM terrain binds the shared `terrain-dem` source and applies bounded exaggeration reliably.
 - Map builder style normalization now preserves render-mode-only and legacy nested render-mode configs, so DEM hillshade layers open and render as Hillshade instead of falling back to Image.
 - ADK High Peaks marketing composition now writes canonical peak label config, DEM hillshade metadata, and Blue Line outline styling; reruns update existing maps without duplicating datasets.
 - Mapbuilder lint hygiene now keeps composite stack rows role-free with documented a11y context, removes redundant native roles/stale lint disables, and fixes hook dependency warnings surfaced during closeout.
-- Terrain exaggeration is now clamped consistently at 3x across saved-map load, live settings changes, and alternate terrain controls to avoid distorted DEM surfaces.
+- Terrain surface exaggeration is now layer-owned in the DEM Terrain editor and clamped at 3x across saved-map load and live layer controls to avoid distorted DEM surfaces.
 - Line layers now clear stale `line-gradient` paint when switching back to solid color, so Hiking trails and other path layers immediately return to the selected solid stroke.
+- DEM `render_mode: "terrain"` no longer adds a visual raster or hillshade layer, so DEM tiles used for elevation cannot reappear as raw imagery after style changes.
+- DEM render-mode switches now clear stale terrain bindings when leaving Terrain mode, and MapLibre terrain only activates while the bound DEM layer is actually in Terrain mode.
+- ADK High Peaks 3D relief map polish now keeps the canonical map and compose script aligned with toned-down land-classification overlays, smoother ortho paint, transparent hillshade colors, and corrected camera/terrain settings.
+- DEM hillshade opacity now syncs through hillshade color alpha instead of writing unsupported `raster-opacity` paint to a MapLibre hillshade layer.
+- DEM hillshade exaggeration now uses MapLibre's valid 0-1 range in layer controls and clamps imported or saved paint before syncing, avoiding `hillshade-exaggeration` map errors.
+- DEM Hillshade editing no longer shows the unsupported Altitude slider; the remaining Azimuth and Exaggeration controls map directly to MapLibre hillshade paint.
+- DEM Terrain exaggeration changes now apply immediately through `map.setTerrain` from the layer-owned slider while the regular composition sync remains the fallback for style/token reloads.
+- DEM Terrain exaggeration now has a wider slider hit target, an exact numeric input, and an explicit MapLibre repaint after changes so mouse and keyboard edits visibly update the terrain surface.
 
 ### Verification
 
+- v1028 close gate passed focused backend Notes pytest coverage, backend Ruff checks, focused frontend Notes/AI tests, focused builder workflow tests, frontend typecheck/lint/build, and Playwright discovery for the renamed showcase smoke specs.
+- Playwright MCP verified the ADK 3D Relief builder, mobile Notes sheet, AI unavailable panel, Notes set/clear on a throwaway copy, public shared viewer, embed viewer, canonical-map cleanup, and zero fresh browser console errors; the later Anthropic rerun still showed the known non-blocking MapLibre terrain maxzoom warning.
+- Provider-backed AI action UAT passed after keys were configured and the Anthropic key was refreshed: Anthropic chat returned a `set_style` action for the ADK throwaway copy, the builder applied it, dirty state appeared, Save completed, reload preserved the style, and cleanup restored the map list to the two canonical ADK maps. An interim OpenAI-compatible check also passed while the first Anthropic key was invalid.
+- Focused error-boundary tests verify the React error pages link to the GitHub bug-report issue template.
+- Playwright MCP rendered the global React error fallback with an injected throwing child and verified the `File a bug` link opens the GitHub `bug_report.yml` issue template.
 - Focused style-reconciler gates passed: adapter/shared/heatmap tests, ChatPanel AI style tests, save/viewer/style JSON tests, and BuilderMap terrain retry tests (198 Vitest assertions across 8 focused files).
 - Frontend `npm run typecheck` and `npm run lint`, backend style/sprite/AI pytest coverage, backend Ruff checks, `make openapi-check`, and `make sdks-check` pass.
 - Playwright MCP verified the ADK 3D Relief target map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: Hiking trails gradient-to-solid clears `line-gradient`, data-driven `facility` style clears back to scalar paint, labels switch to symbol and back to point, GeoLens sprites load without console noise, and terrain is active with `terrain-dem` at 2.4x exaggeration.
 - Playwright MCP deep-swept the ADK 3D Relief map `8dd6a129-8eb0-4ba9-b421-716c83b160dd`: all layer rows/options opened, DEM hillshade and peak label style JSON verified, and the fresh browser console had zero warnings/errors.
 - Frontend lint, typecheck, focused normalization tests, and a post-lint Playwright MCP smoke all pass.
+- Focused raster/builder sync tests passed for DEM Terrain visual suppression and stale visual-layer cleanup.
+- Frontend `npm run typecheck`, targeted `npm run lint -- ...`, and `npm run build` pass after the DEM sync fix and hero recapture.
+- Playwright MCP recaptured `.github/assets/geolens-adk-3d-relief-hero.jpg` from the map builder with the DEM hillshade layer editor open.
+- Playwright MCP verified the DEM hillshade opacity slider changes without console/page errors and reloads back to the saved canonical opacity.
+- Playwright MCP verified DEM hillshade opacity, 0-1 hillshade exaggeration, Image/Hillshade/Terrain render-mode toggles, layer-owned Terrain exaggeration, and Ortho-off DEM hillshade visibility on the ADK 3D Relief map with zero fresh browser console errors.
+- Focused builder regression tests passed for DEM editor controls, raster controls, settings status, terrain controls, action dispatch, terrain state handlers, layer adapters, map stack, map sync, and layer-map sync (205 Vitest assertions across 11 files).
+- Playwright MCP verified the layer-owned DEM Terrain exaggeration slider changes `0 → 3` and produces a visible map canvas delta with zero fresh browser console errors.
+- Playwright MCP verified the DEM Terrain exaggeration numeric input changes `0 → 3`, updates the live MapLibre terrain style, and produces a visible map canvas delta.
+- Focused unit, Playwright spec, and Playwright MCP smoke coverage verified layer duplication, keyboard reordering, and folder group save/reload on a throwaway builder map with zero fresh browser console errors.
+- Builder hardening smoke coverage now exercises large mixed grouped stacks, mixed raster/vector rows, layer duplication, keyboard reordering, save/reload, injected tile/API failures with retry, public share/embed/read-only viewers, mobile Notes/History/AI sheets, and cross-browser shell/API checks.
+- Playwright MCP independently verified the builder hardening flow on throwaway maps: large grouped stack duplicate/reorder/save/reload, injected network recovery/history, public share/embed/read-only viewer, mobile Notes/History/AI sheets, and no unexpected fresh console/page errors after filtering the intentionally injected 503/500 failures.
 - v1027 close gate passed focused builder/viewer regression tests, frontend typecheck/lint/build, and Playwright MCP target-map reload/editor/settings smoke with zero browser console warnings/errors.
 - Focused backend map/schema tests passed with `.env.test.example` exported: `tests/test_basemap_sublayer_overrides.py`, `tests/test_maps.py`, and `tests/test_maps_style_json.py` (198 tests).
 - v1027 follow-up UAT used a throwaway duplicate of the ADK target map to verify duplicate layer, remove basemap, background color save/reload, and tile readiness; the copy was deleted and the original target map was rechecked unchanged.

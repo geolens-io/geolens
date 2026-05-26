@@ -228,7 +228,7 @@ async def update_map(
     *,
     name: str | None = None,
     description: str | None = None,
-    notes: str | None = None,
+    notes: str | None | object = _UNSET,
     center_lng: float | None = None,
     center_lat: float | None = None,
     zoom: float | None = None,
@@ -256,12 +256,12 @@ async def update_map(
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
 
-    # Update scalar fields (skip None values, except explicit widgets=null which
-    # restores client-default widget behavior).
+    # Update scalar fields (skip None values, except explicit notes=null which
+    # clears private builder notes, and explicit widgets=null which restores
+    # client-default widget behavior).
     scalar_fields = {
         "name": name,
         "description": description,
-        "notes": notes,
         "center_lng": center_lng,
         "center_lat": center_lat,
         "zoom": zoom,
@@ -274,6 +274,8 @@ async def update_map(
     for key, value in scalar_fields.items():
         if value is not None:
             setattr(map_obj, key, value)
+    if notes is not _UNSET:
+        map_obj.notes = cast(str | None, notes)
     if basemap_config is not _UNSET:
         map_obj.basemap_config = cast(dict | None, basemap_config)
     if terrain_config is not _UNSET:

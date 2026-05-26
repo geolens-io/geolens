@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
@@ -151,14 +151,21 @@ export function useLayerMapSync(
         }),
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
+          const nextConfig = layer.style_config;
+          const sourceId = getSourceIdForLayer(layer);
+
+          if (isDemTerrainVisualSuppressed({ is_dem: layer.is_dem, style_config: nextConfig })) {
+            if (map.getLayer(mapLayerId)) map.removeLayer(mapLayerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+            return;
+          }
+
           if (!map.getLayer(mapLayerId)) return;
 
-          const nextConfig = layer.style_config;
           const adapterType = resolveLayerAdapterType(layer, paint, nextConfig);
           const adapter = getAdapter(adapterType);
           // SF-04 dedupe: read from the shared per-dataset source for
           // non-cluster vector layers so tile URL inheritance still works.
-          const sourceId = getSourceIdForLayer(layer);
           const existingSource = map.getSource(sourceId) as { tiles?: string[] } | undefined;
           const rawTileUrl = existingSource?.tiles?.[0] ?? '';
           const tileUrl = rawTileUrl.startsWith(window.location.origin)
@@ -209,9 +216,32 @@ export function useLayerMapSync(
         (map, layer) => {
           const mapLayerId = `layer-${layerId}`;
           const outlineId = `layer-${layerId}-outline`;
-          const adapterType = resolveAdapterType(layer.dataset_geometry_type, layer.style_config, layer.paint);
+          const paint = layer.paint ?? {};
+          const adapterType = resolveLayerAdapterType(layer, paint, layer.style_config);
 
-          if (layer.layer_type === 'raster_geolens') {
+          if (isDemTerrainVisualSuppressed(layer)) {
+            return;
+          }
+
+          if (adapterType === 'hillshade') {
+            const input: AdapterLayerInput & { style_config?: StyleConfig | null } = {
+              id: layer.id,
+              dataset_table_name: layer.dataset_table_name,
+              dataset_geometry_type: layer.dataset_geometry_type,
+              opacity: newOpacity,
+              visible: layer.visible,
+              paint,
+              layout: layer.layout ?? {},
+              filter: layer.filter ?? null,
+              sourceId: getSourceIdForLayer(layer),
+              layerId: mapLayerId,
+              sourceLayer: `data.${layer.dataset_table_name}`,
+              tileUrl: '',
+              style_config: layer.style_config ?? null,
+              is_dem: layer.is_dem,
+            };
+            getAdapter('hillshade').syncPaint(map, input);
+          } else if (layer.layer_type === 'raster_geolens') {
             if (map.getLayer(mapLayerId)) {
               map.setPaintProperty(mapLayerId, 'raster-opacity', newOpacity);
             }

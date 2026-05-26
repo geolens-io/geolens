@@ -108,7 +108,6 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     terrainConfig: null,
     isTerrainActive: false,
     boundLayerName: undefined,
-    onExaggerationChange: vi.fn(),
     activeWidgetIds: new Set<string>(),
     onToggleWidget: vi.fn(),
     backgroundColor: null,
@@ -142,18 +141,16 @@ describe('SettingsEditorScene', () => {
     expect(screen.getByRole('radio', { name: 'Globe' })).toBeInTheDocument();
   });
 
-  // Test 2: Terrain disabled when not active
-  it('terrain section disabled when isTerrainActive=false', () => {
+  // Test 2: Terrain status when not active
+  it('terrain section shows inactive status when isTerrainActive=false', () => {
     render(<SettingsEditorScene {...defaultProps({ isTerrainActive: false })} />);
 
-    const slider = screen.getByLabelText(/Terrain exaggeration/i);
-    expect(slider).toBeDisabled();
-
     expect(screen.getByText(/No terrain layer is active/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Terrain exaggeration/i)).not.toBeInTheDocument();
   });
 
   // Test 3: Terrain active state
-  it('terrain section enabled when isTerrainActive=true with bound layer hint', () => {
+  it('terrain section shows bound layer status when isTerrainActive=true', () => {
     render(
       <SettingsEditorScene
         {...defaultProps({
@@ -164,31 +161,9 @@ describe('SettingsEditorScene', () => {
       />,
     );
 
-    const slider = screen.getByLabelText(/Terrain exaggeration/i);
-    expect(slider).not.toBeDisabled();
-
     expect(screen.getByText(/Bound to: Demo DEM/i)).toBeInTheDocument();
     expect(screen.queryByText(/No terrain layer is active/i)).not.toBeInTheDocument();
-  });
-
-  // Test 4: Exaggeration slider fires onExaggerationChange
-  it('exaggeration slider calls onExaggerationChange with numeric value', () => {
-    const onExaggerationChange = vi.fn();
-    render(
-      <SettingsEditorScene
-        {...defaultProps({
-          isTerrainActive: true,
-          terrainConfig: { enabled: true, exaggeration: 1.0, source_dataset_id: 'demo' } as SettingsEditorSceneProps['terrainConfig'],
-          onExaggerationChange,
-        })}
-      />,
-    );
-
-    const slider = screen.getByLabelText(/Terrain exaggeration/i);
-    fireEvent.change(slider, { target: { value: '2.0' } });
-
-    expect(onExaggerationChange).toHaveBeenCalledOnce();
-    expect(onExaggerationChange).toHaveBeenCalledWith(2.0);
+    expect(screen.queryByLabelText(/Terrain exaggeration/i)).not.toBeInTheDocument();
   });
 
   // Test 5: Widget toggles render with correct aria-label (UX-04: "Enable {name}" / "Disable {name}")

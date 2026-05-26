@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatNumber } from '@/lib/format';
 import { useTranslation } from 'react-i18next';
 import { StyleColorPicker } from './StyleColorPicker';
+import { normalizeHillshadeExaggeration } from './layer-adapters/hillshade-adapter';
 import type { StyleConfig } from '@/types/api';
 
 const RASTER_PAINT_KEYS = [
@@ -65,7 +66,10 @@ export function RasterLayerControls({
   }
 
   function setPaintValue(key: RasterPaintKey | HillshadePaintKey, value: number | string) {
-    onPaintChange({ ...paint, [key]: value });
+    const nextValue = key === 'hillshade-exaggeration' && typeof value === 'number'
+      ? normalizeHillshadeExaggeration(value)
+      : value;
+    onPaintChange({ ...paint, [key]: nextValue });
   }
 
   function setRenderMode(mode: 'raster' | 'hillshade') {
@@ -177,7 +181,7 @@ export function RasterLayerControls({
           </div>
           <RasterSliderRow
             label={t('style.hillshade.exaggeration', { defaultValue: 'Relief' })}
-            value={getNumber('hillshade-exaggeration', 0.5)}
+            value={normalizeHillshadeExaggeration(getNumber('hillshade-exaggeration', 0.5))}
             min={0}
             max={1}
             step={0.05}

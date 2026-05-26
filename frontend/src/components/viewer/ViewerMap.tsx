@@ -163,7 +163,7 @@ export const ViewerMap = memo(function ViewerMap({
   );
 
   // `tilesIdle` drives the `data-tiles-loaded` DOM attribute on the outer
-  // container. The Playwright demo-smoke spec polls for this attribute to
+  // container. The Playwright showcase-smoke spec polls for this attribute to
   // avoid an arbitrary `waitForTimeout` delay after networkidle.
   const [tilesIdle, setTilesIdle] = useState(false);
   const [popupInfo, setPopupInfo] = useState<{

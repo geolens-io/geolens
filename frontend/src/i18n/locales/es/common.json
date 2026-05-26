@@ -380,6 +380,7 @@
     "routeMessage": "Esta página encontró un error. Puede volver atrás o intentar de nuevo.",
     "routeGoBack": "Volver",
     "routeGoHome": "Ir al inicio",
+    "reportBug": "Informar un error",
     "builderUnsavedWarning": "Puede tener cambios sin guardar. Recargar los descartará.",
     "lazyTitle": "Error al cargar",
     "lazyMessage": "Una parte de la aplicación no se pudo cargar. Generalmente es un problema de red.",

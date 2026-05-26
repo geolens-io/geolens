@@ -76,6 +76,7 @@ interface UnifiedStackPanelProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
   onAddDataClick: (initialQuery?: string) => void;
   onAddDataset?: (datasetId: string) => void;
   onSettingsClick: () => void;
@@ -138,6 +139,7 @@ interface SortableStackRowProps {
   onRemove: (id: string) => void;
   onRename: (layerId: string, newName: string | null) => void;
   onDuplicate: (id: string) => void;
+  onKeyboardReorder?: (layerId: string, direction: 'up' | 'down') => void;
   existingFolderGroups?: Array<{ id: string; name: string }>;
   parentGroupId?: string | null;
   onAddToGroup?: (layerId: string, groupId: string) => void;
@@ -161,6 +163,7 @@ const SortableStackRow = memo(function SortableStackRow({
   onRemove,
   onRename,
   onDuplicate,
+  onKeyboardReorder,
   existingFolderGroups,
   parentGroupId,
   onAddToGroup,
@@ -206,6 +209,7 @@ const SortableStackRow = memo(function SortableStackRow({
         onRemove={onRemove}
         onRename={onRename}
         onDuplicate={onDuplicate}
+        onKeyboardReorder={onKeyboardReorder}
         existingFolderGroups={existingFolderGroups}
         parentGroupId={parentGroupId}
         onAddToGroup={onAddToGroup}
@@ -652,6 +656,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onRemove,
   onRename,
   onDuplicate,
+  onKeyboardReorder,
   onAddDataClick,
   onAddDataset,
   onSettingsClick,
@@ -1013,6 +1018,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                               onRemove={onRemove}
                               onRename={onRename}
                               onDuplicate={onDuplicate}
+                              onKeyboardReorder={onKeyboardReorder}
                               existingFolderGroups={existingFolderGroups}
                               parentGroupId={layer.id}
                               onAddToGroup={safeAddLayerToExistingGroup}
@@ -1043,6 +1049,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onRemove={onRemove}
                     onRename={onRename}
                     onDuplicate={onDuplicate}
+                    onKeyboardReorder={onKeyboardReorder}
                     existingFolderGroups={existingFolderGroups}
                     parentGroupId={getParentGroupId(layer)}
                     onAddToGroup={safeAddLayerToExistingGroup}

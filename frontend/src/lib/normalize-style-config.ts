@@ -84,6 +84,9 @@ const LEGACY_BUILDER_KEY_ALIASES: Record<string, string> = {
   cluster_color: 'clusterColor',
   cluster_text_color: 'clusterTextColor',
   cluster_text_size: 'clusterTextSize',
+  folder_group_id: 'folderGroupId',
+  folder_group_name: 'folderGroupName',
+  folder_group_expanded: 'folderGroupExpanded',
 };
 
 const RENDER_MODES = new Set(['heatmap', 'hillshade', 'symbol', 'arrow', 'cluster']);

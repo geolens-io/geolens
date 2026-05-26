@@ -106,7 +106,6 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     terrainConfig: null,
     isTerrainActive: false,
     boundLayerName: undefined,
-    onExaggerationChange: vi.fn(),
     activeWidgetIds: new Set<string>(),
     onToggleWidget: vi.fn(),
     backgroundColor: null,

@@ -122,6 +122,9 @@ function defaultProps(
     onOpacityChange: vi.fn(),
     onZoomChange: vi.fn(),
     onTerrainBind: vi.fn(),
+    onTerrainUnbind: vi.fn(),
+    terrainExaggeration: 1,
+    onTerrainExaggerationChange: vi.fn(),
     onRemove: vi.fn(),
     ...overrides,
   };
@@ -217,6 +220,24 @@ describe('DEMEditorScene', () => {
     expect(config?.render_mode).toBe('terrain');
   });
 
+  it('switching away from Terrain unbinds the DEM terrain source', () => {
+    const onTerrainUnbind = vi.fn();
+    const layer = makeDEMLayer({
+      id: 'dem-terrain-test',
+      style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+    });
+
+    render(
+      <DEMEditorScene
+        {...defaultProps({ layer, onTerrainUnbind })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: /Hillshade/i }));
+
+    expect(onTerrainUnbind).toHaveBeenCalledWith('dem-terrain-test');
+  });
+
   // Test 5: Image mode shows image hint only
   it('in Image mode, Appearance section shows image hint and no compass/colors', () => {
     render(
@@ -266,8 +287,8 @@ describe('DEMEditorScene', () => {
     expect((needle as HTMLElement).style.transform).toContain('rotate(135deg)');
   });
 
-  // Test 8: Slider attributes for Azimuth, Altitude, Exaggeration
-  it('Azimuth slider has correct aria attributes and range (0-360, step 1); Altitude 0-90; Exaggeration 0-5 step 0.1', () => {
+  // Test 8: Slider attributes for supported Hillshade controls
+  it('Azimuth and Exaggeration sliders use supported MapLibre hillshade paint ranges', () => {
     render(
       <DEMEditorScene
         {...defaultProps({
@@ -281,13 +302,11 @@ describe('DEMEditorScene', () => {
     expect(azimuth).toHaveAttribute('max', '360');
     expect(azimuth).toHaveAttribute('step', '1');
 
-    const altitude = screen.getByRole('slider', { name: 'Altitude' });
-    expect(altitude).toHaveAttribute('min', '0');
-    expect(altitude).toHaveAttribute('max', '90');
+    expect(screen.queryByRole('slider', { name: 'Altitude' })).not.toBeInTheDocument();
 
     const exaggeration = screen.getByRole('slider', { name: 'Exaggeration' });
     expect(exaggeration).toHaveAttribute('min', '0');
-    expect(exaggeration).toHaveAttribute('max', '5');
+    expect(exaggeration).toHaveAttribute('max', '1');
     expect(exaggeration).toHaveAttribute('step', '0.1');
   });
 
@@ -309,6 +328,24 @@ describe('DEMEditorScene', () => {
     expect(onPaintChange).toHaveBeenCalledOnce();
     const [paint] = onPaintChange.mock.calls[0] as [Record<string, unknown>];
     expect(paint['hillshade-illumination-direction']).toBe(200);
+  });
+
+  it('clamps hillshade exaggeration before sending paint updates', () => {
+    const onPaintChange = vi.fn();
+    render(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({ style_config: { render_mode: 'hillshade' } }),
+          onPaintChange,
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Exaggeration' }), { target: { value: '2.1' } });
+
+    expect(onPaintChange).toHaveBeenCalledWith(expect.objectContaining({
+      'hillshade-exaggeration': 1,
+    }));
   });
 
   // Test 10: Color pickers call onPaintChange with correct hillshade keys
@@ -349,12 +386,13 @@ describe('DEMEditorScene', () => {
     );
   });
 
-  // Test 11: Terrain mode shows terrain hint only
-  it('in Terrain mode, Appearance section shows terrain hint only (no compass, no colors, no image hint)', () => {
+  // Test 11: Terrain mode shows terrain hint and layer-owned terrain exaggeration
+  it('in Terrain mode, Appearance section shows terrain controls without hillshade controls', () => {
     render(
       <DEMEditorScene
         {...defaultProps({
           layer: makeDEMLayer({ style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'] }),
+          terrainExaggeration: 1.6,
         })}
       />,
     );
@@ -362,9 +400,54 @@ describe('DEMEditorScene', () => {
     expect(
       screen.getByText(/Terrain uses elevation data to extrude the map surface/),
     ).toBeInTheDocument();
+    const terrainExaggeration = screen.getByRole('slider', { name: 'Terrain exaggeration' });
+    expect(terrainExaggeration).toHaveAttribute('min', '0');
+    expect(terrainExaggeration).toHaveAttribute('max', '3');
+    expect((terrainExaggeration as HTMLInputElement).value).toBe('1.6');
+    expect(screen.getByRole('spinbutton', { name: 'Terrain exaggeration value' })).toHaveValue(1.6);
     expect(screen.queryByRole('img', { name: /Sun azimuth/i })).not.toBeInTheDocument();
     expect(screen.queryByText('No additional appearance controls for image mode')).not.toBeInTheDocument();
     expect(screen.queryByText('SUN POSITION')).not.toBeInTheDocument();
+  });
+
+  it('Terrain mode exaggeration slider writes through the DEM layer callback', () => {
+    const onTerrainExaggerationChange = vi.fn();
+    render(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({
+            id: 'dem-terrain-test',
+            style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+          }),
+          onTerrainExaggerationChange,
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Terrain exaggeration' }), { target: { value: '2.4' } });
+
+    expect(onTerrainExaggerationChange).toHaveBeenCalledWith('dem-terrain-test', 2.4);
+  });
+
+  it('Terrain mode exaggeration number field writes through the DEM layer callback', () => {
+    const onTerrainExaggerationChange = vi.fn();
+    render(
+      <DEMEditorScene
+        {...defaultProps({
+          layer: makeDEMLayer({
+            id: 'dem-terrain-test',
+            style_config: { render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+          }),
+          onTerrainExaggerationChange,
+        })}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Terrain exaggeration value' }), {
+      target: { value: '2.45' },
+    });
+
+    expect(onTerrainExaggerationChange).toHaveBeenCalledWith('dem-terrain-test', 2.5);
   });
 
   // Test 12: Visibility section renders opacity and zoom inputs

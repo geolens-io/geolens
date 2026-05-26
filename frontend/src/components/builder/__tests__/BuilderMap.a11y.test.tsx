@@ -76,6 +76,7 @@ type FakeMap = {
   isStyleLoaded: ReturnType<typeof vi.fn>;
   getCanvas: ReturnType<typeof vi.fn>;
   setTerrain: ReturnType<typeof vi.fn>;
+  triggerRepaint: ReturnType<typeof vi.fn>;
   getSource: ReturnType<typeof vi.fn>;
   getLayer: ReturnType<typeof vi.fn>;
   getStyle: ReturnType<typeof vi.fn>;
@@ -109,6 +110,7 @@ const mapState = vi.hoisted(() => {
     isStyleLoaded: vi.fn(() => true),
     getCanvas: vi.fn(() => ({ style: { cursor: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     setTerrain: vi.fn(),
+    triggerRepaint: vi.fn(),
     getSource: vi.fn(() => null),
     getLayer: vi.fn(() => null),
     getStyle: vi.fn(() => ({ layers: [] })),
@@ -133,6 +135,7 @@ const mapState = vi.hoisted(() => {
       fakeMap.isStyleLoaded.mockClear();
       fakeMap.getCanvas.mockClear();
       fakeMap.setTerrain.mockClear();
+      fakeMap.triggerRepaint.mockClear();
       fakeMap.getSource.mockClear();
       fakeMap.getLayer.mockClear();
       fakeMap.getStyle.mockClear();
@@ -473,6 +476,79 @@ describe('BuilderMap terrain activation', () => {
     expect(mapState.fakeMap.setTerrain).toHaveBeenCalledWith({
       source: TERRAIN_SOURCE_ID,
       exaggeration: 2.4,
+    });
+  });
+
+  it('reapplies DEM terrain when layer-owned exaggeration changes', async () => {
+    const terrainToken = {
+      kind: 'raster',
+      tile_url: '/raster-tiles/dem-dataset/tiles/{z}/{x}/{y}.png',
+      bounds: [-74.05, 44.08, -73.85, 44.32],
+      minzoom: 0,
+      maxzoom: 17,
+      tile_size: 256,
+      format: 'png',
+    };
+    tileTokenState.tokens = [
+      { data: terrainToken, isLoading: false, isError: false, error: null },
+    ];
+
+    const demLayer = {
+      id: 'dem-layer',
+      dataset_id: 'dem-dataset',
+      dataset_name: 'Demo DEM',
+      dataset_geometry_type: null,
+      dataset_table_name: 'raster_demo',
+      dataset_extent_bbox: null,
+      dataset_column_info: null,
+      dataset_feature_count: null,
+      dataset_sample_values: null,
+      display_name: 'Demo DEM',
+      sort_order: 0,
+      visible: true,
+      opacity: 1,
+      paint: {},
+      layout: {},
+      layer_type: 'raster_geolens',
+      dataset_record_type: 'raster_dataset',
+      filter: null,
+      label_config: null,
+      popup_config: null,
+      style_config: { mode: 'categorical', column: '', ramp: '', render_mode: 'terrain' } as unknown as MapLayerResponse['style_config'],
+      show_in_legend: true,
+      is_3d: null,
+      is_dem: true,
+      dem_vertical_units: null,
+    } as MapLayerResponse;
+
+    const { rerender } = render(
+      <BuilderMap
+        layers={[demLayer]}
+        basemapStyle="openfreemap-positron"
+        terrainConfig={{ enabled: true, source_dataset_id: 'dem-dataset', exaggeration: 1 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.setTerrain).toHaveBeenCalledWith({
+        source: TERRAIN_SOURCE_ID,
+        exaggeration: 1,
+      });
+    });
+
+    rerender(
+      <BuilderMap
+        layers={[demLayer]}
+        basemapStyle="openfreemap-positron"
+        terrainConfig={{ enabled: true, source_dataset_id: 'dem-dataset', exaggeration: 2.7 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mapState.fakeMap.setTerrain).toHaveBeenCalledWith({
+        source: TERRAIN_SOURCE_ID,
+        exaggeration: 2.7,
+      });
     });
   });
 });

@@ -76,7 +76,7 @@ import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialog
 import { useBuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
-import { TERRAIN_SOURCE_ID } from '@/components/builder/map-sync';
+import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration } from '@/components/builder/map-sync';
 import {
   createBuilderBasemapState,
   removeBasemap as removeBasemapFromState,
@@ -87,7 +87,6 @@ import {
   setBasemapMasterOpacity,
   setBasemapPosition,
   setBasemapSublayerOpacity,
-  setTerrainExaggeration as setBasemapTerrainExaggeration,
   SUBLAYER_ID_OVERRIDE_KEY,
   swapBasemapPreset,
   toggleBasemapSublayerVisibility,
@@ -159,16 +158,18 @@ export function MapBuilderPage() {
     }),
   );
 
-  // Initialize notes from server data, falling back to localStorage for migration
+  // Initialize notes from server data, falling back to localStorage only for
+  // legacy responses that predate the server-backed notes field.
   useEffect(() => {
     if (!mapData) return;
-    if (mapData.notes) {
-      setDockNotes(mapData.notes);
+    const hasServerNotes = Object.prototype.hasOwnProperty.call(mapData, 'notes') && mapData.notes !== undefined;
+    if (hasServerNotes) {
+      setDockNotes(mapData.notes ?? '');
       try { localStorage.removeItem(`geolens-map-notes-${id}`); } catch { /* localStorage unavailable */ }
     } else {
       try {
         const local = localStorage.getItem(`geolens-map-notes-${id}`);
-        if (local) setDockNotes(local);
+        setDockNotes(local ?? '');
       } catch { /* localStorage unavailable */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when mapData loads
@@ -249,6 +250,7 @@ export function MapBuilderPage() {
   const save = useBuilderSave({
     mapId: id,
     localLayers: layers.localLayers,
+    groupMeta: layers.groupMeta,
     localBasemap: basemapState.basemapStyle,
     showBasemapLabels: basemapState.showBasemapLabels,
     basemapConfig: basemapState.config,
@@ -547,32 +549,41 @@ export function MapBuilderPage() {
       icon: FileText,
       label: t('dock.notes', { defaultValue: 'Notes' }),
       disabled: false,
+      unavailable: false,
     },
     {
       id: 'history' as const,
       icon: History,
       label: t('dock.history', { defaultValue: 'History' }),
       disabled: false,
+      unavailable: false,
     },
     {
       id: 'ai' as const,
       icon: Sparkles,
       label: aiAvailable
         ? t('dock.askAi', { defaultValue: 'Ask AI' })
-        : t('rail.aiDisabled', { defaultValue: 'AI disabled by admin' }),
-      disabled: !aiAvailable,
+        : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' }),
+      disabled: false,
+      unavailable: !aiAvailable,
     },
   ], [aiAvailable, t]);
 
   const railSheetTitle = railPanel === 'history'
     ? t('dock.history', { defaultValue: 'History' })
     : railPanel === 'ai'
-      ? t('dock.askAi', { defaultValue: 'Ask AI' })
+      ? aiAvailable
+        ? t('dock.askAi', { defaultValue: 'Ask AI' })
+        : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' })
       : t('dock.notes', { defaultValue: 'Notes' });
   const railSheetDescription = railPanel === 'history'
     ? t('history.timelineLabel', { defaultValue: 'Map edit history' })
     : railPanel === 'ai'
-      ? t('dock.askAi', { defaultValue: 'Ask AI' })
+      ? aiAvailable
+        ? t('dock.askAi', { defaultValue: 'Ask AI' })
+        : t('rail.aiUnavailableDescription', {
+          defaultValue: 'An administrator needs to enable an AI provider before Ask AI can be used in this builder.',
+        })
       : t('dock.notesPlaceholder', { defaultValue: 'Add notes about this map...' });
 
   const handleAddDataClick = useCallback(
@@ -781,21 +792,19 @@ export function MapBuilderPage() {
     handleSelectLayer('basemap-group');
   }, [handleSelectLayer]);
 
-  // Phase 1036: terrain active flag — true when localTerrainConfig.enabled is true,
-  // meaning a DEM layer has been bound as the terrain source.
-  const isTerrainActive = useMemo(
-    () => Boolean(layers.localTerrainConfig?.enabled),
-    [layers.localTerrainConfig],
-  );
-
-  // Phase 1036: name of the DEM layer currently bound as terrain source
-  const boundLayerName = useMemo(() => {
+  // Terrain is layer-owned: the map-level terrain source is active only while
+  // the bound DEM layer is in Terrain render mode.
+  const boundTerrainLayer = useMemo(() => {
     if (!layers.localTerrainConfig?.source_dataset_id) return undefined;
-    const bound = layers.localLayers.find(
-      (l) => l.dataset_id === layers.localTerrainConfig?.source_dataset_id,
+    return layers.localLayers.find(
+      (l) => l.dataset_id === layers.localTerrainConfig?.source_dataset_id
+        && (l.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain',
     );
-    return bound ? (bound.display_name ?? bound.dataset_name ?? undefined) : undefined;
   }, [layers.localLayers, layers.localTerrainConfig]);
+  const isTerrainActive = Boolean(layers.localTerrainConfig?.enabled && boundTerrainLayer);
+  const boundLayerName = boundTerrainLayer
+    ? (boundTerrainLayer.display_name ?? boundTerrainLayer.dataset_name ?? undefined)
+    : undefined;
 
   // Phase 1035+1036: scene-specific content + footer for LayerEditorPanel
   // Computed after handleSelectLayer and handleAddDataClick are in scope
@@ -927,6 +936,37 @@ export function MapBuilderPage() {
               source: 'manual',
               layerId,
             })}
+            onTerrainUnbind={(layerId) => layers.dispatchLayerAction({
+              type: 'unbind_dem_terrain',
+              source: 'manual',
+              layerId,
+            })}
+            terrainExaggeration={
+              layers.localTerrainConfig?.source_dataset_id === editingLayer.dataset_id
+                ? layers.localTerrainConfig.exaggeration ?? 1
+                : 1
+            }
+            onTerrainExaggerationChange={(layerId, exaggeration) => {
+              const nextExaggeration = normalizeTerrainExaggeration(exaggeration);
+              layers.dispatchLayerAction({
+                type: 'set_dem_terrain_exaggeration',
+                source: 'manual',
+                layerId,
+                exaggeration: nextExaggeration,
+              });
+              try {
+                if (mapInstanceRef.current?.getSource(TERRAIN_SOURCE_ID)) {
+                  mapInstanceRef.current.setTerrain({
+                    source: TERRAIN_SOURCE_ID,
+                    exaggeration: nextExaggeration,
+                  });
+                  mapInstanceRef.current.triggerRepaint();
+                }
+              } catch {
+                // BuilderMap reapplies the layer-owned terrain config once the
+                // DEM terrain source exists after style or token refreshes.
+              }
+            }}
             onRemove={(layerId) => layers.dispatchLayerAction({
               type: 'remove_layer',
               source: 'manual',
@@ -946,29 +986,6 @@ export function MapBuilderPage() {
             terrainConfig={layers.localTerrainConfig}
             isTerrainActive={isTerrainActive}
             boundLayerName={boundLayerName}
-            onExaggerationChange={(v) => {
-              const patch = setBasemapTerrainExaggeration(layers.localTerrainConfig, v);
-              const exaggeration = patch.terrainConfig?.exaggeration ?? 0;
-              applyBasemapPatch(patch);
-              layers.setHasUnsavedChanges(true);
-              if (
-                mapInstanceRef.current &&
-                layers.localTerrainConfig?.enabled &&
-                layers.localTerrainConfig.source_dataset_id
-              ) {
-                try {
-                  if (mapInstanceRef.current.getSource(TERRAIN_SOURCE_ID)) {
-                    mapInstanceRef.current.setTerrain({
-                      source: TERRAIN_SOURCE_ID,
-                      exaggeration,
-                    });
-                  }
-                } catch {
-                  // Terrain source can be absent during a style reload; BuilderMap
-                  // reapplies the saved config once the DEM token/source is ready.
-                }
-              }
-            }}
             activeWidgetIds={activeWidgets}
             onToggleWidget={toggleWidget}
             backgroundColor={basemapState.config.background_color ?? null}
@@ -1147,6 +1164,10 @@ export function MapBuilderPage() {
                 source: 'manual',
                 layerId,
               })}
+              onKeyboardReorder={(layerId, direction) => {
+                if (direction === 'up') layers.handleMoveUp(layerId);
+                else layers.handleMoveDown(layerId);
+              }}
               onAddDataClick={handleAddDataClick}
               onAddDataset={(datasetId: string) => {
                 layers.handleAddDataset(datasetId, (newLayerId) => {
@@ -1302,9 +1323,10 @@ export function MapBuilderPage() {
                   type="button"
                   onClick={btn.disabled ? undefined : () => setRailPanel(btn.id)}
                   disabled={btn.disabled}
+                  data-unavailable={btn.unavailable || undefined}
                   title={btn.label}
                   aria-label={btn.label}
-                  aria-pressed={!btn.disabled && railPanel === btn.id}
+                  aria-pressed={railPanel === btn.id}
                   className={cn(
                     'flex h-11 w-11 items-center justify-center rounded-md transition-colors',
                     btn.disabled

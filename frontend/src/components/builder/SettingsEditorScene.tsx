@@ -1,26 +1,14 @@
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { eyebrowClassName } from './EmptyStackState';
-import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronRight, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getWidgets } from '@/components/map-widgets/registry';
-import { TERRAIN_EXAGGERATION_MAX } from '@/components/builder/map-sync';
 import { StyleColorPicker } from './StyleColorPicker';
 import type { MapTerrainConfig } from '@/types/api';
-
-/**
- * Phase 1051 IN-03: named cap for the UI exaggeration slider so the magic
- * number isn't repeated inline.
- *
- * Terrain exaggeration past 3x tends to look surreal and cause artifacts on
- * most DEM data, so the UI and render-time clamp share the same cap.
- */
-export const TERRAIN_EXAGGERATION_UI_MAX = TERRAIN_EXAGGERATION_MAX;
 
 export interface SettingsEditorSceneProps {
   // Terrain
@@ -29,7 +17,6 @@ export interface SettingsEditorSceneProps {
   isTerrainActive: boolean;
   /** Name of the bound DEM layer (for the "Bound to:" hint) */
   boundLayerName?: string;
-  onExaggerationChange: (value: number) => void;
   // Widgets
   activeWidgetIds: Set<string>;
   onToggleWidget: (widgetId: string) => void;
@@ -42,48 +29,10 @@ export interface SettingsEditorSceneProps {
   onSetProjection: (projection: 'mercator' | 'globe') => void;
 }
 
-interface SliderRowProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  suffix: string;
-  onChange: (v: number) => void;
-  ariaLabel: string;
-  disabled?: boolean;
-}
-
-function SliderRow({ label, value, min, max, step, suffix, onChange, ariaLabel, disabled }: SliderRowProps) {
-  return (
-    // Phase 1051 WR-03: when disabled, mute the whole row (label + value)
-    // not just the slider, so the visual hierarchy matches behavior. opacity-50
-    // is the standard shadcn disabled-state convention.
-    <div className={cn('grid grid-cols-[110px_1fr_auto] gap-2 items-center', disabled && 'cursor-not-allowed opacity-50')}>
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Slider
-        aria-label={ariaLabel}
-        aria-valuetext={`${value}${suffix}`}
-        aria-disabled={disabled}
-        disabled={disabled}
-        value={[value]}
-        min={min}
-        max={max}
-        step={step}
-        onValueChange={([v]) => onChange(v)}
-      />
-      <span className="text-xs tabular-nums text-muted-foreground w-12 shrink-0 text-end">
-        {value}{suffix}
-      </span>
-    </div>
-  );
-}
-
 export const SettingsEditorScene = memo(function SettingsEditorScene({
-  terrainConfig,
+  terrainConfig: _terrainConfig,
   isTerrainActive,
   boundLayerName,
-  onExaggerationChange,
   activeWidgetIds,
   onToggleWidget,
   backgroundColor,
@@ -100,11 +49,10 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
 
   const widgets = useMemo(() => getWidgets(), []);
 
-  const exaggerationValue = terrainConfig?.exaggeration ?? 1.0;
   const backgroundSwatch = backgroundColor ?? '#ffffff';
 
   const terrainCollapsedHint = isTerrainActive
-    ? t('settings.terrainActiveHint', { defaultValue: '{{value}}× exaggeration', value: exaggerationValue })
+    ? boundLayerName ?? t('settings.terrainActiveHint', { defaultValue: 'Terrain active' })
     : t('settings.terrainInactiveCollapsedHint', { defaultValue: 'No terrain active' });
 
   const projectionPills: { id: 'mercator' | 'globe'; label: string }[] = [
@@ -184,27 +132,15 @@ export const SettingsEditorScene = memo(function SettingsEditorScene({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="px-4 py-2 border-b">
-            <SliderRow
-              label={t('settings.exaggeration', { defaultValue: 'Exaggeration' })}
-              value={exaggerationValue}
-              min={0.1}
-              max={TERRAIN_EXAGGERATION_UI_MAX}
-              step={0.1}
-              suffix="×"
-              onChange={onExaggerationChange}
-              ariaLabel={t('settings.terrainExaggerationAria', { defaultValue: 'Terrain exaggeration' })}
-              disabled={!isTerrainActive}
-            />
             {isTerrainActive && boundLayerName && (
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {t('settings.boundTo', { defaultValue: 'Bound to: {{name}}', name: boundLayerName })}
               </p>
             )}
             {!isTerrainActive && (
-              <p className="mt-2 text-xs italic text-muted-foreground">
+              <p className="text-xs italic text-muted-foreground">
                 {t('settings.terrainInactiveHint', {
-                  defaultValue:
-                    'No terrain layer is active. Switch a DEM layer to Terrain mode to enable global terrain exaggeration.',
+                  defaultValue: 'No terrain layer is active.',
                 })}
               </p>
             )}

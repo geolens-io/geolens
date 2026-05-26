@@ -3,6 +3,7 @@ import { AppErrorBoundary } from '../AppErrorBoundary';
 import { MapErrorBoundary } from '../MapErrorBoundary';
 import { LazyLoadErrorBoundary } from '../LazyLoadErrorBoundary';
 import { RouteErrorBoundary } from '../RouteErrorBoundary';
+import { GEOLENS_BUG_REPORT_URL } from '@/lib/external-links';
 
 // Suppress React error boundary console.error noise in tests
 beforeEach(() => {
@@ -38,6 +39,10 @@ describe('AppErrorBoundary', () => {
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
     expect(screen.getByText(/unexpected error/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /reload/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /file a bug/i })).toHaveAttribute(
+      'href',
+      GEOLENS_BUG_REPORT_URL,
+    );
   });
 
   it('displays the error message', () => {
@@ -151,5 +156,9 @@ describe('RouteErrorBoundary', () => {
     render(<RouteErrorBoundary />);
     expect(screen.getByRole('button', { name: /go back/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /go to home/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /file a bug/i })).toHaveAttribute(
+      'href',
+      GEOLENS_BUG_REPORT_URL,
+    );
   });
 });

@@ -3,15 +3,11 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import {
   isTerrainCapableDemLayer,
   normalizeTerrainExaggeration,
-  TERRAIN_EXAGGERATION_MAX,
-  TERRAIN_EXAGGERATION_MIN,
 } from '@/components/builder/map-sync';
-import { formatNumber } from '@/lib/format';
 import type { MapLayerResponse, MapTerrainConfig } from '@/types/api';
 
 const METER_UNITS = new Set(['m', 'meter', 'meters', 'metre', 'metres']);
@@ -58,10 +54,10 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
         ? null
         : t('terrain.unitsNonMeter', {
           unit: selectedLayer.dem_vertical_units,
-          defaultValue: 'Vertical units are {{unit}}, not meters; exaggeration is approximate.',
+          defaultValue: 'Vertical units are {{unit}}, not meters; terrain scale is approximate.',
         })
       : t('terrain.unitsUnknown', {
-        defaultValue: 'Vertical units are unavailable; exaggeration is approximate.',
+        defaultValue: 'Vertical units are unavailable; terrain scale is approximate.',
       })
     : null;
 
@@ -84,10 +80,6 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
 
   function handleSourceChange(sourceDatasetId: string) {
     onChange(nextConfig({ source_dataset_id: sourceDatasetId }));
-  }
-
-  function handleExaggerationChange(next: number[]) {
-    onChange(nextConfig({ exaggeration: normalizeTerrainExaggeration(next[0]) }));
   }
 
   return (
@@ -127,12 +119,6 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
               {selectedLayer ? displayLayerName(selectedLayer) : t('terrain.noSource', { defaultValue: 'None' })}
             </dd>
             <dt className="text-muted-foreground">
-              {t('terrain.surfaceExaggeration', { defaultValue: 'Surface exaggeration' })}
-            </dt>
-            <dd className="tabular-nums text-right font-medium text-foreground">
-              {formatNumber(exaggeration, { maximumFractionDigits: 1 })}x
-            </dd>
-            <dt className="text-muted-foreground">
               {t('terrain.visualRelief', { defaultValue: 'Visual relief' })}
             </dt>
             <dd className="text-right font-medium text-foreground">
@@ -164,26 +150,6 @@ export function TerrainControls({ layers, value, onChange }: TerrainControlsProp
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="terrain-exaggeration" className="text-xs text-muted-foreground">
-                {t('terrain.exaggeration', { defaultValue: 'Exaggeration' })}
-              </Label>
-              <span className="tabular-nums text-xs text-foreground">
-                {formatNumber(exaggeration, { maximumFractionDigits: 1 })}x
-              </span>
-            </div>
-            <Slider
-              id="terrain-exaggeration"
-              value={[exaggeration]}
-              min={TERRAIN_EXAGGERATION_MIN}
-              max={TERRAIN_EXAGGERATION_MAX}
-              step={0.1}
-              aria-label={t('terrain.exaggeration', { defaultValue: 'Exaggeration' })}
-              onValueChange={handleExaggerationChange}
-            />
           </div>
 
           {unitWarning && (

@@ -7,6 +7,7 @@ import i18n from '@/i18n/i18n';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
 import { applyBasemapConfigToStyle } from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
@@ -44,6 +45,14 @@ export function isTerrainCapableDemLayer(layer: {
 }) {
   return layer.is_dem === true
     && (layer.dataset_record_type === 'raster_dataset' || layer.dataset_record_type === 'vrt_dataset');
+}
+
+export function isDemTerrainVisualSuppressed(layer: {
+  is_dem?: boolean | null;
+  style_config?: Pick<StyleConfig, 'render_mode'> | null;
+}) {
+  return layer.is_dem === true
+    && (layer.style_config as { render_mode?: unknown } | null | undefined)?.render_mode === 'terrain';
 }
 
 export function normalizeTerrainExaggeration(value: number | null | undefined) {
@@ -820,12 +829,17 @@ export function syncLayersToMap(
 ) {
   const prefix = options?.idPrefix;
   const sourcePrefix = prefix ? `${prefix}source-` : 'source-';
+  const renderableLayers = layers.filter((layer) => !isFolderGroupLayer(layer));
 
   const currentSources = new Set(managedSourcesRef.current);
   const desiredSources = new Set<string>();
 
-  for (const layer of layers) {
+  for (const layer of renderableLayers) {
     try {
+      if (isDemTerrainVisualSuppressed(layer)) {
+        continue;
+      }
+
       // SF-04 dedupe: non-cluster vector layers sharing a dataset_table_name
       // now resolve to one shared source id; cluster + raster/DEM layers stay
       // per-layer. Layer ids (per-layer paint/visibility) remain unchanged.
@@ -855,7 +869,7 @@ export function syncLayersToMap(
       if (token?.kind === 'raster') {
         syncRasterLayer(map, adapterInput, token, desiredSources);
       } else {
-        syncVectorLayer(map, layer, layers, adapterInput, tileBaseUrl, token, desiredSources, geojsonDataMap, prefix);
+        syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, token, desiredSources, geojsonDataMap, prefix);
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
@@ -876,18 +890,18 @@ export function syncLayersToMap(
   // Include total style layer count so basemap switches invalidate the key.
   // UX-03 (Phase 1051 Plan 06): include basemap_position so dragging basemap
   // top↔bottom invalidates the orderKey and re-runs the reorder pipeline.
-  const orderKey = layers.map((l) => l.id).join(',')
+  const orderKey = renderableLayers.map((l) => l.id).join(',')
     + (options?.showBasemapLabels !== undefined ? `|${String(options.showBasemapLabels)}` : '')
     + (options?.basemapPosition !== undefined ? `|bp:${options.basemapPosition}` : '')
     + `|${map.getStyle()?.layers?.length ?? 0}`;
   if (orderKey !== lastOrderKeyRef.current) {
     lastOrderKeyRef.current = orderKey;
     // Target z-order: data geometries → basemap labels → data labels
-    reorderDataGeometry(map, layers, prefix);
+    reorderDataGeometry(map, renderableLayers, prefix);
     if (options?.showBasemapLabels !== undefined) {
       reorderBasemapLabels(map, options.showBasemapLabels, sourcePrefix);
     }
-    reorderDataLabels(map, layers, prefix);
+    reorderDataLabels(map, renderableLayers, prefix);
     // UX-03: basemap-above-data inversion runs LAST so it overrides the
     // standard data-above-basemap stack ordering when position='top'.
     reorderBasemapAboveData(map, options?.basemapPosition, sourcePrefix);

@@ -246,9 +246,10 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     await page.waitForTimeout(300);
 
     const reorderedIds = await rows.evaluateAll((els: Element[]) => els.map((e) => e.id));
-    // The second data row should have swapped with the row above it.
-    // Some dnd-kit keyboard implementations move by one step per keypress.
-    expect(reorderedIds).not.toEqual(initialIds);
+    const reorderedDataRowIds = reorderedIds.filter((id) => id !== 'stack-row-basemap-group');
+    // The second data row should have swapped with the row above it. This must
+    // check the actual row order, not just that a transient drag overlay appeared.
+    expect(reorderedDataRowIds[0]).toBe(`stack-row-${secondDataRowId}`);
 
     assertConsoleClean(gate);
   });
@@ -605,5 +606,89 @@ test.describe.serial('Builder Unified Stack UAT (Phase 1038, BSR-25 + BSR-27)', 
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
 
     assertConsoleClean(gate);
+  });
+
+  // =========================================================================
+  // Test 10: User folder groups save and reload through persisted layer metadata
+  // =========================================================================
+
+  test('10. folder group from row menu saves and reloads', async ({ page }) => {
+    const gate = attachConsoleGate(page);
+    const token = getAuthToken();
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+    const authHeader = { Authorization: `Bearer ${token}` };
+    let groupMapId = '';
+
+    try {
+      const mapRes = await fetch(`${BASE_URL}/api/maps/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: 'E2E Folder Group Persistence',
+          description: 'Temporary map for folder-group save/reload coverage',
+        }),
+      });
+      expect(mapRes.ok, `Create folder-group map: ${mapRes.status}`).toBe(true);
+      groupMapId = ((await mapRes.json()) as { id: string }).id;
+
+      const dsRes = await fetch(`${BASE_URL}/api/datasets/?limit=20`, { headers });
+      expect(dsRes.ok).toBe(true);
+      const dsPayload = await dsRes.json() as { datasets?: Array<{ id: string; record_type?: string }>; items?: Array<{ id: string; record_type?: string }> };
+      const allDatasets = dsPayload.datasets ?? dsPayload.items ?? [];
+      const vectorDatasets = allDatasets.filter((ds) => ds.record_type === 'vector_dataset' && ds.id);
+      expect(vectorDatasets.length).toBeGreaterThan(0);
+      const layersToAdd = vectorDatasets.length >= 2 ? vectorDatasets.slice(0, 2) : [vectorDatasets[0], vectorDatasets[0]];
+
+      for (const ds of layersToAdd) {
+        const layerRes = await fetch(`${BASE_URL}/api/maps/${groupMapId}/layers/`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ dataset_id: ds.id }),
+        });
+        expect(layerRes.ok, `Add group test layer: ${layerRes.status}`).toBe(true);
+      }
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/maps/${groupMapId}`);
+      await waitForBuilder(page);
+
+      const rows = page.locator('[id^="stack-row-"]');
+      const rowIds = await rows.evaluateAll((els: Element[]) => els.map((e) => e.id));
+      const dataRowIds = rowIds.filter((id) => id !== 'stack-row-basemap-group');
+      expect(dataRowIds.length).toBeGreaterThanOrEqual(2);
+
+      const targetLayerId = dataRowIds[0].replace('stack-row-', '');
+      const targetRow = page.locator(`#stack-row-${targetLayerId}`);
+      await targetRow.hover();
+      await targetRow.locator('[data-kebab-trigger]').click();
+      await page.getByRole('menuitem', { name: /New group/i }).click();
+      await expect(page.getByText(/^Group 1$/).first()).toBeVisible();
+
+      const patchResponsePromise = page.waitForResponse(
+        (resp) => resp.url().includes(`/api/maps/${groupMapId}/layers`) && resp.request().method() === 'PATCH',
+      );
+      const metadataResponsePromise = page.waitForResponse(
+        (resp) => resp.url().includes(`/api/maps/${groupMapId}`) && resp.request().method() === 'PUT',
+      );
+      await page.getByRole('button', { name: /save/i }).first().click();
+      expect((await patchResponsePromise).status()).toBe(200);
+      expect((await metadataResponsePromise).status()).toBe(200);
+      await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0, { timeout: 5_000 });
+
+      await page.reload();
+      await waitForBuilder(page);
+      await expect(page.getByText(/^Group 1$/).first()).toBeVisible();
+      await expect(page.locator('[id^="stack-row-group-"]').first()).toBeVisible();
+      await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+
+      assertConsoleClean(gate);
+    } finally {
+      if (groupMapId) {
+        await fetch(`${BASE_URL}/api/maps/${groupMapId}`, { method: 'DELETE', headers: authHeader });
+      }
+    }
   });
 });
