@@ -54,7 +54,7 @@
 - [x] 1134-01-PLAN.md — Per-adapter regression sweep + raster early-return fix + symbol setFilter migration (MAP-18)
 - [x] 1134-02-PLAN.md — Delete-layer adapter-driven companion sweep (MAP-17)
 - [x] 1134-03-PLAN.md — Rename-group rAF-deferred focus regression pin (MAP-16)
-- [ ] 1134-04-PLAN.md — ≤800px sidebar offset + SheetContent grep guard + coord readout pin + filter chip overflow (MAP-07/08/09/10/20)
+- [x] 1134-04-PLAN.md — ≤800px sidebar offset + SheetContent grep guard + coord readout pin + filter chip overflow (MAP-07/08/09/10/20)
 - [ ] 1134-05-PLAN.md — Notes presence dot + MAP-19 scroll-containment regression pin (MAP-19, MAP-22)
 - [ ] 1134-06-PLAN.md — Live Playwright MCP smoke at 1440×900 / 800×600 / 414×896 (all 10 MAP REQs)
 **UI hint**: yes
@@ -140,7 +140,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
-| 1134. Map Functionality and Smaller-Screen Polish | v1030 | 3/6 | In Progress|  |
+| 1134. Map Functionality and Smaller-Screen Polish | v1030 | 4/6 | In Progress|  |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |

@@ -21,12 +21,12 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [x] **MAP-17**: User can delete a layer across every render mode (fill / line / circle / symbol / heatmap / cluster / raster) without leaving orphan sources, layer-stack entries, or save/dirty-state drift. Regression pin in `frontend/src/components/builder/__tests__/use-builder-layers.test.tsx`. Source: `todo.md` line 146.
 - [x] **MAP-18**: User can toggle layer visibility off/on across every render mode and see the change immediately on the map. Regression pin per adapter in `frontend/src/components/builder/layer-adapters/__tests__/`. Likely the v1011 BUG-01 `syncVisibility` initial-layout pattern recurring across multiple adapters — audit all adapters, not only the named one. Source: `todo.md` line 143.
 - [x] **MAP-16**: User can rename a layer group and the rename text input receives focus reliably (rAF-deferred per v1011 BUG-03 dnd-kit / Radix focus race). Regression pin in `frontend/src/components/builder/__tests__/UnifiedStackPanel.test.tsx`. Source: `todo.md` line 145.
-- [ ] **MAP-07**: At ≤ 800 px the right-sidebar Sheet does not overlap the MapLibre zoom/Navigation controls (fix sidebar collapse trigger — do NOT move NavigationControl from `top-left`; Pitfall #10). Source: `todo.md` line 147.
-- [ ] **MAP-08**: At ≤ 800 px the lat/long readout pill does not overlap the map widget container. Verify v1011 RESP-02 fix still live; pin a positive-form `queryBy*` regression test in `MapCoordReadout.test.tsx`. Source: `todo.md` line 148.
-- [ ] **MAP-09**: At ≤ 800 px the basemap selector renders a single close button (no double-X). Verify v1011 RESP-03 fix still live across `<SheetContent>` callers. Source: `todo.md` line 149.
-- [ ] **MAP-10**: Every right-sidebar `<SheetContent>` opts out of duplicate-X via `showCloseButton={false}` per v1011 RESP-03 contract; regression pin in `frontend/src/components/builder/__tests__/sheet-close-button.test.tsx`. Source: generalized from `todo.md` line 149.
+- [x] **MAP-07**: At ≤ 800 px the right-sidebar Sheet does not overlap the MapLibre zoom/Navigation controls (fix sidebar collapse trigger — do NOT move NavigationControl from `top-left`; Pitfall #10). Source: `todo.md` line 147.
+- [x] **MAP-08**: At ≤ 800 px the lat/long readout pill does not overlap the map widget container. Verify v1011 RESP-02 fix still live; pin a positive-form `queryBy*` regression test in `MapCoordReadout.test.tsx`. Source: `todo.md` line 148.
+- [x] **MAP-09**: At ≤ 800 px the basemap selector renders a single close button (no double-X). Verify v1011 RESP-03 fix still live across `<SheetContent>` callers. Source: `todo.md` line 149.
+- [x] **MAP-10**: Every right-sidebar `<SheetContent>` opts out of duplicate-X via `showCloseButton={false}` per v1011 RESP-03 contract; regression pin in `frontend/src/components/builder/__tests__/sheet-close-button.test.tsx`. Source: generalized from `todo.md` line 149.
 - [ ] **MAP-19**: Map container does not scroll the page body during pan/zoom; verify pointer/wheel event handling and `touch-action: none` boundaries on `BuilderMap`. Source: `todo.md` line 136.
-- [ ] **MAP-20**: Filter pills do not collide with the measure-widget chrome at any sidebar collapse state. Source: `todo.md` line 103.
+- [x] **MAP-20**: Filter pills do not collide with the measure-widget chrome at any sidebar collapse state. Source: `todo.md` line 103.
 - [ ] **MAP-22**: Notes icon shows a presence indicator (dot / count) when notes exist on the active map; reads from existing notes state, no new endpoint. Source: `todo.md` line 101.
 
 ### AI — Chat Polish (depends on MAP)
@@ -132,15 +132,15 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | WALK-03 | Phase 1133 | Complete |
 | WALK-04 | Phase 1133 | Complete |
 | WALK-05 | Phase 1133 | Complete |
-| MAP-07 | Phase 1134 | Pending |
-| MAP-08 | Phase 1134 | Pending |
-| MAP-09 | Phase 1134 | Pending |
-| MAP-10 | Phase 1134 | Pending |
+| MAP-07 | Phase 1134 | Complete |
+| MAP-08 | Phase 1134 | Complete |
+| MAP-09 | Phase 1134 | Complete |
+| MAP-10 | Phase 1134 | Complete |
 | MAP-16 | Phase 1134 | Complete |
 | MAP-17 | Phase 1134 | Complete |
 | MAP-18 | Phase 1134 | Complete |
 | MAP-19 | Phase 1134 | Pending |
-| MAP-20 | Phase 1134 | Pending |
+| MAP-20 | Phase 1134 | Complete |
 | MAP-22 | Phase 1134 | Pending |
 | AI-01 | Phase 1135 | Pending |
 | AI-02 | Phase 1135 | Pending |
