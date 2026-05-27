@@ -1,6 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility } from './shared';
+import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { SymbolStyleConfig } from '@/types/api';
 import { LABEL_FONT_STACK } from '../label-layer-utils';
@@ -130,7 +130,7 @@ export const symbolAdapter: LayerAdapter = {
         paint: symbolPaint(input),
       });
       if (input.filter && Array.isArray(input.filter) && input.filter.length > 0) {
-        map.setFilter(input.layerId, input.filter);
+        syncLayerFilter(map, input.layerId, input.filter);
       }
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] addLayer failed for ${input.layerId}:`, e);
@@ -148,7 +148,7 @@ export const symbolAdapter: LayerAdapter = {
     syncOwnedPaintProperties(map, input.layerId, paint, {
       ownedProperties: SYMBOL_OWNED_PAINT_PROPERTIES,
     });
-    map.setFilter(input.layerId, input.filter ?? null);
+    syncLayerFilter(map, input.layerId, input.filter);
   },
 
   syncVisibility(map: MaplibreMap, input: AdapterLayerInput): void {
