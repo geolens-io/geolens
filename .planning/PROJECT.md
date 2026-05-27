@@ -12,9 +12,20 @@ Milestones are delivered through v1011 Map Builder Polish & Bug Sweep (shipped 2
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone
+## Current Milestone: v1029 DCAT 3.0
 
-No active milestone is open after v1028 close. Post-v1028 follow-ups completed in this session include provider-backed Anthropic AI prompt/action UAT and React error-page bug reporting through the GitHub issue template; remaining external carry-forward is the GitHub Actions billing prerequisite for CI live-verify.
+**Goal:** Add full DCAT-US Schema v3.0 support so GeoLens can emit, validate, document, and operationalize federal `data.json` metadata while preserving existing catalog visibility rules.
+
+**Target features:**
+- Upgrade standards support from generic W3C DCAT 3 export toward DCAT-US Schema v3.0, using the official `resources.data.gov` reference and JSON Schema 2020-12 validator.
+- Add schema-backed validation and regression fixtures for catalog, dataset, distribution, structured temporal/spatial fields, language, access rights, publisher/contact, themes, and required federal fields where GeoLens can populate them.
+- Support the full lifecycle: export/feed behavior, validation tooling/API, metadata mapping gaps, admin/operator guidance, migration notes from existing DCAT output, and docs/OpenAPI/SDK updates where APIs change.
+- Preserve existing `/datasets/dcat/` and `/{dataset_id}/dcat/` compatibility routes while adding explicit DCAT-US 3.0 routes/aliases for federal-profile consumers.
+
+**Key context:**
+- GeoLens already has DCAT serialization in `backend/app/standards/dcat/service.py` and export routes in `backend/app/modules/catalog/datasets/api/router_export.py`.
+- The official DCAT-US v3.0 page says the implementation guide was still draft as of 2026-05-07, so implementation should pin behavior to the official schema repository and generated schema/reference pages, not prose guidance alone.
+- Existing visibility filtering and per-dataset access checks on DCAT routes remain non-negotiable.
 
 ## Recent Shipped Milestone: v1028 Map Builder Product Polish
 
@@ -1166,9 +1177,10 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-_None — v1022 just shipped (degraded close). Awaiting next milestone definition via `/gsd-new-milestone`._
-
-**v1023 carry-forward (tracked for next milestone):** CI-01-v1023 — live-verify the `pytest-parallel-isolation` CI gate on real GitHub Actions infrastructure (post-billing-resolution). v1022's CI-01 was deferred when GitHub Actions billing block prevented the first post-merge live-verify run (run 26359374410: 0/13 jobs executed at runner-allocation). Operator action: resolve billing at https://github.com/organizations/geolens-io/settings/billing → `gh run rerun 26359374410` → document GREEN evidence in v1023 follow-up phase.
+- [ ] GeoLens emits DCAT-US Schema v3.0 catalog and dataset metadata suitable for federal `data.json` consumers while preserving existing DCAT route visibility behavior.
+- [ ] DCAT-US v3.0 output is validated against the official JSON Schema 2020-12 artifacts, with regression fixtures covering the catalog, dataset, distribution, structured temporal/spatial, language, access rights, publisher/contact, theme, and federal-field mapping surfaces GeoLens can support.
+- [ ] Operators have a practical DCAT-US v3.0 lifecycle: explicit routes/aliases, validation tooling or API behavior, migration notes from the current W3C DCAT 3 export, and docs/OpenAPI/SDK updates where the public API changes.
+- [ ] Metadata gaps that GeoLens cannot populate from current catalog fields are documented with explicit fallback, warning, future-field, or out-of-scope decisions.
 
 ### Out of Scope
 
@@ -1440,4 +1452,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-25 — completed milestone v1028 Map Builder Product Polish. Closed builder workflow polish, ADK showcase-map verification, Notes and AI builder validation, quality sweep, Playwright MCP verification, and removal of any active planning assumption that a separate demo instance must be maintained.*
+*Last updated: 2026-05-27 — started milestone v1029 DCAT 3.0. Scoped DCAT-US Schema v3.0 export, validation, lifecycle, docs/API, and compatibility-route work from the official resources.data.gov reference.*
