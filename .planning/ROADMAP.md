@@ -50,7 +50,13 @@
   3. User can rename a layer group and the text input receives focus on first paint via rAF-deferred focus (v1011 BUG-03 pattern); regression pin in `UnifiedStackPanel.test.tsx`.
   4. At ≤800px viewport: right-sidebar Sheet does not overlap the NavigationControl (sidebar collapse trigger fixed; NavigationControl stays at `top-left` per Pitfall #10), lat/long readout does not overlap the widget container, and every `<SheetContent>` in the builder canvas opts out of duplicate-X via `showCloseButton={false}` (negative-control pin in `sheet-close-button.test.tsx` per Pitfall #11).
   5. Map container does not scroll the page body during pan/zoom; filter pills do not collide with the measure-widget chrome at any sidebar state; Notes icon shows a presence indicator (dot/count) when notes exist on the active map.
-**Plans**: TBD
+**Plans**: 6 plans
+- [ ] 1134-01-PLAN.md — Per-adapter regression sweep + raster early-return fix + symbol setFilter migration (MAP-18)
+- [ ] 1134-02-PLAN.md — Delete-layer adapter-driven companion sweep (MAP-17)
+- [ ] 1134-03-PLAN.md — Rename-group rAF-deferred focus regression pin (MAP-16)
+- [ ] 1134-04-PLAN.md — ≤800px sidebar offset + SheetContent grep guard + coord readout pin + filter chip overflow (MAP-07/08/09/10/20)
+- [ ] 1134-05-PLAN.md — Notes presence dot + MAP-19 scroll-containment regression pin (MAP-19, MAP-22)
+- [ ] 1134-06-PLAN.md — Live Playwright MCP smoke at 1440×900 / 800×600 / 414×896 (all 10 MAP REQs)
 **UI hint**: yes
 
 ### Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish
@@ -134,7 +140,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
-| 1134. Map Functionality and Smaller-Screen Polish | v1030 | 0/0 | Not started | - |
+| 1134. Map Functionality and Smaller-Screen Polish | v1030 | 0/6 | Planned     | - |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
