@@ -34,7 +34,7 @@
   5. SHARE-08 (OG-cards) disposition recorded: 1200×630 thumbnail variant exists OR a Future Requirements entry flags SHARE-08 to v1031 with rationale.
 **Plans**: 5 plans
 - [x] 1133-01-PLAN.md — Live Playwright MCP walkthrough + audit-doc skeleton + Phase 1134-1138 routing table (WALK-01)
-- [ ] 1133-02-PLAN.md — AI Consumer-Gating Matrix (Pitfall #4 / v1010.2 SF-06 sibling-hook sweep) (WALK-02)
+- [x] 1133-02-PLAN.md — AI Consumer-Gating Matrix (Pitfall #4 / v1010.2 SF-06 sibling-hook sweep) (WALK-02)
 - [ ] 1133-03-PLAN.md — todo.md L96-171 staleness pass with milestone citations (WALK-03)
 - [ ] 1133-04-PLAN.md — Invariant grep checks: v1008/v1026/v1027 contracts on clean main (WALK-04)
 - [ ] 1133-05-PLAN.md — SHARE-08 thumbnail-variant + SHARE-03 iframe-sandbox disposition + audit sign-off (WALK-05)
@@ -133,7 +133,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1133. Audit-First Builder Walkthrough | v1030 | 1/5 | In Progress|  |
+| 1133. Audit-First Builder Walkthrough | v1030 | 2/5 | In Progress|  |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 0/0 | Not started | - |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
