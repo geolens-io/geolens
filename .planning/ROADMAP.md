@@ -116,7 +116,7 @@
 - [x] 1137-02-PLAN.md — Backend CSP no-* defensive pin + canonical-form round-trip test (SHARE-06)
 - [x] 1137-03-PLAN.md — ViewerMap branding overlay + export PNG title/legend/branding pins (SHARE-07, SHARE-09)
 - [x] 1137-04-PLAN.md — SharePanel chip-based allowed-origins UI (SHARE-02, SHARE-06)
-- [ ] 1137-05-PLAN.md — SharePanel expiration preset Select + Pitfall #6 docstring (SHARE-04)
+- [x] 1137-05-PLAN.md — SharePanel expiration preset Select + Pitfall #6 docstring (SHARE-04)
 - [ ] 1137-06-PLAN.md — SharePanel iframe embed-preview pane + inflightEmbedCreate race ref (SHARE-03, Pitfall #7)
 - [ ] 1137-07-PLAN.md — Orchestrator-driven Playwright MCP smoke checklist (close-gate)
 **UI hint**: yes
@@ -163,7 +163,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
-| 1137. Sharing and Embed Polish | v1030 | 4/7 | In Progress|  |
+| 1137. Sharing and Embed Polish | v1030 | 5/7 | In Progress|  |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
 | 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
 
