@@ -1,91 +1,75 @@
 # Roadmap: GeoLens
 
-## v1028 Map Builder Product Polish (Shipped 2026-05-25)
+## v1029 DCAT 3.0
 
-**Goal:** Polish the map builder's highest-value authoring workflows, showcase-map output, Notes experience, and AI-assisted edits while proving the product on the standard GeoLens stack with Playwright MCP.
+**Goal:** Add full DCAT-US Schema v3.0 support so GeoLens can emit, validate, document, and operationalize federal `data.json` metadata while preserving existing catalog visibility rules.
 
-**Trigger:** v1025-v1027 hardened the ADK target map, style reconciliation, builder architecture, and action boundaries. The next value step is user-facing polish: run the product like a real map author, validate Notes and AI in the builder, improve the showcase map and screenshot path, and close visible quality gaps without maintaining a separate demo instance.
+**Trigger:** The user requested support for DCAT-US Schema v3.0 from the official resources.data.gov reference. GeoLens already has W3C DCAT 3 JSON-LD export endpoints, so this milestone upgrades standards coverage with a compatibility-preserving DCAT-US profile, official schema validation, route/API support, mapping notes, and runtime verification.
 
-**Hard invariant:** v1028 is product polish on the standard GeoLens app/local stack. Do not introduce, preserve, or plan around a separate demo instance, demo deployment, or demo compose validation path. Manual builder workflows, Notes, AI actions, undo/history, save/reload, public viewer, embed viewer, and the target map UAT flows must remain functionally coherent or explicitly improve via documented bug fixes.
+**Hard invariant:** Existing W3C DCAT 3 routes must remain stable. New DCAT-US 3.0 catalog, dataset, and validation surfaces must preserve dataset visibility filtering and per-dataset access checks.
 
 ### Phase Plan
 
-- [x] **Phase 1124: Builder Workflow and Notes/AI Audit** — use Playwright MCP to sweep builder workflows, Notes, AI, target map, console/network hygiene, and no-demo-instance assumptions before fixes.
-- [x] **Phase 1125: Builder Workflow Polish** — fix the highest-value layer authoring, save/dirty, undo/history, responsive editor, empty/error-state, and options-menu polish gaps found in the audit.
-- [x] **Phase 1126: Notes and AI Authoring Polish** — harden Builder Notes and AI-assisted authoring flows with persistence, disabled/error states, command semantics, and regression coverage.
-- [x] **Phase 1127: Showcase Map and Capture Polish** — polish the ADK target map and screenshot/capture path in-product, verifying builder/viewer/embed parity without a separate demo instance.
-- [x] **Phase 1128: Quality Sweep and Close Gate** — run focused tests, frontend gates, Playwright MCP close gate, docs/reference cleanup, milestone audit, and lifecycle close.
+- [ ] **Phase 1129: DCAT-US Profile Contract and Schema Foundation** — pin the official schema source, vendor deterministic JSON Schema definitions, and document the GeoLens metadata crosswalk/gaps.
+- [ ] **Phase 1130: DCAT-US Serializer and Access Routes** — implement DCAT-US 3.0 catalog/dataset serializers plus explicit profile routes using existing visibility and access helpers.
+- [ ] **Phase 1131: Validation API, Docs, OpenAPI, and SDKs** — expose validation reports, document migration/mapping behavior, and refresh public API artifacts.
+- [ ] **Phase 1132: Quality Sweep and Playwright Close Gate** — run backend standards/export gates plus Playwright MCP verification against the running API surface and close the milestone.
 
-### Phase 1124: Builder Workflow and Notes/AI Audit
+### Phase 1129: DCAT-US Profile Contract and Schema Foundation
 
-**Goal:** Establish the concrete product-polish target list from live builder use before implementation starts.
+**Goal:** Establish the official DCAT-US 3.0 schema foundation and implementation contract before serializer work.
 
-**Requirements:** AUDIT-01, AUDIT-02, AUDIT-03, AUDIT-04
+**Requirements:** PROFILE-01, PROFILE-02, PROFILE-03, PROFILE-04, VAL-01
 
 **Depends on:** —
 
 **Success Criteria:**
-1. Playwright MCP evidence covers add/edit layers, options menus, save feedback, undo/history, empty/error states, responsive editor behavior, Notes, AI, and viewer parity.
-2. Findings are triaged into fix-now, defer, or accepted-with-rationale buckets.
-3. The audit uses the standard GeoLens app/local stack and explicitly rejects separate-demo-instance assumptions.
-4. The next phases have concrete, user-visible fixes or verification targets.
+1. Official DCAT-US 3.0 JSON Schema definitions are present locally with source commit recorded.
+2. DCAT-US profile code is separated from the existing W3C DCAT serializer.
+3. Mapping notes identify supported Catalog/Dataset/Distribution/DataService/supporting-class fields.
+4. Metadata gaps are explicitly classified as fallback, warning, future-field, or out-of-scope behavior.
 
-### Phase 1125: Builder Workflow Polish
+### Phase 1130: DCAT-US Serializer and Access Routes
 
-**Goal:** Close the highest-value manual authoring friction found in the audit.
+**Goal:** Emit DCAT-US 3.0 metadata through compatibility-preserving routes.
 
-**Requirements:** WORKFLOW-01, WORKFLOW-02, WORKFLOW-03, WORKFLOW-04
+**Requirements:** SER-01, SER-02, SER-03, SER-04, SER-05, API-01, API-02, API-03, API-04
 
-**Depends on:** Phase 1124
-
-**Success Criteria:**
-1. Save/dirty feedback is clear after layer edits, reorders, duplicate/remove actions, and settings changes.
-2. Layer options, editor panels, empty states, and error states remain stable on desktop and mobile-sized viewports.
-3. Undo/history behavior stays coherent after manual authoring actions and map-level saves.
-4. Focused tests pin fixed behavior without overfitting to v1027 internals.
-
-### Phase 1126: Notes and AI Authoring Polish
-
-**Goal:** Make Builder Notes and AI-assisted authoring reliable enough for real map-authoring use.
-
-**Requirements:** NOTES-01, NOTES-02, NOTES-03, NOTES-04, AI-01, AI-02, AI-03, AI-04
-
-**Depends on:** Phase 1125
+**Depends on:** Phase 1129
 
 **Success Criteria:**
-1. Notes can be created, edited, removed, saved/reloaded, and exercised alongside map interaction without layout, focus, accessibility, or persistence defects.
-2. AI builder prompts for style changes, layer edits, and map-authoring assistance preserve command semantics, dirty tracking, undo/history, and save/reload expectations.
-3. Disabled, missing-provider, unauthenticated, and request-failure AI states degrade clearly.
-4. Notes and AI defects found by Playwright MCP are either fixed with regression coverage or logged with reproduction steps.
+1. New DCAT-US catalog and per-dataset routes return unprefixed DCAT-US 3.0 JSON-LD/profile JSON without altering existing `/datasets/dcat/` output.
+2. Visible datasets with complete required metadata validate against the vendored schema.
+3. Anonymous/private visibility behavior matches the existing DCAT catalog route.
+4. Per-dataset export and validation return 404/403-compatible access behavior through existing access helpers.
 
-### Phase 1127: Showcase Map and Capture Polish
+### Phase 1131: Validation API, Docs, OpenAPI, and SDKs
 
-**Goal:** Keep the ADK target map marketing-ready from the product itself.
+**Goal:** Make DCAT-US support operationally usable and visible to API consumers.
 
-**Requirements:** SHOWCASE-01, SHOWCASE-02, SHOWCASE-03, SHOWCASE-04
+**Requirements:** VAL-02, VAL-03, VAL-04, API-05, DOC-01, DOC-02, DOC-03
 
-**Depends on:** Phase 1126
-
-**Success Criteria:**
-1. Terrain, imagery, DEM/hillshade, labels, lines, points, polygons, and layer ordering look intentional on the target ADK map.
-2. Screenshot capture is reliable from the product map itself.
-3. Builder, public viewer, and embed viewer remain visually aligned for the target map.
-4. Destructive UAT uses a throwaway copy and leaves the canonical target map unchanged unless explicitly intended.
-
-### Phase 1128: Quality Sweep and Close Gate
-
-**Goal:** Prove the polish work with automated gates, Playwright MCP, and clean milestone lifecycle artifacts.
-
-**Requirements:** QUALITY-01, QUALITY-02, QUALITY-03, QUALITY-04, QUALITY-05
-
-**Depends on:** Phases 1124-1127
+**Depends on:** Phase 1130
 
 **Success Criteria:**
-1. Playwright MCP close gate covers the target map, throwaway editable copy, Notes, AI, layer options, save/reload, viewer parity, and console/network hygiene.
-2. Focused Vitest coverage plus `npm run typecheck`, `npm run lint`, and `npm run build` pass.
-3. Backend/OpenAPI/SDK/CLI gates run only if those surfaces are touched; otherwise the no-change decision is recorded.
-4. Active planning/docs touched by the milestone consistently state that there is no separate demo instance to maintain.
-5. CHANGELOG, summaries, and milestone audit capture workflow, Notes, AI, showcase-map, and accepted-limitation evidence.
+1. Validation reports include validity, error count, JSON path, schema path, validator, and message.
+2. Validation reports distinguish metadata-completeness errors from access-control behavior.
+3. Developer/operator docs and CHANGELOG capture route strategy, schema source, mapping gaps, migration notes, and accepted limitations.
+4. OpenAPI and generated SDK artifacts are refreshed for public route changes.
+
+### Phase 1132: Quality Sweep and Playwright Close Gate
+
+**Goal:** Prove the DCAT-US 3.0 support surface with automated gates and running-app evidence.
+
+**Requirements:** QA-01, QA-02, QA-03, QA-04
+
+**Depends on:** Phases 1129-1131
+
+**Success Criteria:**
+1. Focused backend tests cover serializer mapping, schema-valid output, validation errors, route order, and visibility/access behavior.
+2. Backend lint/format checks pass for touched files.
+3. OpenAPI/SDK checks pass after generated artifact refresh.
+4. Playwright MCP verifies the running API endpoints, status codes, validation JSON, network hygiene, and console hygiene.
 
 ## ✅ Historical Milestones
 

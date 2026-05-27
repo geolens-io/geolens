@@ -1,28 +1,25 @@
-# v1004 Research: Features
+# DCAT-US 3.0 Feature Research
+
+**Milestone:** v1029 DCAT 3.0
 
 ## Table Stakes
 
-- RenderAs options must be capability-gated by dataset geometry, record type, source delivery mode, and installed renderer backend.
-- Unsupported renderer chips must remain absent, not disabled in-place.
-- Switching renderer modes must write existing fields when possible: `layer_type`, `style_config`, `paint`, and `layout`.
-- Saved maps, public/shared viewers, and MapLibre style JSON export/import must either preserve new render intent or explicitly omit unsupported runtime-only modes with user-safe fallback.
-- Sidebar row, Add Dataset another-rendering, legend, labels, filters, opacity, zoom range, and row visibility must keep working with new renderers.
+- Catalog feed validates as DCAT-US Schema v3.0 JSON Schema 2020-12 when visible datasets have required metadata.
+- Dataset entries use unprefixed DCAT-US 3.0 field names such as `title`, `description`, `identifier`, `publisher`, `contactPoint`, `keyword`, `theme`, `temporal`, `spatial`, and `distribution`.
+- Distribution entries expose `accessURL`, `downloadURL` where appropriate, `format`, `mediaType`, `license`, and optional access service metadata for API/service distributions.
+- Structured supporting classes are emitted where GeoLens has data: `Organization`, `Kind`, `PeriodOfTime`, `Location`, `Concept`, `Distribution`, and simple `DataService`.
+- Existing visibility behavior remains unchanged: public/anonymous feeds exclude private datasets, authenticated feeds honor user roles and grants, and per-dataset export checks access before serialization.
+- Validation output reports path, schema path, validator, and message so operators can see which metadata fields are missing or malformed.
 
-## Candidate Renderers
+## Differentiators
 
-| Renderer | User Value | Feasibility In v1004 | Notes |
-|---|---|---|---|
-| Point Cluster | Dense point maps become readable at low zoom | Conditional | MapLibre-native for GeoJSON sources; not directly available on current vector-tile source path. |
-| Line Arrow | Directional networks and flows become easier to read | High | Can likely use a companion `symbol` layer with `symbol-placement: line`. |
-| Hexbin | Aggregated point density with optional height | Research only | deck.gl HexagonLayer is a new dependency and needs client data access strategy. |
-| H3 | H3-indexed datasets render as cells | Research only | Requires H3 index column and deck.gl/h3-js or server-side cell geometry. |
-| Animated Path | Movement/trip playback | Research only | deck.gl TripsLayer needs path + timestamp arrays and animation state. |
-| Point 3D extrusion | Point magnitude columns become vertical markers | Defer | Likely deck.gl ColumnLayer or MapLibre-generated polygons; not a small MapLibre-only change. |
+- Keep existing W3C DCAT 3 routes stable while adding explicit DCAT-US 3.0 profile routes.
+- Include validation report endpoints so operators can preflight their own catalog before publishing a `data.json` feed.
+- Document mapping gaps and non-goals instead of silently inventing federal metadata GeoLens does not store.
+- Use Playwright MCP against the running API surface for final route/console/network verification.
 
-## Recommended v1004 Scope
+## Deferred Or Out Of Scope
 
-- Ship architecture and gating before exposing any new renderer.
-- Ship line arrow if the MapLibre companion-symbol approach validates cleanly.
-- Ship point clustering only if a bounded GeoJSON-source path can be added without changing persisted schema or breaking vector-tile performance.
-- Produce explicit ADR/decision artifacts for Hexbin, H3, Animated path, and Point 3D extrusion instead of bundling deck.gl prematurely.
-
+- Full DCAT-US v1.1 import/migration UI is deferred; this milestone should provide migration notes and output compatibility, not a bulk importer.
+- DatasetSeries modeling is deferred unless existing collection/relationship data maps cleanly without schema changes.
+- CUI/access/use restriction structured authoring is deferred unless current `access_constraints` / `usage_constraints` can be mapped without inventing policy fields.

@@ -1,25 +1,25 @@
-# v1004 Research: Stack
+# DCAT-US 3.0 Stack Research
 
-## Existing Stack
+**Milestone:** v1029 DCAT 3.0
+**Sources checked:** resources.data.gov DCAT-US 3.0 reference; GSA/dcat-us JSON Schema repository at HEAD `98408dc000f0b71131a03920e2dec6247a84abff`.
 
-- Frontend: React 19, Vite 8, MapLibre GL JS 5.24.0, `@vis.gl/react-maplibre` 8.1.0.
-- Current builder renderer model: MapLibre-native adapters in `frontend/src/components/builder/layer-adapters/` selected through `resolveAdapterType` and `getAdapter`.
-- Current renderAs model: `frontend/src/components/builder/renderAs.ts` lists point, symbol, heatmap, line, fill, stroke, fill+stroke, polygon 3D extrusion, image, and hillshade.
-- No deck.gl packages are currently installed.
+## Current GeoLens Stack
 
-## Official Capability Notes
+- Backend already serializes W3C DCAT 3 JSON-LD in `backend/app/standards/dcat/service.py`.
+- Existing export routes live in `backend/app/modules/catalog/datasets/api/router_export.py`.
+- Backend dev dependencies already include `jsonschema>=4.19`, which supports JSON Schema 2020-12; runtime validation endpoints need this dependency in production dependencies as well.
+- Existing catalog fields cover many DCAT-US mandatory and recommended fields: title, summary/description, identifier, publisher/source organization, language, temporal extent, spatial extent, keywords/themes, contacts, distributions, license, access constraints, and update frequency.
 
-- MapLibre style layers support `circle`, `symbol`, `line`, `fill`, `fill-extrusion`, `heatmap`, `raster`, `hillshade`, and related style-layer primitives. Source: https://maplibre.org/maplibre-style-spec/layers/
-- MapLibre clustering is built into GeoJSON sources by setting `cluster: true`, then rendering cluster circles, labels, and unclustered points from the same source. Source: https://maplibre.org/maplibre-gl-js/docs/examples/create-and-style-clusters/
-- MapLibre symbol layers can place icons/text along line geometry through `symbol-placement: line`, which is the likely MapLibre-native route for line direction arrows. Source: https://maplibre.org/maplibre-style-spec/layers/#symbol-placement
-- deck.gl can integrate with MapLibre through overlaid or interleaved `MapboxOverlay`; interleaving works with MapLibre GL JS v3+ and needs WebGL2 for proper map/deck layer mixing. Source: https://deck.gl/docs/developer-guide/base-maps/using-with-maplibre
-- deck.gl provides HexagonLayer in `@deck.gl/aggregation-layers`, H3HexagonLayer and TripsLayer in `@deck.gl/geo-layers`, and PathLayer/LineLayer in `@deck.gl/layers`. Sources: https://deck.gl/docs/api-reference/aggregation-layers/hexagon-layer, https://deck.gl/docs/api-reference/geo-layers/h3-hexagon-layer, https://deck.gl/docs/api-reference/geo-layers/trips-layer
+## Additions Needed
 
-## Stack Recommendation
+- A separate `app.standards.dcat_us` package so DCAT-US profile behavior does not break existing W3C DCAT 3 output.
+- Vendored official DCAT-US 3.0 JSON Schema definition files for deterministic offline validation.
+- A validator wrapper around `jsonschema.Draft202012Validator` with a registry that resolves the official `/dcat-us/3.0.0/definitions/*` references.
+- Explicit DCAT-US 3.0 routes/aliases while preserving current `/datasets/dcat/` compatibility routes.
+- Focused backend tests for serialization, visibility filtering, validation success/failure, and route ordering.
 
-1. Keep v1004 MapLibre-first.
-2. Add a renderer capability registry that can describe MapLibre-native renderers now and deck.gl-backed renderers later.
-3. Treat point clustering as conditional until a GeoJSON delivery path is proven for builder layers; current default vector-tile sources cannot receive `cluster: true`.
-4. Treat line arrows as the first likely shippable MapLibre-native renderer because it can be represented as a companion symbol layer over existing line sources.
-5. Do not add deck.gl in v1004 unless a phase explicitly proves bundle budget, z-order, picking, terrain behavior, and data-fetch strategy.
+## What Not To Add
 
+- No RDF graph engine is needed; the existing project decision is plain dict JSON-LD.
+- No schema fetch at runtime; validation must work without network access.
+- No broad catalog schema migration in the first pass unless a required field has no credible mapping or configurable fallback.

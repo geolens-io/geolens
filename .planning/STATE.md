@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-05-27T00:23:05.590Z"
 last_activity: 2026-05-27
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -27,7 +27,7 @@ Last activity: 2026-05-27 — Milestone v1029 started
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1028 Map Builder Product Polish is complete. Next active work is unset; follow-ups are tracked below.
+**Current focus:** v1029 DCAT 3.0 is in planning/execution. The milestone adds DCAT-US Schema v3.0 export, validation, route/API support, docs, and Playwright MCP close-gate evidence while preserving existing DCAT visibility behavior.
 
 ## Last Shipped Milestone
 
@@ -39,31 +39,27 @@ See: .planning/PROJECT.md
 **Milestone audit:** `.planning/milestones/v1028-MILESTONE-AUDIT.md`
 **Archived phases:** v1028 phase artifacts remain in `.planning/phases/1124-*` through `.planning/phases/1128-*`; backlog `999.*` phase directories remain.
 
-## Phase Plan (v1028)
+## Phase Plan (v1029)
 
 | Phase | Goal | Requirements | Depends on |
 |-------|------|--------------|------------|
-| 1124 Builder Workflow and Notes/AI Audit | Sweep builder workflows, Notes, AI, target map, console/network hygiene, and no-demo-instance assumptions with Playwright MCP | AUDIT-01..04 | — |
-| 1125 Builder Workflow Polish | Close high-value layer authoring, save/dirty, undo/history, responsive editor, empty/error-state, and options-menu polish gaps | WORKFLOW-01..04 | Phase 1124 |
-| 1126 Notes and AI Authoring Polish | Harden Builder Notes and AI-assisted authoring flows with persistence, disabled/error states, command semantics, and regression coverage | NOTES-01..04, AI-01..04 | Phase 1125 |
-| 1127 Showcase Map and Capture Polish | Polish the ADK target map and screenshot/capture path in-product while verifying builder/viewer/embed parity | SHOWCASE-01..04 | Phase 1126 |
-| 1128 Quality Sweep and Close Gate | Run focused tests, frontend gates, Playwright MCP close gate, docs/reference cleanup, milestone audit, and lifecycle close | QUALITY-01..05 | Phases 1124-1127 |
+| 1129 DCAT-US Profile Contract and Schema Foundation | Pin the official schema source, vendor deterministic JSON Schema definitions, and document the GeoLens metadata crosswalk/gaps | PROFILE-01..04, VAL-01 | — |
+| 1130 DCAT-US Serializer and Access Routes | Implement DCAT-US 3.0 catalog/dataset serializers plus explicit profile routes using existing visibility and access helpers | SER-01..05, API-01..04 | Phase 1129 |
+| 1131 Validation API, Docs, OpenAPI, and SDKs | Expose validation reports, document migration/mapping behavior, and refresh public API artifacts | VAL-02..04, API-05, DOC-01..03 | Phase 1130 |
+| 1132 Quality Sweep and Playwright Close Gate | Run backend standards/export gates plus Playwright MCP verification against the running API surface and close the milestone | QA-01..04 | Phases 1129-1131 |
 
-**Coverage:** 25/25 v1028 requirements mapped, 0 orphans, 0 duplicates.
+**Coverage:** 25/25 v1029 requirements mapped, 0 orphans, 0 duplicates.
 
-**Target map:** `http://localhost:8080/maps/8dd6a129-8eb0-4ba9-b421-716c83b160dd`
-
-**HARD INVARIANT:** v1028 validates the standard GeoLens app/local stack. Do not introduce, preserve, or plan around a separate demo instance, demo deployment, or demo compose validation path. Manual builder workflows, Notes, AI actions, undo/history, save/reload, public viewer, embed viewer, and target-map UAT flows must remain functionally coherent or explicitly improve via documented bug fixes.
+**HARD INVARIANT:** Existing W3C DCAT 3 routes remain stable. New DCAT-US 3.0 catalog, dataset, and validation surfaces preserve dataset visibility filtering and per-dataset access checks.
 
 ## Phase Progress
 
 | Phase | Status | Evidence |
 |-------|--------|----------|
-| 1124 Builder Workflow and Notes/AI Audit | Complete | `.planning/phases/1124-builder-workflow-and-notes-ai-audit/1124-01-SUMMARY.md`; `.planning/phases/1124-builder-workflow-and-notes-ai-audit/BUILDER-WORKFLOW-AUDIT.md`; `.planning/phases/1124-builder-workflow-and-notes-ai-audit/1124-VERIFICATION.md` |
-| 1125 Builder Workflow Polish | Complete | `.planning/phases/1125-builder-workflow-polish/1125-01-SUMMARY.md`; `.planning/phases/1125-builder-workflow-polish/1125-VERIFICATION.md` |
-| 1126 Notes and AI Authoring Polish | Complete | `.planning/phases/1126-notes-and-ai-authoring-polish/1126-01-SUMMARY.md`; `.planning/phases/1126-notes-and-ai-authoring-polish/1126-VERIFICATION.md` |
-| 1127 Showcase Map and Capture Polish | Complete | `.planning/phases/1127-showcase-map-and-capture-polish/1127-01-SUMMARY.md`; `.planning/phases/1127-showcase-map-and-capture-polish/1127-VERIFICATION.md` |
-| 1128 Quality Sweep and Close Gate | Complete | `.planning/phases/1128-quality-sweep-and-close-gate/1128-01-SUMMARY.md`; `.planning/phases/1128-quality-sweep-and-close-gate/1128-VERIFICATION.md`; `.planning/milestones/v1028-MILESTONE-AUDIT.md` |
+| 1129 DCAT-US Profile Contract and Schema Foundation | Pending | — |
+| 1130 DCAT-US Serializer and Access Routes | Pending | — |
+| 1131 Validation API, Docs, OpenAPI, and SDKs | Pending | — |
+| 1132 Quality Sweep and Playwright Close Gate | Pending | — |
 
 ## Quick Tasks Completed
 
@@ -91,6 +87,9 @@ See: .planning/PROJECT.md
 - **2026-05-25 (Phase 1128 close):** React error-page bug-reporting via GitHub issue template is recorded as ERROR-FU-01 for post-v1028 work.
 - **2026-05-25 (AI-FU-01 close):** Provider-backed AI UAT passed on a throwaway ADK copy using Anthropic runtime config (`anthropic` / `claude-sonnet-4-20250514`) after the Anthropic key was refreshed. The builder applied a `set_style` action to Hiking trails, marked the map dirty, saved, reloaded with `line-color: #00AEEF`, and the throwaway copy was deleted. An interim OpenAI-compatible / `gpt-4o` run also passed after removing accidental literal backtick wrappers from ignored local `.env`, while the first Anthropic key was rejected by the provider as `invalid x-api-key`.
 - **2026-05-25 (ERROR-FU-01 close):** The global React app error page and route error page now include a GitHub bug-report action that opens the repository's `bug_report.yml` issue template. Focused error-boundary coverage verifies the template link; Playwright MCP rendered the real global error fallback with an injected throwing child and verified the `File a bug` link target.
+- **2026-05-27 (v1029 start):** Scope DCAT 3.0 as full DCAT-US Schema v3.0 support: explicit federal-profile export routes, schema-backed validation, mapping/migration documentation, OpenAPI/SDK refresh where public routes change, and Playwright MCP close-gate evidence. Preserve the existing W3C DCAT 3 routes.
+- **2026-05-27 (v1029 start):** Endpoint strategy chosen by the agent per user delegation: keep existing `/datasets/dcat/` compatibility behavior and add explicit DCAT-US 3.0 routes/aliases for federal-profile consumers.
+- **2026-05-27 (v1029 start):** Official schema research uses resources.data.gov and GSA/dcat-us JSON Schema HEAD `98408dc000f0b71131a03920e2dec6247a84abff`; implementation should validate against local vendored definitions rather than fetch schemas at runtime.
 - **2026-05-25 (v1027 start):** Scope Map Builder Architecture Simplification as a GSD milestone, not a quick cleanup. The files involved are central to builder state, live MapLibre sync, persistence, viewer/embed parity, and AI action paths.
 - **2026-05-25 (v1027 start):** Keep the milestone behavior-preserving by default. Any user-visible change must be a documented bug fix, with remove basemap, duplicate layer, layer editor save semantics, background color, terrain exaggeration, and gradient-to-solid treated as explicit regression surfaces.
 - **2026-05-25 (v1027 start):** AI chat is in scope only where it shares the same map/layer/style command boundary as manual UI actions; broad chat UX redesign is out of scope.
@@ -133,13 +132,13 @@ None.
 
 ### Blockers/Concerns
 
-- **CI-01-v1028 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1028+. This remains outside the map-builder product-polish invariant.
+- **CI-01-v1029 billing prerequisite (carry-forward from v1023):** Operator must resolve GH Actions billing at https://github.com/organizations/geolens-io/settings/billing before CI-01 can close GREEN in v1029+. This remains outside the DCAT-US 3.0 invariant.
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1028+ as CI-01-v1028 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
+| ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward to v1029+ as CI-01-v1029 | v1023 Phase 1100 degraded close (mirrors v1022 deferral) |
 | ux-error-reporting | React error page should file a bug via the GitHub issue template | Completed as ERROR-FU-01 | post-v1028 follow-up |
 
 ## Session Continuity

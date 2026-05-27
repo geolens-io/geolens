@@ -1,28 +1,27 @@
-# v1004 Research: Architecture
+# DCAT-US 3.0 Architecture Research
 
-## Current Integration Points
+**Milestone:** v1029 DCAT 3.0
 
-- `renderAs.ts`: render option discovery, current render detection, and patch construction.
-- `layer-adapters/registry.ts`: maps adapter type strings to MapLibre adapter modules.
-- `layer-adapters/types.ts`: adapter input and adapter contract, currently limited to MapLibre layer IDs.
-- `map-sync.ts`: creates MapLibre vector/raster sources, calls adapters, handles labels, opacity, zoom ranges, visibility, stale cleanup, and z-order.
-- `style_json.py`: backend MapLibre style export/import for persisted maps.
-- Viewer paths reuse the same `syncLayersToMap` concept, so builder-only renderer state can accidentally break public/shared compatibility.
+## Integration Points
 
-## Architecture Direction
+- `backend/app/standards/dcat/service.py` remains the W3C DCAT 3 serializer.
+- New DCAT-US behavior should live under `backend/app/standards/dcat_us/`.
+- `backend/app/modules/catalog/datasets/api/router_export.py` owns export routes and should call the new serializer/validator with the same visibility-filtered query shape used by existing DCAT routes.
+- `backend/tests/test_dcat.py` is the closest test analog and should gain DCAT-US focused coverage or a sibling test module.
+- `backend/openapi.json` and generated SDKs must refresh if new public routes are included in OpenAPI.
 
-1. Add a renderer capability registry separate from the UI option list.
-2. Extend adapter metadata to declare:
-   - renderer backend: `maplibre` or `deckgl-future`
-   - source requirement: vector tile, GeoJSON, raster, raster-dem, H3 column, path/timestamp
-   - companion layers and cleanup IDs
-   - style JSON export behavior
-   - viewer support level
-3. Keep `MapLayer` persisted shape unchanged in v1004; store new renderer intent under existing `style_config.render_mode` and `style_config.builder`.
-4. Keep new MapLibre renderers in the existing adapter model when possible.
-5. Add an ADR before any deck.gl package enters `package.json`.
+## Recommended Build Order
 
-## Build Order Implication
+1. Define requirements and roadmap.
+2. Add the DCAT-US serializer and validator package with vendored schemas.
+3. Add catalog/dataset/validation routes using existing visibility and access helpers.
+4. Add focused tests for schema validity, invalid metadata reports, route behavior, and access control.
+5. Refresh OpenAPI/SDK artifacts if route schema changes are public.
+6. Run backend gates and Playwright MCP against the running API.
 
-The first phase should not implement UI. It should decide the capability contract, prove cluster source feasibility, and define the exact render modes that are allowed into v1004 implementation phases.
+## Compatibility Rules
 
+- Do not change the shape of existing `/datasets/dcat/` or `/{dataset_id}/dcat/` output in this milestone.
+- Use explicit DCAT-US 3.0 route names for federal-profile consumers.
+- Keep dataset ID access checks before serialization.
+- Keep list route visibility filtering through `apply_visibility_filter`.
