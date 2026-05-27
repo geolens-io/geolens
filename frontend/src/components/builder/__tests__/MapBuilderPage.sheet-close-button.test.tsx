@@ -315,6 +315,44 @@ describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays)
   // MapBuilderPage.tsx.
   // -----------------------------------------------------------------------
 
+});
+
+// ===========================================================================
+// MAP-10 — exhaustive SheetContent grep guard
+// ===========================================================================
+/**
+ * Pitfall #11 enforcement gate (v1011 contract).
+ *
+ * If a future engineer adds a new `<SheetContent>` to MapBuilderPage.tsx
+ * without `showCloseButton={false}`, this test fails. The negative-control
+ * test (Test 8 in the Phase 1051 describe block) proves the bug-shape if
+ * the opt-out is removed.
+ *
+ * Uses Vite `?raw` imports to read source — avoids `node:fs` / `@types/node`
+ * dependency in tsconfig.app.json (same pattern as preserve-drawing-buffer.test.ts).
+ * Every `<SheetContent` opening tag in MapBuilderPage.tsx must declare
+ * `showCloseButton={false}`.
+ */
+
+import mapBuilderPageSrc from '../../../pages/MapBuilderPage.tsx?raw';
+
+describe('MAP-10 — exhaustive SheetContent grep guard', () => {
+  it('MAP-10: every <SheetContent in MapBuilderPage.tsx declares showCloseButton={false}', () => {
+    const src = mapBuilderPageSrc;
+    // Match every <SheetContent opening tag (multi-line until the closing >)
+    const matches = src.match(/<SheetContent\b[\s\S]*?>/g) ?? [];
+    // Sanity check: this file must have at least one SheetContent
+    expect(matches.length).toBeGreaterThan(0);
+    for (const match of matches) {
+      expect(
+        match,
+        `SheetContent missing showCloseButton={false}:\n${match.slice(0, 300)}`,
+      ).toContain('showCloseButton={false}');
+    }
+  });
+});
+
+describe('Phase 1051 Plan 10 — RESP-03 duplicate close button (Sheet overlays) — negative control', () => {
   it('Test 8: Negative control — Sheet WITHOUT showCloseButton={false} renders TWO close buttons (bug-shape pin)', () => {
     render(
       <Sheet open={true} onOpenChange={vi.fn()}>

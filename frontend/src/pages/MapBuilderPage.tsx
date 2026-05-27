@@ -1259,7 +1259,10 @@ export function MapBuilderPage() {
                  "Close layer editor"). Pre-fix this overlay rendered TWO
                  close buttons. See regression test
                  MapBuilderPage.sheet-close-button.test.tsx. */
-              className="w-full max-w-[380px] p-0 flex flex-col"
+              // MAP-07: 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
+              // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
+              // `top-left` per Pitfall #10; this is the sidebar-side fix.
+              className="mt-12 h-[calc(100%-3rem)] w-full max-w-[380px] p-0 flex flex-col"
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>
@@ -1368,7 +1371,10 @@ export function MapBuilderPage() {
                built-in auto-close X. The wrapped BuilderRail expanded panel
                already owns its canonical close affordance (ChevronRight at
                BuilderRail.tsx:125-132 with aria-label "Close panel"). */
-            className="w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
+            // MAP-07: 48px top offset clears the MapTitleBar so the right-sidebar Sheet does not
+            // visually overlap the top-left NavigationControl at ≤800px. NavigationControl stays
+            // `top-left` per Pitfall #10; this is the sidebar-side fix.
+            className="mt-12 h-[calc(100%-3rem)] w-[22rem] max-w-[calc(100vw-5rem)] p-0 flex flex-col"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{railSheetTitle}</SheetTitle>
