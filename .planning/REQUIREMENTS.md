@@ -13,7 +13,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [x] **WALK-01**: Live Playwright MCP walkthrough of canonical ADK map + representative maps covering every render mode (fill / line / circle / symbol / heatmap / cluster / raster / basemap / DEM/terrain) produces `.planning/phases/1133-*/BUILDER-WALKTHROUGH-AUDIT.md` triaged P0/P1/P2 with one finding per surface
 - [x] **WALK-02**: Cross-reference matrix in audit doc lists every `/ai/*` endpoint × frontend consumer hook and confirms each call site has `enabled: !!token && aiEnabled` gating (v1010.2 SF-06 recurrence guard — Pitfall #4)
 - [x] **WALK-03**: `todo.md` staleness check — every item in `todo.md` lines 96-171 cross-referenced against v1011 / v1028 / v1029 milestone records; flag items already shipped vs genuine regressions vs new gaps in the audit doc
-- [ ] **WALK-04**: v1026 reconciler + v1027 typed action-boundary + v1008 unified-stack contract verification on clean `main` post-`3ed5ceb3` — `grep -nE 'map\.setPaintProperty|map\.setLayoutProperty' frontend/src --include="*.ts*" -r` returns only `layer-adapters/` + `map-sync.ts` hits, and `BuilderLayerAction` union remains the only mutation entry point
+- [x] **WALK-04**: v1026 reconciler + v1027 typed action-boundary + v1008 unified-stack contract verification on clean `main` post-`3ed5ceb3` — `grep -nE 'map\.setPaintProperty|map\.setLayoutProperty' frontend/src --include="*.ts*" -r` returns only `layer-adapters/` + `map-sync.ts` hits, and `BuilderLayerAction` union remains the only mutation entry point
 - [ ] **WALK-05**: Thumbnail-capture pipeline produces (or can produce) a 1200×630 variant suitable for `og:image`; if no, SHARE-08 OG-cards officially flagged to v1031 in REQUIREMENTS.md Future Requirements
 
 ### MAP — Tier-1 Bugs & Smaller-Screen Polish
@@ -130,7 +130,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | WALK-01 | Phase 1133 | Complete |
 | WALK-02 | Phase 1133 | Complete |
 | WALK-03 | Phase 1133 | Complete |
-| WALK-04 | Phase 1133 | Pending |
+| WALK-04 | Phase 1133 | Complete |
 | WALK-05 | Phase 1133 | Pending |
 | MAP-07 | Phase 1134 | Pending |
 | MAP-08 | Phase 1134 | Pending |
