@@ -494,7 +494,13 @@
     "removeOrigin": "Eliminar {{origin}}",
     "addOrigin": "Agregar origen",
     "originWildcardError": "El origen comodín no está permitido",
-    "originInvalid": "URL no válida"
+    "originInvalid": "URL no válida",
+    "expirationNever": "Nunca",
+    "expiration1Day": "1 día",
+    "expiration7Days": "7 días",
+    "expiration30Days": "30 días",
+    "expiration1Year": "1 año",
+    "expirationCustom": "Fecha personalizada…"
   },
   "chat": {
     "experimental": "Experimental",

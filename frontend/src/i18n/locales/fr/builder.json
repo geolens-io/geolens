@@ -494,7 +494,13 @@
     "removeOrigin": "Supprimer {{origin}}",
     "addOrigin": "Ajouter une origine",
     "originWildcardError": "L'origine générique n'est pas autorisée",
-    "originInvalid": "URL invalide"
+    "originInvalid": "URL invalide",
+    "expirationNever": "Jamais",
+    "expiration1Day": "1 jour",
+    "expiration7Days": "7 jours",
+    "expiration30Days": "30 jours",
+    "expiration1Year": "1 an",
+    "expirationCustom": "Date personnalisée…"
   },
   "chat": {
     "experimental": "Expérimental",

@@ -494,7 +494,13 @@
     "removeOrigin": "Remove {{origin}}",
     "addOrigin": "Add origin",
     "originWildcardError": "Wildcard origin not allowed",
-    "originInvalid": "Invalid URL"
+    "originInvalid": "Invalid URL",
+    "expirationNever": "Never",
+    "expiration1Day": "1 day",
+    "expiration7Days": "7 days",
+    "expiration30Days": "30 days",
+    "expiration1Year": "1 year",
+    "expirationCustom": "Custom date…"
   },
   "chat": {
     "experimental": "Experimental",
