@@ -1,33 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1029
-milestone_name: DCAT 3.0
-status: complete
-last_updated: "2026-05-27T02:25:00Z"
-last_activity: 2026-05-27 -- v1029 complete
+milestone: v1030
+milestone_name: Map Builder Polish Sweep
+status: planning
+last_updated: "2026-05-27T13:41:16.450Z"
+last_activity: 2026-05-27
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 4
-  completed_plans: 4
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Complete
-Plan: Complete
-Status: v1029 DCAT 3.0 complete; ready for next milestone
-Last activity: 2026-05-27 — v1029 complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-27 — Milestone v1030 started
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** No active milestone. v1029 DCAT 3.0 is complete and archived.
+**Current focus:** v1030 Map Builder Polish Sweep — planning (requirements + roadmap pending).
 
 ## Last Shipped Milestone
 

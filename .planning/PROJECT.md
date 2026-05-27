@@ -12,6 +12,28 @@ Milestones are delivered through v1029 DCAT 3.0 (shipped 2026-05-27), adding exp
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
+## Current Milestone: v1030 Map Builder Polish Sweep
+
+**Goal:** Systematically walk every existing map across layer types and prove builder/viewer/AI/sharing quality via live Playwright MCP, closing surfaced gaps and shipping easy-win UX enhancements.
+
+**Target features:**
+- Audit-first walkthrough — live Playwright MCP sweep of canonical ADK map + representative samples covering each render mode (fill, line, circle, symbol, heatmap, cluster, raster, basemap, DEM/terrain), producing a triaged `BUILDER-WALKTHROUGH-AUDIT.md` before any fixes land.
+- Layer functionality polish — add/edit/remove/duplicate/reorder/visibility/opacity/filter/labels/style across all render modes; sublayer behavior on basemap + DEM; per-type editor gaps; pending-preview vs saved-baseline semantics.
+- Map functionality polish — viewport preservation, save/dirty state, history undo/redo, settings/widgets, viewer parity, shared/embed parity, smaller-screen layout collisions (basemap selector double‑X, lat/long pill overlay, right-sidebar overlap of zoom controls).
+- AI chat — layer creation and data-analysis flows: prompt → action, confirm-before-apply ergonomics, error/empty/disabled states, provider-config UAT on the standard local stack.
+- Sharing polish — build on the in-flight SharePanel/embed work landed in `3ed5ceb3` (fresh-token persistence, expiration-clear vs update messaging, allowed-origins UX, embed origin restrictions, viewer/embed parity).
+- Easy-win UX enhancements — close low-cost wins surfaced during the audit, drawn from `todo.md` polish backlog where in scope.
+- Quality sweep close-gate — focused frontend/backend tests on touched surfaces, `e2e:smoke:builder` + i18n parity, final Playwright MCP re-verify against `localhost:8080` covering each render mode, CHANGELOG entry.
+
+**Key context:**
+- Branch: `codex/builder-polish-walkthrough` (off `main`; main now contains v1028 + v1029 + the just-landed `3ed5ceb3` viewer-gate/share/chat polish).
+- Phase numbering continues from **1133** (no `--reset-phase-numbers`).
+- Execution method: `/gsd-autonomous` for run-to-end; Playwright MCP is the canonical close-gate per v1027/v1028/v1029 precedent.
+- Substrate: v1027 controller/action/sync boundaries, v1026 style-reconciler, v1029 DCAT-US routes. Behavior preservation is the default; user-visible changes must be documented bug fixes or easy-wins.
+- Pre-commit hooks remain ON for all commits.
+- External research is intentionally skipped (internal product polish driven by live behavior + `todo.md` backlog).
+- Out of scope for v1030: builder architecture rewrites, new LLM provider integrations, marketing/docs site work, new connector backends, enterprise edition changes, large new feature builds (annotation/draw layer, LiDAR support, "Text as a layer type" — defer to a later milestone unless trivially scoped during the easy-win pass).
+
 ## Recent Shipped Milestone: v1029 DCAT 3.0
 
 **Shipped:** 2026-05-27
@@ -1451,4 +1473,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-27 — started milestone v1029 DCAT 3.0. Scoped DCAT-US Schema v3.0 export, validation, lifecycle, docs/API, and compatibility-route work from the official resources.data.gov reference.*
+*Last updated: 2026-05-27 — started milestone v1030 Map Builder Polish Sweep. Scoped systematic Playwright MCP walkthrough of every existing map across layer types, AI chat (layer creation / data analysis), sharing/embed, and easy-win UX surfaces. Branch `codex/builder-polish-walkthrough` off main (which now contains v1028 + v1029 + the `3ed5ceb3` viewer-gate/share/chat polish merged 2026-05-27).*
