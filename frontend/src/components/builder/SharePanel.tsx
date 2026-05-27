@@ -128,7 +128,7 @@ function ShareLinkSettings({
     try {
       const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
       await updateShareToken.mutateAsync({ mapId, expiresAt: newExpires });
-      // SH-20: Distinct message when expiration is cleared vs. updated
+      // Phase 20260526-builder-audit BLD-20260526-11: distinct message when expiration is cleared vs. updated.
       if (newExpires) {
         toast.success(t('share.expirationUpdated'));
       } else {
@@ -148,7 +148,7 @@ function ShareLinkSettings({
         tokenId: resolvedEmbedTokenId,
         allowedOrigins: origins.length > 0 ? origins : null,
       });
-      // SH-19: Reset input from saved state so it reflects the canonical value
+      // Phase 20260526-builder-audit BLD-20260526-11: reset input from saved state so it reflects the canonical value.
       setDomainsValue(origins.length > 0 ? origins.join(', ') : '');
       toast.success(t('share.domainsUpdated'));
     } catch {
@@ -233,7 +233,7 @@ function ShareLinkSettings({
                       setDomainsValue(window.location.origin);
                     }
                     if (!checked && configDomains) {
-                      // B-016: Clear restrictions directly to avoid stale domainsValue
+                      // Phase 20260526-builder-audit BLD-20260526-11: clear restrictions directly to avoid stale domainsValue.
                       setDomainsValue('');
                       if (resolvedEmbedTokenId) {
                         updateEmbedToken.mutateAsync({
@@ -321,20 +321,23 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
   const createShareToken = useCreateShareToken();
+  const revokeShareToken = useRevokeShareToken();
   const createEmbedToken = useCreateEmbedToken();
   const revokeEmbedToken = useRevokeEmbedToken();
 
   const [hasNonPublic, setHasNonPublic] = useState(false);
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
+  const [rawShareToken, setRawShareToken] = useState<string | null>(null);
   const [domainInput, setDomainInput] = useState('');
 
   // Queries as source of truth — only fetch when dialog is open
   const shareTokenQuery = useMapShareToken(open ? mapId : undefined);
-  const shareToken = shareTokenQuery.data?.token ?? null;
+  const persistedShareTokenHint = shareTokenQuery.data?.token ?? null;
+  const hasShareToken = Boolean(rawShareToken || persistedShareTokenHint);
   const shareExpires = shareTokenQuery.data?.expires_at ?? null;
   const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
-  const embedTokensQuery = useMapEmbedTokens(open && shareToken ? mapId : undefined);
+  const embedTokensQuery = useMapEmbedTokens(open && hasShareToken ? mapId : undefined);
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
     t => t.is_active && new Date(t.expires_at) > new Date()
   );
@@ -358,6 +361,7 @@ export function ShareDialog({
       if (newVisibility !== 'public') {
         setHasNonPublic(false);
         setEmbedTokenRaw(null);
+        setRawShareToken(null);
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
@@ -401,13 +405,14 @@ export function ShareDialog({
   }
 
   async function handleGetShareLink() {
-    if (shareToken) {
+    if (hasShareToken) {
       const check = await runVisibilityCheck();
       if (check?.has_non_public) await maybeCreateEmbedToken();
       return;
     }
     try {
-      await createShareToken.mutateAsync({ mapId });
+      const created = await createShareToken.mutateAsync({ mapId });
+      setRawShareToken(created.share_url ? created.token : null);
       const check = await runVisibilityCheck();
       if (check?.has_non_public) await maybeCreateEmbedToken();
     } catch {
@@ -415,13 +420,35 @@ export function ShareDialog({
     }
   }
 
+  async function handleRegenerateShareLink() {
+    try {
+      await revokeShareToken.mutateAsync(mapId);
+      setEmbedTokenRaw(null);
+      const created = await createShareToken.mutateAsync({ mapId });
+      setRawShareToken(created.share_url ? created.token : null);
+      const check = await runVisibilityCheck();
+      if (check?.has_non_public) {
+        const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
+        const tokenResult = await createEmbedToken.mutateAsync({
+          mapId,
+          allowedOrigins: origins.length > 0 ? origins : undefined,
+        });
+        setEmbedTokenRaw(tokenResult.raw_token);
+      }
+      toast.success(t('toasts.shareLinkCreated', { defaultValue: 'Share link created' }));
+    } catch {
+      toast.error(t('toasts.shareLinkFailed'));
+    }
+  }
+
   function handleRevoked() {
+    setRawShareToken(null);
     setEmbedTokenRaw(null);
     setDomainInput('');
     setHasNonPublic(false);
   }
 
-  // B-017: Regenerate embed token when the raw value was lost (dialog reopen)
+  // Phase 20260526-builder-audit BLD-20260526-11: regenerate embed token when the raw value was lost.
   async function handleRegenerateEmbedToken() {
     if (!activeEmbedToken) return;
     try {
@@ -439,13 +466,13 @@ export function ShareDialog({
   }
 
   function getShareUrl() {
-    if (!shareToken) return '';
-    return `${window.location.origin}/m/${shareToken}`;
+    if (!rawShareToken) return '';
+    return `${window.location.origin}/m/${rawShareToken}`;
   }
 
   function getEmbedCode() {
     return generateEmbedCode({
-      shareToken: shareToken || '',
+      shareToken: rawShareToken || '',
       embedTokenRaw: embedTokenRaw || '',
       origin: window.location.origin,
     });
@@ -565,30 +592,59 @@ export function ShareDialog({
                   <span className="text-sm font-medium">{t('share.shareLink')}</span>
                 </div>
 
-                {shareToken ? (
+                {hasShareToken ? (
                   <div className="space-y-3">
-                    {/* Copy Link + Open */}
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={handleCopyShareLink}
-                        disabled={isExpired}
-                      >
-                        <Copy className="h-3.5 w-3.5 me-1.5" />
-                        {t('share.copyLink')}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open(getShareUrl(), '_blank')}
-                        disabled={isExpired}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 me-1.5" />
-                        {t('share.open')}
-                      </Button>
-                    </div>
+                    {rawShareToken ? (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={handleCopyShareLink}
+                          disabled={isExpired}
+                        >
+                          <Copy className="h-3.5 w-3.5 me-1.5" />
+                          {t('share.copyLink')}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const url = getShareUrl();
+                            if (url) window.open(url, '_blank');
+                          }}
+                          disabled={isExpired}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 me-1.5" />
+                          {t('share.open')}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                          <p className="text-xs text-foreground">
+                            {t('share.rawTokenUnavailable', {
+                              defaultValue: 'For security, the full share link is only shown when it is created. Regenerate the link to copy it again.',
+                            })}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={handleRegenerateShareLink}
+                          disabled={revokeShareToken.isPending || createShareToken.isPending}
+                        >
+                          {(revokeShareToken.isPending || createShareToken.isPending) ? (
+                            <Loader2 className="h-3 w-3 animate-spin me-1.5" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3 me-1.5" />
+                          )}
+                          {t('share.regenerateLink', { defaultValue: 'Regenerate link' })}
+                        </Button>
+                      </div>
+                    )}
 
                     {/* Status summary */}
                     {isExpired && (
@@ -638,7 +694,7 @@ export function ShareDialog({
               </div>
 
               {/* Embed code section (only when share token exists) */}
-              {shareToken && (
+              {hasShareToken && rawShareToken && (
                 <div className="border-t pt-4 space-y-3">
                   <div className="flex items-center gap-1.5">
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
@@ -677,7 +733,7 @@ export function ShareDialog({
                       </p>
                     </div>
                   )}
-                  {/* B-017: Warn when embed token was created in a previous session */}
+                  {/* Phase 20260526-builder-audit BLD-20260526-11: warn when embed token was created in a previous session. */}
                   {!embedTokenRaw && activeEmbedToken && (
                     <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
                       <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />

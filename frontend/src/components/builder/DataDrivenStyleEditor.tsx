@@ -115,7 +115,7 @@ export function DataDrivenStyleEditor({
     existingConfig?.sizeRange ?? defaultSizeRange(existingConfig?.target ?? 'color'),
   );
 
-  // PB-04 (PERF-04): 200ms debounce for per-category / per-class color picker
+  // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce for per-category / per-class color picker.
   // drags in DataDrivenStyleEditor. The HexColorPicker fires onChange on every
   // drag pixel; debouncing collapses rapid calls into a single map repaint.
   const colorDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -341,21 +341,17 @@ export function DataDrivenStyleEditor({
     setRamp(newMode === 'categorical' ? 'Set2' : 'YlOrRd');
     // Reset color property to flat default to clear stale expressions from previous mode
     const colorProp = getColorProperty(layer.dataset_geometry_type);
-    const clearPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
-    onStyleConfigChange(layer.id, null, clearPaint);
+    const nextPaint: Record<string, unknown> = { ...layer.paint, [colorProp]: MAP_COLORS.default.fill };
     if (newMode === 'categorical') {
       // Categorical does not support size targets — force back to color
       setTarget('color');
       // Reset any size paint property to scalar default
       const radiusProp = getSizeProperty(layer.dataset_geometry_type, 'radius');
       const widthProp = getSizeProperty(layer.dataset_geometry_type, 'width');
-      if (radiusProp || widthProp) {
-        const resetPaint: Record<string, unknown> = { ...layer.paint };
-        if (radiusProp) resetPaint[radiusProp] = 5;
-        if (widthProp) resetPaint[widthProp] = 2;
-        onStyleConfigChange(layer.id, layer.style_config ?? null, resetPaint);
-      }
+      if (radiusProp) nextPaint[radiusProp] = 5;
+      if (widthProp) nextPaint[widthProp] = 2;
     }
+    onStyleConfigChange(layer.id, null, nextPaint);
   }
 
   function handleTargetChange(newTarget: 'color' | 'radius' | 'width') {
@@ -381,7 +377,7 @@ export function DataDrivenStyleEditor({
       );
       const newConfig: StyleConfig = { ...styleConfig, categories: updated, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // PB-04 (PERF-04): 200ms debounce — HexColorPicker fires on every drag pixel
+      // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);
@@ -401,7 +397,7 @@ export function DataDrivenStyleEditor({
       const expression = buildGraduatedExpression(styleConfig.column, styleConfig.breaks, updatedColors);
       const newConfig: StyleConfig = { ...styleConfig, colors: updatedColors, ramp: 'custom' };
       const paint = { ...layerPaint, [colorProp]: expression };
-      // PB-04 (PERF-04): 200ms debounce — HexColorPicker fires on every drag pixel
+      // Phase 20260526-builder-audit BLD-20260526-11: 200ms debounce — HexColorPicker fires on every drag pixel.
       clearTimeout(colorDebounceRef.current);
       colorDebounceRef.current = setTimeout(() => {
         onStyleConfigChange(layerId, newConfig, paint);

@@ -75,6 +75,7 @@ function setup({
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
+    share_url: '/m/share-token',
     expires_at: null,
     is_active: true,
   });
@@ -204,6 +205,14 @@ describe('ShareDialog edition gates', () => {
       'Unsaved changes are only in the builder preview',
     );
   });
+
+  it('does not expose copy/open actions when only a stored token hint is available', () => {
+    setup({ hasShareToken: true });
+
+    expect(screen.getByText(/full share link is only shown when it is created/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^open$/i })).not.toBeInTheDocument();
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -257,9 +266,13 @@ describe('SEC-07: embed code sandbox attribute', () => {
   // value. Substitutes for the deferred Playwright MCP UAT — confirms the
   // sandbox value reaches the rendered DOM exactly as the unit-tested pure
   // function emits it (no later string-rewriting in the component layer).
-  it('rendered embed textarea contains sandbox="allow-scripts" only', () => {
-    setup({ enterprise: false, hasShareToken: true });
-    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+  it('rendered embed textarea contains sandbox="allow-scripts" only after creating a raw share token', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false });
+
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+
+    const textarea = await screen.findByRole('textbox') as HTMLTextAreaElement;
     expect(textarea).toBeTruthy();
     expect(textarea.value).toContain('sandbox="allow-scripts"');
     expect(textarea.value).not.toContain('allow-same-origin');

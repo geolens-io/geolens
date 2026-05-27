@@ -1,6 +1,8 @@
 import { render, screen } from '@/test/test-utils';
+import { Route, Routes } from 'react-router';
 import { MapViewerGate } from '../MapViewerGate';
 import { useAuthStore } from '@/stores/auth-store';
+import { useMapAccess } from '@/hooks/use-maps';
 import type { UserResponse } from '@/types/api';
 
 vi.mock('../MapBuilderPage', () => ({
@@ -10,6 +12,12 @@ vi.mock('../MapBuilderPage', () => ({
 vi.mock('../PublicMapViewerPage', () => ({
   PublicMapViewerPage: () => <div data-testid="public-map-page" />,
 }));
+
+vi.mock('@/hooks/use-maps', () => ({
+  useMapAccess: vi.fn(),
+}));
+
+const mockedUseMapAccess = vi.mocked(useMapAccess);
 
 function mockUser(overrides?: Partial<UserResponse>): UserResponse {
   return {
@@ -28,7 +36,21 @@ function mockUser(overrides?: Partial<UserResponse>): UserResponse {
 describe('MapViewerGate', () => {
   beforeEach(() => {
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+    mockedUseMapAccess.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+    } as never);
   });
+
+  function renderRoute() {
+    return render(
+      <Routes>
+        <Route path="/maps/:id" element={<MapViewerGate />} />
+      </Routes>,
+      { route: '/maps/map-1' },
+    );
+  }
 
   it('keeps authenticated user-null route state in loading instead of loading editor chrome', () => {
     useAuthStore.setState({
@@ -38,7 +60,7 @@ describe('MapViewerGate', () => {
       user: null,
     });
 
-    render(<MapViewerGate />);
+    renderRoute();
 
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
@@ -46,6 +68,11 @@ describe('MapViewerGate', () => {
   });
 
   it('loads the builder for editor users', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: true },
+      isLoading: false,
+      isError: false,
+    } as never);
     useAuthStore.setState({
       token: 'token',
       refreshToken: 'refresh',
@@ -53,13 +80,32 @@ describe('MapViewerGate', () => {
       user: mockUser({ roles: ['editor'] }),
     });
 
-    render(<MapViewerGate />);
+    renderRoute();
 
     expect(await screen.findByTestId('builder-page')).toBeInTheDocument();
   });
 
+  it('loads the public viewer when server denies builder access for a stale editor cache', async () => {
+    mockedUseMapAccess.mockReturnValue({
+      data: { can_view: true, can_edit: false },
+      isLoading: false,
+      isError: false,
+    } as never);
+    useAuthStore.setState({
+      token: 'token',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 900_000,
+      user: mockUser({ roles: ['editor'] }),
+    });
+
+    renderRoute();
+
+    expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
+  });
+
   it('loads the public viewer for anonymous users', async () => {
-    render(<MapViewerGate />);
+    renderRoute();
 
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
   });

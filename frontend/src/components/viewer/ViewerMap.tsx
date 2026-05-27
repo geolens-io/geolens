@@ -93,6 +93,9 @@ function toViewerSyncInput(
     dataset_id: layer.dataset_id,
     is_3d: layer.is_3d,
     feature_count: layer.feature_count,
+    layer_type: layer.layer_type,
+    dataset_record_type: layer.dataset_record_type,
+    tile_url: layer.tile_url,
   };
 }
 

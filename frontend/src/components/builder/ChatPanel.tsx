@@ -104,6 +104,12 @@ function hasPaintMutation(action: ChatAction): boolean {
   );
 }
 
+function isUndoSafeAction(action: ChatAction): boolean {
+  return action.type !== 'add_layer'
+    && action.type !== 'remove_layer'
+    && action.type !== 'show_query_result';
+}
+
 export interface LayerActions {
   onFilterChange: (layerId: string, expression: FilterSpecification | null) => void;
   onPaintChange: (layerId: string, paint: Record<string, unknown>) => void;
@@ -162,8 +168,8 @@ export function ChatPanel({
   // Keep a ref to the latest layers so snapshots capture fresh state
   const layersRef = useRef(layers);
   layersRef.current = layers;
-  // B-011: Single-level undo for chat-initiated map mutations
-  const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; messageIndex: number } | null>(null);
+  // Phase 20260526-builder-audit BLD-20260526-04: single-level undo for chat-initiated map mutations.
+  const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; messageIndex: number; supportsUndo: boolean } | null>(null);
 
   // Persist chat history to sessionStorage
   useEffect(() => {
@@ -211,7 +217,7 @@ export function ChatPanel({
       action.bbox.every((n: unknown) => typeof n === 'number')
     ) {
       const [minX, minY, maxX, maxY] = action.bbox as [number, number, number, number];
-      // AI-12: Reject bbox values outside WGS84 bounds
+      // Phase 20260526-builder-audit BLD-20260526-11: reject bbox values outside WGS84 bounds.
       if (minX < -180 || minY < -90 || maxX > 180 || maxY > 90) return;
       onQueryResult?.(
         geojson as GeoJSON.FeatureCollection,
@@ -220,18 +226,18 @@ export function ChatPanel({
     }
   }
 
-  // B-011: Restore layers from the last snapshot
+  // Phase 20260526-builder-audit BLD-20260526-04: restore layers from the last snapshot.
   const handleUndo = useCallback(() => {
     const snapshot = lastSnapshotRef.current;
-    if (!snapshot) return;
+    if (!snapshot?.supportsUndo) return;
     const snapshotIds = new Set(snapshot.layers.map((l) => l.id));
     const currentIds = new Set(layersRef.current.map((l) => l.id));
 
-    // AI-03: Remove layers that were added after the snapshot
+    // Phase 20260526-builder-audit BLD-20260526-04: remove layers that were added after the snapshot.
     for (const id of currentIds) {
       if (!snapshotIds.has(id)) onRemove(id);
     }
-    // AI-03: Re-add layers that were removed after the snapshot
+    // Phase 20260526-builder-audit BLD-20260526-04: re-add layers that were removed after the snapshot.
     for (const layer of snapshot.layers) {
       if (!currentIds.has(layer.id)) {
         onAddDataset(layer.dataset_id);
@@ -365,9 +371,14 @@ export function ChatPanel({
           case 'actions': {
             const actions = getChatActions(data.actions);
             if (actions.length === 0) break;
-            // B-011: Snapshot layers before first mutation
-            if (pendingActions.length === 0) {
-              lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
+            // Phase 20260526-builder-audit BLD-20260526-04: snapshot only for actions undo can safely replay.
+            const mutatingActions = actions.filter((action) => action.type !== 'show_query_result');
+            if (pendingActions.length === 0 && mutatingActions.length > 0) {
+              lastSnapshotRef.current = {
+                layers: [...layersRef.current],
+                messageIndex: messages.length,
+                supportsUndo: mutatingActions.every(isUndoSafeAction),
+              };
             }
             for (const action of actions) {
               if (action.type === 'show_query_result') {
@@ -376,7 +387,10 @@ export function ChatPanel({
               }
               handleChatAction(action);
               pendingActions.push(action);
-              // B-023: Clean stale layer refs from session history after remove_layer
+              if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
+                lastSnapshotRef.current.supportsUndo = false;
+              }
+              // Phase 20260526-builder-audit BLD-20260526-11: clean stale layer refs from session history after remove_layer.
               const layerId = getActionLayerId(action);
               if (action.type === 'remove_layer' && layerId) {
                 cleanStaleLayerRefs(mapId, layerId);
@@ -450,14 +464,21 @@ export function ChatPanel({
         // No actions applied yet — safe to retry via non-streaming
         try {
           const response = await sendChatMessage(mapId, userMsg, layers, i18n.language, [...history, { role: 'user', content: userMsg }]);
-          // B-011: Snapshot layers before non-streaming fallback mutations
+          // Phase 20260526-builder-audit BLD-20260526-04: snapshot layers before non-streaming fallback mutations.
           const responseActions = getChatActions(response.actions);
           if (responseActions.length > 0) {
-            lastSnapshotRef.current = { layers: [...layersRef.current], messageIndex: messages.length };
+            lastSnapshotRef.current = {
+              layers: [...layersRef.current],
+              messageIndex: messages.length,
+              supportsUndo: responseActions.every(isUndoSafeAction),
+            };
           }
           for (const action of responseActions) {
             handleChatAction(action);
-            // B-023: Clean stale layer refs after remove_layer
+            if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
+              lastSnapshotRef.current.supportsUndo = false;
+            }
+            // Phase 20260526-builder-audit BLD-20260526-11: clean stale layer refs after remove_layer.
             const layerId = getActionLayerId(action);
             if (action.type === 'remove_layer' && layerId) {
               cleanStaleLayerRefs(mapId, layerId);
@@ -567,8 +588,9 @@ export function ChatPanel({
                     <p className="text-xs text-muted-foreground">
                       {t('chat.appliedChanges', { count: msg.actions.length })}
                     </p>
-                    {/* B-011: Undo button — shown only for the last AI action */}
-                    {lastSnapshotRef.current?.messageIndex !== undefined &&
+                    {/* Phase 20260526-builder-audit BLD-20260526-04: undo only for replay-safe style/filter edits. */}
+                    {lastSnapshotRef.current?.supportsUndo &&
+                      lastSnapshotRef.current?.messageIndex !== undefined &&
                       messages.indexOf(msg) === messages.length - 1 &&
                       msg.role === 'assistant' && (
                       <button

@@ -54,7 +54,7 @@ export function useViewerLayers(
     return typeof window !== 'undefined' ? window.innerWidth >= 500 : true;
   });
 
-  // SH-21: Track whether the user has manually toggled the legend so the
+  // Phase 20260526-builder-audit BLD-20260526-11: track whether the user has manually toggled the legend so the
   // resize handler doesn't override their preference.
   const userHasToggled = useRef(false);
   const setIsLegendOpen = useCallback(

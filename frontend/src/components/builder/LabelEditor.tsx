@@ -54,7 +54,7 @@ export function LabelEditor({ columns, labelConfig, onLabelChange, geometryType 
     return PLACEMENT_OPTIONS.filter(p => p.value === 'point');
   }, [geometryType]);
 
-  // B-017/LB-01: Sync from prop so the ref survives unmount/remount cycles
+  // Phase 20260526-builder-audit BLD-20260526-11: sync from prop so the ref survives unmount/remount cycles.
   const lastConfigRef = useRef<LabelConfig | null>(labelConfig);
   if (labelConfig) lastConfigRef.current = labelConfig;
 

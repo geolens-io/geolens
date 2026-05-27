@@ -230,33 +230,41 @@ describe('LayerStyleEditor - dash presets', () => {
     expect(screen.queryByText('Dashed')).not.toBeInTheDocument();
   });
 
-  it('calls onLayoutChange with dash value when preset clicked', async () => {
-    const onLayoutChange = vi.fn();
+  it('calls onPaintChange with dash value when preset clicked', async () => {
+    const onPaintChange = vi.fn();
     const user = userEvent.setup();
 
     render(
       <LayerStyleEditor
         layer={makeLayer()}
-        onPaintChange={vi.fn()}
+        onPaintChange={onPaintChange}
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
-        onLayoutChange={onLayoutChange}
+        onLayoutChange={vi.fn()}
         onRenderModeChange={vi.fn()}
       />,
     );
 
     await user.click(screen.getByText('Dashed'));
-    expect(onLayoutChange).toHaveBeenCalledWith('layer-1', { 'line-dasharray': [4, 2] });
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+      'line-dasharray': [4, 2],
+    });
   });
 
-  it('calls onLayoutChange without dasharray when Solid clicked', async () => {
+  it('removes paint and legacy layout dasharray when Solid clicked', async () => {
+    const onPaintChange = vi.fn();
     const onLayoutChange = vi.fn();
     const user = userEvent.setup();
 
     render(
       <LayerStyleEditor
-        layer={makeLayer({ layout: { 'line-dasharray': [4, 2] } })}
-        onPaintChange={vi.fn()}
+        layer={makeLayer({
+          paint: { 'line-color': '#ff0000', 'line-width': 2, 'line-dasharray': [4, 2] },
+          layout: { 'line-dasharray': [4, 2] },
+        })}
+        onPaintChange={onPaintChange}
         onOpacityChange={vi.fn()}
         onStyleConfigChange={vi.fn()}
         onLayoutChange={onLayoutChange}
@@ -265,7 +273,10 @@ describe('LayerStyleEditor - dash presets', () => {
     );
 
     await user.click(screen.getByText('Solid'));
-    // Solid removes line-dasharray from layout
+    expect(onPaintChange).toHaveBeenCalledWith('layer-1', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+    });
     expect(onLayoutChange).toHaveBeenCalledWith('layer-1', {});
   });
 

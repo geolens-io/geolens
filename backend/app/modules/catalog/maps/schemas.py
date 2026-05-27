@@ -921,6 +921,13 @@ class ShareTokenResponse(BaseModel):
     is_active: bool = True
 
 
+class MapAccessResponse(BaseModel):
+    can_view: bool = Field(description="True when the current request may read the map")
+    can_edit: bool = Field(
+        description="True when the current request may open the map builder"
+    )
+
+
 class ThumbnailUploadRequest(BaseModel):
     """JSON body for PUT /maps/{map_id}/thumbnail/.
 

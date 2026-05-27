@@ -54,6 +54,7 @@ export const queryKeys = {
     all: ['maps'] as const,
     list: (params: MapBrowseParams) => ['maps', params] as const,
     detail: (id: string | undefined) => ['map', id] as const,
+    access: (id: string | undefined) => ['map-access', id] as const,
     history: (mapId: string | undefined, skip: number, limit: number) =>
       ['map-history', mapId, skip, limit] as const,
     historyPrefix: (mapId: string | undefined) => ['map-history', mapId] as const,

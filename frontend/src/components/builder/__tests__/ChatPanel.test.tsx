@@ -421,6 +421,30 @@ describe('ChatPanel', () => {
     expect(props.onOpacityChange).toHaveBeenCalledWith('layer-1', 0.35);
   });
 
+  it('does not offer undo for remove_layer actions', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: {
+          actions: [
+            { type: 'remove_layer', layer_id: 'layer-1' },
+          ],
+        },
+      };
+      yield { event: 'done', data: { explanation: 'Removed' } };
+    });
+
+    const user = userEvent.setup();
+    const props = renderPanel();
+    await typeAndSend(user, 'remove the layer');
+
+    await waitFor(() => {
+      expect(props.onRemove).toHaveBeenCalledWith('layer-1');
+    });
+    expect(await screen.findByText('Removed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /undo/i })).not.toBeInTheDocument();
+  });
+
   it('does not re-apply actions when streaming partially succeeds then fails', async () => {
     // Stream applies one action then throws
     mockStreamChat.mockImplementation(async function* () {

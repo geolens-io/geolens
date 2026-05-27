@@ -46,6 +46,7 @@ from app.modules.catalog.maps.schemas import (
     MapIconListResponse,
     MapIconResponse,
     MapResponse,
+    MapAccessResponse,
     MapStyleImportRequest,
     MapStyleImportResponse,
     MapSummaryResponse,
@@ -301,6 +302,20 @@ async def _check_map_read_access(
             )
 
 
+async def _can_edit_map(
+    map_obj: Map,
+    user: Identity | None,
+    db: AsyncSession,
+) -> bool:
+    if user is None:
+        return False
+    user_roles = await get_user_roles(db, user)
+    is_admin = "admin" in user_roles
+    is_editor = "editor" in user_roles
+    is_owner = map_obj.created_by == user.id
+    return is_admin or (is_editor and is_owner)
+
+
 def _build_map_response(
     map_obj: Map,
     layers: list[MapLayerResponse],
@@ -476,7 +491,9 @@ async def get_shared_map_endpoint(
             detail="This shared map link has expired or been revoked",
         )
     map_data, layers, allowed_origins = result
-    response.headers["Content-Security-Policy"] = _build_frame_ancestors(allowed_origins)
+    response.headers["Content-Security-Policy"] = _build_frame_ancestors(
+        allowed_origins
+    )
     return SharedMapResponse(**map_data, layers=layers)
 
 
@@ -756,6 +773,26 @@ async def get_map_endpoint(
         layers,
         forked_from_name=forked_name,
         created_by_username=owner_username,
+    )
+
+
+@router.get("/{map_id}/access/", response_model=MapAccessResponse)
+async def get_map_access_endpoint(
+    map_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> MapAccessResponse:
+    """Return server-confirmed route access for the map viewer gate."""
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await _check_map_read_access(map_obj, user, db)
+    return MapAccessResponse(
+        can_view=True,
+        can_edit=await _can_edit_map(map_obj, user, db),
     )
 
 
@@ -1347,10 +1384,11 @@ async def share_map_endpoint(
         ),
     )
     await db.commit()
-    raw_token = getattr(token_obj, "_raw_token", token_obj.token_hint)
+    raw_token = getattr(token_obj, "_raw_token", None)
+    token = raw_token or token_obj.token_hint
     return ShareTokenResponse(
-        token=raw_token,
-        share_url=f"/m/{raw_token}",
+        token=token,
+        share_url=f"/m/{raw_token}" if raw_token else None,
         expires_at=token_obj.expires_at,
         is_active=token_obj.is_active,
     )
@@ -1759,13 +1797,11 @@ async def bulk_delete_layers_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
-    deleted_ids, failed_pairs = await remove_layers_bulk(
-        db, body.layer_ids, map_id
-    )
+    deleted_ids, failed_pairs = await remove_layers_bulk(db, body.layer_ids, map_id)
 
     deleted_count = len(deleted_ids)
 
-    # WR-01: only emit audit/history when something was actually deleted.
+    # Phase 20260526-builder-audit BLD-20260526-11: only emit audit/history when something was actually deleted.
     # A request where all IDs are not_found produces deleted_count=0; emitting
     # audit rows in that case creates false positives for monitoring systems.
     if deleted_count > 0:
@@ -1784,7 +1820,7 @@ async def bulk_delete_layers_endpoint(
             ),
         )
 
-        # WR-02: use target_type="map" with target_id=map_id since there is no
+        # Phase 20260526-builder-audit BLD-20260526-11: use target_type="map" with target_id=map_id since there is no
         # single layer target for a bulk operation.  Mirrors how layer.replace is
         # recorded elsewhere and prevents broken "jump to layer" links in history.
         await record_map_history_event(

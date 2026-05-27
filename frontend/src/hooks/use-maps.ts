@@ -3,6 +3,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   listMaps,
   getMap,
+  getMapAccess,
   getMapHistory,
   createMap,
   updateMap,
@@ -52,6 +53,16 @@ export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: b
     enabled: !!id,
     staleTime: 60_000,
     refetchOnWindowFocus: opts?.refetchOnWindowFocus,
+  });
+}
+
+export function useMapAccess(id: string | undefined, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.maps.access(id),
+    queryFn: () => getMapAccess(id!),
+    enabled: !!id && (opts?.enabled ?? true),
+    staleTime: 30_000,
+    retry: false,
   });
 }
 

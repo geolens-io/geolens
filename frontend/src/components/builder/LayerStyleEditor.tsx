@@ -101,7 +101,7 @@ function StylePreview({ layer, onReset }: { layer: MapLayerResponse; onReset: ()
  *
  * Responsibilities:
  *  - Compute geomType, renderMode, dispatchKey from layer props
- *  - Maintain the master opacity debounce (PB-02, Plan 03)
+ *  - Maintain the master opacity debounce (Phase 20260526-builder-audit BLD-20260526-11)
  *  - Render the "Render as" dropdown (point layers only)
  *  - Delegate per-mode appearance controls to RenderModeSwitch
  *  - Render master opacity + zoom range sliders (cross-mode)
@@ -173,7 +173,7 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
     [layer, renderMode],
   );
 
-  // PB-02 (PERF-04): 100ms debounce for master opacity slider.
+  // Phase 20260526-builder-audit BLD-20260526-11: 100ms debounce for master opacity slider.
   // Local state holds the slider's displayed value so drags feel instant,
   // while the debounced effect coalesces rapid changes into a single
   // onOpacityChange call. The `opacityFromPropRef` tracks the last value

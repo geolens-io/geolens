@@ -13,6 +13,7 @@ export function LineEditor({
   isDataDriven,
   styleConfig,
   onPaintProp,
+  onPaintChange,
   onLayoutChange,
   onBuilderChange,
   t,
@@ -97,7 +98,7 @@ export function LineEditor({
       <div className="text-xs font-medium mt-2">{t('style.pattern')}</div>
       <div className="flex gap-1">
         {LINE_DASH_PRESETS.map((preset, idx) => {
-          const currentDashValue = (layer.layout as Record<string, unknown>)?.['line-dasharray'];
+          const currentDashValue = paint['line-dasharray'] ?? (layer.layout as Record<string, unknown>)?.['line-dasharray'];
           const activeIdx = LINE_DASH_SERIALIZED.findIndex((s) => s === JSON.stringify(currentDashValue));
           const isActive = (activeIdx === -1 ? 0 : activeIdx) === idx;
           return (
@@ -108,9 +109,17 @@ export function LineEditor({
                 isActive ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
               )}
               onClick={() => {
-                const newLayout = { ...(layer.layout ?? {}), 'line-dasharray': preset.value } as Record<string, unknown>;
-                if (!preset.value) delete newLayout['line-dasharray'];
-                onLayoutChange(layer.id, newLayout);
+                const nextPaint = { ...paint };
+                if (preset.value) {
+                  nextPaint['line-dasharray'] = preset.value;
+                } else {
+                  delete nextPaint['line-dasharray'];
+                }
+                const nextLayout = { ...(layer.layout ?? {}) } as Record<string, unknown>;
+                const hadLegacyLayoutDash = Object.prototype.hasOwnProperty.call(nextLayout, 'line-dasharray');
+                delete nextLayout['line-dasharray'];
+                onPaintChange(layer.id, nextPaint);
+                if (hadLegacyLayoutDash) onLayoutChange(layer.id, nextLayout);
               }}
             >
               {t(`style.dash.${preset.key}`)}

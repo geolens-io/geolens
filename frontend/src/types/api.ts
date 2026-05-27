@@ -1148,6 +1148,11 @@ export interface ShareTokenResponse {
   is_active: boolean;
 }
 
+export interface MapAccessResponse {
+  can_view: boolean;
+  can_edit: boolean;
+}
+
 // AI Status
 export interface AIStatusResponse {
   provider: string | null;

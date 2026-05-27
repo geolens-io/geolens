@@ -13,7 +13,7 @@ function darkenColor(hex: string): string {
 export interface StyleHints {
   strokeColor?: string;      // polygon _outline-color or circle-stroke-color
   strokeDisabled?: boolean;  // _stroke-disabled — suppresses outline rendering
-  dashPattern?: number[];    // line-dasharray from layout (e.g., [4,2])
+  dashPattern?: number[];    // line-dasharray (e.g., [4,2])
   opacity?: number;          // layer opacity (0-1)
   fillOpacity?: number;      // paint-level opacity (circle-opacity, fill-opacity, line-opacity)
   strokeWidth?: number;      // line-width raw value — map to SVG strokeWidth
@@ -23,7 +23,7 @@ export interface StyleHints {
 
 /**
  * Extract style hints from paint/layout objects for icon rendering.
- * Reads custom conventions (_outline-color, line-dasharray in layout, etc.).
+ * Reads custom conventions (_outline-color, legacy line-dasharray in layout, etc.).
  */
 export function extractStyleHints(
   paint: Record<string, unknown>,
@@ -50,8 +50,7 @@ export function extractStyleHints(
   if (gt.includes('LINE')) {
     const lw = paint['line-width'];
     if (typeof lw === 'number') hints.strokeWidth = lw;
-    // line-dasharray is stored in layout in this codebase (see map-sync.ts)
-    const dash = layout['line-dasharray'];
+    const dash = paint['line-dasharray'] ?? layout['line-dasharray'];
     if (Array.isArray(dash) && dash.length > 0) {
       hints.dashPattern = dash as number[];
     }

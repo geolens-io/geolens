@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, within } from '@/test/test-utils';
+import { act, fireEvent, render, screen, within } from '@/test/test-utils';
 import { LayerFilterEditor, parseFilterExpression, buildFilterExpression } from '../LayerFilterEditor';
 import type { FilterSpecification } from 'maplibre-gl';
 
@@ -71,6 +71,27 @@ describe('parseFilterExpression', () => {
     if (result.kind === 'editable') {
       expect(result.combinator).toBe('any');
       expect(result.conditions).toHaveLength(2);
+    }
+  });
+
+  it('parses a top-level is_null pattern as one editable condition', () => {
+    const expr: FilterSpecification = [
+      'any',
+      ['!', ['has', 'name']],
+      ['==', ['get', 'name'], null],
+    ] as FilterSpecification;
+
+    const result = parseFilterExpression(expr);
+
+    expect(result.kind).toBe('editable');
+    if (result.kind === 'editable') {
+      expect(result.combinator).toBe('all');
+      expect(result.conditions).toHaveLength(1);
+      expect(result.conditions[0]).toMatchObject({
+        field: 'name',
+        operator: 'is_null',
+        value: '',
+      });
     }
   });
 
@@ -274,6 +295,19 @@ describe('LayerFilterEditor layout', () => {
     expect(valueRow).toContainElement(screen.getByRole('textbox', { name: 'Value' }));
     expect(valueRow).toContainElement(screen.getByRole('button', { name: 'Remove condition' }));
     expect(fieldRow).not.toBe(valueRow);
+  });
+
+  it('adds a boolean equality condition with an emitted true value', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: [{ name: 'active', type: 'boolean' }],
+      filter: null,
+      onFilterChange,
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: /add filter/i }));
+
+    expect(onFilterChange).toHaveBeenCalledWith(['all', ['==', ['get', 'active'], true]]);
   });
 });
 

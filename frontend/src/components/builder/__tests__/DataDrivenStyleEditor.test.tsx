@@ -15,6 +15,9 @@ import type { MapLayerResponse, StyleConfig } from '@/types/api';
     unobserve() {}
     disconnect() {}
   } as unknown as typeof ResizeObserver;
+Element.prototype.hasPointerCapture = vi.fn(() => false);
+Element.prototype.releasePointerCapture = vi.fn();
+Element.prototype.scrollIntoView = vi.fn();
 
 // --- Mocks ---
 
@@ -498,6 +501,48 @@ describe('DataDrivenStyleEditor', () => {
 
       // Categorical mode — target selector should NOT be shown
       expect(screen.queryByText('Target')).toBeNull();
+    });
+
+    it('clears stale size style_config when switching a graduated radius style to categorical', async () => {
+      const onStyleConfigChange = vi.fn();
+      const user = userEvent.setup();
+
+      render(
+        <DataDrivenStyleEditor
+          layer={makeLayer({
+            dataset_geometry_type: 'Point',
+            paint: {
+              'circle-color': ['step', ['get', 'population'], '#fee8c8', 20, '#fdbb84'],
+              'circle-radius': ['step', ['get', 'population'], 2, 20, 8],
+            },
+            style_config: {
+              mode: 'graduated',
+              column: 'population',
+              ramp: 'YlOrRd',
+              method: 'equal_interval',
+              classCount: 5,
+              target: 'radius',
+              sizes: [2, 4, 6, 8, 10],
+              sizeRange: [2, 10],
+              breaks: [20, 40, 60, 80],
+            },
+          })}
+          onStyleConfigChange={onStyleConfigChange}
+        />,
+      );
+
+      await user.click(screen.getAllByRole('combobox')[0]);
+      await user.click(await screen.findByRole('option', { name: 'Categorical' }));
+
+      expect(onStyleConfigChange).toHaveBeenCalledWith('layer-1', null, expect.objectContaining({
+        'circle-color': '#3b82f6',
+        'circle-radius': 5,
+      }));
+      expect(onStyleConfigChange).not.toHaveBeenCalledWith(
+        'layer-1',
+        expect.objectContaining({ target: 'radius' }),
+        expect.anything(),
+      );
     });
 
     it('resets target to color when handleClear is called', async () => {

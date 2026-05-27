@@ -640,6 +640,22 @@ describe('lineAdapter', () => {
     expect(call.layout).not.toHaveProperty('line-dasharray');
   });
 
+  it('addLayers prefers paint line-dasharray over legacy layout', () => {
+    const input = makeInput({
+      id: 'l1b',
+      layerId: 'layer-l1b',
+      sourceId: 'source-l1b',
+      sourceLayer: 'data.test_table',
+      dataset_geometry_type: 'LINESTRING',
+      paint: { 'line-dasharray': [4, 2] },
+      layout: { 'line-dasharray': [2, 4] },
+    });
+    lineAdapter.addLayers(map, input);
+    const call = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.paint['line-dasharray']).toEqual([4, 2]);
+    expect(call.layout).not.toHaveProperty('line-dasharray');
+  });
+
   it('addLayers sets line-cap:round and line-join:round in layout', () => {
     const input = makeInput({ id: 'l2', layerId: 'layer-l2', dataset_geometry_type: 'LINESTRING' });
     lineAdapter.addLayers(map, input);

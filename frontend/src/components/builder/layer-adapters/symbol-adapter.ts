@@ -3,6 +3,7 @@ import type { AdapterLayerInput, LayerAdapter } from './types';
 import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { SymbolStyleConfig } from '@/types/api';
+import { LABEL_FONT_STACK } from '../label-layer-utils';
 
 const DEFAULT_ICON = 'marker';
 const GEOLENS_SPRITE_ID = 'geolens';
@@ -91,7 +92,7 @@ function symbolLayout(input: AdapterLayerInput): Record<string, unknown> {
   if (lc?.column) {
     layout['text-field'] = ['get', lc.column];
     layout['text-size'] = lc.fontSize ?? 12;
-    layout['text-font'] = ['Noto Sans Regular'];
+    layout['text-font'] = [...LABEL_FONT_STACK];
     layout['text-anchor'] = lc.textAnchor ?? 'top';
     layout['text-offset'] = lc.textOffset ?? [0, 1.2];
     layout['text-allow-overlap'] = lc.allowOverlap ?? false;

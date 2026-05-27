@@ -112,21 +112,30 @@ describe('LineEditor', () => {
     expect(screen.getByText('Dash-dot')).toBeInTheDocument();
   });
 
-  it('calls onLayoutChange with dash value when Dashed preset clicked', () => {
-    const onLayoutChange = vi.fn();
-    render(<LineEditor {...makeProps(makeLineLayer(), { onLayoutChange })} />);
+  it('calls onPaintChange with dash value when Dashed preset clicked', () => {
+    const onPaintChange = vi.fn();
+    render(<LineEditor {...makeProps(makeLineLayer(), { onPaintChange })} />);
 
     fireEvent.click(screen.getByText('Dashed'));
-    expect(onLayoutChange).toHaveBeenCalledWith('layer-line', { 'line-dasharray': [4, 2] });
+    expect(onPaintChange).toHaveBeenCalledWith('layer-line', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+      'line-dasharray': [4, 2],
+    });
   });
 
-  it('calls onLayoutChange without dasharray when Solid preset clicked', () => {
+  it('removes legacy layout dasharray when Solid preset clicked', () => {
+    const onPaintChange = vi.fn();
     const onLayoutChange = vi.fn();
     render(
-      <LineEditor {...makeProps(makeLineLayer({ layout: { 'line-dasharray': [4, 2] } }), { onLayoutChange })} />,
+      <LineEditor {...makeProps(makeLineLayer({ paint: { 'line-color': '#ff0000', 'line-width': 2, 'line-dasharray': [4, 2] }, layout: { 'line-dasharray': [4, 2] } }), { onPaintChange, onLayoutChange })} />,
     );
 
     fireEvent.click(screen.getByText('Solid'));
+    expect(onPaintChange).toHaveBeenCalledWith('layer-line', {
+      'line-color': '#ff0000',
+      'line-width': 2,
+    });
     expect(onLayoutChange).toHaveBeenCalledWith('layer-line', {});
   });
 

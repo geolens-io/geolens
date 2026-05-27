@@ -2,7 +2,13 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import type { LabelConfig } from '@/types/api';
 import type { AddLayerObject } from 'maplibre-gl';
 
-/** Resolve symbol-placement, enforcing point-only for fill geometries (LB-04). */
+export const LABEL_FONT_STACK = [
+  'Noto Sans Regular',
+  'Open Sans Regular',
+  'Arial Unicode MS Regular',
+] as const;
+
+/** Phase 20260526-builder-audit BLD-20260526-11: resolve symbol-placement, enforcing point-only for fill geometries. */
 export function resolvePlacement(
   lc: Pick<LabelConfig, 'placement'>,
   geomType: string,
@@ -40,7 +46,7 @@ export function buildLabelLayerSpec(opts: {
       'text-size': lc.fontSize ?? 12,
       'symbol-placement': placement,
       'text-allow-overlap': lc.allowOverlap ?? false,
-      'text-font': ['Noto Sans Regular'],
+      'text-font': [...LABEL_FONT_STACK],
       'text-max-width': 10,
       ...(geomType === 'fill' ? { 'symbol-avoid-edges': true } : {}),
       ...(visibility ? { visibility } : {}),
@@ -73,7 +79,7 @@ export function syncLabelLayer(
   map.setLayoutProperty(labelId, 'text-size', lc.fontSize ?? 12);
   map.setLayoutProperty(labelId, 'symbol-placement', placement);
   map.setLayoutProperty(labelId, 'text-allow-overlap', lc.allowOverlap ?? false);
-  map.setLayoutProperty(labelId, 'text-font', ['Noto Sans Regular']);
+  map.setLayoutProperty(labelId, 'text-font', [...LABEL_FONT_STACK]);
   map.setLayoutProperty(labelId, 'text-max-width', 10);
   if (placement === 'point') {
     map.setLayoutProperty(labelId, 'text-anchor', lc.textAnchor ?? 'center');

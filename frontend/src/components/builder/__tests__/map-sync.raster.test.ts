@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { syncLayersToMap, stripCustomProps, CUSTOM_PAINT_PROPS } from '@/components/builder/map-sync';
+import type { SyncLayerInput } from '@/components/builder/map-sync';
 import type { MapLayerResponse } from '@/types/api';
 import type { TileToken, RasterTileToken, VectorTileToken } from '@/api/tiles';
 
@@ -181,6 +182,30 @@ describe('syncLayersToMap', () => {
     const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(addLayerCall.type).toBe('raster');
     expect(addLayerCall.paint['raster-opacity']).toBe(1);
+  });
+
+  it('shared raster layers render from embedded tile_url when no token map is available', () => {
+    const layer = {
+      ...makeLayer({
+        id: 'shared-raster',
+        layer_type: 'raster_geolens',
+        dataset_record_type: 'raster_dataset',
+        dataset_geometry_type: null,
+      }),
+      tile_url: '/raster-tiles/shared-raster/tiles/{z}/{x}/{y}.png',
+    } as SyncLayerInput;
+
+    syncLayersToMap(map, [layer], new Map(), undefined, managedSourcesRef, { current: '' });
+
+    expect(map.addSource).toHaveBeenCalledWith('source-shared-raster', {
+      type: 'raster',
+      tiles: ['http://localhost:8080/raster-tiles/shared-raster/tiles/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 18,
+    });
+    const addLayerCall = (map.addLayer as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(addLayerCall.type).toBe('raster');
   });
 
   it('reorders vector layers above raster layers when the vector is first in stack order', () => {

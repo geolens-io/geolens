@@ -23,6 +23,7 @@ import type {
   MapStyleImportResponse,
   MapIconListResponse,
   MapIconResponse,
+  MapAccessResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
 import { useAuthStore } from '@/stores/auth-store';
@@ -70,6 +71,10 @@ export async function getMap(id: string): Promise<MapResponse> {
   resp.terrain_config = mapNorm.terrain_config;
   resp.widgets = mapNorm.widgets;
   return resp;
+}
+
+export async function getMapAccess(id: string): Promise<MapAccessResponse> {
+  return apiFetch<MapAccessResponse>(`/maps/${id}/access/`);
 }
 
 export async function getMapHistory(

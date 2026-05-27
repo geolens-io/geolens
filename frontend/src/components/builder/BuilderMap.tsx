@@ -534,7 +534,7 @@ export const BuilderMap = memo(function BuilderMap({
       const { layers: l, tokenMap: t, tileConfig: tc, showBasemapLabels: sbl, basemapConfig: bc } = syncInputsRef.current;
       managedSourcesRef.current = new Set();
       lastOrderKeyRef.current = '';
-      // B-01 fix: gate on tokenMap presence rather than the isLoading boolean
+      // Phase 20260526-builder-audit BLD-20260526-11: gate on tokenMap presence rather than the isLoading boolean
       // so a later token arrival is picked up by the main sync effect's
       // tokenMap dep — no separate retry needed.
       if (l.some((layer) => layer.dataset_id && !t.has(layer.dataset_id))) return;
@@ -621,7 +621,7 @@ export const BuilderMap = memo(function BuilderMap({
     const byMapId = new Map<string, { layer: MapLayerResponse; sourceId: string }>();
     for (const l of layers) {
       const layerId = getLayerId(l.id);
-      // CR-02 (Phase 1050-rev): route through getSourceIdForLayer so the
+      // Phase 1050-rev CR-02: route through getSourceIdForLayer so the
       // sourceId stored alongside each layer's MapLibre layer id reflects
       // the SF-04 dedupe contract. Cluster layers stay per-layer (the
       // helper's branching keeps `source-${id}` for clusters), so
@@ -938,7 +938,7 @@ export const BuilderMap = memo(function BuilderMap({
       const token = tokenMap.get(layer.dataset_id) ?? null;
       // Raster tile URLs use nginx auth-check subrequest — nothing to refresh
       if (token?.kind === 'raster') continue;
-      // CR-02 (Phase 1050-rev): route through getSourceIdForLayer so the
+      // Phase 1050-rev CR-02: route through getSourceIdForLayer so the
       // deduped vector source (`source-data-${dataset_table_name}`) is
       // actually located and `setTiles([newUrl])` propagates the refreshed
       // signed token. Before the fix, every non-cluster vector layer's

@@ -155,7 +155,7 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
   function parseSingle(e: unknown[]): FilterCondition | null {
     if (!Array.isArray(e) || e.length === 0) return null;
 
-    // B-001: is_null full pattern: ["any", ["!", ["has", f]], ["==", ["get", f], null]]
+    // Phase 20260526-builder-audit BLD-20260526-11: is_null full pattern.
     if (
       e[0] === 'any' &&
       e.length === 3 &&
@@ -181,7 +181,7 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       };
     }
 
-    // B-002: not_in_list: ["!", ["in", ["get", f], ["literal", [...]]]]
+    // Phase 20260526-builder-audit BLD-20260526-11: not_in_list pattern.
     if (
       e[0] === '!' &&
       Array.isArray(e[1]) && e[1][0] === 'in' &&
@@ -196,7 +196,7 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       };
     }
 
-    // B-002: in_list: ["in", ["get", f], ["literal", [...]]]
+    // Phase 20260526-builder-audit BLD-20260526-11: in_list pattern.
     if (
       e[0] === 'in' &&
       Array.isArray(e[1]) && e[1][0] === 'get' &&
@@ -220,7 +220,7 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       };
     }
 
-    // B-003: has: ["has", field]
+    // Phase 20260526-builder-audit BLD-20260526-11: has pattern.
     if (e[0] === 'has' && typeof e[1] === 'string') {
       return {
         id: crypto.randomUUID(),
@@ -258,6 +258,11 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
     return null;
   }
 
+  const topLevelSingle = parseSingle(expr);
+  if (topLevelSingle) {
+    return { kind: 'editable', combinator: 'all', conditions: [topLevelSingle] };
+  }
+
   // Handle "all" or "any" combinator expressions
   if (expr[0] === 'all' || expr[0] === 'any') {
     const combinator = expr[0] as 'all' | 'any';
@@ -275,12 +280,6 @@ export function parseFilterExpression(expr: FilterSpecification | null): ParseRe
       results.push(parsed);
     }
     return { kind: 'editable', combinator, conditions: results };
-  }
-
-  // Bare single expression
-  const single = parseSingle(expr);
-  if (single) {
-    return { kind: 'editable', combinator: 'all', conditions: [single] };
   }
 
   // Unknown top-level expression — opaque
@@ -328,7 +327,7 @@ export function LayerFilterEditor({
     return col ? classifyColumnType(col.type) : 'other';
   }
 
-  // B-028: cleanup debounce timer on unmount
+  // Phase 20260526-builder-audit BLD-20260526-11: cleanup debounce timer on unmount.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -342,7 +341,7 @@ export function LayerFilterEditor({
     onFilterChange(newFilter);
   }
 
-  // B-028: debounced version for value input keystrokes
+  // Phase 20260526-builder-audit BLD-20260526-11: debounced version for value input keystrokes.
   const debouncedEmit = useCallback(
     (updated: FilterCondition[], combo: 'all' | 'any') => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -357,11 +356,13 @@ export function LayerFilterEditor({
   );
 
   function addCondition() {
+    const field = columnInfo[0]?.name ?? '';
+    const operator = OPERATORS_BY_TYPE[getFieldType(field)][0]?.value ?? '==';
     const newCond: FilterCondition = {
       id: crypto.randomUUID(),
-      field: columnInfo[0]?.name ?? '',
-      operator: OPERATORS_BY_TYPE[getFieldType(columnInfo[0]?.name ?? '')][0]?.value ?? '==',
-      value: '',
+      field,
+      operator,
+      value: getFieldType(field) === 'boolean' && operator === '==' ? 'true' : '',
     };
     emitChange([...conditions, newCond]);
   }
@@ -380,7 +381,14 @@ export function LayerFilterEditor({
         const colType = getFieldType(patch.field);
         const ops = OPERATORS_BY_TYPE[colType];
         merged.operator = ops[0]?.value ?? '==';
-        merged.value = '';
+        merged.value = colType === 'boolean' && merged.operator === '==' ? 'true' : '';
+      }
+
+      if (patch.operator && patch.operator !== c.operator) {
+        const colType = getFieldType(merged.field);
+        if (colType === 'boolean' && patch.operator === '==' && !merged.value) {
+          merged.value = 'true';
+        }
       }
 
       return merged;

@@ -125,6 +125,11 @@ def test_build_maplibre_style_exports_clean_sources_layers_and_viewport():
     assert primary["metadata"]["geolens"]["style_config"] is None
     assert style["layers"][1]["id"].endswith("-label")
     assert style["layers"][1]["layout"]["text-field"] == ["get", "name"]
+    assert style["layers"][1]["layout"]["text-font"] == [
+        "Noto Sans Regular",
+        "Open Sans Regular",
+        "Arial Unicode MS Regular",
+    ]
 
 
 def test_build_maplibre_style_consolidates_symbol_label_output():
@@ -153,6 +158,27 @@ def test_build_maplibre_style_consolidates_symbol_label_output():
     assert symbol["layout"]["icon-anchor"] == "bottom"
     assert symbol["layout"]["icon-offset"] == [0, -1]
     assert symbol["layout"]["text-field"] == ["get", "route"]
+    assert symbol["layout"]["text-font"] == [
+        "Noto Sans Regular",
+        "Open Sans Regular",
+        "Arial Unicode MS Regular",
+    ]
+
+
+def test_build_maplibre_style_exports_line_dasharray_as_paint_property():
+    layer = _layer(
+        dataset_geometry_type="LineString",
+        paint={"line-color": "#2255aa", "line-width": 3},
+        layout={"line-dasharray": [4, 2], "line-cap": "square"},
+        label_config=None,
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+
+    line = style["layers"][0]
+    assert line["type"] == "line"
+    assert line["paint"]["line-dasharray"] == [4, 2]
+    assert "line-dasharray" not in line["layout"]
 
 
 def test_build_maplibre_style_exports_fill_companion_layers():

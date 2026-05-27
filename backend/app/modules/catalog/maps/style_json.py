@@ -31,6 +31,11 @@ DEFAULT_STROKE_COLOR = "#1d4ed8"
 DEFAULT_ARROW_ICON = "arrow-right"
 DEFAULT_ARROW_BASE_SIZE = 14
 CLUSTER_GEOJSON_FEATURE_LIMIT = 5000
+LABEL_FONT_STACK = [
+    "Noto Sans Regular",
+    "Open Sans Regular",
+    "Arial Unicode MS Regular",
+]
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 _LABEL_METADATA_KEYS = {
@@ -154,7 +159,7 @@ def _clean_layout(layout: dict[str, Any] | None) -> dict[str, Any]:
     return {
         key: value
         for key, value in dict(layout or {}).items()
-        if not str(key).startswith("_")
+        if not str(key).startswith("_") and key != "line-dasharray"
     }
 
 
@@ -485,7 +490,7 @@ def _label_layout(label_config: dict[str, Any]) -> dict[str, Any]:
     if column:
         layout["text-field"] = ["get", column]
     layout["text-size"] = label_config.get("fontSize", 12)
-    layout["text-font"] = ["Noto Sans Regular"]
+    layout["text-font"] = list(LABEL_FONT_STACK)
     layout["text-allow-overlap"] = label_config.get("allowOverlap", False)
     layout["text-anchor"] = label_config.get("textAnchor", "center")
     layout["text-offset"] = label_config.get("textOffset", [0, -1.5])
@@ -743,6 +748,10 @@ def _style_layer_for_map_layer(
     )
     layout = _clean_layout(layer.layout)
     paint = _clean_paint(layer.paint)
+    if layer_type == "line":
+        legacy_dasharray = dict(layer.layout or {}).get("line-dasharray")
+        if legacy_dasharray is not None and "line-dasharray" not in paint:
+            paint["line-dasharray"] = legacy_dasharray
     # Determine source type to gate line-gradient paint (mirrors _source_for_layer branches).
     if (layer.is_dem is True) and (
         (layer.style_config or {}).get("render_mode") == "hillshade"
@@ -870,7 +879,7 @@ def build_maplibre_style(
         if src_type in _LINE_GRADIENT_SOURCE_TYPES:
             src["lineMetrics"] = True
         else:
-            # WR-03: builder-intent on incompatible source emits no warning otherwise. The
+            # Phase 20260526-builder-audit BLD-20260526-11: builder-intent on incompatible source emits no warning otherwise. The
             # paint-drop path warns when paint['line-gradient'] is present, but a builder-
             # intent-only mismatch (e.g. raster layer with style_config.builder.lineGradient)
             # would silently fail without this. Symmetric to _drop_unsupported_line_gradient.

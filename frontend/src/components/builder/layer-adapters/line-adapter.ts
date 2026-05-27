@@ -156,11 +156,13 @@ export const lineAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, sourceLayer, paint: rawPaint, layout: storedLayout, opacity, filter, visible } = input;
-    const hasExpressions = Object.values(rawPaint).some(Array.isArray);
+    const hasExpressions = Object.entries(rawPaint).some(
+      ([key, value]) => key !== 'line-dasharray' && Array.isArray(value),
+    );
     try {
       const basePaint = hasExpressions ? simplifyPaint(rawPaint) : rawPaint;
-      // line-dasharray is stored in layout JSON but is a MapLibre paint property
-      const { 'line-dasharray': dasharray, ...restLayout } = storedLayout;
+      // Legacy maps may still carry line-dasharray in layout; MapLibre expects it in paint.
+      const { 'line-dasharray': legacyDasharray, ...restLayout } = storedLayout;
       const linePaint = filterPaintForLayerType(basePaint, 'line');
       // line-gradient REQUIRES an expression that consumes ['line-progress'] — there is no
       // valid scalar fallback. simplifyPaint flattens arrays to scalar fallbacks (e.g.
@@ -174,8 +176,8 @@ export const lineAdapter: LayerAdapter = {
         linePaint['line-color'] = MAP_COLORS.default.fill;
         linePaint['line-width'] = 2;
       }
-      if (dasharray) {
-        linePaint['line-dasharray'] = dasharray;
+      if (legacyDasharray && linePaint['line-dasharray'] == null) {
+        linePaint['line-dasharray'] = legacyDasharray;
       }
       map.addLayer({
         id: layerId,
@@ -203,10 +205,10 @@ export const lineAdapter: LayerAdapter = {
   syncPaint(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, paint: rawPaint, opacity, filter } = input;
     if (!map.getLayer(layerId)) return;
-    const dasharray = input.layout?.['line-dasharray'];
+    const legacyDasharray = input.layout?.['line-dasharray'];
     const paintForSync = {
       ...rawPaint,
-      ...(dasharray != null ? { 'line-dasharray': dasharray } : {}),
+      ...(legacyDasharray != null && rawPaint['line-dasharray'] == null ? { 'line-dasharray': legacyDasharray } : {}),
     };
     syncOwnedPaintProperties(map, layerId, paintForSync, {
       geomType: 'line',

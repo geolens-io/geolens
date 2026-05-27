@@ -177,6 +177,12 @@ export interface SyncLayerInput {
    *  keep non-vector layers (raster/hillshade) on a per-layer source key. */
   layer_type?: string | null;
   dataset_record_type?: string | null;
+  tile_url?: string | null;
+  tile_size?: number | null;
+  minzoom?: number | null;
+  maxzoom?: number | null;
+  bounds?: number[] | null;
+  format?: string | null;
 }
 
 /** Options that vary between Builder and Viewer contexts. */
@@ -210,6 +216,26 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     feature_count: layer.dataset_feature_count,
     layer_type: layer.layer_type,
     dataset_record_type: layer.dataset_record_type ?? null,
+  };
+}
+
+function isRasterLikeLayer(layer: SyncLayerInput) {
+  return layer.is_dem === true
+    || layer.layer_type === 'raster_geolens'
+    || layer.dataset_record_type === 'raster_dataset'
+    || layer.dataset_record_type === 'vrt_dataset';
+}
+
+function rasterTokenFromLayer(layer: SyncLayerInput): RasterTileToken | null {
+  if (!isRasterLikeLayer(layer) || !layer.tile_url) return null;
+  return {
+    kind: 'raster',
+    tile_url: layer.tile_url,
+    bounds: layer.bounds ?? null,
+    minzoom: layer.minzoom ?? 0,
+    maxzoom: layer.maxzoom ?? 18,
+    tile_size: layer.tile_size ?? 256,
+    format: layer.format ?? 'png',
   };
 }
 
@@ -866,10 +892,12 @@ export function syncLayersToMap(
         style_config: layer.style_config ?? null,
       };
 
-      if (token?.kind === 'raster') {
-        syncRasterLayer(map, adapterInput, token, desiredSources);
+      const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);
+      if (rasterToken) {
+        syncRasterLayer(map, adapterInput, rasterToken, desiredSources);
       } else {
-        syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, token, desiredSources, geojsonDataMap, prefix);
+        const vectorToken = token?.kind === 'vector' ? token : null;
+        syncVectorLayer(map, layer, renderableLayers, adapterInput, tileBaseUrl, vectorToken, desiredSources, geojsonDataMap, prefix);
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('[map-sync] layer sync failed', layer.id, err);
