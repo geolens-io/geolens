@@ -27,11 +27,14 @@ _MAX_COLUMNS = 50
 # Simple TTL cache for schema context (avoids rebuilding identical DDL across
 # consecutive chat turns when layers haven't changed).
 #
-# PERF-04 (Phase 274): the cache key is partitioned by (map_id, content_hash)
-# so two different maps that share an identical layer signature (e.g. both
-# referencing the same Natural Earth dataset) get independent cache entries.
-# Without the map_id partition, one map's prompt-context edits could be
-# served back to a different map on the next chat turn.
+# PERF-04 (Phase 274) + Pitfall #5 anchor (v1030 Phase 1135 AI-04): the cache
+# key is partitioned by (map_id, content_hash) so two different maps that
+# share an identical layer signature (e.g. both referencing the same Natural
+# Earth dataset) get independent cache entries. Without the map_id partition,
+# one map's prompt-context edits could be served back to a different map on
+# the next chat turn. Do NOT shortcut to a dataset_id-only key — the
+# (map_id, content_hash) tuple is load-bearing across multi-map chat sessions
+# and must NOT be relaxed without a Future Requirement entry first.
 _schema_cache: dict[tuple[str, str], tuple[float, str]] = {}
 _SCHEMA_CACHE_TTL = 60.0  # seconds
 _SCHEMA_CACHE_MAX = 64  # bounded so unbounded map_ids don't grow memory
@@ -42,9 +45,11 @@ def _schema_cache_key(
 ) -> tuple[str, str]:
     """Build a deterministic cache key partitioned by (map_id, content_hash).
 
-    PERF-04 (Phase 274): adding map_id prevents cross-map cache pollution
-    when two different maps reference the same dataset. Cache entries
-    evict on either the 60s TTL or when len(_schema_cache) >= _SCHEMA_CACHE_MAX.
+    PERF-04 (Phase 274) + Pitfall #5 (v1030 Phase 1135 AI-04): adding map_id
+    prevents cross-map cache pollution when two different maps reference the
+    same dataset. The (map_id, content_hash) tuple shape is load-bearing —
+    do NOT shortcut to (dataset_id,) only. Cache entries evict on either the
+    60s TTL or when len(_schema_cache) >= _SCHEMA_CACHE_MAX.
     """
     parts = []
     for layer in layers:
