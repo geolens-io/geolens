@@ -4,13 +4,13 @@ milestone: v1030
 milestone_name: Map Builder Polish Sweep
 status: executing
 stopped_at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
-last_updated: "2026-05-27T20:45:55.670Z"
+last_updated: "2026-05-27T20:51:23.333Z"
 last_activity: 2026-05-27
 progress:
   total_phases: 12
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
   percent: 25
 ---
 
@@ -19,7 +19,7 @@ progress:
 ## Current Position
 
 Phase: 1136 (Per-Render-Mode Editor Polish) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-05-27
 
@@ -96,6 +96,7 @@ See: .planning/PROJECT.md
 - **2026-05-27 (1134-01):** Fill extrusion companion does not receive layout.visibility block at addLayers add-time (pre-existing gap). Controlled via syncVisibility. Documented in fill-adapter.test.ts.
 - [Phase ?]: SF-MCP-01 carry-forward: backend chat_actions.py:_collect_chat_action() never emits rows on show_query_result for non-spatial queries; frontend inline card is ready but backend wiring missing; routed to Phase 1139
 - [Phase ?]: AI-05 zoom-aware chips deferred in headless: headless WebGL failure prevents MapLibre idle events; 8 unit tests in Plan 04 cover the contract; interactive verification documented in 1135-MCP-SMOKE.md
+- [Phase ?]: BLANK_BASEMAP_ID sentinel reuse in BasemapGroupEditorScene: no new sentinel needed; existing 'blank' constant already routes through swapBasemapPreset to hasVisibleBasemap=false with zero controller change
 
 ### Pending Todos
 
@@ -114,7 +115,7 @@ None for v1030 yet (roadmap fresh; pending Phase 1133 audit output).
 
 ## Session Continuity
 
-Last session: 2026-05-27T20:45:55.665Z
+Last session: 2026-05-27T20:51:23.329Z
 Stopped at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
 Resume file: None
 
