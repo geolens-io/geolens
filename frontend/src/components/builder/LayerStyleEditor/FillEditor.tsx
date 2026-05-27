@@ -9,7 +9,15 @@ import type { BaseStyleEditorProps } from './types';
 
 function deriveExtrusionRange(samples: unknown[] | undefined): { min: string; max: string; count: number } | null {
   if (!samples || samples.length === 0) return null;
-  const numeric = samples.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  // Coerce strings to numbers: dataset_sample_values from the API returns string values
+  // (e.g., "573" not 573). Parse both native numbers and numeric strings.
+  const numeric = samples
+    .map((v) => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') return parseFloat(v);
+      return NaN;
+    })
+    .filter((v): v is number => Number.isFinite(v));
   if (numeric.length === 0) return null;
   const min = Math.min(...numeric);
   const max = Math.max(...numeric);

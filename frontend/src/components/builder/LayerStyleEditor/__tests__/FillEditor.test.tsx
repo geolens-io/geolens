@@ -297,4 +297,47 @@ describe('FillEditor', () => {
 
     expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
   });
+
+  // Rule 1 auto-fix (1136-07): API returns sample values as strings; deriveExtrusionRange
+  // must coerce them to numbers so the range hint shows in production.
+  it('shows range hint when dataset_sample_values contains string numeric values (API format)', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'elevation', type: 'integer' }],
+      // Simulate API response format: values are strings like "573", "515"
+      dataset_sample_values: { elevation: ['573', '515', '607', '660', '595'] as unknown as number[] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'elevation', type: 'integer' }],
+          currentHeightCol: 'elevation',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/Range:.*features/)).toBeInTheDocument();
+    // min=515, max=660, count=5
+    expect(screen.getByText('Range: 515–660, 5 features')).toBeInTheDocument();
+  });
+
+  it('hides range hint when all string values are non-numeric (e.g., column codes)', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'fcode', type: 'character varying' }],
+      dataset_sample_values: { fcode: ['39009', '39004'] as unknown as number[] },
+    });
+    // fcode is character varying, not in numericColumns, so the height column section won't show
+    // But even if it did, non-parseable strings should produce no hint
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [],
+          currentHeightCol: '',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
+  });
 });
