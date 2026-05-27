@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, RotateCcw, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import {
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
 import { checkMapVisibility } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
+import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
 import type { MapVisibility } from '@/types/api';
 
 function parseOrigins(input: string): string[] {
@@ -100,7 +101,7 @@ const VISIBILITY_OPTIONS: Array<{
 interface ShareLinkSettingsProps {
   mapId: string;
   shareExpires: string | null;
-  configDomains: string | null;
+  configOrigins: string[];
   resolvedEmbedTokenId: string | null;
   canUseAdvancedSharing: boolean;
   onRevoked: () => void;
@@ -109,7 +110,7 @@ interface ShareLinkSettingsProps {
 function ShareLinkSettings({
   mapId,
   shareExpires,
-  configDomains,
+  configOrigins,
   resolvedEmbedTokenId,
   canUseAdvancedSharing,
   onRevoked,
@@ -121,8 +122,17 @@ function ShareLinkSettings({
 
   const [showSettings, setShowSettings] = useState(false);
   const [expiresValue, setExpiresValue] = useState('');
-  const [domainsValue, setDomainsValue] = useState('');
   const [showDomainRestrict, setShowDomainRestrict] = useState(false);
+
+  // Chip-based allowed-origins state
+  const [origins, setOrigins] = useState<string[]>(configOrigins);
+  const [originInput, setOriginInput] = useState('');
+  const [originError, setOriginError] = useState<string | null>(null);
+
+  // Sync origins when configOrigins prop changes (e.g. after PATCH resolves)
+  useEffect(() => {
+    setOrigins(configOrigins);
+  }, [configOrigins]);
 
   async function handleSaveExpiration() {
     try {
@@ -139,19 +149,65 @@ function ShareLinkSettings({
     }
   }
 
-  async function handleSaveDomains() {
+  async function handleAddOrigin(input: string) {
     if (!resolvedEmbedTokenId) return;
+    const trimmed = input.trim().replace(/,$/, '');
+    if (!trimmed) return;
+
+    let canonical: string;
     try {
-      const origins = parseOrigins(domainsValue);
+      canonical = normalizeOrigin(trimmed);
+    } catch (err) {
+      if (err instanceof WildcardOriginError) {
+        setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else {
+        setOriginError(t('share.originInvalid', { defaultValue: 'Invalid URL' }));
+      }
+      return;
+    }
+
+    // Silently dedupe — canonical form already in list
+    if (origins.includes(canonical)) return;
+
+    const newOrigins = [...origins, canonical];
+    // Optimistic update
+    setOrigins(newOrigins);
+    setOriginInput('');
+    setOriginError(null);
+
+    try {
       await updateEmbedToken.mutateAsync({
         mapId,
         tokenId: resolvedEmbedTokenId,
-        allowedOrigins: origins.length > 0 ? origins : null,
+        allowedOrigins: newOrigins,
       });
-      // Phase 20260526-builder-audit BLD-20260526-11: reset input from saved state so it reflects the canonical value.
-      setDomainsValue(origins.length > 0 ? origins.join(', ') : '');
-      toast.success(t('share.domainsUpdated'));
+    } catch (err) {
+      // Rollback optimistic update
+      setOrigins(origins);
+      if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
+        setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else {
+        toast.error(t('share.updateFailed'));
+      }
+    }
+  }
+
+  async function handleRemoveOrigin(target: string) {
+    if (!resolvedEmbedTokenId) return;
+    const previous = origins;
+    const newOrigins = origins.filter((o) => o !== target);
+    // Optimistic update
+    setOrigins(newOrigins);
+
+    try {
+      await updateEmbedToken.mutateAsync({
+        mapId,
+        tokenId: resolvedEmbedTokenId,
+        allowedOrigins: newOrigins.length > 0 ? newOrigins : null,
+      });
     } catch {
+      // Rollback
+      setOrigins(previous);
       toast.error(t('share.updateFailed'));
     }
   }
@@ -160,7 +216,9 @@ function ShareLinkSettings({
     try {
       await revokeShareToken.mutateAsync(mapId);
       setExpiresValue('');
-      setDomainsValue('');
+      setOrigins([]);
+      setOriginInput('');
+      setOriginError(null);
       setShowDomainRestrict(false);
       setShowSettings(false);
       onRevoked();
@@ -180,8 +238,7 @@ function ShareLinkSettings({
           setShowSettings(next);
           if (next) {
             setExpiresValue(shareExpires ? shareExpires.split('T')[0] : '');
-            setDomainsValue(configDomains || '');
-            setShowDomainRestrict(!!configDomains);
+            setShowDomainRestrict(configOrigins.length > 0);
           }
         }}
       >
@@ -229,12 +286,11 @@ function ShareLinkSettings({
                   checked={showDomainRestrict}
                   onCheckedChange={(checked) => {
                     setShowDomainRestrict(checked);
-                    if (checked && !domainsValue) {
-                      setDomainsValue(window.location.origin);
-                    }
-                    if (!checked && configDomains) {
-                      // Phase 20260526-builder-audit BLD-20260526-11: clear restrictions directly to avoid stale domainsValue.
-                      setDomainsValue('');
+                    if (!checked && configOrigins.length > 0) {
+                      // Clear all origins when switch is turned off
+                      setOrigins([]);
+                      setOriginInput('');
+                      setOriginError(null);
                       if (resolvedEmbedTokenId) {
                         updateEmbedToken.mutateAsync({
                           mapId,
@@ -250,24 +306,74 @@ function ShareLinkSettings({
                 />
               </div>
               {showDomainRestrict && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
+                  {/* Chip list */}
+                  {origins.length > 0 && (
+                    <div role="list" className="flex flex-wrap gap-2">
+                      {origins.map((o) => (
+                        <span
+                          key={o}
+                          role="listitem"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-3 py-1 text-xs"
+                        >
+                          <span className="font-mono truncate max-w-[16rem]" title={o}>{o}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOrigin(o)}
+                            aria-label={t('share.removeOrigin', { origin: o, defaultValue: 'Remove {{origin}}' })}
+                            className="h-4 w-4 rounded-full -mr-1 hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Input row */}
                   <div className="flex gap-2">
                     <Input
-                      value={domainsValue}
-                      onChange={(e) => setDomainsValue(e.target.value)}
-                      placeholder="example.com, http://localhost:3000"
+                      value={originInput}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v.endsWith(',')) {
+                          void handleAddOrigin(v.slice(0, -1));
+                        } else {
+                          setOriginInput(v);
+                          setOriginError(null);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleAddOrigin(originInput);
+                        }
+                      }}
+                      placeholder={t('share.originsInputPlaceholder', { defaultValue: 'Paste a URL like https://example.com' })}
                       className="h-8 text-sm font-mono flex-1"
+                      aria-label={t('share.originsInputLabel', { defaultValue: 'Allowed origin URL' })}
+                      aria-describedby="origins-hint"
                     />
                     <Button
+                      type="button"
+                      size="icon"
                       variant="outline"
-                      size="sm"
-                      onClick={handleSaveDomains}
-                      disabled={updateEmbedToken.isPending}
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => void handleAddOrigin(originInput)}
+                      aria-label={t('share.addOrigin', { defaultValue: 'Add origin' })}
                     >
-                      {updateEmbedToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                      <Plus className="h-3 w-3" />
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t('share.domainHint')}</p>
+                  {/* Inline error */}
+                  {originError && (
+                    <p className="text-xs text-destructive">{originError}</p>
+                  )}
+                  {/* Hint */}
+                  <p id="origins-hint" className="text-xs text-muted-foreground">
+                    {origins.length === 0
+                      ? t('share.originsEmptyHint', { defaultValue: 'No origins yet — paste a URL like https://example.com to allow embedding.' })
+                      : t('share.originsNormHint', { defaultValue: 'Each origin is normalized to scheme + host + port before saving.' })}
+                  </p>
                 </div>
               )}
             </div>
@@ -342,7 +448,7 @@ export function ShareDialog({
     t => t.is_active && new Date(t.expires_at) > new Date()
   );
   const resolvedEmbedTokenId = activeEmbedToken?.id ?? null;
-  const configDomains = activeEmbedToken?.allowed_origins?.join(', ') ?? null;
+  const configOrigins = activeEmbedToken?.allowed_origins ?? [];
 
   const isPublic = visibility === 'public';
   const canUseAdvancedSharing = isEnterprise;
@@ -657,10 +763,10 @@ export function ShareDialog({
                       <span className={isExpired ? 'text-destructive' : undefined}>
                         {t('share.summaryExpires')}: {shareExpires ? formatDate(shareExpires) : t('share.summaryNever')}
                       </span>
-                      {configDomains && (
+                      {configOrigins.length > 0 && (
                         <>
                           <span className="text-border">|</span>
-                          <span className="truncate">{t('share.summaryDomains')}: {configDomains}</span>
+                          <span className="truncate">{t('share.summaryDomains')}: {configOrigins.join(', ')}</span>
                         </>
                       )}
                     </div>
@@ -669,7 +775,7 @@ export function ShareDialog({
                     <ShareLinkSettings
                       mapId={mapId}
                       shareExpires={shareExpires}
-                      configDomains={configDomains}
+                      configOrigins={configOrigins}
                       resolvedEmbedTokenId={resolvedEmbedTokenId}
                       canUseAdvancedSharing={canUseAdvancedSharing}
                       onRevoked={handleRevoked}

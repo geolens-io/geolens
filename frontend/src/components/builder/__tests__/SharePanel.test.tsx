@@ -70,12 +70,17 @@ function setup({
   hasNonPublic = false,
   hasUnsavedChanges = false,
   saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
+  allowedOrigins = ['https://example.com'],
+  updateEmbedTokenFn = vi.fn().mockResolvedValue({}),
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
   hasNonPublic?: boolean;
   hasUnsavedChanges?: boolean;
   saveStatus?: ComponentProps<typeof ShareDialog>['saveStatus'];
+  allowedOrigins?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateEmbedTokenFn?: (...args: any[]) => any;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -102,7 +107,8 @@ function setup({
   mockedUseRevokeShareToken.mockReturnValue(mutationResult());
   mockedUseUpdateShareToken.mockReturnValue(mutationResult());
   mockedUseCreateEmbedToken.mockReturnValue(mutationResult(createEmbedToken));
-  mockedUseUpdateEmbedToken.mockReturnValue(mutationResult());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn as any));
   mockedUseRevokeEmbedToken.mockReturnValue(mutationResult());
   mockedUseMapShareToken.mockReturnValue({
     data: hasShareToken
@@ -125,7 +131,7 @@ function setup({
               map_id: 'map-1',
               token_hint: 'emb...',
               scoped_dataset_ids: [],
-              allowed_origins: ['https://example.com'],
+              allowed_origins: allowedOrigins,
               expires_at: '2026-06-01T00:00:00Z',
               is_active: true,
               use_count: 0,
@@ -154,7 +160,7 @@ function setup({
     />,
   );
 
-  return { createShareToken, createEmbedToken };
+  return { createShareToken, createEmbedToken, updateEmbedTokenFn };
 }
 
 describe('ShareDialog edition gates', () => {
@@ -306,32 +312,8 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_input_adds_canonical_chip_on_enter: typing a URL and pressing Enter renders chip in canonical form', async () => {
-    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    // No pre-existing allowed_origins so chip block starts empty
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: [],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
     const user = userEvent.setup();
-    setup({ enterprise: true });
+    const { updateEmbedTokenFn } = setup({ enterprise: true, allowedOrigins: [] });
     await openChipBlock(user);
 
     const input = screen.getByRole('textbox', { name: /allowed origin url/i });
@@ -354,31 +336,8 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_input_adds_chip_on_comma: trailing comma triggers add', async () => {
-    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: [],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
     const user = userEvent.setup();
-    setup({ enterprise: true });
+    const { updateEmbedTokenFn } = setup({ enterprise: true, allowedOrigins: [] });
     await openChipBlock(user);
 
     const input = screen.getByRole('textbox', { name: /allowed origin url/i });
@@ -392,32 +351,9 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_remove_X_button_fires_patch: clicking remove X removes chip and fires PATCH', async () => {
-    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    // Pre-populate with one origin
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: ['https://example.com'],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
     const user = userEvent.setup();
-    setup({ enterprise: true });
+    // Pre-populate with one origin (default allowedOrigins = ['https://example.com'])
+    const { updateEmbedTokenFn } = setup({ enterprise: true });
     await openChipBlock(user);
 
     // Chip should be visible
@@ -439,31 +375,9 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_input_dedupes_canonical_form: adding a duplicate canonical origin is silently discarded', async () => {
-    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: ['https://example.com'],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
     const user = userEvent.setup();
-    setup({ enterprise: true });
+    // Pre-populate with one origin
+    const { updateEmbedTokenFn } = setup({ enterprise: true });
     await openChipBlock(user);
 
     // 1 chip from pre-populated origins
@@ -479,31 +393,8 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_input_rejects_wildcard_inline: wildcard shows inline error, no chip, no PATCH', async () => {
-    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: [],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
     const user = userEvent.setup();
-    setup({ enterprise: true });
+    const { updateEmbedTokenFn } = setup({ enterprise: true, allowedOrigins: [] });
     await openChipBlock(user);
 
     const input = screen.getByRole('textbox', { name: /allowed origin url/i });
@@ -516,33 +407,11 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_input_surfaces_backend_wildcard_422_inline: backend 422 with wildcard message shows same inline error', async () => {
+    const user = userEvent.setup();
     const updateEmbedTokenFn = vi.fn().mockRejectedValue(
       new ApiError('Wildcard origin not allowed', 422)
     );
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: [],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
-    const user = userEvent.setup();
-    setup({ enterprise: true });
+    setup({ enterprise: true, allowedOrigins: [], updateEmbedTokenFn });
     await openChipBlock(user);
 
     const input = screen.getByRole('textbox', { name: /allowed origin url/i });
@@ -558,33 +427,11 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
   });
 
   it('test_chip_PATCH_failure_rolls_back: non-422 PATCH failure rolls back chip and surfaces toast', async () => {
+    const user = userEvent.setup();
     const updateEmbedTokenFn = vi.fn().mockRejectedValue(
       new ApiError('Internal Server Error', 500)
     );
-    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
-    mockedUseMapEmbedTokens.mockReturnValue({
-      data: {
-        tokens: [
-          {
-            id: 'embed-1',
-            map_id: 'map-1',
-            token_hint: 'emb...',
-            scoped_dataset_ids: [],
-            allowed_origins: [],
-            expires_at: '2026-06-01T00:00:00Z',
-            is_active: true,
-            use_count: 0,
-            created_at: '2026-05-01T00:00:00Z',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
-    const user = userEvent.setup();
-    setup({ enterprise: true });
+    setup({ enterprise: true, allowedOrigins: [], updateEmbedTokenFn });
     await openChipBlock(user);
 
     const input = screen.getByRole('textbox', { name: /allowed origin url/i });
