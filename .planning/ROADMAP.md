@@ -77,7 +77,7 @@
 - [ ] 1135-02-PLAN.md — ChatPanel staging tray + inline data-analysis card + chip text format (AI-01, AI-08, AI-09)
 - [ ] 1135-03-PLAN.md — BuilderRail structured disabled-state + ChatPanel recoverable error banner (AI-02, AI-03)
 - [ ] 1135-04-PLAN.md — Viewport-aware suggestion chips + MapBuilderPage viewport wiring (AI-05)
-- [ ] 1135-05-PLAN.md — Backend _validate_chat_layers docstring + schema-cache-key regression pin (AI-04)
+- [x] 1135-05-PLAN.md — Backend _validate_chat_layers docstring + schema-cache-key regression pin (AI-04)
 - [ ] 1135-06-PLAN.md — Live Playwright MCP smoke (AI_ENABLED=true 5 surfaces + AI_ENABLED=false rail check)
 **UI hint**: yes
 
@@ -147,7 +147,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 |-------|-----------|----------------|--------|-----------|
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
-| 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 1/6 | In Progress|  |
+| 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 2/6 | In Progress|  |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |

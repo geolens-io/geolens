@@ -37,7 +37,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [ ] **AI-05**: Suggestion chips become viewport-aware (the chip list reflects the current camera + selected-layer context, not the static default list).
 - [ ] **AI-02**: Provider-disabled UAT: with `AI_ENABLED=false` on the local stack, the AI rail panel surfaces an actionable disabled state (no inert dead-end button); regression pin in `ChatPanel.test.tsx`. Re-verify v1028 AI-FU disposition holds.
 - [ ] **AI-03**: Provider-error UAT: with an invalid provider key, the AI panel surfaces a recoverable error banner with a "retry" affordance; no silent fail.
-- [ ] **AI-04**: `_validate_chat_layers` visibility-filter decision documented explicitly in `chat_actions.py` docstring — either filter hidden layers OR document "analyze sees all layers regardless of visibility" with rationale (Pitfall #5).
+- [x] **AI-04**: `_validate_chat_layers` visibility-filter decision documented explicitly in `chat_actions.py` docstring — either filter hidden layers OR document "analyze sees all layers regardless of visibility" with rationale (Pitfall #5).
 
 ### EDITOR — Per-Render-Mode Editor Polish (parallel to AI)
 
@@ -145,7 +145,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | AI-01 | Phase 1135 | Pending |
 | AI-02 | Phase 1135 | Pending |
 | AI-03 | Phase 1135 | Pending |
-| AI-04 | Phase 1135 | Pending |
+| AI-04 | Phase 1135 | Complete |
 | AI-05 | Phase 1135 | Pending |
 | AI-08 | Phase 1135 | Pending |
 | AI-09 | Phase 1135 | Pending |
