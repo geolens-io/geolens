@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1030
 milestone_name: Map Builder Polish Sweep
-status: verifying
+status: executing
 stopped_at: v1030 roadmap committed
-last_updated: "2026-05-27T15:32:06.301Z"
-last_activity: 2026-05-27
+last_updated: "2026-05-27T16:06:35.623Z"
+last_activity: 2026-05-27 -- Phase 1134 Plan 01 complete
 progress:
   total_phases: 12
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 11
+  completed_plans: 6
   percent: 8
 ---
 
@@ -18,17 +18,17 @@ progress:
 
 ## Current Position
 
-Phase: 1133 (Audit-First Builder Walkthrough) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-05-27
+Phase: 1134 (Map Functionality and Smaller-Screen Polish) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 1134
+Last activity: 2026-05-27 -- Phase 1134 Plan 01 complete (raster split-guard + symbol syncLayerFilter + 7-adapter MAP-18 regression pins)
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1133 — Audit-First Builder Walkthrough
+**Current focus:** Phase 1134 — Map Functionality and Smaller-Screen Polish
 
 ## Last Shipped Milestone
 
@@ -92,6 +92,8 @@ See: .planning/PROJECT.md
 - **2026-05-27 (v1030 roadmap):** Phase 1135 confirm-before-apply staging shape (A pre-apply + atomic undo OR B `pendingLayers` staging buffer) MUST be picked in CONTEXT.md BEFORE plan-01 commits. Mixing shapes produces partially-applied state on reject and breaks the v1027 snapshot/undo contract (Pitfall #3).
 - **2026-05-27 (v1030 roadmap):** Smaller-screen NavigationControl stays at `top-left` in BuilderMap (v1011 RESP-01/02 contract). Smaller-screen overlap with right sidebar is fixed at the sidebar collapse trigger, NOT by moving NavigationControl (Pitfall #10).
 - **2026-05-27 (v1030 roadmap):** SHARE-08 OG-cards is conditional on Phase 1133 thumbnail-capture audit; if no 1200×630 variant exists, SHARE-08 is flagged to v1031 in REQUIREMENTS.md Future Requirements. SHARE-03 iframe preview is conditional on Phase 1133 sandbox feasibility audit.
+- **2026-05-27 (1134-01):** Cluster adapter intentionally keeps raw `map.setFilter` for compound `combineFilter` shape — NOT migrated to `syncLayerFilter`. The compound filter must include the cluster/unclustered base predicate unconditionally and cannot go through the syncLayerFilter nil-guard path.
+- **2026-05-27 (1134-01):** Fill extrusion companion does not receive layout.visibility block at addLayers add-time (pre-existing gap). Controlled via syncVisibility. Documented in fill-adapter.test.ts.
 
 ### Pending Todos
 
@@ -110,8 +112,8 @@ None for v1030 yet (roadmap fresh; pending Phase 1133 audit output).
 
 ## Session Continuity
 
-Last session: 2026-05-27T15:32:06.297Z
-Stopped at: v1030 roadmap committed
+Last session: 2026-05-27T16:13:15Z
+Stopped at: Phase 1134 Plan 01 complete — raster split-guard, symbol syncLayerFilter, 7-adapter MAP-18 pins
 Resume file: None
 
 ## Operator Next Steps

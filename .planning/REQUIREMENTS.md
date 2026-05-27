@@ -19,7 +19,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 ### MAP — Tier-1 Bugs & Smaller-Screen Polish
 
 - [ ] **MAP-17**: User can delete a layer across every render mode (fill / line / circle / symbol / heatmap / cluster / raster) without leaving orphan sources, layer-stack entries, or save/dirty-state drift. Regression pin in `frontend/src/components/builder/__tests__/use-builder-layers.test.tsx`. Source: `todo.md` line 146.
-- [ ] **MAP-18**: User can toggle layer visibility off/on across every render mode and see the change immediately on the map. Regression pin per adapter in `frontend/src/components/builder/layer-adapters/__tests__/`. Likely the v1011 BUG-01 `syncVisibility` initial-layout pattern recurring across multiple adapters — audit all adapters, not only the named one. Source: `todo.md` line 143.
+- [x] **MAP-18**: User can toggle layer visibility off/on across every render mode and see the change immediately on the map. Regression pin per adapter in `frontend/src/components/builder/layer-adapters/__tests__/`. Likely the v1011 BUG-01 `syncVisibility` initial-layout pattern recurring across multiple adapters — audit all adapters, not only the named one. Source: `todo.md` line 143.
 - [ ] **MAP-16**: User can rename a layer group and the rename text input receives focus reliably (rAF-deferred per v1011 BUG-03 dnd-kit / Radix focus race). Regression pin in `frontend/src/components/builder/__tests__/UnifiedStackPanel.test.tsx`. Source: `todo.md` line 145.
 - [ ] **MAP-07**: At ≤ 800 px the right-sidebar Sheet does not overlap the MapLibre zoom/Navigation controls (fix sidebar collapse trigger — do NOT move NavigationControl from `top-left`; Pitfall #10). Source: `todo.md` line 147.
 - [ ] **MAP-08**: At ≤ 800 px the lat/long readout pill does not overlap the map widget container. Verify v1011 RESP-02 fix still live; pin a positive-form `queryBy*` regression test in `MapCoordReadout.test.tsx`. Source: `todo.md` line 148.
@@ -138,7 +138,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | MAP-10 | Phase 1134 | Pending |
 | MAP-16 | Phase 1134 | Pending |
 | MAP-17 | Phase 1134 | Pending |
-| MAP-18 | Phase 1134 | Pending |
+| MAP-18 | Phase 1134 | Complete |
 | MAP-19 | Phase 1134 | Pending |
 | MAP-20 | Phase 1134 | Pending |
 | MAP-22 | Phase 1134 | Pending |
