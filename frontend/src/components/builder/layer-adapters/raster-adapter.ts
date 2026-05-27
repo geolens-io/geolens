@@ -62,13 +62,14 @@ export const rasterAdapter: LayerAdapter = {
     // removes layers but retains sources (raster basemap reload scenario), the
     // layer is re-added without re-adding the already-existing source.
     if (!map.getSource(sourceId)) {
+      const normalizedBounds = normalizeRasterBounds(bounds);
       map.addSource(sourceId, {
         type: 'raster',
         tiles: [`${window.location.origin}${tileUrl}`],
         tileSize: tileSize ?? 256,
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
-        ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
+        ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
       });
     }
     if (map.getLayer(layerId)) return;
