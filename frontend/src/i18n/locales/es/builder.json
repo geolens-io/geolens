@@ -519,7 +519,9 @@
       "addDataset": "Agregar otro conjunto de datos a este mapa",
       "heatmap": "Mostrar {{name}} como mapa de calor",
       "areaLabels": "Agregar etiquetas de área para {{name}}",
-      "adjustOpacity": "Ajustar opacidad para {{name}}"
+      "adjustOpacity": "Ajustar opacidad para {{name}}",
+      "summarizeLayer": "Resumir los atributos de {{name}}",
+      "nearbyFeatures": "Mostrar entidades cercanas en esta área"
     },
     "staging": {
       "header_one": "{{count}} pending change — review before applying",

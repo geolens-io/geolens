@@ -519,7 +519,9 @@
       "addDataset": "Ajouter un autre jeu de données à cette carte",
       "heatmap": "Afficher {{name}} comme carte de chaleur",
       "areaLabels": "Ajouter des libellés de zone pour {{name}}",
-      "adjustOpacity": "Ajuster l'opacité pour {{name}}"
+      "adjustOpacity": "Ajuster l'opacité pour {{name}}",
+      "summarizeLayer": "Résumer les attributs de {{name}}",
+      "nearbyFeatures": "Afficher les entités proches dans cette zone"
     },
     "staging": {
       "header_one": "{{count}} pending change — review before applying",

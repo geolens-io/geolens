@@ -519,7 +519,9 @@
       "addDataset": "Einen weiteren Datensatz zu dieser Karte hinzufügen",
       "heatmap": "{{name}} als Heatmap anzeigen",
       "areaLabels": "Flächenbeschriftungen für {{name}} hinzufügen",
-      "adjustOpacity": "Deckkraft für {{name}} anpassen"
+      "adjustOpacity": "Deckkraft für {{name}} anpassen",
+      "summarizeLayer": "{{name}}-Attribute zusammenfassen",
+      "nearbyFeatures": "Nahe gelegene Features in diesem Bereich anzeigen"
     },
     "staging": {
       "header_one": "{{count}} pending change — review before applying",

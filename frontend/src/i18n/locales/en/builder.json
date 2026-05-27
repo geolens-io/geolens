@@ -519,7 +519,9 @@
       "addDataset": "Add another dataset to this map",
       "heatmap": "Show {{name}} as a heatmap",
       "areaLabels": "Add area labels for {{name}}",
-      "adjustOpacity": "Adjust opacity for {{name}}"
+      "adjustOpacity": "Adjust opacity for {{name}}",
+      "summarizeLayer": "Summarize {{name}} attributes",
+      "nearbyFeatures": "Show nearby features in this area"
     },
     "staging": {
       "header_one": "{{count}} pending change — review before applying",
