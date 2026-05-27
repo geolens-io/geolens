@@ -49,7 +49,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [x] **EDITOR-LINE-02**: User can pick `line-join` (bevel / round / miter) in `LineEditor.tsx`; same LAYOUT-not-PAINT contract.
 - [x] **EDITOR-FILL-04**: When a fill layer uses 3D extrusion via `paint._height_column`, FillEditor surfaces a "Range: X–Y, N features" hint from the dataset sample values; verify `dataset_sample_values` carries enough metadata in WALK-01.
 - [x] **EDITOR-BASEMAP-02**: User can pick a "No basemap" preset that produces a transparent / single-color background; persists round-trip; verified in viewer/embed.
-- [ ] **EDITOR-BASEMAP-03**: DETAIL LEVEL toggle remains absent from `BasemapSublayerEditorScene` (v1011 INV-01 disposition); positive-form `queryBy*` regression pin in `frontend/src/components/builder/__tests__/BasemapSublayerEditor.test.tsx`.
+- [x] **EDITOR-BASEMAP-03**: DETAIL LEVEL toggle remains absent from `BasemapSublayerEditorScene` (v1011 INV-01 disposition); positive-form `queryBy*` regression pin in `frontend/src/components/builder/__tests__/BasemapSublayerEditor.test.tsx`.
 
 ### SHARE — Sharing/Embed Polish (parallel to AI/EDITOR)
 
@@ -157,7 +157,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | EDITOR-LINE-02 | Phase 1136 | Complete |
 | EDITOR-FILL-04 | Phase 1136 | Complete |
 | EDITOR-BASEMAP-02 | Phase 1136 | Complete |
-| EDITOR-BASEMAP-03 | Phase 1136 | Pending |
+| EDITOR-BASEMAP-03 | Phase 1136 | Complete |
 | SHARE-02 | Phase 1137 | Pending |
 | SHARE-03 | Phase 1137 | Pending |
 | SHARE-04 | Phase 1137 | Pending |
