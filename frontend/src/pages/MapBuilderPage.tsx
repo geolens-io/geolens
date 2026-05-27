@@ -45,6 +45,7 @@ const BasemapSublayerEditorFooter = lazy(() =>
 import { useBasemaps } from '@/hooks/use-settings';
 import {
   basemapThumbnail,
+  BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import type { MapSublayerOverride } from '@/types/api';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
@@ -861,12 +862,17 @@ export function MapBuilderPage() {
   let breadcrumbPresetName: string | undefined = undefined;
 
   if (editorScene === 'basemap-group' && basemapGroup) {
-    const presets = basemaps.map((b) => ({
-      id: b.id,
-      name: b.label,
-      provider: '',
-      thumbnailUrl: basemapThumbnail(b.id),
-    }));
+    // IN-02 fix: exclude BLANK_BASEMAP_ID from the presets list — the component renders
+    // a dedicated "No basemap" card before the presets loop; including 'blank' in both
+    // would produce a duplicate card if an admin ever adds it to the basemaps catalog.
+    const presets = basemaps
+      .filter((b) => b.id !== BLANK_BASEMAP_ID)
+      .map((b) => ({
+        id: b.id,
+        name: b.label,
+        provider: '',
+        thumbnailUrl: basemapThumbnail(b.id),
+      }));
     sceneContent = (
       <LazyLoadErrorBoundary>
         <Suspense fallback={<SceneSpinnerFallback />}>
