@@ -108,14 +108,30 @@ router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRIT
 
 
 def _build_frame_ancestors(origins: list[str] | None) -> str:
-    """Build a CSP frame-ancestors directive value from an allowed_origins list (SEC-S08, Phase 1062-05). CRLF-validated to prevent header injection."""
+    """Build a CSP frame-ancestors directive value from an allowed_origins list.
+
+    SEC-S08 / Phase 1062-05: derives the per-token frame-ancestors directive from
+    the EmbedToken.allowed_origins list. Two layers of malformed-entry filtering:
+
+    1. CRLF injection: entries containing \\r or \\n are silently dropped to
+       prevent response-header splitting.
+    2. Wildcard ('*') entries: silently dropped even if they somehow reached the
+       DB (defense-in-depth on top of the schema-layer 422 rejection in
+       _validate_origins). CSP frame-ancestors '*' is a hard security violation —
+       it disables clickjacking protection entirely (SHARE-06, Phase 1137-02).
+
+    Both filters are defense-in-depth: schema validation already runs at
+    create/update time and rejects malformed entries with a 422. These filters
+    protect against any stale DB row that bypassed validation (e.g. a direct
+    admin INSERT or a future migration that restores a backup from before the
+    schema-layer pin was added).
+    """
     if not origins:
         return "frame-ancestors 'self'"
     safe: list[str] = []
     for o in origins:
-        if "\r" in o or "\n" in o or not o.strip():
-            # Silently drop malformed entries — defense-in-depth on top of the
-            # admin-side EmbedToken validation that already runs at create/update.
+        if "\r" in o or "\n" in o or "*" in o or not o.strip():
+            # Silently drop malformed or wildcard entries — see docstring.
             continue
         safe.append(o.strip())
     if not safe:

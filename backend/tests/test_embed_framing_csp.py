@@ -300,6 +300,50 @@ async def test_other_endpoint_still_has_xfo_deny(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Plan 1137-02 — SHARE-06 defense-in-depth: CSP header never contains '*'
+# ---------------------------------------------------------------------------
+
+
+async def test_shared_map_csp_header_drops_wildcard_origin(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+):
+    """CSP frame-ancestors NEVER '*' — defense-in-depth pin (Phase 1137-02, SHARE-06).
+
+    Creates an EmbedToken with allowed_origins=['*'] directly via SQLAlchemy
+    (bypassing schema validation — simulating a stale DB row that somehow holds
+    a wildcard). Verifies that GET /maps/shared/{token} strips the '*' from the
+    CSP header before emission.
+
+    Load-bearing invariant: if a future migration or admin direct-insert puts
+    '*' in allowed_origins, the response header MUST still be safe. This test
+    is the deterministic pin for that invariant.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_public_map(test_db_session, created_by=admin_id)
+    raw_token = await _create_share_token(
+        test_db_session, map_id=map_obj.id, created_by=admin_id
+    )
+    # Insert embed token with wildcard directly — bypasses _validate_origins
+    await _create_embed_token(
+        test_db_session,
+        map_id=map_obj.id,
+        created_by=admin_id,
+        allowed_origins=["*"],
+    )
+    await test_db_session.commit()
+
+    resp = await client.get(f"/maps/shared/{raw_token}")
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+    csp = resp.headers.get("content-security-policy", "")
+    assert "frame-ancestors" in csp, f"Expected frame-ancestors in CSP, got: {csp!r}"
+    assert "'self'" in csp, f"Expected 'self' always included in CSP, got: {csp!r}"
+    assert "*" not in csp, (
+        f"CSP MUST NOT contain '*' — _build_frame_ancestors failed to drop wildcard, got: {csp!r}"
+    )
+
+
 def test_e2e_sec_audit_s08_skips_when_no_share_token():
     """Pin that e2e/sec-audit.spec.ts:182 contains the S08 block.
 
