@@ -151,6 +151,7 @@ export function PublicViewerPage() {
             visibleLayers={visibleLayers}
             apiKey={apiKey}
             embedToken={embedToken}
+            showInlineBranding={isEmbed}
           />
         </Suspense>
       </MapErrorBoundary>
