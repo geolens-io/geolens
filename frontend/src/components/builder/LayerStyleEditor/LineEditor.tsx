@@ -2,6 +2,7 @@ import { StyleColorPicker } from '../StyleColorPicker';
 import { SliderRow } from '../HeatmapStyleControls';
 import { LineGradientControls } from '../LineGradientControls';
 import { ZoomExpressionEditor } from '../ZoomExpressionEditor';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { LINE_DASH_PRESETS, LINE_DASH_SERIALIZED, LINE_DEFAULTS, getPaintValue, getEditableNumericPaintValue } from './utils';
 import type { BaseStyleEditorProps } from './types';
@@ -126,6 +127,39 @@ export function LineEditor({
             </button>
           );
         })}
+      </div>
+      <div className="text-xs font-medium mt-2">{t('style.lineEnds', { defaultValue: 'Line ends' })}</div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{t('style.lineCap', { defaultValue: 'Cap' })}</span>
+        <Select
+          value={((layer.layout as Record<string, unknown>)?.['line-cap'] as string) ?? 'round'}
+          onValueChange={(val) => onLayoutChange(layer.id, { ...(layer.layout ?? {}), 'line-cap': val } as Record<string, unknown>)}
+        >
+          <SelectTrigger className="h-8 text-xs w-36" aria-label={t('style.lineCap', { defaultValue: 'Cap' })}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="butt">{t('style.lineCapButt', { defaultValue: 'Butt' })}</SelectItem>
+            <SelectItem value="round">{t('style.lineCapRound', { defaultValue: 'Round' })}</SelectItem>
+            <SelectItem value="square">{t('style.lineCapSquare', { defaultValue: 'Square' })}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{t('style.lineJoin', { defaultValue: 'Join' })}</span>
+        <Select
+          value={((layer.layout as Record<string, unknown>)?.['line-join'] as string) ?? 'round'}
+          onValueChange={(val) => onLayoutChange(layer.id, { ...(layer.layout ?? {}), 'line-join': val } as Record<string, unknown>)}
+        >
+          <SelectTrigger className="h-8 text-xs w-36" aria-label={t('style.lineJoin', { defaultValue: 'Join' })}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="bevel">{t('style.lineJoinBevel', { defaultValue: 'Bevel' })}</SelectItem>
+            <SelectItem value="round">{t('style.lineJoinRound', { defaultValue: 'Round' })}</SelectItem>
+            <SelectItem value="miter">{t('style.lineJoinMiter', { defaultValue: 'Miter' })}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
     </>
   );

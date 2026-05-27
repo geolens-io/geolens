@@ -181,4 +181,149 @@ describe('LineEditor', () => {
     expect(defaultExport).toBeDefined();
     expect(named).toBe(defaultExport);
   });
+
+  // Phase 1136-02: line-cap / line-join Selects (EDITOR-LINE-01, EDITOR-LINE-02)
+  it('renders a "Line ends" section heading after the dash pattern row', () => {
+    render(<LineEditor {...makeProps(makeLineLayer(), {
+      t: (key: string) => {
+        const labels: Record<string, string> = {
+          'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+          'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
+          'style.offset': 'Offset', 'style.pattern': 'Pattern',
+          'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
+          'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
+          'style.lineGradient.solid': 'Solid color', 'style.lineGradient.gradient': 'Gradient',
+          'style.lineGradient.advanced': 'Advanced',
+          'style.lineEnds': 'Line ends',
+          'style.lineCap': 'Cap', 'style.lineCapButt': 'Butt', 'style.lineCapRound': 'Round', 'style.lineCapSquare': 'Square',
+          'style.lineJoin': 'Join', 'style.lineJoinBevel': 'Bevel', 'style.lineJoinRound': 'Round', 'style.lineJoinMiter': 'Miter',
+        };
+        return labels[key] ?? key;
+      },
+    })} />);
+    expect(screen.getByText('Line ends')).toBeInTheDocument();
+  });
+
+  it('renders a Cap Select with options Butt, Round, Square', () => {
+    render(<LineEditor {...makeProps(makeLineLayer(), {
+      t: (key: string) => {
+        const labels: Record<string, string> = {
+          'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+          'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
+          'style.offset': 'Offset', 'style.pattern': 'Pattern',
+          'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
+          'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
+          'style.lineGradient.solid': 'Solid color', 'style.lineGradient.gradient': 'Gradient',
+          'style.lineGradient.advanced': 'Advanced',
+          'style.lineEnds': 'Line ends',
+          'style.lineCap': 'Cap', 'style.lineCapButt': 'Butt', 'style.lineCapRound': 'Round', 'style.lineCapSquare': 'Square',
+          'style.lineJoin': 'Join', 'style.lineJoinBevel': 'Bevel', 'style.lineJoinRound': 'Round', 'style.lineJoinMiter': 'Miter',
+        };
+        return labels[key] ?? key;
+      },
+    })} />);
+    const capTrigger = screen.getByRole('combobox', { name: 'Cap' });
+    expect(capTrigger).toBeInTheDocument();
+    fireEvent.click(capTrigger);
+    expect(screen.getByRole('option', { name: 'Butt' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: 'Round' })[0]).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Square' })).toBeInTheDocument();
+  });
+
+  it('renders a Join Select with options Bevel, Round, Miter', () => {
+    render(<LineEditor {...makeProps(makeLineLayer(), {
+      t: (key: string) => {
+        const labels: Record<string, string> = {
+          'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+          'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
+          'style.offset': 'Offset', 'style.pattern': 'Pattern',
+          'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
+          'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
+          'style.lineGradient.solid': 'Solid color', 'style.lineGradient.gradient': 'Gradient',
+          'style.lineGradient.advanced': 'Advanced',
+          'style.lineEnds': 'Line ends',
+          'style.lineCap': 'Cap', 'style.lineCapButt': 'Butt', 'style.lineCapRound': 'Round', 'style.lineCapSquare': 'Square',
+          'style.lineJoin': 'Join', 'style.lineJoinBevel': 'Bevel', 'style.lineJoinRound': 'Round', 'style.lineJoinMiter': 'Miter',
+        };
+        return labels[key] ?? key;
+      },
+    })} />);
+    const joinTrigger = screen.getByRole('combobox', { name: 'Join' });
+    expect(joinTrigger).toBeInTheDocument();
+    fireEvent.click(joinTrigger);
+    expect(screen.getByRole('option', { name: 'Bevel' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: 'Round' })[0]).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Miter' })).toBeInTheDocument();
+  });
+
+  it('selecting Square from Cap Select calls onLayoutChange with line-cap: square', () => {
+    const onLayoutChange = vi.fn();
+    const t = (key: string) => {
+      const labels: Record<string, string> = {
+        'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
+        'style.offset': 'Offset', 'style.pattern': 'Pattern',
+        'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
+        'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
+        'style.lineGradient.solid': 'Solid color', 'style.lineGradient.gradient': 'Gradient',
+        'style.lineGradient.advanced': 'Advanced',
+        'style.lineEnds': 'Line ends',
+        'style.lineCap': 'Cap', 'style.lineCapButt': 'Butt', 'style.lineCapRound': 'Round', 'style.lineCapSquare': 'Square',
+        'style.lineJoin': 'Join', 'style.lineJoinBevel': 'Bevel', 'style.lineJoinRound': 'Round', 'style.lineJoinMiter': 'Miter',
+      };
+      return labels[key] ?? key;
+    };
+    render(<LineEditor {...makeProps(makeLineLayer(), { onLayoutChange, t })} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Cap' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Square' }));
+    expect(onLayoutChange).toHaveBeenCalledWith('layer-line', expect.objectContaining({ 'line-cap': 'square' }));
+  });
+
+  it('selecting Bevel from Join Select calls onLayoutChange with line-join: bevel', () => {
+    const onLayoutChange = vi.fn();
+    const t = (key: string) => {
+      const labels: Record<string, string> = {
+        'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
+        'style.offset': 'Offset', 'style.pattern': 'Pattern',
+        'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
+        'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
+        'style.lineGradient.solid': 'Solid color', 'style.lineGradient.gradient': 'Gradient',
+        'style.lineGradient.advanced': 'Advanced',
+        'style.lineEnds': 'Line ends',
+        'style.lineCap': 'Cap', 'style.lineCapButt': 'Butt', 'style.lineCapRound': 'Round', 'style.lineCapSquare': 'Square',
+        'style.lineJoin': 'Join', 'style.lineJoinBevel': 'Bevel', 'style.lineJoinRound': 'Round', 'style.lineJoinMiter': 'Miter',
+      };
+      return labels[key] ?? key;
+    };
+    render(<LineEditor {...makeProps(makeLineLayer(), { onLayoutChange, t })} />);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Join' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Bevel' }));
+    expect(onLayoutChange).toHaveBeenCalledWith('layer-line', expect.objectContaining({ 'line-join': 'bevel' }));
+  });
+
+  it('reads line-cap and line-join defaults from layer.layout and displays them', () => {
+    const t = (key: string) => {
+      const labels: Record<string, string> = {
+        'style.line': 'Line', 'style.color': 'Color', 'style.opacity': 'Opacity',
+        'style.width': 'Width', 'style.gapWidth': 'Gap', 'style.blur': 'Blur',
+        'style.offset': 'Offset', 'style.pattern': 'Pattern',
+        'style.dash.solid': 'Solid', 'style.dash.dashed': 'Dashed',
+        'style.dash.dotted': 'Dotted', 'style.dash.dashDot': 'Dash-dot',
+        'style.lineGradient.solid': 'Solid color', 'style.lineGradient.gradient': 'Gradient',
+        'style.lineGradient.advanced': 'Advanced',
+        'style.lineEnds': 'Line ends',
+        'style.lineCap': 'Cap', 'style.lineCapButt': 'Butt', 'style.lineCapRound': 'Round', 'style.lineCapSquare': 'Square',
+        'style.lineJoin': 'Join', 'style.lineJoinBevel': 'Bevel', 'style.lineJoinRound': 'Round', 'style.lineJoinMiter': 'Miter',
+      };
+      return labels[key] ?? key;
+    };
+    const layer = makeLineLayer({ layout: { 'line-cap': 'butt', 'line-join': 'miter' } });
+    render(<LineEditor {...makeProps(layer, { t })} />);
+    // Radix Select shows the selected value text inside the combobox trigger
+    const capTrigger = screen.getByRole('combobox', { name: 'Cap' });
+    const joinTrigger = screen.getByRole('combobox', { name: 'Join' });
+    expect(capTrigger).toHaveTextContent('Butt');
+    expect(joinTrigger).toHaveTextContent('Miter');
+  });
 });
