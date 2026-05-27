@@ -500,7 +500,13 @@
     "expiration7Days": "7 Tage",
     "expiration30Days": "30 Tage",
     "expiration1Year": "1 Jahr",
-    "expirationCustom": "Benutzerdefiniertes Datum…"
+    "expirationCustom": "Benutzerdefiniertes Datum…",
+    "iframePreviewTitle": "Karten-Einbettungsvorschau",
+    "iframePreviewToggle": "Vorschau",
+    "iframeErrorTitle": "Vorschau nicht verfügbar",
+    "iframeErrorBody": "Bitte überprüfen Sie, ob das Einbettungs-Token gültig und der Freigabelink aktiv ist. Zum Wiederholen neu laden.",
+    "iframeReload": "Neu laden",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Experimentell",

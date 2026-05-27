@@ -500,7 +500,13 @@
     "expiration7Days": "7 días",
     "expiration30Days": "30 días",
     "expiration1Year": "1 año",
-    "expirationCustom": "Fecha personalizada…"
+    "expirationCustom": "Fecha personalizada…",
+    "iframePreviewTitle": "Vista previa del mapa incrustado",
+    "iframePreviewToggle": "Vista previa",
+    "iframeErrorTitle": "Vista previa no disponible",
+    "iframeErrorBody": "Verifique que el token de incrustación sea válido y que el enlace compartido esté activo. Recargue para reintentar.",
+    "iframeReload": "Recargar",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Experimental",

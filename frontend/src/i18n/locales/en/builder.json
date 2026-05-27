@@ -500,7 +500,13 @@
     "expiration7Days": "7 days",
     "expiration30Days": "30 days",
     "expiration1Year": "1 year",
-    "expirationCustom": "Custom date…"
+    "expirationCustom": "Custom date…",
+    "iframePreviewTitle": "Map embed preview",
+    "iframePreviewToggle": "Preview",
+    "iframeErrorTitle": "Preview unavailable",
+    "iframeErrorBody": "Check that the embed token is valid and the share link is active. Reload to retry.",
+    "iframeReload": "Reload",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Experimental",

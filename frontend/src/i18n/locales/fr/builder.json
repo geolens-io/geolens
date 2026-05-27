@@ -500,7 +500,13 @@
     "expiration7Days": "7 jours",
     "expiration30Days": "30 jours",
     "expiration1Year": "1 an",
-    "expirationCustom": "Date personnalisée…"
+    "expirationCustom": "Date personnalisée…",
+    "iframePreviewTitle": "Aperçu de la carte intégrée",
+    "iframePreviewToggle": "Aperçu",
+    "iframeErrorTitle": "Aperçu indisponible",
+    "iframeErrorBody": "Vérifiez que le jeton d'intégration est valide et que le lien de partage est actif. Rechargez pour réessayer.",
+    "iframeReload": "Recharger",
+    "iframeSandboxNote": "sandbox=\"allow-scripts\" only — SEC-07 contract"
   },
   "chat": {
     "experimental": "Expérimental",
