@@ -610,6 +610,7 @@ Shape 1 (live URL preview) is preferred — it renders the real viewer without a
 | WALK-SS-05 | 1134 | MAP-20 | Filter pills + MapCoordReadout collision at ≤800px | P2 | Layout collision; verify z-index + positioning at 800×600; todo.md L103 |
 | WALK-X-02 | 1134 | MAP-17 | cluster-adapter.ts getLayerIds — source removal race | P2 | Cosmetic 404 in console on cluster delete; verify source cleanup order |
 | WALK-S-01 | 1134 | MAP-18 | symbol-adapter.ts sprite async load — icon flicker | P2 | Symbol sprite loaded async; brief missing-icon warning on first add |
+| WALK-L-03 | 1134 | MAP-18 | line-adapter.ts syncVisibility — arrowLayerId guard | P2 | Informational PASS; arrowLayerId layer is guarded by map.getLayer(); arrow render mode needs dedicated test map |
 | WALK-D-01 | 1134 | MAP-18 | hillshade-adapter.ts — informational asymmetry vs raster | P2 | Informational; raster WALK-R-05 is the actionable item; cross-ref only |
 | todo.md L101 | 1134 | MAP-22 | Notes icon presence indicator (dot/count when notes exist) | P2 | No MCP walk finding; sourced from todo.md L101; reads from existing notes state, no new endpoint |
 | todo.md L136 | 1134 | MAP-19 | Map container scrolls page body during pan/zoom | P2 | No MCP walk finding; sourced from todo.md L136; verify touch-action: none boundaries on BuilderMap |
@@ -632,3 +633,55 @@ Shape 1 (live URL preview) is preferred — it renders the real viewer without a
 | todo.md L151 | 1137 | SHARE-09 | Export / shared view: map title + legend default-on | P2 | No prior closure; sourced from todo.md L151 (same line as SHARE-07); SHARE-09 already in REQUIREMENTS.md |
 | todo.md L108 | 1135 | AI-01 | AI — confirm before applying destructive changes to map | P2 | No prior closure; sourced from todo.md L108; AI-01 already in REQUIREMENTS.md Phase 1135 |
 | todo.md L171 | 1135 | AI-08 | AI chat for layer creation / data analysis | P2 | No prior closure; sourced from todo.md L171; AI-08 already in REQUIREMENTS.md Phase 1135 |
+
+---
+
+## Audit Sign-Off
+
+**Audit date:** 2026-05-27 | **Plans:** 1133-01 through 1133-05 | **Branch:** `codex/builder-polish-walkthrough` (post-`3ed5ceb3`)
+
+### Plan Completion Checklist
+
+| Plan | Deliverable | Status |
+|------|-------------|--------|
+| Plan 01 (1133-01) | Render-mode walkthrough (fill/line/circle/symbol/heatmap/cluster/raster/basemap/DEM) + smaller-screen findings + Phase 1134-1138 routing table skeleton | Complete — commit `bb43b9a3` |
+| Plan 02 (1133-02) | AI consumer-gating matrix (8 endpoints × frontend hooks; Pitfall #4 sibling-hook sweep) | Complete — commit `6561ae71` |
+| Plan 03 (1133-03) | todo.md staleness pass (42 rows classified: 15 closed, 0 regressions, 11 genuine-new-gaps, 16 OOS) | Complete — commit `35e81ef3` |
+| Plan 04 (1133-04) | Invariant grep checks (71 setPaintProperty/setLayoutProperty hits; 4/4 guards PASS; WALK-04 verified) | Complete — commit `bb43b9a3` |
+| Plan 05 (1133-05) | SHARE-08 disposition (DEFER to v1031) + SHARE-03 feasibility (KEEP in v1030) + audit sign-off | Complete — commit `482ecdf3` |
+
+### Findings Summary
+
+- **Render-mode findings (named Finding IDs):** 20 across 9 render modes (fill: 3, line: 3, circle: 1, symbol: 2, heatmap: 1, cluster: 2, raster: 5, basemap: 1, DEM: 2)
+- **Smaller-screen findings:** 6 (3 regressions verified PASS, 3 genuine P1/P2 findings)
+- **todo.md items classified:** 42 rows (15 closed-in-prior-milestone, 0 live-regressions, 11 genuine-new-gaps, 16 out-of-scope)
+- **Invariant grep violations:** 0 FAIL rows (4/4 guards PASS)
+- **SHARE-08:** DEFERRED to v1031
+
+### Routing Table Work-List Size (per phase)
+
+| Phase | Row Count | REQ IDs |
+|-------|-----------|---------|
+| Phase 1134 | 14 | MAP-07/10/17/18/19/20/22 |
+| Phase 1135 | 2 | AI-01, AI-08 |
+| Phase 1136 | 13 | EDITOR-RASTER-01..04, EDITOR-LINE-01/02, EDITOR-FILL-04, EDITOR-BASEMAP-02/03 + (new style-preview + unmapped symbol icon) |
+| Phase 1137 | 4 | SHARE-07, SHARE-09, EASY-11 (2 rows) |
+| **Total** | **33** | — |
+
+_Note: Phase 1138 (EASY-02, EASY-18) and Phase 1139 (QA-01..04) routing items are not sourced from this audit — they are defined directly in REQUIREMENTS.md and require no audit cross-reference._
+
+### Consistency Notes
+
+- **WALK-B-02:** The source section labels this surface as `VERIFIED — v1011 INV-01 DETAIL LEVEL surface-gone check` (correct — the v1011 fix is verified PASS). The routing table assigns `WALK-B-02` as the ID for the regression-pin deliverable (EDITOR-BASEMAP-03). This is a known label asymmetry: the source section uses the VERIFIED convention because the surface is absent, while the routing table entry represents the remaining test-pin work. Not a data gap — both refer to the same `BasemapSublayerEditorScene` regression pin.
+- **EDITOR-PREVIEW-01:** Referenced in the routing table row for `todo.md L157-L158` as a potential new REQ ID. Phase 1136 will decide whether to add it to REQUIREMENTS.md or defer to v1031. Not a gap — correctly marked `(new — style preview)` in the routing table.
+- **All other REQ IDs:** Verified against `.planning/REQUIREMENTS.md` traceability table — all present; no typos.
+
+### WALK-01..05 Sign-Off
+
+- **WALK-01:** PASS — render-mode walkthrough produced 20 named findings across 9 render modes + 6 smaller-screen findings; routing table populated; all findings assigned to Phase 1134/1136.
+- **WALK-02:** PASS — AI consumer-gating matrix populated; 8 endpoints × frontend hooks reviewed; 0 Pitfall #4 FAIL rows; sibling-hook sweep CLEAR.
+- **WALK-03:** PASS — 42 todo.md rows classified; 15 confirmed closed-in-prior-milestone with SHA/tag citations; 0 regressions; 11 genuine new gaps all mapped to v1030 REQ IDs.
+- **WALK-04:** PASS — 4/4 invariant grep guards passed on `main` post-`3ed5ceb3`; 71 setPaintProperty/setLayoutProperty hits classified; 0 FAIL rows; `BuilderLayerAction` union 1 production dispatch site; v1011 CTRL-01 droppable contract intact; v1027 add/remove boundary clean.
+- **WALK-05:** PASS — SHARE-08 disposition binding: DEFER to v1031 (400×250 JPEG ≠ 1200×630; Path A/B both outside v1030 polish scope); REQUIREMENTS.md Future Requirements entry added; SHARE-03 iframe-preview KEEP ruling recorded (sandbox="allow-scripts" sufficient, SEC-07/M-70 preserved).
+
+**Phase 1133 audit complete. All 5 sections populated. Downstream phase planners (1134-1139) may use this document as ground-truth backlog.**
