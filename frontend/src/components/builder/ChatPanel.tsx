@@ -560,14 +560,14 @@ export function ChatPanel({
             };
           }
           for (const action of responseActions) {
+            if (isDestructiveAction(action)) {
+              staging.push(action);
+              // Still recorded in responseActions message bubble; map mutation deferred to user accept.
+              continue;
+            }
             handleChatAction(action);
             if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
               lastSnapshotRef.current.supportsUndo = false;
-            }
-            // Phase 20260526-builder-audit BLD-20260526-11: clean stale layer refs after remove_layer.
-            const layerId = getActionLayerId(action);
-            if (action.type === 'remove_layer' && layerId) {
-              cleanStaleLayerRefs(mapId, layerId);
             }
           }
           // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
