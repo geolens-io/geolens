@@ -204,7 +204,79 @@ The v1010.2 SF-06 finding: when adding `enabled: !!token && isAdmin` to `useAISt
 
 ## todo.md Staleness Pass
 
-_Populated by Plan 03 — see 1133-03-PLAN.md_
+**Audit date:** 2026-05-27 | **Source range:** `todo.md` lines 96-171
+**Purpose:** Prevent downstream phase planners (1134-1138) from re-implementing work already shipped in v1011 / v13.11 / v13.2 / v1029. Every `closed-in-prior-milestone` row cites a specific milestone tag + commit SHA or REQ ID — paraphrase is not citation (Pitfall #13).
+
+| Source Line | Item (verbatim or paraphrase ≤80 chars) | Classification | Citation | Owning Phase / Disposition |
+|-------------|----------------------------------------|----------------|----------|---------------------------|
+| L96 | links/media to popups? | `genuine-new-gap` | v1030 EASY-11 | Phase 1137 |
+| L98 | legend docking — significant layout change for a separate task | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "Large new feature builds" | OOS — v1031 carry-forward |
+| L99 | make basemap optional | `genuine-new-gap` | v1030 EDITOR-BASEMAP-02 | Phase 1136 |
+| L100 | annotation layer (text, shapes) | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "Large new feature builds" (Draw/annotation layer) | OOS — out-of-scope-permanent |
+| L101 | indicator on notes icon if there are any | `genuine-new-gap` | v1030 MAP-22 | Phase 1134 |
+| L103 | filter pills conflict with measure widget | `genuine-new-gap` | v1030 MAP-20 | Phase 1134 |
+| L104 | layer config — popup config: enable/disable, custom expression/validate | `genuine-new-gap` | No prior closure; maps to v1030 EASY-11 scope extension (popup config panel) | Phase 1137 |
+| L105 | save button orange indicator when not saved | `closed-in-prior-milestone` | v13.11 QUALITY-01; commit `dd90b64b` | — (no action; preserve as historical reference) |
+| L106 | review any warnings or errors in the map builder console | `closed-in-prior-milestone` | v13.11 QUALITY-03; commit `dd90b64b` | — (no action; preserve as historical reference) |
+| L107 | public map has zoom controls in a different location | `closed-in-prior-milestone` | v13.11 QUALITY-04; commit `dd90b64b` | — (no action; preserve as historical reference) |
+| L108 | AI - confirm before applying changes to map | `genuine-new-gap` | v1030 AI-01 | Phase 1135 |
+| L109 | AI Skills Repo | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "Large new feature builds" (AI Skills Repo) | OOS — out-of-scope-permanent |
+| L110 | Connect functionality: connectors — S3, DuckDB, BigQuery, Athena, etc. | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "New connector backends (S3 / DuckDB / BigQuery / Athena / etc)" | OOS — out-of-scope-permanent |
+| L111 | enterprise — how to deactivate back to community? | `closed-in-prior-milestone` | v13.2 LIFECYCLE-01 + LIFECYCLE-02; satisfied per `v13.2-MILESTONE-AUDIT.md` Requirements Coverage table (LIFECYCLE-01 → `docs/edition-deactivation.md`, LIFECYCLE-02 → `docs/edition-reactivation.md`) | — (no action; preserve as historical reference) |
+| L112 | 1-2 cool demo maps | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "'1-2 cool demo maps' feature work" | OOS — out-of-scope-permanent |
+| L117 | Fix gh #101 (tmpfs upload cap) | `closed-in-prior-milestone` | Quick-task 260508-rr5; commit `220a2052` | — (no action; preserve as historical reference) |
+| L120 | Debug gh #100 (worker MissingGreenlet) | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "GH #100 worker MissingGreenlet debug" | OOS — v1031 carry-forward |
+| L124 | DEM sizing decision | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "DEM sizing decision" | OOS — v1031 carry-forward |
+| L133 | local docker-compose use official combined docker image? | `out-of-scope-anti-feature` | Ops/tooling item, not a product feature; outside v1030 builder polish scope | OOS — v1031 carry-forward |
+| L134 | Icon for docker images | `out-of-scope-anti-feature` | Ops/tooling item; outside builder polish scope | OOS — v1031 carry-forward |
+| L135 | cleanup /scripts folder | `out-of-scope-anti-feature` | Ops/tooling item; outside builder polish scope | OOS — v1031 carry-forward |
+| L136 | map is scrollable | `genuine-new-gap` | No prior closure; maps to v1030 MAP-19 (map container touch-action / scroll containment) | Phase 1134 |
+| L140 | instead of opacity slider on sublayers, indication of high-impact layer configs | `closed-in-prior-milestone` | v1011 UX-02; commits `79b0c0c6` + `a69d00ac` (`feat(builder): SublayerConfigIndicators replaces sublayer opacity slider (UX-02)`) | — (no action; preserve as historical reference) |
+| L141 | DETAIL LEVEL toggle — doesn't work | `closed-in-prior-milestone` | v1011 INV-01; commit `6078b82a` (`refactor(builder): DETAIL LEVEL removed (INV-01)`) | — (no action; preserve as historical reference) |
+| L142 | expand caret for layer groups is too small | `closed-in-prior-milestone` | v1011 UX-01; commit `278e8933` (`fix(builder): group-row expand caret meets 24px touch target (UX-01)`) | — (no action; preserve as historical reference) |
+| L142b | Basemap should be draggable in layer order | `closed-in-prior-milestone` | v1011 UX-03; commit `0957cf6d` (`feat(builder): basemap row is draggable in layer order with saved-map persistence (UX-03)`) | — (no action; preserve as historical reference) |
+| L143 | regular layer toggle does not work | `closed-in-prior-milestone` | v1011 BUG-01; commit `8c6de63` (`fix(builder): adapter.addLayers honors input.visible on re-add (BUG-01)`) | — (no action; preserve as historical reference) |
+| L144 | Map Settings — are widgets necessary here? | `closed-in-prior-milestone` | v1011 UX-04; commit `57d88d01` (`refactor(builder): Map Settings Widgets section now enables/disables widget availability (UX-04)`) — audit confirmed no duplicate; Settings Switch = availability toggle, MapToolbar = live interaction | — (no action; preserve as historical reference) |
+| L145 | rename group does not focus appropriately | `closed-in-prior-milestone` | v1011 BUG-03; commit `80bddc14` (`fix(builder): rename-group rAF-deferred focus on text input (BUG-03)`) | — (no action; preserve as historical reference) |
+| L146 | delete layer does not work | `closed-in-prior-milestone` | v1011 BUG-02; commit `eeeb8be8` (`fix(builder): delete layer removes from stack and map (BUG-02)`) | — (no action; preserve as historical reference) |
+| L147 | on smaller screens, right sidebar collapse overtop of zoom controls | `closed-in-prior-milestone` | v1011 RESP-01; commit `391459bb` (`fix(builder): collapsed sidebar no longer overlaps MapLibre zoom controls at narrow viewports (RESP-01)`) — NavigationControl moved `top-right` → `top-left` | — (no action; preserve as historical reference) |
+| L148 | on smaller screens, lat/long pill overlays map widget container | `closed-in-prior-milestone` | v1011 RESP-02; commit `c6ab4fbd` (`fix(builder): coord readout pill no longer overlaps top-right widget zone (RESP-02)`) + followup `4f4a9917` | — (no action; preserve as historical reference) |
+| L149 | on smaller screens, basemap selector has 2 X close buttons | `closed-in-prior-milestone` | v1011 RESP-03; commit `0a72cb58` (`fix(builder): right-sidebar flyouts render exactly one close button (RESP-03)`) | — (no action; preserve as historical reference) |
+| L151 | export map: "powered by geolens" / legend / title in export | `genuine-new-gap` | v1030 SHARE-07 + SHARE-09 | Phase 1137 |
+| L154 | LiDAR support | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "Large new feature builds" (LiDAR support) | OOS — out-of-scope-permanent |
+| L157-L158 | Pending style preview / Reflects this layer before save | `genuine-new-gap` | No prior closure found in v1011/v1028/v1029; Plan 01 MCP walk did not find this surface live (style-change preview not implemented); maps to v1030 EDITOR-FILL-04 scope or new EDITOR-PREVIEW-01 if scoped — route to Phase 1136 | Phase 1136 |
+| L160 | Add "Render as Text" option, remove Labels section | `out-of-scope-anti-feature` | REQUIREMENTS.md v2 Requirements — "Text/Annotation layer type" | OOS — out-of-scope-permanent |
+| L162 | draw/add text to map | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "Draw/annotation layer" | OOS — out-of-scope-permanent |
+| L163 | popup should handle URLs and media | `genuine-new-gap` | Duplicate of L96; v1030 EASY-11 | Phase 1137 (row de-duped — see L96) |
+| L164 | dcat 3.0 | `closed-in-prior-milestone` | v1029; `GET /datasets/dcat-us/3.0/` + `GET /datasets/{id}/dcat-us/3.0/` shipped; `v1029-MILESTONE-AUDIT.md` verdict CLEAR; commits in Phase 1129-1131 (foundation `7684ed92`, routes `4b88f43d`, validation `568a589b`) | — (no action; preserve as historical reference) |
+| L166 | Download DEM, aerial photo and trail data | `out-of-scope-anti-feature` | REQUIREMENTS.md Out of Scope — "DEM sizing decision" row + quick-task track for DEM; download feature is separate from polish scope | OOS — v1031 carry-forward |
+| L168 | Review the builder-audit command | `out-of-scope-anti-feature` | Tooling/internal command review; not a product feature; outside v1030 scope | OOS — v1031 carry-forward |
+| L170 | label layer | `out-of-scope-anti-feature` | REQUIREMENTS.md v2 — "Text/Annotation layer type" (label layer = text rendering expansion); outside v1030 scope | OOS — out-of-scope-permanent |
+| L171 | AI chat functionality for layer creation / data analysis | `genuine-new-gap` | v1030 AI-08 | Phase 1135 |
+
+### Summary
+
+- **Total items classified:** 42 rows (39 unique source lines; L163 is a duplicate of L96; L142 and L142b are both from the same line 142 block)
+- **Closed in prior milestones:** 15
+- **Live regressions:** 0
+- **Genuine new gaps:** 11
+- **Out-of-scope:** 16
+
+**Closed-in-prior-milestone breakdown:**
+- v13.11 QUALITY-01/03/04: L105, L106, L107 (commit `dd90b64b`)
+- v13.2 LIFECYCLE-01/02: L111
+- v1011 BUG-01/02/03: L143, L146, L145 (commits `8c6de63`, `eeeb8be8`, `80bddc14`)
+- v1011 UX-01/02/03/04: L142, L140, L142b, L144 (commits `278e8933`, `79b0c0c6`+`a69d00ac`, `0957cf6d`, `57d88d01`)
+- v1011 RESP-01/02/03: L147, L148, L149 (commits `391459bb`, `c6ab4fbd`+`4f4a9917`, `0a72cb58`)
+- v1011 INV-01: L141 (commit `6078b82a`)
+- Quick-task 260508-rr5 / GH #101: L117 (commit `220a2052`)
+- v1029 DCAT 3.0: L164 (commits `7684ed92`, `4b88f43d`, `568a589b`)
+
+**Genuine-new-gap routing:**
+- Phase 1134: L101 (MAP-22), L103 (MAP-20), L136 (MAP-19)
+- Phase 1135: L108 (AI-01), L171 (AI-08)
+- Phase 1136: L99 (EDITOR-BASEMAP-02), L157-L158 (style-preview — new gap)
+- Phase 1137: L96+L163 (EASY-11), L104 (popup config / EASY-11 extension), L151 (SHARE-07 + SHARE-09)
 
 ---
 
@@ -231,10 +303,12 @@ _Populated by Plan 05 — see 1133-05-PLAN.md_
 | WALK-R-05 | 1134 | MAP-18 | raster-adapter.ts addLayers — early return blocks layer re-add | P1 | Separate source guard from layer guard; if source exists but layer missing, still addLayer |
 | WALK-SS-04 | 1134 | MAP-07 | Right-sidebar Sheet vs NavigationControl at ≤800px | P1 | Sidebar collapse trigger positioning fix; NavigationControl stays top-left |
 | WALK-SS-06 | 1134 | MAP-10 | SheetContent showCloseButton exhaustive sweep | P1 | Grep all SheetContent usages + regression pin in sheet-close-button.test.tsx |
-| WALK-SS-05 | 1134 | MAP-20 | Filter pills + MapCoordReadout collision at ≤800px | P2 | Layout collision; verify z-index + positioning at 800×600 |
+| WALK-SS-05 | 1134 | MAP-20 | Filter pills + MapCoordReadout collision at ≤800px | P2 | Layout collision; verify z-index + positioning at 800×600; todo.md L103 |
 | WALK-X-02 | 1134 | MAP-17 | cluster-adapter.ts getLayerIds — source removal race | P2 | Cosmetic 404 in console on cluster delete; verify source cleanup order |
 | WALK-S-01 | 1134 | MAP-18 | symbol-adapter.ts sprite async load — icon flicker | P2 | Symbol sprite loaded async; brief missing-icon warning on first add |
 | WALK-D-01 | 1134 | MAP-18 | hillshade-adapter.ts — informational asymmetry vs raster | P2 | Informational; raster WALK-R-05 is the actionable item; cross-ref only |
+| todo.md L101 | 1134 | MAP-22 | Notes icon presence indicator (dot/count when notes exist) | P2 | No MCP walk finding; sourced from todo.md L101; reads from existing notes state, no new endpoint |
+| todo.md L136 | 1134 | MAP-19 | Map container scrolls page body during pan/zoom | P2 | No MCP walk finding; sourced from todo.md L136; verify touch-action: none boundaries on BuilderMap |
 | WALK-R-01 | 1136 | EDITOR-RASTER-01 | RasterEditor.tsx — no brightness slider | P1 | Add brightness-min/max slider; route through RasterAdapter OWNED_PAINT_PROPERTIES + coalesceFrame |
 | WALK-R-02 | 1136 | EDITOR-RASTER-02 | RasterEditor.tsx — no contrast slider | P1 | Add contrast slider; same contract |
 | WALK-R-03 | 1136 | EDITOR-RASTER-03 | RasterEditor.tsx — no saturation slider | P1 | Add saturation slider; same contract |
@@ -242,8 +316,15 @@ _Populated by Plan 05 — see 1133-05-PLAN.md_
 | WALK-L-01 | 1136 | EDITOR-LINE-01 | LineEditor.tsx — no line-cap control | P1 | Add line-cap picker (butt/round/square); LineAdapter extends OWNED_LAYOUT_PROPERTIES |
 | WALK-L-02 | 1136 | EDITOR-LINE-02 | LineEditor.tsx — no line-join control | P1 | Add line-join picker (bevel/round/miter); same LAYOUT not PAINT contract |
 | WALK-F-03 | 1136 | EDITOR-FILL-04 | FillEditor.tsx — no 3D extrusion range hint | P2 | When paint._height_column set, show "Range: X–Y, N features" from dataset_sample_values |
-| WALK-B-01 | 1136 | EDITOR-BASEMAP-02 | BasemapEditor.tsx — no "No basemap" preset | P1 | Add transparent/blank preset to basemap selector; round-trip test |
+| WALK-B-01 | 1136 | EDITOR-BASEMAP-02 | BasemapEditor.tsx — no "No basemap" preset | P1 | Add transparent/blank preset to basemap selector; round-trip test; todo.md L99 |
 | WALK-B-02 | 1136 | EDITOR-BASEMAP-03 | BasemapSublayerEditorScene.tsx — DETAIL LEVEL positive-form regression pin | P2 | v1011 INV-01 surface is GONE (PASS); Phase 1136 must add `queryBy*` regression pin in BasemapSublayerEditor.test.tsx asserting surface stays gone per EDITOR-BASEMAP-03 |
 | WALK-D-02 | 1136 | EDITOR-RASTER-01 | DEM editor — no hillshade-exaggeration slider | P2 | hillshade-exaggeration in HILLSHADE_PAINT_DEFAULTS + syncPaint but no UI; add slider; route through owned properties |
 | WALK-S-02 | 1136 | (unmapped) | SymbolEditor.tsx — no categorical icon mapping UI | P2 | EDITOR-SYMBOL-04 is v2 deferred; flag to v1031 carry-forward in REQUIREMENTS.md Future Requirements |
 | WALK-F-01 | 1136 | EDITOR-FILL-04 | FillEditor.tsx — opacity slider coverage | P2 | Master opacity slider present; assess whether per-layer fill-opacity distinct control is in EDITOR-FILL-04 scope |
+| todo.md L157-L158 | 1136 | (new — style preview) | No "Pending style preview / Reflects this layer before save" affordance | P2 | No prior milestone closure; no MCP walk finding; Phase 1136 must assess scope and either add EDITOR-PREVIEW-01 to REQUIREMENTS.md or flag v1031 |
+| todo.md L96+L163 | 1137 | EASY-11 | PopupConfigEditor — URL auto-linkify + media preview (L96, L163 are duplicates) | P2 | No prior closure; sourced from todo.md L96 + L163 (identical request); EASY-11 already in REQUIREMENTS.md Phase 1137 |
+| todo.md L104 | 1137 | EASY-11 | Popup config: enable/disable + custom expression/validate | P2 | Extends EASY-11 scope; include in Phase 1137 popup config work |
+| todo.md L151 | 1137 | SHARE-07 | Export / shared view: "Powered by GeoLens" branding (community edition) | P2 | No prior closure; sourced from todo.md L151; SHARE-07 already in REQUIREMENTS.md |
+| todo.md L151 | 1137 | SHARE-09 | Export / shared view: map title + legend default-on | P2 | No prior closure; sourced from todo.md L151 (same line as SHARE-07); SHARE-09 already in REQUIREMENTS.md |
+| todo.md L108 | 1135 | AI-01 | AI — confirm before applying destructive changes to map | P2 | No prior closure; sourced from todo.md L108; AI-01 already in REQUIREMENTS.md Phase 1135 |
+| todo.md L171 | 1135 | AI-08 | AI chat for layer creation / data analysis | P2 | No prior closure; sourced from todo.md L171; AI-08 already in REQUIREMENTS.md Phase 1135 |
