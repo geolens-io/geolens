@@ -486,7 +486,15 @@
     "summaryUnrestricted": "Uneingeschränkt",
     "expirationUpdated": "Ablaufdatum aktualisiert",
     "domainsUpdated": "Domain-Einschränkungen aktualisiert",
-    "updateFailed": "Änderungen konnten nicht gespeichert werden"
+    "updateFailed": "Änderungen konnten nicht gespeichert werden",
+    "originsEmptyHint": "Noch keine Origins — geben Sie eine URL wie https://example.com ein, um das Einbetten zu erlauben.",
+    "originsNormHint": "Jede Origin wird vor dem Speichern auf Schema + Host + Port normalisiert.",
+    "originsInputPlaceholder": "URL wie https://example.com einfügen",
+    "originsInputLabel": "Erlaubte Origin-URL",
+    "removeOrigin": "{{origin}} entfernen",
+    "addOrigin": "Origin hinzufügen",
+    "originWildcardError": "Wildcard-Origin ist nicht erlaubt",
+    "originInvalid": "Ungültige URL"
   },
   "chat": {
     "experimental": "Experimentell",

@@ -486,7 +486,15 @@
     "summaryUnrestricted": "Sans restriction",
     "expirationUpdated": "Expiration mise à jour",
     "domainsUpdated": "Restrictions de domaine mises à jour",
-    "updateFailed": "Échec de la sauvegarde"
+    "updateFailed": "Échec de la sauvegarde",
+    "originsEmptyHint": "Aucune origine pour l'instant — collez une URL comme https://example.com pour autoriser l'intégration.",
+    "originsNormHint": "Chaque origine est normalisée sous la forme schéma + hôte + port avant la sauvegarde.",
+    "originsInputPlaceholder": "Collez une URL comme https://example.com",
+    "originsInputLabel": "URL d'origine autorisée",
+    "removeOrigin": "Supprimer {{origin}}",
+    "addOrigin": "Ajouter une origine",
+    "originWildcardError": "L'origine générique n'est pas autorisée",
+    "originInvalid": "URL invalide"
   },
   "chat": {
     "experimental": "Expérimental",

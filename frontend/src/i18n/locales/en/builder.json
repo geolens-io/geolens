@@ -486,7 +486,15 @@
     "summaryUnrestricted": "Unrestricted",
     "expirationUpdated": "Expiration updated",
     "domainsUpdated": "Domain restrictions updated",
-    "updateFailed": "Failed to save changes"
+    "updateFailed": "Failed to save changes",
+    "originsEmptyHint": "No origins yet — paste a URL like https://example.com to allow embedding.",
+    "originsNormHint": "Each origin is normalized to scheme + host + port before saving.",
+    "originsInputPlaceholder": "Paste a URL like https://example.com",
+    "originsInputLabel": "Allowed origin URL",
+    "removeOrigin": "Remove {{origin}}",
+    "addOrigin": "Add origin",
+    "originWildcardError": "Wildcard origin not allowed",
+    "originInvalid": "Invalid URL"
   },
   "chat": {
     "experimental": "Experimental",

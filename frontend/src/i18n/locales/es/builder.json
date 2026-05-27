@@ -486,7 +486,15 @@
     "summaryUnrestricted": "Sin restricciones",
     "expirationUpdated": "Caducidad actualizada",
     "domainsUpdated": "Restricciones de dominio actualizadas",
-    "updateFailed": "No se pudieron guardar los cambios"
+    "updateFailed": "No se pudieron guardar los cambios",
+    "originsEmptyHint": "Aún no hay orígenes — pegue una URL como https://example.com para permitir la incrustación.",
+    "originsNormHint": "Cada origen se normaliza a esquema + host + puerto antes de guardar.",
+    "originsInputPlaceholder": "Pegue una URL como https://example.com",
+    "originsInputLabel": "URL de origen permitida",
+    "removeOrigin": "Eliminar {{origin}}",
+    "addOrigin": "Agregar origen",
+    "originWildcardError": "El origen comodín no está permitido",
+    "originInvalid": "URL no válida"
   },
   "chat": {
     "experimental": "Experimental",
