@@ -145,7 +145,8 @@ export function BasemapGroupEditorScene({
         </div>
       </section>
 
-      {/* 2. Sublayers section */}
+      {/* 2. Sublayers section — hidden when there are no sublayers (e.g. blank basemap). WR-02 fix. */}
+      {sublayers.length > 0 && (
       <section className="border-b">
         <div className="px-4 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
@@ -239,6 +240,7 @@ export function BasemapGroupEditorScene({
           </ul>
         </div>
       </section>
+      )}
 
       {/* 3. Visibility section — master opacity */}
       <section className="border-b">
