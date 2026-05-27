@@ -7,6 +7,16 @@ import { StrokeControls } from './StrokeControls';
 import { getPaintValue, FILL_DEFAULTS } from './utils';
 import type { BaseStyleEditorProps } from './types';
 
+function deriveExtrusionRange(samples: unknown[] | undefined): { min: string; max: string; count: number } | null {
+  if (!samples || samples.length === 0) return null;
+  const numeric = samples.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  if (numeric.length === 0) return null;
+  const min = Math.min(...numeric);
+  const max = Math.max(...numeric);
+  const fmt = (n: number) => (Number.isInteger(n) ? n.toLocaleString() : n.toFixed(1));
+  return { min: fmt(min), max: fmt(max), count: numeric.length };
+}
+
 export function FillEditor({
   layer,
   paint,
@@ -81,6 +91,22 @@ export function FillEditor({
           </Select>
         </div>
       )}
+      {(() => {
+        const range = isPolygon && currentHeightCol
+          ? deriveExtrusionRange(layer.dataset_sample_values?.[currentHeightCol])
+          : null;
+        if (!range) return null;
+        return (
+          <div className="text-xs text-muted-foreground">
+            {t('style.extrusionRange', {
+              min: range.min,
+              max: range.max,
+              count: range.count.toLocaleString(),
+              defaultValue: 'Range: {{min}}–{{max}}, {{count}} features',
+            })}
+          </div>
+        );
+      })()}
       {isPolygon && currentHeightCol && !(layer.dataset_column_info ?? []).some((col) => col.name === currentHeightCol) && (
         <div className="flex items-start gap-2 rounded bg-warning/15 p-2">
           <AlertTriangle className="h-4 w-4 shrink-0 text-warning-foreground mt-0.5" />

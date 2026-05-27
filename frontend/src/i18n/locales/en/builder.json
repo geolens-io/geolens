@@ -187,6 +187,7 @@
     "toggleFill": "Toggle fill visibility",
     "toggleStroke": "Toggle stroke visibility",
     "pattern": "Pattern",
+    "extrusionRange": "Range: {{min}}–{{max}}, {{count}} features",
     "lineEnds": "Line ends",
     "lineCap": "Cap",
     "lineCapButt": "Butt",
