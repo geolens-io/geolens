@@ -89,3 +89,37 @@ describe('line adapter — getLayerIds canonical shape (arrowLayerId guard PASS)
     expect(ids).toEqual(['line-abc', 'line-abc-arrow']);
   });
 });
+
+// Phase 1136-02: LINE_OWNED_LAYOUT_PROPERTIES export + syncPaint layout reconciliation
+describe('line adapter — LINE_OWNED_LAYOUT_PROPERTIES export (Phase 1136-02 EDITOR-LINE-01)', () => {
+  it('LINE_OWNED_LAYOUT_PROPERTIES is exported and equals [line-cap, line-join]', async () => {
+    const { LINE_OWNED_LAYOUT_PROPERTIES } = await import('../line-adapter');
+    expect(LINE_OWNED_LAYOUT_PROPERTIES).toEqual(['line-cap', 'line-join']);
+  });
+});
+
+describe('line adapter — syncPaint reconciles line-cap and line-join via syncOwnedLayoutProperties', () => {
+  it('calls setLayoutProperty for line-cap and line-join from input.layout', () => {
+    const map = createMockMap({ layerExists: true });
+    lineAdapter.syncPaint(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ layout: { 'line-cap': 'square', 'line-join': 'bevel' } }),
+    );
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-cap', 'square');
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-line-1', 'line-join', 'bevel');
+  });
+
+  it('does NOT call setLayoutProperty for line-cap or line-join when input.layout is empty', () => {
+    const map = createMockMap({ layerExists: true });
+    lineAdapter.syncPaint(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ layout: {} }),
+    );
+
+    const layoutCalls = map.setLayoutProperty.mock.calls.filter(
+      ([, prop]) => prop === 'line-cap' || prop === 'line-join',
+    );
+    expect(layoutCalls).toHaveLength(0);
+  });
+});
