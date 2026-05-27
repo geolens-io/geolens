@@ -540,7 +540,13 @@
       "tableLabel": "Query result table",
       "rowCount_one": "{{count}} row",
       "rowCount_other": "{{count}} rows"
-    }
+    },
+    "bannerForbiddenTitle": "AI access lost",
+    "bannerForbiddenBody": "You no longer have permission to use AI chat. Contact your administrator to restore access.",
+    "bannerUnavailableTitle": "AI is unavailable",
+    "bannerUnavailableBody": "The AI service is temporarily unavailable. Try again in a moment.",
+    "bannerRetry": "Retry",
+    "bannerDismiss": "Dismiss"
   },
   "basemap": {
     "title": "Basiskarte",
@@ -849,7 +855,15 @@
     "aiUnavailable": "KI nicht verfügbar",
     "aiUnavailableTitle": "KI ist nicht verfügbar",
     "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann.",
-    "notesPresent": "Karte hat Notizen"
+    "notesPresent": "Karte hat Notizen",
+    "aiDisabledTitle": "AI is disabled",
+    "aiDisabledBody": "An administrator has disabled AI for this instance.",
+    "aiNoKeyTitle": "AI not configured",
+    "aiNoKeyBody": "A provider API key is required before AI chat can be used.",
+    "aiPermissionTitle": "AI unavailable",
+    "aiPermissionBody": "You don't have permission to use AI chat.",
+    "aiGoToSettings": "Go to Settings",
+    "aiConfigureSettings": "Configure in Settings"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",

@@ -1,15 +1,81 @@
 import { useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, ChevronRight, Loader2 } from 'lucide-react';
+import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff } from 'lucide-react';
+import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { experimentalBadgeColor } from '@/lib/status-colors';
 import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import { HistoryPanel } from '@/components/builder/HistoryPanel';
+import { useAIAvailability } from '@/hooks/use-ai-availability';
+import { useAuthStore } from '@/stores/auth-store';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
+
+/**
+ * Structured disabled-state for the AI rail panel.
+ * Renders per-reason copy + admin-only Settings CTA per UI-SPEC Surface 3 (Phase 1135 AI-02).
+ *
+ * Consumes useAIAvailability() internally — TanStack Query deduplicates so there is no
+ * extra network call vs. the parent's derivation; the hook just reads the cached result.
+ */
+function AIDisabledState() {
+  const { t } = useTranslation('builder');
+  const { reason, isLoading } = useAIAvailability();
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+
+  // Loading or indeterminate — render spinner only
+  if (isLoading || reason === null) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-6" role="status" aria-live="polite">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const titleKey = reason === 'env_disabled' ? ('rail.aiDisabledTitle' as const)
+    : reason === 'no_key' ? ('rail.aiNoKeyTitle' as const)
+    : ('rail.aiPermissionTitle' as const);
+  const titleDefault = reason === 'env_disabled' ? 'AI is disabled'
+    : reason === 'no_key' ? 'AI not configured'
+    : 'AI unavailable';
+  const bodyKey = reason === 'env_disabled' ? ('rail.aiDisabledBody' as const)
+    : reason === 'no_key' ? ('rail.aiNoKeyBody' as const)
+    : ('rail.aiPermissionBody' as const);
+  const bodyDefault = reason === 'env_disabled'
+    ? 'An administrator has disabled AI for this instance.'
+    : reason === 'no_key'
+    ? 'A provider API key is required before AI chat can be used.'
+    : "You don't have permission to use AI chat.";
+  const ctaKey = reason === 'env_disabled' ? ('rail.aiGoToSettings' as const)
+    : reason === 'no_key' ? ('rail.aiConfigureSettings' as const)
+    : null;
+  const ctaDefault = reason === 'env_disabled' ? 'Go to Settings'
+    : reason === 'no_key' ? 'Configure in Settings'
+    : '';
+  const showCTA = ctaKey !== null && isAdmin;
+
+  return (
+    <div
+      className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm"
+      role="status"
+      aria-live="polite"
+      data-ai-reason={reason}
+    >
+      <BotOff className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+      <p className="text-sm font-medium text-foreground">{t(titleKey, { defaultValue: titleDefault })}</p>
+      <p className="text-sm text-muted-foreground text-center max-w-[18rem]">{t(bodyKey, { defaultValue: bodyDefault })}</p>
+      {showCTA && (
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/admin/settings?tab=ai">{t(ctaKey!, { defaultValue: ctaDefault })}</Link>
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export type RailPanel = 'notes' | 'history' | 'ai' | null;
 
@@ -167,18 +233,7 @@ export function BuilderRail({
               <HistoryPanel mapId={mapId} />
             )}
 
-            {activePanel === 'ai' && !aiAvailable && (
-              <div className="flex h-full flex-col justify-center gap-2 p-4 text-sm" role="status" aria-live="polite">
-                <p className="font-medium text-foreground">
-                  {t('rail.aiUnavailableTitle', { defaultValue: 'AI is unavailable' })}
-                </p>
-                <p className="text-muted-foreground">
-                  {t('rail.aiUnavailableDescription', {
-                    defaultValue: 'An administrator needs to enable an AI provider before Ask AI can be used in this builder.',
-                  })}
-                </p>
-              </div>
-            )}
+            {activePanel === 'ai' && !aiAvailable && <AIDisabledState />}
 
             {activePanel === 'ai' && aiAvailable && mapId && layers && layerActions && (
               <LazyLoadErrorBoundary>
