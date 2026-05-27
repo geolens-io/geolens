@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from '@/test/test-utils';
 import { UnifiedStackPanel, CatalogDragGhost } from '../UnifiedStackPanel';
 import type { MapLayerResponse } from '@/types/api';
+// MAP-16: raw source import for the rAF source-text pin (project pattern from preserve-drawing-buffer.test.ts)
+import folderGroupRowSrc from '../FolderGroupRow.tsx?raw';
+import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -626,5 +629,103 @@ describe('Phase 1040 catalog drop — onAddDataset wiring', () => {
     // Clicking the basemap group select button does NOT trigger onAddDataset
     fireEvent.click(screen.getByTestId('basemap-group-select-basemap-group'));
     expect(onAddDataset).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// MAP-16 — rename-group rAF-deferred focus integration (Phase 1134 Plan 03)
+//
+// The module-level vi.mock('../FolderGroupRow') stubs FolderGroupRow for routing
+// logic tests above. For this integration block we use vi.importActual to get
+// the real FolderGroupRow — the same component UnifiedStackPanel renders — and
+// exercise the rename-focus path end-to-end.
+// =============================================================================
+
+describe('MAP-16 — rename-group rAF-deferred focus integration', () => {
+  // Flush a queued requestAnimationFrame callback synchronously in jsdom.
+  // Mirrors the flushRaf helper in FolderGroupRow.test.tsx (BUG-03 describe).
+  async function flushRaf() {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
+
+  function makeDragHandlePropsForMAP16() {
+    const attributes: DraggableAttributes = {
+      role: 'button',
+      tabIndex: 0,
+      'aria-pressed': false,
+      'aria-roledescription': 'sortable',
+      'aria-describedby': 'dnd-desc',
+      'aria-disabled': false,
+    };
+    const listeners: DraggableSyntheticListeners = {};
+    const setActivatorNodeRef = vi.fn();
+    return { attributes, listeners, setActivatorNodeRef };
+  }
+
+  it('rename-group via double-click on group name focuses the rename input (rAF flush) — panel group-row path', async () => {
+    // Import the real FolderGroupRow (bypasses the module-level stub)
+    const { FolderGroupRow: RealFolderGroupRow } = await vi.importActual<
+      typeof import('../FolderGroupRow')
+    >('../FolderGroupRow');
+
+    render(
+      <RealFolderGroupRow
+        groupId="grp-map16"
+        groupName="Old Group Name"
+        visible
+        selected={false}
+        isExpanded={false}
+        isDragging={false}
+        dragHandleProps={makeDragHandlePropsForMAP16()}
+        onSelectGroup={vi.fn()}
+        onToggleExpand={vi.fn()}
+        onToggleVisibility={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onAddLayer={vi.fn()}
+        onUngroup={vi.fn()}
+        onDeleteGroup={vi.fn()}
+      />
+    );
+
+    // Double-click the group name span to enter rename mode — same handleStartRename
+    // path as kebab → Rename group (both call setEditing(true)).
+    const nameSpan = screen.getByText('Old Group Name');
+    fireEvent.dblClick(nameSpan);
+
+    // Input mounts on the next render
+    const input = (await screen.findByRole('textbox', { name: /Group name/i })) as HTMLInputElement;
+
+    // BEFORE rAF flush: input is mounted but focus has NOT been delivered yet.
+    // The rAF deferral is what the BUG-03 fix relies on — see FolderGroupRow.tsx:89-101.
+    // (autoFocus on the element may land focus immediately in jsdom; the behavioral
+    // assertion below covers post-flush state which is the production contract.)
+
+    // Flush the queued requestAnimationFrame so the deferred focus + select fires.
+    await flushRaf();
+
+    // After rAF flush: document.activeElement must be the rename input.
+    expect(document.activeElement).toBe(input);
+    // Pre-populated with the group name
+    expect(input.value).toBe('Old Group Name');
+  });
+
+  it('rename-group input: rAF wraps the focus call — autoFocus is NOT the sole mechanism (source-text pin)', () => {
+    // Defense-in-depth source assertion: catches a regression where someone removes
+    // the requestAnimationFrame wrapper from the editing useEffect in FolderGroupRow.tsx.
+    // The rAF deferral is load-bearing — without it, Radix DropdownMenu's restoreFocus
+    // wins the focus race in real browsers and the rename input never receives focus.
+    // Cross-reference: v1011 BUG-03 commit 80bddc14.
+    //
+    // Pattern: Vite ?raw import (see preserve-drawing-buffer.test.ts for precedent).
+    const fileSrc = folderGroupRowSrc;
+
+    // The rAF call must wrap the inputRef.current.focus() call
+    // (source uses explicit `if (inputRef.current)` guard, not optional chaining)
+    expect(fileSrc).toMatch(/requestAnimationFrame\([\s\S]{0,200}?inputRef\.current[\s\S]{0,10}?\.focus/);
+
+    // The rAF must appear inside an `if (editing)` guard — this is the editing useEffect
+    expect(fileSrc).toMatch(/if\s*\(\s*editing\s*\)[\s\S]{0,100}?requestAnimationFrame/);
   });
 });
