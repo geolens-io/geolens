@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { experimentalBadgeColor } from '@/lib/status-colors';
 import type { MapLayerResponse } from '@/types/api';
 import type { LayerActions } from '@/components/builder/ChatPanel';
+import type { ViewportContext } from '@/components/builder/chat-suggestions';
 import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useAuthStore } from '@/stores/auth-store';
@@ -92,6 +93,9 @@ interface BuilderRailProps {
   layers?: MapLayerResponse[];
   layerActions?: LayerActions;
   onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
+  /** Phase 1135 AI-05: optional viewport context passed through to ChatPanel for
+   *  viewport-aware suggestion chips. Purely additive — omitting this prop has no effect. */
+  viewport?: ViewportContext;
   // Dirty tracking
   onMarkDirty?: () => void;
 }
@@ -106,6 +110,7 @@ export function BuilderRail({
   layers,
   layerActions,
   onQueryResult,
+  viewport,
   onMarkDirty,
   showRail = true,
 }: BuilderRailProps) {
@@ -247,6 +252,7 @@ export function BuilderRail({
                     layers={layers}
                     layerActions={layerActions}
                     onQueryResult={onQueryResult}
+                    viewport={viewport}
                   />
                 </Suspense>
               </LazyLoadErrorBoundary>

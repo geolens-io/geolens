@@ -11,7 +11,7 @@ import { useChatActionStaging, isDestructiveAction } from '@/builder/ai/chat-act
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, StyleConfig } from '@/types/api';
 import { ChatInput } from './ChatInput';
-import { getSmartSuggestions } from './chat-suggestions';
+import { getSmartSuggestions, type ViewportContext } from './chat-suggestions';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -129,6 +129,10 @@ interface ChatPanelProps {
   onQueryResult?: (geojson: GeoJSON.FeatureCollection, bbox: [number, number, number, number]) => void;
   /** Use side-by-side layout: messages left, compose right. */
   horizontal?: boolean;
+  /** Phase 1135 AI-05: optional viewport context — zoom, bounds, selected layer name.
+   *  Passed to getSmartSuggestions to produce viewport-aware suggestion chips.
+   *  Only affects the empty-state chip list; undefined → unchanged geometry-only behavior. */
+  viewport?: ViewportContext;
 }
 
 export function ChatPanel({
@@ -137,6 +141,7 @@ export function ChatPanel({
   layerActions,
   onQueryResult,
   horizontal,
+  viewport,
 }: ChatPanelProps) {
   const {
     onFilterChange,
@@ -665,7 +670,7 @@ export function ChatPanel({
             <div className="flex flex-wrap gap-1.5 px-1 justify-center">
               {(layers.length === 0
                 ? [t('chat.suggestions.searchDatasets')]
-                : getSmartSuggestions(layers, t)
+                : getSmartSuggestions(layers, t, viewport)
               ).map((suggestion) => (
                 <button
                   key={suggestion}
