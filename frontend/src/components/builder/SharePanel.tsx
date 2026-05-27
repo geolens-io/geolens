@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, RotateCcw, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -546,6 +546,10 @@ export function ShareDialog({
   const [rawShareToken, setRawShareToken] = useState<string | null>(null);
   const [domainInput, setDomainInput] = useState('');
 
+  // Pitfall #7: single-flight guard for concurrent createEmbedToken invocations.
+  // Mirrors ChatPanel.tsx inflightRef pattern (v1010.2 lift).
+  const inflightEmbedCreate = useRef<Promise<{ raw_token: string }> | null>(null);
+
   // Queries as source of truth — only fetch when dialog is open
   const shareTokenQuery = useMapShareToken(open ? mapId : undefined);
   const persistedShareTokenHint = shareTokenQuery.data?.token ?? null;
@@ -605,18 +609,46 @@ export function ShareDialog({
     }
   }
 
+  /**
+   * Create an embed token if one does not already exist.
+   *
+   * Pitfall #7 contract: deduplicates concurrent invocations via
+   * inflightEmbedCreate ref. Two callers racing through this function (e.g.,
+   * React StrictMode double-mount, or rapid double-click on Generate Share
+   * Link) share the same in-flight promise instead of firing parallel
+   * createEmbedToken mutations that would both succeed and orphan one of the
+   * resulting tokens in the DB.
+   *
+   * Mirror of ChatPanel.tsx inflightRef pattern lifted in v1010.2.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #7 test asserts call count
+   * equals 1 under a 2-concurrent-click scenario.
+   */
   async function maybeCreateEmbedToken() {
     if (embedTokenRaw) return;
     if (activeEmbedToken) return;
+    // Pitfall #7: dedupe concurrent calls. Mirrors ChatPanel inflightRef.
+    if (inflightEmbedCreate.current) {
+      try {
+        await inflightEmbedCreate.current;
+      } catch {
+        // primary call already toasted; secondary callers stay silent
+      }
+      return;
+    }
     try {
       const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-      const tokenResult = await createEmbedToken.mutateAsync({
+      const promise = createEmbedToken.mutateAsync({
         mapId,
         allowedOrigins: origins.length > 0 ? origins : undefined,
       });
+      inflightEmbedCreate.current = promise;
+      const tokenResult = await promise;
       setEmbedTokenRaw(tokenResult.raw_token);
     } catch {
       toast.error(t('share.embedTokenFailed'));
+    } finally {
+      inflightEmbedCreate.current = null;
     }
   }
 
