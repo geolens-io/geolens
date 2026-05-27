@@ -63,7 +63,11 @@ function makeProps(layer: MapLayerResponse, overrides: Partial<BaseStyleEditorPr
     onHeatmapPaintChange: vi.fn(),
     onSymbolConfigChange: vi.fn(),
     onBuilderChange: vi.fn(),
-    t: (key: string) => {
+    t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'style.extrusionRange') {
+        const o = opts ?? {};
+        return `Range: ${o.min}–${o.max}, ${o.count} features`;
+      }
       const labels: Record<string, string> = {
         'style.fill': 'Fill',
         'style.toggleFill': 'Toggle fill visibility',
@@ -180,5 +184,117 @@ describe('FillEditor', () => {
     expect(named).toBeDefined();
     expect(defaultExport).toBeDefined();
     expect(named).toBe(defaultExport);
+  });
+
+  // --- 3D extrusion range hint tests ---
+
+  it('shows range hint with integer min–max and count when dataset_sample_values has data', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'height', type: 'integer' }],
+      dataset_sample_values: { height: [10, 50, 200] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'height', type: 'integer' }],
+          currentHeightCol: 'height',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/Range:.*features/)).toBeInTheDocument();
+    expect(screen.getByText('Range: 10–200, 3 features')).toBeInTheDocument();
+  });
+
+  it('hides range hint when dataset_sample_values is null', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'height', type: 'integer' }],
+      dataset_sample_values: null,
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'height', type: 'integer' }],
+          currentHeightCol: 'height',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
+  });
+
+  it('hides range hint when dataset_sample_values has an empty array for the column', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'height', type: 'integer' }],
+      dataset_sample_values: { height: [] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'height', type: 'integer' }],
+          currentHeightCol: 'height',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
+  });
+
+  it('renders fractional min–max with 1 decimal place', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'height', type: 'double' }],
+      dataset_sample_values: { height: [1.5, 2.7, 3.1] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'height', type: 'double' }],
+          currentHeightCol: 'height',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Range: 1.5–3.1, 3 features')).toBeInTheDocument();
+  });
+
+  it('renders integer min/max without .0 and uses toLocaleString for large counts', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'height', type: 'integer' }],
+      dataset_sample_values: { height: [1, 1247] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'height', type: 'integer' }],
+          currentHeightCol: 'height',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    // count uses toLocaleString — "2" for 2 items; min=1, max=1247
+    expect(screen.getByText('Range: 1–1,247, 2 features')).toBeInTheDocument();
+  });
+
+  it('hides range hint when currentHeightCol is empty string', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'height', type: 'integer' }],
+      dataset_sample_values: { height: [10, 50, 200] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'height', type: 'integer' }],
+          currentHeightCol: '',
+          isPolygon: true,
+        })}
+      />,
+    );
+
+    expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
   });
 });
