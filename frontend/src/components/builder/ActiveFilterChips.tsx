@@ -118,7 +118,10 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
   if (chips.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5 pointer-events-none">
+    // MAP-20: max-h-[40vh] + overflow-y-auto prevents the chip column from growing into the
+    // bottom-left MeasurementWidget at ≤800px. See UI-SPEC §Filter-Pill vs Measure-Widget
+    // Collision Avoidance.
+    <div className="flex flex-wrap gap-1.5 max-h-[40vh] overflow-y-auto pointer-events-none">
       {chips.map((chip) => (
         <span
           key={chip.layerId}
