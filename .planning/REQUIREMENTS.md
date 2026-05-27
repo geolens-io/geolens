@@ -123,23 +123,74 @@ Explicitly excluded from v1030. Documented to prevent scope creep into polish mi
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Per-REQ-ID rows for unambiguous coverage; flip Status to `Complete` in the same commit as the closing phase SUMMARY (v1019 TD-13 rule).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WALK-01..05 | Phase 1133 | Pending |
-| MAP-07..10, MAP-16..20, MAP-22 | Phase 1134 | Pending |
-| AI-01..05, AI-08, AI-09 | Phase 1135 | Pending |
-| EDITOR-RASTER-01..04, EDITOR-LINE-01/02, EDITOR-FILL-04, EDITOR-BASEMAP-02/03 | Phase 1136 | Pending |
-| SHARE-02..04, SHARE-06, SHARE-07, SHARE-09 | Phase 1137 | Pending |
-| EASY-02, EASY-11, EASY-18 | Phase 1138 | Pending |
-| QA-01..04 | Phase 1139 | Pending |
+| WALK-01 | Phase 1133 | Pending |
+| WALK-02 | Phase 1133 | Pending |
+| WALK-03 | Phase 1133 | Pending |
+| WALK-04 | Phase 1133 | Pending |
+| WALK-05 | Phase 1133 | Pending |
+| MAP-07 | Phase 1134 | Pending |
+| MAP-08 | Phase 1134 | Pending |
+| MAP-09 | Phase 1134 | Pending |
+| MAP-10 | Phase 1134 | Pending |
+| MAP-16 | Phase 1134 | Pending |
+| MAP-17 | Phase 1134 | Pending |
+| MAP-18 | Phase 1134 | Pending |
+| MAP-19 | Phase 1134 | Pending |
+| MAP-20 | Phase 1134 | Pending |
+| MAP-22 | Phase 1134 | Pending |
+| AI-01 | Phase 1135 | Pending |
+| AI-02 | Phase 1135 | Pending |
+| AI-03 | Phase 1135 | Pending |
+| AI-04 | Phase 1135 | Pending |
+| AI-05 | Phase 1135 | Pending |
+| AI-08 | Phase 1135 | Pending |
+| AI-09 | Phase 1135 | Pending |
+| EDITOR-RASTER-01 | Phase 1136 | Pending |
+| EDITOR-RASTER-02 | Phase 1136 | Pending |
+| EDITOR-RASTER-03 | Phase 1136 | Pending |
+| EDITOR-RASTER-04 | Phase 1136 | Pending |
+| EDITOR-LINE-01 | Phase 1136 | Pending |
+| EDITOR-LINE-02 | Phase 1136 | Pending |
+| EDITOR-FILL-04 | Phase 1136 | Pending |
+| EDITOR-BASEMAP-02 | Phase 1136 | Pending |
+| EDITOR-BASEMAP-03 | Phase 1136 | Pending |
+| SHARE-02 | Phase 1137 | Pending |
+| SHARE-03 | Phase 1137 | Pending |
+| SHARE-04 | Phase 1137 | Pending |
+| SHARE-06 | Phase 1137 | Pending |
+| SHARE-07 | Phase 1137 | Pending |
+| SHARE-09 | Phase 1137 | Pending |
+| EASY-02 | Phase 1138 | Pending |
+| EASY-11 | Phase 1138 | Pending |
+| EASY-18 | Phase 1138 | Pending |
+| QA-01 | Phase 1139 | Pending |
+| QA-02 | Phase 1139 | Pending |
+| QA-03 | Phase 1139 | Pending |
+| QA-04 | Phase 1139 | Pending |
 
 **Coverage:**
 - v1 requirements: 44 total (5 WALK + 10 MAP + 7 AI + 9 EDITOR + 6 SHARE + 3 EASY + 4 QA)
-- Mapped to phases: 44 (after roadmap)
+- Mapped to phases: 44/44 (100% coverage)
 - Unmapped: 0
+- Duplicates (REQ in >1 phase): 0
+
+**Phase distribution:**
+
+| Phase | Count | REQ IDs |
+|-------|-------|---------|
+| 1133 | 5 | WALK-01..05 |
+| 1134 | 10 | MAP-07/08/09/10/16/17/18/19/20/22 |
+| 1135 | 7 | AI-01/02/03/04/05/08/09 |
+| 1136 | 9 | EDITOR-RASTER-01..04, EDITOR-LINE-01/02, EDITOR-FILL-04, EDITOR-BASEMAP-02/03 |
+| 1137 | 6 | SHARE-02/03/04/06/07/09 |
+| 1138 | 3 | EASY-02/11/18 |
+| 1139 | 4 | QA-01/02/03/04 |
+| **Total** | **44** | — |
 
 ---
 *Requirements defined: 2026-05-27*
-*Last updated: 2026-05-27 after initial definition*
+*Traceability committed: 2026-05-27 (roadmapper) — 44/44 mapped, 0 orphans, 0 duplicates*
