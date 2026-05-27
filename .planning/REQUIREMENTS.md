@@ -7,10 +7,10 @@
 
 ### Profile Contract
 
-- [ ] **PROFILE-01**: GeoLens has an explicit DCAT-US Schema v3.0 profile separate from the existing W3C DCAT 3 JSON-LD serializer.
-- [ ] **PROFILE-02**: The DCAT-US 3.0 implementation is pinned to the official GSA/dcat-us JSON Schema source and records the source commit or version.
-- [ ] **PROFILE-03**: The milestone documents which existing GeoLens catalog fields map to DCAT-US Catalog, Dataset, Distribution, DataService, DatasetSeries, and supporting classes.
-- [ ] **PROFILE-04**: Metadata that GeoLens cannot populate from current catalog fields is documented as fallback, warning, future-field, or out-of-scope behavior.
+- [x] **PROFILE-01**: GeoLens has an explicit DCAT-US Schema v3.0 profile separate from the existing W3C DCAT 3 JSON-LD serializer.
+- [x] **PROFILE-02**: The DCAT-US 3.0 implementation is pinned to the official GSA/dcat-us JSON Schema source and records the source commit or version.
+- [x] **PROFILE-03**: The milestone documents which existing GeoLens catalog fields map to DCAT-US Catalog, Dataset, Distribution, DataService, DatasetSeries, and supporting classes.
+- [x] **PROFILE-04**: Metadata that GeoLens cannot populate from current catalog fields is documented as fallback, warning, future-field, or out-of-scope behavior.
 
 ### Serialization
 
@@ -22,7 +22,7 @@
 
 ### Validation
 
-- [ ] **VAL-01**: The official DCAT-US 3.0 JSON Schema definitions are available locally so validation works without network access.
+- [x] **VAL-01**: The official DCAT-US 3.0 JSON Schema definitions are available locally so validation works without network access.
 - [ ] **VAL-02**: Backend validation uses JSON Schema 2020-12 and resolves the official schema `$ref` graph.
 - [ ] **VAL-03**: User or operator can get a validation report for the catalog feed and for an individual dataset, including path, schema path, validator, and message for each error.
 - [ ] **VAL-04**: Validation failure for incomplete metadata is reported clearly without hiding visibility/access failures or inventing fake federal metadata.
@@ -73,11 +73,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROFILE-01 | Phase 1129 | Pending |
-| PROFILE-02 | Phase 1129 | Pending |
-| PROFILE-03 | Phase 1129 | Pending |
-| PROFILE-04 | Phase 1129 | Pending |
-| VAL-01 | Phase 1129 | Pending |
+| PROFILE-01 | Phase 1129 | Complete |
+| PROFILE-02 | Phase 1129 | Complete |
+| PROFILE-03 | Phase 1129 | Complete |
+| PROFILE-04 | Phase 1129 | Complete |
+| VAL-01 | Phase 1129 | Complete |
 | SER-01 | Phase 1130 | Pending |
 | SER-02 | Phase 1130 | Pending |
 | SER-03 | Phase 1130 | Pending |
