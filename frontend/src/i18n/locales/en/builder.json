@@ -520,6 +520,26 @@
       "heatmap": "Show {{name}} as a heatmap",
       "areaLabels": "Add area labels for {{name}}",
       "adjustOpacity": "Adjust opacity for {{name}}"
+    },
+    "staging": {
+      "header_one": "{{count}} pending change — review before applying",
+      "header_other": "{{count}} pending changes — review before applying",
+      "acceptAll": "Accept all",
+      "rejectAll": "Reject all",
+      "accept": "Accept",
+      "reject": "Reject",
+      "chipAdd": "Add \"{{name}}\"",
+      "chipAddBelow": "Add \"{{name}}\" below \"{{ref}}\"",
+      "chipRemove": "Remove \"{{name}}\"",
+      "chipRemoveFeatures_one": "Remove \"{{name}}\" ({{count}} feature)",
+      "chipRemoveFeatures_other": "Remove \"{{name}}\" ({{count}} features)"
+    },
+    "queryResult": {
+      "empty": "The AI query returned no rows.",
+      "emptyHint": "Try a broader area or different filter.",
+      "tableLabel": "Query result table",
+      "rowCount_one": "{{count}} row",
+      "rowCount_other": "{{count}} rows"
     }
   },
   "basemap": {

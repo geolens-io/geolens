@@ -1233,10 +1233,19 @@ export interface ChatAction {
   style_config?: StyleConfig;
   label_config?: LabelConfig;
   dataset_id?: string;
+  /** Optional dataset display name carried on add_layer actions by the backend. */
+  dataset_name?: string;
   visible?: boolean;
   opacity?: number;
   geojson?: GeoJSON.FeatureCollection;
   bbox?: [number, number, number, number];
+  /**
+   * Tabular query result rows from show_query_result actions. Phase 1135 AI-08.
+   * Present only when the AI returned structured row data (not a spatial-only result).
+   * When present, the inline data-analysis card is rendered inside the assistant bubble.
+   * When absent, only the existing geojson+bbox flyover path executes.
+   */
+  rows?: Record<string, unknown>[];
 }
 
 export interface ChatResponse {
