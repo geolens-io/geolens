@@ -393,6 +393,137 @@ async def test_catalog_datasets_no_context(
 
 
 @pytest.mark.anyio
+async def test_single_record_dcat_us3_has_required_profile_fields(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """GET /datasets/{id}/dcat-us/3.0/ returns DCAT-US 3.0 field names."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_dataset(session, created_by=admin_id)
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/", headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200
+    assert "application/ld+json" in resp.headers["content-type"]
+    data = resp.json()
+    assert data["@context"] == "https://resources.data.gov/dcat-us/3.0.0"
+    assert data["@type"] == "Dataset"
+    assert data["identifier"] == str(ds.id)
+    assert data["title"] == "DCAT Test Dataset"
+    assert data["description"] == "Description for DCAT Test Dataset"
+    assert data["publisher"] == {"@type": "Organization", "name": "GeoLens"}
+    assert data["contactPoint"][0]["@type"] == "Kind"
+    assert data["contactPoint"][0]["fn"] == "Jane Doe"
+    assert data["contactPoint"][0]["hasEmail"] == "mailto:jane@example.com"
+    assert data["temporal"] == [
+        {
+            "@type": "PeriodOfTime",
+            "startDate": "2020-01-01",
+            "endDate": "2024-12-31",
+        }
+    ]
+    assert data["spatial"]["@type"] == "Location"
+    assert data["spatial"]["bbox"].startswith("POLYGON((")
+    assert data["theme"] == [
+        {"@type": "Concept", "prefLabel": "environment"},
+        {"@type": "Concept", "prefLabel": "geoscience"},
+    ]
+    assert data["distribution"][0]["@type"] == "Distribution"
+    assert data["distribution"][0]["downloadURL"].startswith("http")
+
+
+@pytest.mark.anyio
+async def test_catalog_dcat_us3_includes_visible_datasets(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Catalog feed contains visible datasets in the DCAT-US dataset array."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_dataset(
+        session, created_by=admin_id, name="DCAT-US Visible"
+    )
+
+    resp = await client.get("/datasets/dcat-us/3.0/", headers=admin_auth_header)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["@type"] == "Catalog"
+    dataset_ids = [d["@id"] for d in data["dataset"]]
+    assert any(str(ds.id) in dataset_id for dataset_id in dataset_ids)
+
+
+@pytest.mark.anyio
+async def test_catalog_dcat_us3_excludes_private_datasets(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Unauthenticated DCAT-US catalog feed excludes private datasets."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_dataset(
+        session,
+        created_by=admin_id,
+        name="Private DCAT-US",
+        visibility="private",
+    )
+
+    resp = await client.get("/datasets/dcat-us/3.0/")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    dataset_ids = [d["@id"] for d in data["dataset"]]
+    assert not any(str(ds.id) in dataset_id for dataset_id in dataset_ids)
+
+
+@pytest.mark.anyio
+async def test_dcat_us3_service_distribution_emits_data_service(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Service-like distributions can expose DCAT-US DataService metadata."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_dataset(session, created_by=admin_id)
+    session.add(
+        RecordDistribution(
+            record_id=ds.record_id,
+            distribution_type="api",
+            format="ogcapi-features",
+            url=f"/ogc/collections/{ds.id}/items",
+            title="OGC API Features endpoint",
+            media_type="application/geo+json",
+            is_primary=False,
+            auto_generated=True,
+        )
+    )
+    await session.commit()
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/", headers=admin_auth_header
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    services = [
+        service
+        for dist in data["distribution"]
+        for service in dist.get("accessService", [])
+    ]
+    assert services
+    assert services[0]["@type"] == "DataService"
+    assert services[0]["title"] == "OGC API Features endpoint"
+    assert services[0]["endpointURL"][0].startswith("http")
+    assert services[0]["contactPoint"][0]["hasEmail"] == "mailto:jane@example.com"
+
+
+@pytest.mark.anyio
 async def test_single_record_dcat_404_for_missing(
     client: AsyncClient,
     admin_auth_header: dict,

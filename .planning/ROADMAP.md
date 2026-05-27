@@ -11,7 +11,7 @@
 ### Phase Plan
 
 - [x] **Phase 1129: DCAT-US Profile Contract and Schema Foundation** — pin the official schema source, vendor deterministic JSON Schema definitions, and document the GeoLens metadata crosswalk/gaps.
-- [ ] **Phase 1130: DCAT-US Serializer and Access Routes** — implement DCAT-US 3.0 catalog/dataset serializers plus explicit profile routes using existing visibility and access helpers.
+- [x] **Phase 1130: DCAT-US Serializer and Access Routes** — implement DCAT-US 3.0 catalog/dataset serializers plus explicit profile routes using existing visibility and access helpers.
 - [ ] **Phase 1131: Validation API, Docs, OpenAPI, and SDKs** — expose validation reports, document migration/mapping behavior, and refresh public API artifacts.
 - [ ] **Phase 1132: Quality Sweep and Playwright Close Gate** — run backend standards/export gates plus Playwright MCP verification against the running API surface and close the milestone.
 

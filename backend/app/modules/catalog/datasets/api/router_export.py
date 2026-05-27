@@ -15,6 +15,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
@@ -30,6 +31,7 @@ from app.modules.catalog.authorization import (
     get_user_roles,
 )
 from app.standards.dcat.service import catalog_to_dcat, record_to_dcat
+from app.standards.dcat_us.service import catalog_to_dcat_us3, record_to_dcat_us3
 from app.modules.catalog.datasets.domain.models import (
     Dataset as DatasetModel,
     DatasetGrant,
@@ -54,6 +56,55 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 
 
+def _dcat_relationship_options():
+    return joinedload(DatasetModel.record).options(
+        selectinload(Record.keywords),
+        selectinload(Record.contacts),
+        selectinload(Record.distributions),
+    )
+
+
+async def _get_visible_dcat_datasets(
+    db: AsyncSession, user: Identity | None
+) -> list[DatasetModel]:
+    stmt = (
+        select(DatasetModel)
+        .join(Record, DatasetModel.record_id == Record.id)
+        .options(_dcat_relationship_options())
+    )
+
+    if user is not None:
+        user_roles = await get_user_roles(db, user)
+    else:
+        user_roles = set()
+
+    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
+
+    result = await db.execute(stmt)
+    return list(result.unique().scalars().all())
+
+
+async def _get_dcat_dataset_for_export(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    user: Identity | None,
+) -> DatasetModel:
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+
+    result = await db.execute(
+        select(DatasetModel)
+        .options(_dcat_relationship_options())
+        .where(DatasetModel.id == dataset_id)
+    )
+    return result.unique().scalar_one()
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
@@ -66,32 +117,33 @@ async def get_dcat_catalog(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """DCAT 3 JSON-LD catalog feed. Respects dataset visibility."""
-    from sqlalchemy.orm import joinedload as _jl, selectinload as _sl
-
-    stmt = (
-        select(DatasetModel)
-        .join(Record, DatasetModel.record_id == Record.id)
-        .options(
-            _jl(DatasetModel.record).options(
-                _sl(Record.keywords),
-                _sl(Record.contacts),
-                _sl(Record.distributions),
-            ),
-        )
-    )
-
-    if user is not None:
-        user_roles = await get_user_roles(db, user)
-    else:
-        user_roles = set()
-
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-
-    result = await db.execute(stmt)
-    datasets = list(result.unique().scalars().all())
+    datasets = await _get_visible_dcat_datasets(db, user)
 
     base_url = await get_public_api_url(db)
     catalog = catalog_to_dcat(datasets, base_url)
+
+    from app.standards.ogc.utils import parse_accept_language
+
+    lang = parse_accept_language(request)
+    return JSONResponse(
+        content=catalog,
+        media_type="application/ld+json",
+        headers={"Content-Language": lang},
+    )
+
+
+@router.get("/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False)
+@router.get("/dcat-us/3.0/", response_class=JSONResponse)
+async def get_dcat_us3_catalog(
+    request: Request,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """DCAT-US Schema v3.0 catalog feed. Respects dataset visibility."""
+    datasets = await _get_visible_dcat_datasets(db, user)
+
+    base_url = await get_public_api_url(db)
+    catalog = catalog_to_dcat_us3(datasets, base_url)
 
     from app.standards.ogc.utils import parse_accept_language
 
@@ -111,32 +163,36 @@ async def get_dcat_record(
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """DCAT 3 JSON-LD for a single dataset."""
-    dataset = await get_dataset(db, dataset_id)
-    if dataset is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found",
-        )
-    await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
-
-    # Ensure relationships are loaded
-    from sqlalchemy.orm import joinedload as _jl, selectinload as _sl
-
-    result = await db.execute(
-        select(DatasetModel)
-        .options(
-            _jl(DatasetModel.record).options(
-                _sl(Record.keywords),
-                _sl(Record.contacts),
-                _sl(Record.distributions),
-            ),
-        )
-        .where(DatasetModel.id == dataset_id)
-    )
-    dataset = result.unique().scalar_one()
+    dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
     base_url = await get_public_api_url(db)
     dcat = record_to_dcat(dataset, base_url)
+
+    from app.standards.ogc.utils import parse_accept_language
+
+    lang = parse_accept_language(request)
+    return JSONResponse(
+        content=dcat,
+        media_type="application/ld+json",
+        headers={"Content-Language": lang},
+    )
+
+
+@router.get(
+    "/{dataset_id}/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False
+)
+@router.get("/{dataset_id}/dcat-us/3.0/", response_class=JSONResponse)
+async def get_dcat_us3_record(
+    dataset_id: uuid.UUID,
+    request: Request,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """DCAT-US Schema v3.0 JSON-LD for a single dataset."""
+    dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
+
+    base_url = await get_public_api_url(db)
+    dcat = record_to_dcat_us3(dataset, base_url)
 
     from app.standards.ogc.utils import parse_accept_language
 

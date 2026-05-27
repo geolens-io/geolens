@@ -14,11 +14,11 @@
 
 ### Serialization
 
-- [ ] **SER-01**: User can request a DCAT-US 3.0 catalog feed whose top-level Catalog includes schema-valid `dataset` entries for visible datasets with complete required metadata.
-- [ ] **SER-02**: User can request a single dataset as DCAT-US 3.0 with required Dataset fields: `title`, `description`, `identifier`, `publisher`, and `contactPoint`.
-- [ ] **SER-03**: DCAT-US 3.0 output emits structured `PeriodOfTime`, `Location`, `Concept`, `Organization`, `Kind`, and `Distribution` objects where GeoLens has source data.
-- [ ] **SER-04**: Distribution output distinguishes indirect access URLs from direct download URLs where current distribution metadata can support that distinction.
-- [ ] **SER-05**: Service-like distributions can emit simple `DataService` metadata without requiring a new connector registry or service table.
+- [x] **SER-01**: User can request a DCAT-US 3.0 catalog feed whose top-level Catalog includes schema-valid `dataset` entries for visible datasets with complete required metadata.
+- [x] **SER-02**: User can request a single dataset as DCAT-US 3.0 with required Dataset fields: `title`, `description`, `identifier`, `publisher`, and `contactPoint`.
+- [x] **SER-03**: DCAT-US 3.0 output emits structured `PeriodOfTime`, `Location`, `Concept`, `Organization`, `Kind`, and `Distribution` objects where GeoLens has source data.
+- [x] **SER-04**: Distribution output distinguishes indirect access URLs from direct download URLs where current distribution metadata can support that distinction.
+- [x] **SER-05**: Service-like distributions can emit simple `DataService` metadata without requiring a new connector registry or service table.
 
 ### Validation
 
@@ -29,10 +29,10 @@
 
 ### API and Access Control
 
-- [ ] **API-01**: Existing `/datasets/dcat/` and `/{dataset_id}/dcat/` routes keep their current W3C DCAT 3 behavior.
-- [ ] **API-02**: Explicit DCAT-US 3.0 catalog and per-dataset routes are available for federal-profile consumers.
-- [ ] **API-03**: Anonymous DCAT-US catalog export excludes private datasets using the same visibility filter as existing DCAT export.
-- [ ] **API-04**: Per-dataset DCAT-US export and validation enforce the same dataset access checks as existing per-dataset DCAT export.
+- [x] **API-01**: Existing `/datasets/dcat/` and `/{dataset_id}/dcat/` routes keep their current W3C DCAT 3 behavior.
+- [x] **API-02**: Explicit DCAT-US 3.0 catalog and per-dataset routes are available for federal-profile consumers.
+- [x] **API-03**: Anonymous DCAT-US catalog export excludes private datasets using the same visibility filter as existing DCAT export.
+- [x] **API-04**: Per-dataset DCAT-US export and validation enforce the same dataset access checks as existing per-dataset DCAT export.
 - [ ] **API-05**: Public API snapshot and generated SDKs are refreshed if the DCAT-US routes are included in OpenAPI.
 
 ### Documentation and Quality
@@ -78,15 +78,15 @@
 | PROFILE-03 | Phase 1129 | Complete |
 | PROFILE-04 | Phase 1129 | Complete |
 | VAL-01 | Phase 1129 | Complete |
-| SER-01 | Phase 1130 | Pending |
-| SER-02 | Phase 1130 | Pending |
-| SER-03 | Phase 1130 | Pending |
-| SER-04 | Phase 1130 | Pending |
-| SER-05 | Phase 1130 | Pending |
-| API-01 | Phase 1130 | Pending |
-| API-02 | Phase 1130 | Pending |
-| API-03 | Phase 1130 | Pending |
-| API-04 | Phase 1130 | Pending |
+| SER-01 | Phase 1130 | Complete |
+| SER-02 | Phase 1130 | Complete |
+| SER-03 | Phase 1130 | Complete |
+| SER-04 | Phase 1130 | Complete |
+| SER-05 | Phase 1130 | Complete |
+| API-01 | Phase 1130 | Complete |
+| API-02 | Phase 1130 | Complete |
+| API-03 | Phase 1130 | Complete |
+| API-04 | Phase 1130 | Complete |
 | VAL-02 | Phase 1131 | Pending |
 | VAL-03 | Phase 1131 | Pending |
 | VAL-04 | Phase 1131 | Pending |
