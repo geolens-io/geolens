@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
@@ -843,5 +843,100 @@ describe('ChatPanel — inline data-analysis card (Phase 1135 AI-08)', () => {
     });
     // Negative control — no inline card when rows is absent
     expect(screen.queryByRole('region', { name: /query result table/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel — recoverable error banner (Phase 1135 AI-03)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  it('503 surfaces sticky banner with Retry button; Retry re-fires the last user message', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new ApiError('AI unavailable', 503);
+    });
+    mockSendChat.mockRejectedValue(new ApiError('AI unavailable', 503));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'broken request');
+
+    // Banner appears
+    const banner = await screen.findByRole('alert');
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent(/AI is unavailable/i);
+    const retryBtn = within(banner).getByRole('button', { name: /retry/i });
+    expect(retryBtn).toBeInTheDocument();
+    // Inline error bubble suppressed — no Retry button OUTSIDE the alert region
+    const allRetryButtons = screen.getAllByRole('button', { name: /retry/i });
+    expect(allRetryButtons.length).toBe(1); // exactly the banner Retry
+
+    // Retry re-fills the input
+    await user.click(retryBtn);
+    const input = screen.getByPlaceholderText(/describe a map change/i) as HTMLTextAreaElement;
+    expect(input.value).toBe('broken request');
+    // Banner cleared
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('403 surfaces sticky banner with Dismiss button; NO Retry button', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new ApiError('forbidden', 403);
+    });
+    mockSendChat.mockRejectedValue(new ApiError('forbidden', 403));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'forbidden request');
+
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent(/AI access lost/i);
+    // No Retry button anywhere
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    // Dismiss button present
+    const dismiss = within(banner).getByRole('button', { name: /dismiss/i });
+    await user.click(dismiss);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('401 falls through to existing inline error bubble — banner NOT rendered', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new ApiError('session expired', 401);
+    });
+    mockSendChat.mockRejectedValue(new ApiError('session expired', 401));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'test-auth-401');
+
+    // No banner
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+    // Existing inline error bubble path renders the session-expired text (t('chat.errorSessionExpired'))
+    expect(await screen.findByText(/please log in again|session expired\. please/i)).toBeInTheDocument();
+  });
+
+  it('network error falls through to existing inline error bubble — banner NOT rendered', async () => {
+    // eslint-disable-next-line require-yield
+    mockStreamChat.mockImplementationOnce(async function* () {
+      throw new Error('Network unreachable');
+    });
+    mockSendChat.mockRejectedValue(new Error('Network unreachable'));
+
+    const user = userEvent.setup();
+    renderPanel();
+    await typeAndSend(user, 'network drops');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+    // Existing inline error bubble renders the generic friendly error
+    const errorMessage = await screen.findByText(/something went wrong|trouble|try again|error/i);
+    expect(errorMessage).toBeInTheDocument();
   });
 });

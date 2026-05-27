@@ -160,6 +160,9 @@ export function ChatPanel({
   const [streamingText, setStreamingText] = useState('');
   const [toolProgress, setToolProgress] = useState<string | null>(null);
   const [timeoutMessage, setTimeoutMessage] = useState<string | null>(null);
+  // Phase 1135 AI-03: service-level error banner for 403 (permission revoked) and 503 (AI down).
+  // Distinct from the inline per-message error bubble used for 401 + network errors.
+  const [errorBanner, setErrorBanner] = useState<{ kind: 'forbidden' | 'unavailable'; retryMessage: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Synchronous inflight lock — setIsLoading is async-batched, so two same-
   // tick handleSend calls would both see isLoading=false and both fetch.
@@ -468,6 +471,8 @@ export function ChatPanel({
           }
           case 'done': {
             const finalText = (typeof data.explanation === 'string' ? data.explanation : '') || text;
+            // Phase 1135 AI-03: clear any existing error banner on successful response.
+            setErrorBanner(null);
             setMessages((prev) => [
               ...prev,
               {
@@ -517,8 +522,16 @@ export function ChatPanel({
             actions: pendingActions,
           },
         ]);
-      } else if (err instanceof ApiError && (err.status === 401 || err.status === 403 || err.status === 502 || err.status === 503)) {
-        // Known auth/permission/service error — don't retry, show directly
+      } else if (err instanceof ApiError && (err.status === 403 || err.status === 503)) {
+        // Phase 1135 AI-03: service-level errors (permission revoked or AI temporarily down)
+        // → show persistent sticky banner, NOT inline error bubble.
+        setErrorBanner({
+          kind: err.status === 403 ? 'forbidden' : 'unavailable',
+          retryMessage: userMsg,
+        });
+        // Do NOT push an inline error message. Do NOT fall through to non-streaming retry.
+      } else if (err instanceof ApiError && (err.status === 401 || err.status === 502)) {
+        // Known auth/service error — don't retry, show inline error bubble directly
         setMessages((prev) => [
           ...prev,
           {
@@ -552,6 +565,8 @@ export function ChatPanel({
               cleanStaleLayerRefs(mapId, layerId);
             }
           }
+          // Phase 1135 AI-03: clear any existing error banner on non-streaming success.
+          setErrorBanner(null);
           setMessages((prev) => [
             ...prev,
             {
@@ -591,6 +606,57 @@ export function ChatPanel({
     <div ref={containerRef} className={cn("flex h-full", horizontal ? "flex-row" : "flex-col")}>
       {/* Message list */}
       <div className={cn("flex-1 overflow-y-auto px-3 py-2 space-y-2", horizontal && "border-e")} role="log" aria-live="polite">
+        {/* Phase 1135 AI-03: sticky service-level error banner (403 = forbidden, 503 = unavailable).
+            Rendered before the message list so it stays at the top of the scroll area.
+            Uses role="alert" aria-live="assertive" distinct from the message log's role="log". */}
+        {errorBanner !== null && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 mb-2 sticky top-0 z-10"
+          >
+            <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                {t(errorBanner.kind === 'forbidden' ? 'chat.bannerForbiddenTitle' : 'chat.bannerUnavailableTitle', {
+                  defaultValue: errorBanner.kind === 'forbidden' ? 'AI access lost' : 'AI is unavailable',
+                })}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {t(errorBanner.kind === 'forbidden' ? 'chat.bannerForbiddenBody' : 'chat.bannerUnavailableBody', {
+                  defaultValue: errorBanner.kind === 'forbidden'
+                    ? 'You no longer have permission to use AI chat. Contact your administrator to restore access.'
+                    : 'The AI service is temporarily unavailable. Try again in a moment.',
+                })}
+              </p>
+            </div>
+            {errorBanner.kind === 'unavailable' ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 shrink-0"
+                onClick={() => {
+                  const retry = errorBanner.retryMessage;
+                  setErrorBanner(null);
+                  setInput(retry);
+                }}
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t('chat.bannerRetry', { defaultValue: 'Retry' })}
+              </Button>
+            ) : (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                className="shrink-0"
+                onClick={() => setErrorBanner(null)}
+                aria-label={t('chat.bannerDismiss', { defaultValue: 'Dismiss' })}
+              >
+                ×
+              </Button>
+            )}
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="py-4 space-y-3">
             <p className="text-xs text-muted-foreground text-center">
