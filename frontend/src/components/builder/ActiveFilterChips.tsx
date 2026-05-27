@@ -121,26 +121,31 @@ export function ActiveFilterChips({ layers, onClearFilter }: ActiveFilterChipsPr
     // MAP-20: max-h-[40vh] + overflow-y-auto prevents the chip column from growing into the
     // bottom-left MeasurementWidget at ≤800px. See UI-SPEC §Filter-Pill vs Measure-Widget
     // Collision Avoidance.
-    <div className="flex flex-wrap gap-1.5 max-h-[40vh] overflow-y-auto pointer-events-none">
-      {chips.map((chip) => (
-        <span
-          key={chip.layerId}
-          className="pointer-events-auto inline-flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border rounded-full px-2.5 py-1 shadow-sm text-xs"
-          title={`${chip.layerName}: ${chip.label}`}
-        >
-          <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
-            {chip.layerName}
-          </span>
-          <span className="text-foreground">{chip.label}</span>
-          <button
-            onClick={() => onClearFilter(chip.layerId)}
-            className="flex cursor-pointer items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
-            aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
+    // WR-01: outer wrapper keeps pointer-events-none for map drag passthrough; inner scroll
+    // container restores pointer-events-auto so wheel/touch-scroll events reach the element
+    // when the chip list overflows (the case where the cap is actually needed).
+    <div className="pointer-events-none">
+      <div className="pointer-events-auto flex flex-wrap gap-1.5 max-h-[40vh] overflow-y-auto">
+        {chips.map((chip) => (
+          <span
+            key={chip.layerId}
+            className="inline-flex items-center gap-1.5 bg-background/90 backdrop-blur-sm border rounded-full px-2.5 py-1 shadow-sm text-xs"
+            title={`${chip.layerName}: ${chip.label}`}
           >
-            <X className="h-2.5 w-2.5" />
-          </button>
-        </span>
-      ))}
+            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
+              {chip.layerName}
+            </span>
+            <span className="text-foreground">{chip.label}</span>
+            <button
+              onClick={() => onClearFilter(chip.layerId)}
+              className="flex cursor-pointer items-center justify-center h-3.5 w-3.5 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground transition-colors"
+              aria-label={t('filters.clear', { defaultValue: 'Clear filter' })}
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
