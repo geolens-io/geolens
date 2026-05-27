@@ -224,7 +224,7 @@ export function ChatPanel({
       const name = action.dataset_name ?? action.dataset_id ?? '';
       // Reference layer: the layer with the lowest sort_order (topmost in stack = renders last).
       // For an add action the new layer lands at the top; the reference is the current topmost.
-      const sorted = layers.slice().sort((a, b) => b.sort_order - a.sort_order);
+      const sorted = layers.slice().sort((a, b) => a.sort_order - b.sort_order);
       const topLayer = sorted[0];
       const ref = topLayer ? (topLayer.display_name ?? topLayer.dataset_name) : null;
       if (ref) {
