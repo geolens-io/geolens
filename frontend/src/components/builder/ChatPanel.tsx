@@ -582,15 +582,23 @@ export function ChatPanel({
             },
           ]);
         } catch (fallbackErr) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: 'error',
-              content: mapApiErrorToMessage(fallbackErr),
+          // Phase 1135 AI-03: mirror streaming error classification — 403/503 → sticky banner.
+          if (fallbackErr instanceof ApiError && (fallbackErr.status === 403 || fallbackErr.status === 503)) {
+            setErrorBanner({
+              kind: fallbackErr.status === 403 ? 'forbidden' : 'unavailable',
               retryMessage: userMsg,
-            },
-          ]);
+            });
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: 'error',
+                content: mapApiErrorToMessage(fallbackErr),
+                retryMessage: userMsg,
+              },
+            ]);
+          }
         }
       }
     } finally {
