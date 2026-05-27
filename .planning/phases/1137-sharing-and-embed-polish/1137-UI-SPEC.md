@@ -417,7 +417,7 @@ The iframe pane renders below the embed code textarea, replacing or extending th
 | `title` | `t('share.iframePreviewTitle')` → `"Map embed preview"` | Accessibility: `<iframe>` must have `title` |
 | Border | `style={{ border: 'none' }}` | Matches the embed snippet output |
 | Pane visibility | Collapsed by default; toggle via "Preview" disclosure button | Avoids auto-loading iframe on dialog open |
-| Toggle button | `text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1` with Lucide `ChevronRight` rotating to `rotate-90` when expanded | Matches `ShareLinkSettings` toggle style for consistency |
+| Toggle button | `text-xs text-muted-foreground hover:text-foreground flex items-center gap-1` with Lucide `ChevronRight` rotating to `rotate-90` when expanded | Weight stays at base 400 to keep new-surface font-weight count at 2 (400 / 600) per D4 strict rule. Subordination achieved by `text-muted-foreground` alone. |
 
 ### Loading State
 
