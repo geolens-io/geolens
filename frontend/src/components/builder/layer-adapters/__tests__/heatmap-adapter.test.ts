@@ -24,6 +24,7 @@ interface MockMapHeatmap {
   getLayer: ReturnType<typeof vi.fn>;
   getPaintProperty: ReturnType<typeof vi.fn>;
   setPaintProperty: ReturnType<typeof vi.fn>;
+  setLayoutProperty: ReturnType<typeof vi.fn>;
 }
 
 function createMockMap(opts: { layerExists?: boolean } = {}): MockMapHeatmap {
@@ -36,6 +37,7 @@ function createMockMap(opts: { layerExists?: boolean } = {}): MockMapHeatmap {
     // forcing the paintValueChanged branch in syncPaint to fire.
     getPaintProperty: vi.fn().mockReturnValue(undefined),
     setPaintProperty: vi.fn(),
+    setLayoutProperty: vi.fn(),
   };
 }
 
@@ -146,5 +148,47 @@ describe('heatmap-adapter syncPaint — Phase 1051 WR-01 single-write contract',
     );
     expect(radiusWrites).toHaveLength(1);
     expect(radiusWrites[0][2]).toBe(42);
+  });
+});
+
+/**
+ * 1134-01 MAP-18 regression pins — extend the existing heatmap harness.
+ * Same 4-test contract used for all adapters:
+ *   BUG-01, syncLayerFilter, syncVisibility, getLayerIds.
+ */
+describe('heatmap adapter — addLayers honors visible=false at add-time (BUG-01 PASS pin)', () => {
+  it('addLayer called with layout.visibility === "none" when visible=false', () => {
+    const map = createMockMap({ layerExists: false });
+    heatmapAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({ visible: false }));
+
+    expect(map.addLayer).toHaveBeenCalledTimes(1);
+    const call = map.addLayer.mock.calls[0][0] as { layout?: { visibility?: string } };
+    expect(call.layout?.visibility).toBe('none');
+  });
+});
+
+describe('heatmap adapter — syncPaint calls syncLayerFilter', () => {
+  it('setFilter is called on the canvas when a filter is provided via syncPaint', () => {
+    const map = createMockMap({ layerExists: true });
+    const filter = ['==', ['get', 'intensity'], 'high'] as unknown as import('maplibre-gl').FilterSpecification;
+    heatmapAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ filter }));
+
+    expect(map.setFilter).toHaveBeenCalledWith('layer-1', filter);
+  });
+});
+
+describe('heatmap adapter — syncVisibility uses syncSingleLayerVisibility helper', () => {
+  it('setLayoutProperty called with visibility=none when visible=false', () => {
+    const map = createMockMap({ layerExists: true });
+    heatmapAdapter.syncVisibility(map as unknown as import('maplibre-gl').Map, makeInput({ visible: false }));
+
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('layer-1', 'visibility', 'none');
+  });
+});
+
+describe('heatmap adapter — getLayerIds returns [layerId]', () => {
+  it('returns array containing only the base layerId', () => {
+    const ids = heatmapAdapter.getLayerIds('heat-xyz');
+    expect(ids).toEqual(['heat-xyz']);
   });
 });
