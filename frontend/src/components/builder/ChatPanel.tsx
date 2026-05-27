@@ -101,7 +101,7 @@ function hasPaintMutation(action: ChatAction): boolean {
   return Boolean(
     (paint && Object.keys(paint).length > 0) ||
     getActionClearPaint(action).length > 0 ||
-    (action.replace_paint === true && paint),
+    (action.replace_paint === true),
   );
 }
 
