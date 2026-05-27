@@ -46,7 +46,7 @@ Standard 8-point scale in use project-wide. Inherited from 1134-UI-SPEC; no new 
 
 **Exceptions for this phase:**
 
-- **Action preview chip:** `px-2.5 py-1` (10px / 4px) — matches the existing suggestion chip shape in `ChatPanel.tsx:539`. This is a sub-8px vertical exception already established by the suggestion chip; reusing it keeps visual consistency rather than introducing a second chip variant.
+- **Action preview chip:** `px-3 py-1` (12px / 4px) — on-grid replacement for the existing suggestion chip's `px-2.5 py-1` (10px / 4px). 12px is the smallest multiple of 4 that preserves the suggestion chip's visual proportions. Suggestion chip itself migrates to `px-3` in this phase as a sibling cleanup (see Surface 5).
 - **Inline data table max-height:** `max-h-48` (192px = 48 × 4px). This is a non-scale value chosen to show ~5–6 rows before scrolling. 192 is divisible by 4; acceptable per project convention.
 
 ---
@@ -113,7 +113,7 @@ Each pending action renders as one chip row:
 
 | Property | Value | Rationale |
 |----------|-------|-----------|
-| Container | `flex items-center gap-2 rounded-md bg-background px-2 py-1.5` | Matches existing `bg-muted` message bubble family but lighter surface |
+| Container | `flex items-center gap-2 rounded-md bg-background px-2 py-1` | On-grid (8/4px). Matches existing `bg-muted` message bubble family but lighter surface |
 | Verb icon | Lucide `Plus` (add_layer) or `Trash2` (remove_layer), 14px, `text-muted-foreground` | Consistent with Lucide icon vocabulary in the builder |
 | Chip text | `text-sm text-foreground` | Full sentence format: see copywriting section |
 | Accept button | `Button size="sm" variant="default"` with `h-7 text-xs` override | OKLCH blue — confirms action |
@@ -192,12 +192,14 @@ The card is appended as a sibling to the assistant message `<p>` inside the same
 
 ```
 ┌────────────────────────────┐
-│  No results returned       │
+│  The AI query returned     │
+│  no rows. Try a broader    │
+│  area or different filter. │
 └────────────────────────────┘
 ```
 
 - Container: `mt-2 rounded-md border border-border px-3 py-2`
-- Text: `text-sm text-muted-foreground` — "No results returned."
+- Text: `text-sm text-muted-foreground` — "The AI query returned no rows." + secondary line `text-xs text-muted-foreground/80` — "Try a broader area or different filter." (causal + actionable; passes D1 solution-path rule)
 
 ### Accessibility
 
@@ -302,7 +304,7 @@ The banner renders at the TOP of the ChatPanel message log (not below the compos
 | Title | `text-sm font-medium text-foreground` — brief label |
 | Body | `text-xs text-muted-foreground` — one-line explanation |
 | Retry button (503) | `Button size="sm" variant="outline" className="h-7 text-xs gap-1"` — `RotateCcw` icon + "Retry" |
-| Dismiss button (403) | Plain `×` button `Button size="icon-xs" variant="ghost"` — no retry offered for permission errors |
+| Dismiss button (403) | Plain `×` button `Button size="icon-xs" variant="ghost"` with `aria-label={t('chat.bannerDismiss')}` (resolves to "Dismiss") — no retry offered for permission errors |
 | Retry behavior | Re-fires the last user message (existing `handleRetry` pattern from `ChatPanel:517-519`) |
 | Banner persistence | Remains visible until user dismisses (×) OR a successful response replaces it. Sending a new message does NOT auto-clear the banner — it persists until the retry succeeds |
 | `role` | `role="alert" aria-live="assertive"` — announces immediately to screen readers |
@@ -312,7 +314,7 @@ The banner renders at the TOP of the ChatPanel message log (not below the compos
 | Key | Default (en) |
 |-----|-------------|
 | `builder:chat.bannerForbiddenTitle` | `"AI access lost"` |
-| `builder:chat.bannerForbiddenBody` | `"You no longer have permission to use AI chat."` |
+| `builder:chat.bannerForbiddenBody` | `"You no longer have permission to use AI chat. Contact your administrator to restore access."` |
 | `builder:chat.bannerUnavailableTitle` | `"AI is unavailable"` |
 | `builder:chat.bannerUnavailableBody` | `"The AI service is temporarily unavailable. Try again in a moment."` |
 | `builder:chat.bannerRetry` | `"Retry"` |
@@ -334,7 +336,7 @@ The existing `getSmartSuggestions()` in `chat-suggestions.ts` generates up to 4 
 
 Existing chips at `ChatPanel.tsx:539`:
 ```tsx
-className="cursor-pointer text-xs px-2.5 py-1 rounded-full border border-border
+className="cursor-pointer text-xs px-3 py-1 rounded-full border border-border
            hover:bg-accent hover:border-primary/30 text-muted-foreground
            hover:text-foreground transition-colors"
 ```
@@ -411,7 +413,8 @@ The chip list is NOT re-rendered mid-conversation. Chips only appear on the init
 | Reject one button | "Reject" | `chat.staging.reject` |
 | Add layer chip | `Add "{name}"` or `Add "{name}" below "{ref}"` | `chat.staging.chipAdd` / `chat.staging.chipAddBelow` |
 | Remove layer chip | `Remove "{name}"` or `Remove "{name}" (N features)` | `chat.staging.chipRemove` / `chat.staging.chipRemoveFeatures` |
-| Empty query table | "No results returned." | `chat.queryResult.empty` |
+| Empty query table (primary) | "The AI query returned no rows." | `chat.queryResult.empty` |
+| Empty query table (sub) | "Try a broader area or different filter." | `chat.queryResult.emptyHint` |
 | Table scroll region aria-label | "Query result table" | `chat.queryResult.tableLabel` |
 | Row count footer | "N row(s)" | `chat.queryResult.rowCount` |
 | Disabled: env_disabled title | "AI is disabled" | `rail.aiDisabledTitle` |
@@ -422,7 +425,7 @@ The chip list is NOT re-rendered mid-conversation. Chips only appear on the init
 | Disabled: permission body | "You don't have permission to use AI chat." | `rail.aiPermissionBody` |
 | Disabled: settings CTA (env/key) | "Go to Settings" or "Configure in Settings" | `rail.aiGoToSettings` / `rail.aiConfigureSettings` |
 | Error banner: 403 title | "AI access lost" | `chat.bannerForbiddenTitle` |
-| Error banner: 403 body | "You no longer have permission to use AI chat." | `chat.bannerForbiddenBody` |
+| Error banner: 403 body | "You no longer have permission to use AI chat. Contact your administrator to restore access." | `chat.bannerForbiddenBody` |
 | Error banner: 503 title | "AI is unavailable" | `chat.bannerUnavailableTitle` |
 | Error banner: 503 body | "The AI service is temporarily unavailable. Try again in a moment." | `chat.bannerUnavailableBody` |
 | Error banner retry | "Retry" | `chat.bannerRetry` |
