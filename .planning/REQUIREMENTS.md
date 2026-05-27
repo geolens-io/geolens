@@ -41,10 +41,10 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 
 ### EDITOR — Per-Render-Mode Editor Polish (parallel to AI)
 
-- [ ] **EDITOR-RASTER-01**: User can adjust raster brightness via a slider in `RasterEditor.tsx`; routed through `RasterAdapter` `*_OWNED_PAINT_PROPERTIES` extension; debounced via v1010 `coalesceFrame` (100ms opacity, 200ms color); save/reload symmetry vitest mandatory.
-- [ ] **EDITOR-RASTER-02**: User can adjust raster contrast via a slider; same contract as EDITOR-RASTER-01.
-- [ ] **EDITOR-RASTER-03**: User can adjust raster saturation via a slider; same contract.
-- [ ] **EDITOR-RASTER-04**: User can adjust raster hue-rotate via a slider + a Reset button restores all 4 sliders to default; pinned by save/reload + style-JSON round-trip tests.
+- [x] **EDITOR-RASTER-01**: User can adjust raster brightness via a slider in `RasterEditor.tsx`; routed through `RasterAdapter` `*_OWNED_PAINT_PROPERTIES` extension; debounced via v1010 `coalesceFrame` (100ms opacity, 200ms color); save/reload symmetry vitest mandatory.
+- [x] **EDITOR-RASTER-02**: User can adjust raster contrast via a slider; same contract as EDITOR-RASTER-01.
+- [x] **EDITOR-RASTER-03**: User can adjust raster saturation via a slider; same contract.
+- [x] **EDITOR-RASTER-04**: User can adjust raster hue-rotate via a slider + a Reset button restores all 4 sliders to default; pinned by save/reload + style-JSON round-trip tests.
 - [ ] **EDITOR-LINE-01**: User can pick `line-cap` (butt / round / square) in `LineEditor.tsx`; LineAdapter extends `*_OWNED_LAYOUT_PROPERTIES` (NOT paint).
 - [ ] **EDITOR-LINE-02**: User can pick `line-join` (bevel / round / miter) in `LineEditor.tsx`; same LAYOUT-not-PAINT contract.
 - [ ] **EDITOR-FILL-04**: When a fill layer uses 3D extrusion via `paint._height_column`, FillEditor surfaces a "Range: X–Y, N features" hint from the dataset sample values; verify `dataset_sample_values` carries enough metadata in WALK-01.
@@ -149,10 +149,10 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | AI-05 | Phase 1135 | Complete |
 | AI-08 | Phase 1135 | Complete |
 | AI-09 | Phase 1135 | Complete |
-| EDITOR-RASTER-01 | Phase 1136 | Pending |
-| EDITOR-RASTER-02 | Phase 1136 | Pending |
-| EDITOR-RASTER-03 | Phase 1136 | Pending |
-| EDITOR-RASTER-04 | Phase 1136 | Pending |
+| EDITOR-RASTER-01 | Phase 1136 | Complete |
+| EDITOR-RASTER-02 | Phase 1136 | Complete |
+| EDITOR-RASTER-03 | Phase 1136 | Complete |
+| EDITOR-RASTER-04 | Phase 1136 | Complete |
 | EDITOR-LINE-01 | Phase 1136 | Pending |
 | EDITOR-LINE-02 | Phase 1136 | Pending |
 | EDITOR-FILL-04 | Phase 1136 | Pending |
