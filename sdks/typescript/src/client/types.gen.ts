@@ -12935,6 +12935,76 @@ export type CreateEmptyDatasetEndpointDatasetsCreatePostResponses = {
 
 export type CreateEmptyDatasetEndpointDatasetsCreatePostResponse = CreateEmptyDatasetEndpointDatasetsCreatePostResponses[keyof CreateEmptyDatasetEndpointDatasetsCreatePostResponses];
 
+export type GetDcatUs3CatalogDatasetsDcatUs30GetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/datasets/dcat-us/3.0/';
+};
+
+export type GetDcatUs3CatalogDatasetsDcatUs30GetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetDcatUs3CatalogDatasetsDcatUs30GetError = GetDcatUs3CatalogDatasetsDcatUs30GetErrors[keyof GetDcatUs3CatalogDatasetsDcatUs30GetErrors];
+
+export type GetDcatUs3CatalogDatasetsDcatUs30GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/datasets/dcat-us/3.0/validation/';
+};
+
+export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetError = ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors[keyof ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors];
+
+export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type GetDcatCatalogDatasetsDcatGetData = {
     body?: never;
     path?: never;
@@ -13539,6 +13609,86 @@ export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponses 
 };
 
 export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponse = GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponses[keyof GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetResponses];
+
+export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/dcat-us/3.0/';
+};
+
+export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetError = GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors[keyof GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors];
+
+export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: never;
+    url: '/datasets/{dataset_id}/dcat-us/3.0/validation/';
+};
+
+export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetError = ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors[keyof ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors];
+
+export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type GetDcatRecordDatasetsDatasetIdDcatGetData = {
     body?: never;
