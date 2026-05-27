@@ -1331,7 +1331,7 @@ export function MapBuilderPage() {
                   aria-label={btn.label}
                   aria-pressed={railPanel === btn.id}
                   className={cn(
-                    'flex h-11 w-11 items-center justify-center rounded-md transition-colors',
+                    'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
                     btn.disabled
                       ? 'cursor-not-allowed text-muted-foreground/40'
                       : railPanel === btn.id
@@ -1340,6 +1340,15 @@ export function MapBuilderPage() {
                   )}
                 >
                   <btn.icon className="h-4 w-4" aria-hidden="true" />
+                  {/* MAP-22: presence dot on mobile Notes button — mirrors BuilderRail.tsx:105-110.
+                      BuilderRail is hidden at <800px (isEditorHidden); this dot keeps MAP-22
+                      parity at 414×896. */}
+                  {btn.id === 'notes' && dockNotes.trim().length > 0 && (
+                    <span
+                      aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
+                      className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary"
+                    />
+                  )}
                 </button>
               ))}
             </div>
