@@ -40,10 +40,10 @@
 - [x] **DOC-01**: Developer/operator documentation explains the DCAT-US 3.0 route strategy, validation behavior, schema source, and mapping gaps.
 - [x] **DOC-02**: Migration notes call out DCAT-US v1.1 to v3.0 breaking areas relevant to GeoLens: `modified`, `temporal`, `spatial`, `language`, restrictions, services, and dataset series.
 - [x] **DOC-03**: CHANGELOG records the DCAT-US 3.0 support surface and any accepted limitations.
-- [ ] **QA-01**: Focused backend tests cover serializer mapping, schema-valid happy paths, validation errors, visibility filtering, and route-order conflicts.
-- [ ] **QA-02**: Backend lint/format checks and focused pytest gates pass for touched standards/export code.
-- [ ] **QA-03**: OpenAPI/SDK checks pass or any skipped generator surface is justified with no public API changes.
-- [ ] **QA-04**: Playwright MCP verifies the running API surface for DCAT-US catalog export, validation, response status, network hygiene, and console hygiene.
+- [x] **QA-01**: Focused backend tests cover serializer mapping, schema-valid happy paths, validation errors, visibility filtering, and route-order conflicts.
+- [x] **QA-02**: Backend lint/format checks and focused pytest gates pass for touched standards/export code.
+- [x] **QA-03**: OpenAPI/SDK checks pass or any skipped generator surface is justified with no public API changes.
+- [x] **QA-04**: Playwright MCP verifies the running API surface for DCAT-US catalog export, validation, response status, network hygiene, and console hygiene.
 
 ## Future Requirements
 
@@ -94,10 +94,10 @@
 | DOC-01 | Phase 1131 | Complete |
 | DOC-02 | Phase 1131 | Complete |
 | DOC-03 | Phase 1131 | Complete |
-| QA-01 | Phase 1132 | Pending |
-| QA-02 | Phase 1132 | Pending |
-| QA-03 | Phase 1132 | Pending |
-| QA-04 | Phase 1132 | Pending |
+| QA-01 | Phase 1132 | Complete |
+| QA-02 | Phase 1132 | Complete |
+| QA-03 | Phase 1132 | Complete |
+| QA-04 | Phase 1132 | Complete |
 
 **Coverage:**
 - v1029 requirements: 25 total
@@ -106,4 +106,4 @@
 
 ---
 *Requirements defined: 2026-05-27*
-*Last updated: 2026-05-27 after Phase 1131 completion*
+*Last updated: 2026-05-27 after Phase 1132 completion*

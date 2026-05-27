@@ -1,12 +1,78 @@
 # Roadmap: GeoLens
 
-## Current Milestone
+## v1029 DCAT 3.0
 
-No active milestone. Start the next milestone with `$gsd-new-milestone`.
+**Goal:** Add full DCAT-US Schema v3.0 support so GeoLens can emit, validate, document, and operationalize federal `data.json` metadata while preserving existing catalog visibility rules.
+
+**Trigger:** The user requested support for DCAT-US Schema v3.0 from the official resources.data.gov reference. GeoLens already has W3C DCAT 3 JSON-LD export endpoints, so this milestone upgrades standards coverage with a compatibility-preserving DCAT-US profile, official schema validation, route/API support, mapping notes, and runtime verification.
+
+**Hard invariant:** Existing W3C DCAT 3 routes must remain stable. New DCAT-US 3.0 catalog, dataset, and validation surfaces must preserve dataset visibility filtering and per-dataset access checks.
+
+### Phase Plan
+
+- [x] **Phase 1129: DCAT-US Profile Contract and Schema Foundation** — pin the official schema source, vendor deterministic JSON Schema definitions, and document the GeoLens metadata crosswalk/gaps.
+- [x] **Phase 1130: DCAT-US Serializer and Access Routes** — implement DCAT-US 3.0 catalog/dataset serializers plus explicit profile routes using existing visibility and access helpers.
+- [x] **Phase 1131: Validation API, Docs, OpenAPI, and SDKs** — expose validation reports, document migration/mapping behavior, and refresh public API artifacts.
+- [x] **Phase 1132: Quality Sweep and Playwright Close Gate** — run backend standards/export gates plus Playwright MCP verification against the running API surface and close the milestone.
+
+### Phase 1129: DCAT-US Profile Contract and Schema Foundation
+
+**Goal:** Establish the official DCAT-US 3.0 schema foundation and implementation contract before serializer work.
+
+**Requirements:** PROFILE-01, PROFILE-02, PROFILE-03, PROFILE-04, VAL-01
+
+**Depends on:** —
+
+**Success Criteria:**
+1. Official DCAT-US 3.0 JSON Schema definitions are present locally with source commit recorded.
+2. DCAT-US profile code is separated from the existing W3C DCAT serializer.
+3. Mapping notes identify supported Catalog/Dataset/Distribution/DataService/supporting-class fields.
+4. Metadata gaps are explicitly classified as fallback, warning, future-field, or out-of-scope behavior.
+
+### Phase 1130: DCAT-US Serializer and Access Routes
+
+**Goal:** Emit DCAT-US 3.0 metadata through compatibility-preserving routes.
+
+**Requirements:** SER-01, SER-02, SER-03, SER-04, SER-05, API-01, API-02, API-03, API-04
+
+**Depends on:** Phase 1129
+
+**Success Criteria:**
+1. New DCAT-US catalog and per-dataset routes return unprefixed DCAT-US 3.0 JSON-LD/profile JSON without altering existing `/datasets/dcat/` output.
+2. Visible datasets with complete required metadata validate against the vendored schema.
+3. Anonymous/private visibility behavior matches the existing DCAT catalog route.
+4. Per-dataset export and validation return 404/403-compatible access behavior through existing access helpers.
+
+### Phase 1131: Validation API, Docs, OpenAPI, and SDKs
+
+**Goal:** Make DCAT-US support operationally usable and visible to API consumers.
+
+**Requirements:** VAL-02, VAL-03, VAL-04, API-05, DOC-01, DOC-02, DOC-03
+
+**Depends on:** Phase 1130
+
+**Success Criteria:**
+1. Validation reports include validity, error count, JSON path, schema path, validator, and message.
+2. Validation reports distinguish metadata-completeness errors from access-control behavior.
+3. Developer/operator docs and CHANGELOG capture route strategy, schema source, mapping gaps, migration notes, and accepted limitations.
+4. OpenAPI and generated SDK artifacts are refreshed for public route changes.
+
+### Phase 1132: Quality Sweep and Playwright Close Gate
+
+**Goal:** Prove the DCAT-US 3.0 support surface with automated gates and running-app evidence.
+
+**Requirements:** QA-01, QA-02, QA-03, QA-04
+
+**Depends on:** Phases 1129-1131
+
+**Success Criteria:**
+1. Focused backend tests cover serializer mapping, schema-valid output, validation errors, route order, and visibility/access behavior.
+2. Backend lint/format checks pass for touched files.
+3. OpenAPI/SDK checks pass after generated artifact refresh.
+4. Playwright MCP verifies the running API endpoints, status codes, validation JSON, network hygiene, and console hygiene.
 
 ## ✅ Historical Milestones
 
-- ✅ **v1029 DCAT 3.0** — Phases 1129-1132 (shipped 2026-05-27; DCAT-US Schema v3.0 export/validation routes, official schema foundation, docs, OpenAPI/SDK refresh, and Playwright MCP API close gate) — see [archive](milestones/v1029-ROADMAP.md)
 - ✅ **v1028 Map Builder Product Polish** — Phases 1124-1128 (shipped 2026-05-25; Builder Notes clear/persistence fixes, AI unavailable-state polish, workflow regression gates, ADK showcase/shared/embed verification, active smoke path renamed from demo to showcase, no separate demo-instance release gate)
 - ✅ **v1027 Map Builder Architecture Simplification** — Phases 1118-1123 (shipped 2026-05-25; builder architecture baseline, basemap controller, shared composition sync, editor scene extraction, typed layer actions, fixture DRY-up, and Playwright MCP target-map verification)
 - ✅ **v1026 Mapbuilder Style Reconciler** — Phases 1112-1117 (shipped 2026-05-25; canonical style reconciliation across adapters, manual controls, AI chat actions, persistence/viewer parity, high-DPI sprite routing, terrain activation retry, and Playwright MCP close gate)

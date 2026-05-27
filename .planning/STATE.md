@@ -2,42 +2,42 @@
 gsd_state_version: 1.0
 milestone: v1029
 milestone_name: DCAT 3.0
-status: executing
-last_updated: "2026-05-27T02:05:00Z"
-last_activity: 2026-05-27 -- Phase 1131 complete
+status: complete
+last_updated: "2026-05-27T02:25:00Z"
+last_activity: 2026-05-27 -- v1029 complete
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 75
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1132 Quality Sweep and Playwright Close Gate
-Plan: Ready for autonomous execution
-Status: Phase 1131 complete; starting close-gate verification
-Last activity: 2026-05-27 — Phase 1131 complete
+Phase: Complete
+Plan: Complete
+Status: v1029 DCAT 3.0 complete; ready for next milestone
+Last activity: 2026-05-27 — v1029 complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** v1029 DCAT 3.0 is in planning/execution. The milestone adds DCAT-US Schema v3.0 export, validation, route/API support, docs, and Playwright MCP close-gate evidence while preserving existing DCAT visibility behavior.
+**Current focus:** No active milestone. v1029 DCAT 3.0 is complete and archived.
 
 ## Last Shipped Milestone
 
-**Version:** v1028 Map Builder Product Polish
-**Shipped:** 2026-05-25
-**Phases:** 1124-1128 (5 phases, 5 plans, 25/25 reqs satisfied)
-**Commit:** not tagged in this session
-**Tag:** not tagged in this session
-**Milestone audit:** `.planning/milestones/v1028-MILESTONE-AUDIT.md`
-**Archived phases:** v1028 phase artifacts remain in `.planning/phases/1124-*` through `.planning/phases/1128-*`; backlog `999.*` phase directories remain.
+**Version:** v1029 DCAT 3.0
+**Shipped:** 2026-05-27
+**Phases:** 1129-1132 (4 phases, 4 plans, 25/25 reqs satisfied)
+**Commit:** see final v1029 archive commit in git log
+**Tag:** local `v1029`
+**Milestone audit:** `.planning/milestones/v1029-MILESTONE-AUDIT.md`
+**Archived phases:** `.planning/milestones/v1029-phases/`
 
 ## Phase Plan (v1029)
 
@@ -56,10 +56,10 @@ See: .planning/PROJECT.md
 
 | Phase | Status | Evidence |
 |-------|--------|----------|
-| 1129 DCAT-US Profile Contract and Schema Foundation | Complete | `.planning/phases/1129-dcat-us-profile-contract-and-schema-foundation/1129-01-SUMMARY.md`; `.planning/phases/1129-dcat-us-profile-contract-and-schema-foundation/1129-VERIFICATION.md` |
-| 1130 DCAT-US Serializer and Access Routes | Complete | `.planning/phases/1130-dcat-us-serializer-and-access-routes/1130-01-SUMMARY.md`; `.planning/phases/1130-dcat-us-serializer-and-access-routes/1130-VERIFICATION.md` |
-| 1131 Validation API, Docs, OpenAPI, and SDKs | Complete | `.planning/phases/1131-validation-api-docs-openapi-and-sdks/1131-01-SUMMARY.md`; `.planning/phases/1131-validation-api-docs-openapi-and-sdks/1131-VERIFICATION.md` |
-| 1132 Quality Sweep and Playwright Close Gate | Pending | — |
+| 1129 DCAT-US Profile Contract and Schema Foundation | Complete | `.planning/milestones/v1029-phases/1129-dcat-us-profile-contract-and-schema-foundation/1129-01-SUMMARY.md`; `.planning/milestones/v1029-phases/1129-dcat-us-profile-contract-and-schema-foundation/1129-VERIFICATION.md` |
+| 1130 DCAT-US Serializer and Access Routes | Complete | `.planning/milestones/v1029-phases/1130-dcat-us-serializer-and-access-routes/1130-01-SUMMARY.md`; `.planning/milestones/v1029-phases/1130-dcat-us-serializer-and-access-routes/1130-VERIFICATION.md` |
+| 1131 Validation API, Docs, OpenAPI, and SDKs | Complete | `.planning/milestones/v1029-phases/1131-validation-api-docs-openapi-and-sdks/1131-01-SUMMARY.md`; `.planning/milestones/v1029-phases/1131-validation-api-docs-openapi-and-sdks/1131-VERIFICATION.md` |
+| 1132 Quality Sweep and Playwright Close Gate | Complete | `.planning/milestones/v1029-phases/1132-quality-sweep-and-playwright-close-gate/1132-01-SUMMARY.md`; `.planning/milestones/v1029-phases/1132-quality-sweep-and-playwright-close-gate/1132-VERIFICATION.md` |
 
 ## Quick Tasks Completed
 
@@ -128,7 +128,7 @@ See: .planning/PROJECT.md
 
 ### Pending Todos
 
-None.
+None for v1029.
 
 ### Blockers/Concerns
 
