@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
+import { ApiError } from '@/api/client';
 import { ShareDialog, generateEmbedCode } from '@/components/builder/SharePanel';
 import {
   useCreateEmbedToken,
@@ -17,6 +18,9 @@ import {
   useRevokeShareToken,
   useUpdateShareToken,
 } from '@/hooks/use-maps';
+import { toast } from 'sonner';
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
@@ -276,5 +280,322 @@ describe('SEC-07: embed code sandbox attribute', () => {
     expect(textarea).toBeTruthy();
     expect(textarea.value).toContain('sandbox="allow-scripts"');
     expect(textarea.value).not.toContain('allow-same-origin');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-02 / SHARE-06: chip-based allowed-origins input             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Helper: open Link Settings and enable the Restrict to domains switch.
+ * Returns the user-event instance.
+ */
+async function openChipBlock(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /link settings/i }));
+  const restrictSwitch = screen.getByRole('switch', { name: /restrict to domains/i });
+  // Only click if not already checked (existing origins may pre-enable it)
+  if (restrictSwitch.getAttribute('aria-checked') !== 'true') {
+    await user.click(restrictSwitch);
+  }
+}
+
+describe('SHARE-02 chip-based allowed-origins input', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('test_chip_input_adds_canonical_chip_on_enter: typing a URL and pressing Enter renders chip in canonical form', async () => {
+    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    // No pre-existing allowed_origins so chip block starts empty
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: [],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'Example.com');
+    await user.keyboard('{Enter}');
+
+    // Chip with canonical form should appear
+    expect(screen.getByText('https://example.com')).toBeInTheDocument();
+    // Input should be cleared
+    expect(input).toHaveValue('');
+    // PATCH should fire with canonical origin
+    await waitFor(() => {
+      expect(updateEmbedTokenFn).toHaveBeenCalledOnce();
+      expect(updateEmbedTokenFn).toHaveBeenCalledWith({
+        mapId: 'map-1',
+        tokenId: 'embed-1',
+        allowedOrigins: ['https://example.com'],
+      });
+    });
+  });
+
+  it('test_chip_input_adds_chip_on_comma: trailing comma triggers add', async () => {
+    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: [],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    // Type the URL then a comma — the comma triggers the add
+    await user.type(input, 'https://other.io,');
+
+    expect(screen.getByText('https://other.io')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(updateEmbedTokenFn).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('test_chip_remove_X_button_fires_patch: clicking remove X removes chip and fires PATCH', async () => {
+    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    // Pre-populate with one origin
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: ['https://example.com'],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    // Chip should be visible
+    expect(screen.getByText('https://example.com')).toBeInTheDocument();
+
+    // Click the remove button
+    const removeBtn = screen.getByRole('button', { name: /remove https:\/\/example\.com/i });
+    await user.click(removeBtn);
+
+    expect(screen.queryByText('https://example.com')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(updateEmbedTokenFn).toHaveBeenCalledOnce();
+      expect(updateEmbedTokenFn).toHaveBeenCalledWith({
+        mapId: 'map-1',
+        tokenId: 'embed-1',
+        allowedOrigins: null,
+      });
+    });
+  });
+
+  it('test_chip_input_dedupes_canonical_form: adding a duplicate canonical origin is silently discarded', async () => {
+    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: ['https://example.com'],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    // 1 chip from pre-populated origins
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'HTTPS://Example.com/');
+    await user.keyboard('{Enter}');
+
+    // Still 1 chip, no mutation fired
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(updateEmbedTokenFn).not.toHaveBeenCalled();
+  });
+
+  it('test_chip_input_rejects_wildcard_inline: wildcard shows inline error, no chip, no PATCH', async () => {
+    const updateEmbedTokenFn = vi.fn().mockResolvedValue({});
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: [],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, '*');
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByText(/wildcard origin not allowed/i)).toBeInTheDocument();
+    expect(screen.queryByRole('listitem')).not.toBeInTheDocument();
+    expect(updateEmbedTokenFn).not.toHaveBeenCalled();
+  });
+
+  it('test_chip_input_surfaces_backend_wildcard_422_inline: backend 422 with wildcard message shows same inline error', async () => {
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(
+      new ApiError('Wildcard origin not allowed', 422)
+    );
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: [],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'https://valid.com');
+    await user.keyboard('{Enter}');
+
+    // Optimistic chip appears, then rollback happens after rejection
+    await waitFor(() => {
+      expect(screen.queryByText('https://valid.com')).not.toBeInTheDocument();
+    });
+    // Same inline error as frontend wildcard rejection
+    expect(screen.getByText(/wildcard origin not allowed/i)).toBeInTheDocument();
+  });
+
+  it('test_chip_PATCH_failure_rolls_back: non-422 PATCH failure rolls back chip and surfaces toast', async () => {
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(
+      new ApiError('Internal Server Error', 500)
+    );
+    mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn));
+    mockedUseMapEmbedTokens.mockReturnValue({
+      data: {
+        tokens: [
+          {
+            id: 'embed-1',
+            map_id: 'map-1',
+            token_hint: 'emb...',
+            scoped_dataset_ids: [],
+            allowed_origins: [],
+            expires_at: '2026-06-01T00:00:00Z',
+            is_active: true,
+            use_count: 0,
+            created_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      isError: false,
+    } as never);
+
+    const user = userEvent.setup();
+    setup({ enterprise: true });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'https://test.com');
+    await user.keyboard('{Enter}');
+
+    // Chip should be rolled back after error
+    await waitFor(() => {
+      expect(screen.queryByText('https://test.com')).not.toBeInTheDocument();
+    });
+    // Toast with updateFailed key
+    expect(vi.mocked(toast.error)).toHaveBeenCalled();
   });
 });
