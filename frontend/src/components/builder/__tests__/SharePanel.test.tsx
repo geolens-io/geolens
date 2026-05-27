@@ -74,6 +74,7 @@ function setup({
   updateEmbedTokenFn = vi.fn().mockResolvedValue({}),
   updateShareTokenFn = vi.fn().mockResolvedValue({}),
   shareExpires = null,
+  createEmbedTokenFn,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -86,6 +87,8 @@ function setup({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   updateShareTokenFn?: (...args: any[]) => any;
   shareExpires?: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createEmbedTokenFn?: (...args: any[]) => any;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -93,7 +96,7 @@ function setup({
     expires_at: null,
     is_active: true,
   });
-  const createEmbedToken = vi.fn().mockResolvedValue({
+  const createEmbedToken = createEmbedTokenFn ?? vi.fn().mockResolvedValue({
     id: 'embed-2',
     raw_token: 'raw-token',
     token_hint: 'raw...',
@@ -166,7 +169,7 @@ function setup({
     />,
   );
 
-  return { createShareToken, createEmbedToken, updateEmbedTokenFn, updateShareTokenFn };
+  return { createShareToken, createEmbedToken: createEmbedToken as ReturnType<typeof vi.fn>, updateEmbedTokenFn, updateShareTokenFn };
 }
 
 describe('ShareDialog edition gates', () => {
@@ -670,5 +673,158 @@ describe('SHARE-04 expiration presets', () => {
       expect(textarea).toBeInTheDocument();
       expect((textarea as HTMLTextAreaElement).value).toContain('et=raw-token');
     });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  SHARE-03: embed-preview iframe pane                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Helper: click "Generate Share Link" and wait until rawShareToken is set
+ * (the "Copy Link" button appearing is the proxy).
+ */
+async function generateShareLinkAndWait(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /generate share link/i }));
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+  });
+}
+
+describe('SHARE-03 embed-preview iframe', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('test_preview_pane_collapsed_by_default: Preview toggle visible but iframe NOT in DOM after generating link', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+
+    await generateShareLinkAndWait(user);
+
+    // Preview disclosure toggle should be visible
+    expect(screen.getByRole('button', { name: /preview/i })).toBeInTheDocument();
+    // iframe NOT yet in DOM (collapsed by default)
+    expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+  });
+
+  it('test_preview_pane_expands_on_click: clicking Preview disclosure reveals the iframe element', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+
+    await generateShareLinkAndWait(user);
+
+    const previewToggle = screen.getByRole('button', { name: /preview/i });
+    await user.click(previewToggle);
+
+    // iframe appears with data-testid
+    await waitFor(() => {
+      expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    });
+  });
+
+  it('test_iframe_sandbox_is_allow_scripts_only: sandbox attribute is exactly "allow-scripts" (no allow-same-origin — SEC-07 contract)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = await screen.findByTestId('share-preview-iframe');
+    expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
+    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin');
+  });
+
+  it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = await screen.findByTestId('share-preview-iframe');
+    expect(iframe.getAttribute('title')).toBe('Map embed preview');
+  });
+
+  it('test_iframe_src_matches_embed_url_shape: src contains embed=true&et=<token>', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = await screen.findByTestId('share-preview-iframe') as HTMLIFrameElement;
+    expect(iframe.src).toContain('embed=true');
+    expect(iframe.src).toContain('et=raw-token');
+    expect(iframe.src).toContain('/m/share-token');
+  });
+
+  it('test_security_indicator_footer_present: security indicator shows sandbox note below iframe container', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    });
+
+    // Security indicator footer: contains sandbox note text
+    expect(screen.getByText(/sandbox="allow-scripts" only/)).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Pitfall #7: inflightEmbedCreate race guard                        */
+/* ------------------------------------------------------------------ */
+
+describe('Pitfall #7 inflightEmbedCreate race guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('test_pitfall_7_inflightEmbedCreate_dedupes_concurrent_calls: two concurrent Generate clicks fire createEmbedToken exactly once', async () => {
+    const user = userEvent.setup();
+
+    // Slow-resolving createEmbedToken so the race window is real (50ms).
+    // Both clicks arrive while the first promise is still in-flight.
+    const slowCreateEmbedToken = vi.fn().mockImplementation(
+      () => new Promise<{ id: string; raw_token: string; token_hint: string; expires_at: string; is_active: boolean }>(
+        (resolve) => setTimeout(() => resolve({
+          id: 'embed-2',
+          raw_token: 'raw-token',
+          token_hint: 'raw...',
+          expires_at: '2026-06-01T00:00:00Z',
+          is_active: true,
+        }), 50)
+      )
+    );
+
+    setup({
+      enterprise: false,
+      hasShareToken: false,
+      hasNonPublic: true,
+      createEmbedTokenFn: slowCreateEmbedToken,
+    });
+
+    const generateBtn = screen.getByRole('button', { name: /generate share link/i });
+
+    // Fire two clicks concurrently — the second arrives while the first is still in-flight.
+    // Promise.all ensures both clicks are initiated before either resolves.
+    await Promise.all([
+      user.click(generateBtn),
+      user.click(generateBtn),
+    ]);
+
+    // Wait for the token to fully resolve
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    });
+
+    // KEY ASSERTION: exactly ONE backend POST should have fired despite 2 clicks
+    expect(slowCreateEmbedToken).toHaveBeenCalledTimes(1);
   });
 });
