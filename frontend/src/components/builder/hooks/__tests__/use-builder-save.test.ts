@@ -68,6 +68,19 @@ vi.mock('react-router', async () => {
   };
 });
 
+const mockEdition = vi.hoisted(() => ({
+  isEnterprise: false,
+}));
+
+vi.mock('@/hooks/use-edition', () => ({
+  useEdition: () => ({
+    edition: mockEdition.isEnterprise ? 'enterprise' : 'community',
+    features: [],
+    isEnterprise: mockEdition.isEnterprise,
+    isLoading: false,
+  }),
+}));
+
 /* ── Helpers ───────────────────────────────────────── */
 
 function createMockCanvas() {
@@ -303,6 +316,7 @@ describe('useBuilderSave', () => {
     // so module-level state doesn't bleed across cases.
     __resetThumbnailDebounceForTests();
     mockEnabledWidgets.value = null;
+    mockEdition.isEnterprise = false;
     mockUpdateMapMutateAsync.mockImplementation(async (payload) => {
       mockMutate(payload);
       return { id: payload.id, layers: [] };
@@ -1423,5 +1437,158 @@ describe('useBuilderSave', () => {
       createElementSpy.mockRestore();
       vi.useRealTimers();
     });
+  });
+});
+
+/* ── SHARE-09: export PNG composition regression pins ── */
+
+describe('SHARE-09 export PNG composition', () => {
+  let fillTextSpy: ReturnType<typeof vi.fn>;
+  let fillRectSpy: ReturnType<typeof vi.fn>;
+  let createElementSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+    mockEdition.isEnterprise = false;
+
+    fillTextSpy = vi.fn();
+    fillRectSpy = vi.fn();
+
+    const ctx2d = {
+      fillStyle: '',
+      strokeStyle: '',
+      font: '',
+      textBaseline: '',
+      lineWidth: 1,
+      fillText: fillTextSpy,
+      fillRect: fillRectSpy,
+      strokeRect: vi.fn(),
+      drawImage: vi.fn(),
+      measureText: vi.fn(() => ({ width: 120 })),
+    };
+
+    const offscreenCanvas = {
+      width: 800,
+      height: 600,
+      getContext: vi.fn(() => ctx2d),
+      toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' }))),
+    };
+
+    const origCreateElement = document.createElement.bind(document);
+    createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+      if (tag === 'canvas') {
+        return offscreenCanvas as unknown as HTMLCanvasElement;
+      }
+      return origCreateElement(tag, options);
+    });
+  });
+
+  afterEach(() => {
+    createElementSpy.mockRestore();
+    mockEdition.isEnterprise = false;
+  });
+
+  function makeExportMap() {
+    return createMockMap({ loaded: true });
+  }
+
+  it('renders title and description in the title block when localName is non-empty', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: 'My Map',
+      localDescription: 'Test desc',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0]);
+    expect(calls.some((text: unknown) => text === 'My Map')).toBe(true);
+    expect(calls.some((text: unknown) => text === 'Test desc')).toBe(true);
+  });
+
+  it('renders legend header and one row per visible legend layer', () => {
+    const mockMap = makeExportMap();
+    const streetsLayer = makeLayer({
+      id: 'layer-streets',
+      display_name: 'Streets',
+      visible: true,
+      show_in_legend: true,
+    });
+    const hiddenLayer = makeLayer({
+      id: 'layer-hidden',
+      display_name: 'Hidden',
+      visible: true,
+      show_in_legend: false,
+    });
+    const invisibleLayer = makeLayer({
+      id: 'layer-invisible',
+      display_name: 'Invisible',
+      visible: false,
+      show_in_legend: true,
+    });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [streetsLayer, hiddenLayer, invisibleLayer],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    // Legend header text (i18n key returns the key itself in test setup)
+    expect(calls.some((text) => /legend/i.test(text))).toBe(true);
+    // Streets layer row
+    expect(calls.some((text) => text === 'Streets')).toBe(true);
+    // Color swatch fill rect for the qualifying layer
+    expect(fillRectSpy).toHaveBeenCalled();
+  });
+
+  it('renders Powered by GeoLens footer when isEnterprise is false', () => {
+    mockEdition.isEnterprise = false;
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // i18n mock returns key as-is; use-builder-save calls t('export.poweredBy', { defaultValue: ... })
+    const calls = fillTextSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(calls.some((text) => /export\.poweredBy|Powered by GeoLens/.test(text))).toBe(true);
+  });
+
+  it('suppresses Powered by GeoLens footer when isEnterprise is true', () => {
+    mockEdition.isEnterprise = true;
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // Neither the key form nor the human-readable form should appear
+    expect(fillTextSpy).not.toHaveBeenCalledWith(
+      expect.stringMatching(/export\.poweredBy|Powered by GeoLens/),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });
