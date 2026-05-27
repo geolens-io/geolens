@@ -340,4 +340,24 @@ describe('FillEditor', () => {
 
     expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
   });
+
+  // IN-01 pin: exercises deriveExtrusionRange directly with a numeric column +
+  // currentHeightCol set, but values that are genuinely non-parseable strings.
+  // Confirms Number.isFinite filtering suppresses the range hint correctly.
+  it('hides range hint when all sample values are non-parseable strings (IN-01 pin)', () => {
+    const layer = makeFillLayer({
+      dataset_column_info: [{ name: 'label', type: 'character varying' }],
+      dataset_sample_values: { label: ['abc', 'xyz', 'n/a'] as unknown as number[] },
+    });
+    render(
+      <FillEditor
+        {...makeProps(layer, {
+          numericColumns: [{ name: 'label', type: 'character varying' }],
+          currentHeightCol: 'label',
+          isPolygon: true,
+        })}
+      />,
+    );
+    expect(screen.queryByText(/Range:/)).not.toBeInTheDocument();
+  });
 });
