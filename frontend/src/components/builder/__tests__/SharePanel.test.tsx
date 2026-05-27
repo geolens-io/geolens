@@ -115,7 +115,8 @@ function setup({
   mockedUseRevokeShareToken.mockReturnValue(mutationResult());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn as any));
-  mockedUseCreateEmbedToken.mockReturnValue(mutationResult(createEmbedToken));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUseCreateEmbedToken.mockReturnValue(mutationResult(createEmbedToken as any));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn as any));
   mockedUseRevokeEmbedToken.mockReturnValue(mutationResult());
@@ -699,7 +700,8 @@ describe('SHARE-03 embed-preview iframe', () => {
 
   it('test_preview_pane_collapsed_by_default: Preview toggle visible but iframe NOT in DOM after generating link', async () => {
     const user = userEvent.setup();
-    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+    // hasNonPublic:true so embedTokenRaw is created (preview pane requires embedTokenRaw)
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
 
     await generateShareLinkAndWait(user);
 
@@ -711,7 +713,8 @@ describe('SHARE-03 embed-preview iframe', () => {
 
   it('test_preview_pane_expands_on_click: clicking Preview disclosure reveals the iframe element', async () => {
     const user = userEvent.setup();
-    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+    // hasNonPublic:true so embedTokenRaw is set (required for preview pane)
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
 
     await generateShareLinkAndWait(user);
 
@@ -726,7 +729,7 @@ describe('SHARE-03 embed-preview iframe', () => {
 
   it('test_iframe_sandbox_is_allow_scripts_only: sandbox attribute is exactly "allow-scripts" (no allow-same-origin — SEC-07 contract)', async () => {
     const user = userEvent.setup();
-    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
 
     await generateShareLinkAndWait(user);
     await user.click(screen.getByRole('button', { name: /preview/i }));
@@ -738,7 +741,7 @@ describe('SHARE-03 embed-preview iframe', () => {
 
   it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {
     const user = userEvent.setup();
-    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
 
     await generateShareLinkAndWait(user);
     await user.click(screen.getByRole('button', { name: /preview/i }));
@@ -762,7 +765,7 @@ describe('SHARE-03 embed-preview iframe', () => {
 
   it('test_security_indicator_footer_present: security indicator shows sandbox note below iframe container', async () => {
     const user = userEvent.setup();
-    setup({ enterprise: false, hasShareToken: false, hasNonPublic: false });
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
 
     await generateShareLinkAndWait(user);
     await user.click(screen.getByRole('button', { name: /preview/i }));

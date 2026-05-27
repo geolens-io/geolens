@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, RotateCcw, X, Plus } from 'lucide-react';
+import { Globe, Lock, Copy, Loader2, Code, Link as LinkIcon, Info, Trash2, Shield, ExternalLink, ChevronRight, Users, AlertTriangle, AlertCircle, RotateCcw, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -513,6 +513,95 @@ function ShareLinkSettings({
 }
 
 /* ------------------------------------------------------------------ */
+/*  EmbedPreviewPane – collapsible iframe preview (SHARE-03 / SEC-07) */
+/* ------------------------------------------------------------------ */
+
+interface EmbedPreviewPaneProps {
+  shareToken: string;
+  embedTokenRaw: string;
+  origin: string;
+}
+
+function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
+  const { t } = useTranslation('builder');
+  const [expanded, setExpanded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
+  // (e.g. viewer error page), transition to error state with Reload affordance.
+  useEffect(() => {
+    if (!expanded || loaded || errored) return;
+    const timer = setTimeout(() => setErrored(true), 8000);
+    return () => clearTimeout(timer);
+  }, [expanded, loaded, errored, reloadKey]);
+
+  const src = `${origin}/m/${shareToken}?embed=true&et=${embedTokenRaw}`;
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+        aria-expanded={expanded}
+        aria-label={t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+        {t('share.iframePreviewToggle', { defaultValue: 'Preview' })}
+      </button>
+      {expanded && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          {!errored ? (
+            <div className="relative h-[300px] bg-muted">
+              {!loaded && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
+                </div>
+              )}
+              {/* SEC-07 / M-70: sandbox="allow-scripts" ONLY. NEVER add allow-same-origin — see SharePanel.tsx generateEmbedCode docstring. */}
+              <iframe
+                key={reloadKey}
+                data-testid="share-preview-iframe"
+                src={src}
+                sandbox="allow-scripts"
+                title={t('share.iframePreviewTitle', { defaultValue: 'Map embed preview' })}
+                loading="lazy"
+                style={{ border: 'none' }}
+                className={cn('w-full h-[300px] transition-opacity', loaded ? 'opacity-100' : 'opacity-0')}
+                onLoad={() => setLoaded(true)}
+              />
+            </div>
+          ) : (
+            <div className="h-[300px] bg-muted flex flex-col items-center justify-center gap-2 px-4">
+              <AlertCircle className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm text-muted-foreground text-center">
+                {t('share.iframeErrorTitle', { defaultValue: 'Preview unavailable' })}
+              </p>
+              <p className="text-xs text-muted-foreground/80 text-center">
+                {t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
+              </p>
+              <button
+                type="button"
+                onClick={() => { setErrored(false); setLoaded(false); setReloadKey((k) => k + 1); }}
+                className="text-xs text-primary underline"
+              >
+                {t('share.iframeReload', { defaultValue: 'Reload' })}
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground border-t border-border">
+            <Shield className="h-3 w-3" aria-hidden="true" />
+            {t('share.iframeSandboxNote', { defaultValue: 'sandbox="allow-scripts" only — SEC-07 contract' })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  ShareDialog                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -1016,6 +1105,14 @@ export function ShareDialog({
                       <li><code className="bg-muted px-1 rounded text-[11px]">legend=true|false</code> {t('share.customizeLegend')}</li>
                     </ul>
                   </div>
+                  {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
+                  {embedTokenRaw && (
+                    <EmbedPreviewPane
+                      shareToken={rawShareToken}
+                      embedTokenRaw={embedTokenRaw}
+                      origin={window.location.origin}
+                    />
+                  )}
                 </div>
               )}
             </>
