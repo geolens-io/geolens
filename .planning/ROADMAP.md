@@ -91,7 +91,14 @@
   3. When a fill layer uses 3D extrusion via `paint._height_column`, FillEditor displays a "Range: X–Y, N features" hint sourced from `dataset_sample_values` (metadata existence verified during Phase 1133 audit).
   4. User can pick a "No basemap" preset that produces a transparent / single-color background; persists round-trip and renders correctly in viewer/embed. DETAIL LEVEL toggle remains absent from `BasemapSublayerEditorScene` (v1011 INV-01 disposition); positive-form `queryBy*` regression pin asserts the surface stays gone.
   5. Save → reload symmetry vitest covers every new control per render mode (Pitfall #2); style-JSON round-trip test verifies no paint properties leak or are dropped; grep guard verifies no `map.setPaintProperty` / `map.setLayoutProperty` outside `layer-adapters/` + `map-sync.ts` (Pitfall #9).
-**Plans**: TBD
+**Plans**: 7 plans
+- [ ] 1136-01-PLAN.md — RasterAdapter RASTER_OWNED_PAINT_PROPERTIES extension + RasterEditor 4 sliders + Reset (EDITOR-RASTER-01..04)
+- [ ] 1136-02-PLAN.md — LineAdapter LINE_OWNED_LAYOUT_PROPERTIES extension + LineEditor Cap/Join Selects (EDITOR-LINE-01, EDITOR-LINE-02)
+- [ ] 1136-03-PLAN.md — FillEditor 3D extrusion range hint from dataset_sample_values (EDITOR-FILL-04)
+- [ ] 1136-04-PLAN.md — BasemapGroupEditorScene "No basemap" preset card (EDITOR-BASEMAP-02)
+- [ ] 1136-05-PLAN.md — BasemapSublayerEditorScene DETAIL LEVEL positive-form regression pin (EDITOR-BASEMAP-03)
+- [ ] 1136-06-PLAN.md — Pitfall #9 phase-scoped grep guard vitest + i18n parity sweep (de/es/fr)
+- [ ] 1136-07-PLAN.md — Live Playwright MCP smoke across 5 surfaces on canonical ADK map
 **UI hint**: yes
 
 ### Phase 1137: Sharing and Embed Polish
@@ -148,7 +155,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
-| 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
+| 1136. Per-Render-Mode Editor Polish | v1030 | 0/7 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
 | 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
