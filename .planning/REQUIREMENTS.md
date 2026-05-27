@@ -14,7 +14,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [x] **WALK-02**: Cross-reference matrix in audit doc lists every `/ai/*` endpoint × frontend consumer hook and confirms each call site has `enabled: !!token && aiEnabled` gating (v1010.2 SF-06 recurrence guard — Pitfall #4)
 - [x] **WALK-03**: `todo.md` staleness check — every item in `todo.md` lines 96-171 cross-referenced against v1011 / v1028 / v1029 milestone records; flag items already shipped vs genuine regressions vs new gaps in the audit doc
 - [x] **WALK-04**: v1026 reconciler + v1027 typed action-boundary + v1008 unified-stack contract verification on clean `main` post-`3ed5ceb3` — `grep -nE 'map\.setPaintProperty|map\.setLayoutProperty' frontend/src --include="*.ts*" -r` returns only `layer-adapters/` + `map-sync.ts` hits, and `BuilderLayerAction` union remains the only mutation entry point
-- [ ] **WALK-05**: Thumbnail-capture pipeline produces (or can produce) a 1200×630 variant suitable for `og:image`; if no, SHARE-08 OG-cards officially flagged to v1031 in REQUIREMENTS.md Future Requirements
+- [x] **WALK-05**: Thumbnail-capture pipeline produces (or can produce) a 1200×630 variant suitable for `og:image`; if no, SHARE-08 OG-cards officially flagged to v1031 in REQUIREMENTS.md Future Requirements
 
 ### MAP — Tier-1 Bugs & Smaller-Screen Polish
 
@@ -86,7 +86,7 @@ Deferred to v1031+. Tracked but not in current roadmap.
 
 ### Share/embed feature expansion
 
-- **SHARE-08**: OG-image / social-card meta on shared links — conditional on WALK-05 result; if 1200×630 thumbnail variant unavailable, defer to v1031.
+- **SHARE-08**: OG-image / social-card meta on shared links — DEFERRED to v1031 per Phase 1133 WALK-05 disposition. The live thumbnail pipeline produces 400×250 JPEG only (`use-builder-save.ts:33-34`). A 1200×630 variant requires either dual capture (Path A: backend column + route) or backend resize pipeline (Path B), both outside the v1030 polish boundary. See Future Requirements below.
 
 ### Editor convenience
 
@@ -131,7 +131,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | WALK-02 | Phase 1133 | Complete |
 | WALK-03 | Phase 1133 | Complete |
 | WALK-04 | Phase 1133 | Complete |
-| WALK-05 | Phase 1133 | Pending |
+| WALK-05 | Phase 1133 | Complete |
 | MAP-07 | Phase 1134 | Pending |
 | MAP-08 | Phase 1134 | Pending |
 | MAP-09 | Phase 1134 | Pending |
@@ -194,3 +194,17 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 ---
 *Requirements defined: 2026-05-27*
 *Traceability committed: 2026-05-27 (roadmapper) — 44/44 mapped, 0 orphans, 0 duplicates*
+
+---
+
+## Future Requirements (v1031+)
+
+Requirements deferred from v1030 with explicit rationale. Each entry documents why it was deferred and what is required to ship it in a future milestone.
+
+### SHARE-08: OG-image / social-card meta on shared links
+
+**Deferred from:** v1030 (Phase 1133 WALK-05 disposition, 2026-05-27)
+**Why deferred:** The live thumbnail pipeline produces 400×250 JPEG only (`use-builder-save.ts:33-34`, `thumbW = 400`, `thumbH = 250`). A 1200×630 variant requires either dual capture (Path A: backend `og_image_uri` column + upload route + serve route, ~1 day) or backend resize pipeline (Path B: server-side resize on upload, ~1.5 days). Both expand scope beyond the v1030 polish boundary. No v1030 v1 REQ depends on OG-image meta; the existing 400×250 thumbnail fully satisfies `useMapThumbnail` catalog consumers.
+**What's required to ship:** Pick Path A or Path B in a v1031 audit. Path A: add nullable `og_image_uri` column (migration), `PUT /maps/{id}/og-image/` upload route, `GET /maps/{id}/og-image/` serve route; frontend adds a second `doCapture` invocation at 1200×630 alongside the existing 400×250 in `captureThumbnail`. Path B: backend receives the native canvas capture (~1440×900) and resizes to both variants on upload; frontend changes the source image sent (larger, no frontend dual-capture). Either path then wires the `og_image_uri` into the shared-viewer `<meta property="og:image">` tag.
+**Out-of-scope libraries:** `@vercel/og`, `satori` (on STACK explicit do-NOT-add list in REQUIREMENTS.md Out of Scope).
+**Cross-reference:** `.planning/phases/1133-audit-first-builder-walkthrough/1133-BUILDER-WALKTHROUGH-AUDIT.md#share-08-disposition`

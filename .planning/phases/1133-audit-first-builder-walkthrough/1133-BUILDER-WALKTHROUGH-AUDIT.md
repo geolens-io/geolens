@@ -541,7 +541,58 @@ The `BasemapGroupRowWrapper` component (lines 270-345) implements the per-drag-s
 
 ## SHARE-08 Disposition
 
-_Populated by Plan 05 — see 1133-05-PLAN.md_
+**Audit date:** 2026-05-27 | **Plan:** 1133-05 | **WALK-05**
+
+### Current State (verified)
+
+- **Thumbnail capture:** `frontend/src/components/builder/hooks/use-builder-save.ts:33-34` — `thumbW = 400`, `thumbH = 250` (JPEG quality 0.7). The `doCapture` function crops the source canvas to the 400×250 aspect ratio and uploads a 400×250 JPEG via `PUT /maps/{id}/thumbnail/`.
+- **Backend storage:** `backend/app/modules/catalog/maps/models.py:100` — single `thumbnail_uri: Mapped[str | None]` column; no second-variant column exists (`og_image_uri` or similar). `router.py:1579` writes exactly one storage key per upload.
+- **Consumer:** `useMapThumbnail` (`frontend/src/components/maps/hooks/use-map-thumbnail.ts`) serves a blob URL via `GET /maps/{id}/thumbnail/`. Only one thumbnail variant is consumed anywhere in the frontend.
+
+**Conclusion:** The live pipeline produces 400×250 JPEG only. 400×250 is NOT a 1200×630 variant. No 1200×630 OG-image variant exists anywhere in the current pipeline.
+
+### Feasibility Assessment
+
+| Path | Description | Effort | Backend changes? | Frontend changes? | Recommendation |
+|------|-------------|--------|-----------------|------------------|---------------|
+| A | Dual capture: add a second `doCapture` invocation at 1200×630 alongside the existing 400×250. Two PUTs, two storage keys. | ~1 day | New nullable `og_image_uri` column + migration + second upload route `PUT /maps/{id}/og-image/` + serve route `GET /maps/{id}/og-image/` | Second `doCapture(map, mapId, queryClient, 1200, 630)` call in `captureThumbnail` | Not recommended for v1030 |
+| B | Native capture + backend resize: capture at native canvas size (~1440×900 in builder) and resize on upload to both 400×250 and 1200×630. | ~1.5 days | Backend image-resize pipeline; dual storage writes on single upload; single upload route kept but response changes | Send full-size PNG/JPEG source; no second frontend call | Not recommended for v1030 |
+| C | Defer to v1031: record SHARE-08 in Future Requirements; no v1030 work. | 0 | None | None | **Recommended** |
+
+**Recommendation: Path C — DEFER.**
+
+Rationale:
+1. The v1030 milestone is polish-not-feature per `1133-CONTEXT.md` ("systematic verification + close surfaced gaps").
+2. Path A requires a backend schema migration (new nullable column), a new upload route, and a new serve route — scope expansion beyond the v1030 polish boundary.
+3. Path B requires a backend resize pipeline — heavier scope expansion.
+4. `@vercel/og`, `satori` — the canonical OG-image generation libraries — are on the STACK explicit do-NOT-add list in `REQUIREMENTS.md` Out of Scope.
+5. No v1030 v1 REQ depends on OG-image meta. The `useMapThumbnail` consumer is fully satisfied by 400×250 for its catalog/list-view use case.
+
+### Ruling
+
+**SHARE-08 disposition: DEFER to v1031 (Path C)** — no 1200×630 variant exists in the live pipeline; producing one requires backend column + route additions (Path A) or backend resize pipeline (Path B), both outside the v1030 polish scope boundary. SHARE-08 is flagged in `REQUIREMENTS.md` Future Requirements for v1031.
+
+---
+
+### SHARE-03: Iframe Preview Sandbox Feasibility
+
+**Source:** `frontend/src/components/builder/SharePanel.tsx:63` — `generateEmbedCode` produces:
+```
+<iframe src="..." sandbox="allow-scripts" style="border:none;"></iframe>
+```
+The SEC-07 / M-70 contract (comment block at `SharePanel.tsx:36-46`) deliberately omits `allow-same-origin` — combining `allow-scripts` with `allow-same-origin` lets the iframe remove its own sandboxing, neutralizing the protection.
+
+**Feasibility assessment:** An iframe-preview pane inside `SharePanel` can display the live shared-viewer URL using the same `sandbox="allow-scripts"` attribute. The shared viewer authenticates via `et=<token>` query parameter (not via same-origin cookie/storage access), so `allow-same-origin` is not required for the preview to function. MapLibre GL JS initializes successfully inside a `sandbox="allow-scripts"` iframe — it does not require DOM storage access at startup when the map tiles and styles are fetched via absolute URLs.
+
+Two implementation shapes are both feasible:
+1. **Live URL preview:** `<iframe src="/m/{shareToken}?embed=true&et={embedToken}" sandbox="allow-scripts">` — mirrors the exact embed snippet; preview pane shows what the embeddee sees.
+2. **srcdoc preview (fallback):** `<iframe srcdoc="..." sandbox="allow-scripts">` — inlines a minimal HTML wrapper; same sandbox constraint; requires injecting the MapLibre entrypoint URL.
+
+Shape 1 (live URL preview) is preferred — it renders the real viewer without additional HTML injection complexity.
+
+**Browser support:** `sandbox` on `<iframe>` has ≥98% global coverage (caniuse.com; `allow-scripts` has been supported since Chrome 4 / Firefox 17 / Safari 5). No polyfill or fallback required.
+
+**Ruling: KEEP SHARE-03 in v1030 Phase 1137.** The iframe-preview pane can mirror the live `sandbox="allow-scripts"` contract without widening to `allow-same-origin`. SEC-07 / M-70 contract is fully preserved. Phase 1137 planner may proceed with SHARE-03 implementation.
 
 ---
 
