@@ -58,21 +58,31 @@ export const rasterAdapter: LayerAdapter = {
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
     const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
-    if (map.getSource(sourceId)) return;
-    map.addSource(sourceId, {
-      type: 'raster',
-      tiles: [`${window.location.origin}${tileUrl}`],
-      tileSize: tileSize ?? 256,
-      minzoom: minzoom ?? 0,
-      maxzoom: maxzoom ?? 18,
-      ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
-    });
+    // WALK-R-05: split source guard from layer guard so that when a style swap
+    // removes layers but retains sources (raster basemap reload scenario), the
+    // layer is re-added without re-adding the already-existing source.
+    if (!map.getSource(sourceId)) {
+      map.addSource(sourceId, {
+        type: 'raster',
+        tiles: [`${window.location.origin}${tileUrl}`],
+        tileSize: tileSize ?? 256,
+        minzoom: minzoom ?? 0,
+        maxzoom: maxzoom ?? 18,
+        ...(normalizeRasterBounds(bounds) ? { bounds: normalizeRasterBounds(bounds) } : {}),
+      });
+    }
+    if (map.getLayer(layerId)) return;
+    // BUG-01: honor input.visible at initial add so callers that don't
+    // immediately follow up with syncVisibility still produce a layer in the
+    // correct visual state (mirrors fill/circle/heatmap/line adapter pattern).
     map.addLayer({
       id: layerId,
       type: 'raster',
       source: sourceId,
       paint: buildRasterPaint(input),
+      ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
     });
+    // Defense-in-depth: ensure visibility even if addLayer layout block is missed.
     if (!visible) {
       map.setLayoutProperty(layerId, 'visibility', 'none');
     }
