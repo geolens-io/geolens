@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1030
 milestone_name: Map Builder Polish Sweep
-status: executing
-stopped_at: Phase 1134 Plan 01 complete — raster split-guard, symbol syncLayerFilter, 7-adapter MAP-18 pins
-last_updated: "2026-05-27T18:59:25.104Z"
+status: verifying
+stopped_at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
+last_updated: "2026-05-27T19:26:21.891Z"
 last_activity: 2026-05-27
 progress:
   total_phases: 12
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 17
-  completed_plans: 16
-  percent: 17
+  completed_plans: 17
+  percent: 25
 ---
 
 # State
@@ -20,7 +20,7 @@ progress:
 
 Phase: 1135 (AI Chat Confirm-Before-Apply and Analysis Polish) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-05-27
 
 ## Project Reference
@@ -94,6 +94,8 @@ See: .planning/PROJECT.md
 - **2026-05-27 (v1030 roadmap):** SHARE-08 OG-cards is conditional on Phase 1133 thumbnail-capture audit; if no 1200×630 variant exists, SHARE-08 is flagged to v1031 in REQUIREMENTS.md Future Requirements. SHARE-03 iframe preview is conditional on Phase 1133 sandbox feasibility audit.
 - **2026-05-27 (1134-01):** Cluster adapter intentionally keeps raw `map.setFilter` for compound `combineFilter` shape — NOT migrated to `syncLayerFilter`. The compound filter must include the cluster/unclustered base predicate unconditionally and cannot go through the syncLayerFilter nil-guard path.
 - **2026-05-27 (1134-01):** Fill extrusion companion does not receive layout.visibility block at addLayers add-time (pre-existing gap). Controlled via syncVisibility. Documented in fill-adapter.test.ts.
+- [Phase ?]: SF-MCP-01 carry-forward: backend chat_actions.py:_collect_chat_action() never emits rows on show_query_result for non-spatial queries; frontend inline card is ready but backend wiring missing; routed to Phase 1139
+- [Phase ?]: AI-05 zoom-aware chips deferred in headless: headless WebGL failure prevents MapLibre idle events; 8 unit tests in Plan 04 cover the contract; interactive verification documented in 1135-MCP-SMOKE.md
 
 ### Pending Todos
 
@@ -112,8 +114,8 @@ None for v1030 yet (roadmap fresh; pending Phase 1133 audit output).
 
 ## Session Continuity
 
-Last session: 2026-05-27T18:59:25.099Z
-Stopped at: Phase 1134 Plan 01 complete — raster split-guard, symbol syncLayerFilter, 7-adapter MAP-18 pins
+Last session: 2026-05-27T19:26:21.887Z
+Stopped at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
 Resume file: None
 
 ## Operator Next Steps

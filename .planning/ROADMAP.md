@@ -14,7 +14,7 @@
 
 - [x] **Phase 1133: Audit-First Builder Walkthrough** — Live Playwright MCP walkthrough across every render mode; produces `BUILDER-WALKTHROUGH-AUDIT.md` (P0/P1/P2 triage) + AI consumer-gating matrix + `todo.md` staleness cross-reference. (completed 2026-05-27)
 - [x] **Phase 1134: Map Functionality and Smaller-Screen Polish** — Tier-1 bugs (delete-layer, visibility-toggle, rename-group focus) + ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135. (completed 2026-05-27)
-- [ ] **Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish** — Confirm-before-apply staging (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, data-analysis inline card, disabled/error empty-state re-verify.
+- [x] **Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish** — Confirm-before-apply staging (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, data-analysis inline card, disabled/error empty-state re-verify. (completed 2026-05-27)
 - [ ] **Phase 1136: Per-Render-Mode Editor Polish** — RasterEditor brightness/contrast/saturation/hue + reset; LineEditor line-cap/line-join; FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone.
 - [ ] **Phase 1137: Sharing and Embed Polish** — Allowed-origins as chips; expiration presets; "Powered by GeoLens" branding (community edition) + legend+title in export; conditional iframe preview.
 - [ ] **Phase 1138: Easy-Win Sweep** — Cmd/Ctrl+S, popup URL/media handling, empty-layer state.
@@ -78,7 +78,7 @@
 - [x] 1135-03-PLAN.md — BuilderRail structured disabled-state + ChatPanel recoverable error banner (AI-02, AI-03)
 - [x] 1135-04-PLAN.md — Viewport-aware suggestion chips + MapBuilderPage viewport wiring (AI-05)
 - [x] 1135-05-PLAN.md — Backend _validate_chat_layers docstring + schema-cache-key regression pin (AI-04)
-- [ ] 1135-06-PLAN.md — Live Playwright MCP smoke (AI_ENABLED=true 5 surfaces + AI_ENABLED=false rail check)
+- [x] 1135-06-PLAN.md — Live Playwright MCP smoke (AI_ENABLED=true 5 surfaces + AI_ENABLED=false rail check)
 **UI hint**: yes
 
 ### Phase 1136: Per-Render-Mode Editor Polish
@@ -147,7 +147,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 |-------|-----------|----------------|--------|-----------|
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
-| 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 5/6 | In Progress|  |
+| 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
