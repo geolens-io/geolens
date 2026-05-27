@@ -32,7 +32,12 @@
   3. Each `todo.md` line 96-171 item is classified as `closed-in-prior-milestone` / `live-regression` / `genuine-new-gap` with a milestone citation per closed item (Pitfall #13).
   4. v1027 typed action-boundary + v1026 reconciler + v1008 unified-stack invariants verified live: `grep` for `map.setPaintProperty` / `map.setLayoutProperty` outside `layer-adapters/` and `map-sync.ts` returns clean; `BuilderLayerAction` union remains the only mutation entry point.
   5. SHARE-08 (OG-cards) disposition recorded: 1200×630 thumbnail variant exists OR a Future Requirements entry flags SHARE-08 to v1031 with rationale.
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 1133-01-PLAN.md — Live Playwright MCP walkthrough + audit-doc skeleton + Phase 1134-1138 routing table (WALK-01)
+- [ ] 1133-02-PLAN.md — AI Consumer-Gating Matrix (Pitfall #4 / v1010.2 SF-06 sibling-hook sweep) (WALK-02)
+- [ ] 1133-03-PLAN.md — todo.md L96-171 staleness pass with milestone citations (WALK-03)
+- [ ] 1133-04-PLAN.md — Invariant grep checks: v1008/v1026/v1027 contracts on clean main (WALK-04)
+- [ ] 1133-05-PLAN.md — SHARE-08 thumbnail-variant + SHARE-03 iframe-sandbox disposition + audit sign-off (WALK-05)
 **UI hint**: yes
 
 ### Phase 1134: Map Functionality and Smaller-Screen Polish
@@ -128,7 +133,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1133. Audit-First Builder Walkthrough | v1030 | 0/0 | Not started | - |
+| 1133. Audit-First Builder Walkthrough | v1030 | 0/5 | Not started | - |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 0/0 | Not started | - |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
