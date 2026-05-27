@@ -98,7 +98,7 @@ The staging tray renders between the last assistant message and the compose area
 ### Layout
 
 - The tray is a full-width block in the message log scroll area, rendered as the last item before `messagesEndRef`.
-- Outer container: `border border-border rounded-lg bg-muted/30 p-2 space-y-1.5`
+- Outer container: `border border-border rounded-lg bg-muted/30 p-2 space-y-1` (4px gap between chips, on-grid)
 - Header row: `flex items-center justify-between mb-1`
   - Left: label `text-xs font-medium text-muted-foreground` — "N pending change(s) — review before applying"
   - Right: two buttons — "Accept all" (primary, `h-7 text-xs`) and "Reject all" (outline-destructive, `h-7 text-xs`)
@@ -300,7 +300,7 @@ The banner renders at the TOP of the ChatPanel message log (not below the compos
 | Property | Value |
 |----------|-------|
 | Container | `flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/8 px-3 py-2 mb-2 sticky top-0 z-10` |
-| Icon | Lucide `AlertCircle`, `h-4 w-4 text-destructive shrink-0 mt-0.5` |
+| Icon | Lucide `AlertCircle`, `h-4 w-4 text-destructive shrink-0` on a flex container with `items-start` (no `mt-0.5` micro-nudge needed; alignment achieved structurally) |
 | Title | `text-sm font-medium text-foreground` — brief label |
 | Body | `text-xs text-muted-foreground` — one-line explanation |
 | Retry button (503) | `Button size="sm" variant="outline" className="h-7 text-xs gap-1"` — `RotateCcw` icon + "Retry" |
