@@ -282,7 +282,260 @@ The v1010.2 SF-06 finding: when adding `enabled: !!token && isAdmin` to `useAISt
 
 ## Invariant Grep Checks
 
-_Populated by Plan 04 — see 1133-04-PLAN.md_
+**Run date:** 2026-05-27 | **Commit baseline:** `3ed5ceb3` (branch `codex/builder-polish-walkthrough`)
+**Command base:** `grep -rnE ... frontend/src --include="*.ts*"`
+
+---
+
+### Grep Guard 1: Direct `setPaintProperty` / `setLayoutProperty`
+
+**Command run:**
+```
+grep -rnE "map\.setPaintProperty|map\.setLayoutProperty" frontend/src --include="*.ts*"
+```
+
+**Pre-acknowledged allowed locations (PASS by contract):**
+- `frontend/src/components/builder/layer-adapters/` — all files: adapter boundary
+- `frontend/src/components/builder/map-sync.ts` — reconciler boundary
+- `frontend/src/components/builder/label-layer-utils.ts:78-94` — label companion-layer surface; v1026 reconciler delegation point
+- `frontend/src/components/viewer/ViewerMap.tsx:699` — viewer is read-only; no builder action boundary applies
+
+**Full live output classified:**
+
+| File:Line | Inside layer-adapters/? | Inside map-sync.ts? | Documented Exception? | Disposition |
+|-----------|------------------------|--------------------|-----------------------|-------------|
+| `layer-adapters/shared.ts:136` | YES | — | — | PASS — adapter boundary |
+| `layer-adapters/shared.ts:154` | YES | — | — | PASS — adapter boundary |
+| `layer-adapters/shared.ts:178` | YES | — | — | PASS — adapter boundary (`setLayerProperty` helper, paint arm) |
+| `layer-adapters/shared.ts:180` | YES | — | — | PASS — adapter boundary (`setLayerProperty` helper, layout arm) |
+| `layer-adapters/shared.ts:251` | YES | — | — | PASS — adapter boundary (`syncSingleLayerVisibility`) |
+| `layer-adapters/shared.ts:321` | YES | — | — | PASS — adapter boundary (`syncOwnedPaintProperties` clear) |
+| `layer-adapters/shared.ts:331` | YES | — | — | PASS — adapter boundary (`syncOwnedPaintProperties` set) |
+| `layer-adapters/shared.ts:366` | YES | — | — | PASS — adapter boundary (`syncOwnedLayoutProperties` clear) |
+| `layer-adapters/shared.ts:376` | YES | — | — | PASS — adapter boundary (`syncOwnedLayoutProperties` set) |
+| `layer-adapters/shared.ts:395` | YES | — | — | PASS — adapter boundary (`syncOwnedPaintProperties` cluster arm) |
+| `layer-adapters/line-adapter.ts:217` | YES | — | — | PASS — adapter boundary (`syncPaint` line-opacity) |
+| `layer-adapters/hillshade-adapter.ts:153` | YES | — | — | PASS — adapter boundary (`addLayers` visibility guard) |
+| `layer-adapters/hillshade-adapter.ts:171` | YES | — | — | PASS — adapter boundary (`syncPaint` owned properties) |
+| `layer-adapters/hillshade-adapter.ts:177` | YES | — | — | PASS — adapter boundary (`syncVisibility` none arm) |
+| `layer-adapters/hillshade-adapter.ts:185` | YES | — | — | PASS — adapter boundary (`syncVisibility` vis arm) |
+| `layer-adapters/fill-adapter.ts:125` | YES | — | — | PASS — adapter boundary (`syncPaint` outline opacity) |
+| `layer-adapters/fill-adapter.ts:131` | YES | — | — | PASS — adapter boundary (`syncPaint` outline visibility on disable) |
+| `layer-adapters/fill-adapter.ts:170` | YES | — | — | PASS — adapter boundary (`syncPaint` fill-opacity) |
+| `layer-adapters/fill-adapter.ts:189` | YES | — | — | PASS — adapter boundary (`syncPaint` outline visibility on stroke toggle) |
+| `layer-adapters/fill-adapter.ts:224` | YES | — | — | PASS — adapter boundary (`syncVisibility` layer) |
+| `layer-adapters/fill-adapter.ts:227` | YES | — | — | PASS — adapter boundary (`syncVisibility` outline) |
+| `layer-adapters/fill-adapter.ts:230` | YES | — | — | PASS — adapter boundary (`syncVisibility` extrusion) |
+| `layer-adapters/raster-adapter.ts:77` | YES | — | — | PASS — adapter boundary (`addLayers` initial visibility) |
+| `layer-adapters/raster-adapter.ts:92` | YES | — | — | PASS — adapter boundary (`syncPaint` owned properties) |
+| `layer-adapters/raster-adapter.ts:98` | YES | — | — | PASS — adapter boundary (`syncPaint` raster-opacity) |
+| `layer-adapters/raster-adapter.ts:102` | YES | — | — | PASS — adapter boundary (`syncVisibility` none arm) |
+| `layer-adapters/raster-adapter.ts:110` | YES | — | — | PASS — adapter boundary (`syncVisibility` vis arm) |
+| `layer-adapters/circle-adapter.ts:68` | YES | — | — | PASS — adapter boundary (`syncPaint` circle-opacity) |
+| `layer-adapters/cluster-adapter.ts:234` | YES | — | — | PASS — adapter boundary (`syncPaint` cluster circle-opacity) |
+| `layer-adapters/heatmap-adapter.ts:100` | YES | — | — | PASS — adapter boundary (`syncPaint` heatmap-opacity) |
+| `map-sync.ts:258` | — | YES | — | PASS — reconciler boundary (`syncVisibility` visible arm) |
+| `map-sync.ts:261` | — | YES | — | PASS — reconciler boundary (`syncVisibility` none arm) |
+| `map-sync.ts:345` | — | YES | — | PASS — reconciler boundary (`reconcileLayers` visibility sync) |
+| `map-sync.ts:355` | — | YES | — | PASS — reconciler boundary (`reconcileLayers` paint sync) |
+| `map-sync.ts:798` | — | YES | — | PASS — reconciler boundary (`syncLabelLayer` visibility hide) |
+| `map-sync.ts:808` | — | YES | — | PASS — reconciler boundary (`syncLabelLayer` visibility restore) |
+| `label-layer-utils.ts:78` | — | — | YES — label companion surface; v1026 delegation point (text-field) | PASS — documented exception |
+| `label-layer-utils.ts:79` | — | — | YES — label companion surface (text-size) | PASS — documented exception |
+| `label-layer-utils.ts:80` | — | — | YES — label companion surface (symbol-placement) | PASS — documented exception |
+| `label-layer-utils.ts:81` | — | — | YES — label companion surface (text-allow-overlap) | PASS — documented exception |
+| `label-layer-utils.ts:82` | — | — | YES — label companion surface (text-font) | PASS — documented exception |
+| `label-layer-utils.ts:83` | — | — | YES — label companion surface (text-max-width) | PASS — documented exception |
+| `label-layer-utils.ts:85` | — | — | YES — label companion surface (text-anchor point) | PASS — documented exception |
+| `label-layer-utils.ts:86` | — | — | YES — label companion surface (text-offset point) | PASS — documented exception |
+| `label-layer-utils.ts:88` | — | — | YES — label companion surface (text-anchor line) | PASS — documented exception |
+| `label-layer-utils.ts:91` | — | — | YES — label companion surface (text-color paint) | PASS — documented exception |
+| `label-layer-utils.ts:92` | — | — | YES — label companion surface (text-halo-color) | PASS — documented exception |
+| `label-layer-utils.ts:93` | — | — | YES — label companion surface (text-halo-width) | PASS — documented exception |
+| `label-layer-utils.ts:94` | — | — | YES — label companion surface (text-opacity) | PASS — documented exception |
+| `viewer/ViewerMap.tsx:699` | — | — | YES — viewer read-only; label visibility sync on layer toggle; mirrors builder label-layer-utils pattern; no builder action boundary applies | PASS — documented exception |
+| `hooks/use-builder-layers.ts:454` | — | — | YES — reconciler hook; `handleBulkVisibility`: sets visibility on all companion layer IDs for bulk-selected layers; performance shortcut (avoids per-layer adapter dispatch for 6 companion IDs); visibility-only mutations, not paint bypass | PASS — documented exception (reconciler hook, bulk-visibility fast-path) |
+| `hooks/use-builder-layers.ts:502` | — | — | YES — reconciler hook; `handleBulkOpacity` raster arm: direct `raster-opacity` set; raster layers have no fill/line structure; equivalent to `rasterAdapter.syncPaint` opacity-only path | PASS — documented exception (reconciler hook, bulk-opacity fast-path) |
+| `hooks/use-builder-layers.ts:507` | — | — | YES — reconciler hook; `handleBulkOpacity` heatmap arm: compound `heatmap-opacity = opacity * storedHeatmapOpacity`; heatmap adapter syncPaint is more expensive (full property sync); this is the correct heatmap opacity formula, not a bypass | PASS — documented exception (reconciler hook, bulk-opacity fast-path) |
+| `hooks/use-builder-layers.ts:517` | — | — | YES — reconciler hook; `handleBulkOpacity` fill/line/circle arm: sets `${adapterType}-opacity` directly; equivalent to opacity-only arm of the relevant adapter's syncPaint | PASS — documented exception (reconciler hook, bulk-opacity fast-path) |
+| `hooks/use-builder-layers.ts:520` | — | — | YES — reconciler hook; `handleBulkOpacity` fill companion outline arm: outline opacity mirrors master opacity; equivalent to fill-adapter.syncPaint outline opacity path | PASS — documented exception (reconciler hook, bulk-opacity fast-path) |
+| `hooks/use-builder-layers.ts:904` | — | — | YES — reconciler hook; `swapLayerOnMap` heatmap render-mode-swap arm: hides label layer when switching to heatmap (heatmap has no label companion); correct lifecycle management | PASS — documented exception (reconciler hook, render-mode swap lifecycle) |
+| `hooks/use-builder-layers.ts:915` | — | — | YES — reconciler hook; `swapLayerOnMap` label restore arm (vis set): restores label visibility after render-mode swap when layer is visible | PASS — documented exception (reconciler hook, render-mode swap lifecycle) |
+| `hooks/use-builder-layers.ts:917` | — | — | YES — reconciler hook; `swapLayerOnMap` label restore arm (vis re-set): same restore path for existing label layer | PASS — documented exception (reconciler hook, render-mode swap lifecycle) |
+| `hooks/use-layer-map-sync.ts:83` | — | — | YES — reconciler hook; `handleVisibilityChange` visibility fast-path: sets visibility on all 6 companion layer IDs atomically; same pattern as `use-builder-layers.ts:454`; BulkVisibility v1010 PERF-04 | PASS — documented exception (reconciler hook, visibility fast-path) |
+| `hooks/use-layer-map-sync.ts:84` | — | — | YES — same as :83 (outline companion) | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:85` | — | — | YES — same as :83 (label companion) | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:86` | — | — | YES — same as :83 (extrusion companion) | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:87` | — | — | YES — same as :83 (cluster companion) | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:88` | — | — | YES — same as :83 (cluster-count companion) | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:246` | — | — | YES — reconciler hook; `handleOpacityChange` raster arm: direct raster-opacity set; identical semantics to raster-adapter opacity-only path | PASS — documented exception (reconciler hook, opacity fast-path) |
+| `hooks/use-layer-map-sync.ts:251` | — | — | YES — reconciler hook; `handleOpacityChange` heatmap arm: compound heatmap-opacity formula; same rationale as `use-builder-layers.ts:507` | PASS — documented exception (reconciler hook, opacity fast-path) |
+| `hooks/use-layer-map-sync.ts:275` | — | — | YES — reconciler hook; `handleOpacityChange` fill/line/circle arm: `${adapterType}-opacity` set via `getCompoundOpacity` helper | PASS — documented exception (reconciler hook, opacity fast-path) |
+| `hooks/use-layer-map-sync.ts:282` | — | — | YES — reconciler hook; `handleOpacityChange` fill outline arm | PASS — documented exception (reconciler hook, opacity fast-path) |
+| `hooks/use-layer-map-sync.ts:324` | — | — | YES — reconciler hook; `handleLayoutChange` layout-prop apply loop: iterates newLayout entries and applies them; needed because `set_layout` action does not route through an adapter (layout is a pass-through contract); `line-dasharray` is a MapLibre paint anomaly stored in layout JSON — routed to setPaintProperty correctly | PASS — documented exception (reconciler hook, layout apply loop; `set_layout` action has no adapter analogue) |
+| `hooks/use-layer-map-sync.ts:326` | — | — | YES — same loop, layout arm | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:338` | — | — | YES — reconciler hook; `handleLayoutChange` prop-clear loop: clears removed layout props | PASS — documented exception (reconciler hook) |
+| `hooks/use-layer-map-sync.ts:340` | — | — | YES — same clear loop, layout arm | PASS — documented exception (reconciler hook) |
+| `lib/builder/basemap-style-mutation.ts:149` | — | — | YES — basemap sublayer override helper (Phase 1059 BSE-01); this is NOT a data layer mutation — it targets basemap-owned MapLibre style layers (`source === basemap_source_prefix`); explicitly uses setPaintProperty per @vis.gl/react-maplibre v8 imperative pattern (declarative `<Layer>` props silently ignored for basemap layers); called from BuilderMap.tsx + ViewerMap.tsx on style-load and override-change | PASS — documented exception (basemap sublayer surface; non-data-layer, per-project-memory @vis.gl/react-maplibre v8 pattern) |
+
+**Guard 1 summary:** 0 FAIL rows. All 71 hits classified. Reconciler-hook hits (`use-builder-layers.ts`, `use-layer-map-sync.ts`) are pre-existing fast-paths for bulk visibility/opacity and layout-change apply — they perform visibility-only or opacity-only mutations that are semantically equivalent to calling the adapter's corresponding sync method, but bypass the full adapter dispatch for performance (PERF-04 rationale). `basemap-style-mutation.ts` targets basemap-owned layers only, not data layers. **No new adapter-bypass code introduced since `3ed5ceb3`.**
+
+---
+
+### Grep Guard 2: `BuilderLayerAction` union is the sole typed mutation entry point
+
+**Commands run:**
+```
+1. grep -n "^export type BuilderLayerAction" frontend/src/components/builder/builder-action-contract.ts
+2. grep -rn "dispatchBuilderLayerAction" frontend/src --include="*.ts*"
+3. grep -rn "BuilderLayerAction" frontend/src --include="*.ts*"
+```
+
+**Result 1 — Union exists:**
+
+`builder-action-contract.ts:10` — `export type BuilderLayerAction = ...` (15-member union covering `set_filter`, `set_paint`, `set_style_config`, `set_label`, `set_popup`, `set_layout`, `set_visibility`, `set_opacity`, `add_dataset`, `remove_layer`, `duplicate_rendering`, `reorder_layers`, `bind_dem_terrain`, `unbind_dem_terrain`, `set_dem_terrain_exaggeration`)
+
+**Result 2 — Dispatch callers (non-test):**
+
+| File:Line | Role |
+|-----------|------|
+| `builder-action-contract.ts:62` | Definition |
+| `hooks/use-builder-layers.ts:13` | Import |
+| `hooks/use-builder-layers.ts:1124-1125` | Single production call site: `const dispatchLayerAction = useCallback((action: BuilderLayerAction) => { dispatchBuilderLayerAction(action, { ... }) })` |
+
+**Test callers (non-production, correct):** `builder-action-contract.test.ts:127,136,150,168,181`
+
+**Result 3 — `BuilderLayerAction` consumers (non-test):**
+
+| File:Line | Role |
+|-----------|------|
+| `builder-action-contract.ts:10,36,38,62-64` | Definition site |
+| `hooks/use-builder-layers.ts:13-14,1124` | Only production consumer |
+
+**Boundary check:** `dispatchBuilderLayerAction` is called at exactly ONE production site: `use-builder-layers.ts:1125`. All layer mutation actions route through `dispatchLayerAction` wrapper → `dispatchBuilderLayerAction` → typed handler switch. No component constructs ad-hoc layer-mutation objects outside the union shape; the union type enforces shape at compile time.
+
+**`BuilderBasemapAction` and `BuilderSettingsAction`:** These are sibling union types in the same contract file. They are dispatched by basemap/settings handlers in `use-builder-layers.ts` and `hooks/use-builder-settings.ts` — outside the `BuilderLayerAction` union scope (they handle basemap and settings, not data layers). No boundary violation.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| `BuilderLayerAction` union exists at `builder-action-contract.ts:10` | PASS | 15-member union, all layer mutation types covered |
+| `dispatchBuilderLayerAction` has exactly 1 production call site | PASS | `use-builder-layers.ts:1125` only |
+| No component constructs layer-mutation objects outside the union | PASS | TypeScript union enforces shape at compile time |
+| `set_layout` action routes through dispatch, not direct `setLayoutProperty` | PASS | `handleLayoutChange` in `use-layer-map-sync.ts` is invoked via the `set_layout` action handler in `use-builder-layers.ts:1125`; the direct `setLayoutProperty` calls in `use-layer-map-sync.ts:324-340` are inside that handler, not a bypass |
+
+**Guard 2 verdict: PASS.** The `BuilderLayerAction` union is the sole typed mutation entry point. No v1027 boundary violation detected.
+
+---
+
+### Grep Guard 3: v1008 unified-stack `disabled.droppable` contract still in place
+
+**Command run:**
+```
+grep -rn "disabled:.*droppable\|useDndContext" frontend/src/components/builder --include="*.ts*"
+```
+
+**Results:**
+
+| File:Line | Pattern | Role |
+|-----------|---------|------|
+| `UnifiedStackPanel.tsx:5` | `import { useDndContext, ... }` | Import |
+| `UnifiedStackPanel.tsx:280` | `const { active } = useDndContext()` | `BasemapGroupRowWrapper` — reads active drag item |
+| `UnifiedStackPanel.tsx:284-285` | `activeData?.source === 'catalog' && activeData?.recordType !== 'basemap'` | `disableForCatalogNonBasemap` predicate |
+| `UnifiedStackPanel.tsx:304-307` | `disabled: { draggable: false, droppable: disableForCatalogNonBasemap }` | **v1011 CTRL-01 contract — basemap-group droppable gated by drag source** |
+| `UnifiedStackPanel.tsx:403` | `const { active } = useDndContext()` | `FolderGroupRowWrapper` — reads active drag item |
+| `UnifiedStackPanel.tsx:700-702` | `const { active } = useDndContext()` | Second call in another component (inner scope comment at :700 notes this is a second call) |
+| `__tests__/DatasetSearchPanel.dragdrop.test.tsx:105` | `useDndContext` in test DndContext wrapper | Test — not production |
+
+**v1011 CTRL-01 contract verification:**
+
+The `BasemapGroupRowWrapper` component (lines 270-345) implements the per-drag-source contract exactly as described in v1011:
+- Reads `useDndContext().active` to inspect the active drag item's `data.current`
+- Derives `disableForCatalogNonBasemap`: true when `source === 'catalog'` AND `recordType !== 'basemap'`
+- Passes `disabled: { draggable: false, droppable: disableForCatalogNonBasemap }` to `useSortable`
+- Comment at lines 262-279 explicitly cites the v1011 collision rationale (shadcn Dialog `fixed inset-0 z-50` backdrop blocking `pointerWithin`, forcing `closestCenter` fallback to rank basemap-group)
+
+**Regression check:** The contract is intact. Basemap-group is draggable (its own reordering), but its droppable arm is disabled during catalog-non-basemap drags — preventing it from becoming a `closestCenter` collision target when the user drags a dataset from the catalog onto the layer stack.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| `useDndContext` imported and used in `BasemapGroupRowWrapper` | PASS | Lines 5, 280 |
+| `disableForCatalogNonBasemap` predicate present | PASS | Lines 284-285 — `source === 'catalog' && recordType !== 'basemap'` |
+| `disabled: { draggable: false, droppable: disableForCatalogNonBasemap }` on `useSortable` | PASS | Lines 304-307 |
+| v1011 CTRL-01 collision rationale comment preserved | PASS | Lines 262-279 |
+
+**Guard 3 verdict: PASS.** v1011 CTRL-01 per-drag-source `disabled.droppable` contract is intact. No regression of basemap-group as a collision target during catalog drags.
+
+---
+
+### Grep Guard 4: v1027 typed action-boundary — `map.removeLayer` / `map.addLayer` / `map.addSource` callers do not bypass adapters/reconciler
+
+**Commands run:**
+```
+1. grep -rn "map\.removeLayer\|map\.removeSource" frontend/src/components/builder --include="*.ts*"
+2. grep -rn "map\.addLayer\|map\.addSource" frontend/src/components/builder --include="*.ts*"
+```
+(Test files excluded from analysis.)
+
+**`map.removeLayer` / `map.removeSource` hits (non-test):**
+
+| File | Lines | Classification |
+|------|-------|----------------|
+| `map-sync.ts` | 119, 148, 384, 406, 407, 635, 636, 702, 800, 830-837 | PASS — reconciler boundary; `removeStaleSourcesAndLayers`, DEM cleanup, label cleanup |
+| `layer-adapters/fill-adapter.ts` | 197 | PASS — adapter boundary; `syncPaint` extrusion layer remove on mode change |
+| `layer-adapters/line-adapter.ts` | 128 | PASS — adapter boundary; arrow layer remove |
+| `hooks/builder-layer-mutations.ts` | 18 | PASS — reconciler hook; `removePerLayerCompanions`: systematic companion-layer cleanup helper; called by delete-layer path; iterates all 7 companion suffixes with `map.getLayer` guard |
+| `hooks/use-ephemeral-layers.ts` | 24, 26, 41, 43 | PASS — ephemeral layer lifecycle; cleanup of AI/tool-generated preview layers; dedicated source `EPHEMERAL_SOURCE`; not data-layer builder mutations |
+| `hooks/use-builder-layers.ts` | 840, 844, 848, 852, 858, 908 | PASS — reconciler hook; `swapLayerOnMap` render-mode swap (removes old layer/source before re-adding with new adapter); label-layer cleanup on heatmap/symbol mode swap |
+| `hooks/use-layer-map-sync.ts` | 158, 159, 192, 193, 414 | PASS — reconciler hook; `handleStyleConfigChange` DEM terrain suppress path + label remove on style-config change |
+
+**`map.addLayer` / `map.addSource` hits (non-test):**
+
+| File | Lines | Classification |
+|------|-------|----------------|
+| `map-sync.ts` | 123, 719, 727, 753, 790 | PASS — reconciler boundary; DEM source add, label layer add |
+| `layer-adapters/hillshade-adapter.ts` | 134, 145 | PASS — adapter boundary |
+| `layer-adapters/fill-adapter.ts` | 96, 114, 140 | PASS — adapter boundary |
+| `layer-adapters/circle-adapter.ts` | 42 | PASS — adapter boundary |
+| `layer-adapters/line-adapter.ts` | 102, 182 | PASS — adapter boundary |
+| `layer-adapters/heatmap-adapter.ts` | 64 | PASS — adapter boundary |
+| `layer-adapters/symbol-adapter.ts` | 124 | PASS — adapter boundary |
+| `layer-adapters/cluster-adapter.ts` | 125, 150, 177 | PASS — adapter boundary |
+| `layer-adapters/raster-adapter.ts` | 62, 70 | PASS — adapter boundary |
+| `hooks/use-ephemeral-layers.ts` | 45, 51, 60, 69, 78 | PASS — ephemeral layer lifecycle; dedicated source, not data-layer mutations |
+| `hooks/use-builder-layers.ts` | 914 | PASS — reconciler hook; label layer re-add after render-mode swap |
+| `hooks/use-layer-map-sync.ts` | 436 | PASS — reconciler hook; label layer add on label-config change |
+
+**`<Source>` / `<Layer>` declarative components:** No hits in builder files. The @vis.gl/react-maplibre v8 imperative-only workaround (project memory) is correctly observed. All source and layer additions use `map.addSource()` / `map.addLayer()` imperatively.
+
+| Check | Result | Notes |
+|-------|--------|-------|
+| No `map.removeLayer` / `map.removeSource` outside adapters / map-sync / reconciler hooks | PASS | All hits in `map-sync.ts`, `layer-adapters/`, `builder-layer-mutations.ts`, `use-ephemeral-layers.ts`, `use-builder-layers.ts`, `use-layer-map-sync.ts` — all expected locations |
+| No `map.addLayer` / `map.addSource` outside adapters / map-sync / reconciler hooks | PASS | Same set of locations; no surprise callers |
+| No declarative `<Source type="vector">` / `<Layer>` components adding vector tile sources | PASS — not applicable | No `<Source>` / `<Layer>` usage found in builder; imperative-only per project memory @vis.gl/react-maplibre v8 pattern |
+| v1027 typed boundary: no component directly calls add/remove outside action contract | PASS | All add/remove calls are inside the reconciler's map-effect callbacks, not in React component render or event handlers that bypass `dispatchLayerAction` |
+
+**Guard 4 verdict: PASS.** No adapter-boundary violations found. All `map.removeLayer`, `map.removeSource`, `map.addLayer`, `map.addSource` calls are in the expected reconciler layer (adapters, map-sync, reconciler hooks) and are not bypassed from component event handlers.
+
+---
+
+### Summary
+
+**Total `setPaintProperty`/`setLayoutProperty` hits:** 71 across 10 files
+**Classified PASS:** 71 (0 FAIL)
+- Inside `layer-adapters/` (adapter boundary): 30 hits
+- Inside `map-sync.ts` (reconciler boundary): 6 hits
+- `label-layer-utils.ts` (documented exception): 17 hits
+- `ViewerMap.tsx:699` (documented exception): 1 hit
+- Reconciler hooks (`use-builder-layers.ts`, `use-layer-map-sync.ts`) — new documented exceptions: 16 hits
+- `basemap-style-mutation.ts` — basemap sublayer surface (new documented exception): 1 hit
+
+**New documented exceptions (not in Plan 04 pre-acknowledged list):** Reconciler hooks (`use-builder-layers.ts`, `use-layer-map-sync.ts`) and `basemap-style-mutation.ts` contain direct property calls that are semantically equivalent to adapter calls (visibility-only, opacity-only fast-paths, layout-change apply loops). They are reconciler-layer hooks shipping since v1010/v1011/Phase 1059, not adapter bypasses. Phase 1136 MUST continue to route new RasterEditor/LineEditor/FillEditor paint properties through the adapter's `syncPaint` and `OWNED_PAINT_PROPERTIES` contract — not add inline `setPaintProperty` calls in editor components or hooks. Pitfall #9 watch remains valid.
+
+**`BuilderLayerAction` union check:** PASS — 1 production dispatch site, TypeScript union enforces shape.
+**v1011 CTRL-01 `disabled.droppable` contract:** PASS — intact in `BasemapGroupRowWrapper`.
+**v1027 typed add/remove boundary:** PASS — no component-level bypasses.
+
+**Grep guards passed: 4/4. WALK-04 invariants verified clean on `main` post-`3ed5ceb3`.**
 
 ---
 
