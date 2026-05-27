@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1030
 milestone_name: Map Builder Polish Sweep
-status: executing
+status: verifying
 stopped_at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
-last_updated: "2026-05-27T20:59:54.986Z"
+last_updated: "2026-05-27T21:34:50.423Z"
 last_activity: 2026-05-27
 progress:
   total_phases: 12
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 24
-  completed_plans: 23
-  percent: 25
+  completed_plans: 24
+  percent: 33
 ---
 
 # State
@@ -20,7 +20,7 @@ progress:
 
 Phase: 1136 (Per-Render-Mode Editor Polish) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-05-27
 
 ## Project Reference
@@ -97,6 +97,8 @@ See: .planning/PROJECT.md
 - [Phase ?]: SF-MCP-01 carry-forward: backend chat_actions.py:_collect_chat_action() never emits rows on show_query_result for non-spatial queries; frontend inline card is ready but backend wiring missing; routed to Phase 1139
 - [Phase ?]: AI-05 zoom-aware chips deferred in headless: headless WebGL failure prevents MapLibre idle events; 8 unit tests in Plan 04 cover the contract; interactive verification documented in 1135-MCP-SMOKE.md
 - [Phase ?]: BLANK_BASEMAP_ID sentinel reuse in BasemapGroupEditorScene: no new sentinel needed; existing 'blank' constant already routes through swapBasemapPreset to hasVisibleBasemap=false with zero controller change
+- [Phase ?]: 1136-07: deriveExtrusionRange string coercion — API returns dataset_sample_values as strings; parseFloat() coercion added; range hint now works in production
+- [Phase ?]: 1136-07: Basemap pre-flight reset pattern — smoke tests that need basemap group row must PUT basemap_style before navigation; blank state yields no row in stack
 
 ### Pending Todos
 
@@ -115,7 +117,7 @@ None for v1030 yet (roadmap fresh; pending Phase 1133 audit output).
 
 ## Session Continuity
 
-Last session: 2026-05-27T20:59:54.982Z
+Last session: 2026-05-27T21:34:40.942Z
 Stopped at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
 Resume file: None
 

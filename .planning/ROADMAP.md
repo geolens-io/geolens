@@ -15,7 +15,7 @@
 - [x] **Phase 1133: Audit-First Builder Walkthrough** — Live Playwright MCP walkthrough across every render mode; produces `BUILDER-WALKTHROUGH-AUDIT.md` (P0/P1/P2 triage) + AI consumer-gating matrix + `todo.md` staleness cross-reference. (completed 2026-05-27)
 - [x] **Phase 1134: Map Functionality and Smaller-Screen Polish** — Tier-1 bugs (delete-layer, visibility-toggle, rename-group focus) + ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135. (completed 2026-05-27)
 - [x] **Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish** — Confirm-before-apply staging (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, data-analysis inline card, disabled/error empty-state re-verify. (completed 2026-05-27)
-- [ ] **Phase 1136: Per-Render-Mode Editor Polish** — RasterEditor brightness/contrast/saturation/hue + reset; LineEditor line-cap/line-join; FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone.
+- [x] **Phase 1136: Per-Render-Mode Editor Polish** — RasterEditor brightness/contrast/saturation/hue + reset; LineEditor line-cap/line-join; FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone. (completed 2026-05-27)
 - [ ] **Phase 1137: Sharing and Embed Polish** — Allowed-origins as chips; expiration presets; "Powered by GeoLens" branding (community edition) + legend+title in export; conditional iframe preview.
 - [ ] **Phase 1138: Easy-Win Sweep** — Cmd/Ctrl+S, popup URL/media handling, empty-layer state.
 - [ ] **Phase 1139: Quality Sweep and Playwright Close-Gate** — Live MCP at 1440×900 / 800×600 / 414×896, disabled-AI smoke, typecheck/lint/vitest/e2e/i18n parity, CHANGELOG + OpenAPI/SDK refresh where backend changed.
@@ -98,7 +98,7 @@
 - [x] 1136-04-PLAN.md — BasemapGroupEditorScene "No basemap" preset card (EDITOR-BASEMAP-02)
 - [x] 1136-05-PLAN.md — BasemapSublayerEditorScene DETAIL LEVEL positive-form regression pin (EDITOR-BASEMAP-03)
 - [x] 1136-06-PLAN.md — Pitfall #9 phase-scoped grep guard vitest + i18n parity sweep (de/es/fr)
-- [ ] 1136-07-PLAN.md — Live Playwright MCP smoke across 5 surfaces on canonical ADK map
+- [x] 1136-07-PLAN.md — Live Playwright MCP smoke across 5 surfaces on canonical ADK map
 **UI hint**: yes
 
 ### Phase 1137: Sharing and Embed Polish
@@ -155,7 +155,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
-| 1136. Per-Render-Mode Editor Polish | v1030 | 6/7 | In Progress|  |
+| 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
 | 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
