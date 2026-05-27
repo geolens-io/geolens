@@ -116,3 +116,23 @@ describe('raster-adapter addLayers — WALK-R-05 split-guard', () => {
     expect(ids).toEqual(['my-raster-layer']);
   });
 });
+
+describe('RASTER_OWNED_PAINT_PROPERTIES export', () => {
+  it('exports exactly the 4 user-facing raster paint property keys in canonical order', async () => {
+    const { RASTER_OWNED_PAINT_PROPERTIES } = await import('../raster-adapter');
+    expect(RASTER_OWNED_PAINT_PROPERTIES).toEqual([
+      'raster-brightness-min',
+      'raster-contrast',
+      'raster-saturation',
+      'raster-hue-rotate',
+    ]);
+  });
+
+  it('does NOT include raster-brightness-max, raster-resampling, raster-fade-duration, or raster-opacity', async () => {
+    const { RASTER_OWNED_PAINT_PROPERTIES } = await import('../raster-adapter');
+    const forbidden = ['raster-brightness-max', 'raster-resampling', 'raster-fade-duration', 'raster-opacity'];
+    for (const key of forbidden) {
+      expect(RASTER_OWNED_PAINT_PROPERTIES as readonly string[]).not.toContain(key);
+    }
+  });
+});

@@ -16,6 +16,20 @@ type RasterPaintProperty = keyof typeof RASTER_PAINT_DEFAULTS;
 
 const RASTER_PAINT_PROPERTIES = Object.keys(RASTER_PAINT_DEFAULTS) as RasterPaintProperty[];
 
+/**
+ * The 4 user-facing raster paint properties exposed in RasterEditor.
+ * Excludes raster-brightness-max (kept at default 1), raster-resampling,
+ * raster-fade-duration (internal), and raster-opacity (routed separately
+ * via buildRasterPaint). This is the single source of truth for which
+ * properties the editor controls — no hard-coded keys outside this tuple.
+ */
+export const RASTER_OWNED_PAINT_PROPERTIES = [
+  'raster-brightness-min',
+  'raster-contrast',
+  'raster-saturation',
+  'raster-hue-rotate',
+] as const;
+
 function normalizeRasterBounds(bounds: number[] | null | undefined) {
   if (!Array.isArray(bounds) || bounds.length !== 4) return undefined;
   if (!bounds.every((value) => Number.isFinite(value))) return undefined;
