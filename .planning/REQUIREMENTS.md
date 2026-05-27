@@ -34,7 +34,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [x] **AI-01**: User can confirm-before-apply destructive AI actions (add_layer / remove_layer); CONTEXT.md picks shape A (pre-apply + atomic undo) or shape B (`pendingLayers` staging buffer) before plan-01 — DO NOT MIX (Pitfall #3). Regression test: "rejecting a staged action leaves layers byte-equal to pre-prompt state." Source: `todo.md` line 108.
 - [x] **AI-08**: User can ask data-analysis questions ("which datasets cover X", "summarize this layer's attributes") and see results in an inline card via the existing `show_query_result` action shape; no new BuilderLayerAction variant beyond extending `add_dataset`. Source: `todo.md` line 171.
 - [x] **AI-09**: Action preview chips render before destructive actions apply, showing the staged change in human-readable form ("Add 'NYC subway' below 'Counties'"); tied to AI-01 staging shape.
-- [ ] **AI-05**: Suggestion chips become viewport-aware (the chip list reflects the current camera + selected-layer context, not the static default list).
+- [x] **AI-05**: Suggestion chips become viewport-aware (the chip list reflects the current camera + selected-layer context, not the static default list).
 - [x] **AI-02**: Provider-disabled UAT: with `AI_ENABLED=false` on the local stack, the AI rail panel surfaces an actionable disabled state (no inert dead-end button); regression pin in `ChatPanel.test.tsx`. Re-verify v1028 AI-FU disposition holds.
 - [x] **AI-03**: Provider-error UAT: with an invalid provider key, the AI panel surfaces a recoverable error banner with a "retry" affordance; no silent fail.
 - [x] **AI-04**: `_validate_chat_layers` visibility-filter decision documented explicitly in `chat_actions.py` docstring — either filter hidden layers OR document "analyze sees all layers regardless of visibility" with rationale (Pitfall #5).
@@ -146,7 +146,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | AI-02 | Phase 1135 | Complete |
 | AI-03 | Phase 1135 | Complete |
 | AI-04 | Phase 1135 | Complete |
-| AI-05 | Phase 1135 | Pending |
+| AI-05 | Phase 1135 | Complete |
 | AI-08 | Phase 1135 | Complete |
 | AI-09 | Phase 1135 | Complete |
 | EDITOR-RASTER-01 | Phase 1136 | Pending |
