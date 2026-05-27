@@ -12,7 +12,7 @@
 
 ## Phases
 
-- [ ] **Phase 1133: Audit-First Builder Walkthrough** — Live Playwright MCP walkthrough across every render mode; produces `BUILDER-WALKTHROUGH-AUDIT.md` (P0/P1/P2 triage) + AI consumer-gating matrix + `todo.md` staleness cross-reference.
+- [x] **Phase 1133: Audit-First Builder Walkthrough** — Live Playwright MCP walkthrough across every render mode; produces `BUILDER-WALKTHROUGH-AUDIT.md` (P0/P1/P2 triage) + AI consumer-gating matrix + `todo.md` staleness cross-reference. (completed 2026-05-27)
 - [ ] **Phase 1134: Map Functionality and Smaller-Screen Polish** — Tier-1 bugs (delete-layer, visibility-toggle, rename-group focus) + ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135.
 - [ ] **Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish** — Confirm-before-apply staging (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, data-analysis inline card, disabled/error empty-state re-verify.
 - [ ] **Phase 1136: Per-Render-Mode Editor Polish** — RasterEditor brightness/contrast/saturation/hue + reset; LineEditor line-cap/line-join; FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone.
@@ -37,7 +37,7 @@
 - [x] 1133-02-PLAN.md — AI Consumer-Gating Matrix (Pitfall #4 / v1010.2 SF-06 sibling-hook sweep) (WALK-02)
 - [x] 1133-03-PLAN.md — todo.md L96-171 staleness pass with milestone citations (WALK-03)
 - [x] 1133-04-PLAN.md — Invariant grep checks: v1008/v1026/v1027 contracts on clean main (WALK-04)
-- [ ] 1133-05-PLAN.md — SHARE-08 thumbnail-variant + SHARE-03 iframe-sandbox disposition + audit sign-off (WALK-05)
+- [x] 1133-05-PLAN.md — SHARE-08 thumbnail-variant + SHARE-03 iframe-sandbox disposition + audit sign-off (WALK-05)
 **UI hint**: yes
 
 ### Phase 1134: Map Functionality and Smaller-Screen Polish
@@ -133,7 +133,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1133. Audit-First Builder Walkthrough | v1030 | 4/5 | In Progress|  |
+| 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 0/0 | Not started | - |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
