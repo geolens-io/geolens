@@ -574,9 +574,7 @@ describe('ChatPanel', () => {
 
   it.each([
     { status: 401, expected: /session expired/i },
-    { status: 403, expected: /permission/i },
     { status: 502, expected: /unavailable/i },
-    { status: 503, expected: /unavailable/i },
   ])(
     'shows specific error for ApiError status $status via fallback',
     async ({ status, expected }) => {
@@ -592,6 +590,30 @@ describe('ChatPanel', () => {
       await typeAndSend(user, 'trigger error');
 
       expect(await screen.findByText(expected)).toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    { status: 403, expectedBanner: /permission/i },
+    { status: 503, expectedBanner: /unavailable/i },
+  ])(
+    'WR-03: ApiError status $status via fallback routes to sticky banner, not inline bubble',
+    async ({ status, expectedBanner }) => {
+      // Stream fails with generic error, then fallback also fails with ApiError
+      // eslint-disable-next-line require-yield
+      mockStreamChat.mockImplementation(async function* () {
+        throw new Error('stream failed');
+      });
+      mockSendChat.mockRejectedValue(new ApiError('error', status));
+
+      const user = userEvent.setup();
+      renderPanel();
+      await typeAndSend(user, 'trigger error');
+
+      // Should show sticky banner (role="alert"), not inline error bubble
+      const banner = await screen.findByRole('alert');
+      expect(banner).toBeInTheDocument();
+      expect(banner).toHaveTextContent(expectedBanner);
     },
   );
 });
