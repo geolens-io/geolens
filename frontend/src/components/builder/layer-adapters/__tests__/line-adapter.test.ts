@@ -122,4 +122,24 @@ describe('line adapter — syncPaint reconciles line-cap and line-join via syncO
     );
     expect(layoutCalls).toHaveLength(0);
   });
+
+  // CR-01 regression pin: in production, addLayers sets line-cap='round' and
+  // line-join='round'. A subsequent syncPaint with empty layout must NOT reset
+  // those values to undefined (which MapLibre resolves to 'butt'/'miter').
+  it('does NOT reset line-cap / line-join when layout is empty but map already has "round" (CR-01 pin)', () => {
+    const map = createMockMap({ layerExists: true });
+    // Simulate post-addLayers state: map already has both properties set to 'round'
+    map.getLayoutProperty.mockImplementation((_id: string, prop: string) => {
+      if (prop === 'line-cap' || prop === 'line-join') return 'round';
+      return undefined;
+    });
+    lineAdapter.syncPaint(
+      map as unknown as import('maplibre-gl').Map,
+      makeInput({ layout: {} }),
+    );
+    const capResets = map.setLayoutProperty.mock.calls.filter(
+      ([, prop, val]) => (prop === 'line-cap' || prop === 'line-join') && val === undefined,
+    );
+    expect(capResets).toHaveLength(0);
+  });
 });
