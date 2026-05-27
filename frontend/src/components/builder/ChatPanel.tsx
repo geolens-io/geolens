@@ -744,8 +744,9 @@ export function ChatPanel({
                       </div>
                     );
                   }
-                  const firstRow = rows[0] as Record<string, unknown>;
-                  const allColumns = Object.keys(firstRow);
+                  const firstRow = rows[0];
+                  if (!firstRow || typeof firstRow !== 'object') return null;
+                  const allColumns = Object.keys(firstRow as Record<string, unknown>);
                   const visibleColumns = allColumns.slice(0, 5);
                   const hasMore = allColumns.length > 5;
                   return (
