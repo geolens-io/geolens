@@ -70,17 +70,25 @@ const HIGHWAY_FILTER: FilterSpecification = ['==', ['get', 'class'], 'highway'];
 // ===========================================================================
 
 describe('ActiveFilterChips — MAP-20 layout constraints', () => {
-  it('MAP-20: chip container has max-h-[40vh] + overflow-y-auto + pointer-events-none classes (regression pin)', () => {
+  it('MAP-20: outer wrapper has pointer-events-none; inner scroll container has max-h-[40vh] + overflow-y-auto + pointer-events-auto (WR-01 fix)', () => {
     const layer = makeLayer({ filter: HIGHWAY_FILTER });
     const { container } = render(
       <ActiveFilterChips layers={[layer]} onClearFilter={vi.fn()} />,
     );
 
-    // The outer flex-wrap container should have all three classes.
-    const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper).toHaveClass('max-h-[40vh]');
-    expect(wrapper).toHaveClass('overflow-y-auto');
-    expect(wrapper).toHaveClass('pointer-events-none');
+    // WR-01 structure: outer passthrough wrapper (pointer-events-none) wraps an inner
+    // scroll container (pointer-events-auto + overflow classes) so wheel/touch-scroll
+    // events reach the inner div while map drag events pass through outer gaps.
+    const outerWrapper = container.firstChild as HTMLElement;
+    expect(outerWrapper).toHaveClass('pointer-events-none');
+    // outer wrapper should NOT carry the scroll classes — those live on the inner div
+    expect(outerWrapper).not.toHaveClass('max-h-[40vh]');
+    expect(outerWrapper).not.toHaveClass('overflow-y-auto');
+
+    const innerScroll = outerWrapper.firstChild as HTMLElement;
+    expect(innerScroll).toHaveClass('pointer-events-auto');
+    expect(innerScroll).toHaveClass('max-h-[40vh]');
+    expect(innerScroll).toHaveClass('overflow-y-auto');
   });
 
   it('zero chips renders null (preserves current behavior)', () => {
