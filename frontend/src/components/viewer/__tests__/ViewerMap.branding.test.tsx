@@ -11,24 +11,22 @@ import type { ReactNode } from 'react';
 import { render, screen } from '@/test/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ViewerMap } from '../ViewerMap';
+import type { SharedLayerResponse } from '@/types/api';
 
 /* ── Mock @vis.gl/react-maplibre to avoid WebGL instantiation ── */
-vi.mock('@vis.gl/react-maplibre', async () => {
-  const React = await import('react');
-  return {
-    Map: ({ children }: { children?: ReactNode }) => (
-      <div data-testid="mapgl">{children}</div>
-    ),
-    NavigationControl: () => null,
-    ScaleControl: () => null,
-    FullscreenControl: () => null,
-    AttributionControl: () => null,
-    TerrainControl: () => null,
-    Popup: ({ children }: { children?: ReactNode }) => (
-      <div data-testid="feature-popup">{children}</div>
-    ),
-  };
-});
+vi.mock('@vis.gl/react-maplibre', () => ({
+  Map: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="mapgl">{children}</div>
+  ),
+  NavigationControl: () => null,
+  ScaleControl: () => null,
+  FullscreenControl: () => null,
+  AttributionControl: () => null,
+  TerrainControl: () => null,
+  Popup: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="feature-popup">{children}</div>
+  ),
+}));
 
 /* ── Mock heavy map-sync dependencies ── */
 vi.mock('@/hooks/use-settings', () => ({
@@ -75,7 +73,7 @@ const mockedUseEdition = vi.mocked(useEdition);
 const mockedUseBranding = vi.mocked(useBranding);
 
 const MINIMAL_PROPS = {
-  layers: [],
+  layers: [] as SharedLayerResponse[],
   basemapStyle: 'positron',
   initialViewState: {
     center_lng: 0,
@@ -85,7 +83,7 @@ const MINIMAL_PROPS = {
     pitch: 0,
   },
   visibleLayers: new Set<string>(),
-} as const;
+};
 
 describe('ViewerMap — SHARE-07 branding overlay', () => {
   beforeEach(() => {
