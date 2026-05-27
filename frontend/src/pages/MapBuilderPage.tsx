@@ -95,6 +95,7 @@ import {
 } from '@/components/builder/basemap-state-controller';
 import { WidgetHost, getDefaultWidgetIds, resolveAvailableWidgetIds, usePartitionedWidgets } from '@/components/map-widgets';
 import { useWidgetStore } from '@/stores/map-widget-store';
+import type { ViewportContext } from '@/components/builder/chat-suggestions';
 
 export function MapBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -123,6 +124,9 @@ export function MapBuilderPage() {
   // Runtime-only per Phase 1036 BSR-14 / UI-SPEC § Projection. Not persisted in v1.
   const [localProjection, setLocalProjection] = useState<'mercator' | 'globe'>('mercator');
   const [showStyleJson, setShowStyleJson] = useState(false);
+  // Phase 1135 AI-05: debounced viewport context for viewport-aware suggestion chips.
+  // Updated on map idle (500ms debounce) and when the selected layer changes.
+  const [viewport, setViewport] = useState<ViewportContext | undefined>(undefined);
 
   // Phase 1040: Lifted DnD state — single DndContext wraps both the sidebar stack
   // (UnifiedStackPanel) and the Add Dataset modal (BuilderDialogs) so catalog→stack
@@ -275,6 +279,49 @@ export function MapBuilderPage() {
     () => ({ mapInstance, layers: layers.localLayers, mapId: id! }),
     [mapInstance, layers.localLayers, id],
   );
+
+  // Phase 1135 AI-05: subscribe to map idle events with 500ms debounce to update
+  // viewport context for suggestion chips. Unsubscribes when mapInstance changes.
+  useEffect(() => {
+    if (!mapInstance) return;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handler = () => {
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const zoom = mapInstance.getZoom();
+        const bounds = mapInstance.getBounds();
+        setViewport((prev) => ({
+          zoom,
+          bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+          selectedLayerName: prev?.selectedLayerName,
+        }));
+      }, 500);
+    };
+    mapInstance.on('idle', handler);
+    return () => {
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      mapInstance.off('idle', handler);
+    };
+  }, [mapInstance]);
+
+  // Phase 1135 AI-05: sync selectedLayerName from expandedLayerId into viewport context.
+  useEffect(() => {
+    setViewport((prev) => {
+      const expanded = layers.expandedLayerId;
+      if (!expanded) {
+        if (!prev) return prev;
+        return { ...prev, selectedLayerName: undefined };
+      }
+      const layer = layers.localLayers.find((l) => l.id === expanded);
+      const name = layer ? (layer.display_name ?? layer.dataset_name) : undefined;
+      if (!prev) {
+        // Camera state not yet settled — skip; the idle handler will fold this in next idle.
+        return prev;
+      }
+      if (prev.selectedLayerName === name) return prev;
+      return { ...prev, selectedLayerName: name };
+    });
+  }, [layers.expandedLayerId, layers.localLayers]);
 
   const { byAnchor } = usePartitionedWidgets();
   // activeWidgets for Settings panel widget toggles (Phase 1036)
@@ -541,7 +588,8 @@ export function MapBuilderPage() {
     layerActions: layers.chatLayerActions,
     onQueryResult: layers.handleQueryResult,
     onMarkDirty: handleMarkDirty,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, handleMarkDirty]);
+    viewport,
+  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.chatLayerActions, layers.handleQueryResult, handleMarkDirty, viewport]);
 
   const mobileRailButtons = useMemo(() => [
     {
