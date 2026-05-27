@@ -58,7 +58,7 @@ Requirements for v1030. Each maps to a roadmap phase in the 7-phase structure (1
 - [ ] **SHARE-07**: Shared and embed views render "Powered by GeoLens" branding when `useEdition()` returns the community edition; suppressed under enterprise edition. Source: `todo.md` line 151.
 - [ ] **SHARE-09**: Shared and embed views render the map title + legend by default; export captures (PNG/PDF if present) include both. Source: `todo.md` line 151.
 - [ ] **SHARE-03**: Embed-preview iframe pane in the SharePanel mirrors the live embed view at the configured allowed-origin; iframe sandbox stays `allow-scripts` only (no `allow-same-origin` — SEC-07 / M-70 contract at `SharePanel.tsx:36`). Conditional: proceed only if sandbox feasibility holds in WALK-05; else flag v1031.
-- [ ] **SHARE-06**: PATCH `allowed_origins` round-trip vitest covers canonical-form normalization (trailing slash, case, port) — defensive against Pitfall #8.
+- [x] **SHARE-06**: PATCH `allowed_origins` round-trip vitest covers canonical-form normalization (trailing slash, case, port) — defensive against Pitfall #8.
 
 ### EASY — Easy-Win Sweep
 
@@ -161,7 +161,7 @@ Phase-to-requirement mapping. Every v1 requirement maps to exactly one phase. Pe
 | SHARE-02 | Phase 1137 | Pending |
 | SHARE-03 | Phase 1137 | Pending |
 | SHARE-04 | Phase 1137 | Pending |
-| SHARE-06 | Phase 1137 | Pending |
+| SHARE-06 | Phase 1137 | Complete |
 | SHARE-07 | Phase 1137 | Pending |
 | SHARE-09 | Phase 1137 | Pending |
 | EASY-02 | Phase 1138 | Pending |
