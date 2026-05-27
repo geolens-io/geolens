@@ -221,8 +221,12 @@ export const lineAdapter: LayerAdapter = {
     });
     map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
     // Phase 1136 EDITOR-LINE-01/02: reconcile owned layout properties (line-cap, line-join)
+    // clearMissing: false — addLayers hardcodes 'round'/'round' as defaults; when the stored
+    // layout does not carry cap/join, leave the map's current value intact rather than
+    // resetting to MapLibre spec defaults ('butt'/'miter'). CR-01 fix.
     syncOwnedLayoutProperties(map, layerId, (input.layout ?? {}) as Record<string, unknown>, {
       ownedProperties: LINE_OWNED_LAYOUT_PROPERTIES,
+      clearMissing: false,
     });
     syncLayerFilter(map, layerId, filter);
     syncArrowLayer(map, input);
