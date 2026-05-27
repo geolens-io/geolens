@@ -16,8 +16,7 @@ export interface ViewportContext {
 }
 
 function mentionName(layer: MapLayerResponse): string {
-  const name = layer.display_name ?? layer.dataset_name;
-  return name.includes(' ') ? `@[${name}]` : `@${name}`;
+  return formatLayerNameForMention(layer.display_name ?? layer.dataset_name);
 }
 
 function formatLayerNameForMention(name: string): string {
