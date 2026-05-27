@@ -13,7 +13,7 @@
 ## Phases
 
 - [x] **Phase 1133: Audit-First Builder Walkthrough** — Live Playwright MCP walkthrough across every render mode; produces `BUILDER-WALKTHROUGH-AUDIT.md` (P0/P1/P2 triage) + AI consumer-gating matrix + `todo.md` staleness cross-reference. (completed 2026-05-27)
-- [ ] **Phase 1134: Map Functionality and Smaller-Screen Polish** — Tier-1 bugs (delete-layer, visibility-toggle, rename-group focus) + ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135.
+- [x] **Phase 1134: Map Functionality and Smaller-Screen Polish** — Tier-1 bugs (delete-layer, visibility-toggle, rename-group focus) + ≤800px layout collisions; stabilizes `dispatchLayerAction` boundary before Phase 1135. (completed 2026-05-27)
 - [ ] **Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish** — Confirm-before-apply staging (shape A or B picked in CONTEXT.md before plan-01), action preview chips, viewport-aware suggestions, data-analysis inline card, disabled/error empty-state re-verify.
 - [ ] **Phase 1136: Per-Render-Mode Editor Polish** — RasterEditor brightness/contrast/saturation/hue + reset; LineEditor line-cap/line-join; FillEditor extrusion range hint; BasemapEditor "No basemap" preset + DETAIL LEVEL stays gone.
 - [ ] **Phase 1137: Sharing and Embed Polish** — Allowed-origins as chips; expiration presets; "Powered by GeoLens" branding (community edition) + legend+title in export; conditional iframe preview.
@@ -56,7 +56,7 @@
 - [x] 1134-03-PLAN.md — Rename-group rAF-deferred focus regression pin (MAP-16)
 - [x] 1134-04-PLAN.md — ≤800px sidebar offset + SheetContent grep guard + coord readout pin + filter chip overflow (MAP-07/08/09/10/20)
 - [x] 1134-05-PLAN.md — Notes presence dot + MAP-19 scroll-containment regression pin (MAP-19, MAP-22)
-- [ ] 1134-06-PLAN.md — Live Playwright MCP smoke at 1440×900 / 800×600 / 414×896 (all 10 MAP REQs)
+- [x] 1134-06-PLAN.md — Live Playwright MCP smoke at 1440×900 / 800×600 / 414×896 (all 10 MAP REQs)
 **UI hint**: yes
 
 ### Phase 1135: AI Chat Confirm-Before-Apply and Analysis Polish
@@ -140,7 +140,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
-| 1134. Map Functionality and Smaller-Screen Polish | v1030 | 5/6 | In Progress|  |
+| 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
