@@ -54,7 +54,13 @@ function summarizeFilter(filter: FilterSpecification): string | null {
   if (op === 'in' && filter.length === 3) {
     const field = extractField(filter[1]);
     if (field && Array.isArray(filter[2]) && filter[2][0] === 'literal') {
-      const vals = filter[2][1] as unknown[];
+      // WR-02: guard against malformed ["literal", null] or ["literal"] (no value arg)
+      // before casting as array — avoids TypeError on .slice() at render time.
+      const raw = filter[2][1];
+      if (!Array.isArray(raw)) {
+        return `${field} in (…)`;
+      }
+      const vals = raw as unknown[];
       const preview = vals.slice(0, 2).map(v => String(v)).join(', ');
       return `${field} in (${preview}${vals.length > 2 ? ', …' : ''})`;
     }
