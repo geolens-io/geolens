@@ -243,3 +243,124 @@ describe('useBuilderLayers — handleRemove (BUG-02)', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// MAP-17 — adapter-driven companion sweep
+// ---------------------------------------------------------------------------
+
+describe('MAP-17 — adapter-driven companion sweep', () => {
+  it('Test A: fill-with-extrusion delete sweeps base + outline + extrusion ids', async () => {
+    const layerId = 'fill1';
+    const removeLayer = vi.fn();
+    const getLayer = vi.fn((id: string) => ({ id }));
+    const mapRef = makeMapRef({ getLayer, removeLayer });
+
+    const layer = makeMockLayer({ id: layerId, sort_order: 0 });
+    const { result } = renderBuilderLayers(
+      makeMapData([layer]),
+      mapRef,
+      { mutate: vi.fn() },
+    );
+    await waitForInit();
+
+    act(() => {
+      result.current.handleRemove(layerId);
+    });
+
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}`);
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}-outline`);
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}-extrusion`);
+  });
+
+  it('Test B: cluster delete sweeps cluster-circle + cluster-count + base ids', async () => {
+    const layerId = 'cluster1';
+    const removeLayer = vi.fn();
+    const getLayer = vi.fn((id: string) => ({ id }));
+    const mapRef = makeMapRef({ getLayer, removeLayer });
+
+    const layer = makeMockLayer({ id: layerId, sort_order: 0 });
+    const { result } = renderBuilderLayers(
+      makeMapData([layer]),
+      mapRef,
+      { mutate: vi.fn() },
+    );
+    await waitForInit();
+
+    act(() => {
+      result.current.handleRemove(layerId);
+    });
+
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}-cluster`);
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}-cluster-count`);
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}`);
+  });
+
+  it('Test C: non-existent companion ids skipped without error', async () => {
+    const layerId = 'fill2';
+    const removeLayer = vi.fn();
+    // extrusion companion does not exist on the map (returns null)
+    const getLayer = vi.fn((id: string) => id.endsWith('-extrusion') ? null : { id });
+    const mapRef = makeMapRef({ getLayer, removeLayer });
+
+    const layer = makeMockLayer({ id: layerId, sort_order: 0 });
+    const { result } = renderBuilderLayers(
+      makeMapData([layer]),
+      mapRef,
+      { mutate: vi.fn() },
+    );
+    await waitForInit();
+
+    act(() => {
+      result.current.handleRemove(layerId);
+    });
+
+    expect(removeLayer).not.toHaveBeenCalledWith(`layer-${layerId}-extrusion`);
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}`);
+  });
+
+  it('Test D: raster delete sweeps only base id (no companions)', async () => {
+    const layerId = 'raster1';
+    const removeLayer = vi.fn();
+    // Simulate a raster layer on the map: only the base layer exists
+    const getLayer = vi.fn((id: string) => id === `layer-${layerId}` ? { id } : null);
+    const mapRef = makeMapRef({ getLayer, removeLayer });
+
+    const layer = makeMockLayer({ id: layerId, sort_order: 0, dataset_record_type: 'raster_dataset' });
+    const { result } = renderBuilderLayers(
+      makeMapData([layer]),
+      mapRef,
+      { mutate: vi.fn() },
+    );
+    await waitForInit();
+
+    act(() => {
+      result.current.handleRemove(layerId);
+    });
+
+    expect(removeLayer).toHaveBeenCalledTimes(1);
+    expect(removeLayer).toHaveBeenCalledWith(`layer-${layerId}`);
+  });
+
+  it('Test E: mapRef.current === null is a no-op (does not throw)', async () => {
+    const layerId = 'any1';
+    const nullMapRef = { current: null } as unknown as ReturnType<typeof makeMapRef>;
+
+    const layer = makeMockLayer({ id: layerId, sort_order: 0 });
+    const { result } = renderBuilderLayers(
+      makeMapData([layer]),
+      nullMapRef,
+      { mutate: vi.fn() },
+    );
+    await waitForInit();
+
+    expect(() => {
+      act(() => {
+        result.current.handleRemove(layerId);
+      });
+    }).not.toThrow();
+
+    // The optimistic state update still happens — layer is removed from localLayers
+    const ids = result.current.localLayers.map((l) => l.id);
+    expect(ids).not.toContain(layerId);
+  });
+});
