@@ -72,7 +72,13 @@
   3. Suggestion chips reflect current viewport + selected-layer context (not the static default list); User can ask data-analysis questions ("which datasets cover X", "summarize this layer's attributes") that render in an inline card via the existing `show_query_result` action (no new BuilderLayerAction variant beyond extending `add_dataset`).
   4. With `AI_ENABLED=false` on the local stack: the AI rail panel surfaces an actionable disabled state (no inert dead-end button), zero console errors, regression pinned in `ChatPanel.test.tsx`. With an invalid provider key: the AI panel surfaces a recoverable error banner with a retry affordance (no silent fail). Every new AI consumer hook is gated on `enabled: !!token && aiEnabled` per the Phase 1133 matrix (v1010.2 SF-06 recurrence guard).
   5. `_validate_chat_layers` visibility-filter decision is documented explicitly in `chat_actions.py` docstring — either it filters hidden layers OR documents "analyze sees all layers regardless of visibility" with rationale (Pitfall #5). Schema-context cache key remains `(map_id, dataset_id)` — no `dataset_id`-only shortcut.
-**Plans**: TBD
+**Plans**: 6 plans
+- [x] 1135-01-PLAN.md — chat-action-staging.ts module (Shape B) + useAIAvailability reason field (AI-01, AI-02)
+- [ ] 1135-02-PLAN.md — ChatPanel staging tray + inline data-analysis card + chip text format (AI-01, AI-08, AI-09)
+- [ ] 1135-03-PLAN.md — BuilderRail structured disabled-state + ChatPanel recoverable error banner (AI-02, AI-03)
+- [ ] 1135-04-PLAN.md — Viewport-aware suggestion chips + MapBuilderPage viewport wiring (AI-05)
+- [ ] 1135-05-PLAN.md — Backend _validate_chat_layers docstring + schema-cache-key regression pin (AI-04)
+- [ ] 1135-06-PLAN.md — Live Playwright MCP smoke (AI_ENABLED=true 5 surfaces + AI_ENABLED=false rail check)
 **UI hint**: yes
 
 ### Phase 1136: Per-Render-Mode Editor Polish
@@ -141,7 +147,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 |-------|-----------|----------------|--------|-----------|
 | 1133. Audit-First Builder Walkthrough | v1030 | 5/5 | Complete   | 2026-05-27 |
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
-| 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 0/0 | Not started | - |
+| 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 1/6 | In Progress|  |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 0/0 | Not started | - |
 | 1137. Sharing and Embed Polish | v1030 | 0/0 | Not started | - |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
