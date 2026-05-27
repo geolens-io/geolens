@@ -21,6 +21,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/lib/basemap-utils', () => ({
   basemapThumbnail: (id: string) => `https://thumb.test/${id}.png`,
+  BLANK_BASEMAP_ID: 'blank',
 }));
 
 beforeAll(() => {
@@ -78,9 +79,9 @@ describe('BasemapGroupEditorScene', () => {
 
     // Query images directly via DOM since they are aria-hidden
     const images = Array.from(container.querySelectorAll('img'));
-    // Filter to preset thumbnails
+    // Filter to preset thumbnails (4 provider presets + 1 "No basemap" = 5 total)
     const thumbImages = images.filter((img) => img.getAttribute('src')?.includes('thumb.test'));
-    expect(thumbImages.length).toBe(4);
+    expect(thumbImages.length).toBe(5);
     thumbImages.forEach((img) => {
       expect(img.style.height).toBe('56px');
     });
@@ -248,5 +249,41 @@ describe('BasemapGroupEditorScene', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Remove basemap/i }));
     expect(onRemoveBasemap).toHaveBeenCalledOnce();
+  });
+
+  it('Test 13: renders "No basemap" card as the FIRST entry in the preset grid', () => {
+    render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
+    const cards = screen.getAllByRole('button').filter((b) => b.querySelector('img'));
+    // 4 existing + 1 new = 5 image-containing buttons
+    expect(cards.length).toBe(5);
+    expect(cards[0].textContent).toContain('No basemap');
+  });
+
+  it('Test 14: clicking "No basemap" card dispatches onSwapBasemap("blank")', () => {
+    const onSwapBasemap = vi.fn();
+    render(<BasemapGroupEditorScene {...defaultSceneProps({ onSwapBasemap })} />);
+    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    fireEvent.click(noBasemapCard);
+    expect(onSwapBasemap).toHaveBeenCalledWith('blank');
+  });
+
+  it('Test 15: "No basemap" card has active ring class when activePresetId="blank"', () => {
+    render(<BasemapGroupEditorScene {...defaultSceneProps({ activePresetId: 'blank' })} />);
+    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    expect(noBasemapCard.className).toContain('border-primary');
+  });
+
+  it('Test 16: "No basemap" card does NOT have active class when a real preset is active', () => {
+    render(<BasemapGroupEditorScene {...defaultSceneProps({ activePresetId: 'openfreemap-positron' })} />);
+    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    expect(noBasemapCard.className).toContain('border-[var(--border)]');
+    expect(noBasemapCard.className).not.toContain('border-primary');
+  });
+
+  it('Test 17: "No basemap" card uses basemapThumbnail("blank") as the img src', () => {
+    render(<BasemapGroupEditorScene {...defaultSceneProps()} />);
+    const noBasemapCard = screen.getByRole('button', { name: /No basemap/ });
+    const img = noBasemapCard.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('https://thumb.test/blank.png');
   });
 });

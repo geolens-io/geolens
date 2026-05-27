@@ -896,6 +896,7 @@
     "addCustomBasemap": "＋ Add custom basemap…",
     "dragHandle": "Drag to reorder basemap",
     "masterOpacity": "Master opacity",
+    "noBasemap": "No basemap",
     "presetSectionLabel": "PRESET",
     "railLabel": "Basemap group",
     "removeBasemap": "Remove basemap",
