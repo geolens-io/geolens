@@ -828,7 +828,8 @@
     "aiDisabled": "IA desactivada por el administrador",
     "aiUnavailable": "IA no disponible",
     "aiUnavailableTitle": "La IA no está disponible",
-    "aiUnavailableDescription": "Un administrador debe habilitar un proveedor de IA antes de usar Preguntar a la IA en este builder."
+    "aiUnavailableDescription": "Un administrador debe habilitar un proveedor de IA antes de usar Preguntar a la IA en este builder.",
+    "notesPresent": "El mapa tiene notas"
   },
   "stackRow": {
     "dragHandle": "Arrastrar para reordenar {{name}}",

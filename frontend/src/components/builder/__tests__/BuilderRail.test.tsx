@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { BuilderRail, type RailPanel } from '../BuilderRail';
 
 vi.mock('react-i18next', () => ({
@@ -124,5 +124,69 @@ describe('BuilderRail', () => {
     expect(panel?.className).toContain('min-h-0');
     expect(textarea.className).toContain('flex-1');
     expect(textarea.className).toContain('min-h-[18rem]');
+  });
+});
+
+describe('MAP-22 — Notes presence indicator', () => {
+  it('renders presence dot when notes is non-empty', () => {
+    render(
+      <BuilderRail
+        activePanel={null}
+        onPanelChange={vi.fn()}
+        aiAvailable
+        notes="Some content"
+        onNotesChange={vi.fn()}
+        mapId="map-1"
+        layers={[]}
+      />,
+    );
+
+    const notesButton = screen.getByRole('button', { name: /notes/i });
+    const dot = within(notesButton).getByLabelText('Map has notes');
+    expect(dot).toBeInTheDocument();
+    expect(dot.className).toContain('size-1.5');
+    expect(dot.className).toContain('rounded-full');
+    expect(dot.className).toContain('bg-primary');
+  });
+
+  it('does NOT render presence dot when notes is empty or whitespace', () => {
+    const whitespaceVariants = ['', '   ', '\n', '\t\n  '];
+
+    for (const notes of whitespaceVariants) {
+      const { unmount } = render(
+        <BuilderRail
+          activePanel={null}
+          onPanelChange={vi.fn()}
+          aiAvailable
+          notes={notes}
+          onNotesChange={vi.fn()}
+          mapId="map-1"
+          layers={[]}
+        />,
+      );
+
+      expect(screen.queryByLabelText('Map has notes')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('MAP-22 negative control — dot does not render on History or AI buttons even when notes is non-empty', () => {
+    render(
+      <BuilderRail
+        activePanel={null}
+        onPanelChange={vi.fn()}
+        aiAvailable
+        notes="Some content"
+        onNotesChange={vi.fn()}
+        mapId="map-1"
+        layers={[]}
+      />,
+    );
+
+    const historyButton = screen.getByRole('button', { name: /history/i });
+    expect(within(historyButton).queryByLabelText('Map has notes')).toBeNull();
+
+    const aiButton = screen.getByRole('button', { name: /ask ai/i });
+    expect(within(aiButton).queryByLabelText('Map has notes')).toBeNull();
   });
 });

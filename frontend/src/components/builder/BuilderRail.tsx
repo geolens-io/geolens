@@ -90,7 +90,7 @@ export function BuilderRail({
               aria-label={btn.label}
               aria-pressed={activePanel === btn.id}
               className={cn(
-                'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
+                'relative flex items-center justify-center h-8 w-8 rounded-md transition-colors',
                 btn.disabled
                   ? 'text-muted-foreground/40 cursor-not-allowed'
                   : activePanel === btn.id
@@ -99,6 +99,15 @@ export function BuilderRail({
               )}
             >
               <btn.icon className="h-4 w-4" />
+              {/* MAP-22: presence dot — non-whitespace notes render a 6px primary-color dot
+                  at the button's top-right corner. aria-label keeps the dot accessible.
+                  No animation (static state indicator per UI-SPEC). */}
+              {btn.id === 'notes' && notes.trim().length > 0 && (
+                <span
+                  aria-label={t('rail.notesPresent', { defaultValue: 'Map has notes' })}
+                  className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary"
+                />
+              )}
             </button>
           ))}
         </aside>

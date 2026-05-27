@@ -828,7 +828,8 @@
     "aiDisabled": "KI durch Administrator deaktiviert",
     "aiUnavailable": "KI nicht verfügbar",
     "aiUnavailableTitle": "KI ist nicht verfügbar",
-    "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann."
+    "aiUnavailableDescription": "Ein Administrator muss einen KI-Anbieter aktivieren, bevor Frag KI in diesem Builder verwendet werden kann.",
+    "notesPresent": "Karte hat Notizen"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",

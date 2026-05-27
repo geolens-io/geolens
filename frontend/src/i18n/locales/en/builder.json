@@ -828,7 +828,8 @@
     "aiDisabled": "AI disabled by admin",
     "aiUnavailable": "AI unavailable",
     "aiUnavailableTitle": "AI is unavailable",
-    "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder."
+    "aiUnavailableDescription": "An administrator needs to enable an AI provider before Ask AI can be used in this builder.",
+    "notesPresent": "Map has notes"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
