@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { ShareDialog, generateEmbedCode } from '@/components/builder/SharePanel';
@@ -72,6 +72,8 @@ function setup({
   saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
   allowedOrigins = ['https://example.com'],
   updateEmbedTokenFn = vi.fn().mockResolvedValue({}),
+  updateShareTokenFn = vi.fn().mockResolvedValue({}),
+  shareExpires = null,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -81,6 +83,9 @@ function setup({
   allowedOrigins?: string[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   updateEmbedTokenFn?: (...args: any[]) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateShareTokenFn?: (...args: any[]) => any;
+  shareExpires?: string | null;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -105,7 +110,8 @@ function setup({
   mockedUsePublishMap.mockReturnValue(mutationResult());
   mockedUseCreateShareToken.mockReturnValue(mutationResult(createShareToken));
   mockedUseRevokeShareToken.mockReturnValue(mutationResult());
-  mockedUseUpdateShareToken.mockReturnValue(mutationResult());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn as any));
   mockedUseCreateEmbedToken.mockReturnValue(mutationResult(createEmbedToken));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mockedUseUpdateEmbedToken.mockReturnValue(mutationResult(updateEmbedTokenFn as any));
@@ -115,7 +121,7 @@ function setup({
       ? {
           token: 'share-token',
           share_url: 'http://test/m/share-token',
-          expires_at: null,
+          expires_at: shareExpires,
           is_active: true,
         }
       : null,
@@ -160,7 +166,7 @@ function setup({
     />,
   );
 
-  return { createShareToken, createEmbedToken, updateEmbedTokenFn };
+  return { createShareToken, createEmbedToken, updateEmbedTokenFn, updateShareTokenFn };
 }
 
 describe('ShareDialog edition gates', () => {
@@ -451,10 +457,12 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
 /*  SHARE-04: Expiration preset Select + Pitfall #6 regression pins    */
 /* ------------------------------------------------------------------ */
 
-// Radix Select requires pointer capture polyfills in JSDOM
-Element.prototype.hasPointerCapture = vi.fn(() => false) as unknown as typeof Element.prototype.hasPointerCapture;
-Element.prototype.releasePointerCapture = vi.fn() as unknown as typeof Element.prototype.releasePointerCapture;
-Element.prototype.scrollIntoView = vi.fn() as unknown as typeof Element.prototype.scrollIntoView;
+// Radix Select requires pointer capture / scroll polyfills in JSDOM.
+// Use plain function stubs (not vi.fn) so vi.clearAllMocks() in beforeEach
+// does not clear their implementations between tests.
+Element.prototype.hasPointerCapture = () => false;
+Element.prototype.releasePointerCapture = () => undefined;
+Element.prototype.scrollIntoView = () => undefined;
 
 /**
  * Open the Link Settings disclosure and return the user-event instance.
@@ -466,18 +474,19 @@ async function openLinkSettings(user: ReturnType<typeof userEvent.setup>) {
 
 /**
  * Open the Radix Select for expiration by clicking the trigger button.
+ * Uses fireEvent.click (Radix Select in JSDOM requires synchronous click dispatch).
  * Returns the trigger element.
  */
-async function openExpirationSelect(user: ReturnType<typeof userEvent.setup>) {
-  // The trigger is a button with the current preset label (initially "Never")
+function openExpirationSelect() {
   const trigger = screen.getByRole('combobox');
-  await user.click(trigger);
+  fireEvent.click(trigger);
   return trigger;
 }
 
 describe('SHARE-04 expiration presets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it('test_expiration_select_renders_six_options: Select exposes 6 options (Never, 1 day, 7 days, 30 days, 1 year, Custom date…)', async () => {
@@ -485,7 +494,7 @@ describe('SHARE-04 expiration presets', () => {
     setup({ enterprise: true });
 
     await openLinkSettings(user);
-    await openExpirationSelect(user);
+    openExpirationSelect();
 
     // After opening the Select, options should be in the DOM
     const options = screen.getAllByRole('option');
@@ -499,39 +508,41 @@ describe('SHARE-04 expiration presets', () => {
     expect(labels).toContain('Custom date…');
   });
 
-  it('test_select_seven_days_preset_fires_updateShareToken: selecting "7 days" fires mutateAsync with correct ISO string', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-27T10:00:00.000Z'));
-
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const updateShareTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn));
-    setup({ enterprise: true });
+  it('test_select_seven_days_preset_fires_updateShareToken: selecting "7 days" fires mutateAsync with ISO at T23:59:59Z ~7 days from now', async () => {
+    const user = userEvent.setup();
+    const { updateShareTokenFn } = setup({ enterprise: true });
+    const beforeClick = Date.now();
 
     await openLinkSettings(user);
-    await openExpirationSelect(user);
-    await user.click(screen.getByRole('option', { name: '7 days' }));
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: '7 days' }));
 
     await waitFor(() => {
       expect(updateShareTokenFn).toHaveBeenCalledOnce();
-      expect(updateShareTokenFn).toHaveBeenCalledWith({
-        mapId: 'map-1',
-        expiresAt: '2026-06-03T23:59:59.000Z',
-      });
     });
-
-    vi.useRealTimers();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = (updateShareTokenFn as unknown as { mock: { calls: any[][] } }).mock.calls[0][0] as { mapId: string; expiresAt: string | null };
+    expect(call.mapId).toBe('map-1');
+    expect(call.expiresAt).toMatch(/T23:59:59\.000Z$/);
+    // The date should be approximately 7 days from the time of click
+    const expiresMs = new Date(call.expiresAt as string).getTime();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    expect(expiresMs - beforeClick).toBeGreaterThanOrEqual(sevenDaysMs - 1000);
+    expect(expiresMs - beforeClick).toBeLessThan(sevenDaysMs + 24 * 60 * 60 * 1000);
   });
 
   it('test_select_never_preset_clears_expiration: selecting "Never" fires mutateAsync with expiresAt: null', async () => {
     const user = userEvent.setup();
-    const updateShareTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn));
-    setup({ enterprise: true });
+    // Set shareExpires so the Select opens at "30 days" — then switching to "Never" fires onChange
+    const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0] + 'T23:59:59.000Z';
+    const { updateShareTokenFn } = setup({ enterprise: true, shareExpires: thirtyDaysFromNow });
 
     await openLinkSettings(user);
-    await openExpirationSelect(user);
-    await user.click(screen.getByRole('option', { name: 'Never' }));
+    openExpirationSelect();
+    // Select starts at "30 days" → clicking "Never" changes value → fires onValueChange
+    fireEvent.click(screen.getByRole('option', { name: 'Never' }));
 
     await waitFor(() => {
       expect(updateShareTokenFn).toHaveBeenCalledOnce();
@@ -544,18 +555,20 @@ describe('SHARE-04 expiration presets', () => {
 
   it('test_select_custom_reveals_date_input: selecting "Custom date…" reveals date Input and Save button without firing mutateAsync', async () => {
     const user = userEvent.setup();
-    const updateShareTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn));
-    setup({ enterprise: true });
+    const { updateShareTokenFn } = setup({ enterprise: true });
 
     await openLinkSettings(user);
-    await openExpirationSelect(user);
-    await user.click(screen.getByRole('option', { name: 'Custom date…' }));
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: 'Custom date…' }));
 
-    // Date input should be visible
-    expect(screen.getByDisplayValue('')).toBeInTheDocument();
+    // Date input (type="date") should be visible
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(allInputs.length).toBeGreaterThan(0);
+    const dateInput = allInputs[0];
+    expect(dateInput).toBeInTheDocument();
     // Save button should be visible for custom path
-    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
     // updateShareToken should NOT have been called yet
     expect(updateShareTokenFn).not.toHaveBeenCalled();
   });
@@ -563,56 +576,35 @@ describe('SHARE-04 expiration presets', () => {
   it('test_select_pre_populates_to_custom_when_shareExpires_off_preset: shareExpires at T12:00 (off-preset) → Select shows "Custom date…" and date input shows the date', async () => {
     const user = userEvent.setup();
     // shareExpires at T12:00 — outside preset ±1 day tolerance (presets use T23:59:59)
-    mockedUseMapShareToken.mockReturnValue({
-      data: {
-        token: 'share-token',
-        share_url: 'http://test/m/share-token',
-        expires_at: '2026-06-15T12:00:00Z',
-        is_active: true,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
-    setup({ enterprise: true });
+    setup({ enterprise: true, shareExpires: '2026-06-15T12:00:00Z' });
 
     await openLinkSettings(user);
 
     // The Select trigger should show "Custom date…"
     const trigger = screen.getByRole('combobox');
-    expect(trigger).toHaveTextContent('Custom date…');
+    expect(trigger).toHaveTextContent(/custom date/i);
 
     // The date input should be pre-populated with the date portion
-    expect(screen.getByDisplayValue('2026-06-15')).toBeInTheDocument();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dateInputs = document.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(dateInputs.length).toBeGreaterThan(0);
+    expect(dateInputs[0]).toHaveValue('2026-06-15');
   });
 
   it('test_select_pre_populates_to_seven_days_when_within_preset_window: shareExpires = (now + 7d at T23:59:59Z) → Select shows "7 days"', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-27T10:00:00.000Z'));
-
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    // Compute the expected 7-day preset ISO
-    const sevenDaysIso = '2026-06-03T23:59:59.000Z';
-    mockedUseMapShareToken.mockReturnValue({
-      data: {
-        token: 'share-token',
-        share_url: 'http://test/m/share-token',
-        expires_at: sevenDaysIso,
-        is_active: true,
-      },
-      isLoading: false,
-      isError: false,
-    } as never);
-
-    setup({ enterprise: true });
+    const user = userEvent.setup();
+    // Compute real 7-day preset ISO: now + 7 days at T23:59:59Z
+    // detectPreset uses ±1 day tolerance, so this should hit the '7d' bucket
+    const sevenDaysIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0] + 'T23:59:59.000Z';
+    setup({ enterprise: true, shareExpires: sevenDaysIso });
 
     await openLinkSettings(user);
 
     // The Select trigger should show "7 days" (detected from shareExpires)
     const trigger = screen.getByRole('combobox');
     expect(trigger).toHaveTextContent('7 days');
-
-    vi.useRealTimers();
   });
 
   /**
@@ -624,8 +616,6 @@ describe('SHARE-04 expiration presets', () => {
    */
   it('test_rawShareToken_survives_preset_selection (Pitfall #6 LOAD-BEARING): rawShareToken state unchanged after preset select', async () => {
     const user = userEvent.setup();
-    const updateShareTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn));
     // hasShareToken:false so we generate a fresh raw token via the button click
     setup({ enterprise: true, hasShareToken: false });
 
@@ -639,8 +629,8 @@ describe('SHARE-04 expiration presets', () => {
 
     // Now open Link Settings and apply a preset
     await openLinkSettings(user);
-    await openExpirationSelect(user);
-    await user.click(screen.getByRole('option', { name: '7 days' }));
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: '7 days' }));
 
     // rawShareToken must still be non-null — Copy Link stays visible
     await waitFor(() => {
@@ -656,8 +646,6 @@ describe('SHARE-04 expiration presets', () => {
    */
   it('test_embedTokenRaw_survives_preset_selection (Pitfall #6 mirror): embedTokenRaw state unchanged after preset select', async () => {
     const user = userEvent.setup();
-    const updateShareTokenFn = vi.fn().mockResolvedValue({});
-    mockedUseUpdateShareToken.mockReturnValue(mutationResult(updateShareTokenFn));
     // hasNonPublic:true so embedTokenRaw is created during link generation
     setup({ enterprise: true, hasShareToken: false, hasNonPublic: true });
 
@@ -673,8 +661,8 @@ describe('SHARE-04 expiration presets', () => {
 
     // Open Link Settings and select "30 days" preset
     await openLinkSettings(user);
-    await openExpirationSelect(user);
-    await user.click(screen.getByRole('option', { name: '30 days' }));
+    openExpirationSelect();
+    fireEvent.click(screen.getByRole('option', { name: '30 days' }));
 
     // embedTokenRaw must still be non-null — embed textarea still shows et=raw-token
     await waitFor(() => {

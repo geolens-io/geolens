@@ -5,6 +5,13 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ApiError } from '@/api/client';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -124,6 +131,35 @@ function ShareLinkSettings({
   const [expiresValue, setExpiresValue] = useState('');
   const [showDomainRestrict, setShowDomainRestrict] = useState(false);
 
+  // Expiration preset Select state
+  type ExpirationPreset = 'never' | '1d' | '7d' | '30d' | '1y' | 'custom';
+  const [expirationPreset, setExpirationPreset] = useState<ExpirationPreset>('never');
+
+  /**
+   * Detect which preset bucket a given shareExpires ISO string falls into.
+   * Uses ±1 day tolerance for matching preset windows (presets target T23:59:59Z).
+   * Returns 'never' for null, the matching preset key if within tolerance, or 'custom'.
+   */
+  function detectPreset(shareExpiresIso: string | null): ExpirationPreset {
+    if (!shareExpiresIso) return 'never';
+    const target = new Date(shareExpiresIso);
+    const now = new Date();
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const PRESET_DAYS: Array<[number, ExpirationPreset]> = [
+      [1, '1d'],
+      [7, '7d'],
+      [30, '30d'],
+      [365, '1y'],
+    ];
+    for (const [days, key] of PRESET_DAYS) {
+      const presetDate = new Date(now.getTime() + days * ONE_DAY_MS);
+      if (Math.abs(target.getTime() - presetDate.getTime()) < ONE_DAY_MS) {
+        return key;
+      }
+    }
+    return 'custom';
+  }
+
   // Chip-based allowed-origins state
   const [origins, setOrigins] = useState<string[]>(configOrigins);
   const [originInput, setOriginInput] = useState('');
@@ -134,6 +170,18 @@ function ShareLinkSettings({
     setOrigins(configOrigins);
   }, [configOrigins]);
 
+  /**
+   * Save the expiration value typed into the Custom date Input.
+   *
+   * Pitfall #6 contract: this handler does NOT modify rawShareToken or
+   * embedTokenRaw state. Expiration is updated on the share token only via
+   * useUpdateShareToken — those raw tokens survive across dialog open/close
+   * cycles and across expiration changes per the 3ed5ceb3 separation.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #6 tests assert that after
+   * a preset Select change the Copy Link / embed textarea remain visible
+   * (proxy for raw-token state).
+   */
   async function handleSaveExpiration() {
     try {
       const newExpires = expiresValue ? new Date(expiresValue + 'T23:59:59Z').toISOString() : null;
@@ -141,6 +189,42 @@ function ShareLinkSettings({
       // Phase 20260526-builder-audit BLD-20260526-11: distinct message when expiration is cleared vs. updated.
       if (newExpires) {
         toast.success(t('share.expirationUpdated'));
+      } else {
+        toast.success(t('share.expirationCleared', { defaultValue: 'Link expiration removed — link never expires' }));
+      }
+    } catch {
+      toast.error(t('share.updateFailed'));
+    }
+  }
+
+  /**
+   * Apply an expiration preset by computing expiresAt and firing updateShareToken.
+   *
+   * Pitfall #6 contract: does NOT modify rawShareToken or embedTokenRaw — those
+   * survive independently per the 3ed5ceb3 separation. Expiration is updated on
+   * the share token only via the useUpdateShareToken mutation.
+   *
+   * Regression pin: SharePanel.test.tsx Pitfall #6 tests assert that after this
+   * handler resolves, rawShareToken and embedTokenRaw remain non-null (Copy Link
+   * button and embed textarea stay visible).
+   */
+  async function handleApplyPreset(preset: Exclude<ExpirationPreset, 'custom'>) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const PRESET_MS: Record<Exclude<ExpirationPreset, 'custom' | 'never'>, number> = {
+      '1d': 1 * ONE_DAY_MS,
+      '7d': 7 * ONE_DAY_MS,
+      '30d': 30 * ONE_DAY_MS,
+      '1y': 365 * ONE_DAY_MS,
+    };
+    let expiresAt: string | null = null;
+    if (preset !== 'never') {
+      const datePart = new Date(Date.now() + PRESET_MS[preset]).toISOString().split('T')[0];
+      expiresAt = `${datePart}T23:59:59.000Z`;
+    }
+    try {
+      await updateShareToken.mutateAsync({ mapId, expiresAt });
+      if (expiresAt) {
+        toast.success(t('share.expirationUpdated', { defaultValue: 'Expiration updated' }));
       } else {
         toast.success(t('share.expirationCleared', { defaultValue: 'Link expiration removed — link never expires' }));
       }
@@ -237,6 +321,8 @@ function ShareLinkSettings({
           const next = !showSettings;
           setShowSettings(next);
           if (next) {
+            const detected = detectPreset(shareExpires);
+            setExpirationPreset(detected);
             setExpiresValue(shareExpires ? shareExpires.split('T')[0] : '');
             setShowDomainRestrict(configOrigins.length > 0);
           }
@@ -250,26 +336,50 @@ function ShareLinkSettings({
         <div className="space-y-4 ps-4 border-s-2 border-border">
           {/* Expiration */}
           {canUseAdvancedSharing && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <label className="text-xs font-medium">{t('share.expirationLabel')}</label>
-              <div className="flex gap-2">
-                <Input
-                  type="date"
-                  value={expiresValue}
-                  onChange={(e) => setExpiresValue(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="h-8 text-sm flex-1"
-                  placeholder={t('share.expirationPlaceholder')}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSaveExpiration}
-                  disabled={updateShareToken.isPending}
-                >
-                  {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
-                </Button>
-              </div>
+              <Select
+                value={expirationPreset}
+                onValueChange={(v) => {
+                  const next = v as ExpirationPreset;
+                  setExpirationPreset(next);
+                  if (next !== 'custom') {
+                    void handleApplyPreset(next as Exclude<ExpirationPreset, 'custom'>);
+                  }
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="never">{t('share.expirationNever', { defaultValue: 'Never' })}</SelectItem>
+                  <SelectItem value="1d">{t('share.expiration1Day', { defaultValue: '1 day' })}</SelectItem>
+                  <SelectItem value="7d">{t('share.expiration7Days', { defaultValue: '7 days' })}</SelectItem>
+                  <SelectItem value="30d">{t('share.expiration30Days', { defaultValue: '30 days' })}</SelectItem>
+                  <SelectItem value="1y">{t('share.expiration1Year', { defaultValue: '1 year' })}</SelectItem>
+                  <SelectItem value="custom">{t('share.expirationCustom', { defaultValue: 'Custom date…' })}</SelectItem>
+                </SelectContent>
+              </Select>
+              {expirationPreset === 'custom' && (
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    value={expiresValue}
+                    onChange={(e) => setExpiresValue(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="h-8 text-sm flex-1"
+                    placeholder={t('share.expirationPlaceholder')}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSaveExpiration}
+                    disabled={updateShareToken.isPending}
+                  >
+                    {updateShareToken.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('share.save')}
+                  </Button>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">{t('share.expirationHint')}</p>
             </div>
           )}
