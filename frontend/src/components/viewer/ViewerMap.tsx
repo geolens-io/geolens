@@ -2,7 +2,8 @@ import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
-import { useBasemaps, useTileConfig } from '@/hooks/use-settings';
+import { useBasemaps, useBranding, useTileConfig } from '@/hooks/use-settings';
+import { useEdition } from '@/hooks/use-edition';
 import {
   findBasemapById,
   sanitizeMaplibreStyle,
@@ -67,6 +68,11 @@ interface ViewerMapProps {
   basemapConfig?: MapBasemapConfig | null;
   showBasemapLabels?: boolean;
   terrainConfig?: MapTerrainConfig | null;
+  /** When true and edition is community (or enterprise with show_badge !== false),
+   *  renders an inline "Powered by GeoLens" overlay anchored to the map canvas.
+   *  Defaults to false — non-embed callers stay clean.
+   */
+  showInlineBranding?: boolean;
 }
 
 /** ID prefix used for viewer map layers — keeps IDs distinct from builder. */
@@ -135,8 +141,12 @@ export const ViewerMap = memo(function ViewerMap({
   basemapConfig = null,
   showBasemapLabels = true,
   terrainConfig = null,
+  showInlineBranding = false,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
+  const { isEnterprise } = useEdition();
+  const { data: branding } = useBranding();
+  const showBranding = showInlineBranding && (!isEnterprise || branding?.show_badge !== false);
   const mapRef = useRef<MaplibreMap | null>(null);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
@@ -790,6 +800,14 @@ export const ViewerMap = memo(function ViewerMap({
         )}
       </MapGL>
       <MapCoordReadout map={mapRef.current} />
+      {showBranding && (
+        <span
+          data-testid="viewer-branding-overlay"
+          className="absolute bottom-2 left-2 z-10 text-xs text-muted-foreground bg-background/70 rounded px-2 py-1 pointer-events-none"
+        >
+          {t('export.poweredBy', { defaultValue: 'Powered by GeoLens' })}
+        </span>
+      )}
       {contextLost && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
           <div className="text-center space-y-2">
