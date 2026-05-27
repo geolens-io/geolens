@@ -358,7 +358,10 @@ export function ChatPanel({
         break;
       }
       case 'remove_layer':
-        if (layerId) onRemove(layerId);
+        if (layerId) {
+          onRemove(layerId);
+          cleanStaleLayerRefs(mapId, layerId);
+        }
         break;
       case 'set_opacity': {
         const opacity = normalizeLayerOpacity(action.opacity);
@@ -372,8 +375,10 @@ export function ChatPanel({
 
   // Phase 1135 AI-01 / AI-09: staging buffer for destructive actions (add_layer / remove_layer).
   // `staging.push(action)` defers the action until the user accepts or rejects it.
-  // Accepts route through `handleChatAction` so cleanStaleLayerRefs + snapshot logic
-  // fires on the same path as the existing immediate-dispatch flow.
+  // NOTE: accepts route through `handleChatAction` only for the map mutation itself.
+  // cleanStaleLayerRefs is called inside handleChatAction's remove_layer case (CR-02 fix).
+  // The undo snapshot is captured in handleSend before push() — acceptAll/acceptOne do NOT
+  // retake a snapshot; the pre-streaming snapshot serves as the undo target for the whole turn.
   // BuilderActionSource is NOT widened — Shape B invariant preserved.
   const staging = useChatActionStaging((action) => handleChatAction(action));
 
@@ -465,11 +470,6 @@ export function ChatPanel({
               pendingActions.push(action);
               if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
                 lastSnapshotRef.current.supportsUndo = false;
-              }
-              // Phase 20260526-builder-audit BLD-20260526-11: clean stale layer refs from session history after remove_layer.
-              const layerId = getActionLayerId(action);
-              if (action.type === 'remove_layer' && layerId) {
-                cleanStaleLayerRefs(mapId, layerId);
               }
             }
             break;
