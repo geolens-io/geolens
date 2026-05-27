@@ -86,6 +86,26 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
   });
 
+  it('Test 3c: arrow render mode → falls back to suffix sweep (arrow not in registry)', () => {
+    const removeLayer = vi.fn();
+    const map = makeMap({ removeLayer });
+    const renderModeByLayerId = new Map([['l1', 'arrow']]);
+
+    removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
+
+    // 'arrow' is not a registry key → getAdapter('arrow') returns circleAdapter fallback
+    // whose type === 'circle', not 'arrow', so the type guard fails and the code falls
+    // through to the FALLBACK_SUFFIXES sweep (7 calls including the -arrow companion).
+    expect(removeLayer).toHaveBeenCalledTimes(7);
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-arrow');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-label');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-cluster-count');
+  });
+
   it('Test 4: legacy / no renderMode falls back to 7-suffix sweep', () => {
     const removeLayer = vi.fn();
     // getLayer returns truthy for all ids so all 7 suffixes produce a call

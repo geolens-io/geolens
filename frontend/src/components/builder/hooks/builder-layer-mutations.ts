@@ -17,6 +17,14 @@ const FALLBACK_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-c
  * is unknown so that legacy call sites and future unregistered render modes
  * continue to work correctly.
  *
+ * Known render_mode values NOT in the adapter registry:
+ *   - 'arrow': not registered as a first-class adapter; getAdapter('arrow') returns the
+ *     circleAdapter fallback whose type === 'circle'. The `adapter.type === renderMode`
+ *     guard fails, causing the code to fall through to FALLBACK_SUFFIXES — which does
+ *     include '-arrow'. This is the correct behavior. If 'arrow' is ever added to the
+ *     registry, ensure getLayerIds returns both the base id and the '-arrow' companion.
+ *     See MAP-17 Test 3c for the regression pin.
+ *
  * @param prefixedLayerId - the `layer-<rawId>` form already including the prefix
  * @param renderMode - value from style_config.render_mode (or inferred adapter type)
  */
