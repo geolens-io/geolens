@@ -1,20 +1,62 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerInput, MapLayerResponse, StyleConfig } from '@/types/api';
+import { getAdapter } from '@/components/builder/layer-adapters/registry';
+
+/**
+ * Fallback suffix list used when no render mode is known (preserves back-compat
+ * for the 3 existing call sites in use-builder-layers.ts that do not yet pass
+ * renderModeByLayerId). The label companion is intentionally kept here because
+ * no current adapter declares it in getLayerIds — labels are managed by
+ * map-sync.ts syncLayersToMap, not by adapters.
+ */
+const FALLBACK_SUFFIXES = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'];
+
+/**
+ * Derive the full set of MapLibre layer ids that the adapter owns for a given
+ * prefixed layer id. Falls back to the static suffix list when the render mode
+ * is unknown so that legacy call sites and future unregistered render modes
+ * continue to work correctly.
+ *
+ * @param prefixedLayerId - the `layer-<rawId>` form already including the prefix
+ * @param renderMode - value from style_config.render_mode (or inferred adapter type)
+ */
+function deriveCompanionIds(prefixedLayerId: string, renderMode: string | null | undefined): string[] {
+  if (renderMode) {
+    try {
+      // getAdapter returns circleAdapter as a fallback for unknown types; use
+      // the adapter only when its registered type matches exactly.
+      const adapter = getAdapter(renderMode);
+      if (adapter.type === renderMode) {
+        return adapter.getLayerIds(prefixedLayerId);
+      }
+    } catch {
+      // Defensive — getAdapter should never throw, but fall through to suffix list
+    }
+  }
+  return FALLBACK_SUFFIXES.map((suffix) => `${prefixedLayerId}${suffix}`);
+}
 
 /**
  * Imperatively remove per-layer companion MapLibre layers when a layer leaves
  * the builder draft. Sources are left for the normal sync prune because vector
  * sources may be shared by sibling layers.
+ *
+ * When `renderModeByLayerId` is provided, the function derives companion ids via
+ * the LayerAdapter.getLayerIds() contract instead of the static suffix list.
+ * Existing callers that omit `renderModeByLayerId` continue to use the suffix-
+ * list fallback path — no call-site changes required.
  */
 export function removePerLayerCompanions(
   map: MaplibreMap | null,
   layerIds: Iterable<string>,
+  renderModeByLayerId?: Map<string, string>,
 ): void {
   if (!map || !map.isStyleLoaded()) return;
-  const suffixes = ['', '-outline', '-label', '-extrusion', '-arrow', '-cluster', '-cluster-count'];
   for (const id of layerIds) {
-    for (const suffix of suffixes) {
-      const lid = `layer-${id}${suffix}`;
+    const prefixedId = `layer-${id}`;
+    const renderMode = renderModeByLayerId?.get(id) ?? null;
+    const companionIds = deriveCompanionIds(prefixedId, renderMode);
+    for (const lid of companionIds) {
       if (map.getLayer(lid)) map.removeLayer(lid);
     }
   }
