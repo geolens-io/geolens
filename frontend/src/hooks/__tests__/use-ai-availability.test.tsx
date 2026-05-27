@@ -7,8 +7,10 @@ vi.mock('@/api/admin', () => ({
   getAIStatus: vi.fn(),
 }));
 
+// Mutable mock so individual tests can override the `can` return value.
+const mockCan = vi.fn(() => true);
 vi.mock('@/hooks/use-permissions', () => ({
-  usePermissions: () => ({ can: () => true }),
+  usePermissions: () => ({ can: mockCan }),
 }));
 
 import { getAIStatus } from '@/api/admin';
@@ -197,5 +199,124 @@ describe('useAIAvailability — CONSOLE-01 gating', () => {
     });
 
     expect(mockGetAIStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1135 AI-02: reason field taxonomy
+// ---------------------------------------------------------------------------
+
+describe('useAIAvailability — reason field (Phase 1135 AI-02)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset can mock to default (true) for each test; individual tests override.
+    mockCan.mockReturnValue(true);
+    // Default auth state: admin token.
+    useAuthStore.setState({
+      token: 'admin-token',
+      refreshToken: null,
+      expiresAt: null,
+      user: adminUser,
+    });
+  });
+
+  // Test A
+  it('reason is "env_disabled" when aiStatus.data.enabled === false', async () => {
+    mockGetAIStatus.mockResolvedValue({
+      enabled: false,
+      configured: true,
+      provider: null,
+      model: null,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+    } as never);
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.reason).toBe('env_disabled');
+    expect(result.current.isAIAvailable).toBe(false);
+  });
+
+  // Test B
+  it('reason is "no_key" when enabled but not configured', async () => {
+    mockGetAIStatus.mockResolvedValue({
+      enabled: true,
+      configured: false,
+      provider: null,
+      model: null,
+      semantic_search_enabled: false,
+      has_embeddings: false,
+    } as never);
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.reason).toBe('no_key');
+    expect(result.current.isAIAvailable).toBe(false);
+  });
+
+  // Test C
+  it('reason is "permission" when enabled + configured but caller lacks use_ai_chat', async () => {
+    // Override can to return false for this test (permission denied)
+    mockCan.mockReturnValue(false);
+    mockGetAIStatus.mockResolvedValue({
+      enabled: true,
+      configured: true,
+      provider: 'openai',
+      model: 'gpt-4',
+      semantic_search_enabled: false,
+      has_embeddings: false,
+    } as never);
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.reason).toBe('permission');
+    expect(result.current.isAIAvailable).toBe(false);
+  });
+
+  // Test D
+  it('reason is null when isAIAvailable === true (happy path)', async () => {
+    mockGetAIStatus.mockResolvedValue({
+      enabled: true,
+      configured: true,
+      provider: 'openai',
+      model: 'gpt-4',
+      semantic_search_enabled: false,
+      has_embeddings: false,
+    } as never);
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.reason).toBeNull();
+    expect(result.current.isAIAvailable).toBe(true);
+  });
+
+  // Test E
+  it('reason is null while aiStatus is loading (spinner state, not error)', () => {
+    // Never-resolving promise simulates loading state
+    mockGetAIStatus.mockImplementation(() => new Promise(() => {}));
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = makeWrapper(qc);
+    const { result } = renderHook(() => useAIAvailability(), { wrapper });
+
+    // Query is in loading state (pending, not yet resolved)
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.reason).toBeNull();
   });
 });
