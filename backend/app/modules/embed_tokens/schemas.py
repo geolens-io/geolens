@@ -13,6 +13,11 @@ ADVANCED_SHARING_ERROR = (
 
 def _normalize_origin(origin: str) -> str:
     normalized = origin.strip().lower().rstrip("/")
+    # Reject wildcard entries — CSP frame-ancestors NEVER '*'.
+    # Check is performed after strip+lower so leading/trailing whitespace cannot
+    # smuggle wildcards. Covers '*', '*.example.com', 'https://*.example.com'.
+    if "*" in normalized:
+        raise ValueError("Wildcard origin not allowed")
     if not normalized.startswith(("http://", "https://")):
         normalized = f"https://{normalized}"
 
