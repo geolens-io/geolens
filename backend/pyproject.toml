@@ -34,6 +34,7 @@ dependencies = [
     # PERF-01 (Phase 274): in-memory LRU fallback for tile cache when REDIS_URL is unset
     "cachetools>=5.5.0",
     "redis>=5.0.0",
+    "jsonschema>=4.19",
     "puremagic>=2.0.0",
     "rasterio>=1.4.0",
     "Pillow>=12.2.0",
@@ -62,7 +63,6 @@ dev = [
     "pytest-xdist>=3.6.0",
     "httpx",
     "ruff",
-    "jsonschema>=4.19",
     "pytest-cov",
     "bandit>=1.8",
     "pip-audit>=2.7",

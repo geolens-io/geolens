@@ -23,9 +23,9 @@
 ### Validation
 
 - [x] **VAL-01**: The official DCAT-US 3.0 JSON Schema definitions are available locally so validation works without network access.
-- [ ] **VAL-02**: Backend validation uses JSON Schema 2020-12 and resolves the official schema `$ref` graph.
-- [ ] **VAL-03**: User or operator can get a validation report for the catalog feed and for an individual dataset, including path, schema path, validator, and message for each error.
-- [ ] **VAL-04**: Validation failure for incomplete metadata is reported clearly without hiding visibility/access failures or inventing fake federal metadata.
+- [x] **VAL-02**: Backend validation uses JSON Schema 2020-12 and resolves the official schema `$ref` graph.
+- [x] **VAL-03**: User or operator can get a validation report for the catalog feed and for an individual dataset, including path, schema path, validator, and message for each error.
+- [x] **VAL-04**: Validation failure for incomplete metadata is reported clearly without hiding visibility/access failures or inventing fake federal metadata.
 
 ### API and Access Control
 
@@ -33,13 +33,13 @@
 - [x] **API-02**: Explicit DCAT-US 3.0 catalog and per-dataset routes are available for federal-profile consumers.
 - [x] **API-03**: Anonymous DCAT-US catalog export excludes private datasets using the same visibility filter as existing DCAT export.
 - [x] **API-04**: Per-dataset DCAT-US export and validation enforce the same dataset access checks as existing per-dataset DCAT export.
-- [ ] **API-05**: Public API snapshot and generated SDKs are refreshed if the DCAT-US routes are included in OpenAPI.
+- [x] **API-05**: Public API snapshot and generated SDKs are refreshed if the DCAT-US routes are included in OpenAPI.
 
 ### Documentation and Quality
 
-- [ ] **DOC-01**: Developer/operator documentation explains the DCAT-US 3.0 route strategy, validation behavior, schema source, and mapping gaps.
-- [ ] **DOC-02**: Migration notes call out DCAT-US v1.1 to v3.0 breaking areas relevant to GeoLens: `modified`, `temporal`, `spatial`, `language`, restrictions, services, and dataset series.
-- [ ] **DOC-03**: CHANGELOG records the DCAT-US 3.0 support surface and any accepted limitations.
+- [x] **DOC-01**: Developer/operator documentation explains the DCAT-US 3.0 route strategy, validation behavior, schema source, and mapping gaps.
+- [x] **DOC-02**: Migration notes call out DCAT-US v1.1 to v3.0 breaking areas relevant to GeoLens: `modified`, `temporal`, `spatial`, `language`, restrictions, services, and dataset series.
+- [x] **DOC-03**: CHANGELOG records the DCAT-US 3.0 support surface and any accepted limitations.
 - [ ] **QA-01**: Focused backend tests cover serializer mapping, schema-valid happy paths, validation errors, visibility filtering, and route-order conflicts.
 - [ ] **QA-02**: Backend lint/format checks and focused pytest gates pass for touched standards/export code.
 - [ ] **QA-03**: OpenAPI/SDK checks pass or any skipped generator surface is justified with no public API changes.
@@ -87,13 +87,13 @@
 | API-02 | Phase 1130 | Complete |
 | API-03 | Phase 1130 | Complete |
 | API-04 | Phase 1130 | Complete |
-| VAL-02 | Phase 1131 | Pending |
-| VAL-03 | Phase 1131 | Pending |
-| VAL-04 | Phase 1131 | Pending |
-| API-05 | Phase 1131 | Pending |
-| DOC-01 | Phase 1131 | Pending |
-| DOC-02 | Phase 1131 | Pending |
-| DOC-03 | Phase 1131 | Pending |
+| VAL-02 | Phase 1131 | Complete |
+| VAL-03 | Phase 1131 | Complete |
+| VAL-04 | Phase 1131 | Complete |
+| API-05 | Phase 1131 | Complete |
+| DOC-01 | Phase 1131 | Complete |
+| DOC-02 | Phase 1131 | Complete |
+| DOC-03 | Phase 1131 | Complete |
 | QA-01 | Phase 1132 | Pending |
 | QA-02 | Phase 1132 | Pending |
 | QA-03 | Phase 1132 | Pending |
@@ -106,4 +106,4 @@
 
 ---
 *Requirements defined: 2026-05-27*
-*Last updated: 2026-05-27 after v1029 roadmap creation*
+*Last updated: 2026-05-27 after Phase 1131 completion*

@@ -524,6 +524,85 @@ async def test_dcat_us3_service_distribution_emits_data_service(
 
 
 @pytest.mark.anyio
+async def test_single_record_dcat_us3_validation_report_passes(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Validation report passes for a dataset with required DCAT-US metadata."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_dataset(session, created_by=admin_id)
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/validation/",
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    report = resp.json()
+    assert report == {
+        "schema": "Dataset",
+        "valid": True,
+        "error_count": 0,
+        "errors": [],
+    }
+
+
+@pytest.mark.anyio
+async def test_single_record_dcat_us3_validation_reports_metadata_gaps(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Validation reports missing mandatory metadata instead of hiding gaps."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_dataset(
+        session,
+        created_by=admin_id,
+        visibility="private",
+        with_contact=False,
+    )
+
+    resp = await client.get(
+        f"/datasets/{ds.id}/dcat-us/3.0/validation/",
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    report = resp.json()
+    assert report["schema"] == "Dataset"
+    assert report["valid"] is False
+    assert report["error_count"] >= 1
+    assert any(
+        error["path"] == "$"
+        and error["validator"] == "required"
+        and "contactPoint" in error["message"]
+        for error in report["errors"]
+    )
+
+
+@pytest.mark.anyio
+async def test_catalog_dcat_us3_validation_report_passes(
+    client: AsyncClient,
+    test_db_session,
+):
+    """Catalog validation report uses the visible DCAT-US catalog payload."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    await _create_dcat_dataset(session, created_by=admin_id)
+
+    resp = await client.get("/datasets/dcat-us/3.0/validation/")
+
+    assert resp.status_code == 200
+    report = resp.json()
+    assert report["schema"] == "Catalog"
+    assert report["valid"] is True
+    assert report["error_count"] == 0
+
+
+@pytest.mark.anyio
 async def test_single_record_dcat_404_for_missing(
     client: AsyncClient,
     admin_auth_header: dict,

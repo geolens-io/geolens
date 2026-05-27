@@ -73,7 +73,7 @@ def record_to_dcat_us3(
         result["rights"] = record.usage_constraints
 
     if record.lineage_summary is not None:
-        result["provenance"] = record.lineage_summary
+        result["provenance"] = [record.lineage_summary]
 
     temporal = _temporal_to_dcat_us3(record)
     if temporal is not None:

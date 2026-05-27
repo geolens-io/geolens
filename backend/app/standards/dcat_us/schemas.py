@@ -35,4 +35,6 @@ def get_schema_definition(name: str) -> dict[str, Any]:
         return load_schema_definitions()[key]
     except KeyError as exc:
         available = ", ".join(sorted(load_schema_definitions()))
-        raise ValueError(f"Unknown DCAT-US schema '{name}'. Available: {available}") from exc
+        raise ValueError(
+            f"Unknown DCAT-US schema '{name}'. Available: {available}"
+        ) from exc

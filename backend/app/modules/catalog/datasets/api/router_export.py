@@ -32,6 +32,7 @@ from app.modules.catalog.authorization import (
 )
 from app.standards.dcat.service import catalog_to_dcat, record_to_dcat
 from app.standards.dcat_us.service import catalog_to_dcat_us3, record_to_dcat_us3
+from app.standards.dcat_us.validation import validate_dcat_us3
 from app.modules.catalog.datasets.domain.models import (
     Dataset as DatasetModel,
     DatasetGrant,
@@ -155,6 +156,26 @@ async def get_dcat_us3_catalog(
     )
 
 
+@router.get(
+    "/dcat-us/3.0/validation",
+    response_class=JSONResponse,
+    include_in_schema=False,
+)
+@router.get("/dcat-us/3.0/validation/", response_class=JSONResponse)
+async def validate_dcat_us3_catalog(
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Validate the visible DCAT-US Schema v3.0 catalog feed."""
+    datasets = await _get_visible_dcat_datasets(db, user)
+
+    base_url = await get_public_api_url(db)
+    catalog = catalog_to_dcat_us3(datasets, base_url)
+    report = validate_dcat_us3(catalog, "Catalog")
+
+    return JSONResponse(content=report)
+
+
 @router.get("/{dataset_id}/dcat/", response_class=JSONResponse)
 async def get_dcat_record(
     dataset_id: uuid.UUID,
@@ -176,6 +197,27 @@ async def get_dcat_record(
         media_type="application/ld+json",
         headers={"Content-Language": lang},
     )
+
+
+@router.get(
+    "/{dataset_id}/dcat-us/3.0/validation",
+    response_class=JSONResponse,
+    include_in_schema=False,
+)
+@router.get("/{dataset_id}/dcat-us/3.0/validation/", response_class=JSONResponse)
+async def validate_dcat_us3_record(
+    dataset_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Validate a single dataset as DCAT-US Schema v3.0."""
+    dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
+
+    base_url = await get_public_api_url(db)
+    dcat = record_to_dcat_us3(dataset, base_url)
+    report = validate_dcat_us3(dcat, "Dataset")
+
+    return JSONResponse(content=report)
 
 
 @router.get(

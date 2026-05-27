@@ -11,8 +11,14 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ## [Unreleased]
 
+### Added
+
+- DCAT-US Schema v3.0 support now has explicit catalog, dataset, and validation routes under `/datasets/dcat-us/3.0/`, backed by the official GSA/dcat-us JSON Schema 2020-12 definitions vendored from commit `98408dc000f0b71131a03920e2dec6247a84abff`.
+- DCAT-US validation reports now return validity, error count, JSON path, schema path, validator, and message details while preserving existing catalog visibility and per-dataset access checks.
+
 ### Changed
 
+- Existing W3C DCAT 3 routes remain compatibility routes at `/datasets/dcat/` and `/datasets/{dataset_id}/dcat/`; DCAT-US v3.0 is exposed as a separate federal profile instead of changing those response shapes.
 - Builder Notes and AI rail behavior now treat Notes, History, and AI as product authoring surfaces in the standard builder, with no separate demo instance or demo deployment assumed for validation.
 - Active map showcase smoke coverage has been renamed from `demo-smoke*` to `showcase-smoke*`, including the package script and active comments that reference the smoke path.
 - Map builder basemap, background, terrain, sublayer, builder/viewer sync, editor-scene routing, duplicate-rendering, and AI/manual layer mutations now flow through focused controller/contract helpers instead of duplicated page-level object surgery.
@@ -53,6 +59,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Verification
 
+- Focused DCAT tests verify existing W3C DCAT routes, new DCAT-US v3.0 serializer output, DataService emission, validation pass/fail reports, route order, and anonymous private-dataset exclusion.
 - v1028 close gate passed focused backend Notes pytest coverage, backend Ruff checks, focused frontend Notes/AI tests, focused builder workflow tests, frontend typecheck/lint/build, and Playwright discovery for the renamed showcase smoke specs.
 - Playwright MCP verified the ADK 3D Relief builder, mobile Notes sheet, AI unavailable panel, Notes set/clear on a throwaway copy, public shared viewer, embed viewer, canonical-map cleanup, and zero fresh browser console errors; the later Anthropic rerun still showed the known non-blocking MapLibre terrain maxzoom warning.
 - Provider-backed AI action UAT passed after keys were configured and the Anthropic key was refreshed: Anthropic chat returned a `set_style` action for the ADK throwaway copy, the builder applied it, dirty state appeared, Save completed, reload preserved the style, and cleanup restored the map list to the two canonical ADK maps. An interim OpenAI-compatible check also passed while the first Anthropic key was invalid.
