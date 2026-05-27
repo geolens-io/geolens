@@ -113,7 +113,7 @@
   5. Embed-token in-flight race is closed via an `inflightEmbedCreate` ref mirroring `ChatPanel`'s `inflightRef` pattern; race regression pinned in `SharePanel.test.tsx` (Pitfall #7).
 **Plans**: 7 plans
 - [x] 1137-01-PLAN.md — url-normalize canonical-form helper + unit tests (SHARE-06, Pitfall #8)
-- [ ] 1137-02-PLAN.md — Backend CSP no-* defensive pin + canonical-form round-trip test (SHARE-06)
+- [x] 1137-02-PLAN.md — Backend CSP no-* defensive pin + canonical-form round-trip test (SHARE-06)
 - [ ] 1137-03-PLAN.md — ViewerMap branding overlay + export PNG title/legend/branding pins (SHARE-07, SHARE-09)
 - [ ] 1137-04-PLAN.md — SharePanel chip-based allowed-origins UI (SHARE-02, SHARE-06)
 - [ ] 1137-05-PLAN.md — SharePanel expiration preset Select + Pitfall #6 docstring (SHARE-04)
@@ -163,7 +163,7 @@ After Phase 1134 ships, Phases 1135 / 1136 / 1137 are **independent and can run 
 | 1134. Map Functionality and Smaller-Screen Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1135. AI Chat Confirm-Before-Apply and Analysis Polish | v1030 | 6/6 | Complete   | 2026-05-27 |
 | 1136. Per-Render-Mode Editor Polish | v1030 | 7/7 | Complete   | 2026-05-27 |
-| 1137. Sharing and Embed Polish | v1030 | 1/7 | In Progress|  |
+| 1137. Sharing and Embed Polish | v1030 | 2/7 | In Progress|  |
 | 1138. Easy-Win Sweep | v1030 | 0/0 | Not started | - |
 | 1139. Quality Sweep and Playwright Close-Gate | v1030 | 0/0 | Not started | - |
 
