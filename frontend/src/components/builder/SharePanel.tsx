@@ -29,15 +29,6 @@ import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeE
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
 import type { MapVisibility } from '@/types/api';
 
-function parseOrigins(input: string): string[] {
-  return input
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => s.replace(/\/+$/, ''))
-    .map((s) => (s.includes('://') ? s : `https://${s}`));
-}
-
 /**
  * Generate the iframe embed snippet for a shared map.
  *
@@ -638,7 +629,6 @@ export function ShareDialog({
   const [hasNonPublic, setHasNonPublic] = useState(false);
   const [embedTokenRaw, setEmbedTokenRaw] = useState<string | null>(null);
   const [rawShareToken, setRawShareToken] = useState<string | null>(null);
-  const [domainInput, setDomainInput] = useState('');
 
   // Pitfall #7: single-flight guard for concurrent createEmbedToken invocations.
   // Mirrors ChatPanel.tsx inflightRef pattern (v1010.2 lift).
@@ -739,11 +729,9 @@ export function ShareDialog({
       return;
     }
     try {
-      const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-      const promise = createEmbedToken.mutateAsync({
-        mapId,
-        allowedOrigins: origins.length > 0 ? origins : undefined,
-      });
+      // Allowed origins are managed via the chip input in ShareLinkSettings;
+      // no origins at creation time (WR-03: domainInput was dead state).
+      const promise = createEmbedToken.mutateAsync({ mapId });
       inflightEmbedCreate.current = promise;
       const tokenResult = await promise;
       setEmbedTokenRaw(tokenResult.raw_token);
@@ -778,11 +766,9 @@ export function ShareDialog({
       setRawShareToken(created.share_url ? created.token : null);
       const check = await runVisibilityCheck();
       if (check?.has_non_public) {
-        const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-        const tokenResult = await createEmbedToken.mutateAsync({
-          mapId,
-          allowedOrigins: origins.length > 0 ? origins : undefined,
-        });
+        // Allowed origins are managed via chip input in ShareLinkSettings;
+        // no origins at creation time (WR-03: domainInput was dead state).
+        const tokenResult = await createEmbedToken.mutateAsync({ mapId });
         setEmbedTokenRaw(tokenResult.raw_token);
       }
       toast.success(t('toasts.shareLinkCreated', { defaultValue: 'Share link created' }));
@@ -794,7 +780,6 @@ export function ShareDialog({
   function handleRevoked() {
     setRawShareToken(null);
     setEmbedTokenRaw(null);
-    setDomainInput('');
     setHasNonPublic(false);
   }
 
@@ -803,11 +788,9 @@ export function ShareDialog({
     if (!activeEmbedToken) return;
     try {
       await revokeEmbedToken.mutateAsync({ mapId, tokenId: activeEmbedToken.id });
-      const origins = canUseAdvancedSharing ? parseOrigins(domainInput) : [];
-      const tokenResult = await createEmbedToken.mutateAsync({
-        mapId,
-        allowedOrigins: origins.length > 0 ? origins : undefined,
-      });
+      // Allowed origins are managed via chip input in ShareLinkSettings;
+      // no origins at creation time (WR-03: domainInput was dead state).
+      const tokenResult = await createEmbedToken.mutateAsync({ mapId });
       setEmbedTokenRaw(tokenResult.raw_token);
       toast.success(t('share.embedTokenRegenerated', { defaultValue: 'Embed token regenerated' }));
     } catch {
