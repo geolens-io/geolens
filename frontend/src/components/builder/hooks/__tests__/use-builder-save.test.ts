@@ -891,6 +891,92 @@ describe('useBuilderSave', () => {
     expect(mockMutate).toHaveBeenCalledTimes(1);
   });
 
+  describe('EASY-02: Cmd/Ctrl+S keyboard shortcut gating', () => {
+    it('EASY-02 — no-op when a Radix dialog is open (role=dialog data-state=open)', () => {
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('data-state', 'open');
+      document.body.appendChild(dialog);
+
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }),
+        );
+      });
+
+      expect(mockMutate).not.toHaveBeenCalled();
+
+      document.body.removeChild(dialog);
+    });
+
+    it('EASY-02 — handleSave fires when no dialog is open', () => {
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }),
+        );
+      });
+
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('EASY-02 — preventDefault fires even when save is pending', () => {
+      const preventDefaultSpy = vi.fn();
+      const event = new KeyboardEvent('keydown', {
+        key: 's',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      event.preventDefault = preventDefaultSpy;
+
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => { window.dispatchEvent(event); });
+
+      expect(preventDefaultSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('EASY-02 — plain s without modifier does NOT trigger handleSave or preventDefault', () => {
+      const preventDefaultSpy = vi.fn();
+      const event = new KeyboardEvent('keydown', {
+        key: 's',
+        bubbles: true,
+        cancelable: true,
+      });
+      event.preventDefault = preventDefaultSpy;
+
+      const state = makeSaveState();
+      renderHook(() => useBuilderSave(state));
+
+      act(() => { window.dispatchEvent(event); });
+
+      expect(mockMutate).not.toHaveBeenCalled();
+      expect(preventDefaultSpy).not.toHaveBeenCalled();
+    });
+
+    it('EASY-02 — keydown listener is removed on hook unmount (negative-control)', () => {
+      const state = makeSaveState();
+      const { unmount } = renderHook(() => useBuilderSave(state));
+
+      unmount();
+
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 's', metaKey: true, bubbles: true }),
+        );
+      });
+
+      expect(mockMutate).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns blocker from hook', () => {
     const state = makeSaveState();
     const { result } = renderHook(() => useBuilderSave(state));

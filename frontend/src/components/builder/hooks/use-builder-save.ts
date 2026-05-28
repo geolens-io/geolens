@@ -724,8 +724,20 @@ export function useBuilderSave(state: SaveState) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        // EASY-02 (Phase 1138-01): preventDefault fires unconditionally to suppress
+        // the browser "Save Page As" dialog whenever Cmd/Ctrl+S is pressed in the builder,
+        // regardless of pending state or open modals.
         e.preventDefault();
-        if (!updateMap.isPending && !patchMapLayers.isPending) handleSaveRef.current();
+        // EASY-02 (Phase 1138-01): no-op when any Radix dialog/sheet is open so
+        // typing Cmd+S inside the Share dialog or Add Dataset modal does not race
+        // a layer mutation against open-modal context. Radix sets
+        // data-state="open" on its content element; we check both the role-dialog
+        // selector (covers Dialog, AlertDialog) and the Sheet-specific data-slot
+        // selector (covers Sheet, which uses role="dialog" but also data-slot="sheet-content").
+        const dialogOpen = document.querySelector('[role="dialog"][data-state="open"]');
+        if (dialogOpen) return;
+        if (updateMap.isPending || patchMapLayers.isPending) return;
+        handleSaveRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
