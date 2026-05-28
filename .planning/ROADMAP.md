@@ -9,7 +9,7 @@
 **Phases:**
 
 - [x] **Phase 1140: Raster & Terrain Editor Controls** — Add contour-line overlay, hypsometric tint ramps, and single-band colormap controls to the DEM/RasterEditor surfaces (backend Titiler colormap path scoped at plan-phase) (completed 2026-05-28)
-- [ ] **Phase 1141: Fill-Pattern Editor Control** — Add fill-pattern authoring (curated built-in sprite set) to FillEditor; plan-time sizing call on built-in selection vs custom-upload backend
+- [x] **Phase 1141: Fill-Pattern Editor Control** — Add fill-pattern authoring (curated built-in sprite set) to FillEditor; plan-time sizing call on built-in selection vs custom-upload backend (completed 2026-05-28)
 - [ ] **Phase 1142: OG-Image Social Cards & SharePanel Typography** — Wire OG/Twitter card meta to shared map links via the canvas-capture pipeline (Path A vs B decided at plan-phase); reduce SharePanel to ≤2 font weights
 - [ ] **Phase 1143: Quality Sweep & Playwright Close-Gate** — Intensive live Playwright MCP smoke of new controls + share/OG flow, typecheck/lint/vitest/backend-pytest/`e2e:smoke:builder`/i18n parity, CHANGELOG, and OpenAPI/SDK refresh
 
@@ -41,7 +41,7 @@
   3. User can clear a pattern and return to a solid fill without requiring a page reload
   4. Existing fill controls (color, opacity, extrusion hint) are unaffected
 **Plans**: 1 plan
-  - [ ] 1141-01-PLAN.md — Built-in fill-pattern catalog + idempotent map registrar, IconPicker-style FillPatternPicker, FillEditor wiring (set/clear via owned fill-pattern paint), 4-locale i18n [EDITOR-FILL-01]
+  - [x] 1141-01-PLAN.md — Built-in fill-pattern catalog + idempotent map registrar, IconPicker-style FillPatternPicker, FillEditor wiring (set/clear via owned fill-pattern paint), 4-locale i18n [EDITOR-FILL-01]
 **UI hint**: yes
 
 ### Phase 1142: OG-Image Social Cards & SharePanel Typography
@@ -72,7 +72,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
-| 1141. Fill-Pattern Editor Control | 0/1 | Not started | - |
+| 1141. Fill-Pattern Editor Control | 1/1 | Complete   | 2026-05-28 |
 | 1142. OG-Image Social Cards & SharePanel Typography | 0/TBD | Not started | - |
 | 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |
 
