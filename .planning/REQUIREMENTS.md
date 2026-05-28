@@ -14,7 +14,7 @@ New per-render-mode editor controls extending the v1026 owned-property contracts
 - [ ] **EDITOR-FILL-01**: User can apply a fill-pattern to a fill-render-mode layer via the editor (pattern selection flow; sprite-backed). Plan-time sizing call: a curated built-in pattern set vs arbitrary user sprite upload — prefer built-in selection first and defer custom-upload backend (sprite storage/serving) to Future if it balloons.
 - [ ] **EDITOR-DEM-04**: User can enable and configure a contour-line overlay on a DEM/terrain layer (toggle + line styling).
 - [ ] **EDITOR-DEM-05**: User can apply a hypsometric (elevation) tint color ramp to a terrain/DEM layer from a preset ramp set.
-- [ ] **EDITOR-RASTER-COLORMAP**: User can apply a single-band stretch + colormap to a raster layer via the editor. Depends on backend single-band colormap render-path scoping (Titiler) — researched at plan-phase.
+- [x] **EDITOR-RASTER-COLORMAP**: User can apply a single-band stretch + colormap to a raster layer via the editor. Depends on backend single-band colormap render-path scoping (Titiler) — researched at plan-phase.
 
 ### Sharing & Social Cards
 
@@ -66,7 +66,7 @@ Which phases cover which requirements. Populated during roadmap creation (contin
 |-------------|-------|--------|
 | EDITOR-DEM-04 | Phase 1140 | Pending |
 | EDITOR-DEM-05 | Phase 1140 | Pending |
-| EDITOR-RASTER-COLORMAP | Phase 1140 | Pending |
+| EDITOR-RASTER-COLORMAP | Phase 1140 | Complete |
 | EDITOR-FILL-01 | Phase 1141 | Pending |
 | SHARE-08 | Phase 1142 | Pending |
 | SHARE-10 | Phase 1142 | Pending |

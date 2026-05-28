@@ -4,13 +4,13 @@ milestone: v1031
 milestone_name: Builder Render-Mode & Share Polish
 status: "Roadmap created — ready for `/gsd:plan-phase 1140`"
 stopped_at: Phase 1140 UI-SPEC approved
-last_updated: "2026-05-28T13:44:28.185Z"
+last_updated: "2026-05-28T14:41:54.812Z"
 last_activity: 2026-05-28 — Roadmap written (4 phases 1140-1143, 9/9 reqs mapped)
 progress:
   total_phases: 12
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,7 +24,7 @@ Status: Roadmap created — ready for `/gsd:plan-phase 1140`
 Last activity: 2026-05-28 — Roadmap written (4 phases 1140-1143, 9/9 reqs mapped)
 
 ```
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0% — 0/4 phases complete
+Progress: [███░░░░░░░] 25%
 ```
 
 ## Project Reference
@@ -99,6 +99,8 @@ See: .planning/PROJECT.md
 - [Phase 1136, carried]: BLANK_BASEMAP_ID sentinel reuse in BasemapGroupEditorScene: existing 'blank' constant already routes through swapBasemapPreset to hasVisibleBasemap=false with zero controller change.
 - [Phase 1136, carried]: deriveExtrusionRange string coercion — API returns dataset_sample_values as strings; parseFloat() coercion added; range hint now works in production.
 - [Phase 1136, carried]: Basemap pre-flight reset pattern — smoke tests that need basemap group row must PUT basemap_style before navigation; blank state yields no row in stack.
+- [Phase ?]: band_count=None for get_dataset_meta path (no RasterAsset join); frontend gate band_count===1
+- [Phase ?]: stretch=percentile/stddev accepted with minmax fallback; stats-based computation deferred to v1032
 
 ### Pending Todos
 
@@ -117,9 +119,9 @@ None for v1031 yet (phases not started).
 
 ## Session Continuity
 
-Last session: 2026-05-28T13:44:28.182Z
+Last session: 2026-05-28T14:41:39.062Z
 Stopped at: Phase 1140 UI-SPEC approved
-Resume file: .planning/phases/1140-raster-terrain-editor-controls/1140-UI-SPEC.md
+Resume file: None
 
 ## Operator Next Steps
 
