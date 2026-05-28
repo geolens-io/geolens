@@ -19,6 +19,13 @@ interface LayerFilterEditorProps {
   filter: FilterSpecification | null;
   onFilterChange: (expression: FilterSpecification | null) => void;
   layerName?: string | null;
+  /**
+   * EASY-18 (Phase 1138-03): rendered-feature count for this layer. When set
+   * to 0 AND `filter` is non-null, the empty-state hint + Clear-filter button
+   * are shown. `null` / `undefined` (default) suppresses the hint regardless
+   * of filter state.
+   */
+  featureCount?: number | null;
 }
 
 type ColumnType = 'string' | 'number' | 'boolean' | 'other';
@@ -291,6 +298,7 @@ export function LayerFilterEditor({
   filter,
   onFilterChange,
   layerName,
+  featureCount,
 }: LayerFilterEditorProps) {
   const { t } = useTranslation('builder');
   const lastEmittedFilterRef = useRef<unknown>(null);
@@ -446,8 +454,38 @@ export function LayerFilterEditor({
     setRawError(null);
   }
 
+  // EASY-18: show empty-state hint when a filter is set but no features rendered.
+  const showEmptyState = filter != null && featureCount === 0;
+
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+      {/* EASY-18: empty-state hint — shown when filter is active but 0 features rendered */}
+      {showEmptyState && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-3 rounded-md border border-destructive/30 bg-destructive/5 p-3"
+        >
+          <p className="text-xs font-semibold text-foreground">
+            {t('layerEditor.emptyResult.title', { defaultValue: '0 features — check your filter' })}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {t('layerEditor.emptyResult.help', {
+              defaultValue:
+                'The current filter eliminated every feature in this layer. Adjust a condition or clear the filter to see features again.',
+            })}
+          </p>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="mt-2"
+            onClick={() => onFilterChange(null)}
+          >
+            {t('layerEditor.emptyResult.clear', { defaultValue: 'Clear filter' })}
+          </Button>
+        </div>
+      )}
       {/* Header row: title + raw toggle */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 space-y-0.5">

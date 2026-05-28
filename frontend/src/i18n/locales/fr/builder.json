@@ -1017,6 +1017,11 @@
       "type": "Type",
       "geometry": "Géométrie",
       "columns": "Colonnes"
+    },
+    "emptyResult": {
+      "title": "0 entité — vérifiez votre filtre",
+      "help": "Le filtre actuel a éliminé toutes les entités de cette couche. Ajustez une condition ou effacez le filtre pour revoir les entités.",
+      "clear": "Effacer le filtre"
     }
   },
   "settings": {

@@ -23,8 +23,25 @@ vi.mock('../LayerStyleEditor', () => ({
 vi.mock('../RasterLayerControls', () => ({
   RasterLayerControls: () => <div data-testid="raster-layer-controls" />,
 }));
+
+// EASY-18: spy mock that records the props it receives and exposes a button
+// that invokes onFilterChange(null) so the forwarding tests can assert the
+// dispatcher boundary in LayerEditorPanel.
+let capturedFilterEditorProps: Record<string, unknown> = {};
 vi.mock('../LayerFilterEditor', () => ({
-  LayerFilterEditor: () => <div data-testid="layer-filter-editor" />,
+  LayerFilterEditor: (props: Record<string, unknown>) => {
+    capturedFilterEditorProps = props;
+    return (
+      <div data-testid="layer-filter-editor">
+        <button
+          data-testid="spy-clear-filter"
+          onClick={() => (props.onFilterChange as (e: null) => void)(null)}
+        >
+          spy clear
+        </button>
+      </div>
+    );
+  },
 }));
 vi.mock('../LabelEditor', () => ({
   LabelEditor: () => <div data-testid="label-editor" />,
@@ -628,6 +645,49 @@ describe('LayerEditorPanel', () => {
       );
       const pill = document.querySelector('[class*="type-raster-bg"]');
       expect(pill).not.toBeNull();
+    });
+  });
+
+  describe('EASY-18: featureCount prop forwarding to LayerFilterEditor', () => {
+    beforeEach(() => {
+      capturedFilterEditorProps = {};
+    });
+
+    it('EASY-18 — featureCount prop is forwarded to LayerFilterEditor in filter tab', () => {
+      const layer = makeLayer({
+        filter: ['all', ['==', ['get', 'name'], 'x']] as import('maplibre-gl').FilterSpecification,
+      });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab="filter"
+          featureCount={0}
+        />
+      );
+      expect(screen.getByTestId('layer-filter-editor')).toBeInTheDocument();
+      expect(capturedFilterEditorProps.featureCount).toBe(0);
+    });
+
+    it('EASY-18 — LayerEditorPanel forwards onFilterChange(null) from LayerFilterEditor through handlers.onFilterChange(layerId, null)', () => {
+      const handlers = makeHandlers();
+      const layer = makeLayer({
+        id: 'layer-99',
+        filter: ['all', ['==', ['get', 'name'], 'x']] as import('maplibre-gl').FilterSpecification,
+      });
+      render(
+        <LayerEditorPanel
+          layer={layer}
+          onClose={vi.fn()}
+          handlers={handlers}
+          activeTab="filter"
+          featureCount={0}
+        />
+      );
+      // The spy mock renders a button that calls props.onFilterChange(null)
+      fireEvent.click(screen.getByTestId('spy-clear-filter'));
+      expect(handlers.onFilterChange).toHaveBeenCalledWith('layer-99', null);
     });
   });
 });

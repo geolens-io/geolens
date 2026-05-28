@@ -389,3 +389,72 @@ describe('LayerFilterEditor - value input debounce (PB-04)', () => {
     expect(onFilterChange.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
   });
 });
+
+// ---------------------------------------------------------------------------
+// EASY-18: featureCount empty-state hint + Clear filter button
+// ---------------------------------------------------------------------------
+describe('LayerFilterEditor - EASY-18 empty-state hint', () => {
+  it('EASY-18 — renders empty-state hint + Clear button when filter non-null AND featureCount=0', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: ['all', ['==', ['get', 'name'], 'x']] as FilterSpecification,
+      onFilterChange,
+      featureCount: 0,
+    }));
+
+    expect(screen.getByText('0 features — check your filter')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear filter/i })).toBeInTheDocument();
+  });
+
+  it('EASY-18 — does NOT render hint when filter is null', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: null,
+      onFilterChange,
+      featureCount: 0,
+    }));
+
+    expect(screen.queryByText('0 features — check your filter')).not.toBeInTheDocument();
+  });
+
+  it('EASY-18 — does NOT render hint when featureCount > 0', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: ['all', ['==', ['get', 'name'], 'x']] as FilterSpecification,
+      onFilterChange,
+      featureCount: 5,
+    }));
+
+    expect(screen.queryByText('0 features — check your filter')).not.toBeInTheDocument();
+  });
+
+  it('EASY-18 — does NOT render hint when featureCount is undefined / null', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: ['all', ['==', ['get', 'name'], 'x']] as FilterSpecification,
+      onFilterChange,
+      // featureCount deliberately omitted
+    }));
+
+    expect(screen.queryByText('0 features — check your filter')).not.toBeInTheDocument();
+  });
+
+  it('EASY-18 — Clear button invokes onFilterChange(null) (dispatcher boundary regression pin)', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: ['all', ['==', ['get', 'name'], 'x']] as FilterSpecification,
+      onFilterChange,
+      featureCount: 0,
+    }));
+
+    const clearBtn = screen.getByRole('button', { name: /clear filter/i });
+    fireEvent.click(clearBtn);
+
+    expect(onFilterChange).toHaveBeenCalledWith(null);
+  });
+});

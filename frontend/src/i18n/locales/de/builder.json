@@ -1017,6 +1017,11 @@
       "type": "Typ",
       "geometry": "Geometrie",
       "columns": "Spalten"
+    },
+    "emptyResult": {
+      "title": "0 Objekte — überprüfen Sie Ihren Filter",
+      "help": "Der aktuelle Filter hat alle Objekte in dieser Ebene ausgeschlossen. Passen Sie eine Bedingung an oder löschen Sie den Filter, um Objekte wieder anzuzeigen.",
+      "clear": "Filter löschen"
     }
   },
   "settings": {

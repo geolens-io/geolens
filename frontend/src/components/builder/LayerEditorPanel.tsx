@@ -61,6 +61,12 @@ interface LayerEditorPanelProps {
   breadcrumbPresetName?: string;
   /** Click handler for the breadcrumb element when editorScene === 'basemap-sublayer'. */
   onBreadcrumbClick?: () => void;
+  /**
+   * EASY-18 (Phase 1138-03): rendered-feature count for the active layer;
+   * forwarded to the filter-tab LayerFilterEditor so it can render the
+   * empty-state hint when a filter is applied but 0 features are visible.
+   */
+  featureCount?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +156,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
   sceneFooter,
   breadcrumbPresetName,
   onBreadcrumbClick,
+  featureCount,
 }: LayerEditorPanelProps) {
   const { t } = useTranslation('builder');
   const columns = layer.dataset_column_info ?? [];
@@ -521,6 +528,7 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                     filter={layer.filter ?? null}
                     layerName={layerName}
                     onFilterChange={(expr) => handlers.onFilterChange(layer.id, expr)}
+                    featureCount={featureCount ?? null}
                   />
                 </div>
               )}

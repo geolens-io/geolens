@@ -1017,6 +1017,11 @@
       "type": "Type",
       "geometry": "Geometry",
       "columns": "Columns"
+    },
+    "emptyResult": {
+      "title": "0 features — check your filter",
+      "help": "The current filter eliminated every feature in this layer. Adjust a condition or clear the filter to see features again.",
+      "clear": "Clear filter"
     }
   },
   "settings": {

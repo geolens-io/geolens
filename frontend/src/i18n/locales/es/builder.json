@@ -1017,6 +1017,11 @@
       "type": "Tipo",
       "geometry": "Geometría",
       "columns": "Columnas"
+    },
+    "emptyResult": {
+      "title": "0 elementos — revisa tu filtro",
+      "help": "El filtro actual eliminó todos los elementos de esta capa. Ajusta una condición o limpia el filtro para volver a ver elementos.",
+      "clear": "Limpiar filtro"
     }
   },
   "settings": {
