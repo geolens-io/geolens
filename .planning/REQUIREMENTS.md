@@ -19,7 +19,7 @@ New per-render-mode editor controls extending the v1026 owned-property contracts
 ### Sharing & Social Cards
 
 - [x] **SHARE-08**: Shared map links emit OG-image / social-card meta (`og:image`, `twitter:card`) backed by a 1200×630 map preview. Path A (nullable `og_image_uri` column + `PUT`/`GET /maps/{id}/og-image/` routes + frontend dual `doCapture`) vs Path B (backend resize from the native canvas capture) decided in a planning audit. Do NOT add `@vercel/og` or `satori` (STACK do-not-add list). Carried from v1030 Phase 1133 WALK-05 disposition.
-- [ ] **SHARE-10**: SharePanel renders ≤2 font weights (UI-SPEC max-2 conformance), reduced from the current 3 weights across 5 sites. Cosmetic. (v1030 milestone-audit finding F2.)
+- [x] **SHARE-10**: SharePanel renders ≤2 font weights (UI-SPEC max-2 conformance), reduced from the current 3 weights across 5 sites. Cosmetic. (v1030 milestone-audit finding F2.)
 
 ### Quality & Close-Gate
 
@@ -69,7 +69,7 @@ Which phases cover which requirements. Populated during roadmap creation (contin
 | EDITOR-RASTER-COLORMAP | Phase 1140 | Complete |
 | EDITOR-FILL-01 | Phase 1141 | Complete |
 | SHARE-08 | Phase 1142 | Complete |
-| SHARE-10 | Phase 1142 | Pending |
+| SHARE-10 | Phase 1142 | Complete |
 | QA-01 | Phase 1143 | Pending |
 | QA-02 | Phase 1143 | Pending |
 | QA-03 | Phase 1143 | Pending |

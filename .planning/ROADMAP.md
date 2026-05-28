@@ -10,7 +10,7 @@
 
 - [x] **Phase 1140: Raster & Terrain Editor Controls** — Add contour-line overlay, hypsometric tint ramps, and single-band colormap controls to the DEM/RasterEditor surfaces (backend Titiler colormap path scoped at plan-phase) (completed 2026-05-28)
 - [x] **Phase 1141: Fill-Pattern Editor Control** — Add fill-pattern authoring (curated built-in sprite set) to FillEditor; plan-time sizing call on built-in selection vs custom-upload backend (completed 2026-05-28)
-- [ ] **Phase 1142: OG-Image Social Cards & SharePanel Typography** — Wire OG/Twitter card meta to shared map links via the canvas-capture pipeline (Path A vs B decided at plan-phase); reduce SharePanel to ≤2 font weights
+- [x] **Phase 1142: OG-Image Social Cards & SharePanel Typography** — Wire OG/Twitter card meta to shared map links via the canvas-capture pipeline (Path A vs B decided at plan-phase); reduce SharePanel to ≤2 font weights (completed 2026-05-28)
 - [ ] **Phase 1143: Quality Sweep & Playwright Close-Gate** — Intensive live Playwright MCP smoke of new controls + share/OG flow, typecheck/lint/vitest/backend-pytest/`e2e:smoke:builder`/i18n parity, CHANGELOG, and OpenAPI/SDK refresh
 
 ## Phase Details
@@ -55,7 +55,7 @@
   4. The OG-image pipeline uses the existing canvas-capture infrastructure — no `@vercel/og` or `satori` introduced
 **Plans**: 2 plans
   - [x] 1142-01-PLAN.md — Backend SHARE-08 (Path A): `GET /shared/{token}/card` HTML meta route (escaped, public-only, absolute URLs) + `PUT`/`GET /maps/{id}/og-image/` + migration 0024 `og_image_uri` + `MapResponse.og_image_url` + pytest [SHARE-08]
-  - [ ] 1142-02-PLAN.md — Frontend OG capture (1200×630 in doCapture, one repaint) + Copy Link → `/card` URL + SHARE-10 4 section headers → font-semibold + vitest [SHARE-08, SHARE-10]
+  - [x] 1142-02-PLAN.md — Frontend OG capture (1200×630 in doCapture, one repaint) + Copy Link → `/card` URL + SHARE-10 4 section headers → font-semibold + vitest [SHARE-08, SHARE-10]
 **UI hint**: yes
 
 ### Phase 1143: Quality Sweep & Playwright Close-Gate
@@ -75,7 +75,7 @@
 |-------|----------------|--------|-----------|
 | 1140. Raster & Terrain Editor Controls | 4/4 | Complete    | 2026-05-28 |
 | 1141. Fill-Pattern Editor Control | 1/1 | Complete    | 2026-05-28 |
-| 1142. OG-Image Social Cards & SharePanel Typography | 1/2 | In Progress|  |
+| 1142. OG-Image Social Cards & SharePanel Typography | 2/2 | Complete   | 2026-05-28 |
 | 1143. Quality Sweep & Playwright Close-Gate | 0/TBD | Not started | - |
 
 ## Historical Milestones
