@@ -809,6 +809,31 @@ describe('syncLayersToMap', () => {
     });
   });
 
+  // Regression test for WR-01: color-relief companion layer is removed when its
+  // DEM layer is deleted from the layers list.
+  it('WR-01 regression: color-relief companion layer is removed when DEM source becomes stale', () => {
+    // Simulate a prior state where source-dem-wr01 and layer-dem-wr01-colorrelief are on the map.
+    managedSourcesRef.current = new Set(['source-dem-wr01']);
+    (map.getLayer as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'layer-dem-wr01' || id === 'layer-dem-wr01-colorrelief') return { id };
+      return null;
+    });
+    (map.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
+      if (id === 'source-dem-wr01') return { type: 'raster-dem' };
+      return null;
+    });
+
+    // Sync with no layers — source-dem-wr01 is now stale.
+    syncLayersToMap(map, [], new Map(), undefined, managedSourcesRef, { current: '' });
+
+    // The main hillshade layer should be removed.
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-dem-wr01');
+    // The color-relief companion layer (no own source) MUST also be removed.
+    expect(map.removeLayer).toHaveBeenCalledWith('layer-dem-wr01-colorrelief');
+    // The source should be removed too.
+    expect(map.removeSource).toHaveBeenCalledWith('source-dem-wr01');
+  });
+
   it('polygon layer with non-prefixed outline-width strips it from fill paint', () => {
     const layer = makeLayer({
       id: 'legacy1',

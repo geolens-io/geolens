@@ -839,6 +839,12 @@ function removeStaleSourcesAndLayers(
     const arrowId = prefixed('arrow', id, prefix);
     const clusterCountId = clusterCountLayerId(layerId);
     const clusterCircleId = clusterCircleLayerId(layerId);
+    // EDITOR-DEM-05: color-relief companion has no own source (it reuses the
+    // raster-dem source), so it is not found by the source-keyed loop and must
+    // be removed explicitly here.  The contour companion is covered via its
+    // tracked `source-<id>-contour` source and does NOT need an entry here.
+    const colorReliefId = `${layerId}-colorrelief`;
+    if (map.getLayer(colorReliefId)) map.removeLayer(colorReliefId);
     if (map.getLayer(labelId)) map.removeLayer(labelId);
     if (map.getLayer(arrowId)) map.removeLayer(arrowId);
     if (map.getLayer(extrusionId)) map.removeLayer(extrusionId);
