@@ -43,8 +43,10 @@ vi.mock('@/hooks/use-settings', () => ({
 }));
 
 const mockUploadThumbnail = vi.fn((..._args: unknown[]) => Promise.resolve());
+const mockUploadOgImage = vi.fn((..._args: unknown[]) => Promise.resolve());
 vi.mock('@/api/maps', () => ({
   uploadThumbnail: (...args: unknown[]) => mockUploadThumbnail(...args),
+  uploadOgImage: (...args: unknown[]) => mockUploadOgImage(...args),
 }));
 
 vi.mock('sonner', () => ({
@@ -1127,6 +1129,36 @@ describe('useBuilderSave', () => {
       // Simulate the render frame (PERF-08).
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
       expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('SHARE-08: doCapture uploads both 1200x630 OG image and 400x250 thumbnail in one render event (triggerRepaint called once)', async () => {
+      // TDD RED: this test should fail until uploadOgImage is wired into doCapture.
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      await triggerSaveSuccess(mockMap);
+
+      // Advance past 500ms debounce
+      act(() => { vi.advanceTimersByTime(500); });
+
+      // One render event registered; one repaint fired
+      expect(mockMap.once).toHaveBeenCalledWith('render', expect.any(Function));
+      expect(mockMap.triggerRepaint).toHaveBeenCalledTimes(1);
+
+      // Fire the render callback — both uploads happen synchronously in the same onRender
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Thumbnail upload unchanged
+      expect(mockUploadThumbnail).toHaveBeenCalledOnce();
+      expect(mockUploadThumbnail).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+
+      // OG image upload: new requirement
+      expect(mockUploadOgImage).toHaveBeenCalledOnce();
+      expect(mockUploadOgImage).toHaveBeenCalledWith('map-1', expect.stringContaining('data:image/jpeg'));
+
+      // triggerRepaint MUST NOT be called a second time (Pitfall #5: one repaint only)
+      expect(mockMap.triggerRepaint).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
     });
