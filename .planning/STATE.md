@@ -71,6 +71,7 @@ None active.
 | stretch-ux | RASTER-STRETCH-UI-02: decouple stretch from colormap (stretch is a no-op on the default gray colormap) | RESOLVED post-tag (commit `fbcf7b34`) | v1032 milestone audit |
 | raster-render | Multi-band stretch (RASTER-STRETCH-03); configurable percentile bounds / σ (RASTER-STRETCH-UI-01) | Future | v1032 |
 | test-data | No non-DEM single-band raster seeded — live UI stretch verified via reversible `is_dem` toggle | Spot-check if such a dataset is added | v1032 Phase 1146 |
+| perf-hardening | `_band_stats_cache` in `backend/app/processing/tiles/router.py` is unbounded — one entry per single-band raster that gets a percentile/stddev tile; evicted only on process restart | Future; cheap LRU/maxsize or TTL | v1032 Phase 1146 |
 | ci-live-verify | `pytest-parallel-isolation` gate live-verify on real GitHub Actions (billing block) | Carried forward as CI-01-v1030 | v1023 Phase 1100 degraded close |
 | nyquist | VALIDATION.md formalization for 1144/1145/1146/1147 | Optional; coverage strong via close-gate | v1032 milestone audit |
 
@@ -82,5 +83,6 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with `/gsd:new-milestone` (questioning → research → requirements → roadmap). A fresh `REQUIREMENTS.md` is created there — the v1032 one was archived to `milestones/v1032-REQUIREMENTS.md`.
-- Optional cleanup: archive the 1144-1147 phase directories with `/gsd:cleanup` (the `milestone.complete` CLI left them in `.planning/phases/`).
+- **Next:** `/clear`, then `/gsd:new-milestone` (questioning → research → requirements → roadmap). A fresh `REQUIREMENTS.md` is created there — the v1032 one was archived to `milestones/v1032-REQUIREMENTS.md`. Phase numbering continues from 1147 (next starts at 1148).
+- **Carry-forward candidates** to consider scoping into the next milestone (all minor — see Deferred Items): (1) bound `_band_stats_cache` with an LRU/TTL; (2) multi-band raster stretch (RASTER-STRETCH-03) + configurable percentile bounds / σ multiplier (RASTER-STRETCH-UI-01); (3) seed a non-DEM single-band raster to enable a genuine stretch UI spot-check. Standing ops blocker (not a code phase): CI-01-v1030 GH Actions billing.
+- Phase directories 1144-1147 are already archived to `milestones/v1032-phases/`; `.planning/phases/` now holds only the `999.x` backlog stubs (never auto-execute — they masquerade as incomplete phases).
