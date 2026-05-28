@@ -12,9 +12,20 @@ Milestones are delivered through v1031 Builder Render-Mode & Share Polish (shipp
 
 The marketing and documentation web properties (v14.0 + v15.0 + 999.5 cross-repo style alignment) and their planning artifacts moved to the `getgeolens.com` repo on 2026-04-26 — see `~/Code/getgeolens.com/.planning/` for active docs-site work.
 
-## Current Milestone
+## Current Milestone: v1032 Builder Carry-Forward Resolution
 
-_None — v1031 shipped 2026-05-28. Run `/gsd:new-milestone` to start the next milestone._
+**Goal:** Decisively close the v1031 carry-forward tail — resolve the contour control (harden or cut, on spike evidence) and finish single-band raster stretch stats — without inflating into another full builder sweep.
+
+**Target features:**
+- **Contour disposition (spike-first):** Timeboxed spike to root-cause the `maplibre-contour@0.1.0` worker (~28 MapLibre error events on enable; `addProtocol` bug already fixed `716b1927`). Produces a spike audit + harden-or-cut recommendation, then either **harden** (stabilize worker/tile integration, flip `CONTOUR_CONTROL_ENABLED`, un-skip 5 dormant tests, live-verify) or **cut cleanly** (remove `maplibre-contour` dep + `contour-sync.ts` + dormant tests + `DEMEditorScene` gate). Default bias: cut if hardening is not clearly cheap.
+- **Single-band raster stretch stats:** Implement `percentile` + `stddev` strategies at `backend/app/processing/tiles/router.py:488` (both currently fall back to `minmax`), computing real per-band statistics → Titiler rescale.
+
+**Key context:**
+- Continues phase numbering from 1143 (phases start at 1144; no reset).
+- Research skipped — internal hygiene on existing subsystems, no new domain.
+- Out of scope: CI-01 GH Actions billing (ops task, not code); broad builder/UI rework.
+- Nyquist VALIDATION.md formalization (1140-1143) intentionally skipped to keep v1032 lean (coverage already strong: vitest 2599/2599, pytest 181/181, e2e 26/26).
+- Spike-first discipline (matches v1019-v1022); contour harden-vs-cut decided on spike evidence during the autonomous run.
 
 ## Recent Shipped Milestone: v1031 Builder Render-Mode & Share Polish
 
@@ -1198,10 +1209,8 @@ Users can find any dataset in the catalog in seconds — search, see it on a map
 
 ### Active
 
-- [ ] GeoLens emits DCAT-US Schema v3.0 catalog and dataset metadata suitable for federal `data.json` consumers while preserving existing DCAT route visibility behavior.
-- [ ] DCAT-US v3.0 output is validated against the official JSON Schema 2020-12 artifacts, with regression fixtures covering the catalog, dataset, distribution, structured temporal/spatial, language, access rights, publisher/contact, theme, and federal-field mapping surfaces GeoLens can support.
-- [ ] Operators have a practical DCAT-US v3.0 lifecycle: explicit routes/aliases, validation tooling or API behavior, migration notes from the current W3C DCAT 3 export, and docs/OpenAPI/SDK updates where the public API changes.
-- [ ] Metadata gaps that GeoLens cannot populate from current catalog fields are documented with explicit fallback, warning, future-field, or out-of-scope decisions.
+- [ ] Contour control is resolved on spike evidence: either **hardened** (`maplibre-contour` worker stable on enable, `CONTOUR_CONTROL_ENABLED` flipped, 5 dormant tests live, live-verified) or **cut cleanly** (`maplibre-contour` dep + `contour-sync.ts` + dormant tests + `DEMEditorScene` gate removed) — no half-wired state, no blind carry-forward. — v1032
+- [ ] Single-band raster `percentile` and `stddev` stretch strategies compute real per-band statistics and drive a correct Titiler rescale, instead of silently falling back to `minmax`. — v1032
 
 ### Out of Scope
 
@@ -1473,4 +1482,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-28 — completed milestone v1031 Builder Render-Mode & Share Polish (4 phases 1140-1143, 8 plans, 8/9 reqs; local tag `v1031`). Shipped hypsometric tint, single-band raster colormap, built-in fill-pattern editor, OG-image social cards (`/card` route + 1200×630 capture + migration 0024), and SharePanel ≤2-weight typography; orchestrator-driven Playwright MCP close-gate. Audit `tech_debt`; integration CLEAN (12/12 links). EDITOR-DEM-04 contour deferred → v1032 (gated off, dormant). Next: `/gsd:new-milestone`.*
+*Last updated: 2026-05-28 — started milestone v1032 Builder Carry-Forward Resolution (continues phase numbering from 1143; phases start at 1144). Goal: close the v1031 carry-forward tail — contour disposition (spike-first harden-or-cut on the `maplibre-contour@0.1.0` worker) + single-band raster stretch stats (`percentile`/`stddev` at `tiles/router.py:488`). Research skipped; Nyquist docs + CI-01 billing out of scope. Next: define requirements → roadmap → autonomous execution.*

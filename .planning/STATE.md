@@ -1,31 +1,26 @@
 ---
 gsd_state_version: 1.0
-milestone: v1031
-milestone_name: Builder Render-Mode & Share Polish
-status: Awaiting next milestone
-stopped_at: Milestone v1031 complete and archived
-last_updated: "2026-05-28T18:25:00.000Z"
-last_activity: 2026-05-28 — Milestone v1031 completed, audited (tech_debt), and archived
+milestone: v1032
+milestone_name: Builder Carry-Forward Resolution
+status: planning
+last_updated: "2026-05-28T21:35:06.010Z"
+last_activity: 2026-05-28
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State
 
 ## Current Position
 
-Phase: Milestone v1031 complete (archived)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-28 — v1031 audit (`tech_debt`) → complete → cleanup
-
-```
-Progress: [██████████] 100% (v1031: 4/4 phases)
-```
+Status: Defining requirements
+Last activity: 2026-05-28 — Milestone v1032 started
 
 ## Project Reference
 
