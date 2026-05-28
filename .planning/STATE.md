@@ -1,43 +1,44 @@
 ---
 gsd_state_version: 1.0
-milestone: v1030
-milestone_name: Map Builder Polish Sweep
-status: executing
-stopped_at: Phase 1135 Plan 06 complete — live MCP smoke, SF-MCP-01 carry-forward to Phase 1139
-last_updated: "2026-05-28T11:06:36.502Z"
+milestone: none
+milestone_name: none
+status: milestone_complete
+stopped_at: v1030 shipped + archived 2026-05-28
+last_updated: "2026-05-28T12:45:00.000Z"
 last_activity: 2026-05-28
 progress:
-  total_phases: 12
-  completed_phases: 5
+  total_phases: 7
+  completed_phases: 7
   total_plans: 38
-  completed_plans: 36
-  percent: 42
+  completed_plans: 38
+  percent: 100
 ---
 
 # State
 
 ## Current Position
 
-Phase: 1139 (Quality Sweep and Playwright Close-Gate) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-05-28
+Milestone: none active. v1030 shipped + archived.
+Status: Ready for next milestone (`/gsd:new-milestone`)
+Last activity: 2026-05-28 — v1030 Map Builder Polish Sweep complete
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 
 **Core value:** Users can find any dataset in the catalog in seconds — search, see it on a map, understand what it is, and get it out in the format they need.
-**Current focus:** Phase 1139 — Quality Sweep and Playwright Close-Gate
+**Current focus:** None — between milestones.
 
 ## Last Shipped Milestone
 
-**Version:** v1029 DCAT 3.0
-**Shipped:** 2026-05-27
-**Phases:** 1129-1132 (4 phases, 4 plans, 25/25 reqs satisfied)
-**Commit:** see final v1029 archive commit in git log
-**Tag:** local `v1029`
-**Milestone audit:** `.planning/milestones/v1029-MILESTONE-AUDIT.md`
+**Version:** v1030 Map Builder Polish Sweep
+**Shipped:** 2026-05-28
+**Phases:** 1133-1139 (7 phases, 38 plans, 44/44 reqs satisfied)
+**Tag:** local `v1030`
+**Milestone audit:** `.planning/v1030-MILESTONE-AUDIT.md` (PASSED — 44/44 reqs, 10/10 integration, 0 blockers)
+**Archive:** `.planning/milestones/v1030-ROADMAP.md` + `v1030-REQUIREMENTS.md`
+**Stats:** 173 commits, 84 source files (+8215/−245), 2026-05-27→28
+**Carry-forward:** CI-01-v1030 (GH Actions billing); SHARE-08 OG-cards (→v1031); F2 font-medium hygiene (→ future pass); sibling docs `npm run fetch-openapi` before next deploy.
 **Archived phases:** `.planning/milestones/v1029-phases/`
 
 ## Phase Plan (v1030)
