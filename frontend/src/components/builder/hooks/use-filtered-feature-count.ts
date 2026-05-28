@@ -66,7 +66,12 @@ export function useFilteredFeatureCount(
       if (debounceTimer !== null) clearTimeout(debounceTimer);
       map.off('idle', handleIdle);
     };
-  }, [map, layer?.id, layer?.filter, layer]);
+  // Intentionally omits the full `layer` object — it is recreated by
+  // dispatchLayerAction on every mutation (opacity, paint, visibility), which
+  // would cause queryRenderedFeatures to fire at ~60 fps during slider drags.
+  // `layer?.id` and `layer?.filter` cover all meaningful change conditions;
+  // the closure still captures the current `layer` reference on each run.
+  }, [map, layer?.id, layer?.filter]);
 
   return count;
 }
