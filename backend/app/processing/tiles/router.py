@@ -7,7 +7,7 @@ import re
 import threading
 import time
 import uuid
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import httpx
 import structlog
@@ -213,6 +213,21 @@ def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
     return "&".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Colormap / stretch allowlists (T-1140-01 security mitigation)
+# ---------------------------------------------------------------------------
+
+# 8 curated Titiler colormap names from the UI-SPEC. Validated against the
+# running Titiler instance (see 1140-RESEARCH.md Finding 5).
+_ALLOWED_COLORMAPS: frozenset[str] = frozenset(
+    {"gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"}
+)
+
+# Accepted stretch strategies. Phase 1140 implements minmax only; percentile
+# and stddev are accepted and logged as fallback (see 1140-RESEARCH.md Finding 6).
+_ALLOWED_STRETCH: frozenset[str] = frozenset({"minmax", "percentile", "stddev"})
+
+
 async def _resolve_raster_access(
     db: AsyncSession,
     dataset_id: uuid.UUID,
@@ -415,6 +430,13 @@ async def raster_tile_proxy(
     x: int,
     y: int,
     fmt: str,
+    colormap_name: Literal[
+        "gray", "viridis", "inferno", "plasma", "magma", "ylorrd", "bugn", "terrain"
+    ]
+    | None = Query(None, description="Titiler colormap for single-band display"),
+    stretch: Literal["minmax", "percentile", "stddev"] | None = Query(
+        None, description="Stretch strategy: minmax (default), percentile, stddev"
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -423,6 +445,14 @@ async def raster_tile_proxy(
     Used by Vite dev proxy and as a fallback for deployments without nginx.
     Production deployments with nginx should use the nginx raster-tiles path
     for better caching and performance.
+
+    colormap_name: Optional Titiler colormap for single-band display. Validated
+    against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
+    single-band — passing gray is a no-op (not forwarded). colormap_name is not
+    forwarded for DEM layers (render_params starts with 'algorithm=').
+
+    stretch: Optional stretch strategy. Phase 1140 implements minmax only;
+    percentile/stddev are accepted and logged as fallback (1140-RESEARCH Finding 6).
     """
     # Reuse the auth-check logic to get the open path and render params
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
@@ -433,6 +463,34 @@ async def raster_tile_proxy(
         )
 
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
+
+    # T-1140-01: belt-and-suspenders runtime allowlist check (Literal provides
+    # FastAPI-level validation; this guard catches any code path that bypasses it).
+    if colormap_name is not None and colormap_name not in _ALLOWED_COLORMAPS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"colormap_name must be one of: {sorted(_ALLOWED_COLORMAPS)}",
+        )
+
+    # Append colormap_name to Titiler render params when:
+    #   1. A non-default colormap was requested (gray is Titiler's single-band default)
+    #   2. This is not a DEM layer (algorithm= prefix means terrainrgb — do not override)
+    if (
+        colormap_name
+        and colormap_name != "gray"
+        and not render_params.startswith("algorithm=")
+    ):
+        render_params = f"{render_params}&colormap_name={colormap_name}" if render_params else f"colormap_name={colormap_name}"
+
+    # stretch: minmax is the default (and only implemented strategy for Phase 1140).
+    # percentile/stddev are accepted and persisted on the URL for future implementation
+    # (Phase 1141+), but fall back to minmax behavior with a logged warning.
+    if stretch and stretch != "minmax":
+        logger.warning(
+            "raster stretch strategy not yet implemented, falling back to minmax",
+            stretch=stretch,
+            dataset_id=str(dataset_id),
+        )
 
     titiler_url = build_titiler_cog_url(
         f"tiles/WebMercatorQuad/{z}/{x}/{y}.{fmt}",
