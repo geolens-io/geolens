@@ -827,6 +827,36 @@ describe('SHARE-08 Copy Link emits /card URL', () => {
   });
 });
 
+/* ------------------------------------------------------------------ */
+/*  SHARE-10: 2-weight typography system (font-semibold + font-medium) */
+/* ------------------------------------------------------------------ */
+
+describe('SHARE-10 font-weight hierarchy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('rendered ShareDialog contains font-semibold (section headers) and no font-bold (no third weight)', async () => {
+    const user = userEvent.setup();
+    // hasShareToken: false so we generate a token, mounting the Share Link + Embed sections
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
+    await generateShareLinkAndWait(user);
+
+    // Get the rendered dialog container
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+
+    // At least one font-semibold element must exist (section headers)
+    const semiboldEls = dialog!.querySelectorAll('.font-semibold');
+    expect(semiboldEls.length).toBeGreaterThan(0);
+
+    // No font-bold — two-weight system enforced
+    const boldEls = dialog!.querySelectorAll('.font-bold');
+    expect(boldEls.length).toBe(0);
+  });
+});
+
 describe('Pitfall #7 inflightEmbedCreate race guard', () => {
   beforeEach(() => {
     vi.clearAllMocks();

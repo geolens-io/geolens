@@ -895,7 +895,7 @@ export function ShareDialog({
 
           {/* Visibility selector */}
           <div className="space-y-2">
-            <p className="text-sm font-medium">{t('share.visibilityTitle')}</p>
+            <p className="text-sm font-semibold">{t('share.visibilityTitle')}</p>
             <div className="space-y-1.5" role="radiogroup" aria-label={t('share.visibilityTitle')}>
               {VISIBILITY_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
@@ -917,7 +917,7 @@ export function ShareDialog({
                   >
                     <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{t(opt.titleKey)}</p>
+                      <p className="text-sm font-semibold">{t(opt.titleKey)}</p>
                       <p className="text-xs text-muted-foreground">{t(opt.descKey)}</p>
                     </div>
                   </button>
@@ -942,7 +942,7 @@ export function ShareDialog({
               <div className="border-t pt-4 space-y-3">
                 <div className="flex items-center gap-1.5">
                   <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">{t('share.shareLink')}</span>
+                  <span className="text-sm font-semibold">{t('share.shareLink')}</span>
                 </div>
 
                 {hasShareToken ? (
@@ -1051,7 +1051,7 @@ export function ShareDialog({
                 <div className="border-t pt-4 space-y-3">
                   <div className="flex items-center gap-1.5">
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm font-medium">{t('share.embedCode')}</span>
+                    <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
                   <div className="relative">
                     <textarea
