@@ -492,9 +492,12 @@ describe('DEMEditorScene', () => {
   });
 
   // --- CONTOUR LINES section tests (EDITOR-DEM-04) ---
+  // EDITOR-DEM-04 is deferred to v1032: CONTOUR_CONTROL_ENABLED=false gates the section
+  // from the DOM. The positive assertions below pin that the gate is active. The
+  // interaction tests are skipped until v1032 re-enables the gate.
 
   describe('CONTOUR LINES section', () => {
-    it('section is absent in image mode', () => {
+    it('section is absent in image mode (always absent regardless of gate)', () => {
       render(
         <DEMEditorScene
           {...defaultProps({ layer: makeDEMLayer({ style_config: null }) })}
@@ -503,7 +506,7 @@ describe('DEMEditorScene', () => {
       expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
-    it('section is present in hillshade mode', () => {
+    it('section is absent in hillshade mode (EDITOR-DEM-04 gated off, deferred to v1032)', () => {
       render(
         <DEMEditorScene
           {...defaultProps({
@@ -511,10 +514,11 @@ describe('DEMEditorScene', () => {
           })}
         />,
       );
-      expect(screen.getByText('CONTOUR LINES')).toBeInTheDocument();
+      // Gate is active: section must NOT appear in the DOM
+      expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
-    it('section is present in terrain mode', () => {
+    it('section is absent in terrain mode (EDITOR-DEM-04 gated off, deferred to v1032)', () => {
       render(
         <DEMEditorScene
           {...defaultProps({
@@ -522,10 +526,12 @@ describe('DEMEditorScene', () => {
           })}
         />,
       );
-      expect(screen.getByText('CONTOUR LINES')).toBeInTheDocument();
+      // Gate is active: section must NOT appear in the DOM
+      expect(screen.queryByText('CONTOUR LINES')).not.toBeInTheDocument();
     });
 
-    it('toggling the Switch fires onPaintChange with _contour-enabled=true', () => {
+    // v1032: re-enable these tests when CONTOUR_CONTROL_ENABLED is flipped to true
+    it.skip('toggling the Switch fires onPaintChange with _contour-enabled=true [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
       const onPaintChange = vi.fn();
       render(
         <DEMEditorScene
@@ -536,7 +542,6 @@ describe('DEMEditorScene', () => {
         />,
       );
 
-      // The Switch's aria-label is "Contour lines"
       const switchEl = screen.getByRole('switch', { name: 'Contour lines' });
       fireEvent.click(switchEl);
 
@@ -545,7 +550,7 @@ describe('DEMEditorScene', () => {
       expect(paint['_contour-enabled']).toBe(true);
     });
 
-    it('interval slider fires onPaintChange with _contour-interval when contour is enabled', () => {
+    it.skip('interval slider fires onPaintChange with _contour-interval when contour is enabled [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
       const onPaintChange = vi.fn();
       render(
         <DEMEditorScene
@@ -567,7 +572,7 @@ describe('DEMEditorScene', () => {
       expect(paint['_contour-interval']).toBe(200);
     });
 
-    it('weight slider fires onPaintChange with _contour-weight when contour is enabled', () => {
+    it.skip('weight slider fires onPaintChange with _contour-weight when contour is enabled [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
       const onPaintChange = vi.fn();
       render(
         <DEMEditorScene
@@ -589,7 +594,7 @@ describe('DEMEditorScene', () => {
       expect(paint['_contour-weight']).toBe(2);
     });
 
-    it('color picker fires onPaintChange with _contour-color when contour is enabled', () => {
+    it.skip('color picker fires onPaintChange with _contour-color when contour is enabled [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
       const onPaintChange = vi.fn();
       render(
         <DEMEditorScene
@@ -611,7 +616,7 @@ describe('DEMEditorScene', () => {
       expect(paint['_contour-color']).toBe('#ABCDEF');
     });
 
-    it('interval/color/weight controls are NOT rendered when toggle is off', () => {
+    it.skip('interval/color/weight controls are NOT rendered when toggle is off [v1032 — CONTOUR_CONTROL_ENABLED=false]', () => {
       render(
         <DEMEditorScene
           {...defaultProps({

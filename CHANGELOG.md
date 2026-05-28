@@ -17,7 +17,6 @@ Builder render-mode editor controls for DEM and raster layers, a built-in fill-p
 
 ### Added
 
-- **DEM contour-line overlay:** DEM layers in hillshade or terrain mode now include a CONTOUR LINES section in the editor — toggle, interval (10–500 m), line color, and line weight. Client-side contour tiles are generated from the raster-dem source via the `maplibre-contour` library with no extra backend round-trip.
 - **DEM hypsometric tint:** DEM layers in hillshade mode now include a HYPSOMETRIC TINT section — toggle and color-ramp picker (Viridis, YlOrRd, BuGn, Plasma, Magma, Terrain, Inferno, Spectral) rendered via a native MapLibre `color-relief` companion layer.
 - **Single-band raster colormap:** Raster layers with a single band now show a COLORMAP section in the editor — a colormap selector (Grayscale, Viridis, Inferno, Plasma, Magma, Terrain, Yellow-Red, Blue-Green) that passes `colormap_name` to Titiler and triggers a tile re-fetch. Multi-band rasters and DEM layers are unaffected.
 - **Fill-pattern picker:** Polygon fill layers now include a FILL PATTERN section with five built-in procedural patterns (Hatch, Crosshatch, Diagonal, Dots, Grid) and a "None" clear option. Patterns are generated client-side as 16×16 tileable `ImageData` sprites with no network fetch.
@@ -38,8 +37,9 @@ Builder render-mode editor controls for DEM and raster layers, a built-in fill-p
 - OpenAPI snapshot (`make openapi-check`) and generated Python + TypeScript SDKs (`make sdks-check`) regenerated for v1031: `PUT`/`GET /maps/{id}/og-image/` routes, `OgImageUploadRequest` schema, `og_image_url` on `MapResponse`, `band_count` on `MapLayerResponse`, and `colormap_name`/`stretch` params on the raster tile proxy. No drift. The sibling docs repo (`getgeolens.com`) requires `npm run fetch-openapi` as a manual downstream follow-up.
 - Frontend `npm run typecheck`: 0 errors. `npm run lint`: 0 errors (1 pre-existing warning in `use-filtered-feature-count.ts` from v1030). `npm run test`: 2599/2599 pass. `npm run test:i18n`: 2/2 pass.
 - Backend pytest (`test_raster_colormap_proxy.py` + `test_maps_og_image.py` + `test_maps.py`): 181/181 pass.
-- Builder e2e smoke (`e2e:smoke:builder`): 26/26 pass after applying Alembic migration 0024 to the dev database and rebuilding the frontend container to include `maplibre-contour@0.1.0`.
-- Live Playwright MCP QA-01 verification (contour/hypsometric/colormap render, fill-pattern set/clear, OG card meta + image) is handled separately by the orchestrator.
+- Builder e2e smoke (`e2e:smoke:builder`): 26/26 pass after applying Alembic migration 0024 to the dev database.
+- Live Playwright MCP QA-01 verification (hypsometric/colormap render, fill-pattern set/clear, OG card meta + image) is handled separately by the orchestrator.
+- **Deferred to v1032 — DEM contour-line overlay (EDITOR-DEM-04):** The CONTOUR LINES editor section is gated off via `CONTOUR_CONTROL_ENABLED=false` in `DEMEditorScene.tsx`. The close-gate MCP found `maplibre-contour` worker emits ~28 MapLibre error events on enable; the worker/isoline tile integration needs deeper work beyond v1031 scope. The `contour-sync.ts` implementation and `maplibre-contour` dependency are retained dormant. Flip the constant to re-enable in v1032.
 
 ## [1.5.10] - 2026-05-28
 

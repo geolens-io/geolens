@@ -20,6 +20,14 @@ import {
 import type { MapLayerResponse, StyleConfig } from '@/types/api';
 
 /**
+ * EDITOR-DEM-04 deferred to v1032.
+ * maplibre-contour worker emits ~28 MapLibre error events on enable (close-gate finding).
+ * The addProtocol fix landed, but the worker/isoline stage needs deeper integration work.
+ * Flip this constant to `true` in v1032 once the worker tile integration is hardened.
+ */
+const CONTOUR_CONTROL_ENABLED = false;
+
+/**
  * DEM render mode union.
  * Note: 'terrain' is not currently in StyleConfig.render_mode union (which has
  * 'heatmap' | 'hillshade' | 'symbol' | 'arrow' | 'cluster'). We cast at the boundary
@@ -413,7 +421,8 @@ export const DEMEditorScene = memo(function DEMEditorScene({
       </section>
 
       {/* 3. CONTOUR LINES section — hillshade and terrain modes only (UI-SPEC A-01) */}
-      {(mode === 'hillshade' || mode === 'terrain') && (
+      {/* EDITOR-DEM-04: gated off by CONTOUR_CONTROL_ENABLED=false until v1032 */}
+      {CONTOUR_CONTROL_ENABLED && (mode === 'hillshade' || mode === 'terrain') && (
         <section
           aria-labelledby={`section-contour-dem-${layer.id}`}
           className="border-b"
