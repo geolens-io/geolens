@@ -27,6 +27,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Changed
 
+- The map viewer now performs a server-side access check before rendering. A new `GET /maps/{map_id}/access/` API endpoint returns `can_view` and `can_edit` flags so the frontend can gate viewer and builder routes from a single authoritative server response.
 - Existing W3C DCAT 3 routes remain compatibility routes at `/datasets/dcat/` and `/datasets/{dataset_id}/dcat/`; DCAT-US v3.0 is exposed as a separate federal profile instead of changing those response shapes.
 - Builder Notes and AI rail behavior now treat Notes, History, and AI as product authoring surfaces in the standard builder, with no separate demo instance or demo deployment assumed for validation.
 - Active map showcase smoke coverage has been renamed from `demo-smoke*` to `showcase-smoke*`, including the package script and active comments that reference the smoke path.
@@ -75,6 +76,7 @@ GitHub release notes are generated from this file, so `CHANGELOG.md` is the rele
 
 ### Verification
 
+- OpenAPI snapshot (`make openapi-check`) and generated Python + TypeScript SDKs (`make sdks-check`) were regenerated for v1030. Regeneration surfaced genuine schema drift from commit `3ed5ceb3`: the `GET /maps/{map_id}/access/` viewer-gate endpoint and its `MapAccessResponse` schema were not captured in the previous snapshot. Both are now committed. The sibling docs repo (`getgeolens.com`) requires `npm run fetch-openapi` as a manual downstream follow-up.
 - Focused DCAT tests verify existing W3C DCAT routes, new DCAT-US v3.0 serializer output, DataService emission, validation pass/fail reports, route order, and anonymous private-dataset exclusion.
 - v1028 close gate passed focused backend Notes pytest coverage, backend Ruff checks, focused frontend Notes/AI tests, focused builder workflow tests, frontend typecheck/lint/build, and Playwright discovery for the renamed showcase smoke specs.
 - Playwright MCP verified the ADK 3D Relief builder, mobile Notes sheet, AI unavailable panel, Notes set/clear on a throwaway copy, public shared viewer, embed viewer, canonical-map cleanup, and zero fresh browser console errors; the later Anthropic rerun still showed the known non-blocking MapLibre terrain maxzoom warning.
