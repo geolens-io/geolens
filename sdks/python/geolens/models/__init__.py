@@ -277,6 +277,7 @@ from .manifest_publication import ManifestPublication
 from .manifest_publication_intent import ManifestPublicationIntent
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
+from .map_access_response import MapAccessResponse
 from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
@@ -786,6 +787,7 @@ __all__ = (
     "ManifestPublicationIntent",
     "ManifestSource",
     "ManifestSourceType",
+    "MapAccessResponse",
     "MapCreate",
     "MapDefaultsResponse",
     "MapGenerateRequest",

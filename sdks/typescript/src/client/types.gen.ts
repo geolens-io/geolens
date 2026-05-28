@@ -4301,6 +4301,24 @@ export type ManifestSource = {
 };
 
 /**
+ * MapAccessResponse
+ */
+export type MapAccessResponse = {
+    /**
+     * Can Edit
+     *
+     * True when the current request may open the map builder
+     */
+    can_edit: boolean;
+    /**
+     * Can View
+     *
+     * True when the current request may read the map
+     */
+    can_view: boolean;
+};
+
+/**
  * MapCreate
  */
 export type MapCreate = {
@@ -17354,6 +17372,60 @@ export type UpdateMapEndpointMapsMapIdPutResponses = {
 };
 
 export type UpdateMapEndpointMapsMapIdPutResponse = UpdateMapEndpointMapsMapIdPutResponses[keyof UpdateMapEndpointMapsMapIdPutResponses];
+
+export type GetMapAccessEndpointMapsMapIdAccessGetData = {
+    body?: never;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/access/';
+};
+
+export type GetMapAccessEndpointMapsMapIdAccessGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+};
+
+export type GetMapAccessEndpointMapsMapIdAccessGetError = GetMapAccessEndpointMapsMapIdAccessGetErrors[keyof GetMapAccessEndpointMapsMapIdAccessGetErrors];
+
+export type GetMapAccessEndpointMapsMapIdAccessGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapAccessResponse;
+};
+
+export type GetMapAccessEndpointMapsMapIdAccessGetResponse = GetMapAccessEndpointMapsMapIdAccessGetResponses[keyof GetMapAccessEndpointMapsMapIdAccessGetResponses];
 
 export type DuplicateMapEndpointMapsMapIdDuplicatePostData = {
     body?: never;

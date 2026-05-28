@@ -7353,6 +7353,26 @@
         "title": "ManifestSource",
         "type": "object"
       },
+      "MapAccessResponse": {
+        "properties": {
+          "can_edit": {
+            "description": "True when the current request may open the map builder",
+            "title": "Can Edit",
+            "type": "boolean"
+          },
+          "can_view": {
+            "description": "True when the current request may read the map",
+            "title": "Can View",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "can_view",
+          "can_edit"
+        ],
+        "title": "MapAccessResponse",
+        "type": "object"
+      },
       "MapCreate": {
         "properties": {
           "basemap_config": {
@@ -33844,6 +33864,122 @@
           }
         ],
         "summary": "Update Map Endpoint",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
+    "/maps/{map_id}/access/": {
+      "get": {
+        "description": "Return server-confirmed route access for the map viewer gate.",
+        "operationId": "get_map_access_endpoint_maps__map_id__access__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "map_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Map Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Map Access Endpoint",
         "tags": [
           "Maps"
         ]
